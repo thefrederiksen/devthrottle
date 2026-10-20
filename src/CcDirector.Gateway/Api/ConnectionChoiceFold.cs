@@ -57,9 +57,10 @@ internal static class ConnectionChoiceFold
                "Start the session in terminal mode.";
     }
 
-    /// <summary>The first Director release that reads <see cref="NewSessionRequest.ConnectionMode"/> on a create and can
-    /// start an agent in API mode (the field and the API-mode code first shipped together in v2.23.0).</summary>
-    internal static readonly Version FirstDirectorThatCarriesApiMode = new(2, 23, 0);
+    /// <summary>The first Director release that carries the whole of API mode. The create field and the API-mode code first
+    /// shipped in v2.23.0, but v2.23.0 has no event push, and v2.24.0 has neither the terminal following the wheel (#4234)
+    /// nor the Chat's durable opening (#4247), so API mode only half works on either. v2.25.0 is the first with all of it.</summary>
+    internal static readonly Version FirstDirectorThatCarriesApiMode = new(2, 25, 0);
 
     /// <summary>
     /// The refusal for an API-mode create going to a Director too old to honour it, or null when the create may go. An

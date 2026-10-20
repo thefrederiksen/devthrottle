@@ -326,9 +326,11 @@ public sealed class ConnectionChoiceTests : IDisposable
 
     [Theory]
     [InlineData("2.22.0")]
-    [InlineData("v2.22.3+68fd9d7")]
-    [InlineData("2.23.0-rc1")]
-    public void DirectorCannotCarry_ApiModeToADirectorOlderThan2_23_IsRefusedNamingTheVersionNeeded(string version)
+    [InlineData("v2.23.0+68fd9d7")]
+    [InlineData("2.24.0")]
+    [InlineData("2.24.9")]
+    [InlineData("2.25.0-rc1")]
+    public void DirectorCannotCarry_ApiModeToADirectorOlderThan2_25_IsRefusedNamingTheVersionNeeded(string version)
     {
         // Arrange
         var director = new DirectorDto { DirectorId = "d-old", MachineName = "OLD-PC", Version = version };
@@ -336,15 +338,15 @@ public sealed class ConnectionChoiceTests : IDisposable
         // Act
         var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api }, director);
 
-        // Assert: "2.23.0-rc1" is release 2.23.0 and goes; the two older ones are refused in words.
-        if (version == "2.23.0-rc1")
+        // Assert: "2.25.0-rc1" is release 2.25.0 and goes; the older ones, 2.23 and 2.24 among them, are refused in words.
+        if (version == "2.25.0-rc1")
             Assert.Null(refusal);
         else
         {
             Assert.NotNull(refusal);
             Assert.Contains("OLD-PC", refusal);
             Assert.Contains("cannot start a session in API mode", refusal);
-            Assert.Contains("2.23.0 or later", refusal);
+            Assert.Contains("Update this Director to 2.25.0 or later", refusal);
         }
     }
 
@@ -361,9 +363,28 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("2.23.0")]
-    [InlineData("2.24.1")]
-    public void DirectorCannotCarry_ApiModeToADirectorOf2_23OrLater_GoesOn(string version)
+    [InlineData("not-a-version")]
+    [InlineData("two.twenty-five")]
+    [InlineData("dev")]
+    public void DirectorCannotCarry_ADirectorWhoseVersionCannotBeRead_IsRefused(string version)
+    {
+        // Act: whether such a Director carries API mode cannot be told, so it is refused like one that reports nothing.
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api },
+            new DirectorDto { DirectorId = "d-odd", MachineName = "ODD-PC", Version = version });
+
+        // Assert
+        Assert.NotNull(refusal);
+        Assert.Contains($"version {version}", refusal);
+        Assert.Contains("Update this Director to 2.25.0 or later", refusal);
+    }
+
+    [Theory]
+    [InlineData("2.25.0")]
+    [InlineData("v2.25.0+1a2b3c4")]
+    [InlineData("2.25.3")]
+    [InlineData("2.30.0")]
+    [InlineData("3.0.0")]
+    public void DirectorCannotCarry_ApiModeToADirectorOf2_25OrLater_GoesOn(string version)
     {
         // Act
         var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api },
@@ -400,10 +421,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     [Theory]
     [InlineData("machine")]
     [InlineData("director")]
-    public async Task PostSessions_ApiModeToADirectorOlderThan2_23_Is409WithTheReasonAndNothingIsSent(string door)
+    public async Task PostSessions_ApiModeToADirectorOlderThan2_25_Is409WithTheReasonAndNothingIsSent(string door)
     {
-        // Arrange: the Director the create resolves to is v2.22.0, which would drop the field and start the terminal.
-        await StartAsync(directorVersion: "2.22.0");
+        // Arrange: the Director the create resolves to is v2.24.0, which starts API mode but only half carries it.
+        await StartAsync(directorVersion: "2.24.0");
 
         // Act
         using var response = await Create(door, ConnectionModes.Api);
@@ -417,10 +438,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     [Theory]
     [InlineData("machine")]
     [InlineData("director")]
-    public async Task PostSessions_TerminalToADirectorOlderThan2_23_GoesToTheDirector(string door)
+    public async Task PostSessions_TerminalToADirectorOlderThan2_25_GoesToTheDirector(string door)
     {
-        // Arrange
-        await StartAsync(directorVersion: "2.22.0");
+        // Arrange: v2.24.0 is refused API mode, and still takes a terminal create.
+        await StartAsync(directorVersion: "2.24.0");
 
         // Act
         using var response = await Create(door, ConnectionModes.Terminal);
@@ -433,10 +454,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     // ---- the crash-journal restore (the phase 6 review, round 2, finding R2-1) -------------------------------------
 
     [Fact]
-    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOlderThan2_23_Is409WithTheReason_NothingIsStarted_TheRowIsKept()
+    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOlderThan2_25_Is409WithTheReason_NothingIsStarted_TheRowIsKept()
     {
-        // Arrange: the reporting Director, which is also the target, is v2.22.0; the journal holds an API-mode Pi seat.
-        await StartAsync(directorVersion: "2.22.0");
+        // Arrange: the reporting Director, which is also the target, is v2.24.0; the journal holds an API-mode Pi seat.
+        await StartAsync(directorVersion: "2.24.0");
         var row = JournalApiModeSeat(ConnectionModes.Api);
 
         // Act
@@ -450,10 +471,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOf2_23_ContinuesInApiMode()
+    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOf2_25_ContinuesInApiMode()
     {
         // Arrange
-        await StartAsync(directorVersion: "2.23.0");
+        await StartAsync(directorVersion: "2.25.0");
         var row = JournalApiModeSeat(ConnectionModes.Api);
 
         // Act
@@ -465,10 +486,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RestoreInterrupted_ATerminalSeatToADirectorOlderThan2_23_GoesOn()
+    public async Task RestoreInterrupted_ATerminalSeatToADirectorOlderThan2_25_GoesOn()
     {
         // Arrange: the guard is for API mode only; a terminal seat restores on an older Director as before.
-        await StartAsync(directorVersion: "2.22.0");
+        await StartAsync(directorVersion: "2.24.0");
         var row = JournalApiModeSeat(connectionMode: null);
 
         // Act
@@ -676,7 +697,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     /// <summary>The real agents leg and both real create doors, with a fake Director behind them, on an in-memory test server.</summary>
-    private async Task StartAsync(string directorVersion = "2.23.0-test")
+    private async Task StartAsync(string directorVersion = "2.25.0-test")
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
