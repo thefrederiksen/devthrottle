@@ -297,7 +297,8 @@ function Start-PiSession([string]$Name) {
 function Send-Prompt([string]$Sid, [string]$Text) { Invoke-Tool @('session', 'prompt', $Sid, $Text) }
 
 # A prompt's turn has ended when its receipt says how.
-function Wait-TurnEnded([string]$Sid, [string]$Text, [int]$Seconds = 120) {
+# Five minutes: the model's first reply took over two minutes in two Windows runs, and never came in one of them.
+function Wait-TurnEnded([string]$Sid, [string]$Text, [int]$Seconds = 300) {
     Wait-For { $r = Get-ReceiptFor $Sid $Text; if ($r -and $r.turnOutcome) { $r } } $Seconds 1500
 }
 
@@ -386,7 +387,9 @@ function Get-DirectorExe {
 }
 
 function Start-TestGateway {
-    try { $null = Invoke-WebRequest "$gatewayUrl/healthz" -TimeoutSec 2; Stop-Setup "something already answers on port $GatewayPort" } catch [System.Net.Http.HttpRequestException] { }
+    # Windows retries a refused connection to localhost for about two seconds before it reports it, so a two-second
+    # timeout turned a free port into a timeout; ten seconds lets the refusal arrive on every platform.
+    try { $null = Invoke-WebRequest "$gatewayUrl/healthz" -TimeoutSec 10; Stop-Setup "something already answers on port $GatewayPort" } catch [System.Net.Http.HttpRequestException] { }
     $exe = Get-GatewayExe
     Say "starting the test Gateway on port $GatewayPort"
     $script:gatewayProcess = Start-Process -FilePath $exe -ArgumentList @('--port', "$GatewayPort") -WorkingDirectory (Split-Path $exe) `
@@ -400,7 +403,8 @@ function Start-TestGateway {
             $r = Invoke-WebRequest "$gatewayUrl/sessions" -Headers @{ Authorization = "Bearer $token" } -SkipHttpErrorCheck -TimeoutSec 5
             $r.StatusCode -eq 200
         } catch { $false }
-    } 120 2000
+    } 300 2000
+    # Five minutes: on a machine saturated by other builds the Gateway did not answer within two.
     if (-not $ready) { Stop-Setup 'the test Gateway never became ready to serve' }
     Say "test Gateway ready (process $($gatewayProcess.Id))"
 }
@@ -431,9 +435,14 @@ function Start-TestDirector([string]$PiPath) {
             Stop-Setup "a scheduled task named $taskName already exists and was not made by this script; it is left alone - remove or rename it, then run again"
         }
         $command = "`$env:CC_DIRECTOR_ROOT = '$root'; & '$exe'"
-        $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
+        # The PowerShell running this script, by its full path: the task does not see this session's PATH, and a
+        # machine whose PowerShell 7 is not installed system-wide failed the launch with "file not found".
+        $action = New-ScheduledTaskAction -Execute ([Environment]::ProcessPath) -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description 'API mode proof test Director' -Force | Out-Null
+        # Normal priority: a task runs at Below Normal by default, and on a busy machine that took the first Windows
+        # run 110 seconds to start the Director and another three and a half minutes before it registered.
+        $settings = New-ScheduledTaskSettingsSet -Priority 4
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'API mode proof test Director' -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
     } else {
         # A HOME of its own. A Director on a fresh root repairs its cc-* tools at start-up, and on Linux and macOS
@@ -455,7 +464,7 @@ function Start-TestDirector([string]$PiPath) {
         Get-ChildItem $regDir -Filter *.json -ErrorAction SilentlyContinue |
             ForEach-Object { try { Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { $null } } |
             Where-Object { $_.DirectorId -and $_.Pid } | Select-Object -First 1
-    } 90 1000
+    } 300 1000
     if (-not $reg) { Stop-Setup 'the test Director never wrote its instance registration' }
     $script:directorPid = [int]$reg.Pid
     $script:directorId = ([string]$reg.DirectorId).ToLowerInvariant()
@@ -679,7 +688,16 @@ $DesktopNewSession = {
     $button = Find-DesktopElement $main 'BtnNewSession'
     if (-not $button) { throw 'no BtnNewSession' }
     Invoke-DesktopElement $button
-    $dialog = Wait-For { Get-DesktopWindows | Where-Object { $_.Current.NativeWindowHandle -ne $main.Current.NativeWindowHandle } | Select-Object -First 1 } 20
+    # An owned dialog can sit under its owner in the automation tree rather than beside it at the top, so it is
+    # looked for in both places, by its title.
+    $titleCond = [System.Windows.Automation.AndCondition]::new(
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window),
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'New Session'))
+    $dialog = Wait-For {
+        $found = Get-DesktopWindows | Where-Object { $_.Current.NativeWindowHandle -ne $main.Current.NativeWindowHandle -and $_.Current.Name -eq 'New Session' } | Select-Object -First 1
+        if (-not $found) { $found = $main.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $titleCond) }
+        $found
+    } 60
     if (-not $dialog) { throw 'the New Session dialog did not open' }
     $agents = Find-DesktopElement $dialog 'AgentEntryList'
     $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
@@ -765,7 +783,9 @@ function Invoke-Flow {
 
     # Step 3: a long prompt, then Stop; the turn ended cancelled. The mid-turn screen is opened first, the prompt is
     # sent once both pages are ready, and Stop waits until the screen has been taken while the turn runs.
-    $text = 'Write the numbers from 1 to 600, one per line, with no other text.'
+    # Long enough to outlast the mid-turn screen on a busy machine: a fast model wrote 1 to 600 in ten seconds on
+    # Windows, and the turn had ended before Stop was pressed. Stop cuts it short, so only what was written is spent.
+    $text = 'Write the numbers from 1 to 5000, one per line, with no other text.'
     $midTurn = $null
     if (-not $NoScreens) {
         $ready = Join-Path $logs 'midturn.ready'
@@ -777,7 +797,7 @@ function Invoke-Flow {
     $streaming = Wait-For {
         $r = Get-ReceiptFor $sid $text
         if ($r -and $r.turnId -and @(Get-Items $sid | Where-Object { $_.kind -eq 'replyText' -and $_.itemId.StartsWith("reply:$($r.turnId)-") }).Count -gt 0) { $r }
-    } 60 500
+    } 300 500
     $stop = Invoke-Gateway POST "/sessions/$sid/turn/stop"
     $receipt = Wait-TurnEnded $sid $text 60
     Add-Result '3. Stop: the turn ended cancelled' ($streaming -and $stop.Status -eq 200 -and $receipt.turnOutcome -eq 'cancelled') `
@@ -811,7 +831,7 @@ function Invoke-Flow {
         Add-Result 'Failure case: hand back while the terminal is mid-turn - refused with a reason, never two holders' $false `
             "not provoked: the hand back answered $($early.Status) because Pi had already finished; see the unit tests"
     }
-    $handBack = Wait-For { $r = Invoke-Gateway POST "/sessions/$sid/wheel/hand-back"; if ($r.Status -eq 200) { $r } } 120 3000
+    $handBack = Wait-For { $r = Invoke-Gateway POST "/sessions/$sid/wheel/hand-back"; if ($r.Status -eq 200) { $r } } 300 3000
     if (-not $handBack -and $early.Status -eq 200) { $handBack = $early }
     $back = Wait-For { $row = Get-Row $sid; if ($row.wheelHolder -eq 'protocol' -and $row.apiMode.agentConnected) { $row } } 60 2000
     Add-Result '4b. Hand back' ([bool]$back) "holder $($back.wheelHolder), $($back.apiMode.agentLabel); Pi processes $(Get-PiProcessCount)"

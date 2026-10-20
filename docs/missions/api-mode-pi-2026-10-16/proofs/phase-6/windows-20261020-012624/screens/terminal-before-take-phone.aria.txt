@@ -1,0 +1,17 @@
+- banner:
+  - button "Back to sessions": ← Sessions
+  - button "Session menu"
+- heading "API mode proof - flow" [level=1]
+- tablist "Session view":
+  - tab "Chat"
+  - tab "Terminal" [selected]
+  - tab "Voice mode"
+  - tab "Reports"
+- status: Live terminal (read-only)
+- button "Take the wheel" [disabled]
+- text: A turn is running. Stop it, or wait for it to end, before taking the wheel.
+- button "Keys"
+- textbox "Terminal input"
+- button "Zoom out": A−
+- button "Zoom in": A+
+- button "1:1"

@@ -1,0 +1,30 @@
+- banner:
+  - button "Back to sessions": ← Sessions
+  - button "Session menu"
+- heading "API mode proof - flow" [level=1]
+- tablist "Session view":
+  - tab "Chat" [selected]
+  - tab "Terminal"
+  - tab "Voice mode"
+  - tab "Reports"
+- status: Conversation history (live)
+- text: live
+- button "Keys"
+- status "Session status": Idle after turn 2 API mode Agent connected (zai-org/GLM-5.3)
+- log "Live conversation":
+  - text: Agent connected (zai-org/GLM-5.3)
+  - article: Reply with exactly the word PONG Delivered
+  - article:
+    - paragraph: PONG
+  - text: Turn finished
+  - article: "Use your bash tool to run: echo TOOL-OK. Then reply with exactly DONE. Delivered"
+  - 'article "bash: done"':
+    - text: bash done
+    - group: Input
+  - article:
+    - paragraph: DONE
+  - text: Turn finished
+- textbox "type a message..."
+- button "Send"
+- button "Speak"
+- button "Attach"

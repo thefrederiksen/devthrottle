@@ -1,0 +1,25 @@
+- banner:
+  - button "Back to sessions": ← Sessions
+  - button "Session menu"
+- heading "API mode proof - flow" [level=1]
+- tablist "Session view":
+  - tab "Chat" [selected]
+  - tab "Terminal"
+  - tab "Voice mode"
+  - tab "Reports"
+- status: Conversation history (live)
+- text: live
+- button "Keys"
+- status "Session status": "Idle after turn 3 API mode The last turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"} Agent connected (zai-org/GLM-5.3)"
+- log "Live conversation":
+  - text: Agent connected (zai-org/GLM-5.3)
+  - article: "Reply with exactly the word PONG Delivered - the turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+  - text: "Turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+  - article: "Use your bash tool to run: echo TOOL-OK. Then reply with exactly DONE. Delivered - the turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+  - text: "Turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+  - article: "Write the numbers from 1 to 5000, one per line, with no other text. Delivered - the turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+  - text: "Turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}"
+- textbox "type a message..."
+- button "Send"
+- button "Speak"
+- button "Attach"
