@@ -20,7 +20,6 @@ import ConnectionChoiceRow from "@devthrottle/client-core/sessions/ConnectionCho
 import {
   connectionSummary,
   connectionToSend,
-  TERMINAL_CONNECTION,
 } from "@devthrottle/client-core/sessions/connectionChoice";
 
 const SURFACE = "cockpit-new-session";
@@ -376,7 +375,10 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
   // How the session is connected (API mode mission #4070). Terminal every time the dialog opens - the owner's ruling
   // is that terminal stays the default - and not remembered, so API mode is always a deliberate click.
-  const [connection, setConnection] = useState<string>(TERMINAL_CONNECTION);
+  // The connection the person picked for the chosen agent, or null: the create then sends the agent's default as the
+  // Gateway marks it (API mode for Pi, mission #4070 section 9). A new agent starts on its own default again.
+  const [connection, setConnection] = useState<string | null>(null);
+  useEffect(() => setConnection(null), [selectedAgentType]);
 
   // The path box is the one place a repository path lives, exactly as the desktop tab's PathInput is:
   // selecting a row writes that row's path here, and a row reads as selected while it matches. One

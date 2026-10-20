@@ -65,11 +65,29 @@ def test_spawn_session_ConnectionTerminal_SendsTerminal(captured):
     assert captured["connectionMode"] == "terminal"
 
 
-def test_spawn_session_NoConnection_LeavesTheFieldOffSoAPlainSpawnIsUnchanged(captured):
+def test_spawn_session_NoConnection_AsksForTheGatewaysDefaultAndNamesNoMode(captured):
+    # The default (API mode for Pi, terminal for every other agent) is the Gateway's to rule, on the Director the
+    # create reaches; this tool only asks for it.
     _spawn(None)
 
     assert "connectionMode" not in captured
+    assert captured["defaultConnection"] is True
     assert captured["_path"] == "directors/my-director/sessions"
+
+
+@pytest.mark.parametrize("connection", ["api", "terminal"])
+def test_spawn_session_ConnectionNamed_DoesNotAskForTheDefault(captured, connection):
+    _spawn(connection)
+
+    assert "defaultConnection" not in captured
+
+
+def test_session_spawn_Cli_PiWithNoConnection_AsksForTheGatewaysDefault(captured, tmp_path):
+    result = runner.invoke(app, ["session", "spawn", str(tmp_path), "--name", "n", "--agent", "Pi"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["defaultConnection"] is True
+    assert "connectionMode" not in captured
 
 
 def test_session_spawn_Cli_UnknownConnection_ExitsTwoListingTheValuesAndSendsNothing(captured, tmp_path):

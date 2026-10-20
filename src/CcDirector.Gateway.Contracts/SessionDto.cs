@@ -1283,10 +1283,29 @@ public static class ConnectionModes
     /// Gateway's agent list carries only Terminal for every agent, so the Cockpit and the phone draw no Connection row;
     /// the desktop New Session dialog hides its row; and the Gateway refuses a create that asks for API mode, so
     /// <c>cc-devthrottle session spawn --connection api</c> is refused with that reason. It was false until phase 4
-    /// (take the wheel) landed, so no surface offered a mode it could not finish; it is on now. Terminal stays the
-    /// default in New Session: turning this on only offers API mode, it never chooses it.
+    /// (take the wheel) landed, so no surface offered a mode it could not finish; it is on now. Turning this on only
+    /// offers API mode; which mode New Session starts on is <see cref="DefaultOf"/>.
     /// </summary>
     public static bool ApiModeOffered { get; } = true;
+
+    /// <summary>
+    /// THE AGENTS THAT START IN API MODE BY DEFAULT (mission #4070, section 9, the owner's decision): Pi, the agent API
+    /// mode was proven on end to end. Named by agent type (<see cref="AgentChoiceDto.Type"/>,
+    /// <see cref="NewSessionRequest.Agent"/>), compared ignoring case. An agent that gains API mode later is offered it
+    /// but starts in Terminal until it is proven and added here.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ApiModeByDefault = new[] { "Pi" };
+
+    /// <summary>
+    /// The connection New Session starts on for an agent of type <paramref name="agentType"/> that is offered
+    /// <paramref name="offered"/>: API mode for an agent in <see cref="ApiModeByDefault"/> that is offered it, Terminal
+    /// for every other. Terminal stays one click away wherever API mode is the default, because it is always offered.
+    /// </summary>
+    public static string DefaultOf(string? agentType, IEnumerable<string> offered) =>
+        offered.Contains(Api, StringComparer.Ordinal)
+        && ApiModeByDefault.Contains(agentType?.Trim() ?? "", StringComparer.OrdinalIgnoreCase)
+            ? Api
+            : Terminal;
 
     /// <summary>The words a person sees for each mode: the New Session row's choices.</summary>
     public const string TerminalLabel = "Terminal";

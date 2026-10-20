@@ -2279,11 +2279,17 @@ def spawn_session(
     # fetch its conduct at exactly that version. A mission spawn auto-seats without this flag.
     if workflow_run:
         body["workflowRunId"] = workflow_run
-    # How the agent is driven (API mode mission, #4070). Sent only when asked, so a plain spawn's request is unchanged.
-    # Whether API mode is offered, and whether this agent has it, is the Gateway's and the Director's to answer - each
-    # refuses in words, and that sentence is what the caller sees.
+    # How the agent is driven (API mode mission, #4070). Whether API mode is offered, and whether this agent has it, is
+    # the Gateway's and the Director's to answer - each refuses in words, and that sentence is what the caller sees.
+    #
+    # With no --connection, the spawn asks for the GATEWAY'S DEFAULT for this agent on the Director it reaches (section 9,
+    # the owner's decision): API mode for Pi on a Director that carries it as the default, terminal for every other.
+    # This tool does not decide the default - it cannot even know which Director a --machine spawn reaches - and an
+    # older Gateway ignores the field and starts the terminal, as it always did.
     if connection_mode is not None:
         body["connectionMode"] = connection_mode
+    else:
+        body["defaultConnection"] = True
 
     # "Start a session on some computer." Every spawn - including one on this very machine - goes to the
     # Gateway's POST /machines/{machine}/sessions, which picks a Director on that machine (auto-launching

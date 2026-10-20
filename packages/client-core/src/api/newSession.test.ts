@@ -180,9 +180,29 @@ describe("new session client", () => {
     const agents = await getAgents("director-one");
 
     expect(agents[0].connections).toEqual([
-      { mode: "terminal", label: "Terminal", description: null },
-      { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages." },
+      { mode: "terminal", label: "Terminal", description: null, isDefault: false },
+      { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages.", isDefault: false },
     ]);
-    expect(agents[1].connections).toEqual([{ mode: "terminal", label: "Terminal" }]);
+    expect(agents[1].connections).toEqual([{ mode: "terminal", label: "Terminal", isDefault: true }]);
+  });
+
+  it("reads which connection the Gateway marks as each agent's default (API mode for Pi, mission #4070 section 9)", async () => {
+    globalThis.fetch = (async () =>
+      jsonResponse([
+        {
+          type: "Pi",
+          displayName: "Pi",
+          defaultModel: "",
+          modelLabel: "",
+          connections: [
+            { mode: "terminal", label: "Terminal", description: null, isDefault: false },
+            { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages.", isDefault: true },
+          ],
+        },
+      ])) as unknown as typeof fetch;
+
+    const agents = await getAgents("director-one");
+
+    expect(agents[0].connections.map((c) => [c.mode, c.isDefault])).toEqual([["terminal", false], ["api", true]]);
   });
 });

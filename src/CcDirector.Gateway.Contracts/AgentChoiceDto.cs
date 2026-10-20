@@ -57,14 +57,29 @@ public sealed class ConnectionChoiceDto
     public string? Description { get; set; }
 
     /// <summary>
-    /// The choices for <paramref name="modes"/>, each labelled with <see cref="ConnectionModes.LabelOf"/> and described
-    /// with <see cref="ConnectionModes.DescriptionOf"/> for the agent named <paramref name="agentName"/>.
+    /// True on the one choice New Session starts on for this agent, ruled by the Gateway (mission #4070, section 9):
+    /// API mode for Pi on a Director that can carry it as the default, Terminal for every other agent. A client
+    /// selects it when the agent is picked and never decides the default itself. An older Gateway marks none, and a
+    /// client then starts on Terminal, as it always did.
     /// </summary>
+    public bool IsDefault { get; set; }
+
+    /// <summary>The choices for <paramref name="modes"/> with Terminal marked as the default: what a Director reports
+    /// for its agents, before the Gateway rules the default (<see cref="For(IEnumerable{string}, string, string)"/>).</summary>
     public static List<ConnectionChoiceDto> For(IEnumerable<string> modes, string agentName) =>
+        For(modes, agentName, ConnectionModes.Terminal);
+
+    /// <summary>
+    /// The choices for <paramref name="modes"/>, each labelled with <see cref="ConnectionModes.LabelOf"/> and described
+    /// with <see cref="ConnectionModes.DescriptionOf"/> for the agent named <paramref name="agentName"/>, the one equal
+    /// to <paramref name="defaultMode"/> marked <see cref="IsDefault"/>.
+    /// </summary>
+    public static List<ConnectionChoiceDto> For(IEnumerable<string> modes, string agentName, string defaultMode) =>
         modes.Select(m => new ConnectionChoiceDto
         {
             Mode = m,
             Label = ConnectionModes.LabelOf(m),
             Description = ConnectionModes.DescriptionOf(m, agentName),
+            IsDefault = m == defaultMode,
         }).ToList();
 }

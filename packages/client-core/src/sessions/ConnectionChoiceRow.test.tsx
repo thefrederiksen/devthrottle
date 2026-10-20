@@ -7,7 +7,7 @@ import ConnectionChoiceRow from "./ConnectionChoiceRow";
 // The shared New Session "Connection" row (API mode mission #4070, phase 5), as both shells mount it.
 
 function agent(modes: Array<[string, string]>): AgentChoice {
-  return { type: "Pi", displayName: "Pi", defaultModel: "", modelLabel: "", connections: modes.map(([mode, label]) => ({ mode, label })) };
+  return { type: "Pi", displayName: "Pi", defaultModel: "", modelLabel: "", connections: modes.map(([mode, label]) => ({ mode, label, isDefault: mode === "terminal" })) };
 }
 
 const BOTH = agent([["terminal", "Terminal"], ["api", "API mode"]]);
@@ -16,13 +16,27 @@ const SENTENCE = "Prompts are handed to Pi as messages, and each one is confirme
 const DESCRIBED: AgentChoice = {
   ...BOTH,
   connections: [
-    { mode: "terminal", label: "Terminal", description: null },
-    { mode: "api", label: "API mode", description: SENTENCE },
+    { mode: "terminal", label: "Terminal", description: null, isDefault: true },
+    { mode: "api", label: "API mode", description: SENTENCE, isDefault: false },
   ],
+};
+
+// What the Gateway serves for Pi on a Director of 2.25.0 or later (mission #4070, section 9).
+const API_BY_DEFAULT: AgentChoice = {
+  ...DESCRIBED,
+  connections: DESCRIBED.connections.map((c) => ({ ...c, isDefault: c.mode === "api" })),
 };
 
 describe("ConnectionChoiceRow", () => {
   afterEach(() => cleanup());
+
+  it("shows the Gateway's default as chosen before the person picks: API mode for Pi, with its sentence", () => {
+    render(<ConnectionChoiceRow agent={API_BY_DEFAULT} chosen={null} onChoose={() => {}} idPrefix="t" />);
+
+    expect(screen.getByRole("button", { name: "API mode" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("connection-choice-description").textContent).toBe(SENTENCE);
+  });
 
   it("draws nothing for an agent offered the terminal alone, so the screen is as it was", () => {
     const { container } = render(

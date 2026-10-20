@@ -126,6 +126,9 @@ internal static partial class GatewayEndpoints
         // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5): API mode only while it is offered, an unknown word never.
         // A restore brings a session back as it ran, so it is exempt - and by this line its claim has been checked above,
         // so the exemption reaches a real restore and nothing else (the phase 5 review, finding 1).
+        // A create that asks for the default connection gets the one this Director starts this agent on (mission #4070,
+        // section 9) - settled before the checks below, so a default of API mode is held to them like a named one.
+        ConnectionChoiceFold.SettleDefault(req, ConnectionModes.ApiModeOffered, d);
         if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered, validatedRestore: restoreClaim is not null) is { } connectionRefused)
             return DirectorSpawnOutcome.Refused(Results.BadRequest(new { error = connectionRefused }));
 
