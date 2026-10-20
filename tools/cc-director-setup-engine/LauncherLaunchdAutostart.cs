@@ -27,10 +27,29 @@ public static class LauncherLaunchdAutostart
     /// <summary>The launchd service label (also the property list file name).</summary>
     public const string Label = "com.devthrottle.cc-launcher";
 
-    /// <summary>The user launch-agent property list path: ~/Library/LaunchAgents/{Label}.plist.</summary>
-    public static string PlistPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        "Library", "LaunchAgents", Label + ".plist");
+    /// <summary>
+    /// The launch-agent property list inside a GIVEN home folder: {homeDir}/Library/LaunchAgents/{Label}.plist.
+    ///
+    /// This exists so a caller that has been told which home folder to work in - an
+    /// <see cref="InstallLayout"/> built for a test, above all - can be answered with a path inside it.
+    /// <see cref="PlistPath"/> asks the machine, which is right for a real registration and wrong for
+    /// anything that is handed a layout: the uninstall plan named this file whatever root it was given,
+    /// and the uninstall deletes what the plan names. That is the same shape that let a unit test delete
+    /// a developer's installed application, one directory along.
+    /// </summary>
+    public static string PlistPathIn(string homeDir)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(homeDir);
+        return Path.Combine(homeDir, "Library", "LaunchAgents", Label + ".plist");
+    }
+
+    /// <summary>
+    /// The user launch-agent property list path: ~/Library/LaunchAgents/{Label}.plist, in THIS user's
+    /// real home. For registering with the real launchd. Code holding a layout wants
+    /// <see cref="PlistPathIn"/> instead.
+    /// </summary>
+    public static string PlistPath =>
+        PlistPathIn(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     /// <summary>
     /// The full property list for the given executable and arguments. Pure, for tests.
@@ -512,11 +531,17 @@ public static class LauncherLaunchdAutostart
     /// </summary>
     /// <param name="failure">Why it could not be unregistered, or null on success.</param>
     [SupportedOSPlatform("macos")]
-    public static bool UnregisterVerified(out string? failure)
+    /// <param name="plistPath">
+    /// The property list to remove. Null means this user's real one (<see cref="PlistPath"/>). The
+    /// uninstall passes the one its layout names, so an uninstall driven by a sandboxed layout deletes
+    /// a file inside that sandbox rather than the real launch agent in the user's own Library.
+    /// </param>
+    public static bool UnregisterVerified(out string? failure, string? plistPath = null)
     {
         failure = null;
-        EngineLog.Write("[LauncherLaunchdAutostart] UnregisterVerified");
-        var existed = File.Exists(PlistPath);
+        var plist = plistPath ?? PlistPath;
+        EngineLog.Write($"[LauncherLaunchdAutostart] UnregisterVerified: plist={plist}");
+        var existed = File.Exists(plist);
 
         if (IsLoaded())
         {
@@ -529,11 +554,11 @@ public static class LauncherLaunchdAutostart
 
         try
         {
-            if (existed) File.Delete(PlistPath);
+            if (existed) File.Delete(plist);
         }
         catch (Exception ex)
         {
-            failure ??= $"could not delete {PlistPath}: {ex.Message}";
+            failure ??= $"could not delete {plist}: {ex.Message}";
         }
 
         return failure is null;

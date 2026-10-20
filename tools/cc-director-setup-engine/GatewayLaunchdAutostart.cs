@@ -33,10 +33,25 @@ public static class GatewayLaunchdAutostart
     /// <summary>The launchd service label (also the property list file name).</summary>
     public const string Label = "com.devthrottle.cc-director-gateway";
 
-    /// <summary>The user launch-agent property list path: ~/Library/LaunchAgents/{Label}.plist.</summary>
-    public static string PlistPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        "Library", "LaunchAgents", Label + ".plist");
+    /// <summary>
+    /// The launch-agent property list inside a GIVEN home folder: {homeDir}/Library/LaunchAgents/{Label}.plist.
+    /// See <see cref="LauncherLaunchdAutostart.PlistPathIn"/> for why this exists: a caller that was told
+    /// which home folder to work in must be able to be answered with a path inside it, because the
+    /// uninstall deletes what it is given.
+    /// </summary>
+    public static string PlistPathIn(string homeDir)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(homeDir);
+        return Path.Combine(homeDir, "Library", "LaunchAgents", Label + ".plist");
+    }
+
+    /// <summary>
+    /// The user launch-agent property list path: ~/Library/LaunchAgents/{Label}.plist, in THIS user's
+    /// real home. For registering with the real launchd. Code holding a layout wants
+    /// <see cref="PlistPathIn"/> instead.
+    /// </summary>
+    public static string PlistPath =>
+        PlistPathIn(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     /// <summary>
     /// The full property list for the given executable and arguments. Pure, for tests.

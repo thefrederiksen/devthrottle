@@ -139,4 +139,20 @@ public sealed class GatewayLaunchdAutostartTests
         // Only its OWN job is the trap: a process in the other agent's job is not killed by this bootout.
         Assert.True(GatewayLaunchdAutostart.MayReload(LauncherLaunchdAutostart.Label));
     }
+
+    [Fact]
+    public void PlistPathIn_IsInsideTheHomeFolderItWasGiven_NotTheMachines()
+    {
+        // The Gateway's twin of LauncherLaunchdAutostart.PlistPathIn. The uninstall does not name this
+        // property list today - it only removes the Windows Run key for the Gateway role - so nothing
+        // has been lost to it. It reads the real home through the same unredirectable static as its
+        // twin did, which is the shape that deleted a real launch agent, so it is redirectable here
+        // before something starts naming it.
+        var home = Path.Combine("/somewhere", "else");
+
+        var path = GatewayLaunchdAutostart.PlistPathIn(home);
+
+        Assert.Equal(Path.Combine(home, "Library", "LaunchAgents", GatewayLaunchdAutostart.Label + ".plist"), path);
+        Assert.StartsWith(home + Path.DirectorySeparatorChar, path, StringComparison.Ordinal);
+    }
 }
