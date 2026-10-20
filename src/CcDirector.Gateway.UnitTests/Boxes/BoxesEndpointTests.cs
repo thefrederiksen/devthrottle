@@ -96,8 +96,8 @@ public sealed class BoxesEndpointTests : IAsyncLifetime
         var body = await response.Content.ReadAsStringAsync();
         Assert.Equal(
             """{"count":2,"boxes":[""" +
-            """{"boxId":"box-2","displayName":"Second box","directorId":"dir-owner","directorName":"devlinux slot 1","machineName":"devlinux","state":"Online","desktopPath":"/boxes/box-2/desktop/"},""" +
-            """{"boxId":"demo-desktop-soren","displayName":"Soren's demo desktop","directorId":"dir-owner","directorName":"devlinux slot 1","machineName":"devlinux","state":"Online","desktopPath":"/boxes/demo-desktop-soren/desktop/"}""" +
+            """{"boxId":"box-2","displayName":"Second box","directorId":"dir-owner","directorName":"devlinux slot 1","machineName":"devlinux","state":"Online","relativeDesktopPath":"/boxes/box-2/desktop/"},""" +
+            """{"boxId":"demo-desktop-soren","displayName":"Soren's demo desktop","directorId":"dir-owner","directorName":"devlinux slot 1","machineName":"devlinux","state":"Online","relativeDesktopPath":"/boxes/demo-desktop-soren/desktop/"}""" +
             "]}",
             body);
     }

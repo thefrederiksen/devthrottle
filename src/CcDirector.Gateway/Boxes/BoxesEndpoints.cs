@@ -12,8 +12,7 @@ namespace CcDirector.Gateway.Boxes;
 /// <c>GET /boxes</c> (the Factory Boxes mission, phase 1): the desktops the calling account's connected Directors host.
 /// Mapped inside <see cref="BoxesGate.Group"/>, so an account Boxes is off for gets 404 as if the route did not exist.
 ///
-/// Every field is the Gateway's ruling and the Cockpit renders it verbatim (rule 7): the state string, and the path the
-/// Cockpit opens. Phase 1 has one state, <see cref="StateOnline"/>, because a list is only held while its Director is
+/// Every field is the Gateway's ruling and the Cockpit renders it verbatim (rule 7). Phase 1 has one state, <see cref="StateOnline"/>, because a list is only held while its Director is
 /// connected (<see cref="PushedHostedDesktopStore"/>); a later phase adds others here, never in a client.
 /// </summary>
 internal static class BoxesEndpoints
@@ -24,8 +23,12 @@ internal static class BoxesEndpoints
     /// <summary>The one state phase 1 has: the desktop's Director is connected.</summary>
     public const string StateOnline = "Online";
 
-    /// <summary>The path the Cockpit opens for one box's desktop. The desktop relay serves under it.</summary>
-    public static string DesktopPath(string boxId) => $"/boxes/{boxId}/desktop/";
+    /// <summary>
+    /// The desktop's path RELATIVE to the desktop host the relay serves it on - not an address the Cockpit navigates to.
+    /// The desktop is served on a separate desktop host, and the Cockpit opens a box through the relay leg's one-time
+    /// ticket endpoint, which answers the full address to open. Carried so the relay and the list name the same path.
+    /// </summary>
+    public static string RelativeDesktopPath(string boxId) => $"/boxes/{boxId}/desktop/";
 
     /// <summary>Map <c>GET /boxes</c> into <paramref name="group"/>, which must be the Boxes gate's group.</summary>
     public static void Map(RouteGroupBuilder group, PushedHostedDesktopStore desktops, Func<HttpContext, TenantId?> resolveTenant)
@@ -48,7 +51,7 @@ internal static class BoxesEndpoints
                 d.DirectorName,
                 d.MachineName,
                 StateOnline,
-                DesktopPath(d.BoxId))).ToList();
+                RelativeDesktopPath(d.BoxId))).ToList();
             FileLog.Write($"[BoxesEndpoints] GET {ListRoute}: tenant={tenant.ToLogString()} count={rows.Count}");
             return Results.Json(new BoxListResponse(rows.Count, rows));
         });
@@ -67,5 +70,5 @@ internal static class BoxesEndpoints
         [property: JsonPropertyName("directorName")] string DirectorName,
         [property: JsonPropertyName("machineName")] string MachineName,
         [property: JsonPropertyName("state")] string State,
-        [property: JsonPropertyName("desktopPath")] string DesktopPath);
+        [property: JsonPropertyName("relativeDesktopPath")] string RelativeDesktopPath);
 }
