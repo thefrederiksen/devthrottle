@@ -121,6 +121,25 @@ public sealed class GatewayHost : IAsyncDisposable
     public Streaming.GatewayStreamRegistry StreamRegistry { get; }
 
     /// <summary>
+    /// Factory Boxes (issue #4258): the open desktop relay streams. The director-stream hub's DesktopRelay method
+    /// attaches a Director's frames here, and the /boxes/{id}/desktop/ route relays them to the browser.
+    /// </summary>
+    public Streaming.DesktopRelayRegistry DesktopRelay { get; } = new();
+
+    /// <summary>
+    /// Factory Boxes: the separate site a box's desktop is served on (<see cref="Boxes.BoxDesktopOrigin"/>), read from
+    /// CC_BOXES_DESKTOP_ORIGIN at construction. Null when unset: no desktop is served on any host.
+    /// </summary>
+    public Uri? BoxesDesktopOrigin { get; } = Boxes.BoxDesktopOrigin.Read();
+
+    /// <summary>Factory Boxes: the single-use tickets and the box-only desktop sessions they are exchanged for.</summary>
+    public Boxes.BoxDesktopTickets BoxDesktopTickets { get; } = new();
+
+    // Factory Boxes: one relay leg for the whole process, so its per-box byte totals are one tally.
+    private Boxes.DesktopRelayLegs? _desktopRelayLegs;
+    private Boxes.DesktopRelayLegs DesktopRelayLegs => _desktopRelayLegs ??= new Boxes.DesktopRelayLegs(DesktopRelay, SendCommandAsync);
+
+    /// <summary>
     /// DevThrottle Stats: the aggregate of every session's input tally (turns + character volume by
     /// modality and surface). Fed by the director-stream hub from the pushed
     /// <see cref="Contracts.SessionDto.InputStats"/> and read by the private Gateway dashboard at
@@ -3182,6 +3201,10 @@ public sealed class GatewayHost : IAsyncDisposable
     {
         if (string.Equals(path.Value, Api.AccountSignInCallbackEndpoint.Path, StringComparison.OrdinalIgnoreCase))
             return query.HasValue ? "?[redacted: sign-in callback credential, DT-05]" : "";
+        // Factory Boxes: a desktop address can carry a single-use ticket, which is a credential until it is redeemed.
+        if (Boxes.BoxDesktopEndpoints.IsDesktopPath(path)
+            && query.Value?.Contains(Boxes.BoxDesktopEndpoints.TicketParameter + "=", StringComparison.OrdinalIgnoreCase) == true)
+            return "?[redacted: desktop ticket]";
         return query.Value ?? "";
     }
 
@@ -4568,6 +4591,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Gateway Cleanup Phase 0: the one up-stream registry the DirectorHub (constructed per-invocation by
         // SignalR) pumps StreamUp frames into.
         builder.Services.AddSingleton(StreamRegistry);
+        builder.Services.AddSingleton(DesktopRelay);
         // DevThrottle Stats: the hub (constructed per-invocation by SignalR) folds each pushed session's
         // tally into this one aggregator instance, which the /stats dashboard reads.
         // The HANDLE is registered, never the aggregator itself, so the container can construct the
@@ -4750,6 +4774,16 @@ public sealed class GatewayHost : IAsyncDisposable
         //     the mobile home screen instead of the report.
         // Both orderings are pinned by DevReportLinkRouteTests. See DevReportLinkRoute for the full reasoning.
         Api.DevReportLinkRoute.UseDevReportLink(_app);
+
+        // Factory Boxes (issue #4258): the desktop host. A box's desktop is served ONLY on that separate site, and that
+        // site serves nothing else but /healthz. BEFORE authentication: a request there never carries the Gateway's
+        // sign-in (it is another site), and is let in by a box-only cookie instead. Anywhere else, a desktop path is 404.
+        // STAND-INS until the hosted-desktop list task merges (see MapTicket below).
+        Boxes.BoxDesktopEndpoints.UseDesktopHost(_app, BoxesDesktopOrigin,
+            hosts: Boxes.NoBoxDesktopHosts.Instance,
+            feature: Boxes.BoxesFeatureOff.Instance,
+            tickets: BoxDesktopTickets,
+            legs: DesktopRelayLegs);
 
         // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would
         // otherwise fall to the Cockpit's fallback and answer 200 with its page. Every team path answers 404 here,
@@ -5265,6 +5299,16 @@ public sealed class GatewayHost : IAsyncDisposable
             // Hosted Multi-Tenancy (session-serving PR1): the per-session tunnel legs resolve the request's
             // tenant at the session locate, so a wrong-tenant session is never located and a request with no
             // bound tenant is denied (403) - never a Local read on hosted.
+            tenantBoundary: _tenantBoundary);
+
+        // Factory Boxes (issue #4258), phase 1: the Cockpit's way into a box's desktop - a single-use ticket for the
+        // desktop host (the desktop itself is served there, see UseDesktopHost in the pipeline above). STAND-INS until
+        // the hosted-desktop list task merges: no Director hosts a box and the Boxes flag is off for every tenant, so
+        // this answers 404 everywhere until that task wires its list and its flag in here.
+        Boxes.BoxDesktopEndpoints.MapTicket(_app, BoxesDesktopOrigin,
+            hosts: Boxes.NoBoxDesktopHosts.Instance,
+            feature: Boxes.BoxesFeatureOff.Instance,
+            tickets: BoxDesktopTickets,
             tenantBoundary: _tenantBoundary);
 
         // GET /devices: the host-readable device registry listing. Mapped after the WS proxy so its
