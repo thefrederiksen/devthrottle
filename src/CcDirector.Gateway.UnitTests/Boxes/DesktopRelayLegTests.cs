@@ -100,6 +100,21 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TicketExchange_WipesTheSitesStorageButNotItsCookies()
+    {
+        // The production desktop host is the Gateway's Azure name: anyone who once opened the Cockpit there has device
+        // keys in that origin's storage. The exchange wipes it before any box page loads, and leaves the cookie it sets.
+        var (_, url) = await _rig.AskForTicketAsync(_rig.KeyA).Within();
+        using var desktop = _rig.Desktop(cookie: null);
+
+        var opened = await desktop.GetAsync(url).Within();
+
+        Assert.Equal(HttpStatusCode.OK, opened.StatusCode);
+        Assert.Equal("\"storage\"", opened.Headers.GetValues("Clear-Site-Data").Single());
+        Assert.Single(opened.Headers.GetValues("Set-Cookie"));
+    }
+
+    [Fact]
     public async Task TicketExchange_ASecondUse_IsRefused()
     {
         var (_, url) = await _rig.AskForTicketAsync(_rig.KeyA).Within();

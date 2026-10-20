@@ -255,6 +255,11 @@ internal static class BoxDesktopEndpoints
     /// Exchange a ticket for the box's desktop cookie, then move on to the address without the ticket. The move is a
     /// tiny page on THIS site rather than a redirect: a SameSite=Strict cookie is not sent on any request of a
     /// redirect chain that began on another site (the Cockpit), but it is sent on a navigation this site starts.
+    ///
+    /// The exchange also sends <c>Clear-Site-Data: "storage"</c>. The production desktop host is the Gateway's Azure
+    /// name, and anyone who ever opened the Cockpit there has device keys in that origin's storage, which a box's page
+    /// would otherwise be able to read. The storage is wiped before any box page loads. Not "cookies": that would wipe
+    /// the box cookie set on this same response.
     /// </summary>
     private static async Task RedeemTicketAsync(HttpContext ctx, string boxId, string prefix, BoxDesktopTickets tickets)
     {
@@ -284,6 +289,7 @@ internal static class BoxDesktopEndpoints
             .ToList();
         var target = prefix + "/" + (rest.Count > 0 ? "?" + string.Join("&", rest) : "");
         var encoded = WebUtility.HtmlEncode(target);
+        ctx.Response.Headers["Clear-Site-Data"] = "\"storage\"";
         ctx.Response.ContentType = "text/html; charset=utf-8";
         ctx.Response.Headers["Content-Security-Policy"] = "default-src 'none'";
         await ctx.Response.WriteAsync(
