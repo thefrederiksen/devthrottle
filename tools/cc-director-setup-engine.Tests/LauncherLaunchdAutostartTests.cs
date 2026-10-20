@@ -112,4 +112,28 @@ public sealed class LauncherLaunchdAutostartTests
         // Only its OWN job is the trap: a process in the other agent's job is not killed by this bootout.
         Assert.True(LauncherLaunchdAutostart.MayReload(GatewayLaunchdAutostart.Label));
     }
+
+    [Fact]
+    public void PlistPathIn_IsInsideTheHomeFolderItWasGiven_NotTheMachines()
+    {
+        // The whole point of PlistPathIn. The static PlistPath reads the real home through a property no
+        // caller can redirect, so an uninstall handed a sandboxed layout still named the user's own
+        // ~/Library/LaunchAgents file - and on 19 October 2026 one deleted the real launch agent on a
+        // developer's Mac. Anything holding a layout asks for the path in THAT home.
+        var home = Path.Combine("/somewhere", "else");
+
+        var path = LauncherLaunchdAutostart.PlistPathIn(home);
+
+        Assert.Equal(Path.Combine(home, "Library", "LaunchAgents", LauncherLaunchdAutostart.Label + ".plist"), path);
+        Assert.StartsWith(home + Path.DirectorySeparatorChar, path, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PlistPathIn_RejectsAnEmptyHome()
+    {
+        // An empty home would compose a machine-wide path - the failure this method exists to prevent,
+        // arrived at by a different route.
+        Assert.Throws<ArgumentException>(() => LauncherLaunchdAutostart.PlistPathIn(""));
+        Assert.Throws<ArgumentException>(() => LauncherLaunchdAutostart.PlistPathIn("  "));
+    }
 }
