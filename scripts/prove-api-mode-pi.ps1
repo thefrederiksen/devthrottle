@@ -437,7 +437,10 @@ function Start-TestDirector([string]$PiPath) {
         # machine whose PowerShell 7 is not installed system-wide failed the launch with "file not found".
         $action = New-ScheduledTaskAction -Execute ([Environment]::ProcessPath) -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description 'API mode proof test Director' -Force | Out-Null
+        # Normal priority: a task runs at Below Normal by default, and on a busy machine that took the first Windows
+        # run 110 seconds to start the Director and another three and a half minutes before it registered.
+        $settings = New-ScheduledTaskSettingsSet -Priority 4
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'API mode proof test Director' -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
     } else {
         # A HOME of its own. A Director on a fresh root repairs its cc-* tools at start-up, and on Linux and macOS
@@ -459,7 +462,7 @@ function Start-TestDirector([string]$PiPath) {
         Get-ChildItem $regDir -Filter *.json -ErrorAction SilentlyContinue |
             ForEach-Object { try { Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { $null } } |
             Where-Object { $_.DirectorId -and $_.Pid } | Select-Object -First 1
-    } 90 1000
+    } 300 1000
     if (-not $reg) { Stop-Setup 'the test Director never wrote its instance registration' }
     $script:directorPid = [int]$reg.Pid
     $script:directorId = ([string]$reg.DirectorId).ToLowerInvariant()
