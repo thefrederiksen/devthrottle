@@ -1,5 +1,10 @@
 # Session Rules, part 2 - hook triggers, scopes, a Rules page, and rules agents can manage
 
+> **STATUS: PAUSED by the owner on 2026-10-20, after phases 1 and 2 merged.** Phase 1 (#4268) and phase 2
+> (#4267) are on main. Phase 3 is parked, built and in review, on branch `mission/session-rules-hooks-p3`
+> (with `-p3-gateway` and `-p3-pages`). Phases 4 and 5 were not started. The resume point, every parked
+> branch and what is left are in the GitHub issue linked from `state.md`. No session is seated. Resume from issue #4295.
+
 Mission document. Written 2026-10-18 by the Architect seat ("Session Rules - Architect - hook triggers
 and scopes"), from a design conversation with the owner and four versions of a dev report he answered.
 Branch `mission/session-rules-hooks`, cut from `origin/main` at `7a365544b`. Gateway Mission:
@@ -22,7 +27,12 @@ any agent session able to create and change them.
 
 ## 2. The why
 
-In the owner's words, from the design conversation:
+The owner's sentence, confirmed in the status report of 2026-10-20:
+
+> "My most important rules exist only as text an agent can ignore, and I cannot see, set or scope them. I want
+> rules the product enforces, that I and the agents can manage."
+
+From the design conversation:
 
 > "If we build in hooks, we need to figure out how do we get from the terminal back into our
 > application ... so the gateway can control what happens."
@@ -73,6 +83,8 @@ Every answer the owner gave, in his words where he gave words. Dev report:
 | D6 | Kinds of rule | A Rules page "that can use hooks, but it should also be able to do other rules ... on startup ... a missing license or API error." So three kinds: screen, hook, session start. |
 | D7 | Agents | "Any agent should be able to change and set up the rules." Agents may create, change, promote and delete. Every change is recorded with the session and agent that made it. |
 | D8 | Slow work | "Do we only run Python, or do we sometimes start a new session that runs Python" - both, on different events: anything the agent waits on is fast and local; anything slow starts a visible session and never blocks. |
+| D9 | An unanswered phone approval (Ask) | "It is denied. An unanswered request is never waved through; the agent is told why and carries on." (status report, 2026-10-20) |
+| D10 | Going on after phases 1 and 2 | "Stop here. Keep what is merged; park phase 3 on its branch." With: "Create a github issue and lets get back to it all later" (status report, 2026-10-20) |
 
 **Override (law 19).** D6 replaces the September ruling r11, "the terminal screen is the ONLY input":
 hook events and session start are now inputs too. Ruling **r15 stands unchanged**: no generated code runs,
@@ -204,11 +216,12 @@ Asked and answered: D1-D8 above.
 
 Still open, for the Delivery Lead to carry - none of them blocks phase 1 or 2:
 
-1. **The why in the owner's own sentence.** Section 2 quotes him; the dev report question was unanswered
+1. **The why in the owner's own sentence** - ANSWERED, section 2. Section 2 quotes him; the dev report question was unanswered
    when he said go. Ask once, at the first natural point, and replace section 2's reading with his words.
    Recommendation: offer the draft from dev report version 3 as the starting point.
-2. **A style guide**, if one exists outside this repository, before phase 3.
-3. **Whether a deny on the phone (Ask) times out to allow or to deny.** Recommendation: deny, so an
+2. **A style guide** - ANSWERED: the repository has `docs/CodingStyle.md`, `docs/VisualStyle.md` and
+   `docs/CockpitVisualStyle.md`. Phase 3 follows them.
+3. **Whether a deny on the phone (Ask) times out to allow or to deny** - ANSWERED: deny (D9). Recommendation: deny, so an
    unanswered request is never silently waved through. Needed before phase 5.
 
 Open for phase 4, from the review of the whole of phase 1 (`reviews/phase-1-whole-review.md`, observations
