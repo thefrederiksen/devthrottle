@@ -1,0 +1,131 @@
+/* The Mail Desk page, shared by the Cockpit and the mobile app (Mail Desk mission, phase 7).
+ *
+ * Built on the shared Settings cards (../settings/settings.css), the nearest component family: a card per mailbox,
+ * the card heading, the hint line and the pill are theirs. This file only adds what a mailbox card has that a
+ * settings card does not - the facts, the tone colours and today's counts.
+ *
+ * Every colour is a theme token both shells define in their own :root; this file names no colour of its own. A tone
+ * is the Gateway's word (data-tone on the fact) and maps to one token: good to --ok, bad to --attention (the shells'
+ * red), attention to --warn (live mode must stand out without reading as a failure), neutral to the plain text colour.
+ *
+ * Sizing here is the DESKTOP baseline. The phone re-tunes it under a `.screen` ancestor in its own stylesheet, the
+ * way it re-tunes the Settings cards: one column, full-width cards. */
+
+.mail-desk {
+  max-width: 820px;
+}
+
+.mail-desk-summary {
+  max-width: 70ch;
+}
+
+.mail-desk-empty {
+  margin: 0;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mail-desk-card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 12px;
+}
+
+/* The address is never cut short: it wraps, anywhere, rather than ellipsing. */
+.mail-desk-address {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mail-desk-provider {
+  margin-left: 0;
+}
+
+/* ---- the facts: a name column and the Gateway's sentence ---- */
+.mail-desk-facts {
+  margin: 0 0 14px;
+}
+.mail-desk-fact {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.mail-desk-fact:last-child {
+  margin-bottom: 0;
+}
+.mail-desk-fact dt {
+  width: 110px;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.mail-desk-fact dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* A toned fact carries a dot in its colour, so the tone does not rest on the text colour alone. */
+.mail-desk-fact dd[data-tone]::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: 1px;
+  background: currentColor;
+}
+.mail-desk-fact dd[data-tone="good"] {
+  color: var(--ok);
+}
+.mail-desk-fact dd[data-tone="bad"] {
+  color: var(--attention);
+}
+.mail-desk-fact dd[data-tone="attention"] {
+  color: var(--warn);
+}
+.mail-desk-fact dd[data-tone="neutral"]::before {
+  background: var(--text-dim);
+}
+
+/* ---- today ---- */
+.mail-desk-today {
+  margin: 0 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.mail-desk-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 24px;
+}
+.mail-desk-count-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.mail-desk-count-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mail-desk-count {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}

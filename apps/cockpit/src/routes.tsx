@@ -45,6 +45,7 @@ import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
+import { MailDeskView } from "./maildesk/MailDeskView";
 import { TeamRequestsRoute } from "./team/RequestsView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
@@ -159,6 +160,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/factory-agents/waiting", element: <OldFactoryWaitingRedirect /> },
           { path: "/factory-agents/:factory", element: <OldFactoryPageRedirect /> },
           { path: "/factory-agents/:factory/:agent", element: <OldFactoryAgentRedirect /> },
+          // The Mail Desk (Mail Desk mission, phase 7): every mailbox the Mail Desk screens, read-only. The page is
+          // client-core's; behind the Gateway's Mail Desk switch, which answers 404 while it is off, so the address is
+          // then the ordinary "Page not found".
+          { path: "/mail-desk", element: <MailDeskView /> },
           // The History page (issue #2194): what was worked on over a picked range, grouped by
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.

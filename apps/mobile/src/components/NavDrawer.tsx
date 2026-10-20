@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
+import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 
 // The hamburger menu button + slide-in nav drawer for the mobile app-bar. Self-contained: it owns its
 // open/closed state and renders the drawer plus a dimming overlay as a fixed layer above the page.
@@ -10,6 +11,8 @@ export function NavDrawer() {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const { active, many } = useAccounts();
+  // Offered only while the Gateway answers the Mail Desk page's own read (rule 7); hidden when its switch is off.
+  const mailDeskOffered = useMailDeskEntry();
 
   return (
     <>
@@ -56,6 +59,11 @@ export function NavDrawer() {
             <Link className="drawer-item" to="/repos" onClick={close}>
               Repos
             </Link>
+            {mailDeskOffered && (
+              <Link className="drawer-item" to="/mail-desk" onClick={close}>
+                Mail Desk
+              </Link>
+            )}
             <div className="drawer-sep" />
             {/* Account sits with Settings and About - the destinations about the app and this phone
                 rather than about the fleet - and mirrors the Cockpit's own Account rail item, which the
