@@ -48,17 +48,29 @@ public sealed class MailDeskChannelFoldWordsTests
     }
 
     [Fact]
-    public void MachinesLabelOf_TwoMachines_NamesTheBackupAndWhenItReads()
+    public void MachinesLabelOf_TwoMachines_NamesBothWithNoOrder()
     {
-        Assert.Equal("devlinux, then north-box if devlinux is not answering",
+        Assert.Equal("devlinux or north-box, whichever runs the Mail Desk check",
             MailDeskChannelFold.MachinesLabelOf(Channel, new[] { "devlinux", "north-box" }));
     }
 
     [Fact]
-    public void MachinesLabelOf_ThreeMachines_EachOnlyWhenTheOneBeforeIsNotAnswering()
+    public void MachinesLabelOf_ThreeMachines_NamesAllWithNoOrder()
     {
-        Assert.Equal("devlinux, then north-box, then south-box - each only when the one before it is not answering",
+        Assert.Equal("devlinux, north-box or south-box, whichever runs the Mail Desk check",
             MailDeskChannelFold.MachinesLabelOf(Channel, new[] { "devlinux", "north-box", "south-box" }));
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void MachinesLabelOf_SeveralMachines_ClaimsNoFailoverOrder(int count)
+    {
+        // Review finding F1: the channel's list does not decide who reads first, so no sentence may say it does.
+        var label = MailDeskChannelFold.MachinesLabelOf(Channel, new[] { "devlinux", "north-box", "south-box" }.Take(count).ToList());
+
+        Assert.DoesNotContain("then", label);
+        Assert.DoesNotContain("not answering", label);
     }
 
     [Fact]
@@ -115,14 +127,42 @@ public sealed class MailDeskChannelFoldWordsTests
     [Theory]
     [InlineData(TriggerRunOutcome.NothingToDo)]
     [InlineData(TriggerRunOutcome.Started)]
-    [InlineData(TriggerRunOutcome.Paused)]
-    [InlineData(TriggerRunOutcome.SkippedRunning)]
-    [InlineData("an-outcome-added-later")]
-    public void LastCheckTone_AnyOtherOutcome_IsGood(string outcome)
+    [InlineData(MailDeskChannelFold.ScreenedOutcome)]
+    public void LastCheckTone_CheckDidItsWork_IsGood(string outcome)
     {
         var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
 
         Assert.Equal(MailDeskChannelFold.Tones.Good, new MailDeskLastCheck(at, outcome, "Checked").Tone);
+    }
+
+    [Theory]
+    [InlineData(TriggerRunOutcome.Paused)]
+    [InlineData(TriggerRunOutcome.SkippedRunning)]
+    public void LastCheckTone_NothingFailedButNothingScreened_IsNeutral(string outcome)
+    {
+        var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
+
+        Assert.Equal(MailDeskChannelFold.Tones.Neutral, new MailDeskLastCheck(at, outcome, "Checked").Tone);
+    }
+
+    [Fact]
+    public void LastCheckToneOf_AnOutcomeWithNoTone_Throws()
+    {
+        var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => MailDeskChannelFold.LastCheckToneOf(at, "an-outcome-added-later"));
+
+        Assert.Contains("'an-outcome-added-later'", thrown.Message);
+    }
+
+    [Fact]
+    public void LastCheckToneOf_EveryTriggerOutcome_HasATone()
+    {
+        // Every outcome the trigger contract lists - phase 3's 'screened' included once it lands - is named.
+        var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
+
+        Assert.All(TriggerRunOutcome.All, o => Assert.Contains(MailDeskChannelFold.LastCheckToneOf(at, o),
+            new[] { MailDeskChannelFold.Tones.Good, MailDeskChannelFold.Tones.Bad, MailDeskChannelFold.Tones.Neutral }));
     }
 
     // ---------- today ----------
