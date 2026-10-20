@@ -12,10 +12,11 @@ namespace CcDirector.Gateway.Boxes;
 /// hop-by-hop headers and the Gateway's own credentials. The Authorization header, the Gateway's sign-in cookie
 /// and the desktop's own box cookie are keys the Gateway issued; the box has no business holding any of them, so
 /// the Authorization header is dropped and both cookies are cut out of the Cookie header (any other cookie, such as
-/// a Selkies token cookie, still reaches the box).</para>
+/// a Selkies token cookie, still reaches the box on an HTTP request). The WebSocket upgrade to the box carries none of
+/// the browser's headers - only the address and the subprotocols - which Selkies does not need (the spike).</para>
 ///
-/// <para><b>Up (box to browser):</b> everything except the hop-by-hop headers and Set-Cookie (the desktop is
-/// served on the Gateway's own origin, so a box's cookie would land on the Gateway's site). A redirect that
+/// <para><b>Up (box to browser):</b> everything except the hop-by-hop headers and Set-Cookie (a box's cookie would
+/// land on the desktop host, the one site every box shares). A redirect that
 /// points at the box's own address, or at the box's root, is kept inside the box's prefix, so the browser is
 /// never sent to 127.0.0.1.</para>
 /// </summary>
