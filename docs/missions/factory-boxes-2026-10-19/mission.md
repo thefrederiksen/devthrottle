@@ -1,8 +1,15 @@
 # Mission document - Factory Boxes
 
-Status: DRAFT, waiting on the owner's answers to section 10, questions 5 to 8. Written by the
-Architect seat (session "cc-consult / 5d95", devlinux) on 19 October 2026. Questions 1 to 4 were
-answered by the owner through the dev report "Factory Boxes" (gateway.devthrottle.com/r/ea9049ca-2892-4c04-813b-9d7fe06fa0af).
+Status: APPROVED by the owner, 19 October 2026. Written by the Architect seat (session
+"cc-consult / 5d95", devlinux), which hands over to the Delivery Lead and shuts down. The owner answered
+every question in section 10 through two dev reports - "Factory Boxes"
+(gateway.devthrottle.com/r/ea9049ca-2892-4c04-813b-9d7fe06fa0af) and "Factory Boxes Mission"
+(gateway.devthrottle.com/r/83a48768-e8f0-4221-aa40-109b0fd1d93c) - taking the Architect's
+recommendation on all eight. His first answer was "Yes, that's it. Go ahead and turn it into a
+mission." He did not reword the goal in section 3; if a detail of it turns out to matter, ask him -
+do not treat his go as a ruling on a detail he was never asked about on its own.
+
+Mission issue: #4258.
 
 Product repository: `thefrederiksen/devthrottle`. Read at `origin/main` 93cd0c4c0 (v2.25.0 merge).
 The first thing the Delivery Lead does is check what changed on `origin/main` since then in the files
@@ -81,7 +88,18 @@ From the owner, through the dev reports of 18-19 October 2026, in his own words 
   devlinux (18 October); the network wall is required before anyone but the owner uses one.
 - **D6. The USB radio board rule** (owner, 2026-10-07) is unrelated and untouched.
 
-Questions 5 to 8 (section 10) are open.
+- **D7. Deploy grant (law 18), for this mission only:** "Yes, behind the flag. Every other account sees
+  nothing until the QA passes." This mission may deploy the Gateway to production, with Boxes shown
+  only to the owner's tenant behind a feature flag.
+- **D8. Claude credentials on a box:** "An Anthropic API key for each box, from your Anthropic
+  account. The Gateway hands it in when the box starts and revokes it when the box is deleted, with a
+  monthly cap per box. Usage is visible per box." Not the owner's subscription login.
+- **D9. Spending limit (law 18), for this mission only:** 100 euros a month in total, ask before
+  going over. The owner added, in his words: "I dont car about spend so far, just want to prove the
+  concept". Read it as: spending is not the thing to economise on - proving the concept is the point -
+  but the 100-euro line he chose still stands, and going past it is a question for him.
+- **D10. Other people's boxes:** out of this mission; "that's the next mission". This mission ends
+  with the owner's own boxes on devlinux and one cloud provider.
 
 ## 5. Design
 
@@ -144,9 +162,11 @@ Every arrow into the Gateway starts at the machine. Nothing connects in to a hou
    box network reaches the internet only - not 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12,
    100.64.0.0/10, nor new connections to the host. Needs one sudo from the owner (iptables
    `DOCKER-USER` + `INPUT`), made persistent.
-7. **Claude on the box (D4).** "Included AI" today hands out only DevThrottle's own `dt_live_` key for
+7. **Claude on the box (D4, D8).** "Included AI" today hands out only DevThrottle's own `dt_live_` key for
    voice and Wingman (`AccountInferenceKeyProvisioner.cs`); Claude sessions use the machine's own
-   Claude login and nothing hands an Anthropic credential to a Director. So this is new; see question 6.
+   Claude login and nothing hands an Anthropic credential to a Director. So this is new: one Anthropic
+   API key per box, handed in at start (environment, never the image), revoked at delete, capped.
+   Phases 1-2 boxes are the owner's own and may be signed in to Claude by hand until phase 3 lands.
 8. **Idle stop.** A box with no viewer and no running session for N minutes (default 30) is stopped.
 
 ### What is out
@@ -172,7 +192,10 @@ token; idle stop; the network wall. Done when goal steps 1-6 pass on devlinux. T
 image and the enrollment token can run in parallel with the provider and the Cockpit work.
 
 **Phase 3 - One cloud provider and Claude keys.** The cloud adapter; the box as a server whose own
-Director carries its desktop; Claude credentials per box as decided in question 6, with a cap.
+Director carries its desktop; an Anthropic API key per box from the owner's account, handed in at start, revoked at delete, capped
+monthly, usage visible per box (D8). Creating keys in the owner's Anthropic account may need the owner
+to sign in once or to provide an admin key: ask him for that when phase 3 reaches it, with what exactly
+is needed.
 Done when goal steps 1-6 pass with "the cloud provider". Tech Lead: yes.
 
 **Phase 4 - QA and record.** The full goal and every failure case from section 3, from a phone on
@@ -209,7 +232,7 @@ and the flag keeps the screen hidden from every other account until phase 4.
 
 Merged to `main`, and **deployed to the live Gateway** behind the flag (the goal can only be proven
 through the real Gateway; there is no staging slot since 2026-09-20 - `docs/deploy/hosted-gateway-ci.md:19`).
-That deploy needs the owner's grant: question 5.
+The owner granted that deploy for this mission (D7).
 
 ## 10. Questions
 
@@ -220,18 +243,18 @@ Answered (owner, dev report "Factory Boxes", 19 October 2026):
 3. Where do the first boxes run? **devlinux first, then one cloud provider.**
 4. Whose Claude account? **Ours, handed in by the Gateway at start-up.**
 
-Open (asked in the dev report "Factory Boxes - mission questions"):
+Answered (owner, dev report "Factory Boxes Mission", 19 October 2026) - all as recommended:
 
-5. **Deploy grant.** May this mission deploy the Gateway to production, behind a flag that shows
+5. **Deploy grant.** ANSWERED: yes, behind the flag (D7). May this mission deploy the Gateway to production, behind a flag that shows
    Boxes only to the owner's tenant? *Recommended: yes* - there is no staging slot, and the goal can
    only be proven through the real Gateway.
-6. **Claude credentials on a box.** *Recommended: an Anthropic API key per box from the owner's
+6. **Claude credentials on a box.** ANSWERED: an API key per box (D8). *Recommended: an Anthropic API key per box from the owner's
    Anthropic Console, handed in by the Gateway at start and revoked at delete, with a monthly cap per
    box* - not the owner's Claude subscription login: a subscription is for one person's own use, cannot
    be capped per box, and would be shared across machines and later customers. Phase 1 and 2 boxes
    are the owner's own, so he may sign Claude in by hand on them until phase 3 lands.
-7. **Spending limit** for the mission (cloud servers + Claude API on boxes). *Recommended: 100 euros a
+7. **Spending limit** ANSWERED: 100 euros a month, plus the owner's comment (D9). For the mission (cloud servers + Claude API on boxes). *Recommended: 100 euros a
    month in total, stop and ask beyond it.*
-8. **Other people's boxes.** *Recommended: out of this mission.* The device key reaches the whole
+8. **Other people's boxes.** ANSWERED: next mission (D10). *Recommended: out of this mission.* The device key reaches the whole
    tenant; giving Eric or a customer a box safely needs a box-only key or their own tenant, which is the
    next mission. This one ends with the owner's own boxes on devlinux and one cloud provider.
