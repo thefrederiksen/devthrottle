@@ -171,8 +171,9 @@ Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
   24-hour rule from R2's own start (`WorkspaceSeatOnRecord.BroughtBackAtUtc`: the reopen's time, or the Bring back's
   start, or - when the record says neither - the restart). R2 alive: followed. R2 ended: the rows are re-routed (or
   handed on) with the reason saying so. To judge R2 the history is now asked about R2 too: the restart records are
-  asked first, then the history once, for the run's sessions and every session a record says one came back as. A
-  session restarted again before the router saw it is followed up to three restarts deep.
+  asked first, then the history once, for the run's sessions and every session a record says one came back as.  (The claim
+  first written here, that a session restarted again before the router saw it was followed up to three restarts deep,
+  was not true: the records were never asked about the restored session. Corrected by the fourth review, below.)
 - **A followed row takes the new session's start.** Found while writing the test for this ruling: after a follow the
   row kept R1's start, so R2 was judged by the 24-hour rule from R1's start - a restart 30 hours into R1's life had R2
   re-routed on the very next run while it worked the email. `MailDeskRoutedStore.Follow` now writes the new session's
@@ -228,6 +229,61 @@ Runs, on this branch rebased onto `mail-desk-phase-4` at `aad3328dd`:
 ```
 dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk|FullyQualifiedName~Trigger|FullyQualifiedName~SessionHistory|FullyQualifiedName~ScheduledRun|FullyQualifiedName~FactorySeat|FullyQualifiedName~Workspace"
 Passed!  - Failed:     0, Passed:  1604, Skipped:     0, Total:  1604
+
+dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
+Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
+```
+
+## Fourth review (`ended-wait-review.md`): two findings, both ACCEPTED, FIXED as the Tech Lead ruled
+
+### Finding 1 - a seat restarted a second time before the router runs
+
+The reviewer is right, and the answer to the third review said otherwise: the restart records were asked only about the
+open rows' own sessions, so a record capturing the session a seat came back as was never read, and that session was
+judged by its history alone - re-routed while the second record still owed it.
+
+- `MailDeskRouter.FactsOfThisRun` now asks the restart records level by level within one run: first about the open
+  rows' sessions, then about every session a record says one came back as that was not asked yet, and so on until no
+  new id appears - one call per level, never per row - up to `MailDeskRouter.MaxRestartsFollowed` (10) levels. The
+  history is then asked once, about every session of every level.
+- `FateOf` follows the chain through every record it read. A chain longer than 10 levels is handed to the OWNER with
+  `MailDeskRoutedReasons.RestartChainTooLong` ("its session was restarted and brought back more than 10 times before the
+  Mail Desk could follow it"), never re-routed: the last session may still be owed a Bring back.
+- The reviewer's second note is closed with it: a hand to the owner deeper in a chain keeps its clean reason
+  (`NotBroughtBack` or `RestartChainTooLong`) - no record id or session id is put in front of what the owner reads.
+- One behaviour to know: when R1 was brought back as R2 and R2 is still owed on a second record, the row now FOLLOWS R2
+  (it is with the newest session the records know of) and waits on the second record's 72 hours. The test was first
+  written asserting the row stayed on R1; it was red on the old code for the re-route, and its assertion was corrected
+  to R2 once the follow was built. The next run asserts it still waits.
+
+### Finding 2 - a cancelled record's shut-down seats
+
+- `WorkspaceStore.SeatsCapturedFrom` now skips, on a record with `CancelledAtUtc` set, only the seats it kept running
+  (no `ClosedAtUtc`). A seat the drain had already shut down is read as on any restart record: the cancel brings it back
+  under a new id, recorded there, so it is owed and then followed. A later close by a person of a seat the cancel kept
+  running is still re-routed at once (the existing test, whose seat has no `ClosedAtUtc`, still holds).
+
+### Tests - red on `2155bb9a9`'s logic, green now
+
+Each was run first with only the two new names it needs added (`MaxRestartsFollowed` made public, the
+`RestartChainTooLong` reason), no behaviour changed: 6 failed. After the fix: all pass.
+
+- `RouteAsync_TwoRestartsBeforeTheRouterRuns_TheSecondStillOwed_WaitsOnTheSecondRecord` (`closed`,
+  `director-stopped` as R2's ending) - the reviewer's first probe, with the opposite assertion, run 64 hours later
+  (past R2's own 24 hours, inside the second record's 72).
+- `RouteAsync_TwoRestarts_TheSecondBroughtBack_IsFollowedToTheThirdSession` - and the records are asked once per
+  level: `[R1]`, `[R2]`, `[R3]`.
+- `RouteAsync_ARestartChainLongerThan10Levels_GoesToTheOwnerNeverRerouted` - the cap: 10 questions, then the owner.
+- `NewMailDeskRouter_AsGatewayHostWiresIt_ACancelledRecordsShutDownSeat_IsStillOwed_NotRerouted` - the reviewer's
+  second probe, over the real workspace store, with the opposite assertion.
+- `MailDeskRestartRecordReadTests.SeatsCapturedFrom_ACancelledRecord_ReadsTheSeatsItHadShutDown_NotTheSeatsItKeptRunning`
+  (and the older cancelled test renamed to say its seat was kept running).
+
+Runs, on this branch rebased onto `mail-desk-phase-4` at `668677fc8`:
+
+```
+dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk|FullyQualifiedName~Trigger|FullyQualifiedName~SessionHistory|FullyQualifiedName~ScheduledRun|FullyQualifiedName~FactorySeat|FullyQualifiedName~Workspace"
+Passed!  - Failed:     0, Passed:  1610, Skipped:     0, Total:  1610
 
 dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
 Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11

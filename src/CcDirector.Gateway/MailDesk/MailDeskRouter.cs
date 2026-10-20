@@ -208,12 +208,23 @@ public sealed class MailDeskRouter
         if (ids.Count == 0)
             return new RunFacts(new Dictionary<string, SessionEndingFact>(StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, WorkspaceSeatOnRecord>(StringComparer.OrdinalIgnoreCase));
-        // A record that captured a session is newer than its start, so nothing older than the oldest start is read.
-        var restartSeats = new Dictionary<string, WorkspaceSeatOnRecord>(_restartSeatsOf(tenant, ids, oldestStart),
-            StringComparer.OrdinalIgnoreCase);
+        // A record that captured a session is newer than its start, so nothing older than the oldest start is read. A
+        // seat brought back may have been restarted again before this run: the records are asked again about every
+        // session a record says one came back as, level by level - one question per level, never per row - up to
+        // MaxRestartsFollowed levels (review of the restart answers, finding 1). FateOf hands a longer chain to the owner.
+        var restartSeats = new Dictionary<string, WorkspaceSeatOnRecord>(StringComparer.OrdinalIgnoreCase);
         var asked = new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
-        foreach (var seat in restartSeats.Values)
-            if (seat.BroughtBackAs is { } back) asked.Add(back);
+        IReadOnlyCollection<string> level = ids;
+        for (var depth = 0; level.Count > 0 && depth < MaxRestartsFollowed; depth++)
+        {
+            var next = new List<string>();
+            foreach (var (id, seat) in _restartSeatsOf(tenant, level, oldestStart))
+            {
+                restartSeats[id] = seat;
+                if (seat.BroughtBackAs is { } back && asked.Add(back)) next.Add(back);
+            }
+            level = next;
+        }
         var endings = new Dictionary<string, SessionEndingFact>(_endingsOf(tenant, asked), StringComparer.OrdinalIgnoreCase);
         FileLog.Write($"[MailDeskRouter] FactsOfThisRun: {ids.Count} sessions read, {restartSeats.Count} on a restart record, {asked.Count} asked of the history, {endings.Count} with a history record");
         return new RunFacts(endings, restartSeats);
@@ -309,10 +320,15 @@ public sealed class MailDeskRouter
         if (facts.RestartSeats.TryGetValue(sessionId, out var onRecord))
         {
             var record = $"the restart record {onRecord.WorkspaceId}";
-            if (onRecord.BroughtBackAs is { } back && !string.Equals(back, sessionId, StringComparison.OrdinalIgnoreCase)
-                && depth < MaxRestartsFollowed)
+            if (onRecord.BroughtBackAs is { } back && !string.Equals(back, sessionId, StringComparison.OrdinalIgnoreCase))
             {
+                // The records were asked about MaxRestartsFollowed levels; past them nothing is known of the last
+                // session, which may still be owed a Bring back - so the owner, never a re-route.
+                if (depth + 1 >= MaxRestartsFollowed)
+                    return SessionFate.OwnerBecause(MailDeskRoutedReasons.RestartChainTooLong);
                 var then = FateOf(tenant, back, onRecord.BroughtBackAtUtc, rows, facts, depth + 1);
+                // The owner's reason is shown to the owner as it is, never with a record or session id put in front.
+                if (then.ToOwner) return then;
                 if (then.Ended) return then with { Why = $"{record} brought it back as {back}, and that session ended: {then.Why}" };
                 return then.FollowTo is not null ? then
                     : SessionFate.BackAs(back, _findSession(tenant, back)?.MachineName, onRecord.BroughtBackAtUtc, $"{record} brought it back as {back}");
@@ -338,9 +354,10 @@ public sealed class MailDeskRouter
         };
     }
 
-    /// <summary>How many restarts a routed session is followed through in one run. A seat brought back, restarted and
-    /// brought back again between two runs is rare; past this, the last session is judged as having no record.</summary>
-    private const int MaxRestartsFollowed = 3;
+    /// <summary>How many levels of restart records one run asks about (review of the restart answers, finding 1): a seat
+    /// brought back and restarted again before the router ran is followed through every record up to this. A longer chain
+    /// is handed to the owner (<see cref="MailDeskRoutedReasons.RestartChainTooLong"/>), never re-routed.</summary>
+    public const int MaxRestartsFollowed = 10;
 
     /// <summary>
     /// THE FOLLOW BY NAME (review of 4283, finding 2), the fallback when the restart record does not say which session

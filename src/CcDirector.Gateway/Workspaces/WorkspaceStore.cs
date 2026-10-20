@@ -727,8 +727,10 @@ public sealed class WorkspaceStore
     /// the Gateway's own clock), from the newest such record. A session no record captured is absent from the answer.
     /// One query; only the records in the window are parsed.
     ///
-    /// A CANCELLED record ("Cancel and keep working", <see cref="WorkspaceDocument.CancelledAtUtc"/>) is not a restart:
-    /// its sessions kept running under their own ids and nothing in it is ever offered back, so it is not read.
+    /// A CANCELLED record ("Cancel and keep working", <see cref="WorkspaceDocument.CancelledAtUtc"/>) is a restart only for
+    /// the seats it had already shut down (<see cref="WorkspaceSeat.ClosedAtUtc"/>): the cancel brings those back under
+    /// new ids, recorded here, so they are owed like any restart. The seats it kept running under their own ids are not
+    /// read (review of the restart answers, finding 2).
     ///
     /// A record that cannot be parsed is skipped and logged, never thrown: this read serves the Mail Desk router for
     /// a whole account, and one damaged restart record must not stop every email of that account being routed - the
@@ -764,9 +766,9 @@ public sealed class WorkspaceStore
                     FileLog.Write($"[WorkspaceStore] SeatsCapturedFrom: record {row.Id} skipped, it cannot be read: {ex.Message}");
                     continue;
                 }
-                if (doc.CancelledAtUtc is not null) continue;
                 foreach (var seat in doc.Seats)
                 {
+                    if (doc.CancelledAtUtc is not null && seat.ClosedAtUtc is null) continue;
                     if (seat.SessionId is { } id && wanted.Contains(id) && !found.ContainsKey(id))
                         found[id] = new WorkspaceSeatOnRecord(row.Id, DateTime.SpecifyKind(row.CreatedUtc, DateTimeKind.Utc), seat);
                 }

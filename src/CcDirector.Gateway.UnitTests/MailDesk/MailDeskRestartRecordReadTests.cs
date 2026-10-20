@@ -66,7 +66,7 @@ public sealed class MailDeskRestartRecordReadTests : IAsyncLifetime
     }
 
     [Fact]
-    public void SeatsCapturedFrom_ACancelledRecord_IsNotRead_AndTheRestartTimeIsTheRecordsCreation()
+    public void SeatsCapturedFrom_ACancelledRecordsKeptRunningSeat_IsNotRead_AndTheRestartTimeIsTheRecordsCreation()
     {
         // Arrange
         _rig.SaveRestartRecord("restart-cancelled", cancelledAtUtc: _rig.Now, Seat(SessionOne));
@@ -80,6 +80,21 @@ public sealed class MailDeskRestartRecordReadTests : IAsyncLifetime
         // Assert
         var (id, seat) = Assert.Single(seats);
         Assert.Equal((SessionTwo, restartedAt), (id, seat.RecordedUtc));
+    }
+
+    [Fact]
+    public void SeatsCapturedFrom_ACancelledRecord_ReadsTheSeatsItHadShutDown_NotTheSeatsItKeptRunning()
+    {
+        // Arrange
+        var shutDown = Seat(SessionOne);
+        shutDown.ClosedAtUtc = _rig.Now.AddMinutes(-1);
+        _rig.SaveRestartRecord("restart-cancelled", cancelledAtUtc: _rig.Now, shutDown, Seat(SessionTwo));
+
+        // Act
+        var seats = Store.SeatsCapturedFrom(MailDeskRoutingRig.Account, new[] { SessionOne, SessionTwo }, _rig.Now.AddHours(-1));
+
+        // Assert
+        Assert.Equal(SessionOne, Assert.Single(seats).Key);
     }
 
     [Fact]

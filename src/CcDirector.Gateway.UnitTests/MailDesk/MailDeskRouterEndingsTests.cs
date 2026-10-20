@@ -826,6 +826,130 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
         Assert.Equal(2, _rig.Starts.Count);
     }
 
+    // ---------- review of the restart answers: a chain of restarts, and a cancelled record's shut-down seats ----------
+
+    [Theory]
+    [InlineData(SessionHistoryEndings.Closed)]
+    [InlineData(SessionHistoryEndings.DirectorStopped)]
+    public async Task RouteAsync_TwoRestartsBeforeTheRouterRuns_TheSecondStillOwed_WaitsOnTheSecondRecord(string secondEnding)
+    {
+        // Arrange: the reviewer's weekend. R1 is restarted and brought back as R2 at once; then the machine is shut down
+        // and a second record captures R2, still owed. The router has not run in between.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        var name = _rig.Starts[0].Request.Name!;
+        var r2 = _rig.NextSessionId();
+        var first = CapturedSeat(session, name);
+        first.RestoredSessionId = r2;
+        first.Restore!.StartedAtUtc = _rig.Now;
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        _rig.Now = _rig.Now.AddMinutes(10);
+        CapturedSeat(r2, name);
+        _rig.Endings[r2] = secondEnding;
+
+        // Act: Monday, 64 hours later - past R2's own 24 hours, inside the second record's 72.
+        _rig.Now = _rig.Now.AddHours(64);
+        var run = await _rig.RouteAsync();
+
+        // Assert: not re-routed, no second session - it follows R2 and waits on the second record.
+        Assert.Equal((0, 0), (run.Rerouted, run.ToOwner));
+        Assert.Single(_rig.Starts);
+        Assert.Equal(r2, _rig.Row(held.Id).SessionId);
+
+        // Act: the next run, R2 still owed on the second record.
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var next = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((0, 0), (next.Rerouted, next.ToOwner));
+        Assert.Single(_rig.Starts);
+    }
+
+    [Fact]
+    public async Task RouteAsync_TwoRestarts_TheSecondBroughtBack_IsFollowedToTheThirdSession()
+    {
+        // Arrange
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        var name = _rig.Starts[0].Request.Name!;
+        var r2 = _rig.NextSessionId();
+        var r3 = _rig.NextSessionId();
+        var first = CapturedSeat(session, name);
+        first.RestoredSessionId = r2;
+        first.Restore!.StartedAtUtc = _rig.Now;
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        _rig.Now = _rig.Now.AddMinutes(10);
+        var second = CapturedSeat(r2, name);
+        second.RestoredSessionId = r3;
+        second.Restore!.StartedAtUtc = _rig.Now;
+        _rig.Endings[r2] = SessionHistoryEndings.Closed;
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: one question per level, never per row; the email follows R3.
+        Assert.Equal((1, 0), (run.Followed, run.Rerouted));
+        Assert.Equal(r3, _rig.Row(held.Id).SessionId);
+        Assert.Equal(new[] { new[] { session }, new[] { r2 }, new[] { r3 } },
+            _rig.RestartSeatsAsked.Select(a => a.Ids.ToArray()).ToArray());
+    }
+
+    [Fact]
+    public async Task RouteAsync_ARestartChainLongerThan10Levels_GoesToTheOwnerNeverRerouted()
+    {
+        // Arrange: eleven restarts between two runs, each brought back at once.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        var name = _rig.Starts[0].Request.Name!;
+        var current = session;
+        for (var level = 0; level <= MailDeskRouter.MaxRestartsFollowed; level++)
+        {
+            var next = _rig.NextSessionId();
+            var seat = CapturedSeat(current, name);
+            seat.RestoredSessionId = next;
+            seat.Restore!.StartedAtUtc = _rig.Now;
+            _rig.Endings[current] = SessionHistoryEndings.Closed;
+            current = next;
+        }
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: asked level by level up to the cap, then handed to the owner with the reason.
+        Assert.Equal((0, 0, 1), (run.Rerouted, run.Followed, run.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((MailDeskWords.RoutedStates.Returned, MailDeskRoutedReasons.RestartChainTooLong), (row.State, row.OwnerReason));
+        Assert.Equal(MailDeskRouter.MaxRestartsFollowed, _rig.RestartSeatsAsked.Count);
+        // The held email went to no new session: the seat, now free, started only the waiting one.
+        Assert.Equal(2, _rig.Starts.Count);
+        Assert.Equal(1, _rig.Starts[1].Request.FactoryCheck!.Count);
+    }
+
+    [Fact]
+    public async Task NewMailDeskRouter_AsGatewayHostWiresIt_ACancelledRecordsShutDownSeat_IsStillOwed_NotRerouted()
+    {
+        // Arrange: the drain had shut the session down before the owner pressed "Cancel and keep working"; the cancel
+        // brings that seat back, and the router runs while that Bring back is under way.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.UseGatewayHostWiring(new SessionHistoryStore(_rig.Db));
+        WriteHistoryRecord(session, SessionHistoryEndings.Closed);
+        _rig.SaveRestartRecord("restart-cancelled", cancelledAtUtc: _rig.Now, new WorkspaceSeat
+        {
+            SessionId = session,
+            Name = _rig.Starts[0].Request.Name!,
+            ClosedAtUtc = _rig.Now.AddMinutes(-1),
+            Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Restore, Command = "bring back" },
+        });
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(1);
+        var run = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((0, 0), (run.Rerouted, run.ToOwner));
+        Assert.Single(_rig.Starts);
+        Assert.Equal(session, _rig.Row(held.Id).SessionId);
+    }
+
     /// <summary>The session's history record in the rig's account, as the Gateway keeps it, with this ending.</summary>
     private void WriteHistoryRecord(string sessionId, string ending)
     {

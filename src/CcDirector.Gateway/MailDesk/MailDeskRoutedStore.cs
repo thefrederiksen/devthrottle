@@ -674,6 +674,11 @@ public static class MailDeskRoutedReasons
     /// <see cref="MailDeskRouter.RestartOwedFor"/>, went to the owner - never re-routed, so two sessions never work it.</summary>
     public const string NotBroughtBack = "its session was ended by a Director restart and was not brought back within 72 hours";
 
+    /// <summary>Why an email whose session was restarted and brought back more times than the router follows in one run
+    /// (<see cref="MailDeskRouter.MaxRestartsFollowed"/>) went to the owner - never re-routed, since the last session
+    /// may still be owed a Bring back.</summary>
+    public const string RestartChainTooLong = "its session was restarted and brought back more than 10 times before the Mail Desk could follow it";
+
     /// <summary>Why an email whose session could not be started went to the owner.</summary>
     public static string StartFailedTimes(int times, string error) => $"its session could not be started {times} times: {error}";
 
