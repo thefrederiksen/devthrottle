@@ -140,7 +140,13 @@ In order:
    session under a new id with the same name and the same factory and seat (and a different origin surface), so
    before a `closed` or `director-stopped` ending counts as ended, the router looks for a live session with the row's
    exact `StartName` and the same factory and seat; found, the row ADOPTS it (takes its id, stays open) instead of
-   being re-routed (review of 4283, finding 2). A session that renamed itself is not followed: it is re-routed once. A session the Gateway cannot see at all is
+   being re-routed (review of 4283, finding 2). A session that renamed itself is not followed: it is re-routed once.
+   **An ending written because a Director stopped or restarted** (a Smart Restart's drain, a Director shutdown) does
+   NOT end a routed session at once: the Bring back after a restart waits for the owner's press, while the Mail Desk
+   check runs within seconds, so re-routing at once would put two sessions on one email. Such an ending waits like
+   `interrupted` - followed if the restored session appears, otherwise ended by the 24-hour rule. Only an ending a
+   person or the agent itself made ends it at once (review of the answers to 4283, ruled by the Tech Lead,
+   20 October 2026). A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
