@@ -17,11 +17,14 @@ user's name and the token are scrubbed.
 | `windows-20261020-015945` | SOREN_NORTH, Pi 1.3.0 | Windows run 5, in the report. | 3 failed: Stop came after the turn had ended, so both screens after Stop failed too |
 | `windows-20261020-021210` | SOREN_NORTH, Pi 1.3.0 | Windows run 6, in the report. | 3 failed, on the provider's slow replies; Stop cancelled the turn that was running |
 | `windows-20261020-041719` | SOREN_NORTH, Pi 1.3.0 | Windows run 7, in the report, every model-reply wait five minutes. | 7 failed: the provider refused every turn with 429, and the product said so on each receipt and turn |
+| `windows-20261020-061534` | SOREN_NORTH, Pi 1.3.0 | Windows run 8, the last try, in the report. | 5 failed: the provider refused nearly every attempt with 429; Stop cancelled the long prompt's turn while Pi was retrying it ("Delivered - stopped"), and both screens after Stop passed |
 
-**The QA report** is `qa-report.html` in this folder, built from `linux-20261020-010149` and Windows runs 5 to 7 with
+**The QA report** is `qa-report.html` in this folder, built from `linux-20261020-010149` and Windows runs 5 to 8 with
 `scripts/build-api-mode-qa-report.ps1` (several runs per platform are shown side by side), and checked with the
-Gateway's `DevReportShapeCheck`. Its status is `agent-working`: Linux is proven as a whole, Windows is not, because no
-Windows run passed every check.
+Gateway's `DevReportShapeCheck`. Its status is `done`, set by the Delivery Lead: Linux passed every check in one run;
+on Windows no single run did, because the provider refused with 429 engine_overloaded, and the report says so. The
+Delivery Lead merged #4277 (Pi starts in API mode by default) on the judgement that the report passes with that
+Windows caveat. Spend is given both ways: what Pi recorded, and the script's estimate as an upper bound (spend.md).
 | `linux-20261020-010149` | devlinux, Pi 1.2.0 | The recorded run's script with one change: the mid-turn screen waits, on each surface, for the status line AND a reply streaming in (commit 26a227479, built fresh). In `linux-20261020-003750` the Cockpit was photographed the moment its status line came up, a second or more before Pi's first word, so its picture had no reply; the Cockpit itself streams (measured: it drew Pi's first word 83 milliseconds after the Director stored it). | Every check passed; both mid-turn screens show the reply streaming in; 0.09 dollars |
 
 **This dry run is superseded by the recorded run.** It is kept as a record of the rig working, not as the evidence

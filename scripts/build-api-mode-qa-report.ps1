@@ -113,16 +113,28 @@ $neverPassed = @(foreach ($p in $platforms) {
 $provenPlatforms = @($platforms | Where-Object { @($byPlatform[$_] | Where-Object { Test-RunPassed $_ }).Count -gt 0 })
 $allPassed = $provenPlatforms.Count -eq $platforms.Count
 if (-not $Status) { $Status = if ($allPassed -and $missing.Count -eq 0) { 'done' } else { 'agent-working' } }
+# Two figures per run (spend.md): what Pi recorded in its own session files, priced at spend.md's rates, is the real
+# spend; the script's spendDollars adds an estimate for every reply Pi recorded as zero, so it is an upper bound.
+function Get-RecordedDollars($Run) {
+    $file = Join-Path $Run.folder 'spend.txt'
+    if (-not (Test-Path $file)) { throw "No spend.txt in $($Run.folder): the run's recorded tokens cannot be read." }
+    $m = [regex]::Match((Get-Content $file -Raw), 'input (\d+), output (\d+), cache read (\d+), cache write (\d+)')
+    if (-not $m.Success) { throw "spend.txt in $($Run.folder) does not name Pi's recorded tokens." }
+    $t = 1..4 | ForEach-Object { [double]$m.Groups[$_].Value }
+    [math]::Round($t[0] * 5e-6 + $t[1] * 40e-6 + $t[2] * 0.5e-6 + $t[3] * 5e-6, 4)
+}
+foreach ($run in $runData) { $run | Add-Member -NotePropertyName recordedDollars -NotePropertyValue (Get-RecordedDollars $run) }
 $spend = ($runData | Measure-Object -Property spendDollars -Sum).Sum
+$recordedSpend = ($runData | Measure-Object -Property recordedDollars -Sum).Sum
 
 # The mission's running total, from spend.md beside the proofs folder, when it is there.
 $spendFile = Join-Path (Split-Path (Split-Path (Split-Path $Out))) 'spend.md'
 $missionSpend = $null
 if (Test-Path $spendFile) {
     $text = Get-Content $spendFile -Raw
-    $so = [regex]::Match($text, "\| Mission so far[^|]*\| ([0-9.]+) \|")
-    $left = [regex]::Match($text, "\| Left of the 10 dollar grant \| ([0-9.]+) \|")
-    if ($so.Success -and $left.Success) { $missionSpend = "The whole mission has spent about $($so.Groups[1].Value) dollars of the owner's 10 dollar grant for Pi, with $($left.Groups[1].Value) left (spend.md records every run)." }
+    $so = [regex]::Match($text, "\| Mission so far[^|]*\| ([0-9.]+) \| ([0-9.]+) \|")
+    $left = [regex]::Match($text, "\| Left of the 10 dollar grant \| ([0-9.]+) \| ([0-9.]+) \|")
+    if ($so.Success -and $left.Success) { $missionSpend = "The whole mission has spent $($so.Groups[1].Value) dollars of the owner's 10 dollar grant for Pi by Pi's own records, $($so.Groups[2].Value) at the upper bound, leaving $($left.Groups[1].Value) (or $($left.Groups[2].Value) at the upper bound). spend.md records every run both ways." }
 }
 
 $findingBlocks = @()
@@ -159,7 +171,7 @@ function RunLine($Run) {
     $pass = @($Run.steps | Where-Object { $_.result -eq 'PASS' }).Count
     $fail = @($Run.steps | Where-Object { $_.result -eq 'FAIL' }).Count
     $word = if (Test-RunPassed $Run) { 'every check passed' } else { "$fail check(s) failed" }
-    "$word ($pass passed, $fail failed). Pi $(Html $Run.pi), commit <code>$(Html (([string]$Run.commit).Substring(0, 9)))</code>, tree $(Html $Run.tree)"
+    "$word ($pass passed, $fail failed). Spend $($Run.recordedDollars) dollars recorded by Pi, $($Run.spendDollars) at the upper bound. Pi $(Html $Run.pi), commit <code>$(Html (([string]$Run.commit).Substring(0, 9)))</code>, tree $(Html $Run.tree)"
 }
 
 Add '<section data-dev-report="summary"><h2>Summary</h2>'
@@ -178,13 +190,14 @@ foreach ($p in $platforms) {
     }
     foreach ($n in @($Note | Where-Object { $_ -like "${p}: *" })) { Add "<p>$(Html $n.Substring($p.Length + 2))</p>" }
 }
+foreach ($n in @($Note | Where-Object { $_ -like 'all: *' })) { Add "<p>$(Html $n.Substring(5))</p>" }
 foreach ($m in $missing) { Add "<p><strong>$m</strong>: <span class=""missing"">no run yet, so nothing on $m is proven by this report.</span></p>" }
 if ($allPassed) {
     Add "<p>On the platforms above, a user can start Pi in API mode, every prompt shows Delivered (Pi's own acknowledgement) or a reason, the Chat shows the conversation live with tool cards, Stop ends the turn as cancelled, take the wheel opens Pi's real terminal on the same conversation, and hand back returns to API mode with what was typed kept and the waiting prompts delivered.</p>"
 } else {
     Add "<p class=""missing"">Not proven as a whole on $(Html ((@($platforms | Where-Object { $_ -notin $provenPlatforms })) -join ', ')): no run there passed every check.$(if ($provenPlatforms.Count -gt 0) { " Proven as a whole on $(Html ($provenPlatforms -join ', '))." })</p>"
 }
-Add "<p>Estimated Pi spend for the runs in this report: $([math]::Round($spend, 2)) dollars.$(if ($missionSpend) { ' ' + (Html $missionSpend) })</p>"
+Add "<p>Pi spend for the runs in this report: $([math]::Round($recordedSpend, 2)) dollars by Pi's own recorded tokens, which is the real spend. The proof script's estimate, $([math]::Round($spend, 2)) dollars, is only an upper bound: it prices every reply Pi recorded as zero as if the provider had read a whole request and streamed 500 tokens, and on Windows runs 7 and 8 those were refusals that streamed nothing.$(if ($missionSpend) { ' ' + (Html $missionSpend) })</p>"
 Add '</section>'
 
 Add '<section data-dev-report="questions"><h2>Questions</h2><p data-dev-report-no-questions>No questions - nothing needed from you.</p></section>'
