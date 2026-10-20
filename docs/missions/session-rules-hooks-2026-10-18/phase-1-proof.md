@@ -108,6 +108,28 @@ The rig came down cleanly (Director on its named signal, Gateway on terminate, t
 deleted). The owner's `~/.local/bin` links point where they did; their timestamps changed at 20:49:44,
 which the owner's own Director log shows was its Python tools bundle 2.25.0 update, not the rig.
 
+## 3a. Phase 1 fields through phase 2's change route and history - RAN BY THE TECH LEAD
+
+After phase 2 (#4267, agents manage rules) merged to main, this branch took it in (ruling P18; reviewed,
+no findings: `reviews/phase-1-phase-2-integration-review.md`). On the rig built from `f23ead26d`, with the
+branch's own `cc-devthrottle rules` command (evidence files `evidence/roundtrip-*`):
+
+| Step | Result |
+|---|---|
+| `rules create --kind hook --applies-to kind=repo,repo=https://github.com/Session-Rules-Rig/repo-a.git --match "echo ROUNDTRIP-PROBE" ...` | Stored `94c735b0`, `kind` hook, `appliesTo` repo `github.com/session-rules-rig/repo-a` (normalised at write), dry run |
+| `rules change` to `appliesTo` `repo_on_machine` (repo A on devlinux) and match `echo ROUNDTRIP-CHANGED` | Accepted; the rule reads back with both |
+| `rules change --body '{"kind":"screen"}'` | Refused, HTTP 400: "a rule's kind cannot be changed: this is a hook rule, and a hook rule and a screen rule are different instructions." |
+| `rules change --cooldown 5m` on the hook rule | Refused, HTTP 400: "a hook rule has no cooldownSeconds ..." |
+| `rules history` | The create (after: hook, repo, `echo ROUNDTRIP-PROBE`) and the change (before: hook, repo, `echo ROUNDTRIP-PROBE`; after: hook, repo_on_machine, `echo ROUNDTRIP-CHANGED`) |
+| From inside a real rig session (`a344c6fb`, its own session key): `rules promote` | Refused, HTTP 400: "live hook rules arrive in phase 4." |
+| From the same session: `rules change --match "echo ROUNDTRIP-BY-SESSION"` | Accepted, and `rules history` lists it against session `a344c6fb`, agent RawCli |
+
+Tests on `b39fb4203` (the branch after the merge, before the release commits from main), re-run by the
+Tech Lead: evaluator 70, Core hook and rules 163, Gateway rules, migrations, boot smoke, migration chain
+and session-key guard 1282 - all passed, exit 0. The migration `AddSessionRuleKindsAndHookFirings` now
+follows phase 2's `AddSessionRuleChanges`. Taken from the Developer: the Postgres migration test 1 of 1
+on a throwaway `postgres:16`, and the command line tool's suite 5109 passed, 2 skipped.
+
 ## 4. Timing - added time per shell command
 
 **Linux - RAN BY THE TECH LEAD**, `scripts/measure-rule-hook.sh --runs 300` with the exact evaluator the
@@ -142,6 +164,10 @@ Windows, not ours to remove.
   and the evaluator was not asked again. Whether a Linux RawCli shell behaves the same on main was not
   checked (the September demonstration ran on Windows `cmd`). And the step after that, the model call,
   needs a DevThrottle inference key the machine's secret store does not hold.
+- **The same miss happens on main without this change.** A rig built from `origin/main` at
+  `e00092bd2`, the same September rule and the same busy `bash` command ending in the notice: one
+  evaluator pass when the session was created, none after the notice appeared. It is an existing gap
+  in how a Linux RawCli shell's turn end is seen, not something phase 1 caused. Separate open item.
 - To run it: the owner adds the key (`cc-secrets add devthrottle-api-key --env-name DEVTHROTTLE_API_KEY
   --uses run`), and the row is run on Windows `cmd` as in September, or the Linux shell's turn end is
   investigated.
@@ -156,7 +182,13 @@ Windows, not ours to remove.
 - The September screen rule firing live (section 5).
 - A real stop of a running Director with decisions undelivered: the shutdown drain and the start-up
   forwarding of leftovers are proven by unit tests only.
-- The release workflow publishing the Director with the hook embedded: it rests on the GitHub runners
-  having the native toolchains (Windows C++ tools, Ubuntu clang); not run.
+- The release workflow publishing the Director with the hook embedded: not run. **Main's continuous
+  integration cannot go red on it**: `ci.yml` builds the solution with `dotnet build` and no runtime
+  identifier, so the Director's `EmbedRuleHook` is off and nothing is compiled natively - the Windows
+  gate built and ran on a machine with no C++ tools at all. Only `release.yml`'s two Director publish
+  jobs compile it natively: Windows on `windows-latest` (`-r win-x64`), whose image carries the Visual
+  Studio C++ build tools, and Linux on `ubuntu-latest` (`-r linux-x64`), whose image carries clang. This
+  machine shows gcc alone is enough on Linux and no zlib development package is needed. Until a release
+  runs, that rests on the runner images.
 - Codex never reviewed this work: it is not installed on devlinux, so every review ran on the next
   reviewer in the owner's order (`CLAUDE.md`, rule 5a).

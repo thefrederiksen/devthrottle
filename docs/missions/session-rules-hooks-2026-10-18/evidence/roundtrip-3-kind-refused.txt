@@ -1,0 +1,4 @@
+Error: a rule's kind cannot be changed: this is a hook rule, and a hook rule and a screen rule are different instructions. Delete this one and create the screen rule instead. (HTTP 400)
+help[2]:
+  cc-devthrottle rules list
+  cc-devthrottle rules show 94c735b0-1a68-446e-a4a4-a5691cfd7935

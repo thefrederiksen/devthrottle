@@ -1,0 +1,35 @@
+{
+  "rule": {
+    "id": "94c735b0-1a68-446e-a4a4-a5691cfd7935",
+    "instruction": "Round trip probe: refuse echo ROUNDTRIP-PROBE in repo A.",
+    "screenDescription": "",
+    "triggerWords": [],
+    "checks": [],
+    "scope": {
+      "agent": null,
+      "repository": null,
+      "machine": null,
+      "mission": null
+    },
+    "cooldownSeconds": 0,
+    "dailyCap": 0,
+    "state": "dry_run",
+    "kind": "hook",
+    "appliesTo": {
+      "kind": "repo",
+      "machines": [],
+      "exceptMachines": [],
+      "repo": "github.com/session-rules-rig/repo-a"
+    },
+    "event": "before_command",
+    "tool": "shell",
+    "handler": "match",
+    "match": [
+      "echo ROUNDTRIP-PROBE"
+    ],
+    "result": "deny",
+    "promotedBy": "",
+    "createdUtc": "2026-10-20T03:04:48.9328247Z",
+    "updatedUtc": "2026-10-20T03:04:48.9328247Z"
+  }
+}

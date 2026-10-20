@@ -1,0 +1,4 @@
+Error: a hook rule has no cooldownSeconds - it is decided by the hook on every command it polices, and a bound written here would be stored as nothing. (HTTP 400)
+help[2]:
+  cc-devthrottle rules list
+  cc-devthrottle rules show 94c735b0-1a68-446e-a4a4-a5691cfd7935
