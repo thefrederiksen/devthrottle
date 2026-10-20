@@ -1,0 +1,88 @@
+=== 1. Signed out: the Cockpit's ticket request with no sign-in
+$ curl -X POST http://127.0.0.1:7996/boxes/relay-proof/desktop-ticket 
+-> HTTP 401
+Content-Type: application/json; charset=utf-8
+{"error":"missing or invalid token"}
+
+=== 2. Signed out: the desktop page on the desktop host with no box cookie
+$ curl http://localhost:7996/boxes/relay-proof/desktop/ 
+-> HTTP 401
+Content-Type: application/json; charset=utf-8
+{"error":"Open this desktop from the Cockpit."}
+
+=== 3. Signed out: the desktop WebSocket upgrade with no box cookie
+$ curl -H Connection:\ Upgrade -H Upgrade:\ websocket -H Sec-WebSocket-Version:\ 13 -H Sec-WebSocket-Key:\ dGhlIHNhbXBsZSBub25jZQ== http://localhost:7996/boxes/relay-proof/desktop/api/websockets 
+-> HTTP 401
+Content-Type: application/json; charset=utf-8
+{"error":"Open this desktop from the Cockpit."}
+
+=== 4. The Gateway's own sign-in is not a key to the desktop host
+$ curl -H Authorization:\ Bearer\ <token> http://localhost:7996/boxes/relay-proof/desktop/ 
+-> HTTP 401
+Content-Type: application/json; charset=utf-8
+{"error":"Open this desktop from the Cockpit."}
+
+=== 5. Unknown box id: no connected Director of this account hosts it
+$ curl -X POST -H Authorization:\ Bearer\ <token> http://127.0.0.1:7996/boxes/no-such-box/desktop-ticket 
+-> HTTP 404
+Content-Type: application/json; charset=utf-8
+{"error":"No connected Director in your account hosts a desktop for that box."}
+
+=== 6. Not a box id
+$ curl -X POST -H Authorization:\ Bearer\ <token> http://127.0.0.1:7996/boxes/Not_A_Box/desktop-ticket 
+-> HTTP 400
+Content-Type: application/json; charset=utf-8
+{"error":"That is not a box id."}
+
+=== 7. The desktop route does not exist on the main host
+$ curl -H Authorization:\ Bearer\ <token> http://127.0.0.1:7996/boxes/relay-proof/desktop/ 
+-> HTTP 404
+
+
+=== 8. The desktop host serves nothing else: the session list
+$ curl -H Authorization:\ Bearer\ <token> http://localhost:7996/sessions 
+-> HTTP 404
+
+
+=== 9. The desktop host serves nothing else: the ticket route
+$ curl -X POST -H Authorization:\ Bearer\ <token> http://localhost:7996/boxes/relay-proof/desktop-ticket 
+-> HTTP 404
+
+
+=== 10. ... but /healthz still answers there, for the deploy workflows
+$ curl http://localhost:7996/healthz 
+-> HTTP 200
+Content-Type: application/json; charset=utf-8
+{"status":"ok","directors":1,"sessions":0,"version":"2.25.0+e796998e6c2378cc399d28d811a2d9a6992c3796","subsystems":{"statistics":"available","ai-attribution":"available"},"serverTime":"2026-10-20T03:14:28.7919074Z","directorId":null,"machineName":null}
+
+=== 11. A ticket, redeemed once: the box cookie and a page that moves on without the ticket
+$ curl http://localhost:7996/boxes/relay-proof/desktop/\?ticket=<redacted> 
+-> HTTP 200
+Content-Type: text/html; charset=utf-8
+Set-Cookie: cc-box-desktop=<session>; expires=Tue, 20 Oct 2026 11:14:28 GMT; path=/boxes/relay-proof/desktop/; secure; samesite=strict; httponly
+<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/boxes/relay-proof/desktop/"><title>Opening the desktop</title></head><body><a href="/boxes/relay-proof/desktop/">Open the desktop</a></body></html>
+
+=== 12. The same ticket again: refused
+$ curl http://localhost:7996/boxes/relay-proof/desktop/\?ticket=<redacted> 
+-> HTTP 403
+Content-Type: text/plain; charset=utf-8
+This desktop link has expired or was already used. Open the box again from the Cockpit.
+
+=== 13. The box cookie opens this box's desktop
+$ curl -H Cookie:\ cc-box-desktop=<session> http://localhost:7996/boxes/relay-proof/desktop/api/status 
+-> HTTP 200
+Content-Type: application/json; charset=utf-8
+{"current_mode": "websockets", "available_modes": ["webrtc", "websockets"], "enable_dual_mode": false}
+
+=== 14. The same cookie does not open another box's path
+$ curl -H Cookie:\ cc-box-desktop=<session> http://localhost:7996/boxes/other-box/desktop/ 
+-> HTTP 401
+Content-Type: application/json; charset=utf-8
+{"error":"Open this desktop from the Cockpit."}
+
+=== 15. No trailing slash: a redirect that stays on the desktop host, never 127.0.0.1
+$ curl -H Cookie:\ cc-box-desktop=<session> http://localhost:7996/boxes/relay-proof/desktop\?x=1 
+-> HTTP 302
+Location: /boxes/relay-proof/desktop/?x=1
+
+
