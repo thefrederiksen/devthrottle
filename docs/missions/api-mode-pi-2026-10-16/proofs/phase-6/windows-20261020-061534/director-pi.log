@@ -1,0 +1,619 @@
+2026-10-20 02:23:17.662 [ApiModeEventPusher] Created: batch=500 events or 4000000 characters, held per session=20000 events or 50000000 characters
+2026-10-20 02:23:17.777 [ApiModeEventPusher] Start: sweep every 60s
+2026-10-20 02:23:17.852 [ApiModeEventPusher] NewConnection: the next answered Hello resends every held event
+2026-10-20 02:23:22.126 [ApiModeSessionBackend] Start: session=6df4153e-be21-43bf-a710-e215999efa54, executable=~\AppData\Roaming\npm\pi.cmd, args=--session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt "<rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt", workingDir=<rig>\work
+2026-10-20 02:23:22.127 [ApiModeConversationClaims] Claim: D:\APIPROOF\API-MODE-PI-PROOF-20261020-061534\WORK|5c8cac5c-541b-4331-97e5-3747fc73bdcc -> 6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:23:22.128 [ApiModeSessionHost] Created: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, resuming=False, generation=1ae4a575-7f13-48b5-8502-223a09c53765
+2026-10-20 02:23:22.129 [ApiModeSessionHost] Start: session=6df4153e-be21-43bf-a710-e215999efa54, executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt <rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt], workingDirectory=<rig>\work
+2026-10-20 02:23:22.130 [PiDialect] Created: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, resuming=False
+2026-10-20 02:23:22.131 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt <rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt], workingDirectory=<rig>\work
+2026-10-20 02:23:22.133 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:23:22.133 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:23:22.135 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-20 02:23:22.783 [ApiModeTransport] Start: process 16044 running
+2026-10-20 02:23:22.783 [ApiModeSessionHost] StartConnection: session=6df4153e-be21-43bf-a710-e215999efa54, Pi running as process 16044, resuming=False
+2026-10-20 02:23:22.786 [PiDialect] Build: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-1
+2026-10-20 02:23:22.788 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-20 02:23:22.796 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-1, prompt=
+2026-10-20 02:23:25.269 [ApiModeTransport] process 16044 standard error: Warning: No project session found with id '5c8cac5c-541b-4331-97e5-3747fc73bdcc'; creating a new session with that id.
+2026-10-20 02:23:25.530 [ApiModeTransport] ErrorLinesSince: marker=1, lines=1, noLongerHeld=0
+2026-10-20 02:23:25.530 [PiDialect] OnStderrLine: session=6df4153e-be21-43bf-a710-e215999efa54, line=Warning: No project session found with id '5c8cac5c-541b-4331-97e5-3747fc73bdcc'; creating a new session with that id.
+2026-10-20 02:23:25.531 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:23:25.532 [PiDialect] Response: session=6df4153e-be21-43bf-a710-e215999efa54, command=dt-1, type=get_state, success=True
+2026-10-20 02:23:25.532 [PiDialect] State: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, model=zai-org/GLM-5.3, messages=0
+2026-10-20 02:23:26.018 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 1..1, watermark 1, 1 acknowledged
+2026-10-20 02:23:40.948 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, length=32, gatewayPromptId=fdc6ba5748784b02981335cc30c425de
+2026-10-20 02:23:40.949 [PiDialect] BuildPrompt: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=fdc6ba5748784b02981335cc30c425de, command=dt-2, length=32
+2026-10-20 02:23:40.949 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-20 02:23:40.950 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=prompt, command=dt-2, prompt=fdc6ba5748784b02981335cc30c425de
+2026-10-20 02:23:40.955 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.955 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:23:40.955 [PiDialect] Delivered: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=fdc6ba5748784b02981335cc30c425de, disposition=started
+2026-10-20 02:23:40.959 [ApiModeSessionHost] Turn-start bound armed: session=6df4153e-be21-43bf-a710-e215999efa54, prompts=fdc6ba5748784b02981335cc30c425de, bound=60s
+2026-10-20 02:23:40.959 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=fdc6ba5748784b02981335cc30c425de, delivered
+2026-10-20 02:23:40.959 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.959 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:23:40.960 [PiDialect] TurnStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, prompts=fdc6ba5748784b02981335cc30c425de
+2026-10-20 02:23:40.960 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.960 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:23:40.960 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.960 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:40.961 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.961 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:40.961 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.961 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:40.961 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:40.961 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:41.072 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 2..2, watermark 2, 1 acknowledged
+2026-10-20 02:23:41.088 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 3..3, watermark 3, 1 acknowledged
+2026-10-20 02:23:41.470 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.470 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:41.471 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.471 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:41.472 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, message=turn-1-message-1, stopReason=error
+2026-10-20 02:23:41.472 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.472 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:23:41.477 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.477 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:23:41.481 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.481 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:23:41.481 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:41.481 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:23:43.519 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.519 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:23:43.519 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.519 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:43.640 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, message=turn-1-message-2, stopReason=error
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:23:43.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:43.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:23:47.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:23:47.640 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.640 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:23:47.909 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.909 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:47.910 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.910 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:47.910 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, message=turn-1-message-3, stopReason=error
+2026-10-20 02:23:47.910 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.910 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:23:47.911 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.911 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:23:47.912 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.912 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:23:47.912 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:47.912 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:23:55.928 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:55.928 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:23:55.928 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:55.928 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:23:56.186 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.186 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:56.186 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.186 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:56.186 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, message=turn-1-message-4, stopReason=error
+2026-10-20 02:23:56.186 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.186 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:23:56.186 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.186 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:23:56.188 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.188 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:23:56.189 [PiDialect] Retries exhausted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, finalError=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}
+2026-10-20 02:23:56.189 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:56.189 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_settled
+2026-10-20 02:23:56.191 [PiDialect] TurnEnded: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-1, outcome=Failed, reason=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}, stopReason=error
+2026-10-20 02:23:56.398 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 4..4, watermark 4, 1 acknowledged
+2026-10-20 02:23:59.365 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, length=70, gatewayPromptId=b989133c58ec411dab4e47b67ff9d834
+2026-10-20 02:23:59.365 [PiDialect] BuildPrompt: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=b989133c58ec411dab4e47b67ff9d834, command=dt-3, length=70
+2026-10-20 02:23:59.365 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-20 02:23:59.365 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=prompt, command=dt-3, prompt=b989133c58ec411dab4e47b67ff9d834
+2026-10-20 02:23:59.376 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.376 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:23:59.377 [PiDialect] Delivered: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=b989133c58ec411dab4e47b67ff9d834, disposition=started
+2026-10-20 02:23:59.377 [ApiModeSessionHost] Turn-start bound armed: session=6df4153e-be21-43bf-a710-e215999efa54, prompts=b989133c58ec411dab4e47b67ff9d834, bound=60s
+2026-10-20 02:23:59.378 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.378 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:23:59.378 [PiDialect] TurnStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, prompts=b989133c58ec411dab4e47b67ff9d834
+2026-10-20 02:23:59.378 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=b989133c58ec411dab4e47b67ff9d834, delivered
+2026-10-20 02:23:59.378 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.378 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:23:59.378 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.378 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:59.378 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.378 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:59.449 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 5..5, watermark 5, 1 acknowledged
+2026-10-20 02:23:59.480 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 6..6, watermark 6, 1 acknowledged
+2026-10-20 02:23:59.533 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.533 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:23:59.534 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.534 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:23:59.534 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-1, stopReason=error
+2026-10-20 02:23:59.534 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.534 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:23:59.534 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.534 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:23:59.534 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.534 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:23:59.534 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:23:59.534 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:24:01.543 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:24:01.543 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:24:01.544 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:24:01.544 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:24:01.682 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:24:01.682 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:29:08.249 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, length=67, gatewayPromptId=61cfd6c8f3ae4ed1b4862a55d0efeea5
+2026-10-20 02:29:08.250 [ApiModeSessionHost] Queued: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=61cfd6c8f3ae4ed1b4862a55d0efeea5, reason=TurnRunning, position=1
+2026-10-20 02:29:08.272 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 7..7, watermark 7, 1 acknowledged
+2026-10-20 02:34:04.614 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 8..8, watermark 8, 1 acknowledged
+2026-10-20 02:34:04.923 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 9..9, watermark 9, 1 acknowledged
+2026-10-20 02:34:05.247 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 10..10, watermark 10, 1 acknowledged
+2026-10-20 02:34:05.629 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 11..11, watermark 11, 1 acknowledged
+2026-10-20 02:34:05.929 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 12..12, watermark 12, 1 acknowledged
+2026-10-20 02:34:06.292 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 13..13, watermark 13, 1 acknowledged
+2026-10-20 02:34:07.076 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.076 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:07.077 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-2, stopReason=toolUse
+2026-10-20 02:34:07.077 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.077 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:34:07.077 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.077 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=tool_execution_start
+2026-10-20 02:34:07.077 [PiDialect] ToolCallStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, tool=bash, call=chatcmpl-tool-a7a6a42a78ed77a1
+2026-10-20 02:34:07.078 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 14..14, watermark 14, 1 acknowledged
+2026-10-20 02:34:07.081 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.081 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=tool_execution_update
+2026-10-20 02:34:07.086 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 15..15, watermark 15, 1 acknowledged
+2026-10-20 02:34:07.428 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.428 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=tool_execution_update
+2026-10-20 02:34:07.433 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.433 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=tool_execution_end
+2026-10-20 02:34:07.435 [PiDialect] ToolCallFinished: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, call=chatcmpl-tool-a7a6a42a78ed77a1, isError=False
+2026-10-20 02:34:07.438 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.438 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:07.438 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.438 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:07.438 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.438 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:07.438 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.438 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:07.449 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 16..16, watermark 16, 1 acknowledged
+2026-10-20 02:34:07.684 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.684 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:07.685 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.685 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:07.685 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-3, stopReason=error
+2026-10-20 02:34:07.685 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.685 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:07.685 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.685 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:07.686 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.686 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:34:07.686 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:07.686 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:34:09.688 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.688 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:09.688 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.688 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:09.877 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.877 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:09.878 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.878 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:09.878 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-4, stopReason=error
+2026-10-20 02:34:09.878 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.878 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:09.878 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.878 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:09.878 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.878 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:34:09.878 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:09.878 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:34:13.887 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:13.888 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:13.888 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:13.888 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:14.123 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.123 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:14.124 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.124 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:14.125 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-5, stopReason=error
+2026-10-20 02:34:14.125 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.125 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:14.125 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.125 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:14.126 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.126 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:34:14.126 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:14.126 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:34:22.128 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.128 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:22.128 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.128 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:22.363 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.363 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:22.363 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.363 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:22.363 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, message=turn-2-message-6, stopReason=error
+2026-10-20 02:34:22.363 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.363 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:22.363 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.363 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:22.364 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.364 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:34:22.364 [PiDialect] Retries exhausted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, finalError=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}
+2026-10-20 02:34:22.364 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.364 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_settled
+2026-10-20 02:34:22.364 [PiDialect] TurnEnded: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-2, outcome=Failed, reason=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}, stopReason=error
+2026-10-20 02:34:22.364 [PiDialect] BuildPrompt: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=61cfd6c8f3ae4ed1b4862a55d0efeea5, command=dt-4, length=67
+2026-10-20 02:34:22.364 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-20 02:34:22.364 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=prompt, command=dt-4, prompt=61cfd6c8f3ae4ed1b4862a55d0efeea5
+2026-10-20 02:34:22.366 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.366 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:34:22.366 [PiDialect] Delivered: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=61cfd6c8f3ae4ed1b4862a55d0efeea5, disposition=started
+2026-10-20 02:34:22.367 [ApiModeSessionHost] Turn-start bound armed: session=6df4153e-be21-43bf-a710-e215999efa54, prompts=61cfd6c8f3ae4ed1b4862a55d0efeea5, bound=60s
+2026-10-20 02:34:22.367 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=61cfd6c8f3ae4ed1b4862a55d0efeea5, delivered
+2026-10-20 02:34:22.367 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.367 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:22.367 [PiDialect] TurnStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, prompts=61cfd6c8f3ae4ed1b4862a55d0efeea5
+2026-10-20 02:34:22.367 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.367 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:22.367 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.367 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:22.367 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.367 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:22.389 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 17..17, watermark 17, 1 acknowledged
+2026-10-20 02:34:22.492 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.492 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:22.493 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.493 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:22.493 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, message=turn-3-message-1, stopReason=error
+2026-10-20 02:34:22.493 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.493 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:22.493 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.493 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:22.493 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.493 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:34:22.493 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:22.493 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:34:22.919 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 18..19, watermark 19, 2 acknowledged
+2026-10-20 02:34:24.498 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.498 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:24.498 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.498 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:24.602 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.602 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:24.602 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.602 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:24.602 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, message=turn-3-message-2, stopReason=error
+2026-10-20 02:34:24.602 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.602 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:24.602 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.602 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:24.603 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.603 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:34:24.603 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:24.603 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:34:28.615 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.615 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:34:28.615 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.615 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:34:28.688 [ApiModeSessionBackend] StopTurnAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=Protocol
+2026-10-20 02:34:28.689 [ApiModeSessionHost] StopAsync: session=6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:34:28.689 [PiDialect] Build: session=6df4153e-be21-43bf-a710-e215999efa54, type=abort, command=dt-5
+2026-10-20 02:34:28.689 [ApiModeTransport] WriteRecordAsync: record=abort
+2026-10-20 02:34:28.689 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=abort, command=dt-5, prompt=
+2026-10-20 02:34:28.691 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.691 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:34:28.692 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.692 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:34:28.692 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, message=turn-3-message-3, stopReason=aborted
+2026-10-20 02:34:28.693 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.693 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:34:28.693 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.693 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:34:28.693 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.693 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:34:28.693 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.693 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_settled
+2026-10-20 02:34:28.693 [PiDialect] TurnEnded: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, outcome=Cancelled, reason=stopped by the user, stopReason=aborted
+2026-10-20 02:34:28.694 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:28.694 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:34:28.694 [PiDialect] Response: session=6df4153e-be21-43bf-a710-e215999efa54, command=dt-5, type=abort, success=True
+2026-10-20 02:34:28.694 [ApiModeSessionHost] StopAsync: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-3, outcome=Cancelled
+2026-10-20 02:34:28.695 [ApiModeSessionBackend] StopTurnAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi confirmed the stop, turn=turn-3
+2026-10-20 02:34:28.703 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 20..20, watermark 20, 1 acknowledged
+2026-10-20 02:34:37.848 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=Protocol
+2026-10-20 02:34:37.849 [ApiModeSessionHost] SuspendAsync: session=6df4153e-be21-43bf-a710-e215999efa54, grace=5000ms
+2026-10-20 02:34:37.850 [ApiModeTransport] ShutdownAsync: process 16044, grace=5000ms
+2026-10-20 02:34:37.872 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 133 records
+2026-10-20 02:34:37.873 [ApiModeTransport] WatchForExitAsync: process 16044 exited with code 0
+2026-10-20 02:34:37.876 [ApiModeTransport] Complete: process 16044 ended, exit code 0, 0 requests unanswered
+2026-10-20 02:34:37.877 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-20 02:34:37.877 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-20 02:34:37.878 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=0, turn=, inFlight=0
+2026-10-20 02:34:37.879 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, reason=Pi exited (exit code 0), failure=False
+2026-10-20 02:34:37.880 [ApiModeSessionHost] OnProcessEnded: session=6df4153e-be21-43bf-a710-e215999efa54, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-20 02:34:37.880 [ApiModeSessionHost] SuspendAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi's process has ended; the user may take the conversation
+2026-10-20 02:34:37.882 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi's API process has exited; starting its terminal: C:\WINDOWS\system32\cmd.exe /s /c ""~\AppData\Roaming\npm\pi.cmd" --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt "<rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt""
+2026-10-20 02:34:37.885 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 21..21, watermark 21, 1 acknowledged
+2026-10-20 02:34:37.914 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, the user has the wheel, terminal process 2900
+2026-10-20 02:34:48.172 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:34:48.172 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:34:51.123 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:34:51.124 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:34:54.136 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:34:54.136 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:34:57.152 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:34:57.152 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:00.163 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:00.163 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:03.179 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:03.179 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:06.188 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:06.188 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:09.197 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:09.197 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:12.229 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:12.229 [ApiModeSessionBackend] hand back REFUSED: session=6df4153e-be21-43bf-a710-e215999efa54: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-20 02:35:15.243 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:35:15.243 [ApiModeSessionBackend] ending the user's terminal: session=6df4153e-be21-43bf-a710-e215999efa54, process 2900
+2026-10-20 02:35:20.274 [ApiModeSessionBackend] the user's terminal exited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=-1
+2026-10-20 02:35:20.314 [ApiModeSessionHost] ResumeAsync: session=6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:35:20.314 [PiDialect] Created: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, resuming=False
+2026-10-20 02:35:20.314 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt <rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt], workingDirectory=<rig>\work
+2026-10-20 02:35:20.314 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:35:20.314 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:35:20.315 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-20 02:35:20.328 [ApiModeTransport] Start: process 36476 running
+2026-10-20 02:35:20.328 [ApiModeSessionHost] StartConnection: session=6df4153e-be21-43bf-a710-e215999efa54, Pi running as process 36476, resuming=False
+2026-10-20 02:35:20.328 [ApiModeSessionHost] ResumeAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi started again; 0 queued prompt(s) wait for it to name its conversation
+2026-10-20 02:35:20.328 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, the protocol holds the conversation again
+2026-10-20 02:35:20.328 [PiDialect] Build: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-6
+2026-10-20 02:35:20.328 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-20 02:35:20.328 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-6, prompt=
+2026-10-20 02:35:20.992 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:20.992 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:35:20.992 [PiDialect] Response: session=6df4153e-be21-43bf-a710-e215999efa54, command=dt-6, type=get_state, success=True
+2026-10-20 02:35:20.992 [PiDialect] State: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, model=zai-org/GLM-5.3, messages=11
+2026-10-20 02:35:21.099 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 22..22, watermark 22, 1 acknowledged
+2026-10-20 02:35:25.328 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, length=77, gatewayPromptId=54c6d787e6124b83baea1c50d5ad3791
+2026-10-20 02:35:25.328 [PiDialect] BuildPrompt: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=54c6d787e6124b83baea1c50d5ad3791, command=dt-7, length=77
+2026-10-20 02:35:25.328 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-20 02:35:25.329 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=prompt, command=dt-7, prompt=54c6d787e6124b83baea1c50d5ad3791
+2026-10-20 02:35:25.336 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.336 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:35:25.336 [PiDialect] Delivered: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=54c6d787e6124b83baea1c50d5ad3791, disposition=started
+2026-10-20 02:35:25.336 [ApiModeSessionHost] Turn-start bound armed: session=6df4153e-be21-43bf-a710-e215999efa54, prompts=54c6d787e6124b83baea1c50d5ad3791, bound=60s
+2026-10-20 02:35:25.336 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=54c6d787e6124b83baea1c50d5ad3791, delivered
+2026-10-20 02:35:25.336 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.336 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:35:25.336 [PiDialect] TurnStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, prompts=54c6d787e6124b83baea1c50d5ad3791
+2026-10-20 02:35:25.336 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.336 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:35:25.336 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.336 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:35:25.339 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.339 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:35:25.345 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 23..23, watermark 23, 1 acknowledged
+2026-10-20 02:35:25.351 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 24..24, watermark 24, 1 acknowledged
+2026-10-20 02:35:25.698 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.698 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:35:25.699 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.699 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:35:25.699 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, message=turn-4-message-1, stopReason=error
+2026-10-20 02:35:25.700 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.700 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:35:25.701 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.701 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:35:25.703 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.703 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:35:25.703 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:25.703 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:35:27.707 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.707 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:35:27.707 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.707 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:35:27.804 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.804 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:35:27.805 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.805 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:35:27.805 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, message=turn-4-message-2, stopReason=error
+2026-10-20 02:35:27.805 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.805 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:35:27.805 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.805 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:35:27.806 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.806 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:35:27.806 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:27.806 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:35:31.807 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:31.807 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:35:31.808 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:31.808 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:35:32.053 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.053 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:35:32.054 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.054 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:35:32.054 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, message=turn-4-message-3, stopReason=error
+2026-10-20 02:35:32.054 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.054 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:35:32.054 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.054 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:35:32.055 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.055 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:35:32.055 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:32.055 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:35:40.064 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.064 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:35:40.064 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.064 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:35:40.315 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.315 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:35:40.315 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.315 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:35:40.315 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, message=turn-4-message-4, stopReason=error
+2026-10-20 02:35:40.315 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.315 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:35:40.315 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.316 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:35:40.316 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.316 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:35:40.316 [PiDialect] Retries exhausted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, finalError=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}
+2026-10-20 02:35:40.316 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.316 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_settled
+2026-10-20 02:35:40.316 [PiDialect] TurnEnded: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-4, outcome=Failed, reason=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}, stopReason=error
+2026-10-20 02:35:40.328 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 25..25, watermark 25, 1 acknowledged
+2026-10-20 02:35:40.595 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=Protocol
+2026-10-20 02:35:40.595 [ApiModeSessionHost] SuspendAsync: session=6df4153e-be21-43bf-a710-e215999efa54, grace=5000ms
+2026-10-20 02:35:40.595 [ApiModeTransport] ShutdownAsync: process 36476, grace=5000ms
+2026-10-20 02:35:40.611 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 36 records
+2026-10-20 02:35:40.612 [ApiModeTransport] WatchForExitAsync: process 36476 exited with code 0
+2026-10-20 02:35:40.612 [ApiModeTransport] Complete: process 36476 ended, exit code 0, 0 requests unanswered
+2026-10-20 02:35:40.612 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:35:40.612 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=0, turn=, inFlight=0
+2026-10-20 02:35:40.612 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, reason=Pi exited (exit code 0), failure=False
+2026-10-20 02:35:40.612 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-20 02:35:40.612 [ApiModeSessionHost] OnProcessEnded: session=6df4153e-be21-43bf-a710-e215999efa54, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-20 02:35:40.612 [ApiModeSessionHost] SuspendAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi's process has ended; the user may take the conversation
+2026-10-20 02:35:40.613 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi's API process has exited; starting its terminal: C:\WINDOWS\system32\cmd.exe /s /c ""~\AppData\Roaming\npm\pi.cmd" --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt "<rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt""
+2026-10-20 02:35:40.619 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 26..26, watermark 26, 1 acknowledged
+2026-10-20 02:35:40.628 [ApiModeSessionBackend] TakeWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, the user has the wheel, terminal process 54984
+2026-10-20 02:35:42.156 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, length=37, gatewayPromptId=96fac0208baf454bb77fa9e00028585d
+2026-10-20 02:35:42.156 [ApiModeSessionHost] Queued: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=96fac0208baf454bb77fa9e00028585d, reason=UserHasTheWheel, position=1
+2026-10-20 02:35:42.168 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 27..27, watermark 27, 1 acknowledged
+2026-10-20 02:36:02.564 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, holder=User
+2026-10-20 02:36:02.564 [ApiModeSessionBackend] ending the user's terminal: session=6df4153e-be21-43bf-a710-e215999efa54, process 54984
+2026-10-20 02:36:07.584 [ApiModeSessionBackend] the user's terminal exited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=-1
+2026-10-20 02:36:07.636 [ApiModeSessionHost] ResumeAsync: session=6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:36:07.636 [PiDialect] Created: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, resuming=False
+2026-10-20 02:36:07.636 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id 5c8cac5c-541b-4331-97e5-3747fc73bdcc --append-system-prompt <rig>\root\instances\default\pi-preamble\6df4153e-be21-43bf-a710-e215999efa54.txt], workingDirectory=<rig>\work
+2026-10-20 02:36:07.636 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:36:07.636 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-20 02:36:07.636 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-20 02:36:07.644 [ApiModeTransport] Start: process 68468 running
+2026-10-20 02:36:07.644 [ApiModeSessionHost] StartConnection: session=6df4153e-be21-43bf-a710-e215999efa54, Pi running as process 68468, resuming=False
+2026-10-20 02:36:07.644 [ApiModeSessionHost] ResumeAsync: session=6df4153e-be21-43bf-a710-e215999efa54, Pi started again; 1 queued prompt(s) wait for it to name its conversation
+2026-10-20 02:36:07.644 [ApiModeSessionBackend] HandBackWheelAsync: session=6df4153e-be21-43bf-a710-e215999efa54, the protocol holds the conversation again
+2026-10-20 02:36:07.644 [PiDialect] Build: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-8
+2026-10-20 02:36:07.644 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-20 02:36:07.644 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=get_state, command=dt-8, prompt=
+2026-10-20 02:36:08.131 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.131 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:36:08.131 [PiDialect] Response: session=6df4153e-be21-43bf-a710-e215999efa54, command=dt-8, type=get_state, success=True
+2026-10-20 02:36:08.131 [PiDialect] State: session=6df4153e-be21-43bf-a710-e215999efa54, agentSession=5c8cac5c-541b-4331-97e5-3747fc73bdcc, model=zai-org/GLM-5.3, messages=13
+2026-10-20 02:36:08.131 [PiDialect] BuildPrompt: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=96fac0208baf454bb77fa9e00028585d, command=dt-9, length=37
+2026-10-20 02:36:08.131 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-20 02:36:08.131 [PiDialect] OnCommandWritten: session=6df4153e-be21-43bf-a710-e215999efa54, type=prompt, command=dt-9, prompt=96fac0208baf454bb77fa9e00028585d
+2026-10-20 02:36:08.136 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 28..28, watermark 28, 1 acknowledged
+2026-10-20 02:36:08.142 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.142 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=response
+2026-10-20 02:36:08.142 [PiDialect] Delivered: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=96fac0208baf454bb77fa9e00028585d, disposition=started
+2026-10-20 02:36:08.143 [ApiModeSessionHost] Turn-start bound armed: session=6df4153e-be21-43bf-a710-e215999efa54, prompts=96fac0208baf454bb77fa9e00028585d, bound=60s
+2026-10-20 02:36:08.143 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.143 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:36:08.143 [PiDialect] TurnStarted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, prompts=96fac0208baf454bb77fa9e00028585d
+2026-10-20 02:36:08.143 [ApiModeSessionHost] SendPromptAsync: session=6df4153e-be21-43bf-a710-e215999efa54, prompt=96fac0208baf454bb77fa9e00028585d, delivered
+2026-10-20 02:36:08.143 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.143 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:36:08.143 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.143 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:36:08.145 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.145 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:36:08.147 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 29..29, watermark 29, 1 acknowledged
+2026-10-20 02:36:08.152 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 30..30, watermark 30, 1 acknowledged
+2026-10-20 02:36:08.525 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.525 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:36:08.526 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.526 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:36:08.526 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, message=turn-5-message-1, stopReason=error
+2026-10-20 02:36:08.526 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.526 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:36:08.528 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.528 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:36:08.530 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.530 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:36:08.530 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:08.530 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:36:10.533 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.533 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:36:10.533 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.533 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:36:10.627 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.627 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:36:10.627 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.627 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:36:10.627 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, message=turn-5-message-2, stopReason=error
+2026-10-20 02:36:10.628 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.628 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:36:10.628 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.628 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:36:10.628 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.628 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:36:10.628 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:10.628 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:36:14.635 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.635 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:36:14.635 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.635 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:36:14.876 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.876 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:36:14.876 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.876 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:36:14.876 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, message=turn-5-message-3, stopReason=error
+2026-10-20 02:36:14.877 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.877 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:36:14.877 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.877 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:36:14.877 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.877 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_start
+2026-10-20 02:36:14.877 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:14.877 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=entry_appended
+2026-10-20 02:36:22.880 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:22.880 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_start
+2026-10-20 02:36:22.880 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:22.880 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_start
+2026-10-20 02:36:23.110 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.110 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_start
+2026-10-20 02:36:23.111 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.111 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=message_end
+2026-10-20 02:36:23.111 [PiDialect] Message ended: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, message=turn-5-message-4, stopReason=error
+2026-10-20 02:36:23.111 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.111 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=turn_end
+2026-10-20 02:36:23.112 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.112 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_end
+2026-10-20 02:36:23.112 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.112 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=auto_retry_end
+2026-10-20 02:36:23.112 [PiDialect] Retries exhausted: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, finalError=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}
+2026-10-20 02:36:23.113 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:23.113 [PiDialect] OnStdoutRecord: session=6df4153e-be21-43bf-a710-e215999efa54, type=agent_settled
+2026-10-20 02:36:23.113 [PiDialect] TurnEnded: session=6df4153e-be21-43bf-a710-e215999efa54, turn=turn-5, outcome=Failed, reason=429: {"message":"Model busy, retry later","type":"invalid_request_error","param":null,"code":"engine_overloaded"}, stopReason=error
+2026-10-20 02:36:23.125 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 31..31, watermark 31, 1 acknowledged
+2026-10-20 02:36:26.367 [ApiModeSessionBackend] Dispose: session=b0e769c4-1019-4057-8621-ea873c3e5e6c
+2026-10-20 02:36:27.923 [ApiModeSessionBackend] GracefulShutdownAsync: session=6df4153e-be21-43bf-a710-e215999efa54, timeout=1500ms, holder=Protocol
+2026-10-20 02:36:27.924 [ApiModeSessionHost] ShutdownAsync: session=6df4153e-be21-43bf-a710-e215999efa54, grace=1500ms
+2026-10-20 02:36:27.924 [ApiModeTransport] ShutdownAsync: process 68468, grace=1500ms
+2026-10-20 02:36:27.947 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 36 records
+2026-10-20 02:36:27.948 [ApiModeTransport] WatchForExitAsync: process 68468 exited with code 0
+2026-10-20 02:36:27.948 [ApiModeTransport] Complete: process 68468 ended, exit code 0, 0 requests unanswered
+2026-10-20 02:36:27.948 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-20 02:36:27.948 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-20 02:36:27.948 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=0, turn=, inFlight=0
+2026-10-20 02:36:27.948 [PiDialect] OnProcessExited: session=6df4153e-be21-43bf-a710-e215999efa54, reason=Pi exited (exit code 0), failure=False
+2026-10-20 02:36:27.948 [ApiModeSessionHost] OnProcessEnded: session=6df4153e-be21-43bf-a710-e215999efa54, Pi exited (exit code 0), restart=False, wheelTaken=False
+2026-10-20 02:36:27.948 [ApiModeSessionHost] ShutdownAsync: session=6df4153e-be21-43bf-a710-e215999efa54, ended: Pi exited (exit code 0)
+2026-10-20 02:36:27.949 [ApiModeSessionBackend] Exited: session=6df4153e-be21-43bf-a710-e215999efa54, exitCode=0, failure=False, reason=Pi exited (exit code 0)
+2026-10-20 02:36:27.949 [ApiModeConversationClaims] Release: D:\APIPROOF\API-MODE-PI-PROOF-20261020-061534\WORK|5c8cac5c-541b-4331-97e5-3747fc73bdcc by 6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:36:27.953 [ApiModeEventPusher] stored: session=6df4153e-be21-43bf-a710-e215999efa54, generation=1ae4a575-7f13-48b5-8502-223a09c53765, sequences 32..32, watermark 32, 1 acknowledged
+2026-10-20 02:36:27.961 [ApiModeSessionBackend] Dispose: session=6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:36:27.962 [ApiModeSessionHost] DisposeAsync: session=6df4153e-be21-43bf-a710-e215999efa54
+2026-10-20 02:36:27.963 [ApiModeTransport] DisposeAsync: process 68468
+2026-10-20 02:36:28.167 [ApiModeEventPusher] DisposeAsync
