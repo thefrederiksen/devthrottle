@@ -65,6 +65,7 @@ public sealed class MailDeskRouter
     private readonly TriggerSessionStarter _startSession;
     private readonly Func<TenantId, string, SessionDto?> _findSession;
     private readonly Func<TenantId, string, SessionDto?> _findSessionByName;
+    private readonly Func<TenantId, string, IReadOnlyList<SessionDto>> _findSessionsByName;
     private readonly Func<TenantId, IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> _endingsOf;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly Func<TenantId, TimeZoneInfo> _timeZone;
@@ -77,6 +78,9 @@ public sealed class MailDeskRouter
     /// <param name="findSessionByName">The last row any Director of the account reported for a session started from
     /// the Gateway with this exact name, or null - how a start whose outcome was not known finds its session. The name
     /// ("Mail Desk - &lt;factory&gt;/&lt;seat&gt; - ...") is never a trigger's.</param>
+    /// <param name="findSessionsByName">Every row the account's Directors last reported under exactly this name, from
+    /// any origin surface - how a session a Smart Restart restored under a new id is found (review of 4283, finding 2).
+    /// The router itself decides which one, if any, is the routed session come back.</param>
     /// <param name="endingsOf">How each of these sessions ended, from their history records
     /// (<see cref="SessionHistoryStore.EndingsOf(TenantId, IReadOnlyCollection{string})"/> in production), asked once
     /// per run for every session the run reads. A session with no record is absent from the answer.</param>
@@ -87,6 +91,7 @@ public sealed class MailDeskRouter
     public MailDeskRouter(MailDeskRoutedStore routed, MailDeskChannelStore channels, MailDeskDecisionStore decisions,
         TriggerSessionStarter startSession, Func<TenantId, string, SessionDto?> findSession,
         Func<TenantId, string, SessionDto?> findSessionByName,
+        Func<TenantId, string, IReadOnlyList<SessionDto>> findSessionsByName,
         Func<TenantId, IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> endingsOf,
         Func<TenantId, string, PublishedFactoryDefinition?> definitionOf,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime)
@@ -97,6 +102,7 @@ public sealed class MailDeskRouter
         _startSession = startSession ?? throw new ArgumentNullException(nameof(startSession));
         _findSession = findSession ?? throw new ArgumentNullException(nameof(findSession));
         _findSessionByName = findSessionByName ?? throw new ArgumentNullException(nameof(findSessionByName));
+        _findSessionsByName = findSessionsByName ?? throw new ArgumentNullException(nameof(findSessionsByName));
         _endingsOf = endingsOf ?? throw new ArgumentNullException(nameof(endingsOf));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
         _timeZone = timeZone ?? throw new ArgumentNullException(nameof(timeZone));
@@ -201,6 +207,7 @@ public sealed class MailDeskRouter
         {
             var startedUtc = session.Max(r => r.StartedUtc is { } s ? Utc(s) : DateTime.MinValue);
             if (IsAlive(tenant, session.Key, startedUtc, endings)) continue;
+            if (FollowRestored(tenant, session.First().SessionId!, session.ToList(), endings, tally)) continue;
             foreach (var row in session)
             {
                 var after = _routed.Reroute(tenant, row.Id, _nowUtc());
@@ -209,6 +216,38 @@ public sealed class MailDeskRouter
             }
             FileLog.Write($"[MailDeskRouter] RerouteOrphans: session {session.Key} ended with {session.Count()} emails open");
         }
+    }
+
+    /// <summary>
+    /// A SMART RESTART (contract 3.2 step 3; review of 4283, finding 2): it ends a session (history <c>closed</c>, or
+    /// <c>director-stopped</c>) and brings it back under a NEW id with the same name, factory and seat, resuming the
+    /// same conversation. Before such an ending counts, a live session (in the list, not gone) with the start's exact
+    /// name and the rows' factory and seat is looked for; found, the rows follow it and stay open. Returns true when
+    /// they did. A session that renamed itself is not found, and its rows are re-routed once.
+    /// </summary>
+    private bool FollowRestored(TenantId tenant, string sessionId, List<MailDeskRoutedEntity> rows,
+        IReadOnlyDictionary<string, SessionEndingFact> endings, MailDeskRouterRun tally)
+    {
+        if (_findSession(tenant, sessionId) is not null) return false;
+        if (!endings.TryGetValue(sessionId, out var ending)
+            || ending.EndingKind is not (SessionHistoryEndings.Closed or SessionHistoryEndings.DirectorStopped))
+            return false;
+        foreach (var (name, factory, seat) in rows.Where(r => r.StartName is not null).Select(r => (r.StartName!, r.Factory, r.Seat)).Distinct())
+        {
+            var restored = _findSessionsByName(tenant, name).FirstOrDefault(s =>
+                !string.IsNullOrEmpty(s.SessionId)
+                && !string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)
+                && !FleetManagerSessions.IsGone(s)
+                && string.Equals(s.Factory, factory, StringComparison.Ordinal)
+                && string.Equals(s.FactorySeat, seat, StringComparison.Ordinal));
+            if (restored is null) continue;
+            var followed = _routed.Follow(tenant, sessionId, restored.SessionId, restored.MachineName, _nowUtc());
+            tally.Followed += followed.Count;
+            FileLog.Write($"[MailDeskRouter] FollowRestored: session {sessionId} ended '{ending.EndingKind}' and is back as {restored.SessionId} ({factory}/{seat}); {followed.Count} emails follow it");
+            return true;
+        }
+        FileLog.Write($"[MailDeskRouter] FollowRestored: session {sessionId} ended '{ending.EndingKind}' and no live session has its start's name, factory and seat");
+        return false;
     }
 
     // ---------- step 4 and 5: start, and record ----------
@@ -359,6 +398,10 @@ public sealed class MailDeskRouter
         var starts = _routed.StartsOf(tenant, factory, seat);
         if (starts.Any(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId is null && r.StartName is not null
                             && now - Utc(r.StartedUtc!.Value) < TriggerService.StartGrace))
+            return true;
+        // An open row still with a session after step 3 is with a live one - including a row that followed a restored
+        // session, while an older row of the same start, already done, still names the id it had before the restart.
+        if (starts.Any(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId is not null))
             return true;
         var newest = starts.FirstOrDefault(r => r.SessionId is not null);
         return newest is not null && IsAlive(tenant, newest.SessionId!, Utc(newest.StartedUtc!.Value), endings);
@@ -546,6 +589,7 @@ public sealed class MailDeskRouterRun
     public int Created { get; set; }
     public int Adopted { get; set; }
     public int Rerouted { get; set; }
+    public int Followed { get; set; }
     public int Redirected { get; set; }
     public int ToOwner { get; set; }
     public int StartsFailed { get; set; }
@@ -555,7 +599,7 @@ public sealed class MailDeskRouterRun
 
     public override string ToString()
         => WasSkipped ? "skipped"
-            : $"{Created} created, {Adopted} adopted, {Rerouted} re-routed, {Redirected} sent to the Mail Desk seat, " +
+            : $"{Created} created, {Adopted} adopted, {Followed} followed a restored session, {Rerouted} re-routed, {Redirected} sent to the Mail Desk seat, " +
               $"{ToOwner} handed to the owner, {StartsFailed} failed starts, {Unknown} starts with an unknown outcome, " +
               $"{Started.Count} sessions started with {Started.Sum(s => s.Emails)} emails, {Waiting} waiting";
 }

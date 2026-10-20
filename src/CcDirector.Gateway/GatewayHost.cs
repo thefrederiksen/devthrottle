@@ -468,17 +468,22 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>
     /// The Mail Desk router as the Gateway wires it (phase 4 contract, section 3.2 step 3): the routed sessions' history
     /// endings come from <paramref name="sessionHistory"/>, so a session a Director reaped after a clean exit counts as
-    /// ended at once instead of after 24 hours. A static seam so a test builds the router exactly as the host does.
+    /// ended at once instead of after 24 hours; and a session a Smart Restart brought back under a new id is looked up by
+    /// name on every Director of the account, from any origin surface, through <paramref name="directors"/> and
+    /// <paramref name="pushedSessions"/>. A static seam so a test builds the router exactly as the host does.
     /// </summary>
     internal static MailDesk.MailDeskRouter NewMailDeskRouter(MailDesk.MailDeskRoutedStore routed,
         MailDesk.MailDeskChannelStore channels, MailDesk.MailDeskDecisionStore decisions,
         Factory.Triggers.TriggerSessionStarter startSession, Func<TenantId, string, SessionDto?> findSession,
         Func<TenantId, string, SessionDto?> findSessionByName, History.SessionHistoryStore sessionHistory,
+        Discovery.DirectorRegistry directors, Streaming.PushedSessionStore? pushedSessions,
         Func<TenantId, string, Factory.Definition.PublishedFactoryDefinition?> definitionOf,
         Func<TenantId, TimeZoneInfo> zoneOf, Func<DateTime> nowUtc, CancellationToken startLifetime)
     {
         ArgumentNullException.ThrowIfNull(sessionHistory);
+        ArgumentNullException.ThrowIfNull(directors);
         return new MailDesk.MailDeskRouter(routed, channels, decisions, startSession, findSession, findSessionByName,
+            findSessionsByName: (tenant, name) => GatewayEndpoints.LastKnownSessionsByName(directors, pushedSessions, tenant, name),
             endingsOf: (tenant, ids) => sessionHistory.EndingsOf(tenant, ids),
             definitionOf, zoneOf, nowUtc, startLifetime);
     }
@@ -2878,6 +2883,8 @@ public sealed class GatewayHost : IAsyncDisposable
             findSession,
             findSessionByName: (tenant, name) => GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
             _sessionHistory,
+            Registry,
+            PushedSessions,
             definitionOf,
             zoneOf,
             nowUtc: () => DateTime.UtcNow,

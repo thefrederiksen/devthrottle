@@ -238,6 +238,158 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
         Assert.Single(_rig.Starts);
     }
 
+    // ---------- review of 4283, finding 2: a Smart Restart brings the session back under a new id ----------
+
+    /// <summary>The session a Smart Restart reopened: a new id, the start's exact name, and the factory and seat given.</summary>
+    private SessionDto Restored(string name, string factory = Books, string seat = Clerk, bool alive = true)
+    {
+        var restored = new SessionDto
+        {
+            SessionId = _rig.NextSessionId(),
+            Name = name,
+            MachineName = MachineA,
+            Factory = factory,
+            FactorySeat = seat,
+            // A restore creates on the API surface, never the trigger's.
+            OriginSurface = CcDirector.Core.Sessions.SessionOriginSurfaces.Api,
+            ActivityState = alive ? "Working" : "Exited",
+        };
+        _rig.Sessions[restored.SessionId] = restored;
+        return restored;
+    }
+
+    [Theory]
+    [InlineData(SessionHistoryEndings.Closed)]
+    [InlineData(SessionHistoryEndings.DirectorStopped)]
+    public async Task RouteAsync_EndedByARestartAndALiveSessionWithTheSameNameFactoryAndSeat_IsAdoptedNotRerouted(string ending)
+    {
+        // Arrange
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Endings[session] = ending;
+        var restored = Restored(_rig.Starts[0].Request.Name!);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: the row takes the new id and stays open; nothing re-routed, no second session, the new email waits.
+        Assert.Equal((1, 0, 0), (run.Followed, run.Rerouted, run.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((restored.SessionId, 0, MailDeskWords.RoutedStates.Open), (row.SessionId, row.RerouteCount, row.State));
+        Assert.Contains(restored.SessionId, _rig.DecisionRow(held.Id).OutcomeDetail);
+        Assert.Single(_rig.Starts);
+        Assert.Equal(1, run.Waiting);
+
+        // And the restored session can now answer for the email.
+        Assert.True(_rig.Routed.Done(MailDeskRoutingRig.Account, row.Id, restored.SessionId, "paid", _rig.Now).Succeeded);
+    }
+
+    [Theory]
+    [InlineData(Support, Clerk)]
+    [InlineData(Books, Desk)]
+    public async Task RouteAsync_LiveSessionWithTheSameNameButAnotherFactoryOrSeat_IsNotAdopted_ReroutedOnce(string factory, string seat)
+    {
+        // Arrange
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        var other = Restored(_rig.Starts[0].Request.Name!, factory, seat);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((0, 1), (run.Followed, run.Rerouted));
+        var row = _rig.Row(held.Id);
+        Assert.Equal(1, row.RerouteCount);
+        Assert.NotEqual(other.SessionId, row.SessionId);
+        Assert.Equal(2, _rig.Starts.Count);
+    }
+
+    [Fact]
+    public async Task RouteAsync_SessionWithTheSameNameThatIsGone_IsNotAdopted_ReroutedOnce()
+    {
+        // Arrange
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        var gone = Restored(_rig.Starts[0].Request.Name!, alive: false);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((0, 1), (run.Followed, run.Rerouted));
+        Assert.NotEqual(gone.SessionId, _rig.Row(held.Id).SessionId);
+        Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
+    }
+
+    [Fact]
+    public async Task RouteAsync_FinishedEndingAndALiveSessionWithTheSameName_IsNotAdopted_ReroutedOnce()
+    {
+        // Arrange: the agent exited on its own; only closed and director-stopped are a restart's endings (contract).
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Endings[session] = SessionHistoryEndings.Finished;
+        Restored(_rig.Starts[0].Request.Name!);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((0, 1), (run.Followed, run.Rerouted));
+        Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
+    }
+
+    [Fact]
+    public async Task RouteAsync_RestoredSessionHoldingTheRestOfAStartWhoseFirstEmailIsDone_KeepsTheSeatBusy()
+    {
+        // Arrange: one session took two emails and said done on one; a restart brings it back holding the other.
+        _rig.AddMailDeskTrigger();
+        var channel = _rig.Channel(BoxA);
+        var first = _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 40);
+        var second = _rig.Decide(channel, "k-2", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 35);
+        await _rig.RouteAsync();
+        var session = _rig.Row(first.Id).SessionId!;
+        Assert.True(_rig.Routed.Done(MailDeskRoutingRig.Account, _rig.Row(first.Id).Id, session, "paid", _rig.Now).Succeeded);
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        var restored = Restored(_rig.Starts[0].Request.Name!);
+        _rig.Decide(channel, "k-3", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 10);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: the open email follows the restored session; the done row still names the old id, and the seat is
+        // busy all the same - the new email waits.
+        Assert.Equal(1, run.Followed);
+        Assert.Equal(restored.SessionId, _rig.Row(second.Id).SessionId);
+        Assert.Single(_rig.Starts);
+        Assert.Equal(1, run.Waiting);
+    }
+
+    [Fact]
+    public async Task NewMailDeskRouter_AsGatewayHostWiresIt_FollowsARestoredSessionListedOnTheGateway()
+    {
+        // Arrange: the router built by GatewayHost's own factory; the restored session is listed by a Director on a real
+        // registry and pushed-session store, on the API surface, and the old one's real history record is closed.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.UseGatewayHostWiring(new SessionHistoryStore(_rig.Db));
+        WriteHistoryRecord(session, SessionHistoryEndings.Closed);
+        var restored = Restored(_rig.Starts[0].Request.Name!);
+        _rig.Sessions.Remove(restored.SessionId);
+        _rig.ListOnTheGateway(restored);
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: followed - which only happens when the host passes the lookup by name over every surface.
+        Assert.Equal((1, 0), (run.Followed, run.Rerouted));
+        Assert.Equal(restored.SessionId, _rig.Row(held.Id).SessionId);
+        Assert.Single(_rig.Starts);
+    }
+
     /// <summary>The session's history record in the rig's account, as the Gateway keeps it, with this ending.</summary>
     private void WriteHistoryRecord(string sessionId, string ending)
     {
