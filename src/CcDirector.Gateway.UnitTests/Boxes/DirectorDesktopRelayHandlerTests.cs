@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.UnitTests.Boxes;
 public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
 {
     private readonly FakeDesktop _box = new();
-    private readonly FakeHostedDesktops _desktops = new();
+    private readonly CcDirector.Core.Boxes.HostedDesktopRegistry _desktops = TestHostedDesktops.ListOf(("box-one", 3110));
     private readonly FakeTimeProvider _time = new();
     private RecordingConnector _connector = null!;
     private int _relayCalls;
@@ -26,7 +26,6 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
     {
         await _box.StartAsync();
         _connector = new RecordingConnector(_box.Server);
-        _desktops.Ports["box-one"] = 3110;
     }
 
     public async Task DisposeAsync() => await _box.DisposeAsync();
@@ -71,6 +70,7 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
         Assert.Equal("This Director does not host a desktop for that box.", result.Error);
         Assert.Contains(log.Lines(), l => l.Contains("[DirectorDesktopRelayHandler] REFUSED (NotFound): box=box-two"));
+        Assert.Contains(log.Lines(), l => l.Contains("[HostedDesktopRegistry] Resolve REFUSED: box=box-two"));
         Assert.Empty(_connector.Addresses);
         Assert.Equal(0, _relayCalls);
     }

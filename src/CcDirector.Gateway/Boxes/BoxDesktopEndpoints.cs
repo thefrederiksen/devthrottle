@@ -53,12 +53,18 @@ internal static class BoxDesktopEndpoints
 
     // ------------------------------------------------------------------------------ the main host ----
 
-    /// <summary>Map the ticket route on the Gateway's own host.</summary>
-    public static void MapTicket(IEndpointRouteBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
+    /// <summary>
+    /// Map the ticket route on the Gateway's own host. Pass the Boxes gate's group (<see cref="BoxesGate.Group"/>), so an
+    /// account Boxes is off for meets the same 404 as every other Boxes route.
+    /// </summary>
+    /// <param name="locateDirector">Which connected Director of the account hosts the box, or null
+    /// (<c>PushedHostedDesktopStore.TryLocate</c>).</param>
+    /// <param name="boxesOn">Whether Boxes is on for the account (<c>BoxesSwitch.IsOn</c>).</param>
+    public static void MapTicket(IEndpointRouteBuilder app, Uri? desktopOrigin, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
         BoxDesktopTickets tickets, Tenancy.HostedTenantBoundary tenantBoundary)
     {
-        ArgumentNullException.ThrowIfNull(hosts);
-        ArgumentNullException.ThrowIfNull(feature);
+        ArgumentNullException.ThrowIfNull(locateDirector);
+        ArgumentNullException.ThrowIfNull(boxesOn);
         ArgumentNullException.ThrowIfNull(tickets);
         ArgumentNullException.ThrowIfNull(tenantBoundary);
 
@@ -78,12 +84,12 @@ internal static class BoxDesktopEndpoints
                 await ctx.Response.WriteAsJsonAsync(new { error = "no tenant is bound to this request" });
                 return;
             }
-            if (!feature.IsEnabled(t))
+            if (!boxesOn(t))
             {
                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
-            if (!DesktopRelayBoxIds.IsValid(boxId))
+            if (!BoxIdRule.IsValid(boxId))
             {
                 ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await ctx.Response.WriteAsJsonAsync(new { error = "That is not a box id." });
@@ -96,7 +102,7 @@ internal static class BoxDesktopEndpoints
                 await ctx.Response.WriteAsJsonAsync(new { error = "This Gateway has no desktop host set, so it cannot open a box's desktop." });
                 return;
             }
-            if (hosts.LocateDirector(t, boxId) is null)
+            if (locateDirector(t, boxId) is null)
             {
                 FileLog.Write($"[BoxDesktopEndpoints] desktop-ticket: box={boxId}: no connected Director in tenant {t.ToLogString()} hosts it -> 404");
                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -112,15 +118,17 @@ internal static class BoxDesktopEndpoints
     // ---------------------------------------------------------------------------- the desktop host ----
 
     /// <summary>
-    /// Put the desktop host in the pipeline. Call it BEFORE the Gateway's sign-in middleware: a request on the desktop
+    /// Put the desktop host in the pipeline. The Boxes gate cannot guard it - that gate reads the account from the
+    /// Gateway's sign-in, which never reaches the desktop host - so the same switch is asked here, of the account the
+    /// box session belongs to. Call it BEFORE the Gateway's sign-in middleware: a request on the desktop
     /// host never meets the Gateway's sign-in, because it never carries the Gateway's credentials. With no desktop
     /// host set, the desktop route is refused on every host and nothing else changes.
     /// </summary>
-    public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
+    public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
         BoxDesktopTickets tickets, DesktopRelayLegs legs)
     {
-        ArgumentNullException.ThrowIfNull(hosts);
-        ArgumentNullException.ThrowIfNull(feature);
+        ArgumentNullException.ThrowIfNull(locateDirector);
+        ArgumentNullException.ThrowIfNull(boxesOn);
         ArgumentNullException.ThrowIfNull(tickets);
         ArgumentNullException.ThrowIfNull(legs);
 
@@ -131,7 +139,7 @@ internal static class BoxDesktopEndpoints
             app.UseWhen(ctx => BoxDesktopOrigin.IsDesktopHost(desktopOrigin, ctx.Request) && !IsHealthCheck(ctx.Request), desktop =>
             {
                 desktop.UseWebSockets();
-                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs));
+                desktop.Run(ctx => ServeDesktopHostAsync(ctx, locateDirector, boxesOn, tickets, legs));
             });
         }
 
@@ -148,7 +156,7 @@ internal static class BoxDesktopEndpoints
         });
     }
 
-    private static async Task ServeDesktopHostAsync(HttpContext ctx, IBoxDesktopHosts hosts, IBoxesFeature feature,
+    private static async Task ServeDesktopHostAsync(HttpContext ctx, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
         BoxDesktopTickets tickets, DesktopRelayLegs legs)
     {
         var path = ctx.Request.Path;
@@ -159,7 +167,7 @@ internal static class BoxDesktopEndpoints
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
-        if (!DesktopRelayBoxIds.IsValid(boxId))
+        if (!BoxIdRule.IsValid(boxId))
         {
             ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
             await ctx.Response.WriteAsJsonAsync(new { error = "That is not a box id." });
@@ -194,12 +202,12 @@ internal static class BoxDesktopEndpoints
             await ctx.Response.WriteAsJsonAsync(new { error = "Open this desktop from the Cockpit." });
             return;
         }
-        if (!feature.IsEnabled(session.Tenant))
+        if (!boxesOn(session.Tenant))
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
-        var directorId = hosts.LocateDirector(session.Tenant, boxId);
+        var directorId = locateDirector(session.Tenant, boxId);
         if (directorId is null)
         {
             FileLog.Write($"[BoxDesktopEndpoints] box={boxId}: no connected Director in tenant {session.Tenant.ToLogString()} hosts it -> 404");

@@ -27,7 +27,7 @@ internal sealed class DirectorDesktopRelayHandler
     /// <summary>How long the Director waits for a box's desktop to accept a WebSocket before refusing the open.</summary>
     public static readonly TimeSpan BoxConnectTimeout = TimeSpan.FromSeconds(10);
 
-    private readonly IHostedDesktopLookup _desktops;
+    private readonly HostedDesktopRegistry _desktops;
     private readonly IDesktopBoxConnector _connector;
     private readonly RelayCall _relay;
     private readonly TimeProvider _time;
@@ -38,13 +38,14 @@ internal sealed class DirectorDesktopRelayHandler
     private int _sockets;
     private int _requests;
 
-    /// <param name="desktops">The Director's hosted-desktop list: the allow-list.</param>
+    /// <param name="desktops">The Director's hosted-desktop list (<see cref="HostedDesktopRegistry"/>): the allow-list, and the only
+    /// way to a port.</param>
     /// <param name="connector">How the box is reached; production is the loopback connector.</param>
     /// <param name="relay">Carries one stream over the tunnel.</param>
     /// <param name="time">The clock for the rate cap, the connect timeout and the usage lines.</param>
     /// <param name="maxBoxBytesPerSecond">The per-box ceiling toward the browser; production passes nothing and gets
     /// <see cref="DesktopRelayLimits.MaxBoxBytesPerSecond"/>. A test that moves megabytes without a clock passes more.</param>
-    public DirectorDesktopRelayHandler(IHostedDesktopLookup desktops, IDesktopBoxConnector connector, RelayCall relay, TimeProvider time,
+    public DirectorDesktopRelayHandler(HostedDesktopRegistry desktops, IDesktopBoxConnector connector, RelayCall relay, TimeProvider time,
         long maxBoxBytesPerSecond = DesktopRelayLimits.MaxBoxBytesPerSecond)
     {
         _maxBoxBytesPerSecond = maxBoxBytesPerSecond;
@@ -73,13 +74,16 @@ internal sealed class DirectorDesktopRelayHandler
         var request = SessionCommandExecutor.Deserialize<OpenDesktopStreamRequest>(command.PayloadJson);
         if (request is null || string.IsNullOrEmpty(request.StreamId))
             return Refuse(DirectorCommandStatus.BadRequest, "A desktop stream needs a stream id.", request);
-        if (!DesktopRelayBoxIds.IsValid(request.BoxId))
+        if (!BoxIdRule.IsValid(request.BoxId))
             return Refuse(DirectorCommandStatus.BadRequest, "That is not a box id.", request);
 
         // THE ALLOW-LIST CHECK. The Director forwards only to a port its own list holds for this one box id, so a
         // Gateway that was fooled into asking for another box, or for any other port, is refused here.
-        if (!_desktops.TryResolvePort(request.BoxId, out var port))
+        // The list's own lookup logs its refusal and its reason; the relay logs its own line beside it.
+        var resolution = _desktops.Resolve(request.BoxId, $"desktop stream {request.StreamId}");
+        if (!resolution.Allowed)
             return Refuse(DirectorCommandStatus.NotFound, "This Director does not host a desktop for that box.", request);
+        var port = resolution.Port;
 
         var isSocket = request.Mode == DesktopRelayMode.WebSocket;
         Uri address;

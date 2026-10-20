@@ -210,20 +210,3 @@ public sealed class OpenDesktopStreamResponse
     /// <summary>For a WebSocket: the subprotocol the box accepted, which the Gateway accepts the browser with. Null for none.</summary>
     public string? SubProtocol { get; set; }
 }
-
-/// <summary>
-/// STAND-IN until the hosted-desktop list task merges (branch boxes/phase1-hosted-desktop-list): the shape a box id
-/// must have. That task owns the rule; when it merges, this is deleted and both ends call its validator instead.
-/// </summary>
-public static class DesktopRelayBoxIds
-{
-    /// <summary>One to 64 characters of lower-case letters, digits and hyphens, starting with a letter or a digit.</summary>
-    public static bool IsValid(string? boxId)
-    {
-        if (string.IsNullOrEmpty(boxId) || boxId.Length > 64) return false;
-        if (!char.IsAsciiLetterLower(boxId[0]) && !char.IsAsciiDigit(boxId[0])) return false;
-        foreach (var c in boxId)
-            if (!char.IsAsciiLetterLower(c) && !char.IsAsciiDigit(c) && c != '-') return false;
-        return true;
-    }
-}
