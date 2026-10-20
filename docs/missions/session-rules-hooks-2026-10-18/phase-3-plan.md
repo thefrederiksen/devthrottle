@@ -110,6 +110,12 @@ Build to these exactly. A change to one is a change to this file first, agreed w
 preview runs. `changedLabel` names the action the agent took ("Created by", "Changed by", "Promoted by") and
 writes "session" in lower case, as above.
 
+**Amendment 2 (after the pages review, 2026-10-20):** every rule reference (`overrode`, `overrides`,
+`overriddenBy`) is `{ "id", "sentence", "deleted": false }`; a deleted rule has `deleted: true` and the client
+does not link it. `overrodeLabel` is BLANK whenever the firing overrode nothing (hook or screen), and the
+client draws the override block only when the label is not blank. `decidingRuleId` is `""` when no rule
+matched. A rule page address whose id is not a rule id answers the same 404 `{ "error" }` as an unknown id.
+
 Rules newest first. `firedLabel` is never blank ("Never fired" when there is no firing).
 `changedLabel` is blank when no session changed the rule. Tab order and labels are exactly as above.
 
