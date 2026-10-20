@@ -249,6 +249,14 @@ internal static class SessionRuleEndpoints
             }
         });
 
+        // A rule page address whose id is not a rule id at all answers exactly as an unknown id does (Amendment 2),
+        // rather than falling through to the Cockpit's index page and answering 200 with HTML.
+        app.MapGet("/gateway/rules/{id}/page", (string id) =>
+        {
+            FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/{id}/page REFUSED: not a rule id");
+            return NoSuchRule(id);
+        });
+
         app.MapGet("/gateway/rules/preview", (string? machine, string? repo, string? command) =>
         {
             FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/preview: machine={machine} repo={repo}");
@@ -295,6 +303,8 @@ internal static class SessionRuleEndpoints
     private static IResult Refused(string reason) =>
         Results.Json(new { error = reason }, statusCode: StatusCodes.Status400BadRequest);
 
-    private static IResult NoSuchRule(Guid id) =>
+    private static IResult NoSuchRule(Guid id) => NoSuchRule(id.ToString());
+
+    private static IResult NoSuchRule(string id) =>
         Results.Json(new { error = $"there is no rule with the id {id}." }, statusCode: StatusCodes.Status404NotFound);
 }

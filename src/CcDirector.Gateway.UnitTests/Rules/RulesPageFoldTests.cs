@@ -301,9 +301,26 @@ public sealed class RulesPageFoldTests : IDisposable
         Assert.Equal("rm -rf build", firing.Subject);
         Assert.Equal("Overrode 2 rules", firing.OverrodeLabel);
         Assert.Equal(
-            new[] { (everywhere.Id, "Never run rm -rf."), (gone.Id, $"(deleted rule {gone.Id})") },
-            firing.Overrode.Select(o => (o.Id, o.Sentence)));
+            new[] { (everywhere.Id, "Never run rm -rf.", false), (gone.Id, $"(deleted rule {gone.Id})", true) },
+            firing.Overrode.Select(o => (o.Id, o.Sentence, o.Deleted)));
         Assert.Equal("Dry run: recorded what this rule would have decided; the command was not blocked.", firing.OutcomeLabel);
+    }
+
+    [Fact]
+    public void RulePageFor_HookFiringThatOverrodeNothing_HasABlankOverrodeLabel()
+    {
+        // Arrange
+        var store = new SessionRuleStore(Db);
+        var rule = Hook(store, "Never run rm -rf.", RuleAppliesTo.Everywhere, HookRuleWords.Deny, new[] { "rm -rf" });
+        Record(store, Decision(rule.Id, Now.AddMinutes(-5)));
+
+        // Act
+        var firing = Assert.Single(RulesPageFold.RulePageFor(
+            SessionRuleWire.ReadPageSource(store, Now), rule.Id, store.FiringsFor(rule.Id), Copenhagen, Now)!.Firings);
+
+        // Assert
+        Assert.Equal("", firing.OverrodeLabel);
+        Assert.Empty(firing.Overrode);
     }
 
     [Fact]
@@ -355,7 +372,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var repoItem = preview.Rules.Single(r => r.Id == repo.Id);
         Assert.Equal("Repo (rank 3)", repoItem.RankLabel);
         Assert.Equal("Allow", repoItem.ResultLabel);
-        Assert.Equal(new[] { everywhere.Id }, repoItem.Overrides.Select(o => o.Id));
+        Assert.Equal(new[] { (everywhere.Id, false) }, repoItem.Overrides.Select(o => (o.Id, o.Deleted)));
         Assert.Empty(repoItem.OverriddenBy);
         Assert.Equal("Overrides 1 rule: \"Never run rm -rf.\"", repoItem.VerdictLabel);
         var everywhereItem = preview.Rules.Single(r => r.Id == everywhere.Id);

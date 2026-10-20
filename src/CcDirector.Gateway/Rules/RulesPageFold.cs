@@ -33,8 +33,9 @@ public sealed record RulesPage(
 /// <summary>One labelled line of a rule's page (wire contract P2).</summary>
 public sealed record RulePageField(string Label, string Value);
 
-/// <summary>A rule a firing or a preview names, by id and sentence.</summary>
-public sealed record RuleReference(Guid Id, string Sentence);
+/// <summary>A rule a firing or a preview names, by id and sentence. <paramref name="Deleted"/> is true when the rule
+/// no longer exists, so its sentence is "(deleted rule &lt;id&gt;)" and the client does not link it (Amendment 2).</summary>
+public sealed record RuleReference(Guid Id, string Sentence, bool Deleted);
 
 /// <summary>One firing on a rule's page (wire contract P2).</summary>
 public sealed record RulePageFiring(
@@ -498,7 +499,7 @@ public static class RulesPageFold
                 ? firing.Machine + " - " + (firing.Repo.Length > 0 ? firing.Repo : "no repository")
                 : "Read from the session's screen",
             isHook ? firing.Subject : BottomOf(firing.ScreenText),
-            isHook ? OverrodeLabel(overrode.Count) : "",
+            OverrodeLabel(overrode.Count),
             overrode,
             UpperFirst(firing.Outcome));
     }
@@ -530,9 +531,11 @@ public static class RulesPageFold
         throw new InvalidOperationException($"firing {firing.Id} acted with an outcome this page cannot name: '{outcome}'.");
     }
 
+    /// <summary>Blank when the firing overrode nothing, hook or screen: the client draws the override block only
+    /// when this is not blank (Amendment 2).</summary>
     private static string OverrodeLabel(int count) => count switch
     {
-        0 => "Overrode no rule",
+        0 => "",
         1 => "Overrode 1 rule",
         _ => $"Overrode {count} rules",
     };
@@ -540,7 +543,7 @@ public static class RulesPageFold
     private static RuleReference Reference(RulesPageSource source, Guid id)
     {
         var rule = source.Rules.FirstOrDefault(r => r.Id == id);
-        return new RuleReference(id, rule?.Instruction ?? $"(deleted rule {id})");
+        return rule is null ? new RuleReference(id, $"(deleted rule {id})", true) : new RuleReference(id, rule.Instruction, false);
     }
 
     private static string BottomOf(string screen) =>
@@ -566,8 +569,9 @@ public static class RulesPageFold
 
     private static RulesPreviewRule PreviewItem(SessionRule rule, IReadOnlyList<SessionRule> hooks)
     {
-        var overrides = hooks.Where(other => Overrides(rule, other)).Select(r => new RuleReference(r.Id, r.Instruction)).ToList();
-        var overriddenBy = hooks.Where(other => Overrides(other, rule)).Select(r => new RuleReference(r.Id, r.Instruction)).ToList();
+        // Every rule the preview names reaches the machine, so none of them is deleted.
+        var overrides = hooks.Where(other => Overrides(rule, other)).Select(r => new RuleReference(r.Id, r.Instruction, false)).ToList();
+        var overriddenBy = hooks.Where(other => Overrides(other, rule)).Select(r => new RuleReference(r.Id, r.Instruction, false)).ToList();
         return new RulesPreviewRule(
             rule.Id,
             rule.Instruction,

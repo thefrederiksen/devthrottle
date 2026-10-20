@@ -137,6 +137,23 @@ public sealed class RulesPageEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task GetRulePage_IdThatIsNotARuleId_Is404WithTheSameSentenceAsAnUnknownId()
+    {
+        // Arrange
+        var client = await StartAsync();
+        var unknown = Guid.NewGuid();
+
+        // Act
+        var notAnId = await client.GetAsync("/gateway/rules/not-a-rule-id/page?tz=Europe/Copenhagen");
+        var unknownId = await client.GetAsync($"/gateway/rules/{unknown}/page?tz=Europe/Copenhagen");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, notAnId.StatusCode);
+        Assert.Equal("there is no rule with the id not-a-rule-id.", (await JsonOf(notAnId)).GetProperty("error").GetString());
+        Assert.Equal($"there is no rule with the id {unknown}.", (await JsonOf(unknownId)).GetProperty("error").GetString());
+    }
+
+    [Fact]
     public async Task GetRulePage_BadZone_Is400()
     {
         // Arrange
