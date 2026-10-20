@@ -1,0 +1,311 @@
+{
+  "platform": "windows",
+  "startedUtc": "2026-10-20T06:15:34.5786758Z",
+  "stamp": "20261020-061534",
+  "commit": "c189d4507eebbdfbef26495ffe233fce2896e232",
+  "tree": "clean",
+  "pi": "1.3.0",
+  "steps": [
+    {
+      "step": "1a. Spawn Pi with --connection api",
+      "result": "PASS",
+      "detail": "session 6df4153e-be21-43bf-a710-e215999efa54, connection api, Agent connected (zai-org/GLM-5.3)"
+    },
+    {
+      "step": "Screen: new-session-api-mode (cockpit)",
+      "result": "PASS",
+      "detail": "Connection row shown; API mode pressed"
+    },
+    {
+      "step": "Screen: new-session-api-mode (phone)",
+      "result": "PASS",
+      "detail": "Connection row shown; API mode pressed"
+    },
+    {
+      "step": "Screen: new-session-api-mode (desktop)",
+      "result": "PASS",
+      "detail": "showed \"API mode\""
+    },
+    {
+      "step": "1b. PONG: a Delivered receipt and the reply PONG",
+      "result": "FAIL",
+      "detail": "receipt Delivered (Delivered - the turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}), acknowledgement {\"id\":\"dt-2\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{\"disposition\":\"started\"}}, reply ''"
+    },
+    {
+      "step": "2. A bash tool: a tool card that finished",
+      "result": "FAIL",
+      "detail": "tool card '' statuses: , input "
+    },
+    {
+      "step": "Screen: chat-tool-card (cockpit)",
+      "result": "PASS",
+      "detail": "showed \"TOOL-OK\""
+    },
+    {
+      "step": "Screen: chat-tool-card (phone)",
+      "result": "PASS",
+      "detail": "showed \"TOOL-OK\""
+    },
+    {
+      "step": "Screen: chat-midturn (cockpit)",
+      "result": "PASS",
+      "detail": "showed \"Working - turn\""
+    },
+    {
+      "step": "Screen: chat-midturn (phone)",
+      "result": "PASS",
+      "detail": "showed \"Working - turn\""
+    },
+    {
+      "step": "3. Stop: the turn ended cancelled",
+      "result": "FAIL",
+      "detail": "stop answered 200; turn outcome cancelled (stopped by the user), receipt 'Delivered - stopped'"
+    },
+    {
+      "step": "Screen: chat-after-stop (cockpit)",
+      "result": "PASS",
+      "detail": "showed \"stopped\""
+    },
+    {
+      "step": "Screen: chat-after-stop (phone)",
+      "result": "PASS",
+      "detail": "showed \"stopped\""
+    },
+    {
+      "step": "Screen: terminal-before-take (cockpit)",
+      "result": "PASS",
+      "detail": "showed \"Take the wheel\""
+    },
+    {
+      "step": "Screen: terminal-before-take (phone)",
+      "result": "PASS",
+      "detail": "showed \"Take the wheel\""
+    },
+    {
+      "step": "Screen: terminal-before-take (desktop)",
+      "result": "PASS",
+      "detail": "showed \"Take the wheel\""
+    },
+    {
+      "step": "4a. Take the wheel",
+      "result": "PASS",
+      "detail": "answered 200; holder user, button 'Hand back'; Pi processes 1"
+    },
+    {
+      "step": "Screen: terminal-after-take (cockpit)",
+      "result": "PASS",
+      "detail": "showed \"Hand back\""
+    },
+    {
+      "step": "Screen: terminal-after-take (phone)",
+      "result": "PASS",
+      "detail": "showed \"Hand back\""
+    },
+    {
+      "step": "Screen: terminal-after-take (desktop)",
+      "result": "PASS",
+      "detail": "showed \"Hand back\""
+    },
+    {
+      "step": "Failure case: take the wheel twice - the second is refused",
+      "result": "PASS",
+      "detail": "answered 409 wheel_already_held: You already have the wheel of this session: its terminal is open on the conversation. Hand it back first if you want the session to continue in API mode."
+    },
+    {
+      "step": "Failure case: hand back while the terminal is mid-turn - refused with a reason, never two holders",
+      "result": "PASS",
+      "detail": "answered 409: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back. Holder after: user; Pi processes 1"
+    },
+    {
+      "step": "4b. Hand back",
+      "result": "PASS",
+      "detail": "holder protocol, Agent connected (zai-org/GLM-5.3); Pi processes 1"
+    },
+    {
+      "step": "4c. The code word typed in the terminal survives the hand back: OTTER-58",
+      "result": "FAIL",
+      "detail": "receipt Delivered, reply ''"
+    },
+    {
+      "step": "5a. A prompt sent while holding the wheel is queued",
+      "result": "PASS",
+      "detail": "receipt 'Queued, 1st in line: you have the wheel' (reason userHasTheWheel); session says '1 prompt waiting: you have the wheel'; the tool said: Queued, 1st in line: you have the wheel: the prompt to 6df4153e-be21-43bf-a710-e215999efa54 (delivery id 96fac0208baf454bb77fa9e00028585d). The Director sends it on its own; do not send it again.\r\nhelp[1]:\r\n  cc-devthrottle session buffer 6df4153e-be21-43bf-a710-e215999efa54"
+    },
+    {
+      "step": "5b. ...then delivered on hand back",
+      "result": "FAIL",
+      "detail": "receipt Delivered (Delivered - the turn failed: 429: {\"message\":\"Model busy, retry later\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"engine_overloaded\"}), turn failed, reply ''; Pi processes 1"
+    },
+    {
+      "step": "Failure case: Pi's executable missing - spawn fails with a stated reason",
+      "result": "PASS",
+      "detail": "exit 1: Error: no session was opened on f921671e-0ad6-4330-93e4-4b662e0a0455: director returned Error: Pi could not be started: the command \"<rig>\\no-such-pi\\pi\" is not a file on this machine and was not found on this Director's PATH. Set this agent's executable path in Settings, Agents - or install Pi - and start the session again.\r\nhelp[1]:\r\n  cc-devthrottle director list"
+    },
+    {
+      "step": "Teardown: the test Director stopped on its named signal",
+      "result": "PASS",
+      "detail": "process 46388 exited"
+    }
+  ],
+  "screens": [
+    {
+      "name": "new-session-api-mode",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "Connection row shown; API mode pressed",
+      "png": "screens/new-session-api-mode-cockpit.png",
+      "aria": "screens/new-session-api-mode-cockpit.aria.txt"
+    },
+    {
+      "name": "new-session-api-mode",
+      "surface": "phone",
+      "ok": true,
+      "detail": "Connection row shown; API mode pressed",
+      "png": "screens/new-session-api-mode-phone.png",
+      "aria": "screens/new-session-api-mode-phone.aria.txt"
+    },
+    {
+      "name": "new-session-api-mode",
+      "surface": "desktop",
+      "ok": true,
+      "detail": "showed \"API mode\"",
+      "png": "screens/new-session-api-mode-desktop.png",
+      "aria": "screens/new-session-api-mode-desktop.uia.txt"
+    },
+    {
+      "name": "chat-tool-card",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "showed \"TOOL-OK\"",
+      "png": "screens/chat-tool-card-cockpit.png",
+      "aria": "screens/chat-tool-card-cockpit.aria.txt"
+    },
+    {
+      "name": "chat-tool-card",
+      "surface": "phone",
+      "ok": true,
+      "detail": "showed \"TOOL-OK\"",
+      "png": "screens/chat-tool-card-phone.png",
+      "aria": "screens/chat-tool-card-phone.aria.txt"
+    },
+    {
+      "name": "chat-midturn",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "showed \"Working - turn\"",
+      "png": "screens/chat-midturn-cockpit.png",
+      "aria": "screens/chat-midturn-cockpit.aria.txt"
+    },
+    {
+      "name": "chat-midturn",
+      "surface": "phone",
+      "ok": true,
+      "detail": "showed \"Working - turn\"",
+      "png": "screens/chat-midturn-phone.png",
+      "aria": "screens/chat-midturn-phone.aria.txt"
+    },
+    {
+      "name": "chat-after-stop",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "showed \"stopped\"",
+      "png": "screens/chat-after-stop-cockpit.png",
+      "aria": "screens/chat-after-stop-cockpit.aria.txt"
+    },
+    {
+      "name": "chat-after-stop",
+      "surface": "phone",
+      "ok": true,
+      "detail": "showed \"stopped\"",
+      "png": "screens/chat-after-stop-phone.png",
+      "aria": "screens/chat-after-stop-phone.aria.txt"
+    },
+    {
+      "name": "terminal-before-take",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "showed \"Take the wheel\"",
+      "png": "screens/terminal-before-take-cockpit.png",
+      "aria": "screens/terminal-before-take-cockpit.aria.txt"
+    },
+    {
+      "name": "terminal-before-take",
+      "surface": "phone",
+      "ok": true,
+      "detail": "showed \"Take the wheel\"",
+      "png": "screens/terminal-before-take-phone.png",
+      "aria": "screens/terminal-before-take-phone.aria.txt"
+    },
+    {
+      "name": "terminal-before-take",
+      "surface": "desktop",
+      "ok": true,
+      "detail": "showed \"Take the wheel\"",
+      "png": "screens/terminal-before-take-desktop.png",
+      "aria": "screens/terminal-before-take-desktop.uia.txt"
+    },
+    {
+      "name": "terminal-after-take",
+      "surface": "cockpit",
+      "ok": true,
+      "detail": "showed \"Hand back\"",
+      "png": "screens/terminal-after-take-cockpit.png",
+      "aria": "screens/terminal-after-take-cockpit.aria.txt"
+    },
+    {
+      "name": "terminal-after-take",
+      "surface": "phone",
+      "ok": true,
+      "detail": "showed \"Hand back\"",
+      "png": "screens/terminal-after-take-phone.png",
+      "aria": "screens/terminal-after-take-phone.aria.txt"
+    },
+    {
+      "name": "terminal-after-take",
+      "surface": "desktop",
+      "ok": true,
+      "detail": "showed \"Hand back\"",
+      "png": "screens/terminal-after-take-desktop.png",
+      "aria": "screens/terminal-after-take-desktop.uia.txt"
+    }
+  ],
+  "notTaken": [
+    "The desktop Director's Chat tab mid-turn: the desktop has no API-mode Chat screen to take; the Cockpit and phone shots are the Chat evidence."
+  ],
+  "unitTestProven": [
+    {
+      "case": "Pi exits mid-turn, after acknowledging (ruling of 16 October 2026, event-model.md): the session shows failed with the reason; the receipt stays Delivered with the failed turn beside it",
+      "tests": [
+        "CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason",
+        "CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween",
+        "CcDirector.Core.UnitTests PiDialectReplayTests.Replay_Exit_TurnFailsWithTheExitCodeAndThePromptStaysDelivered",
+        "CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered"
+      ]
+    },
+    {
+      "case": "Pi exits before acknowledging (the same ruling): the receipt is Refused by the Director, \"Pi exited before acknowledging\", with no turn",
+      "tests": [
+        "CcDirector.Core.UnitTests PiDialectReplayTests.Replay_ExitBeforeAcknowledgement_RefusesThePromptAsTheDirector",
+        "CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector"
+      ]
+    },
+    {
+      "case": "Pi refuses a prompt (success:false): the receipt shows the reason",
+      "tests": [
+        "CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheRefusalRecording_TheSecondPromptIsRefusedByPiInItsOwnWords",
+        "CcDirector.Gateway.UnitTests ApiModeEventIngestTests.Accept_RefusedByTheAgent_TheReceiptCarriesPisOwnWords"
+      ]
+    },
+    {
+      "case": "Also proven by unit tests, beside this run: hand back mid-turn, take the wheel twice, a missing executable",
+      "tests": [
+        "CcDirector.Core.UnitTests ApiModeWheelTests.HandBackWheelAsync_WhileTheTerminalIsMidTurn_IsRefusedWithTheReason",
+        "CcDirector.Core.UnitTests ApiModeWheelTests.HandBackWheelAsync_TheTerminalHasNotExitedAfterItsShutdown_IsRefusedAndNoPiStartsBesideIt",
+        "CcDirector.Core.UnitTests ApiModeWheelTests.TakeWheelAsync_Twice_TheSecondIsRefusedAndNothingChanges",
+        "CcDirector.Core.UnitTests ApiModeSessionTests.Start_ApiModeBackendWithAMissingExecutable_FailsNamingIt"
+      ]
+    }
+  ],
+  "spendDollars": 1.2929,
+  "exitCode": 1
+}

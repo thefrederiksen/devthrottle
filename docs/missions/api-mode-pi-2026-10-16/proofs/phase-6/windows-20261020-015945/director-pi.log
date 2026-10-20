@@ -1,0 +1,641 @@
+2026-10-19 22:05:38.007 [ApiModeEventPusher] Created: batch=500 events or 4000000 characters, held per session=20000 events or 50000000 characters
+2026-10-19 22:05:38.110 [ApiModeEventPusher] Start: sweep every 60s
+2026-10-19 22:05:38.205 [ApiModeEventPusher] NewConnection: the next answered Hello resends every held event
+2026-10-19 22:05:42.435 [ApiModeSessionBackend] Start: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, executable=~\AppData\Roaming\npm\pi.cmd, args=--session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt "<rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt", workingDir=<rig>\work
+2026-10-19 22:05:42.436 [ApiModeConversationClaims] Claim: D:\APIPROOF\API-MODE-PI-PROOF-20261020-015945\WORK|ef8dc821-2909-42f9-93c1-599120e23b7d -> 6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:05:42.437 [ApiModeSessionHost] Created: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, resuming=False, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b
+2026-10-19 22:05:42.437 [ApiModeSessionHost] Start: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt <rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt], workingDirectory=<rig>\work
+2026-10-19 22:05:42.438 [PiDialect] Created: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, resuming=False
+2026-10-19 22:05:42.439 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt <rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt], workingDirectory=<rig>\work
+2026-10-19 22:05:42.441 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:05:42.441 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:05:42.443 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-19 22:05:42.457 [ApiModeTransport] Start: process 46020 running
+2026-10-19 22:05:42.457 [ApiModeSessionHost] StartConnection: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi running as process 46020, resuming=False
+2026-10-19 22:05:42.459 [PiDialect] Build: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-1
+2026-10-19 22:05:42.462 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-19 22:05:42.466 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-1, prompt=
+2026-10-19 22:05:42.880 [ApiModeTransport] process 46020 standard error: Warning: No project session found with id 'ef8dc821-2909-42f9-93c1-599120e23b7d'; creating a new session with that id.
+2026-10-19 22:05:43.101 [ApiModeTransport] ErrorLinesSince: marker=1, lines=1, noLongerHeld=0
+2026-10-19 22:05:43.101 [PiDialect] OnStderrLine: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, line=Warning: No project session found with id 'ef8dc821-2909-42f9-93c1-599120e23b7d'; creating a new session with that id.
+2026-10-19 22:05:43.102 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:05:43.103 [PiDialect] Response: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, command=dt-1, type=get_state, success=True
+2026-10-19 22:05:43.103 [PiDialect] State: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, model=zai-org/GLM-5.3, messages=0
+2026-10-19 22:05:43.741 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 1..1, watermark 1, 1 acknowledged
+2026-10-19 22:05:55.787 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, length=32, gatewayPromptId=108c43ceb80d409895f31ab18507b584
+2026-10-19 22:05:55.788 [PiDialect] BuildPrompt: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=108c43ceb80d409895f31ab18507b584, command=dt-2, length=32
+2026-10-19 22:05:55.788 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-19 22:05:55.789 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=prompt, command=dt-2, prompt=108c43ceb80d409895f31ab18507b584
+2026-10-19 22:05:55.797 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.797 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:05:55.797 [PiDialect] Delivered: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=108c43ceb80d409895f31ab18507b584, disposition=started
+2026-10-19 22:05:55.799 [ApiModeSessionHost] Turn-start bound armed: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompts=108c43ceb80d409895f31ab18507b584, bound=60s
+2026-10-19 22:05:55.799 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.799 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_start
+2026-10-19 22:05:55.799 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=108c43ceb80d409895f31ab18507b584, delivered
+2026-10-19 22:05:55.800 [PiDialect] TurnStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-1, prompts=108c43ceb80d409895f31ab18507b584
+2026-10-19 22:05:55.800 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.800 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:05:55.800 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.800 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:05:55.801 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.801 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:05:55.801 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.801 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:05:55.808 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:55.808 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:05:55.925 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 2..2, watermark 2, 1 acknowledged
+2026-10-19 22:05:55.950 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 3..3, watermark 3, 1 acknowledged
+2026-10-19 22:05:56.222 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:56.222 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:05:57.141 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 4..4, watermark 4, 1 acknowledged
+2026-10-19 22:05:57.166 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 5..5, watermark 5, 1 acknowledged
+2026-10-19 22:05:57.189 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 6..6, watermark 6, 1 acknowledged
+2026-10-19 22:05:57.219 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 7..7, watermark 7, 1 acknowledged
+2026-10-19 22:05:57.253 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 8..8, watermark 8, 1 acknowledged
+2026-10-19 22:05:57.306 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 9..9, watermark 9, 1 acknowledged
+2026-10-19 22:05:57.348 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 10..10, watermark 10, 1 acknowledged
+2026-10-19 22:05:57.348 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:57.348 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:05:57.349 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-1, message=turn-1-message-1, stopReason=stop
+2026-10-19 22:05:57.349 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:57.349 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:05:57.350 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:57.350 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_end
+2026-10-19 22:05:57.351 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:57.351 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_settled
+2026-10-19 22:05:57.353 [PiDialect] TurnEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-1, outcome=Done, reason=, stopReason=stop
+2026-10-19 22:05:57.360 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 11..12, watermark 12, 2 acknowledged
+2026-10-19 22:05:57.404 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 13..13, watermark 13, 1 acknowledged
+2026-10-19 22:05:59.582 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, length=70, gatewayPromptId=e352949e09ee45e5b982992a5b05080e
+2026-10-19 22:05:59.582 [PiDialect] BuildPrompt: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=e352949e09ee45e5b982992a5b05080e, command=dt-3, length=70
+2026-10-19 22:05:59.582 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-19 22:05:59.582 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=prompt, command=dt-3, prompt=e352949e09ee45e5b982992a5b05080e
+2026-10-19 22:05:59.604 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.604 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:05:59.604 [PiDialect] Delivered: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=e352949e09ee45e5b982992a5b05080e, disposition=started
+2026-10-19 22:05:59.605 [ApiModeSessionHost] Turn-start bound armed: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompts=e352949e09ee45e5b982992a5b05080e, bound=60s
+2026-10-19 22:05:59.605 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=e352949e09ee45e5b982992a5b05080e, delivered
+2026-10-19 22:05:59.605 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.605 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_start
+2026-10-19 22:05:59.605 [PiDialect] TurnStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, prompts=e352949e09ee45e5b982992a5b05080e
+2026-10-19 22:05:59.605 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.605 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:05:59.605 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.605 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:05:59.605 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.605 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:05:59.621 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 14..14, watermark 14, 1 acknowledged
+2026-10-19 22:05:59.634 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 15..15, watermark 15, 1 acknowledged
+2026-10-19 22:05:59.720 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:05:59.720 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:06:02.261 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.261 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:06:02.261 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, message=turn-2-message-1, stopReason=toolUse
+2026-10-19 22:06:02.262 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.262 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=tool_execution_start
+2026-10-19 22:06:02.262 [PiDialect] ToolCallStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, tool=bash, call=chatcmpl-tool-96ac156e46b52050
+2026-10-19 22:06:02.266 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.266 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=tool_execution_update
+2026-10-19 22:06:02.283 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 16..16, watermark 16, 1 acknowledged
+2026-10-19 22:06:02.401 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.401 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=tool_execution_update
+2026-10-19 22:06:02.405 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.405 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=tool_execution_end
+2026-10-19 22:06:02.408 [PiDialect] ToolCallFinished: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, call=chatcmpl-tool-96ac156e46b52050, isError=False
+2026-10-19 22:06:02.410 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.410 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:06:02.410 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.410 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:06:02.410 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.410 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:06:02.410 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.410 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:06:02.431 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 17..17, watermark 17, 1 acknowledged
+2026-10-19 22:06:02.655 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:02.655 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:06:03.070 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:03.070 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:06:03.070 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, message=turn-2-message-2, stopReason=stop
+2026-10-19 22:06:03.070 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:03.070 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:06:03.070 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:03.070 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_end
+2026-10-19 22:06:03.070 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:03.070 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_settled
+2026-10-19 22:06:03.070 [PiDialect] TurnEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-2, outcome=Done, reason=, stopReason=stop
+2026-10-19 22:06:03.171 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 18..18, watermark 18, 1 acknowledged
+2026-10-19 22:06:03.569 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 19..20, watermark 20, 2 acknowledged
+2026-10-19 22:06:13.385 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, length=66, gatewayPromptId=fc31bc3b6a77415096c54d1f325ea59a
+2026-10-19 22:06:13.385 [PiDialect] BuildPrompt: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=fc31bc3b6a77415096c54d1f325ea59a, command=dt-4, length=66
+2026-10-19 22:06:13.385 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-19 22:06:13.385 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=prompt, command=dt-4, prompt=fc31bc3b6a77415096c54d1f325ea59a
+2026-10-19 22:06:13.387 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.387 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:06:13.388 [PiDialect] Delivered: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=fc31bc3b6a77415096c54d1f325ea59a, disposition=started
+2026-10-19 22:06:13.388 [ApiModeSessionHost] Turn-start bound armed: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompts=fc31bc3b6a77415096c54d1f325ea59a, bound=60s
+2026-10-19 22:06:13.388 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.388 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_start
+2026-10-19 22:06:13.388 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=fc31bc3b6a77415096c54d1f325ea59a, delivered
+2026-10-19 22:06:13.388 [PiDialect] TurnStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-3, prompts=fc31bc3b6a77415096c54d1f325ea59a
+2026-10-19 22:06:13.388 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.388 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:06:13.388 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.388 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:06:13.388 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.388 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:06:13.401 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 21..21, watermark 21, 1 acknowledged
+2026-10-19 22:06:13.424 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 22..22, watermark 22, 1 acknowledged
+2026-10-19 22:06:13.673 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:13.673 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:06:13.981 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 23..23, watermark 23, 1 acknowledged
+2026-10-19 22:06:14.005 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 24..24, watermark 24, 1 acknowledged
+2026-10-19 22:06:14.035 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 25..25, watermark 25, 1 acknowledged
+2026-10-19 22:06:14.063 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 26..26, watermark 26, 1 acknowledged
+2026-10-19 22:06:14.093 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 27..27, watermark 27, 1 acknowledged
+2026-10-19 22:06:14.120 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 28..28, watermark 28, 1 acknowledged
+2026-10-19 22:06:14.149 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 29..29, watermark 29, 1 acknowledged
+2026-10-19 22:06:14.179 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 30..30, watermark 30, 1 acknowledged
+2026-10-19 22:06:14.205 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 31..31, watermark 31, 1 acknowledged
+2026-10-19 22:06:14.241 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 32..32, watermark 32, 1 acknowledged
+2026-10-19 22:06:14.269 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 33..33, watermark 33, 1 acknowledged
+2026-10-19 22:06:14.298 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 34..34, watermark 34, 1 acknowledged
+2026-10-19 22:06:14.321 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 35..35, watermark 35, 1 acknowledged
+2026-10-19 22:06:14.349 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 36..36, watermark 36, 1 acknowledged
+2026-10-19 22:06:14.379 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 37..37, watermark 37, 1 acknowledged
+2026-10-19 22:06:14.406 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 38..38, watermark 38, 1 acknowledged
+2026-10-19 22:06:14.436 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 39..39, watermark 39, 1 acknowledged
+2026-10-19 22:06:14.463 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 40..40, watermark 40, 1 acknowledged
+2026-10-19 22:06:14.493 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 41..41, watermark 41, 1 acknowledged
+2026-10-19 22:06:14.524 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 42..42, watermark 42, 1 acknowledged
+2026-10-19 22:06:14.550 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 43..43, watermark 43, 1 acknowledged
+2026-10-19 22:06:14.556 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 44..44, watermark 44, 1 acknowledged
+2026-10-19 22:06:14.584 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 45..45, watermark 45, 1 acknowledged
+2026-10-19 22:06:14.605 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 46..46, watermark 46, 1 acknowledged
+2026-10-19 22:06:14.630 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 47..47, watermark 47, 1 acknowledged
+2026-10-19 22:06:14.656 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 48..48, watermark 48, 1 acknowledged
+2026-10-19 22:06:14.684 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 49..49, watermark 49, 1 acknowledged
+2026-10-19 22:06:14.712 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 50..50, watermark 50, 1 acknowledged
+2026-10-19 22:06:14.737 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 51..51, watermark 51, 1 acknowledged
+2026-10-19 22:06:14.764 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 52..52, watermark 52, 1 acknowledged
+2026-10-19 22:06:14.793 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 53..53, watermark 53, 1 acknowledged
+2026-10-19 22:06:14.817 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 54..54, watermark 54, 1 acknowledged
+2026-10-19 22:06:14.845 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 55..55, watermark 55, 1 acknowledged
+2026-10-19 22:06:14.871 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 56..56, watermark 56, 1 acknowledged
+2026-10-19 22:06:14.900 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 57..57, watermark 57, 1 acknowledged
+2026-10-19 22:06:14.926 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 58..58, watermark 58, 1 acknowledged
+2026-10-19 22:06:14.953 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 59..59, watermark 59, 1 acknowledged
+2026-10-19 22:06:14.982 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 60..60, watermark 60, 1 acknowledged
+2026-10-19 22:06:15.009 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 61..61, watermark 61, 1 acknowledged
+2026-10-19 22:06:15.056 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 62..62, watermark 62, 1 acknowledged
+2026-10-19 22:06:15.074 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 63..63, watermark 63, 1 acknowledged
+2026-10-19 22:06:15.101 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 64..64, watermark 64, 1 acknowledged
+2026-10-19 22:06:15.130 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 65..65, watermark 65, 1 acknowledged
+2026-10-19 22:06:15.174 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 66..66, watermark 66, 1 acknowledged
+2026-10-19 22:06:15.187 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 67..67, watermark 67, 1 acknowledged
+2026-10-19 22:06:15.215 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 68..68, watermark 68, 1 acknowledged
+2026-10-19 22:06:15.246 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 69..69, watermark 69, 1 acknowledged
+2026-10-19 22:06:15.274 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 70..70, watermark 70, 1 acknowledged
+2026-10-19 22:06:15.301 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 71..71, watermark 71, 1 acknowledged
+2026-10-19 22:06:15.330 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 72..72, watermark 72, 1 acknowledged
+2026-10-19 22:06:15.362 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 73..73, watermark 73, 1 acknowledged
+2026-10-19 22:06:15.388 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 74..74, watermark 74, 1 acknowledged
+2026-10-19 22:06:15.417 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 75..75, watermark 75, 1 acknowledged
+2026-10-19 22:06:15.447 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 76..76, watermark 76, 1 acknowledged
+2026-10-19 22:06:15.475 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 77..77, watermark 77, 1 acknowledged
+2026-10-19 22:06:15.503 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 78..78, watermark 78, 1 acknowledged
+2026-10-19 22:06:15.530 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 79..79, watermark 79, 1 acknowledged
+2026-10-19 22:06:15.561 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 80..80, watermark 80, 1 acknowledged
+2026-10-19 22:06:15.591 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 81..81, watermark 81, 1 acknowledged
+2026-10-19 22:06:15.620 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 82..82, watermark 82, 1 acknowledged
+2026-10-19 22:06:15.650 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 83..83, watermark 83, 1 acknowledged
+2026-10-19 22:06:15.679 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 84..84, watermark 84, 1 acknowledged
+2026-10-19 22:06:15.722 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 85..85, watermark 85, 1 acknowledged
+2026-10-19 22:06:15.742 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 86..86, watermark 86, 1 acknowledged
+2026-10-19 22:06:15.762 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 87..87, watermark 87, 1 acknowledged
+2026-10-19 22:06:15.788 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 88..88, watermark 88, 1 acknowledged
+2026-10-19 22:06:15.815 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 89..89, watermark 89, 1 acknowledged
+2026-10-19 22:06:15.844 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 90..90, watermark 90, 1 acknowledged
+2026-10-19 22:06:15.871 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 91..91, watermark 91, 1 acknowledged
+2026-10-19 22:06:15.897 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 92..92, watermark 92, 1 acknowledged
+2026-10-19 22:06:15.928 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 93..93, watermark 93, 1 acknowledged
+2026-10-19 22:06:15.951 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 94..94, watermark 94, 1 acknowledged
+2026-10-19 22:06:15.979 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 95..95, watermark 95, 1 acknowledged
+2026-10-19 22:06:16.012 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 96..96, watermark 96, 1 acknowledged
+2026-10-19 22:06:16.038 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 97..97, watermark 97, 1 acknowledged
+2026-10-19 22:06:16.061 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 98..98, watermark 98, 1 acknowledged
+2026-10-19 22:06:16.090 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 99..99, watermark 99, 1 acknowledged
+2026-10-19 22:06:16.134 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 100..100, watermark 100, 1 acknowledged
+2026-10-19 22:06:16.147 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 101..101, watermark 101, 1 acknowledged
+2026-10-19 22:06:16.186 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 102..102, watermark 102, 1 acknowledged
+2026-10-19 22:06:16.205 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 103..103, watermark 103, 1 acknowledged
+2026-10-19 22:06:16.230 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 104..104, watermark 104, 1 acknowledged
+2026-10-19 22:06:16.286 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 105..105, watermark 105, 1 acknowledged
+2026-10-19 22:06:16.433 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 106..106, watermark 106, 1 acknowledged
+2026-10-19 22:06:16.436 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 107..107, watermark 107, 1 acknowledged
+2026-10-19 22:06:16.439 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 108..108, watermark 108, 1 acknowledged
+2026-10-19 22:06:16.468 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 109..109, watermark 109, 1 acknowledged
+2026-10-19 22:06:16.496 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 110..110, watermark 110, 1 acknowledged
+2026-10-19 22:06:16.524 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 111..111, watermark 111, 1 acknowledged
+2026-10-19 22:06:16.550 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 112..112, watermark 112, 1 acknowledged
+2026-10-19 22:06:16.581 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 113..113, watermark 113, 1 acknowledged
+2026-10-19 22:06:16.607 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 114..114, watermark 114, 1 acknowledged
+2026-10-19 22:06:16.634 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 115..115, watermark 115, 1 acknowledged
+2026-10-19 22:06:16.663 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 116..116, watermark 116, 1 acknowledged
+2026-10-19 22:06:16.689 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 117..117, watermark 117, 1 acknowledged
+2026-10-19 22:06:16.722 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 118..118, watermark 118, 1 acknowledged
+2026-10-19 22:06:16.744 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 119..119, watermark 119, 1 acknowledged
+2026-10-19 22:06:16.771 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 120..120, watermark 120, 1 acknowledged
+2026-10-19 22:06:16.798 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 121..121, watermark 121, 1 acknowledged
+2026-10-19 22:06:16.826 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 122..122, watermark 122, 1 acknowledged
+2026-10-19 22:06:16.854 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 123..123, watermark 123, 1 acknowledged
+2026-10-19 22:06:16.887 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 124..124, watermark 124, 1 acknowledged
+2026-10-19 22:06:16.919 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 125..125, watermark 125, 1 acknowledged
+2026-10-19 22:06:16.938 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 126..126, watermark 126, 1 acknowledged
+2026-10-19 22:06:17.021 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 127..127, watermark 127, 1 acknowledged
+2026-10-19 22:06:17.028 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 128..128, watermark 128, 1 acknowledged
+2026-10-19 22:06:17.035 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 129..129, watermark 129, 1 acknowledged
+2026-10-19 22:06:17.063 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 130..130, watermark 130, 1 acknowledged
+2026-10-19 22:06:17.095 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 131..131, watermark 131, 1 acknowledged
+2026-10-19 22:06:17.123 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 132..132, watermark 132, 1 acknowledged
+2026-10-19 22:06:17.162 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 133..133, watermark 133, 1 acknowledged
+2026-10-19 22:06:17.183 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 134..134, watermark 134, 1 acknowledged
+2026-10-19 22:06:17.214 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 135..135, watermark 135, 1 acknowledged
+2026-10-19 22:06:17.239 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 136..136, watermark 136, 1 acknowledged
+2026-10-19 22:06:17.266 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 137..137, watermark 137, 1 acknowledged
+2026-10-19 22:06:17.366 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 138..138, watermark 138, 1 acknowledged
+2026-10-19 22:06:17.368 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 139..139, watermark 139, 1 acknowledged
+2026-10-19 22:06:17.379 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 140..140, watermark 140, 1 acknowledged
+2026-10-19 22:06:17.405 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 141..141, watermark 141, 1 acknowledged
+2026-10-19 22:06:17.424 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 142..142, watermark 142, 1 acknowledged
+2026-10-19 22:06:17.451 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 143..143, watermark 143, 1 acknowledged
+2026-10-19 22:06:17.479 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 144..144, watermark 144, 1 acknowledged
+2026-10-19 22:06:17.501 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 145..145, watermark 145, 1 acknowledged
+2026-10-19 22:06:17.531 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 146..146, watermark 146, 1 acknowledged
+2026-10-19 22:06:17.559 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 147..147, watermark 147, 1 acknowledged
+2026-10-19 22:06:17.579 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 148..148, watermark 148, 1 acknowledged
+2026-10-19 22:06:17.607 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 149..149, watermark 149, 1 acknowledged
+2026-10-19 22:06:17.631 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 150..150, watermark 150, 1 acknowledged
+2026-10-19 22:06:17.657 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 151..151, watermark 151, 1 acknowledged
+2026-10-19 22:06:17.683 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 152..152, watermark 152, 1 acknowledged
+2026-10-19 22:06:17.711 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 153..153, watermark 153, 1 acknowledged
+2026-10-19 22:06:17.734 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 154..154, watermark 154, 1 acknowledged
+2026-10-19 22:06:17.764 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 155..155, watermark 155, 1 acknowledged
+2026-10-19 22:06:17.796 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 156..156, watermark 156, 1 acknowledged
+2026-10-19 22:06:17.813 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 157..157, watermark 157, 1 acknowledged
+2026-10-19 22:06:17.861 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 158..158, watermark 158, 1 acknowledged
+2026-10-19 22:06:17.872 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 159..159, watermark 159, 1 acknowledged
+2026-10-19 22:06:17.886 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 160..160, watermark 160, 1 acknowledged
+2026-10-19 22:06:17.908 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 161..161, watermark 161, 1 acknowledged
+2026-10-19 22:06:17.952 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 162..162, watermark 162, 1 acknowledged
+2026-10-19 22:06:17.963 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 163..163, watermark 163, 1 acknowledged
+2026-10-19 22:06:17.983 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 164..164, watermark 164, 1 acknowledged
+2026-10-19 22:06:18.004 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 165..165, watermark 165, 1 acknowledged
+2026-10-19 22:06:18.030 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 166..166, watermark 166, 1 acknowledged
+2026-10-19 22:06:18.050 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 167..167, watermark 167, 1 acknowledged
+2026-10-19 22:06:18.073 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 168..168, watermark 168, 1 acknowledged
+2026-10-19 22:06:18.135 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 169..169, watermark 169, 1 acknowledged
+2026-10-19 22:06:18.154 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 170..170, watermark 170, 1 acknowledged
+2026-10-19 22:06:18.170 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 171..171, watermark 171, 1 acknowledged
+2026-10-19 22:06:18.185 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 172..172, watermark 172, 1 acknowledged
+2026-10-19 22:06:18.218 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 173..173, watermark 173, 1 acknowledged
+2026-10-19 22:06:18.223 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 174..174, watermark 174, 1 acknowledged
+2026-10-19 22:06:18.243 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 175..175, watermark 175, 1 acknowledged
+2026-10-19 22:06:18.272 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 176..176, watermark 176, 1 acknowledged
+2026-10-19 22:06:18.448 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 177..177, watermark 177, 1 acknowledged
+2026-10-19 22:06:18.469 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 178..178, watermark 178, 1 acknowledged
+2026-10-19 22:06:18.494 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 179..179, watermark 179, 1 acknowledged
+2026-10-19 22:06:18.519 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 180..180, watermark 180, 1 acknowledged
+2026-10-19 22:06:18.547 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 181..181, watermark 181, 1 acknowledged
+2026-10-19 22:06:18.570 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 182..182, watermark 182, 1 acknowledged
+2026-10-19 22:06:18.596 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 183..183, watermark 183, 1 acknowledged
+2026-10-19 22:06:18.622 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 184..184, watermark 184, 1 acknowledged
+2026-10-19 22:06:18.648 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 185..185, watermark 185, 1 acknowledged
+2026-10-19 22:06:18.672 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 186..186, watermark 186, 1 acknowledged
+2026-10-19 22:06:18.699 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 187..187, watermark 187, 1 acknowledged
+2026-10-19 22:06:18.725 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 188..188, watermark 188, 1 acknowledged
+2026-10-19 22:06:18.752 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 189..189, watermark 189, 1 acknowledged
+2026-10-19 22:06:18.778 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 190..190, watermark 190, 1 acknowledged
+2026-10-19 22:06:18.802 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 191..191, watermark 191, 1 acknowledged
+2026-10-19 22:06:18.829 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 192..192, watermark 192, 1 acknowledged
+2026-10-19 22:06:18.858 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 193..193, watermark 193, 1 acknowledged
+2026-10-19 22:06:18.880 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 194..194, watermark 194, 1 acknowledged
+2026-10-19 22:06:18.912 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 195..195, watermark 195, 1 acknowledged
+2026-10-19 22:06:18.933 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 196..196, watermark 196, 1 acknowledged
+2026-10-19 22:06:18.959 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 197..197, watermark 197, 1 acknowledged
+2026-10-19 22:06:18.985 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 198..198, watermark 198, 1 acknowledged
+2026-10-19 22:06:19.012 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 199..199, watermark 199, 1 acknowledged
+2026-10-19 22:06:19.036 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 200..200, watermark 200, 1 acknowledged
+2026-10-19 22:06:19.066 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 201..201, watermark 201, 1 acknowledged
+2026-10-19 22:06:19.090 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 202..202, watermark 202, 1 acknowledged
+2026-10-19 22:06:19.119 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 203..203, watermark 203, 1 acknowledged
+2026-10-19 22:06:19.142 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 204..204, watermark 204, 1 acknowledged
+2026-10-19 22:06:19.169 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 205..205, watermark 205, 1 acknowledged
+2026-10-19 22:06:19.194 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 206..206, watermark 206, 1 acknowledged
+2026-10-19 22:06:19.220 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 207..207, watermark 207, 1 acknowledged
+2026-10-19 22:06:19.255 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 208..208, watermark 208, 1 acknowledged
+2026-10-19 22:06:19.274 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 209..209, watermark 209, 1 acknowledged
+2026-10-19 22:06:19.298 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 210..210, watermark 210, 1 acknowledged
+2026-10-19 22:06:19.324 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 211..211, watermark 211, 1 acknowledged
+2026-10-19 22:06:19.349 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 212..212, watermark 212, 1 acknowledged
+2026-10-19 22:06:19.372 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 213..213, watermark 213, 1 acknowledged
+2026-10-19 22:06:19.403 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 214..214, watermark 214, 1 acknowledged
+2026-10-19 22:06:19.431 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 215..215, watermark 215, 1 acknowledged
+2026-10-19 22:06:19.453 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 216..216, watermark 216, 1 acknowledged
+2026-10-19 22:06:19.480 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 217..217, watermark 217, 1 acknowledged
+2026-10-19 22:06:19.502 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 218..218, watermark 218, 1 acknowledged
+2026-10-19 22:06:19.534 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 219..219, watermark 219, 1 acknowledged
+2026-10-19 22:06:19.557 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 220..220, watermark 220, 1 acknowledged
+2026-10-19 22:06:19.585 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 221..221, watermark 221, 1 acknowledged
+2026-10-19 22:06:19.614 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 222..222, watermark 222, 1 acknowledged
+2026-10-19 22:06:19.637 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 223..223, watermark 223, 1 acknowledged
+2026-10-19 22:06:19.673 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 224..224, watermark 224, 1 acknowledged
+2026-10-19 22:06:19.686 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 225..225, watermark 225, 1 acknowledged
+2026-10-19 22:06:19.848 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 226..226, watermark 226, 1 acknowledged
+2026-10-19 22:06:19.853 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 227..228, watermark 228, 2 acknowledged
+2026-10-19 22:06:19.866 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 229..229, watermark 229, 1 acknowledged
+2026-10-19 22:06:19.890 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 230..230, watermark 230, 1 acknowledged
+2026-10-19 22:06:19.926 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 231..231, watermark 231, 1 acknowledged
+2026-10-19 22:06:19.949 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 232..232, watermark 232, 1 acknowledged
+2026-10-19 22:06:19.969 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 233..233, watermark 233, 1 acknowledged
+2026-10-19 22:06:20.001 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 234..234, watermark 234, 1 acknowledged
+2026-10-19 22:06:20.347 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 235..235, watermark 235, 1 acknowledged
+2026-10-19 22:06:20.578 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 236..236, watermark 236, 1 acknowledged
+2026-10-19 22:06:20.691 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 237..237, watermark 237, 1 acknowledged
+2026-10-19 22:06:20.693 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 238..240, watermark 240, 3 acknowledged
+2026-10-19 22:06:20.697 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 241..241, watermark 241, 1 acknowledged
+2026-10-19 22:06:20.728 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 242..242, watermark 242, 1 acknowledged
+2026-10-19 22:06:20.751 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 243..243, watermark 243, 1 acknowledged
+2026-10-19 22:06:20.779 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 244..244, watermark 244, 1 acknowledged
+2026-10-19 22:06:20.805 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 245..245, watermark 245, 1 acknowledged
+2026-10-19 22:06:20.833 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 246..246, watermark 246, 1 acknowledged
+2026-10-19 22:06:20.865 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 247..247, watermark 247, 1 acknowledged
+2026-10-19 22:06:20.887 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 248..248, watermark 248, 1 acknowledged
+2026-10-19 22:06:20.913 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 249..249, watermark 249, 1 acknowledged
+2026-10-19 22:06:20.941 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 250..250, watermark 250, 1 acknowledged
+2026-10-19 22:06:20.968 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 251..251, watermark 251, 1 acknowledged
+2026-10-19 22:06:20.998 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 252..252, watermark 252, 1 acknowledged
+2026-10-19 22:06:21.021 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 253..253, watermark 253, 1 acknowledged
+2026-10-19 22:06:21.048 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 254..254, watermark 254, 1 acknowledged
+2026-10-19 22:06:21.079 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 255..255, watermark 255, 1 acknowledged
+2026-10-19 22:06:21.103 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 256..256, watermark 256, 1 acknowledged
+2026-10-19 22:06:21.130 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 257..257, watermark 257, 1 acknowledged
+2026-10-19 22:06:21.159 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 258..258, watermark 258, 1 acknowledged
+2026-10-19 22:06:21.187 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 259..259, watermark 259, 1 acknowledged
+2026-10-19 22:06:21.214 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 260..260, watermark 260, 1 acknowledged
+2026-10-19 22:06:21.239 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 261..261, watermark 261, 1 acknowledged
+2026-10-19 22:06:21.266 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 262..262, watermark 262, 1 acknowledged
+2026-10-19 22:06:21.295 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 263..263, watermark 263, 1 acknowledged
+2026-10-19 22:06:21.321 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 264..264, watermark 264, 1 acknowledged
+2026-10-19 22:06:21.350 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 265..265, watermark 265, 1 acknowledged
+2026-10-19 22:06:21.378 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 266..266, watermark 266, 1 acknowledged
+2026-10-19 22:06:21.406 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 267..267, watermark 267, 1 acknowledged
+2026-10-19 22:06:21.430 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 268..268, watermark 268, 1 acknowledged
+2026-10-19 22:06:21.457 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 269..269, watermark 269, 1 acknowledged
+2026-10-19 22:06:21.484 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 270..270, watermark 270, 1 acknowledged
+2026-10-19 22:06:21.512 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 271..271, watermark 271, 1 acknowledged
+2026-10-19 22:06:21.538 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 272..272, watermark 272, 1 acknowledged
+2026-10-19 22:06:21.564 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 273..273, watermark 273, 1 acknowledged
+2026-10-19 22:06:21.594 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 274..274, watermark 274, 1 acknowledged
+2026-10-19 22:06:21.620 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 275..275, watermark 275, 1 acknowledged
+2026-10-19 22:06:21.645 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 276..276, watermark 276, 1 acknowledged
+2026-10-19 22:06:21.671 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 277..277, watermark 277, 1 acknowledged
+2026-10-19 22:06:21.707 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 278..278, watermark 278, 1 acknowledged
+2026-10-19 22:06:21.726 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 279..279, watermark 279, 1 acknowledged
+2026-10-19 22:06:21.749 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 280..280, watermark 280, 1 acknowledged
+2026-10-19 22:06:21.776 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 281..281, watermark 281, 1 acknowledged
+2026-10-19 22:06:21.801 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 282..282, watermark 282, 1 acknowledged
+2026-10-19 22:06:21.829 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 283..283, watermark 283, 1 acknowledged
+2026-10-19 22:06:21.854 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 284..284, watermark 284, 1 acknowledged
+2026-10-19 22:06:21.883 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 285..285, watermark 285, 1 acknowledged
+2026-10-19 22:06:21.907 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 286..286, watermark 286, 1 acknowledged
+2026-10-19 22:06:21.938 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 287..287, watermark 287, 1 acknowledged
+2026-10-19 22:06:21.961 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 288..288, watermark 288, 1 acknowledged
+2026-10-19 22:06:22.002 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 289..289, watermark 289, 1 acknowledged
+2026-10-19 22:06:22.015 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 290..290, watermark 290, 1 acknowledged
+2026-10-19 22:06:22.038 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 291..291, watermark 291, 1 acknowledged
+2026-10-19 22:06:22.346 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 292..292, watermark 292, 1 acknowledged
+2026-10-19 22:06:22.403 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 293..293, watermark 293, 1 acknowledged
+2026-10-19 22:06:22.415 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 294..294, watermark 294, 1 acknowledged
+2026-10-19 22:06:22.442 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 295..295, watermark 295, 1 acknowledged
+2026-10-19 22:06:22.468 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 296..296, watermark 296, 1 acknowledged
+2026-10-19 22:06:22.494 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 297..297, watermark 297, 1 acknowledged
+2026-10-19 22:06:22.519 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 298..298, watermark 298, 1 acknowledged
+2026-10-19 22:06:22.545 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 299..299, watermark 299, 1 acknowledged
+2026-10-19 22:06:22.571 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 300..300, watermark 300, 1 acknowledged
+2026-10-19 22:06:22.597 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 301..301, watermark 301, 1 acknowledged
+2026-10-19 22:06:22.623 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 302..302, watermark 302, 1 acknowledged
+2026-10-19 22:06:22.649 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 303..303, watermark 303, 1 acknowledged
+2026-10-19 22:06:22.677 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 304..304, watermark 304, 1 acknowledged
+2026-10-19 22:06:22.701 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 305..305, watermark 305, 1 acknowledged
+2026-10-19 22:06:22.726 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 306..306, watermark 306, 1 acknowledged
+2026-10-19 22:06:22.764 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 307..307, watermark 307, 1 acknowledged
+2026-10-19 22:06:22.778 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 308..308, watermark 308, 1 acknowledged
+2026-10-19 22:06:22.803 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 309..309, watermark 309, 1 acknowledged
+2026-10-19 22:06:22.834 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 310..310, watermark 310, 1 acknowledged
+2026-10-19 22:06:22.858 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 311..311, watermark 311, 1 acknowledged
+2026-10-19 22:06:23.947 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 312..312, watermark 312, 1 acknowledged
+2026-10-19 22:06:23.949 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 313..313, watermark 313, 1 acknowledged
+2026-10-19 22:06:23.967 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 314..314, watermark 314, 1 acknowledged
+2026-10-19 22:06:23.972 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 315..315, watermark 315, 1 acknowledged
+2026-10-19 22:06:23.995 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 316..316, watermark 316, 1 acknowledged
+2026-10-19 22:06:24.009 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 317..317, watermark 317, 1 acknowledged
+2026-10-19 22:06:24.015 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 318..318, watermark 318, 1 acknowledged
+2026-10-19 22:06:24.029 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:24.029 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:06:24.029 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-3, message=turn-3-message-1, stopReason=stop
+2026-10-19 22:06:24.029 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:24.029 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:06:24.030 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:24.030 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_end
+2026-10-19 22:06:24.030 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:24.030 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_settled
+2026-10-19 22:06:24.030 [PiDialect] TurnEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-3, outcome=Done, reason=, stopReason=stop
+2026-10-19 22:06:24.030 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 319..319, watermark 319, 1 acknowledged
+2026-10-19 22:06:26.243 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 320..321, watermark 321, 2 acknowledged
+2026-10-19 22:06:45.882 [ApiModeSessionBackend] StopTurnAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=Protocol
+2026-10-19 22:06:45.882 [ApiModeSessionHost] StopAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:06:45.882 [PiDialect] Build: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=abort, command=dt-5
+2026-10-19 22:06:45.883 [ApiModeTransport] WriteRecordAsync: record=abort
+2026-10-19 22:06:45.883 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=abort, command=dt-5, prompt=
+2026-10-19 22:06:45.884 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:06:45.884 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:06:45.884 [PiDialect] Response: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, command=dt-5, type=abort, success=True
+2026-10-19 22:06:45.884 [ApiModeSessionHost] StopAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=(none running), outcome=(none)
+2026-10-19 22:06:45.884 [ApiModeSessionBackend] StopTurnAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi confirmed the stop, turn=(none running)
+2026-10-19 22:08:54.575 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=Protocol
+2026-10-19 22:08:54.576 [ApiModeSessionHost] SuspendAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, grace=5000ms
+2026-10-19 22:08:54.577 [ApiModeTransport] ShutdownAsync: process 46020, grace=5000ms
+2026-10-19 22:08:54.587 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 361 records
+2026-10-19 22:08:54.587 [ApiModeTransport] WatchForExitAsync: process 46020 exited with code 0
+2026-10-19 22:08:54.588 [ApiModeTransport] Complete: process 46020 ended, exit code 0, 0 requests unanswered
+2026-10-19 22:08:54.589 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-19 22:08:54.589 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-19 22:08:54.589 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=0, turn=, inFlight=0
+2026-10-19 22:08:54.590 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, reason=Pi exited (exit code 0), failure=False
+2026-10-19 22:08:54.592 [ApiModeSessionHost] OnProcessEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-19 22:08:54.592 [ApiModeSessionHost] SuspendAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi's process has ended; the user may take the conversation
+2026-10-19 22:08:54.594 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi's API process has exited; starting its terminal: C:\WINDOWS\system32\cmd.exe /s /c ""~\AppData\Roaming\npm\pi.cmd" --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt "<rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt""
+2026-10-19 22:08:54.693 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 322..322, watermark 322, 1 acknowledged
+2026-10-19 22:08:54.736 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, the user has the wheel, terminal process 58296
+2026-10-19 22:09:05.463 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:09:05.463 [ApiModeSessionBackend] hand back REFUSED: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-19 22:09:08.886 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:09:08.886 [ApiModeSessionBackend] hand back REFUSED: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-19 22:09:11.904 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:09:11.904 [ApiModeSessionBackend] hand back REFUSED: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-19 22:09:14.917 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:09:14.917 [ApiModeSessionBackend] hand back REFUSED: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-19 22:09:17.936 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:09:17.937 [ApiModeSessionBackend] ending the user's terminal: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, process 58296
+2026-10-19 22:09:22.969 [ApiModeSessionBackend] the user's terminal exited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=-1
+2026-10-19 22:09:22.992 [ApiModeSessionHost] ResumeAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:09:22.992 [PiDialect] Created: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, resuming=False
+2026-10-19 22:09:22.992 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt <rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt], workingDirectory=<rig>\work
+2026-10-19 22:09:22.992 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:09:22.992 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:09:22.992 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-19 22:09:22.997 [ApiModeTransport] Start: process 59464 running
+2026-10-19 22:09:22.997 [ApiModeSessionHost] StartConnection: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi running as process 59464, resuming=False
+2026-10-19 22:09:22.997 [ApiModeSessionHost] ResumeAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi started again; 0 queued prompt(s) wait for it to name its conversation
+2026-10-19 22:09:22.997 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, the protocol holds the conversation again
+2026-10-19 22:09:23.000 [PiDialect] Build: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-6
+2026-10-19 22:09:23.000 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-19 22:09:23.000 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-6, prompt=
+2026-10-19 22:09:23.369 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:23.369 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:09:23.369 [PiDialect] Response: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, command=dt-6, type=get_state, success=True
+2026-10-19 22:09:23.369 [PiDialect] State: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, model=zai-org/GLM-5.3, messages=11
+2026-10-19 22:09:23.526 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 323..323, watermark 323, 1 acknowledged
+2026-10-19 22:09:28.528 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, length=77, gatewayPromptId=91b83966526c4bd4813a3a751c1e911e
+2026-10-19 22:09:28.528 [PiDialect] BuildPrompt: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=91b83966526c4bd4813a3a751c1e911e, command=dt-7, length=77
+2026-10-19 22:09:28.528 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-19 22:09:28.528 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=prompt, command=dt-7, prompt=91b83966526c4bd4813a3a751c1e911e
+2026-10-19 22:09:28.532 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.532 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:09:28.532 [PiDialect] Delivered: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=91b83966526c4bd4813a3a751c1e911e, disposition=started
+2026-10-19 22:09:28.532 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=91b83966526c4bd4813a3a751c1e911e, delivered
+2026-10-19 22:09:28.532 [ApiModeSessionHost] Turn-start bound armed: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompts=91b83966526c4bd4813a3a751c1e911e, bound=60s
+2026-10-19 22:09:28.532 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.532 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_start
+2026-10-19 22:09:28.532 [PiDialect] TurnStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-4, prompts=91b83966526c4bd4813a3a751c1e911e
+2026-10-19 22:09:28.533 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.533 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:09:28.533 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.533 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:09:28.535 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.535 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:09:28.551 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 324..324, watermark 324, 1 acknowledged
+2026-10-19 22:09:28.567 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 325..325, watermark 325, 1 acknowledged
+2026-10-19 22:09:28.893 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:28.893 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:09:38.727 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:38.727 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:09:38.727 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-4, message=turn-4-message-1, stopReason=stop
+2026-10-19 22:09:38.727 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:38.727 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:09:38.727 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:38.727 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_end
+2026-10-19 22:09:38.727 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:38.727 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_settled
+2026-10-19 22:09:38.727 [PiDialect] TurnEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-4, outcome=Done, reason=, stopReason=stop
+2026-10-19 22:09:38.860 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 326..326, watermark 326, 1 acknowledged
+2026-10-19 22:09:39.844 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 327..328, watermark 328, 2 acknowledged
+2026-10-19 22:09:40.733 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=Protocol
+2026-10-19 22:09:40.733 [ApiModeSessionHost] SuspendAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, grace=5000ms
+2026-10-19 22:09:40.733 [ApiModeTransport] ShutdownAsync: process 59464, grace=5000ms
+2026-10-19 22:09:40.745 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 14 records
+2026-10-19 22:09:40.745 [ApiModeTransport] WatchForExitAsync: process 59464 exited with code 0
+2026-10-19 22:09:40.745 [ApiModeTransport] Complete: process 59464 ended, exit code 0, 0 requests unanswered
+2026-10-19 22:09:40.745 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:09:40.745 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=0, turn=, inFlight=0
+2026-10-19 22:09:40.745 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, reason=Pi exited (exit code 0), failure=False
+2026-10-19 22:09:40.745 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-19 22:09:40.745 [ApiModeSessionHost] OnProcessEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-19 22:09:40.745 [ApiModeSessionHost] SuspendAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi's process has ended; the user may take the conversation
+2026-10-19 22:09:40.745 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi's API process has exited; starting its terminal: C:\WINDOWS\system32\cmd.exe /s /c ""~\AppData\Roaming\npm\pi.cmd" --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt "<rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt""
+2026-10-19 22:09:40.753 [ApiModeSessionBackend] TakeWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, the user has the wheel, terminal process 18108
+2026-10-19 22:09:41.158 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 329..329, watermark 329, 1 acknowledged
+2026-10-19 22:09:44.891 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, length=37, gatewayPromptId=21358fa7d5454e45a45cf765e72803ad
+2026-10-19 22:09:44.892 [ApiModeSessionHost] Queued: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=21358fa7d5454e45a45cf765e72803ad, reason=UserHasTheWheel, position=1
+2026-10-19 22:09:44.969 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 330..330, watermark 330, 1 acknowledged
+2026-10-19 22:10:05.067 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, holder=User
+2026-10-19 22:10:05.067 [ApiModeSessionBackend] ending the user's terminal: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, process 18108
+2026-10-19 22:10:10.092 [ApiModeSessionBackend] the user's terminal exited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=-1
+2026-10-19 22:10:10.138 [ApiModeSessionHost] ResumeAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:10:10.138 [PiDialect] Created: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, resuming=False
+2026-10-19 22:10:10.138 [ApiModeTransport] Start: executable=~\AppData\Roaming\npm\pi.cmd, arguments=[--mode rpc --session-id ef8dc821-2909-42f9-93c1-599120e23b7d --append-system-prompt <rig>\root\instances\default\pi-preamble\6fffe237-e6d9-4cc1-9b99-9f28e7e72c31.txt], workingDirectory=<rig>\work
+2026-10-19 22:10:10.138 [ApiModeExecutableResolver] Resolve: executable=~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:10:10.138 [ApiModeExecutableResolver] Resolve: ~\AppData\Roaming\npm\pi.cmd -> ~\AppData\Roaming\npm\pi.cmd
+2026-10-19 22:10:10.138 [ApiModeEnvironment] Build: 68 inherited, 70 given, 5 set
+2026-10-19 22:10:10.145 [ApiModeTransport] Start: process 17312 running
+2026-10-19 22:10:10.145 [ApiModeSessionHost] StartConnection: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi running as process 17312, resuming=False
+2026-10-19 22:10:10.145 [ApiModeSessionHost] ResumeAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi started again; 1 queued prompt(s) wait for it to name its conversation
+2026-10-19 22:10:10.145 [ApiModeSessionBackend] HandBackWheelAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, the protocol holds the conversation again
+2026-10-19 22:10:10.146 [PiDialect] Build: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-8
+2026-10-19 22:10:10.146 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-19 22:10:10.146 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=get_state, command=dt-8, prompt=
+2026-10-19 22:10:10.600 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.600 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:10:10.600 [PiDialect] Response: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, command=dt-8, type=get_state, success=True
+2026-10-19 22:10:10.600 [PiDialect] State: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, agentSession=ef8dc821-2909-42f9-93c1-599120e23b7d, model=zai-org/GLM-5.3, messages=13
+2026-10-19 22:10:10.601 [PiDialect] BuildPrompt: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=21358fa7d5454e45a45cf765e72803ad, command=dt-9, length=37
+2026-10-19 22:10:10.601 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-19 22:10:10.601 [PiDialect] OnCommandWritten: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=prompt, command=dt-9, prompt=21358fa7d5454e45a45cf765e72803ad
+2026-10-19 22:10:10.607 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.607 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=response
+2026-10-19 22:10:10.607 [PiDialect] Delivered: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=21358fa7d5454e45a45cf765e72803ad, disposition=started
+2026-10-19 22:10:10.609 [ApiModeSessionHost] Turn-start bound armed: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompts=21358fa7d5454e45a45cf765e72803ad, bound=60s
+2026-10-19 22:10:10.609 [ApiModeSessionHost] SendPromptAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, prompt=21358fa7d5454e45a45cf765e72803ad, delivered
+2026-10-19 22:10:10.609 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.609 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_start
+2026-10-19 22:10:10.609 [PiDialect] TurnStarted: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-5, prompts=21358fa7d5454e45a45cf765e72803ad
+2026-10-19 22:10:10.609 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.609 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_start
+2026-10-19 22:10:10.609 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.609 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:10:10.611 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.611 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:10:10.611 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 331..331, watermark 331, 1 acknowledged
+2026-10-19 22:10:10.977 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 332..333, watermark 333, 2 acknowledged
+2026-10-19 22:10:10.987 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:10.987 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_start
+2026-10-19 22:10:47.589 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 334..334, watermark 334, 1 acknowledged
+2026-10-19 22:10:47.882 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 335..335, watermark 335, 1 acknowledged
+2026-10-19 22:10:48.150 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 336..336, watermark 336, 1 acknowledged
+2026-10-19 22:10:48.474 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 337..337, watermark 337, 1 acknowledged
+2026-10-19 22:10:48.482 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 338..338, watermark 338, 1 acknowledged
+2026-10-19 22:10:48.813 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 339..339, watermark 339, 1 acknowledged
+2026-10-19 22:10:48.822 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:48.822 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=message_end
+2026-10-19 22:10:48.822 [PiDialect] Message ended: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-5, message=turn-5-message-1, stopReason=stop
+2026-10-19 22:10:48.822 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:48.822 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=turn_end
+2026-10-19 22:10:48.823 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:48.823 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_end
+2026-10-19 22:10:48.823 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 340..340, watermark 340, 1 acknowledged
+2026-10-19 22:10:48.823 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:48.823 [PiDialect] OnStdoutRecord: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, type=agent_settled
+2026-10-19 22:10:48.823 [PiDialect] TurnEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, turn=turn-5, outcome=Done, reason=, stopReason=stop
+2026-10-19 22:10:48.831 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 341..341, watermark 341, 1 acknowledged
+2026-10-19 22:10:48.843 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 342..342, watermark 342, 1 acknowledged
+2026-10-19 22:10:51.188 [ApiModeSessionBackend] Dispose: session=85ad3042-6731-4576-bbd8-2e25bbc0f915
+2026-10-19 22:10:52.091 [ApiModeSessionBackend] GracefulShutdownAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, timeout=1500ms, holder=Protocol
+2026-10-19 22:10:52.092 [ApiModeSessionHost] ShutdownAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, grace=1500ms
+2026-10-19 22:10:52.092 [ApiModeTransport] ShutdownAsync: process 17312, grace=1500ms
+2026-10-19 22:10:52.104 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 21 records
+2026-10-19 22:10:52.105 [ApiModeTransport] WatchForExitAsync: process 17312 exited with code 0
+2026-10-19 22:10:52.105 [ApiModeTransport] Complete: process 17312 ended, exit code 0, 0 requests unanswered
+2026-10-19 22:10:52.105 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-19 22:10:52.105 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-19 22:10:52.106 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=0, turn=, inFlight=0
+2026-10-19 22:10:52.106 [PiDialect] OnProcessExited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, reason=Pi exited (exit code 0), failure=False
+2026-10-19 22:10:52.106 [ApiModeSessionHost] OnProcessEnded: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, Pi exited (exit code 0), restart=False, wheelTaken=False
+2026-10-19 22:10:52.106 [ApiModeSessionHost] ShutdownAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, ended: Pi exited (exit code 0)
+2026-10-19 22:10:52.106 [ApiModeSessionBackend] Exited: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, exitCode=0, failure=False, reason=Pi exited (exit code 0)
+2026-10-19 22:10:52.106 [ApiModeConversationClaims] Release: D:\APIPROOF\API-MODE-PI-PROOF-20261020-015945\WORK|ef8dc821-2909-42f9-93c1-599120e23b7d by 6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:10:52.114 [ApiModeSessionBackend] Dispose: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:10:52.115 [ApiModeSessionHost] DisposeAsync: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31
+2026-10-19 22:10:52.115 [ApiModeTransport] DisposeAsync: process 17312
+2026-10-19 22:10:52.195 [ApiModeEventPusher] stored: session=6fffe237-e6d9-4cc1-9b99-9f28e7e72c31, generation=da9cf8b8-fc7b-4933-974a-32eaab13945b, sequences 343..343, watermark 343, 1 acknowledged
+2026-10-19 22:10:52.604 [ApiModeEventPusher] DisposeAsync

@@ -1,0 +1,108 @@
+- Window "DevThrottle Director"
+  - Window "Set up DevThrottle"
+    - TitleBar "Set up DevThrottle" [TitleBar]
+      - MenuBar "System Menu Bar" [SystemMenuBar]
+        - MenuItem "System" [Item 1]
+      - Button "Minimize" [Minimize]
+      - Button "Maximize" [Maximize]
+      - Button "Close" [Close]
+    - Text "Step 1 of 8 - Welcome" [DotsStepLabel]
+    - Pane ""
+      - Text "Let's get you set up" [WelcomeTitle]
+      - Text "Five quick things, so DevThrottle knows this machine. Skip any of them - all of it can be changed later." [WelcomeSubText]
+      - Text "Your gateway"
+      - Text "Your agents on your phone, voice, and the morning report"
+      - Text "Your coding agents"
+      - Text "Find the ones already installed, or install one now"
+      - Text "Where your code lives"
+      - Text "So DevThrottle can offer you repositories and keep the books on them"
+      - Text "Screenshots"
+      - Text "So you can show an agent what you mean instead of describing it"
+      - Text "A browser for your agents"
+      - Text "One browser with its own login, so an agent can read a page or fill in a form for you"
+      - ScrollBar "" [PART_VerticalScrollBar]
+        - Button "Line up" [PART_LineUpButton]
+        - Button "Page up" [PART_PageUpButton]
+        - Button "Page down" [PART_PageDownButton]
+        - Thumb "Position"
+        - Button "Line down" [PART_LineDownButton]
+    - Button "Set me up" [WelcomeSetupButton]
+    - Button "Skip setup and figure it out myself" [WelcomeSkipLink]
+    - Text "Takes about 3 minutes. Every step is optional, and everything can be changed later in Settings." [FooterNote]
+  - TitleBar "DevThrottle Director" [TitleBar]
+    - MenuBar "System Menu Bar" [SystemMenuBar]
+      - MenuItem "System" [Item 1]
+    - Button "Minimize" [Minimize]
+    - Button "Maximize" [Maximize]
+    - Button "Close" [Close]
+  - Menu "" [PART_NativeMenuPresenter]
+    - MenuItem "File"
+    - MenuItem "View"
+    - MenuItem "Browser profiles"
+    - MenuItem "Help"
+  - Text "<user>_NORTH" [DirectorInfoText]
+  - Button "Copy" [BtnCopyDirectorInfo]
+  - Button "Avalonia.Controls.StackPanel" [BtnCockpit]
+    - Text "Cockpit"
+  - Button "Avalonia.Controls.StackPanel" [BtnSettings]
+    - Text "Settings"
+  - Button "Avalonia.Controls.StackPanel" [BtnNewSession]
+    - Text "New Session"
+  - Button "Avalonia.Controls.Viewbox"
+  - Button "My order" [BtnRailOrderMine]
+  - Button "Attention" [BtnRailOrderAttention]
+  - Button "?" [BtnColourLegend]
+  - Text "SESSIONS"
+  - Text "1 need you" [SessionsNeedYouText]
+  - Text "v2.25.0 (2b46f84)" [BuildInfoText]
+  - Text "Sign in" [GatewayChipText]
+  - Text "AUTOMATIC UPDATES OFF" [UpdateIndicatorLabel]
+  - Text "v2.25.0 - this build does not update itself" [UpdateIndicatorSub]
+  - Button "Avalonia.Controls.DockPanel" [BtnRepositories]
+    - Text "[R]"
+    - Text "Repositories"
+  - Custom "" [BrowsersRail]
+    - Button "Avalonia.Controls.DockPanel" [HeaderButton]
+      - Text "[B]"
+      - Text "Browser profiles"
+  - List "" [SessionList]
+    - ListItem "CcDirector.Avalonia.SessionViewModel"
+      - Text "100"
+      - Text "API mode proof - flow"
+      - Button "..."
+      - Text "Pi"
+      - Text "|"
+      - Text "zai-org/GLM-5.3"
+      - Text "Needs you"
+      - Text "waiting 6m"
+  - Thumb "" [SidebarSplitter]
+  - Text "100  API mode proof - flow" [HeaderSessionName]
+  - Text "Pi | zai-org/GLM-5.3" [HeaderAgentModelText]
+  - Button "Take the wheel" [TabBarWheelButton]
+  - Button "Cockpit ↗" [TabBarCockpitButton]
+  - Button "Terminal" [TerminalTabButton]
+  - ScrollBar "" [TerminalScrollBar]
+    - Button "Line up" [PART_LineUpButton]
+    - Button "Page up" [PART_PageUpButton]
+    - Button "Page down" [PART_PageDownButton]
+    - Thumb "Position"
+    - Button "Line down" [PART_LineDownButton]
+  - Custom "" [ActionBar]
+    - Button "Stop" [BtnStopTurn]
+    - Button "Compact" [BtnCompact]
+    - Button "Clear context" [BtnClearContext]
+    - Text "" [ActionStatus]
+    - Text "ctx --" [ContextGaugeText]
+  - Edit "" [PromptInput]
+  - Button "Expand" [PromptExpandButton]
+  - Button "Send" [BtnSend]
+  - Button "Speak" [BtnSpeak]
+  - Button "Queue" [BtnQueuePrompt]
+  - Button "Avalonia.Controls.Viewbox"
+  - Tab "" [RightPanelTabs]
+    - TabItem "Screenshots"
+    - TabItem "Queue" [QueueTab]
+    - Button "Clear All"
+    - Button "Refresh"
+    - Text "SCREENSHOTS"
+    - List "" [ScreenshotList]

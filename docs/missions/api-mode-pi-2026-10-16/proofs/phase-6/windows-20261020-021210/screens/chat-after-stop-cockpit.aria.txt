@@ -1,0 +1,96 @@
+- navigation "Primary":
+  - text: DevThrottle
+  - button "Collapse the menu" [expanded]
+  - group "Work":
+    - list:
+      - listitem:
+        - link "Sessions":
+          - /url: /sessions
+      - listitem:
+        - link "Fleet Map":
+          - /url: /fleet-map
+      - listitem:
+        - link "Fleet Manager":
+          - /url: /fleet-manager
+      - listitem:
+        - link "Factories":
+          - /url: /factories
+      - listitem:
+        - link "History":
+          - /url: /history
+      - listitem:
+        - link "Voice Recorder":
+          - /url: /transcripts
+      - listitem:
+        - link "Reports":
+          - /url: /reports
+  - group "Set up, your fleet":
+    - list:
+      - listitem:
+        - link "Directors":
+          - /url: /directors
+      - listitem:
+        - link "Licenses":
+          - /url: /licenses
+      - listitem:
+        - link "Skills":
+          - /url: /skills
+      - listitem:
+        - link "Workflows":
+          - /url: /workflows
+      - listitem:
+        - link "Schedule":
+          - /url: /schedule
+      - listitem:
+        - link "Network":
+          - /url: /network
+  - button "Account 1. Open your menu."
+- main "Main":
+  - text: Sessions 1
+  - group "Roster ordering":
+    - button "Mine" [pressed]
+    - button "Attention"
+  - button "Filter sessions": Filter
+  - button "Start a new session": +
+  - text: <user>_NORTH
+  - list:
+    - listitem:
+      - link "100 API mode proof - flow Working":
+        - /url: /session/16f413d7-2801-4ebb-a143-3d339902373d
+      - button "Session menu"
+  - button "What do the colours mean?"
+  - button "Turn on voice for your 1"
+  - tablist "Session view":
+    - tab "Chat" [selected]
+    - tab "Terminal"
+    - tab "Voice"
+    - tab "Source Control"
+    - tab "Wingman"
+    - tab "Reports"
+    - text: Pi zai-org/GLM-5.3
+    - button "Session menu"
+  - status "Session status": Working - turn 3 API mode Agent connected (zai-org/GLM-5.3)
+  - log "Live conversation":
+    - text: Agent connected (zai-org/GLM-5.3)
+    - article: Reply with exactly the word PONG Delivered
+    - article: "Use your bash tool to run: echo TOOL-OK. Then reply with exactly DONE. Delivered - stopped"
+    - article:
+      - paragraph: PONG
+    - text: Turn finished
+    - 'article "bash: done"':
+      - text: bash done
+      - group: Input
+    - article: Write the numbers from 1 to 5000, one per line, with no other text. Delivered
+    - text: "Turn stopped: stopped by the user"
+  - text: Working
+  - button "Stop"
+  - button "Attach"
+  - textbox "Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)"
+  - button "Speak"
+  - button "Queue" [disabled]
+  - button "Send" [disabled]
+  - complementary:
+    - button "Collapse the queue panel" [expanded]
+    - button "Queue"
+    - button "Screenshots"
+    - text: Queue No queued prompts.

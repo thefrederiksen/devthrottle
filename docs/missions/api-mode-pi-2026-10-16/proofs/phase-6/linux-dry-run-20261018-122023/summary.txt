@@ -1,0 +1,53 @@
+API mode proof on Pi (mission #4070, phase 6) - linux, 2026-10-18 12:20 UTC
+Tree: c2b463f5c (api-mode-pi-proof-script); pi 1.2.0; test Gateway from this tree on port 7995; slot-5 test Director
+
+PASS  1a. Spawn Pi with --connection api
+      session ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, connection api, Agent connected (gpt-5.6-sol)
+PASS  1b. PONG: a Delivered receipt and the reply PONG
+      receipt Delivered (Delivered), acknowledgement {"id":"dt-2","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}, reply 'PONG'
+PASS  2. A bash tool: a tool card that finished
+      tool card 'bash' statuses: running -> done, input {"command":"echo TOOL-OK","timeout":10}
+PASS  3. Stop: the turn ended cancelled
+      stop answered 200; turn outcome cancelled (stopped by the user), receipt 'Delivered - stopped'
+PASS  4a. Take the wheel
+      answered 200; holder user, button 'Hand back'; Pi processes 1
+PASS  Failure case: take the wheel twice - the second is refused
+      answered 409 wheel_already_held: You already have the wheel of this session: its terminal is open on the conversation. Hand it back first if you want the session to continue in API mode.
+PASS  Failure case: hand back while the terminal is mid-turn - refused with a reason, never two holders
+      answered 409: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back. Holder after: user; Pi processes 1
+PASS  4b. Hand back
+      holder protocol, Agent connected (gpt-5.6-sol); Pi processes 1
+PASS  4c. The code word typed in the terminal survives the hand back: OTTER-58
+      receipt Delivered, reply 'OTTER-58'
+PASS  5a. A prompt sent while holding the wheel is queued
+      receipt 'Queued, 1st in line: you have the wheel' (reason userHasTheWheel); session says '1 prompt waiting: you have the wheel'; the tool said: Held: the prompt to ae6c6e32-65bc-4f69-874f-de1a5bff7a1f may already be in - the Director has not said yet (its state: delivering, delivery id 61869727fbd246c29b1605a2ef4ff310). The Gateway is finding out. Do not send it again.
+help[1]:
+  cc-devthrottle session buffer ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+PASS  5b. ...then delivered on hand back
+      receipt Delivered (Delivered), turn done, reply 'QUEUED-OK'; Pi processes 1
+PASS  Failure case: Pi's executable missing - spawn fails with a stated reason
+      exit 1: Error: no session was opened on 08bdfa22-3f9f-4bed-9ed1-8bd150acffea: director returned Error: Pi could not be started: the command "<rig>/no-such-pi/pi" is not a file on this machine and was not found on this Director's PATH. Set this agent's executable path in Settings, Agents - or install Pi - and start the session again.
+help[1]:
+  cc-devthrottle director list
+PASS  Teardown: the test Director stopped on its named signal
+      process 1948697 exited
+PASS  Teardown: the user's ~/.local/bin links are unchanged
+      25 links, all as before
+
+Proven by unit tests instead of this run:
+  Pi exits mid-turn: the session shows failed with the reason, and the prompt is not marked delivered
+    CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason
+    CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween
+    CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered
+    CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector
+  Pi refuses a prompt (success:false): the receipt shows the reason
+    CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheRefusalRecording_TheSecondPromptIsRefusedByPiInItsOwnWords
+    CcDirector.Gateway.UnitTests ApiModeEventIngestTests.Accept_RefusedByTheAgent_TheReceiptCarriesPisOwnWords
+  Also proven by unit tests, beside this run: hand back mid-turn, take the wheel twice, a missing executable
+    CcDirector.Core.UnitTests ApiModeWheelTests.HandBackWheelAsync_WhileTheTerminalIsMidTurn_IsRefusedWithTheReason
+    CcDirector.Core.UnitTests ApiModeWheelTests.HandBackWheelAsync_TheTerminalHasNotExitedAfterItsShutdown_IsRefusedAndNoPiStartsBesideIt
+    CcDirector.Core.UnitTests ApiModeWheelTests.TakeWheelAsync_Twice_TheSecondIsRefusedAndNothingChanges
+    CcDirector.Core.UnitTests ApiModeSessionTests.Start_ApiModeBackendWithAMissingExecutable_FailsNamingIt
+
+Spend: 0.0823 dollars estimated (spend.txt)
+Result: every step passed
