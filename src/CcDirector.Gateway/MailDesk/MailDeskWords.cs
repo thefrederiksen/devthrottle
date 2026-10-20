@@ -64,9 +64,12 @@ public static class MailDeskWords
     public static class Outcomes
     {
         public const string Filed = "filed";
+        /// <summary>The email was not in the Inbox any more when the move was tried: moved or deleted before, never
+        /// counted as moved by the Mail Desk (phase 4 contract, section 2.3).</summary>
+        public const string AlreadyGone = "already-gone";
         public const string SeatStarted = "seat-started";
         public const string Failed = "failed";
-        public static readonly IReadOnlyList<string> All = new[] { Filed, SeatStarted, Failed };
+        public static readonly IReadOnlyList<string> All = new[] { Filed, AlreadyGone, SeatStarted, Failed };
     }
 
     /// <summary>What an allow-list entry does with its sender's mail, besides a route.</summary>

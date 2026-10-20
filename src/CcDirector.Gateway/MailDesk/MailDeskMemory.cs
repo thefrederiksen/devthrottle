@@ -80,8 +80,14 @@ public static class MailDeskMemory
     /// <param name="allChannels">Every channel of the account, removed ones included - to drop a removed channel's
     /// entry after <see cref="RemovedKeptFor"/>.</param>
     /// <param name="nowUtc">Now, for the removed channels' 30 days.</param>
+    /// <param name="toQueue">Live filing to queue (phase 4 contract, section 2.1), per channel, oldest first: each item
+    /// is appended to the channel's <c>filingQueue</c> as the check returned it, unless its key is queued already or is
+    /// not in the channel's key table as returned (an email not reread yet after a written-back run: queued once it is,
+    /// rather than sent to be refused). A channel written back this run queues nothing, because its key table is the
+    /// one from before. Null queues nothing.</param>
     public static MailDeskMemoryMerge Merge(string? kept, string? returned, IReadOnlyCollection<Guid> handedIds,
-        IReadOnlyCollection<Guid> writtenBackAsKept, IReadOnlyList<MailDeskChannelEntity> allChannels, DateTime nowUtc)
+        IReadOnlyCollection<Guid> writtenBackAsKept, IReadOnlyList<MailDeskChannelEntity> allChannels, DateTime nowUtc,
+        IReadOnlyDictionary<Guid, IReadOnlyList<MailDeskFilingItem>>? toQueue = null)
     {
         ArgumentNullException.ThrowIfNull(handedIds);
         ArgumentNullException.ThrowIfNull(writtenBackAsKept);
@@ -126,6 +132,9 @@ public static class MailDeskMemory
                     if (was?[field] is { } value) entry[field] = value.DeepClone();
                 }
             }
+            else if (toQueue is not null && toQueue.TryGetValue(id, out var items) && items.Count > 0
+                     && Queue(entry, items) is { } refusal)
+                return MailDeskMemoryMerge.Refused(refusal);
             merged[id] = entry;
         }
 
@@ -138,6 +147,28 @@ public static class MailDeskMemory
             return MailDeskMemoryMerge.Refused(
                 $"the Mail Desk memory would be {bytes.ToString(CultureInfo.InvariantCulture)} bytes, over the {MaxBytes.ToString(CultureInfo.InvariantCulture)} the check can hold, so it was not written; remove a channel or give one to another machine");
         return new MailDeskMemoryMerge(text, null);
+    }
+
+    /// <summary>Append <paramref name="items"/> to the entry's filing queue (see <see cref="Merge"/>). Answers why the
+    /// queue cannot be appended to, or null.</summary>
+    private static string? Queue(JsonObject entry, IReadOnlyList<MailDeskFilingItem> items)
+    {
+        if (entry["filingQueue"] is { } existing && existing is not JsonArray)
+            return $"the screening check wrote back a filingQueue that is not a list for channel {entry["id"]}, so no memory was kept";
+        var queue = entry["filingQueue"] as JsonArray;
+        var queued = (queue ?? new JsonArray()).OfType<JsonObject>()
+            .Select(q => q["messageKey"] is JsonValue v && v.TryGetValue<string>(out var k) ? k : null)
+            .Where(k => k is not null)
+            .ToHashSet(StringComparer.Ordinal);
+        var keys = entry["keys"] as JsonObject;
+        foreach (var item in items)
+        {
+            if (queued.Contains(item.MessageKey) || keys is null || !keys.ContainsKey(item.MessageKey)) continue;
+            if (queue is null) entry["filingQueue"] = queue = new JsonArray();
+            queue.Add(new JsonObject { ["messageKey"] = item.MessageKey, ["decision"] = item.Decision });
+            queued.Add(item.MessageKey);
+        }
+        return null;
     }
 
     /// <summary>The kept memory's entries by channel id. Null or blank is no entries; anything else that is not the
@@ -188,6 +219,9 @@ public static class MailDeskMemory
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }
+
+/// <summary>One filing item for a channel's <c>filingQueue</c>: the message's short key and <c>archive</c> or <c>junk</c>.</summary>
+public sealed record MailDeskFilingItem(string MessageKey, string Decision);
 
 /// <summary>What <see cref="MailDeskMemory.Merge"/> came to: the memory to keep, or why none may be kept.</summary>
 public sealed record MailDeskMemoryMerge(string? Memory, string? Refusal)

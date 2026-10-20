@@ -539,7 +539,9 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         Assert.All(rows, d => Assert.Equal(mode, d.Mode));
         Assert.All(rows, d => Assert.Null(d.Outcome));
         Assert.Empty(_rig.Starts);                                                       // the starter fake never called
-        Assert.Null(Entry(_rig.KeptMemory(), a.Id)!["filingQueue"]);                     // no filing queued
+        // No filing queued. In live mode that holds since phase 4 only because the "broken" email's model failure
+        // writes the mailbox back, so its key table is the old one; MailDeskFilingTests proves live queuing itself.
+        Assert.Null(Entry(_rig.KeptMemory(), a.Id)!["filingQueue"]);
     }
 
     // ---------- section 8: the decision row ----------

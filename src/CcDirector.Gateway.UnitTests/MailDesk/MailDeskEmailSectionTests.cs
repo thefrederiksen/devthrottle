@@ -400,6 +400,52 @@ public sealed class MailDeskEmailSectionTests : IDisposable
         Assert.DoesNotContain(MailDeskEmailFold.ObserveLine, Compose(section).Html);
     }
 
+    // ---------- phase 4, section 2.3: what a live mailbox moved ----------
+
+    [Fact]
+    public void Section_LiveMailbox_CountsWhatWasMovedAndSaysMovedBesideAFiledJunk()
+    {
+        // Arrange: an observe mailbox, and a live one with two archives (one filed) and three junks (one filed, one
+        // gone before its move, one not filed yet).
+        Channel();
+        var live = Channel(OtherMailbox);
+        _channels.SetMode(Account, OtherMailbox, MailDeskWords.Modes.Live, MailDeskWho.Person("owner"), "ready", Inside);
+        void LiveDecision(string key, string decision, string subject, string? outcome)
+        {
+            _decisions.Insert(Account, new MailDeskDecisionInput(live.Id, key, Inside, "x@spammy.example", subject,
+                MailDeskWords.Layers.Block, decision, null, null, "block *@spammy.example (a spam domain)", null, null,
+                MailDeskWords.Modes.Live, null, null, Inside));
+            if (outcome is not null)
+                Assert.Equal(MailDeskFilingWrite.Written, _decisions.RecordFiling(Account, live.Id, key, outcome, "set for the test"));
+        }
+        LiveDecision("a-1", MailDeskWords.Decisions.Archive, "build 1", MailDeskWords.Outcomes.Filed);
+        LiveDecision("a-2", MailDeskWords.Decisions.Archive, "build 2", null);
+        LiveDecision("j-1", MailDeskWords.Decisions.Junk, "Filed junk", MailDeskWords.Outcomes.Filed);
+        LiveDecision("j-2", MailDeskWords.Decisions.Junk, "Gone junk", MailDeskWords.Outcomes.AlreadyGone);
+        LiveDecision("j-3", MailDeskWords.Decisions.Junk, "Waiting junk", null);
+
+        // Act
+        var section = Section()!;
+        var email = Compose(section);
+
+        // Assert: the live mailbox says what was moved, the observe one says nothing of moving.
+        Assert.Null(section.Mailboxes.Single(m => m.Address == Mailbox).FiledLine);
+        Assert.Equal("Moved to Archive 1 - moved to Junk Email 1", section.Mailboxes.Single(m => m.Address == OtherMailbox).FiledLine);
+        Assert.Equal(new[] { ("Filed junk", "moved"), ("Gone junk", (string?)null), ("Waiting junk", null) },
+            section.Junked.Select(j => (j.Subject, j.Moved)).OrderBy(j => j.Subject, StringComparer.Ordinal).ToArray());
+        Assert.Contains("Moved to Archive 1 - moved to Junk Email 1", email.Html);
+        Assert.Contains("Moved to Archive 1 - moved to Junk Email 1", email.Text);
+        Assert.Contains("block: block *@spammy.example (a spam domain) - moved", email.Text);
+        Assert.Equal(1, CountOf(email.Text, " - moved\n") + CountOf(email.Text, " - moved\r\n"));
+    }
+
+    private static int CountOf(string text, string part)
+    {
+        var n = 0;
+        for (var i = text.IndexOf(part, StringComparison.Ordinal); i >= 0; i = text.IndexOf(part, i + 1, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
     // ---------- escaping ----------
 
     [Fact]

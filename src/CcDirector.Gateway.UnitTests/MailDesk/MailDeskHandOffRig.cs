@@ -383,16 +383,34 @@ internal sealed record StandInMail(string Key, string Sender, string Subject, Da
 /// phase 3 section 6.1), without a mailbox. A channel told to fail gets a section with its failure and its memory entry
 /// back exactly as handed; a channel told to read reports its mail, moves its cursor to the newest message and adds the
 /// keys; every other channel is read with nothing new. The report is what a Director would send.
+///
+/// FILING (phase 2 section 3.4): a live channel's <c>filingQueue</c> is carried out before its mail is read - each item
+/// attempted is removed and reported <c>moved</c> when its key is in the table, <c>refused</c> with phase 2's reason when
+/// it is not, or what <see cref="Plan.FilingAnswers"/> says for it; at most <see cref="Plan.FileAtMost"/> items when set.
+/// An observe channel's queue is left as it is, with <c>filingNotCarriedOut</c>.
 /// </summary>
 internal static class StandInCheck
 {
-    public sealed record Plan(IReadOnlyDictionary<string, IReadOnlyList<StandInMail>> Mail, IReadOnlyDictionary<string, string> Failures);
+    /// <param name="FilingAnswers">What a queued key's move comes to, when not <c>moved</c>: <c>already-gone</c> or
+    /// <c>refused</c>.</param>
+    /// <param name="FileAtMost">How many queued items a live channel carries out this run; all when null.</param>
+    public sealed record Plan(IReadOnlyDictionary<string, IReadOnlyList<StandInMail>> Mail, IReadOnlyDictionary<string, string> Failures,
+        IReadOnlyDictionary<string, string>? FilingAnswers = null, int? FileAtMost = null);
+
+    public const string NoSuchKey = "no such key in this channel's key table";
 
     public static Plan Reads(params (string Address, StandInMail[] Mail)[] mail)
         => new(mail.ToDictionary(m => m.Address, m => (IReadOnlyList<StandInMail>)m.Mail), new Dictionary<string, string>());
 
     public static Plan With(this Plan plan, string failingAddress, string sentence)
         => plan with { Failures = new Dictionary<string, string>(plan.Failures) { [failingAddress] = sentence } };
+
+    /// <summary>The move of <paramref name="key"/> comes to <paramref name="result"/> (<c>already-gone</c> or <c>refused</c>).</summary>
+    public static Plan Filing(this Plan plan, string key, string result)
+        => plan with { FilingAnswers = new Dictionary<string, string>(plan.FilingAnswers ?? new Dictionary<string, string>()) { [key] = result } };
+
+    /// <summary>A live channel carries out at most <paramref name="n"/> queued items this run.</summary>
+    public static Plan FilingAtMost(this Plan plan, int n) => plan with { FileAtMost = n };
 
     public static TriggerCheckReport Run(string? handed, Plan plan, DateTime checkedUtc)
     {
@@ -418,6 +436,28 @@ internal static class StandInCheck
                 section["failure"] = new JsonObject { ["sentence"] = sentence, ["detail"] = "" };
                 sections.Add(section);
                 continue;
+            }
+            var filing = new JsonArray();
+            if (entry["filingQueue"] is JsonArray queue && queue.Count > 0)
+            {
+                if (entry["mode"]!.GetValue<string>() == "live")
+                {
+                    var attempt = queue.OfType<JsonObject>().Take(plan.FileAtMost ?? int.MaxValue).ToList();
+                    foreach (var item in attempt)
+                    {
+                        var key = item["messageKey"]!.GetValue<string>();
+                        var known = (entry["keys"] as JsonObject)?.ContainsKey(key) == true;
+                        var result = !known ? "refused"
+                            : plan.FilingAnswers is { } answers && answers.TryGetValue(key, out var answer) ? answer : "moved";
+                        var reported = new JsonObject { ["messageKey"] = key, ["decision"] = item["decision"]!.GetValue<string>(), ["result"] = result };
+                        if (result == "refused") reported["reason"] = known ? "the request guard refused the call" : NoSuchKey;
+                        filing.Add(reported);
+                        queue.Remove(item);
+                        count++;
+                    }
+                }
+                else
+                    section["filingNotCarriedOut"] = new JsonObject { ["count"] = queue.Count, ["reason"] = "the channel is in observe mode" };
             }
             var mail = plan.Mail.TryGetValue(address, out var m) ? m : Array.Empty<StandInMail>();
             var keys = entry["keys"] as JsonObject ?? new JsonObject();
@@ -449,7 +489,7 @@ internal static class StandInCheck
             }
             entry["sentCache"] ??= new JsonObject { ["refreshedUtc"] = checkedUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"), ["hashes"] = new JsonArray() };
             section["messages"] = messages;
-            section["filing"] = new JsonArray();
+            section["filing"] = filing;
             section["more"] = false;
             sections.Add(section);
         }

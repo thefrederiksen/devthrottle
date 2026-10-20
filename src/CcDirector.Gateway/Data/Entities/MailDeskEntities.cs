@@ -180,7 +180,7 @@ public sealed class MailDeskDecisionEntity : GatewayMintedKeyEntity
     /// <summary>The mode the decision was made in: <c>observe</c> or <c>live</c>.</summary>
     public string Mode { get; set; } = "";
 
-    /// <summary>What was done, in live mode: <c>filed</c>, <c>seat-started</c> or <c>failed</c>. Null in observe mode.</summary>
+    /// <summary>What was done, in live mode: <c>filed</c>, <c>already-gone</c>, <c>seat-started</c> or <c>failed</c>. Null in observe mode.</summary>
     public string? Outcome { get; set; }
 
     /// <summary>More about what was done, when there is more to say (the failure's sentence, the session started).</summary>
