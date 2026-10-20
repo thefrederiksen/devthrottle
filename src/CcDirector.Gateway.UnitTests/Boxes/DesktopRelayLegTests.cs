@@ -244,7 +244,18 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
         var response = await desktop.SendAsync(new HttpRequestMessage(new HttpMethod(method), path)).Within();
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal("", await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            "This address serves only box desktops. The DevThrottle Gateway is at https://gateway.public.test; use that address instead.",
+            await response.Content.ReadAsStringAsync());
+        Assert.Equal(0, _rig.OpenCommands);
+    }
+
+    [Fact]
+    public void RefusalText_NoGatewayAddress_StillSaysWhatThisAddressServes()
+    {
+        var text = BoxDesktopEndpoints.RefusalText(null);
+
+        Assert.Equal("This address serves only box desktops. The DevThrottle Gateway is at its configured public address; use that address instead.", text);
     }
 
     [Fact]

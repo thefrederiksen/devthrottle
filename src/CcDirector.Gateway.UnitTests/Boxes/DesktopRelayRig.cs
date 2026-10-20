@@ -41,6 +41,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
 
     public static readonly Uri MainOrigin = new("http://gateway.test/");
     public static readonly Uri DesktopOrigin = new("http://desktop.test/");
+    public const string GatewayAddress = "https://gateway.public.test";
 
     public FakeDesktop Box { get; } = new();
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 20, 9, 0, 0, TimeSpan.Zero));
@@ -105,7 +106,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         builder.WebHost.UseTestServer();
         builder.Services.AddRouting();
         var app = builder.Build();
-        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts, Feature, Tickets, Legs);
+        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts, Feature, Tickets, Legs, GatewayAddress);
         var gate = new AuthMiddleware.RequireToken { Hosted = true, Token = "", Devices = devices, Boundary = boundary };
         app.Use((ctx, next) => AuthMiddleware.Run(ctx, gate, () => next(ctx)));
         app.MapGet("/healthz", () => "healthy");

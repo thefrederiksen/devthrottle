@@ -24,7 +24,9 @@ namespace CcDirector.Gateway.Boxes;
 /// to the box with the prefix stripped (the spike, docs/missions/factory-boxes-2026-10-19/phase1-spike-path-prefix.md).
 /// It never uses the Gateway's sign-in: a ticket is exchanged once for a box-only cookie, and every request is checked
 /// against that cookie (<see cref="BoxDesktopTickets"/>). Every other path on the desktop host is 404: no Cockpit, no
-/// phone app, no account or device route, no API.</para>
+/// phone app, no account or device route, no API. That 404 says in plain words that this address serves only box
+/// desktops and names the Gateway's public address, and each one is logged with its method, path and user agent, so a
+/// stray Director or phone configured with this address is easy to spot.</para>
 /// </summary>
 internal static class BoxDesktopEndpoints
 {
@@ -116,8 +118,10 @@ internal static class BoxDesktopEndpoints
     /// host never meets the Gateway's sign-in, because it never carries the Gateway's credentials. With no desktop
     /// host set, the desktop route is refused on every host and nothing else changes.
     /// </summary>
+    /// <param name="gatewayAddress">The Gateway's public address (<see cref="GatewayPublicUrl.ResolveBase"/>), named in the
+    /// refusal of every other route on the desktop host. Null when it cannot be named.</param>
     public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
-        BoxDesktopTickets tickets, DesktopRelayLegs legs)
+        BoxDesktopTickets tickets, DesktopRelayLegs legs, string? gatewayAddress)
     {
         ArgumentNullException.ThrowIfNull(hosts);
         ArgumentNullException.ThrowIfNull(feature);
@@ -131,7 +135,7 @@ internal static class BoxDesktopEndpoints
             app.UseWhen(ctx => BoxDesktopOrigin.IsDesktopHost(desktopOrigin, ctx.Request) && !IsHealthCheck(ctx.Request), desktop =>
             {
                 desktop.UseWebSockets();
-                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs));
+                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs, gatewayAddress));
             });
         }
 
@@ -149,14 +153,13 @@ internal static class BoxDesktopEndpoints
     }
 
     private static async Task ServeDesktopHostAsync(HttpContext ctx, IBoxDesktopHosts hosts, IBoxesFeature feature,
-        BoxDesktopTickets tickets, DesktopRelayLegs legs)
+        BoxDesktopTickets tickets, DesktopRelayLegs legs, string? gatewayAddress)
     {
         var path = ctx.Request.Path;
         var boxId = DesktopBoxIdOf(path);
         if (boxId is null)
         {
-            // The desktop host serves the desktop and nothing else.
-            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            await RefuseOtherRouteAsync(ctx, gatewayAddress);
             return;
         }
         if (!DesktopRelayBoxIds.IsValid(boxId))
@@ -169,7 +172,7 @@ internal static class BoxDesktopEndpoints
         var prefix = PrefixFor(boxId);
         if (!path.StartsWithSegments(prefix, StringComparison.Ordinal, out var remaining))
         {
-            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            await RefuseOtherRouteAsync(ctx, gatewayAddress);
             return;
         }
         if (!remaining.HasValue)
@@ -209,6 +212,35 @@ internal static class BoxDesktopEndpoints
         }
 
         await legs.ServeAsync(ctx, session.Tenant, directorId, boxId, remaining.ToUriComponent() + ctx.Request.QueryString.Value);
+    }
+
+    /// <summary>
+    /// The desktop host serves the desktop and nothing else. Anything else is 404 with a plain sentence naming where the
+    /// Gateway is, and a log line with the method, path and user agent: after the desktop host is set in production, a
+    /// Director or phone still configured with this address shows up here and nowhere else.
+    /// </summary>
+    private static async Task RefuseOtherRouteAsync(HttpContext ctx, string? gatewayAddress)
+    {
+        var userAgent = ForLog(ctx.Request.Headers.UserAgent.ToString());
+        FileLog.Write($"[BoxDesktopEndpoints] desktop host REFUSED {ForLog(ctx.Request.Method)} {ForLog(ctx.Request.Path.Value ?? "")} " +
+                      $"user-agent=\"{userAgent}\" -> 404 (this address serves only box desktops)");
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+        ctx.Response.Headers.CacheControl = "no-store";
+        await ctx.Response.WriteAsync(RefusalText(gatewayAddress));
+    }
+
+    /// <summary>The body of the desktop host's refusal of every route that is not a box desktop.</summary>
+    public static string RefusalText(string? gatewayAddress) =>
+        "This address serves only box desktops. " + (string.IsNullOrWhiteSpace(gatewayAddress)
+            ? "The DevThrottle Gateway is at its configured public address; use that address instead."
+            : $"The DevThrottle Gateway is at {gatewayAddress}; use that address instead.");
+
+    // A request's own text, made safe for one log line: control characters out, and no longer than a line should be.
+    private static string ForLog(string value)
+    {
+        var clean = new string(value.Select(c => char.IsControl(c) ? ' ' : c).ToArray());
+        return clean.Length <= 300 ? clean : clean[..300] + "...";
     }
 
     /// <summary>
