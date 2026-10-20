@@ -76,7 +76,7 @@ dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filte
 Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
 ```
 
-## Second review (`ended-answers-review.md`), finding 1 - the router runs before the owner brings the session back: STOPPED, waiting on the Tech Lead
+## Second review (`ended-answers-review.md`), finding 1 - the router runs before the owner brings the session back: ACCEPTED, FIXED
 
 The Tech Lead ruled that an ending written because a Director stopped or restarted must wait like `interrupted`, and
 only an ending a person or the agent itself made ends a routed session at once - first establishing whether the history
@@ -106,14 +106,58 @@ line 1750). Each seat (`WorkspaceSeat`, `src/CcDirector.Gateway.Contracts/Worksp
 wait (seat busy, not re-routed), and be followed to `ReopenedSessionId` when the seat is brought back - an exact follow,
 not by name. When the owner decides not to bring it back, or after the 24 hours, it ends as before.
 
-Recommendation, for the Tech Lead to rule on:
+The Tech Lead approved all three parts of the recommendation. What was built:
 
-1. Treat `director-stopped` like `interrupted` (wait; followed if it comes back; 24 hours). Straightforward, as ruled.
-2. For a Smart Restart, read the restart record: add a delegate "is this session a seat on a restart record of this
-   account, and if it was brought back, as which session" (`WorkspaceStore`), asked once per run with the same ids as
-   the history endings. A seat still owed: wait. Brought back: follow `ReopenedSessionId`. Not to be brought back:
-   ended at once.
-3. Keep the follow by name as it is, for a restore whose record mark was not written (`MarkReopenedAsync` failing is
-   logged and tolerated by the Director).
+- **`director-stopped` waits like `interrupted`.** Followed by name if the session comes back, otherwise ended by the
+  24-hour rule. Only `closed` (a person) and `finished` (the agent) still end a session at once - and only when no
+  restart record holds it.
+- **The restart record is read**, through a new required delegate `restartSeatsOf`, asked once per run for the same
+  sessions as the history endings, in the routed row's own account (`WorkspaceStore.SeatsCapturedFrom(tenant, ids,
+  since)`, which opens its context in the account named). `since` is the oldest start among those sessions: a record
+  that captured a session is newer than its start, so older records are never parsed. When two records hold one
+  session, the newest answers. A record that cannot be parsed is skipped and logged rather than thrown, so one damaged
+  restart record cannot stop every email of the account being routed (the store's own `List` keeps the same rule).
+  Wired in `GatewayHost.NewMailDeskRouter` from the host's `WorkspaceStore`.
+- **For a seat on a restart record** (the record wins over the history ending, which for a Smart Restart is `closed` or
+  `finished` and says nothing): brought back - by a Bring back (`RestoredSessionId`) or a reopen of its conversation
+  (`Restore.ReopenedSessionId`) - followed to that exact session id; marked not to be brought back (`close`) - ended at
+  once; still owed - followed by name if the restored session is live (the mark failed to be written), otherwise not
+  ended, and its seat busy, until the 24 hours after its start.
+- **The follow by name stays** for `closed` with no record and for `director-stopped`, as before.
+- The decision is now made in one place, `MailDeskRouter.FateOf`, which both the orphans step and the busy-seat rule
+  call, so the two can never disagree about a session.
 
-Not built: nothing for this finding is in the code until the Tech Lead rules. The review file is merged in.
+The other two record kinds fit the same rule (`DirectorDrain.cs`): "Shut down and ignore all sessions"
+(`RecordIgnoreAllAsync`) decides every seat `close`, so its emails are re-routed at once; an operating system shutdown
+(`RecordOperatingSystemShutdownAsync`) records every seat `undecided`, so its emails wait for the way up like a Smart
+Restart's.
+
+Tests (`MailDeskRouterEndingsTests` unless named):
+
+- `RouteAsync_SmartRestart_CheckRunsBeforeTheBringBack_NotRerouted_ThenFollowedByTheRecord` - the reviewer's order:
+  the check runs before the Bring back (not re-routed, no second session, the new email waits), then the record maps
+  the seat to a session not yet in the list and under no matching name, and the row follows it.
+- `RouteAsync_SmartRestart_SeatReopenedFromItsConversation_IsFollowedToTheReopenedSession` (history `finished`).
+- `RouteAsync_SmartRestart_SeatMarkedNotToBeBroughtBack_IsEndedAtOnce`.
+- `RouteAsync_SmartRestart_StillOwedAfter24Hours_IsEnded`.
+- `RouteAsync_SmartRestart_BroughtBackButTheMarkFailedToBeWritten_IsFollowedByName` - the name fallback.
+- `RouteAsync_DirectorStoppedEnding_IsNotEndedBefore24Hours_AndTheSeatIsBusy` (1 minute, 23 hours) and
+  `RouteAsync_DirectorStoppedEnding_IsEndedAfter24Hours`.
+- `RouteAsync_APersonClosedTheSession_NoRestartRecord_IsReroutedAtOnce`.
+- `RouteAsync_ManySessions_AsksForTheRestartRecordsOnceWithTheSameSessionsAndTheOldestStart`.
+- `NewMailDeskRouter_AsGatewayHostWiresIt_FollowsTheRestartRecordInTheWorkspaceStore` - over the real workspace store;
+  shown red when the host's `restartSeatsOf` is replaced by one that finds nothing.
+- `NewMailDeskRouter_AsGatewayHostWiresIt_ARestartRecordOfAnotherAccountIsNotRead`.
+- `MailDeskRestartRecordReadTests`: the newest record answers, a record before the window is not read, a damaged record
+  is skipped, and how a seat reads as brought back or not to be brought back.
+- `director-stopped` was taken out of the two "ended at once" theories, since it no longer ends a session at once.
+
+Runs, on this branch rebased onto `mail-desk-phase-4` at `4dbf953e0`:
+
+```
+dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk|FullyQualifiedName~Trigger|FullyQualifiedName~SessionHistory|FullyQualifiedName~ScheduledRun|FullyQualifiedName~FactorySeat|FullyQualifiedName~Workspace"
+Passed!  - Failed:     0, Passed:  1596, Skipped:     0, Total:  1596
+
+dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
+Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
+```

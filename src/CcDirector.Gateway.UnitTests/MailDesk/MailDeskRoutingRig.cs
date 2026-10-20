@@ -10,6 +10,7 @@ using CcDirector.Gateway.History;
 using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Streaming;
+using CcDirector.Gateway.Workspaces;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Factory.Definition;
 using Xunit;
@@ -83,6 +84,13 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     /// <summary>Every time the router asked for history endings: the session ids it asked about.</summary>
     public List<IReadOnlyCollection<string>> EndingsAsked { get; } = new();
 
+    /// <summary>The restart records the fake reads: the seat captured from each session id (a session no restart
+    /// captured is not in it).</summary>
+    public Dictionary<string, WorkspaceSeat> RestartSeats { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every time the router asked for restart records: the session ids and the oldest start it gave.</summary>
+    public List<(IReadOnlyCollection<string> Ids, DateTime Since)> RestartSeatsAsked { get; } = new();
+
     /// <summary>The published definitions, by factory. Remove one to make a factory with no published definition.</summary>
     public Dictionary<string, PublishedFactoryDefinition> Published { get; } = new(StringComparer.Ordinal);
 
@@ -123,10 +131,16 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
             return ids.Where(Endings.ContainsKey)
                 .ToDictionary(id => id, id => new SessionEndingFact(Endings[id], Endings[id] is null ? null : Now), StringComparer.Ordinal);
         }
+        IReadOnlyDictionary<string, WorkspaceSeatOnRecord> RestartSeatsOf(TenantId _, IReadOnlyCollection<string> ids, DateTime since)
+        {
+            RestartSeatsAsked.Add((ids.ToList(), since));
+            return ids.Where(RestartSeats.ContainsKey)
+                .ToDictionary(id => id, id => new WorkspaceSeatOnRecord("restart-record", RestartSeats[id]), StringComparer.Ordinal);
+        }
         (_find, _findByName, _definitionOf) = (Find, FindByName, DefinitionOf);
 
         _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, FindAllByName, EndingsOf,
-            DefinitionOf,
+            RestartSeatsOf, DefinitionOf,
             _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
         Router = _newRouter();
         Triggers = new TriggerService(TriggerStore, new FactoryActivityRecord(Db),
@@ -263,13 +277,36 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     /// <summary>
     /// Build the router EXACTLY as GatewayHost does (<see cref="GatewayHost.NewMailDeskRouter"/>), reading the sessions'
     /// history endings from the real <paramref name="history"/> store over this rig's database, and finding a session by
-    /// name in a real Director registry and pushed-session store (<see cref="ListOnTheGateway"/>), instead of the fakes.
+    /// name in a real Director registry and pushed-session store (<see cref="ListOnTheGateway"/>), and reading restart
+    /// records from the real workspace store over this rig's database (<see cref="SaveRestartRecord"/>), instead of the
+    /// fakes.
     /// </summary>
     public void UseGatewayHostWiring(SessionHistoryStore history)
     {
         _directors ??= new DirectorRegistry(_h.LegacyPath("instances"));
         Router = GatewayHost.NewMailDeskRouter(Routed, Channels, Decisions, _starter, _find, _findByName, history,
-            _directors, _pushed, _definitionOf, _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+            _directors, _pushed, new WorkspaceStore(Db), _definitionOf, _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+    }
+
+    /// <summary>A captured restart record in this rig's account, as a Smart Restart's drain saves it, holding
+    /// <paramref name="seats"/>.</summary>
+    public void SaveRestartRecord(string id, params WorkspaceSeat[] seats)
+    {
+        var doc = new WorkspaceDocument { Id = id, Name = id, Origin = WorkspaceOrigins.Captured, Seats = seats.ToList() };
+        using var ctx = Db.CreateContext(Account);
+        ctx.Workspaces.Add(new WorkspaceEntity
+        {
+            TenantId = ctx.ActiveTenant!,
+            Id = id,
+            Name = id,
+            Origin = WorkspaceOrigins.Captured,
+            DirectorId = DirectorA,
+            SeatCount = seats.Length,
+            CreatedUtc = Now,
+            UpdatedUtc = Now,
+            DocumentJson = System.Text.Json.JsonSerializer.Serialize(doc, WorkspaceStore.DocumentJsonOptions),
+        });
+        ctx.SaveChanges();
     }
 
     private DirectorRegistry? _directors;
