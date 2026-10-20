@@ -14,9 +14,12 @@ Four scenarios, in the order the capture takes them on ONE Gateway and ONE accou
 
 The three mailboxes (contract section 4: one signed in with decisions today, one NOT signed in whose last check
 failed with a sign-in sentence, one in observe mode, one in live mode):
-  email@devthrottle.com   on devlinux                         LIVE, signed in, 7 emails decided today
+  email@devthrottle.com   on devlinux                         observe, signed in, 7 emails decided today
   desk@example.com        on devlinux, then qa-north          observe, NOT signed in (its check failed)
-  letters@example.org     on qa-north, then qa-south, then devlinux   observe, signed in, 1 email decided today
+  letters@example.org     on qa-north, then qa-south, then devlinux   LIVE, signed in, 1 email decided today
+LIVE MODE IS ON AN EXAMPLE ADDRESS, never on email@devthrottle.com (the phase 7 Tech Lead, 19 October 2026): the owner
+reads these pictures, and email@devthrottle.com shown as live would read as the real mailbox running live, which the
+mission forbids in production.
 
 LAST CHECK IS PER ACCOUNT, BY DESIGN (the phase 7 Tech Lead's ruling, 19 October 2026). One run of the account's Mail
 Desk start checks every mailbox, so the start's last check is each mailbox's last check, and the fold reads it off the
@@ -66,14 +69,14 @@ ACCOUNT_EMAIL = "email@devthrottle.com"
 ACTOR = "phase 7 QA seeding script"
 WHY = "phase 7 QA screenshots on a throwaway Gateway"
 
-LIVE_BOX = "email@devthrottle.com"
+SIGNED_IN_BOX = "email@devthrottle.com"
 FAILING_BOX = "desk@example.com"
-UNCHECKED_BOX = "letters@example.org"
+LIVE_BOX = "letters@example.org"
 
 MAILBOXES = [
-    {"address": LIVE_BOX, "machines": ["devlinux"]},
+    {"address": SIGNED_IN_BOX, "machines": ["devlinux"]},
     {"address": FAILING_BOX, "machines": ["devlinux", "qa-north"]},
-    {"address": UNCHECKED_BOX, "machines": ["qa-north", "qa-south", "devlinux"]},
+    {"address": LIVE_BOX, "machines": ["qa-north", "qa-south", "devlinux"]},
 ]
 
 # The sentence a failed check carries names the fix (phase 1 contract, section 5). Invented nickname, made-up machine.
@@ -88,14 +91,14 @@ MAIL_DESK_CHECK = "checks/screen.py"
 
 # Today's decisions: (mailbox, decision, layer, minutes ago, sender, subject). Invented senders on example domains.
 DECISIONS = [
-    (LIVE_BOX, "route", "route-model", 95, "orders@shop.example", "Order 1042 needs a delivery date"),
-    (LIVE_BOX, "route", "rule", 80, "billing@vendor.example", "Invoice for October"),
-    (LIVE_BOX, "archive", "allow", 70, "news@letters.example", "Weekly digest"),
-    (LIVE_BOX, "archive", "rule", 55, "receipts@shop.example", "Your receipt"),
-    (LIVE_BOX, "archive", "rule", 40, "receipts@shop.example", "Your second receipt"),
-    (LIVE_BOX, "junk", "block", 30, "prizes@lottery.example", "You have won"),
-    (LIVE_BOX, "keep-for-owner", "sender-screen", 15, "friend@example.net", "Dinner on Friday?"),
-    (UNCHECKED_BOX, "archive", "rule", 20, "updates@service.example", "Service notice"),
+    (SIGNED_IN_BOX, "route", "route-model", 95, "orders@shop.example", "Order 1042 needs a delivery date"),
+    (SIGNED_IN_BOX, "route", "rule", 80, "billing@vendor.example", "Invoice for October"),
+    (SIGNED_IN_BOX, "archive", "allow", 70, "news@letters.example", "Weekly digest"),
+    (SIGNED_IN_BOX, "archive", "rule", 55, "receipts@shop.example", "Your receipt"),
+    (SIGNED_IN_BOX, "archive", "rule", 40, "receipts@shop.example", "Your second receipt"),
+    (SIGNED_IN_BOX, "junk", "block", 30, "prizes@lottery.example", "You have won"),
+    (SIGNED_IN_BOX, "keep-for-owner", "sender-screen", 15, "friend@example.net", "Dinner on Friday?"),
+    (LIVE_BOX, "archive", "rule", 20, "updates@service.example", "Service notice"),
 ]
 
 # What a live decision did; an observe-mode decision did nothing, so it has no outcome.
@@ -198,7 +201,7 @@ def channel_ids(c):
 
 def write_checks(c, ids, checked):
     """What one screening run keeps for each mailbox it checked: a first good check, or the failure's sentence."""
-    for address, ok, sentence in ((LIVE_BOX, 1, None), (FAILING_BOX, 0, SIGN_IN_FAILURE), (UNCHECKED_BOX, 1, None)):
+    for address, ok, sentence in ((SIGNED_IN_BOX, 1, None), (FAILING_BOX, 0, SIGN_IN_FAILURE), (LIVE_BOX, 1, None)):
         cid = ids[address]
         insert(c, "mail_desk_channel_checks", {
             "Id": new_id(cid), "tenant_id": ACCOUNT_ID, "ChannelId": cid, "TriggerRunId": None,
