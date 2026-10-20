@@ -403,7 +403,8 @@ function Start-TestGateway {
             $r = Invoke-WebRequest "$gatewayUrl/sessions" -Headers @{ Authorization = "Bearer $token" } -SkipHttpErrorCheck -TimeoutSec 5
             $r.StatusCode -eq 200
         } catch { $false }
-    } 120 2000
+    } 300 2000
+    # Five minutes: on a machine saturated by other builds the Gateway did not answer within two.
     if (-not $ready) { Stop-Setup 'the test Gateway never became ready to serve' }
     Say "test Gateway ready (process $($gatewayProcess.Id))"
 }
