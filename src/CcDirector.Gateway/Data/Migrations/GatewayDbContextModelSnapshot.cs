@@ -3276,16 +3276,30 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("ChangedUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("DecisionId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DoneNote")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Factory")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerReason")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RerouteCount")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ReturnNote")
                         .HasMaxLength(4000)
@@ -3303,6 +3317,16 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("StartFailures")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("StartName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3317,7 +3341,8 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "DecisionId");
+                    b.HasIndex("TenantId", "DecisionId")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "State");
 

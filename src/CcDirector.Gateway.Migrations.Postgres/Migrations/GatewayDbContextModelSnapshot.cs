@@ -3366,16 +3366,30 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<DateTime>("ChangedUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("DecisionId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DoneNote")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<string>("Factory")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("OwnerReason")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<int>("RerouteCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ReturnNote")
                         .HasMaxLength(4000)
@@ -3393,6 +3407,16 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<int>("StartFailures")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StartName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("StartedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -3407,7 +3431,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "DecisionId");
+                    b.HasIndex("TenantId", "DecisionId")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "State");
 
