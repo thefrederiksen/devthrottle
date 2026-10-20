@@ -1,0 +1,2921 @@
+# Mail Desk rig, 2026-10-20T11:34:55Z, tree a5554b1d4, machine devlinux, sections: observe, signin, graph-error, model, batches, switch-off, factory-refused, live-filing, observe-queue, live-routing, busy-orphan, return-owner, backup
+
+# ~/.local/bin links BEFORE the run
+  agenteyes -> <home>/.local/lib/agenteyes/agenteyes
+  az -> <home>/.local/share/uv/tools/azure-cli/bin/az
+  az.bat -> <home>/.local/share/uv/tools/azure-cli/bin/az.bat
+  az.completion.sh -> <home>/.local/share/uv/tools/azure-cli/bin/az.completion.sh
+  azps.ps1 -> <home>/.local/share/uv/tools/azure-cli/bin/azps.ps1
+  browser-harness -> <home>/.local/share/cc-director/instances/default/harness-env/bin/browser-harness
+  cc-dev-reports -> <home>/.local/share/cc-director/pyenv/bin/cc-dev-reports
+  cc-devthrottle -> <home>/.local/share/cc-director/pyenv/bin/cc-devthrottle
+  cc-gmail -> <home>/.local/share/cc-director/pyenv/bin/cc-gmail
+  cc-html -> <home>/.local/share/cc-director/pyenv/bin/cc-html
+  cc-image -> <home>/.local/share/cc-director/pyenv/bin/cc-image
+  cc-outlook -> <home>/.local/share/cc-director/pyenv/bin/cc-outlook
+  cc-pdf -> <home>/.local/share/cc-director/pyenv/bin/cc-pdf
+  cc-secrets -> <home>/.local/share/cc-director/pyenv/bin/cc-secrets
+  cc-ship -> <home>/.local/share/cc-director/pyenv/bin/cc-ship
+  cc-vault -> <home>/.local/share/cc-director/pyenv/bin/cc-vault
+  cc-word -> <home>/.local/share/cc-director/pyenv/bin/cc-word
+  cc-worktrees -> <home>/.local/share/cc-director/pyenv/bin/cc-worktrees
+  claude -> <home>/.local/share/claude/versions/2.1.304
+  codex -> <home>/.local/share/node/bin/codex
+  node -> <home>/.local/share/node/bin/node
+  npm -> <home>/.local/share/node/bin/npm
+  npx -> <home>/.local/share/node/bin/npx
+  pi.symlink-bak-2026-10-18 -> <home>/.local/share/node/bin/pi
+  pwsh -> <home>/.local/share/powershell-7.4.11/pwsh
+
+# the Mail Desk model's address, read at start - the throwaway Gateway's log, lines naming ['MailDeskModelEndpointConfig']
+  2026-10-20 11:34:56.864 [MailDeskModelEndpointConfig] Read: mailDeskModelBaseUrl is set; the Mail Desk asks the model on the loopback host 127.0.0.1
+
+# Gateway http://127.0.0.1:42683 built from this tree, storage root <rig>/gateway-root (empty for this run), its config.json naming the fake model http://127.0.0.1:44035/v1. The slot 5 Director (pid 2802058, id 76d4b193-910f-448f-9497-fec4fb6b7c66) started with CC_DIRECTOR_ROOT=<rig>/director-root and HOME=<rig>/home and joined it. The fake Graph answers on http://127.0.0.1:33179.
+
+
+======================================================================================================================
+== SETUP
+======================================================================================================================
+# The account's Mail Desk: the switch on, the template offered, the rig's definition published, two mailboxes added in observe mode, the routes and lists, and the two factories the Mail Desk routes to.
+
+$ POST /gateway/admin/mail-desk      (raw HTTP, with the administrator token made for this run)
+  body: {"account": "local", "enabled": true, "actor": "the Mail Desk rig", "reason": "the Mail Desk rig: switch Mail Desk on for the throwaway account"}
+  status: 200
+  answer: {"outcome":"recorded","account":"local","enabled":true,"templateOffer":"Offered","templateOfferSentence":"The Mail Desk template 6a1576373f2d was offered as draft version 1 of the mail-desk factory. Nothing runs until it is published."}
+
+# CHECK PASS: the administrator route switched Mail Desk on for the account
+
+$ cc-devthrottle maildesk status      (as the rig's person)
+enabled: yes
+rules-version: 0
+today: 2026-10-20 (UTC) total 0
+by-decision: route 0, archive 0, junk 0, keep-for-owner 0, mail-desk-agent 0, failed 0
+spend: $0.00 spent of the $5.00 spend limit
+channels[0]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+help[5]:
+  cc-devthrottle maildesk channel list --all     every channel, removed ones too
+  cc-devthrottle maildesk decisions -n 20        the newest decisions
+  cc-devthrottle maildesk rules show             the rules every email is screened by
+  cc-devthrottle maildesk rules history          who changed what, and why
+  cc-devthrottle maildesk settings               the thresholds and the spend limit
+[exit 0]
+
+$ cc-devthrottle factory definition history mail-desk      (as the rig's person)
+count: 1 of 1. No version is published.
+versions[1]{version,state,written,by,files,bytes,note,publishedBy}:
+  v1,draft,2026-10-20T11:35:09.6037584Z,gateway Mail Desk template,3,54174,"Offered by the Gateway: the Mail Desk template, version 6a1576373f2d. A draft; nothing runs until it is published.",-
+help[2]:
+  cc-devthrottle factory definition get mail-desk --version <version>
+  cc-devthrottle factory definition diff mail-desk --to <version>
+[exit 0]
+
+# the definition folder <rig>/definitions/qa-books
+  --- factory.yaml
+    factory: qa-books
+    title: QA Books
+    purpose: A QA rig factory the Mail Desk routes to
+    goalText: |
+      Handle bookkeeping: invoices, receipts, bank letters.
+    goalApprovedOn: 2026-10-19
+    bossSeat: boss
+    defaults:
+      machine: devlinux
+      agent: ClaudeCode
+      model: claude-haiku-5-5
+
+  --- seats/boss.yaml
+    seat: boss
+    name: Boss
+    role: Boss
+    brief: |
+      Read the factory's problems.
+
+  --- seats/clerk.yaml
+    seat: clerk
+    name: Clerk
+    role: QA Books
+    brief: |
+      You are the QA Books seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+      - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+      - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+      - [rig: run nothing for this email]: run nothing for it.
+      Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+
+  --- seats/prober.yaml
+    seat: prober
+    name: Prober
+    role: Prober
+    brief: |
+      Your whole job is a QA test on a throwaway test Gateway: run the one command the prompt gives you,
+      which the Gateway is expected to refuse, and quote what it printed. It needs no grant: it changes nothing.
+    starts:
+      - cron: "0 5 1 1 *"
+        timeZone: UTC
+        prompt: |
+          QA-MD-REFUSED. This is a QA test on a throwaway test Gateway that proves the Gateway REFUSES a channel change from a factory's session: the command below is expected to fail with HTTP 403, and nothing can change. Run exactly this one command with Bash, quote what it printed, then stop: <rig>/bin/cc-devthrottle maildesk mode qa-one@example.com live --why "a factory session tries to switch a channel to live"
+
+$ cc-devthrottle factory definition history qa-books --json      (as the rig's person)
+{
+  "factory": "qa-books",
+  "publishedVersion": null,
+  "newestVersion": 0,
+  "total": 0,
+  "versions": [],
+  "nextBefore": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition save qa-books --dir <rig>/definitions/qa-books --expected-version 0 --note "the rig's QA Books factory" --json      (as the rig's person)
+{
+  "factory": "qa-books",
+  "version": 1,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "the rig's QA Books factory",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-20T11:35:11.290995Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 1972,
+  "fileCount": 4,
+  "newestVersion": 1,
+  "publishedVersion": null,
+  "files": null,
+  "created": null,
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-books --version 1 --replaces 0      (as the rig's person)
+Published: version 1 of the definition of qa-books. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 3 seats added, 1 start created.
+  factory qa-books
+  title QA Books
+  purpose A QA rig factory the Mail Desk routes to
+  goal text set: 1 line
+      + Handle bookkeeping: invoices, receipts, bank letters.
+  goalApprovedOn 2026-10-19
+  bossSeat boss
+  defaults.machine devlinux
+  defaults.agent ClaudeCode
+  defaults.model claude-haiku-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 1 line
+      + Read the factory's problems.
+  Seat Clerk (clerk) added.
+    role QA Books
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 5 lines
+      + You are the QA Books seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+      + - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+      + - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+      + - [rig: run nothing for this email]: run nothing for it.
+      + Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+  Seat Prober (prober) added.
+    role Prober
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 2 lines
+      + Your whole job is a QA test on a throwaway test Gateway: run the one command the prompt gives you,
+      + which the Gateway is expected to refuse, and quote what it printed. It needs no grant: it changes nothing.
+  Prober: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-MD-REFUSED. This is a QA test on a throwaway test Gateway that proves the Gateway REFUSES a channel change from a ..."
+applied:
+  Definition: version 1 published.
+  Registry: qa-books registered from its definition, in no folder: each seat runs where the definition says.
+  Schedule cj_2870c8 (QA Books - Prober) created for seat prober: Cron 0 5 1 1 * UTC.
+help[2]:
+  cc-devthrottle factory definition get qa-books
+  cc-devthrottle factory definition history qa-books
+[exit 0]
+
+# the definition folder <rig>/definitions/qa-support
+  --- factory.yaml
+    factory: qa-support
+    title: QA Support
+    purpose: A QA rig factory the Mail Desk routes to
+    goalText: |
+      Handle customer support questions about the product.
+    goalApprovedOn: 2026-10-19
+    bossSeat: boss
+    defaults:
+      machine: devlinux
+      agent: ClaudeCode
+      model: claude-haiku-5-5
+
+  --- seats/boss.yaml
+    seat: boss
+    name: Boss
+    role: Boss
+    brief: |
+      Read the factory's problems.
+
+  --- seats/desk.yaml
+    seat: desk
+    name: Desk
+    role: QA Support
+    brief: |
+      You are the QA Support seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+      - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+      - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+      - [rig: run nothing for this email]: run nothing for it.
+      Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+
+$ cc-devthrottle factory definition history qa-support --json      (as the rig's person)
+{
+  "factory": "qa-support",
+  "publishedVersion": null,
+  "newestVersion": 0,
+  "total": 0,
+  "versions": [],
+  "nextBefore": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition save qa-support --dir <rig>/definitions/qa-support --expected-version 0 --note "the rig's QA Support factory" --json      (as the rig's person)
+{
+  "factory": "qa-support",
+  "version": 1,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "the rig's QA Support factory",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-20T11:35:12.7400912Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 1228,
+  "fileCount": 3,
+  "newestVersion": 1,
+  "publishedVersion": null,
+  "files": null,
+  "created": null,
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-support --version 1 --replaces 0      (as the rig's person)
+Published: version 1 of the definition of qa-support. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 2 seats added.
+  factory qa-support
+  title QA Support
+  purpose A QA rig factory the Mail Desk routes to
+  goal text set: 1 line
+      + Handle customer support questions about the product.
+  goalApprovedOn 2026-10-19
+  bossSeat boss
+  defaults.machine devlinux
+  defaults.agent ClaudeCode
+  defaults.model claude-haiku-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 1 line
+      + Read the factory's problems.
+  Seat Desk (desk) added.
+    role QA Support
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 5 lines
+      + You are the QA Support seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+      + - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+      + - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+      + - [rig: run nothing for this email]: run nothing for it.
+      + Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+applied:
+  Definition: version 1 published.
+  Registry: qa-support registered from its definition, in no folder: each seat runs where the definition says.
+help[2]:
+  cc-devthrottle factory definition get qa-support
+  cc-devthrottle factory definition history qa-support
+[exit 0]
+
+# the rig's mail-desk definition folder (<rig>/definitions/mail-desk): what differs from the template
+  factory.yaml: machine: devlinux, model: claude-haiku-5-5
+  seats/mail-desk.yaml: the brief ends with the rig's note: QA RIG: this Mail Desk runs on a test rig. There is no mailbox and cc-outlook is not available. For every message handed to you whose subject says [rig: return it with maildesk return], run exactly: <rig>/bin/cc-devthrottle maildesk return <routed id> --note "the rig's Mail Desk agent cannot place it" - and nothing else. Change no list.
+  seats/mail-desk.yaml: every: 1m
+  checks/screen.py: the rig's wrapper, docs/qa/mail-desk/rig/checks/screen.py
+  checks/real_screen.py: the template's checks/screen.py; sha256 identical: True
+  files/rig.json: {
+  "rigFolder": "<rig>",
+  "signInFolder": "<rig>/sign-in",
+  "fakeGraph": "http://127.0.0.1:33179"
+}
+
+# CHECK PASS: checks/real_screen.py is the template's real screen.py byte for byte
+
+$ cc-devthrottle factory definition history mail-desk --json      (as the rig's person)
+{
+  "factory": "mail-desk",
+  "publishedVersion": null,
+  "newestVersion": 1,
+  "total": 1,
+  "versions": [
+    {
+      "version": 1,
+      "state": "draft",
+      "authorKind": "gateway",
+      "authorId": "Mail Desk template",
+      "changeNote": "Offered by the Gateway: the Mail Desk template, version 6a1576373f2d. A draft; nothing runs until it is published.",
+      "restoredFrom": null,
+      "writtenAtUtc": "2026-10-20T11:35:09.6037584Z",
+      "publishedAtUtc": null,
+      "publishedBy": null,
+      "publishedByKind": null,
+      "publishedByName": null,
+      "publishedByText": null,
+      "contentBytes": 54174,
+      "fileCount": 3
+    }
+  ],
+  "nextBefore": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition save mail-desk --dir <rig>/definitions/mail-desk --expected-version 1 --note "the rig's Mail Desk: the template with the rig's wrapper" --json      (as the rig's person)
+{
+  "factory": "mail-desk",
+  "version": 2,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "the rig's Mail Desk: the template with the rig's wrapper",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-20T11:35:13.9273131Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 60966,
+  "fileCount": 5,
+  "newestVersion": 2,
+  "publishedVersion": null,
+  "files": null,
+  "created": null,
+  "findings": [
+    {
+      "severity": "notice",
+      "file": "checks/real_screen.py",
+      "line": 0,
+      "message": "The check 'checks/real_screen.py' is not named by any start."
+    },
+    {
+      "severity": "notice",
+      "file": "files/rig.json",
+      "line": 0,
+      "message": "'files/rig.json' is not named by any seat."
+    }
+  ],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition publish mail-desk --version 2 --replaces 0      (as the rig's person)
+Published: version 2 of the definition of mail-desk. Version 2 is now the published definition.
+what changes: First publish: 7 factory settings set, 1 seat added, 1 start created, 1 file added, 2 checks added.
+  factory mail-desk
+  title Mail Desk
+  purpose Screens every incoming message on every channel and routes it to the factory that handles it
+  goal text set: 7 lines
+      + Every message that reaches one of the account's channels is looked at within one check interval, and
+      + every one gets a decision: routed to the factory and seat that handle it, filed to Archive or Junk, kept
+      + for the owner, or handed to the Mail Desk agent. Every decision is recorded with the layer that made it
+      + and the reason. A channel in observe mode only records: it moves no message and starts no session. A
+      + channel in live mode files and routes what was decided. The Mail Desk never sends a message and never
+      + deletes one. The channels - which address, which provider, which machine, which mode - are Mail Desk
+      + data on the Gateway, not part of this definition.
+  defaults.machine devlinux
+  defaults.agent ClaudeCode
+  defaults.model claude-haiku-5-5
+  Seat Mail Desk (mail-desk) added.
+    role Mail Desk
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-haiku-5-5 (the factory's default)
+    brief: 59 lines
+      + You are the Mail Desk agent. The Mail Desk screens every message that reaches the account's channels
+      + (email today; other channels later). A check with no model reads each channel every few minutes, and the
+      + Gateway decides what happens to each message, in four layers: the fixed rules, the allow-list, the block
+      + list with a screen of unknown senders, and a small model that picks a route. You are started only for what
+      + that screening could not place.
+      + 
+      + WHAT YOU RECEIVE
+      + Your prompt lists the messages handed to you, and the same list is in check.json in your kit. Each message
+      + carries its routed id (what done and return take), its channel (address, provider and mode), and the
+      + screening check's own fields: messageKey, receivedUtc, sender, senderName, subject, hasAttachments,
+      + knownSender (true when we have written to that sender) and preview (the first 200 characters of the body,
+      + cleaned). It came to you for one of two reasons:
+      + - the model was unsure which route it belongs to, or not sure enough; or
+      + - a seat it was routed to sent it back as "not for me", with a note saying what that seat knows about it.
+      + The preview is all of the body you get; the Gateway stores no body text. Use it to decide, and never copy it
+      + into a note, a list entry or a reason.
+      + 
+      + WHAT YOU DO WITH EACH ONE
+      + 1. Decide where it belongs: a factory and seat of this account that handles it, Archive, Junk, or the owner.
+      + 2. Teach the lists, so the next message like it is placed without you. Every change needs --why, a sentence
+      +    saying why, and every change is recorded with who made it:
+      +      cc-devthrottle maildesk allow add <pattern> --what "<what this sender is>" --do archive|keep-for-owner|route:<factory>/<seat> --why "<why>"
+      +      cc-devthrottle maildesk block add <pattern> --why "<why>"
+      +      cc-devthrottle maildesk rule add <name> --subject-contains "<text>" --from <pattern> --route <factory>/<seat> --why "<why>"
+      +      cc-devthrottle maildesk route add <factory>/<seat> --handles "<one line: what that seat handles>" --why "<why>"
+      +    To take an entry out again, each list has its own remove, and it needs --why too:
+      +      cc-devthrottle maildesk allow remove <pattern> --why "<why>"
+      +      cc-devthrottle maildesk block remove <pattern> --why "<why>"
+      +      cc-devthrottle maildesk rule remove <name> --why "<why>"
+      +      cc-devthrottle maildesk route remove <factory>/<seat> --why "<why>"
+      +    A pattern is an exact address or *@domain. Add a sender to a list only when you are sure what it is. When
+      +    you are not sure, change nothing and leave it for the owner.
+      + 3. Close it, naming where it belongs:
+      +      cc-devthrottle maildesk done <routed id> --note "<where it belongs and what you changed>"
+      +    If it is not yours to place either, send it back with what you know:
+      +      cc-devthrottle maildesk return <routed id> --note "<what you know about it>"
+      +    A message returned a second time goes to the owner, on the Open problems card and in the 08:00 email.
+      + 
+      + "NOT FOR ME"
+      + When a message comes back with a note, read the note first: it says what the seat that returned it knows.
+      + Do not route it to that seat again. Pick another route from the routes list, fix the list entry or rule that
+      + sent it to the wrong place (remove it with its remove command above, then add the right one), or
+      + leave it for the owner.
+      + 
+      + WHAT YOU CAN READ
+      +      cc-devthrottle maildesk status                  the channels, their mode, the last check, today's counts
+      +      cc-devthrottle maildesk channel list [--all]    the supported addresses, with provider, machine and mode
+      +      cc-devthrottle maildesk decisions [--since <time>] [--layer <layer>] [--decision <decision>] [--channel <address>] [-n <count>]
+      +      cc-devthrottle maildesk rules show [--version <n>]
+      +      cc-devthrottle maildesk rules history [-n <count>] [--kind rule|allow|block|route|channel|mode]
+      +                                                      every change to the lists, with who and why
+      + Add --json to any of them for the full record.
+      + 
+      + WHAT YOU NEVER DO
+      + - Never send a message, on any channel, to anyone.
+      + - Never delete a message. Filing is Archive or Junk only, and the Gateway does it, not you.
+      + - Never add or remove a channel, and never switch a channel between observe and live. Those are the owner's.
+      + - Never assume a channel is Outlook, or that there is only one mailbox: read the channel list.
+      + QA RIG: this Mail Desk runs on a test rig. There is no mailbox and cc-outlook is not available. For every message handed to you whose subject says [rig: return it with maildesk return], run exactly: <rig>/bin/cc-devthrottle maildesk return <routed id> --note "the rig's Mail Desk agent cannot place it" - and nothing else. Change no list.
+  Mail Desk: start created, Every minute.
+    check checks/screen.py
+    prompt "The Mail Desk screening handed you these messages. Place each one as your brief says, then close it with maildesk don..."
+  Check checks/real_screen.py added: 898 lines.
+      + # /// script
+      + # requires-python = ">=3.10"
+      + # dependencies = ["msal>=1.28"]
+      + # ///
+      + """The Mail Desk's screening check: read new mail, and file what the Gateway queued. It never decides.
+      + 
+      + Run by a Director every 5 minutes from the published Mail Desk factory, with every CC_ variable stripped from its
+      + environment except the CC_CHECK_ ones. The whole contract - the memory, the output, every limit - is in
+      + docs/qa/mail-desk/phase-2/CONTRACT.md. In short:
+      + 
+      + - The memory (the file named by CC_CHECK_STATE_FILE) is a JSON object whose "channels" list the Gateway writes: one
+      +   entry per mailbox, with its address, provider and mode. This check keeps its own fields in each entry (cursor,
+      +   sentCache, keys) and removes from "filingQueue" the items it attempted. It writes the whole memory back, keeping
+      +   every field it does not own exactly as it was.
+      + - Live mode only: each queued item is moved to Archive or Junk Email, and nothing else. Observe mode moves nothing
+      +   and leaves the queue as it is.
+      + - New Inbox mail since the cursor, oldest first, is reported in batches of at most 10 messages and 7 KB of context
+      +   across all channels; the cursor moves only past what was reported, and the next run continues.
+      + - Standard output is exactly {"count": N, "context": "<JSON>"}.
+      + - One mailbox failing does not stop the others (phase 3, docs/qa/mail-desk/phase-3/CONTRACT.md section 6.1). A
+      +   failure that belongs to one channel - its sign-in, its Graph calls, its provider or mode, a field of its own this
+      +   check did not write - goes into that channel's section of the context as "failure": {"sentence", "detail"}, its
+      +   memory fields come back exactly as they were, every other channel is read as usual, and the exit is 0.
+      + - A failure of the whole run (the memory itself unusable, the memory over its cap, anything unforeseen) is a non-zero
+      +   exit, and the memory is NOT rewritten, so the same mail is read again next run. The FIRST line of standard error is
+      +   then one plain sentence saying what is wrong and how to fix it; detail and the run's log follow on later lines. The
+      +   Gateway keeps only the first 200 characters of standard error, flattened onto one line, and uv's own line can come
+      +   first, so every sentence - a channel's too - is at most SENTENCE_LIMIT characters (CONTRACT.md section 1). No
+      +   failure is ever a traceback: main() turns anything unexpected into a sentence too.
+      + 
+      + Every Microsoft Graph call goes through graph_request(), the one request guard. It lets out only GET to
+      + graph.microsoft.com and POST /v1.0/me/messages/{id}/move with a body of exactly {"destinationId": "archive"} or
+      + {"destinationId": "junkemail"}. The saved sign-in can send mail (Mail Desk phase 0 finding), so this guard is the only
+      + thing that keeps the Mail Desk from sending, replying, forwarding, changing or deleting anything.
+      + 
+      + Standard error is the check's only log. It says what was done in plain words, and never holds a token, a sender, a
+      + subject or any body text.
+      + """
+      + 
+      + import copy
+      + import hashlib
+      + import json
+      + import os
+      + import re
+      + import socket
+      + import sys
+      + import traceback
+      + import unicodedata
+      + import urllib.error
+      + import urllib.parse
+      + import urllib.request
+      + from datetime import datetime, timedelta, timezone
+      + from pathlib import Path
+      + 
+      + import msal
+      + 
+      + # ---------------------------------------------------------------------------------------------------- limits
+      + 
+      + CONTEXT_BUDGET_BYTES = 7168     # phase 0 (b): fill the context to 7 KB of UTF-8 (the Director's limit is 8 KB)
+      + MAX_MESSAGES_PER_RUN = 10       # phase 0 (b): and stop at 10 messages, across all channels together
+      + FILING_BUDGET_BYTES = CONTEXT_BUDGET_BYTES // 2   # filing results may use at most half; new mail gets the rest
+      + OUTPUT_CAP_BYTES = 16384        # TriggerCheckLimits.OutputCap
+      + MEMORY_CAP_BYTES = 64 * 1024    # TriggerCheckLimits.StateCapBytes: above it the Director keeps no memory at all
+      + PREVIEW_CHARS = 200
+      + FIRST_RUN_MESSAGES = 200        # mission D18: the most recent 200, or the last 30 days, whichever is fewer
+      + FIRST_RUN_DAYS = 30
+      + PAGE_SIZE = 50
+      + MAX_INBOX_PAGES = 20
+      + SENT_REFRESH = timedelta(days=1)
+      + SENT_PAGE_SIZE = 100
+      + SENT_MAX_PAGES = 5              # the most recent 500 sent messages
+      + SENT_MAX_ADDRESSES = 400
+      + KEYS_KEPT = 40                  # per channel, the most recently reported; see CONTRACT.md "Short keys"
+      + KEYS_MAX_AGE = timedelta(days=7)
+      + # The Gateway quotes a failed check as "exit code 1: " plus the first 200 characters of standard error with every line
+      + # joined by a space (TriggerCheckContract.OneLine and QuotedOutputLimit). uv writes a line of its own first whenever it
+      + # builds the script's environment ("Installed 10 packages in 95ms", 29 characters); 35 are kept for it, so the
+      + # check's own first line must be at most 165 characters for the whole sentence, fix and all, to reach the owner.
+      + GATEWAY_REASON_WINDOW = 200
+      + UV_LINE_ALLOWANCE = 35
+      + SENTENCE_LIMIT = GATEWAY_REASON_WINDOW - UV_LINE_ALLOWANCE
+      + SHORT_ERROR_CHARS = 50
+      + # A failing channel's detail line, as it is put into the context: cut so that failing channels never crowd new mail out
+      + # of the 7 KB budget. The detail is for a person; the sentence before it is never cut.
+      + FAILURE_DETAIL_CHARS = 500
+      + # When healthy channels have new mail, failing channels' sections may fill the context only up to this much short of the
+      + # budget, so the first new message always fits (a typical one whole, phase 0's worst one at 680 bytes too). Past that,
+      + # failing channels lose their detail lines, the last channel first; their sentences are never dropped (review finding 1).
+      + MESSAGE_RESERVE_BYTES = 1024
+      + CONTEXT_VERSION = 2             # phase 3: a channel's section may carry "failure"
+      + KEY_HEX = 16
+      + ADDRESS_HASH_HEX = 12
+      + 
+      + # The filing decisions, in the Gateway's words (phase 1 MailDeskWords). Each reader maps them to its own folders.
+      + FILING_DECISIONS = ("archive", "junk")
+      + MODES = ("observe", "live")
+      + 
+      + 
+      + class CheckFailed(Exception):
+      +     """A reason the check cannot answer: one plain sentence, and optional detail for the lines after it. Raised while
+      +     one channel is being checked, it fails that channel only (its section carries it); anywhere else, the exit code is
+      +     1 and the memory is not written."""
+      + 
+      +     def __init__(self, sentence, detail=None):
+      +         super().__init__(sentence)
+      +         self.detail = detail
+      + 
+      + 
+      + class RefusedRequest(Exception):
+      +     """The request guard refused a Graph call. Raised before anything reaches the network."""
+      + 
+      + 
+      + class GraphError(Exception):
+      +     """Graph answered with an HTTP error status. The reader that made the call turns it into a sentence."""
+      + 
+      +     def __init__(self, status, detail):
+      +         super().__init__(detail)
+      +         self.status = status
+      + 
+      + 
+      + class GraphUnreachable(Exception):
+      +     """Graph could not be reached at all. The reader that made the call turns it into a sentence."""
+      + 
+      +     def __init__(self, reason, detail):
+      +         super().__init__(detail)
+      +         self.reason = reason
+      + 
+      + 
+      + class GraphNotJson(Exception):
+      +     """Graph answered something that is not JSON. The reader that made the call turns it into a sentence."""
+      + 
+      + 
+      + RUN_LOG = []
+      + 
+      + 
+      + def log(text):
+      +     """Kept until the end of the run, so that a failure's sentence is the first line of standard error."""
+      +     RUN_LOG.append(f"screen.py: {text}")
+      + 
+      + 
+      + def machine():
+      +     """This computer's name without its domain, so a fully qualified name does not use up the reason window."""
+      +     return socket.gethostname().split(".")[0]
+      + 
+      + 
+      + def short_error(text):
+      +     """An error message on one line, cut to SHORT_ERROR_CHARS, for a failure sentence. The whole message goes on the
+      +     detail line."""
+      +     flat = " ".join(str(text).split())
+      +     return flat if len(flat) <= SHORT_ERROR_CHARS else flat[:SHORT_ERROR_CHARS - 3] + "..."
+      + 
+      + 
+      + def utc_now():
+      +     return datetime.now(timezone.utc)
+      + 
+      + 
+      + def iso(moment):
+      +     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+      + 
+      + 
+      + # ---------------------------------------------------------------------------------------------------- text
+      + 
+      + 
+      + # Characters that show nothing but are not in Unicode's format or control categories. Email senders pad the preview
+      + # with them (phase 0 (c): 8 of 19 real previews were mostly padding): the combining grapheme joiner, the Hangul
+      + # fillers, the halfwidth Hangul filler and the blank Braille pattern.
+      + INVISIBLE_LETTERS = {chr(c) for c in (0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800)}
+      + 
+      + 
+      + def clean_text(text):
+      +     """Strip invisible characters FIRST - zero-width characters, the soft hyphen, the byte order mark, every other
+      +     format and control character - and collapse every run of whitespace to one space."""
+      +     kept = []
+      +     for ch in text or "":
+      +         if ch.isspace():
+      +             kept.append(" ")
+      +         elif unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Co") or ch in INVISIBLE_LETTERS:
+      +             continue
+      +         else:
+      +             kept.append(ch)
+      +     return " ".join("".join(kept).split())
+      + 
+      + 
+      + def preview_of(body_preview):
+      +     """Cleaned, THEN cut to 200 characters, so padding never uses up the preview."""
+      +     return clean_text(body_preview)[:PREVIEW_CHARS]
+      + 
+      + 
+      + def short_key(address, message_id):
+      +     return hashlib.sha256(f"{address}\n{message_id}".encode("utf-8")).hexdigest()[:KEY_HEX]
+      + 
+      + 
+      + def address_hash(address):
+      +     return hashlib.sha256(address.strip().lower().encode("utf-8")).hexdigest()[:ADDRESS_HASH_HEX]
+      + 
+      + 
+      + def compact(value):
+      +     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+      + 
+      + 
+      + def utf8_size(text):
+      +     return len(text.encode("utf-8"))
+      + 
+      + 
+      + # ---------------------------------------------------------------------------------------------------- the guard
+      + 
+      + GRAPH_HOST = "graph.microsoft.com"
+      + GRAPH = f"https://{GRAPH_HOST}/v1.0"
+      + GRAPH_DESTINATIONS = ("archive", "junkemail")
+      + # A Graph message id as this check will put it in a move path: letters, digits and the URL-safe "-", "_" and "=".
+      + # Anything else (a "/", a "%", a ".") is refused, so no id can reach another path.
+      + MESSAGE_ID = re.compile(r"[A-Za-z0-9_=-]+")
+      + MOVE_PATH = re.compile(r"/v1\.0/me/messages/([^/]+)/move")
+      + 
+      + 
+      + def graph_request(method, url, token, body=None):
+      +     """The one way this check talks to Microsoft Graph. Refuses, before any network call, everything but GET to
+      +     graph.microsoft.com and the move of one message to Archive or Junk Email."""
+      +     check_request(method, url, body)
+      +     data = json.dumps(body).encode("utf-8") if body is not None else None
+      +     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+      +     if data is not None:
+      +         headers["Content-Type"] = "application/json"
+      +     return transport(method, url, headers, data)
+      + 
+      + 
+      + def check_request(method, url, body):
+      +     # Before parsing: urlsplit silently removes tab, carriage return and line feed, so an id holding one would
+      +     # otherwise look clean to every rule below (review finding 3).
+      +     if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in url):
+      +         raise RefusedRequest("refused: the address holds a space or a control character")
+      +     parts = urllib.parse.urlsplit(url)
+      +     if parts.scheme != "https" or parts.netloc != GRAPH_HOST:
+      +         raise RefusedRequest(f"refused: {parts.scheme}://{parts.netloc} is not https://{GRAPH_HOST}")
+      +     if parts.fragment:
+      +         raise RefusedRequest("refused: a Graph address with a fragment")
+      +     if ".." in parts.path or "%" in parts.path or "\\" in parts.path:
+      +         raise RefusedRequest("refused: the path holds '..', '%' or '\\'")
+      +     if method == "GET":
+      +         if body is not None:
+      +             raise RefusedRequest("refused: a GET with a body")
+      +         if not parts.path.startswith("/v1.0/"):
+      +             raise RefusedRequest(f"refused: GET {parts.path} is not under /v1.0/")
+      +         return
+      +     if method == "POST":
+      +         match = MOVE_PATH.fullmatch(parts.path)
+      +         if not match:
+      +             # The path is not quoted: it may hold a Graph id from the memory, and the reason goes into the context.
+      +             raise RefusedRequest("refused: a POST that is not the move of one message")
+      +         if not MESSAGE_ID.fullmatch(match.group(1)):
+      +             raise RefusedRequest("refused: the message id holds a character a Graph id never has")
+      +         if parts.query:
+      +             raise RefusedRequest("refused: a move with a query")
+      +         if not (isinstance(body, dict) and list(body) == ["destinationId"]
+      +                 and body["destinationId"] in GRAPH_DESTINATIONS):
+      +             raise RefusedRequest('refused: a move body must be exactly {"destinationId": "archive"} or '
+      +                                  '{"destinationId": "junkemail"}')
+      +         return
+      +     raise RefusedRequest(f"refused: {method} is never sent to Graph; only GET and the move to Archive or Junk Email")
+      + 
+      + 
+      + def shown_url(url):
+      +     """A Graph address for the log: no query, and no message id (it may come from the memory, and the Gateway never
+      +     handles a Graph id)."""
+      +     return re.sub(r"/messages/[^/]+/move$", "/messages/{id}/move", url.split("?")[0])
+      + 
+      + 
+      + def transport(method, url, headers, data):
+      +     """The network. Only graph_request() calls it; the tests replace urlopen with a fake Graph that records every
+      +     call."""
+      +     request = urllib.request.Request(url, data=data, method=method, headers=headers)
+      +     try:
+      +         with urllib.request.urlopen(request, timeout=60) as response:
+      +             raw = response.read()
+      +     except urllib.error.HTTPError as e:
+      +         raise GraphError(e.code, f"HTTP {e.code} to {method} {shown_url(url)}") from None
+      +     except (urllib.error.URLError, OSError) as e:
+      +         reason = getattr(e, "reason", e)
+      +         raise GraphUnreachable(reason, f"{method} {shown_url(url)}: {reason}") from None
+      +     try:
+      +         return json.loads(raw.decode("utf-8"))
+      +     except (UnicodeDecodeError, json.JSONDecodeError):
+      +         raise GraphNotJson(f"{method} {shown_url(url)}") from None
+      + 
+      + 
+      + # ---------------------------------------------------------------------------------------------------- Outlook
+      + 
+      + # cc-outlook's own Azure app and authority (tools/cc-outlook/src/auth.py, MSALTokenBackend and
+      + # authenticate_device_code_with_cache: authority "https://login.microsoftonline.com/common"), as phase 0 used them.
+      + OUTLOOK_CLIENT_ID = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
+      + OUTLOOK_AUTHORITY = "https://login.microsoftonline.com/common"
+      + OUTLOOK_SCOPE = "https://graph.microsoft.com/Mail.ReadWrite"   # never Mail.Send
+      + OUTLOOK_FOLDERS = {"archive": "archive", "junk": "junkemail"}
+      + 
+      + 
+      + def account_record_home():
+      +     """The user's real home from the operating system's account record, never from HOME (phase 0 finding)."""
+      +     if os.name != "posix":
+      +         return os.path.expanduser("~")
+      +     import pwd
+      +     return pwd.getpwuid(os.getuid()).pw_dir
+      + 
+      + 
+      + def director_base(home):
+      +     """The Director's per-user base folder: Windows %LOCALAPPDATA%, macOS Application Support, Linux ~/.local/share.
+      +     Phase 0: a check cannot use CC_DIRECTOR_ROOT (stripped), and there is no fallback to ~/.cc-director."""
+      +     if os.name == "nt":
+      +         local = os.environ.get("LOCALAPPDATA")
+      +         return Path(local) / "cc-director" if local else Path(home) / "AppData" / "Local" / "cc-director"
+      +     if sys.platform == "darwin":
+      +         return Path(home) / "Library" / "Application Support" / "cc-director"
+      +     return Path(home) / ".local" / "share" / "cc-director"
+      + 
+      + 
+      + def outlook_cache_name(address):
+      +     """cc-outlook's file naming rule, from get_msal_token_path in tools/cc-outlook/src/auth.py (line 355 on
+      +     origin/main 7a365544b): safe_name = email.replace('@', '_').replace('.', '_'); the file is f'{safe_name}_msal.json'."""
+      +     safe_name = address.replace("@", "_").replace(".", "_")
+      +     return f"{safe_name}_msal.json"
+      + 
+      + 
+      + def derive_nickname(email):
+      +     """cc-outlook's own default nickname, from derive_nickname in tools/cc-outlook/src/auth.py: the domain label just
+      +     before the top-level domain (<other address> -> devthrottle)."""
+      +     labels = [label for label in email.rsplit("@", 1)[1].strip().lower().split(".") if label]
+      +     return labels[-2] if len(labels) >= 2 else labels[0]
+      + 
+      + 
+      + def outlook_fix(address, base):
+      +     """How to sign the address in, in cc-outlook's own words, read from cc-outlook's account list in every Director
+      +     instance (instances/*/config/outlook/profiles.json, PROFILES_FILE in tools/cc-outlook/src/auth.py). Returns the fix
+      +     for the sentence and, when there is one, the step after it for the detail line.
+      + 
+      +     An account's nickname is its stored one, or else the derived one (get_nickname), and it is used only if
+      +     cc-outlook's nickname lookup (_build_nickname_map, where the last account wins) leads back to this address. When
+      +     the instances disagree, the address is named as cc-outlook holds it: resolve_account matches the address key
+      +     exactly and with case, and save_profile keeps it as it was typed. When no instance holds the account, the fix is
+      +     the first step of adding it; the next run's failure then names the sign-in. Never a guessed nickname."""
+      +     names, registered_as = set(), set()
+      +     for path in sorted(Path(base).glob("instances/*/config/outlook/profiles.json")):
+      +         try:
+      +             text = path.read_text(encoding="utf-8")
+      +         except OSError as e:
+      +             # A list that is there but cannot be read is said as it is, never guessed past (review B).
+      +             raise CheckFailed(f"{address} is not signed in on {machine()}, and cc-outlook's account list cannot be "
+      +                               f"read: {type(e).__name__}", f"{path}: {e}") from None
+      +         try:
+      +             profiles = json.loads(text).get("profiles") or {}
+      +             registered = [email for email in profiles if email.strip().lower() == address]
+      +             if not registered:
+      +                 continue
+      +             email = registered[0]
+      +             nickname = (profiles[email] or {}).get("nickname") or derive_nickname(email)
+      +             lookup = {(p or {}).get("nickname") or derive_nickname(e): e for e, p in profiles.items()}
+      +         except (ValueError, AttributeError, IndexError, TypeError):
+      +             continue  # cc-outlook cannot read this file either, so it names no account
+      +         names.add(nickname if lookup.get(nickname) == email else email)
+      +         registered_as.add(email)
+      +     if len(names) == 1:
+      +         return f"run cc-outlook -a {names.pop()} auth", None
+      +     if names:
+      +         return f"run cc-outlook -a {registered_as.pop() if len(registered_as) == 1 else address} auth", None
+      +     return (f"first run cc-outlook accounts add {address} -c {OUTLOOK_CLIENT_ID}",
+      +             f"then run cc-outlook -a {address} auth")
+      + 
+      + 
+      + class OutlookReader:
+      +     """Everything Outlook-specific: the saved cc-outlook sign-in, MSAL, the Graph addresses and folder names."""
+      + 
+      +     def __init__(self, channel):
+      +         self.address = channel["address"].strip().lower()
+      +         self.token = None
+      + 
+      +     def not_signed_in(self, base, detail):
+      +         fix, then = outlook_fix(self.address, base)
+      +         return CheckFailed(f"{self.address} is not signed in on {machine()}: {fix}",
+      +                            "; ".join(part for part in (then, detail) if part))
+      + 
+      +     def sign_in(self):
+      +         base = director_base(account_record_home())
+      +         name = outlook_cache_name(self.address)
+      +         # cc-outlook names the file after the address as it was typed (get_msal_token_path), so a capital letter there
+      +         # is matched here regardless of case; MSAL's get_accounts matches the username regardless of case too.
+      +         found = sorted(p for p in Path(base).glob("instances/*/config/outlook/tokens/*_msal.json")
+      +                        if p.name.lower() == name)
+      +         if not found:
+      +             raise self.not_signed_in(base, f"looked for {base}/instances/*/config/outlook/tokens/{name} and found none")
+      +         if len(found) > 1:
+      +             raise CheckFailed(f"{self.address} is signed in more than once on {machine()}: keep one and sign out of "
+      +                               f"the others with cc-outlook",
+      +                               "the sign-ins found: " + ", ".join(str(p) for p in found))
+      +         path = found[0]
+      +         cache = msal.SerializableTokenCache()
+      +         try:
+      +             text = path.read_text(encoding="utf-8")
+      +         except (OSError, UnicodeDecodeError) as e:
+      +             # The file is there and cannot be read (its permissions, a folder in its place, a disk error): this
+      +             # mailbox's sign-in, said as it is (review finding 2).
+      +             raise CheckFailed(f"the saved sign-in of {self.address} on {machine()} cannot be read "
+      +                               f"({type(e).__name__}): check its permissions or sign in again", f"{path}: {e}") from None
+      498 more lines of this difference are not shown; at most 400 are shown.
+  Check checks/screen.py added: 128 lines.
+      + # /// script
+      + # requires-python = ">=3.10"
+      + # dependencies = ["msal>=1.28"]
+      + # ///
+      + """THE RIG'S WRAPPER around the Mail Desk's real screening check. Used ONLY by docs/qa/mail-desk/rig/run_qa.py.
+      + 
+      + The rig publishes a `mail-desk` definition on its throwaway Gateway whose `checks/screen.py` is THIS file and whose
+      + `checks/real_screen.py` is the template's real `src/CcDirector.Gateway/MailDesk/Template/checks/screen.py`, byte for
+      + byte. This wrapper loads that real check and replaces exactly two things, then runs the real `main()`:
+      + 
+      +   (a) the network: `urllib.request.urlopen`, the one function the phase 2 tests replace too. The real check's own
+      +       `graph_request()`, its request guard and its `transport()` (with its HTTP-error, unreachable and not-JSON
+      +       handling) all still run; only the last step - opening the connection - goes to the rig's fake Graph on
+      +       127.0.0.1 instead of https://graph.microsoft.com. Any other address is refused before a connection is made.
+      +   (b) the sign-in: `OutlookReader.sign_in`. Instead of reading cc-outlook's saved sign-in under the user's real home
+      +       and asking Microsoft for a token, it looks for the same file name in the RIG's scratch sign-in folder; found, the
+      +       mailbox is signed in with a fake token; not found, the real check's own "not signed in" failure is raised, its
+      +       fix read from the rig folder's cc-outlook account list. MSAL is never constructed.
+      + 
+      + Everything else - reading and writing the memory, the cursor, the keys, the Sent cache, the batches, the filing queue,
+      + the output, every failure sentence - is the real code.
+      + 
+      + It refuses to run (exit 1, one sentence, nothing read) unless:
+      +   - files/rig.json names a rig folder holding the rig's marker file, and this wrapper's own copy is inside it (the
+      +     Director the rig starts keeps its downloaded checks under the rig folder);
+      +   - the sign-in folder is inside the rig folder and is not, and does not hold, the user's real Director folder;
+      +   - the fake Graph is an http address on 127.0.0.1.
+      + So it can never find the owner's real sign-in or reach Microsoft.
+      + """
+      + 
+      + import importlib.util
+      + import json
+      + import os
+      + import pwd
+      + import sys
+      + import urllib.error
+      + import urllib.parse
+      + import urllib.request
+      + from pathlib import Path
+      + 
+      + HERE = Path(__file__).resolve().parent
+      + MARKER = "mail-desk-rig.marker"
+      + GRAPH_HOST = "graph.microsoft.com"
+      + 
+      + 
+      + def refuse(sentence):
+      +     print(f"the Mail Desk rig's wrapper refuses to run: {sentence}", file=sys.stderr)
+      +     sys.exit(1)
+      + 
+      + 
+      + def inside(child, parent):
+      +     child, parent = Path(child).resolve(), Path(parent).resolve()
+      +     return child == parent or parent in child.parents
+      + 
+      + 
+      + def settings():
+      +     """files/rig.json beside checks/, written by the rig: {"rigFolder", "signInFolder", "fakeGraph"}."""
+      +     path = HERE.parent / "files" / "rig.json"
+      +     try:
+      +         found = json.loads(path.read_text(encoding="utf-8"))
+      +         rig, sign_in, fake = Path(found["rigFolder"]), Path(found["signInFolder"]), found["fakeGraph"]
+      +     except (OSError, ValueError, KeyError, TypeError) as e:
+      +         refuse(f"{path} cannot be read as the rig's settings ({type(e).__name__})")
+      +     if not (rig / MARKER).is_file():
+      +         refuse(f"the rig folder {rig} holds no {MARKER}")
+      +     if not inside(__file__, rig):
+      +         refuse(f"this copy of the wrapper ({Path(__file__).resolve()}) is not inside the rig folder {rig}")
+      +     if not inside(sign_in, rig):
+      +         refuse(f"the sign-in folder {sign_in} is not inside the rig folder {rig}")
+      +     real_base = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".local" / "share" / "cc-director"
+      +     if inside(sign_in, real_base) or inside(real_base, sign_in):
+      +         refuse(f"the sign-in folder {sign_in} is or holds the user's real Director folder {real_base}")
+      +     parts = urllib.parse.urlsplit(fake)
+      +     if parts.scheme != "http" or parts.hostname != "127.0.0.1" or parts.path not in ("", "/"):
+      +         refuse(f"the fake Graph {fake} is not an http address on 127.0.0.1")
+      +     return rig, sign_in, f"http://127.0.0.1:{parts.port}"
+      + 
+      + 
+      + def load_real_check():
+      +     spec = importlib.util.spec_from_file_location("screen", HERE / "real_screen.py")
+      +     module = importlib.util.module_from_spec(spec)
+      +     spec.loader.exec_module(module)
+      +     return module
+      + 
+      + 
+      + def main():
+      +     _, sign_in_folder, fake = settings()
+      +     screen = load_real_check()
+      +     real_urlopen = urllib.request.urlopen
+      + 
+      +     def urlopen(request, timeout=None):
+      +         """(a) The same request to the fake Graph: https://graph.microsoft.com/<path>?<query> becomes
+      +         http://127.0.0.1:<port>/<path>?<query>, every header and the body unchanged."""
+      +         parts = urllib.parse.urlsplit(request.full_url)
+      +         if parts.scheme != "https" or parts.netloc != GRAPH_HOST:
+      +             raise urllib.error.URLError(f"the rig's wrapper sends nothing to {parts.scheme}://{parts.netloc}")
+      +         rewritten = urllib.request.Request(fake + urllib.parse.urlunsplit(("", "", parts.path, parts.query, "")),
+      +                                            data=request.data, method=request.get_method(),
+      +                                            headers=dict(request.header_items()))
+      +         return real_urlopen(rewritten, timeout=timeout)
+      + 
+      +     def sign_in(self):
+      +         """(b) cc-outlook's file name for the address, looked for in the rig's sign-in folder only."""
+      +         name = screen.outlook_cache_name(self.address)
+      +         found = sorted(p for p in sign_in_folder.glob("instances/*/config/outlook/tokens/*_msal.json")
+      +                        if p.name.lower() == name)
+      +         if not found:
+      +             raise self.not_signed_in(sign_in_folder, f"looked for {sign_in_folder}/instances/*/config/outlook/tokens/"
+      +                                                      f"{name} and found none")
+      +         self.token = f"rig-token-for-{self.address}"
+      + 
+      +     def no_real_home(*_):
+      +         raise screen.CheckFailed("the rig's wrapper never reads the user's real Director folder")
+      + 
+      +     class NoMsal:
+      +         def __getattr__(self, name):
+      +             raise screen.CheckFailed("the rig's wrapper never uses MSAL")
+      + 
+      +     screen.urllib.request.urlopen = urlopen
+      +     screen.OutlookReader.sign_in = sign_in
+      +     screen.account_record_home = no_real_home
+      +     screen.director_base = no_real_home
+      +     screen.msal = NoMsal()
+      +     return screen.main()
+      + 
+      + 
+      + if __name__ == "__main__":
+      +     sys.exit(main())
+  File files/rig.json added: 5 lines.
+      + {
+      +   "rigFolder": "<rig>",
+      +   "signInFolder": "<rig>/sign-in",
+      +   "fakeGraph": "http://127.0.0.1:33179"
+      + }
+applied:
+  Definition: version 2 published.
+  Registry: mail-desk registered from its definition, in no folder: each seat runs where the definition says.
+  Trigger mail-desk-mail-desk-start-1 created for seat mail-desk: every minute, check checks/screen.py, on devlinux.
+notices[2]:
+  checks/real_screen.py: The check 'checks/real_screen.py' is not named by any start.
+  files/rig.json: 'files/rig.json' is not named by any seat.
+help[2]:
+  cc-devthrottle factory definition get mail-desk
+  cc-devthrottle factory definition history mail-desk
+[exit 0]
+
+$ cc-devthrottle trigger list      (as the rig's person)
+1 trigger(s):
+  mail-desk-mail-desk-start-1  [OK - waiting for the first check]  every 1m on devlinux  last check: - (-)
+help[2]:
+  cc-devthrottle trigger show <name>
+  cc-devthrottle trigger runs <name>
+[exit 0]
+
+# the stand-in backup Director's Hello on the Director stream, as the Gateway answered it
+{
+ "version": "2.26.0",
+ "commit": "",
+ "hubMethods": [
+  "DirectorStopping",
+  "GetLicenseApproverAssignments",
+  "Hello",
+  "PushApiModeEvents",
+  "PushDelta",
+  "PushLicenseUsage",
+  "PushRepoSnapshot",
+  "PushSnapshot",
+  "PushTurns",
+  "RegisterSessionKey",
+  "RemoveSession",
+  "ReportLicenseApproverChecks",
+  "RequestLicenseApproval",
+  "RevokeSessionKey",
+  "StreamUp"
+ ],
+ "turnWatermarks": [],
+ "turnWatermarksKnown": true
+}
+
+$ cc-devthrottle maildesk channel add qa-one@example.com --provider outlook --machine devlinux --machine qa-backup --why "the rig's mailbox, read on this machine, then the backup"      (as the rig's person)
+Addition of channel qa-one@example.com recorded.
+channel[1]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,observe,"Observe - decides and records, changes nothing",Not known yet - no check has read the mailbox,Not checked yet - the first check has not run,0,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk channel list
+  cc-devthrottle maildesk rules history --kind channel
+[exit 0]
+
+$ cc-devthrottle maildesk channel add qa-two@example.com --provider outlook --machine devlinux --machine qa-backup --why "the rig's mailbox, read on this machine, then the backup"      (as the rig's person)
+Addition of channel qa-two@example.com recorded.
+channel[1]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-two@example.com,observe,"Observe - decides and records, changes nothing",Not known yet - no check has read the mailbox,Not checked yet - the first check has not run,0,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk channel list
+  cc-devthrottle maildesk rules history --kind channel
+[exit 0]
+
+$ cc-devthrottle maildesk route add qa-books/clerk --handles "bookkeeping: invoices, receipts, bank letters" --why "the rig's books seat"      (as the rig's person)
+Saved rules version 1: route add qa-books/clerk.
+who: a person (device browser qa-browser)
+why: the rig's books seat
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk route add qa-support/desk --handles "customer support questions about the product" --why "the rig's support seat"      (as the rig's person)
+Saved rules version 2: route add qa-support/desk.
+who: a person (device browser qa-browser)
+why: the rig's support seat
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk rule add invoices --subject-contains invoice --route qa-books/clerk --why "invoices go to the books seat"      (as the rig's person)
+Saved rules version 3: rule add invoices.
+who: a person (device browser qa-browser)
+why: invoices go to the books seat
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk allow add *@notices.example.com --what "build notices" --do archive --why "automated notices nobody reads"      (as the rig's person)
+Saved rules version 4: allow add *@notices.example.com.
+who: a person (device browser qa-browser)
+why: automated notices nobody reads
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk allow add news@example.org --what "a letter the owner reads" --do keep-for-owner --why "the owner reads it"      (as the rig's person)
+Saved rules version 5: allow add news@example.org.
+who: a person (device browser qa-browser)
+why: the owner reads it
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk block add *@spam.example.net --why "cold sales, never answered"      (as the rig's person)
+Saved rules version 6: block add *@spam.example.net.
+who: a person (device browser qa-browser)
+why: cold sales, never answered
+help[2]:
+  cc-devthrottle maildesk rules show
+  cc-devthrottle maildesk rules history
+[exit 0]
+
+$ cc-devthrottle maildesk rules show      (as the rig's person)
+version: 6
+saved: 2026-10-20T11:35:18.4523647Z by device browser qa-browser
+rules[1]{name,subject-contains,from,route}:
+  invoices,invoice,,qa-books/clerk
+allow[2]{from,what,do}:
+  *@notices.example.com,build notices,archive
+  news@example.org,a letter the owner reads,keep-for-owner
+block[1]{from,why}:
+  *@spam.example.net,"cold sales, never answered"
+routes[2]{route,handles}:
+  qa-books/clerk,"bookkeeping: invoices, receipts, bank letters"
+  qa-support/desk,customer support questions about the product
+help[2]:
+  cc-devthrottle maildesk rules history
+  cc-devthrottle maildesk allow add <pattern> --what "<text>" --do archive --why "<text>"
+[exit 0]
+
+$ cc-devthrottle maildesk channel list      (as the rig's person)
+count: 2
+channels[2]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,observe,"Observe - decides and records, changes nothing",Not known yet - no check has read the mailbox,Not checked yet - the first check has not run,0,devlinux qa-backup,outlook
+  qa-two@example.com,observe,"Observe - decides and records, changes nothing",Not known yet - no check has read the mailbox,Not checked yet - the first check has not run,0,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk status
+  cc-devthrottle maildesk decisions --channel <address>
+[exit 0]
+
+# the rig's scratch sign-in folder: only qa-one is signed in (qa-two is the not-signed-in case)
+  instances/default/config/outlook/profiles.json
+  instances/default/config/outlook/tokens/qa-one_example_com_msal.json
+
+
+======================================================================================================================
+== OBSERVE MODE AND NOT SIGNED IN
+======================================================================================================================
+# Both mailboxes in observe mode. qa-one holds one email for each layer; qa-two is not signed in. Expected: every email decided and recorded by the layer that decides it, nothing moved (no POST on the fake Graph), no session started, and qa-two's failure on the Open problems card naming the fix.
+
+# what the rig put in qa-one's Inbox (sender | subject); qa-one's Sent folder holds one email to friend@known.example
+  billing@vendor.example | Invoice 1042 for October
+  alerts@notices.example.com | Build 311 passed
+  news@example.org | The October letter
+  deals@spam.example.net | Cheap watches
+  stranger@cold.example | Grow your traffic 300 percent
+  customer@client.example | How do I export my data?
+  someone@unknown.example | A question about something
+  friend@known.example | Lunch on Friday?
+
+# the run that saw it (the first read of both mailboxes): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('21BE4766-0388-4F44-BA28-C330A94ECC1C', '2026-10-20 11:37:07.4994038', '2026-10-20 11:37:07.5065369', 'screened', 0, None, '0 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 1 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+$ cc-devthrottle trigger runs 138d179a-95b6-4abd-a4bc-c7e2aa785e77      (as the rig's person)
+2 most recent check(s) of 138d179a-95b6-4abd-a4bc-c7e2aa785e77, newest first:
+  2026-10-20T11:37:07.4994038Z  screened  count=0 reason: 0 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 1 of 2 mailboxes failing
+  2026-10-20T11:35:37.6236137Z  screened  count=8 reason: 8 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 1 of 2 mailboxes failing
+help[1]:
+  cc-devthrottle trigger show "138d179a-95b6-4abd-a4bc-c7e2aa785e77"
+[exit 0]
+
+$ cc-devthrottle maildesk decisions -n 20 --channel qa-one@example.com      (as the rig's person)
+count: 8
+by-decision: route 2, archive 1, junk 2, keep-for-owner 1, mail-desk-agent 2, failed 0
+decisions[8]{id,received,channel,sender,subject,layer,decision,route,mode,outcome,reason}:
+  5c3428ee-7648-408a-b281-e0c8f62e2f2e,2026-10-20T11:35:19.291Z,qa-one@example.com,friend@known.example,Lunch on Friday?,route-model,mail-desk-agent,,observe,,route-model: unsure
+  bc50a3ca-92ec-48e9-967f-a72e3850990a,2026-10-20T11:35:19.29Z,qa-one@example.com,someone@unknown.example,A question about something,route-model,mail-desk-agent,,observe,,route-model: unsure
+  0a2705fa-381c-41cb-a441-edb5b545a1eb,2026-10-20T11:35:19.289Z,qa-one@example.com,customer@client.example,How do I export my data?,route-model,route,qa-support/desk,observe,,route-model: qa-support/desk at 0.95 (threshold 0.90)
+  6346a170-8dd4-43c7-b4ad-685a7adcd1ab,2026-10-20T11:35:19.288Z,qa-one@example.com,stranger@cold.example,Grow your traffic 300 percent,sender-screen,junk,,observe,,sender-screen: spam at 0.98 (threshold 0.95)
+  db540245-99e0-4767-8895-60916c2e1356,2026-10-20T11:35:19.287Z,qa-one@example.com,deals@spam.example.net,Cheap watches,block,junk,,observe,,"block *@spam.example.net (cold sales, never answered)"
+  2805df22-c9b4-4803-a67e-7150283618e1,2026-10-20T11:35:19.286Z,qa-one@example.com,news@example.org,The October letter,allow,keep-for-owner,,observe,,allow news@example.org (a letter the owner reads)
+  78339769-154f-4cbd-8eea-fe3f765561e3,2026-10-20T11:35:19.285Z,qa-one@example.com,alerts@notices.example.com,Build 311 passed,allow,archive,,observe,,allow *@notices.example.com (build notices)
+  976837ee-2053-464c-aa3c-f5f28058529e,2026-10-20T11:35:19.284Z,qa-one@example.com,billing@vendor.example,Invoice 1042 for October,rule,route,qa-books/clerk,observe,,rule invoices
+help[3]:
+  cc-devthrottle maildesk decisions --decision <decision>
+  cc-devthrottle maildesk decisions --since <iso-time>
+  cc-devthrottle maildesk status
+[exit 0]
+
+# CHECK PASS: 'Invoice 1042 for October' decided route by the rule layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'Build 311 passed' decided archive by the allow layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'The October letter' decided keep-for-owner by the allow layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'Cheap watches' decided junk by the block layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'Grow your traffic 300 percent' decided junk by the sender-screen layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'How do I export my data?' decided route by the route-model layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'A question about something' decided mail-desk-agent by the route-model layer in observe mode, nothing done (outcome null)
+
+# CHECK PASS: 'Lunch on Friday?' decided mail-desk-agent by the route-model layer in observe mode, nothing done (outcome null)
+
+# what the fake model was asked (question | subject -> answer)
+  2026-10-20T11:35:37Z person-or-spam | Grow your traffic 300 percent -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z person-or-spam | How do I export my data? -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | How do I export my data? -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z person-or-spam | A question about something -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | A question about something -> C (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | Lunch on Friday? -> C (model devthrottle/wingman-fast, logprobs True)
+
+# CHECK PASS: the Gateway's model questions reached the rig's fake model, with the rig-only key (the fake refuses any other key)
+
+# CHECK PASS: the known sender (written to from qa-one's Sent folder) was never asked person-or-spam
+
+# every call the fake Graph received so far
+  2026-10-20T11:35:37Z qa-one@example.com GET /v1.0/me/mailFolders/sentitems/messages folder=sentitems returned=1 -> 200
+  2026-10-20T11:35:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=8 -> 200
+  2026-10-20T11:37:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+
+# CHECK PASS: nothing was moved: the fake Graph received no POST
+
+# CHECK PASS: every email is still in qa-one's Inbox
+
+# qa-one's entry in the stored memory (the check's fields and the Gateway's)
+{
+ "id": "eea07cee-24e3-40dc-a23f-28cd349adc27",
+ "address": "qa-one@example.com",
+ "provider": "outlook",
+ "mode": "observe",
+ "cursor": {
+  "newest": "2026-10-20T11:35:19.291Z",
+  "idsAtNewest": [
+   "rigmsg0008"
+  ]
+ },
+ "sentCache": {
+  "refreshedUtc": "2026-10-20T11:35:37Z",
+  "hashes": [
+   "779fe4bb5e3c"
+  ]
+ },
+ "keys": "<8 keys>"
+}
+
+# CHECK PASS: observe mode queued no filing (no filingQueue)
+
+# CHECK PASS: no session was started (the throwaway Gateway lists 0 sessions)
+
+# the qa-two failure
+
+
+$ cc-devthrottle maildesk channel list      (as the rig's person)
+count: 2
+channels[2]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,observe,"Observe - decides and records, changes nothing",Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 11:37: the mail it read was screened,8,devlinux qa-backup,outlook
+  qa-two@example.com,observe,"Observe - decides and records, changes nothing",Failing - the last check could not read the mailbox: qa-two@example.com is not signed in on devlinux: first run cc-outlook accounts add qa-two@example.com -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd,The Mail Desk check last ran 2026-10-20 11:37. This mailbox has not been read since its check failed at 2026-10-20 11:37,0,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk status
+  cc-devthrottle maildesk decisions --channel <address>
+[exit 0]
+
+$ cc-devthrottle run problems --factory mail-desk --json      (as the rig's person)
+{
+  "count": 1,
+  "occurrences": 2,
+  "asOfUtc": "2026-10-20T11:37:11.9164537Z",
+  "state": "open",
+  "factory": "mail-desk",
+  "timeZone": "UTC",
+  "problems": [
+    {
+      "runId": "67f14abe-6124-4228-8e4d-f8af7bd4e531",
+      "jobId": "be1ed696-41df-45e5-af3c-0d02b103db4c",
+      "jobName": "qa-two@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T11:35:37.6236137Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mailbox-failed",
+      "kindText": "mailbox could not be checked",
+      "reason": "qa-two@example.com is not signed in on devlinux: first run cc-outlook accounts add qa-two@example.com -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd",
+      "sentence": "qa-two@example.com could not be checked on devlinux: qa-two@example.com is not signed in on devlinux: first run cc-outlook accounts add qa-two@example.com -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd (2 checks in a row failed)",
+      "whenText": "Checked Tue 20 Oct 11:35",
+      "raisedAtUtc": "2026-10-20T11:35:37.6236137Z",
+      "occurrences": 2,
+      "openForText": "open 1 minute",
+      "sessionId": null,
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    }
+  ]
+}
+[exit 0]
+
+# the Open problems of the mail-desk factory (run problems --factory mail-desk --json)
+{
+ "count": 1,
+ "occurrences": 2,
+ "asOfUtc": "2026-10-20T11:37:11.9164537Z",
+ "state": "open",
+ "factory": "mail-desk",
+ "timeZone": "UTC",
+ "problems": [
+  {
+   "runId": "67f14abe-6124-4228-8e4d-f8af7bd4e531",
+   "jobId": "be1ed696-41df-45e5-af3c-0d02b103db4c",
+   "jobName": "qa-two@example.com",
+   "factory": "mail-desk",
+   "seat": "mail-desk",
+   "scheduledUtc": "2026-10-20T11:35:37.6236137Z",
+   "startedUtc": null,
+   "shift": "morning",
+   "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+   "kind": "mailbox-failed",
+   "kindText": "mailbox could not be checked",
+   "reason": "qa-two@example.com is not signed in on devlinux: first run cc-outlook accounts add qa-two@example.com -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd",
+   "sentence": "qa-two@example.com could not be checked on devlinux: qa-two@example.com is not signed in on devlinux: first run cc-outlook accounts add qa-two@example.com -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd (2 checks in a row failed)",
+   "whenText": "Checked Tue 20 Oct 11:35",
+   "raisedAtUtc": "2026-10-20T11:35:37.6236137Z",
+   "occurrences": 2,
+   "openForText": "open 1 minute",
+   "sessionId": null,
+   "state": "open",
+   "stateText": null,
+   "closedUtc": null,
+   "resolvedBy": null,
+   "resolvedReason": null,
+   "clearedByRunId": null
+  }
+ ]
+}
+
+# CHECK PASS: qa-two's failure is an Open problem on the mail-desk factory, naming the machine and the cc-outlook fix
+
+# CHECK PASS: qa-two has no decisions: it was not read
+
+# observe mode: the body-preview marker 'RIGPREVIEW' in every table and column of gateway.db and in the Gateway's log
+  (found nowhere)
+
+
+======================================================================================================================
+== SIGNED IN AGAIN
+======================================================================================================================
+# qa-two is signed in in the rig's scratch sign-in folder and gets one email. Expected: the next run reads it, and its problem is cleared by that good check.
+
+# the run that saw it (qa-two signed in): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('2FE22FB0-630B-4D36-AACC-7D395A6E0794', '2026-10-20 11:38:37.4843097', '2026-10-20 11:38:37.499951', 'screened', 1, None, '1 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: qa-two was read and its email decided
+
+$ cc-devthrottle maildesk channel list      (as the rig's person)
+count: 2
+channels[2]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,observe,"Observe - decides and records, changes nothing",Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 11:38: the mail it read was screened,8,devlinux qa-backup,outlook
+  qa-two@example.com,observe,"Observe - decides and records, changes nothing",Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 11:38: the mail it read was screened,1,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk status
+  cc-devthrottle maildesk decisions --channel <address>
+[exit 0]
+
+$ cc-devthrottle run problems --factory mail-desk --json      (as the rig's person)
+{
+  "count": 0,
+  "occurrences": 0,
+  "asOfUtc": "2026-10-20T11:38:39.2343974Z",
+  "state": "open",
+  "factory": "mail-desk",
+  "timeZone": "UTC",
+  "problems": []
+}
+[exit 0]
+
+# CHECK PASS: qa-two's sign-in problem is cleared by the good check
+
+
+======================================================================================================================
+== GRAPH ANSWERS AN ERROR
+======================================================================================================================
+# The fake Graph answers HTTP 503 to every call for qa-one while one new email waits. Expected: qa-one's check fails on its own (qa-two is still read), the stored memory of qa-one is not moved on, and once Graph answers again the next run reads the same email, once.
+
+# the run that saw it (Graph failing for qa-one): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('41835561-F6AE-4510-AF2A-230675F65C9D', '2026-10-20 11:40:07.4719599', '2026-10-20 11:40:07.4860835', 'screened', 1, None, '1 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 1 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# the fake Graph's calls in that run
+  2026-10-20T11:40:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages -> 503
+  2026-10-20T11:40:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+
+# CHECK PASS: qa-one's cursor and keys in the stored memory are exactly as before the failing run
+
+# CHECK PASS: the email waiting in qa-one was not decided
+
+# CHECK PASS: qa-two was still read and decided
+
+$ cc-devthrottle run problems --factory mail-desk --json      (as the rig's person)
+{
+  "count": 1,
+  "occurrences": 1,
+  "asOfUtc": "2026-10-20T11:40:09.7350543Z",
+  "state": "open",
+  "factory": "mail-desk",
+  "timeZone": "UTC",
+  "problems": [
+    {
+      "runId": "f0c250b3-d929-4b38-a744-71319ce3b6c9",
+      "jobId": "eea07cee-24e3-40dc-a23f-28cd349adc27",
+      "jobName": "qa-one@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T11:40:07.4719599Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mailbox-failed",
+      "kindText": "mailbox could not be checked",
+      "reason": "Microsoft Graph answered HTTP 503 for qa-one@example.com while reading the Inbox",
+      "sentence": "qa-one@example.com could not be checked on devlinux: Microsoft Graph answered HTTP 503 for qa-one@example.com while reading the Inbox",
+      "whenText": "Checked Tue 20 Oct 11:40",
+      "raisedAtUtc": "2026-10-20T11:40:07.4719599Z",
+      "occurrences": 1,
+      "openForText": "open less than a minute",
+      "sessionId": null,
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    }
+  ]
+}
+[exit 0]
+
+# CHECK PASS: qa-one's failure is an Open problem naming the HTTP status
+
+# the run that saw it (Graph answering again): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('4C33C77B-DDBE-4240-BBB2-34AB50FD3EE8', '2026-10-20 11:41:37.4669953', '2026-10-20 11:41:37.4832413', 'screened', 1, None, '1 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: the same email was read the next run and decided once
+
+$ cc-devthrottle maildesk decisions --channel qa-one@example.com -n 3      (as the rig's person)
+count: 3 of 9 total
+by-decision: route 3, archive 1, junk 2, keep-for-owner 1, mail-desk-agent 2, failed 0
+decisions[3]{id,received,channel,sender,subject,layer,decision,route,mode,outcome,reason}:
+  9b492d96-a265-4349-a1d0-f66b3c6c6836,2026-10-20T11:38:39.32Z,qa-one@example.com,customer@client.example,Second question about exports,route-model,route,qa-support/desk,observe,,route-model: qa-support/desk at 0.97 (threshold 0.90)
+  5c3428ee-7648-408a-b281-e0c8f62e2f2e,2026-10-20T11:35:19.291Z,qa-one@example.com,friend@known.example,Lunch on Friday?,route-model,mail-desk-agent,,observe,,route-model: unsure
+  bc50a3ca-92ec-48e9-967f-a72e3850990a,2026-10-20T11:35:19.29Z,qa-one@example.com,someone@unknown.example,A question about something,route-model,mail-desk-agent,,observe,,route-model: unsure
+help[3]:
+  cc-devthrottle maildesk decisions --decision <decision>
+  cc-devthrottle maildesk decisions --since <iso-time>
+  cc-devthrottle maildesk status
+[exit 0]
+
+
+======================================================================================================================
+== THE MODEL FAILING OR ANSWERING OFF THE LABELS
+======================================================================================================================
+# Two new emails in qa-one from unknown senders: for one the fake model answers HTTP 500, for the other an answer that is not a letter. Expected: the first is `failed` and read again next run, the second goes to the Mail Desk agent with the reason; never a guess.
+
+# the run that saw it (the model failing): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('2BB02581-E303-4E61-887D-A1DF4262CE41', '2026-10-20 11:43:07.4705889', '2026-10-20 11:43:07.5008363', 'screened', 2, None, '1 decided, 0 already decided, 1 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 1 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# what the fake model was asked in that run
+  2026-10-20T11:43:07Z person-or-spam | Model down: please classify -> HTTP 500 (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:43:07Z person-or-spam | Off the labels please -> maybe (model devthrottle/wingman-fast, logprobs True)
+
+# CHECK PASS: the email whose question failed is decided `failed`
+
+# CHECK PASS: the answer off the labels goes to the Mail Desk agent, saying so
+
+$ cc-devthrottle maildesk decisions --channel qa-one@example.com -n 3      (as the rig's person)
+count: 3 of 11 total
+by-decision: route 3, archive 1, junk 2, keep-for-owner 1, mail-desk-agent 3, failed 1
+decisions[3]{id,received,channel,sender,subject,layer,decision,route,mode,outcome,reason}:
+  f692732f-231e-4485-8172-f2127e268a03,2026-10-20T11:41:40.292Z,qa-one@example.com,visitor2@unknown.example,Off the labels please,sender-screen,mail-desk-agent,,observe,,sender-screen: answered outside the labels
+  abd4a6ef-a539-42e4-bd80-f15cbbeacdfa,2026-10-20T11:41:40.291Z,qa-one@example.com,visitor@unknown.example,Model down: please classify,sender-screen,failed,,observe,,sender-screen: the model could not be asked (http-500); read again next run
+  9b492d96-a265-4349-a1d0-f66b3c6c6836,2026-10-20T11:38:39.32Z,qa-one@example.com,customer@client.example,Second question about exports,route-model,route,qa-support/desk,observe,,route-model: qa-support/desk at 0.97 (threshold 0.90)
+help[3]:
+  cc-devthrottle maildesk decisions --decision <decision>
+  cc-devthrottle maildesk decisions --since <iso-time>
+  cc-devthrottle maildesk status
+[exit 0]
+
+$ cc-devthrottle run problems --factory mail-desk --json      (as the rig's person)
+{
+  "count": 1,
+  "occurrences": 1,
+  "asOfUtc": "2026-10-20T11:43:11.0883789Z",
+  "state": "open",
+  "factory": "mail-desk",
+  "timeZone": "UTC",
+  "problems": [
+    {
+      "runId": "aa09f57f-0f1f-4bc3-9690-af3d098d0bc6",
+      "jobId": "eea07cee-24e3-40dc-a23f-28cd349adc27",
+      "jobName": "qa-one@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T11:43:07.4705889Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mailbox-failed",
+      "kindText": "mailbox could not be checked",
+      "reason": "the model could not be asked about 1 of 2 emails on qa-one@example.com (http-500); they are read again next run",
+      "sentence": "qa-one@example.com could not be checked on devlinux: the model could not be asked about 1 of 2 emails on qa-one@example.com (http-500); they are read again next run",
+      "whenText": "Checked Tue 20 Oct 11:43",
+      "raisedAtUtc": "2026-10-20T11:43:07.4705889Z",
+      "occurrences": 1,
+      "openForText": "open less than a minute",
+      "sessionId": null,
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    }
+  ]
+}
+[exit 0]
+
+# CHECK PASS: qa-one's model failure is a mailbox problem, read again next run
+
+# the run that saw it (the model answering again): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('AD2BB324-E713-48B9-8C7F-D0CDBC2FEFE0', '2026-10-20 11:44:37.462346', '2026-10-20 11:44:37.4789416', 'screened', 2, None, '1 decided, 1 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# what the fake model was asked in the next run
+  2026-10-20T11:44:37Z person-or-spam | Model down: please classify -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:44:37Z route | Model down: please classify -> C (model devthrottle/wingman-fast, logprobs True)
+
+# CHECK PASS: the next run asked about the failed email only - nothing already decided was asked or charged again
+
+# CHECK PASS: the failed email is decided on the reread (its row updated in place)
+
+# the two emails' decision rows
+#   read from the rig's gateway.db: SELECT Subject, Layer, Decision, Reason, AttemptCount FROM mail_desk_decisions WHERE Subject IN ('Model down: please classify', 'Off the labels please') []
+  Subject, Layer, Decision, Reason, AttemptCount
+  Model down: please classify, route-model, mail-desk-agent, route-model: unsure, 2
+  Off the labels please, sender-screen, mail-desk-agent, sender-screen: answered outside the labels, 1
+  (2 rows)
+
+
+======================================================================================================================
+== MORE MAIL THAN ONE BATCH
+======================================================================================================================
+# 23 emails from an allow-listed sender reach qa-two at once. A run reports at most 10 messages. Expected: several runs, every email decided exactly once, nothing skipped.
+
+# the runs while the batch was read
+  ('966AA434-B3FC-4989-B490-21DF65F68D5A', '2026-10-20 11:46:07.4648335', '2026-10-20 11:46:07.5504984', 'screened', 10, None, '10 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+  ('57C41BE8-1F58-425F-A24C-A60359373E48', '2026-10-20 11:47:37.4673235', '2026-10-20 11:47:37.5548149', 'screened', 10, None, '10 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+  ('59482899-0DB0-4F9A-9326-73FFBC2B4F86', '2026-10-20 11:49:07.4543467', '2026-10-20 11:49:07.4832921', 'screened', 3, None, '3 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: 23 emails, 23 decisions, 23 different message keys: none twice
+
+# CHECK PASS: none skipped
+
+# CHECK PASS: it took at least three runs (10 per run at most)
+
+# how many runs reported how many messages
+#   read from the rig's gateway.db: SELECT CheckedUtc, Outcome, Count FROM trigger_runs WHERE TriggerId = ? COLLATE NOCASE AND RecordedUtc >= ? ORDER BY RecordedUtc ['138d179a-95b6-4abd-a4bc-c7e2aa785e77', '2026-10-20 11:44:38']
+  CheckedUtc, Outcome, Count
+  2026-10-20 11:46:07.4648335, screened, 10
+  2026-10-20 11:47:37.4673235, screened, 10
+  2026-10-20 11:49:07.4543467, screened, 3
+  (3 rows)
+
+
+======================================================================================================================
+== THE SWITCH OFF
+======================================================================================================================
+# Mail Desk is switched off for the account through the administrator route while an email waits. Expected: every Mail Desk route answers 404 with no body, the command says the switch is off, the Director's report is refused (409 mail_desk_off) and nothing is recorded. Then it is switched on again and the email is read.
+
+$ POST /gateway/admin/mail-desk      (raw HTTP, with the administrator token made for this run)
+  body: {"account": "local", "enabled": false, "actor": "the Mail Desk rig", "reason": "the Mail Desk rig: the switch-off case"}
+  status: 200
+  answer: {"outcome":"recorded","account":"local","enabled":false,"templateOffer":null,"templateOfferSentence":null}
+
+$ GET /gateway/mail-desk/status      (raw HTTP, as the rig's person)
+  status: 404
+  answer: (empty)
+
+# CHECK PASS: GET /gateway/mail-desk/status answers 404 with no body
+
+$ GET /gateway/mail-desk/channels      (raw HTTP, as the rig's person)
+  status: 404
+  answer: (empty)
+
+# CHECK PASS: GET /gateway/mail-desk/channels answers 404 with no body
+
+$ GET /gateway/mail-desk/decisions      (raw HTTP, as the rig's person)
+  status: 404
+  answer: (empty)
+
+# CHECK PASS: GET /gateway/mail-desk/decisions answers 404 with no body
+
+$ POST /gateway/mail-desk/channels/mode      (raw HTTP, as the rig's person)
+  body: {"address": "qa-one@example.com", "mode": "live", "why": "x"}
+  status: 404
+  answer: (empty)
+
+$ cc-devthrottle maildesk status      (as the rig's person)
+Error: Mail Desk is not switched on for this account.
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+# CHECK PASS: no run was recorded while the switch was off
+
+# the Director's reports while off - the test Director's log, lines naming ['mail_desk_off', '409']
+  (none)
+
+$ POST /gateway/admin/mail-desk      (raw HTTP, with the administrator token made for this run)
+  body: {"account": "local", "enabled": true, "actor": "the Mail Desk rig", "reason": "the Mail Desk rig: switched on again"}
+  status: 200
+  answer: {"outcome":"recorded","account":"local","enabled":true,"templateOffer":"AlreadyOffered","templateOfferSentence":"Version 1 of the mail-desk factory already holds Mail Desk template 6a1576373f2d, so it was not offered again."}
+
+# CHECK PASS: no decision was recorded while the switch was off
+
+# the run that saw it (the switch on again): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('EA88BC21-1A3F-47C3-BC47-41DF96BE1AC3', '2026-10-20 11:53:37.5224605', '2026-10-20 11:53:37.5392524', 'screened', 1, None, '1 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: the waiting email is read once it is on
+
+
+======================================================================================================================
+== A FACTORY SESSION REFUSED LIVE MODE
+======================================================================================================================
+# A real agent session born into the qa-books factory (the once-a-year timed start of its prober seat, run now); the rig calls the mode route AS that session, with its own key, to switch qa-one to live. Expected: 403, outcome FactorySessionRefused; nothing recorded; the channel stays in observe.
+
+$ cc-devthrottle schedule run cj_2870c8      (as the rig's person)
+Fired the schedule.
+  Fired:   2026-10-20T11:53:41.8290445Z UTC
+  Target:  76d4b193-910f-448f-9497-fec4fb6b7c66
+  Session: 0702acd2-cd96-4639-a00f-809bfc820253
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_2870c8
+  cc-devthrottle session buffer 0702acd2-cd96-4639-a00f-809bfc820253
+[exit 0]
+
+$ cc-devthrottle schedule runs cj_2870c8 --json      (as the rig's person)
+[
+  {
+    "scheduledUtc": "2026-10-20T11:53:40.6564814Z",
+    "firedUtc": "2026-10-20T11:53:41.8290445Z",
+    "machine": "devlinux",
+    "targetDirectorId": "76d4b193-910f-448f-9497-fec4fb6b7c66",
+    "sessionId": "0702acd2-cd96-4639-a00f-809bfc820253",
+    "sessionName": "QA Books - Prober - 2026-10-20 11:53",
+    "infraStatus": "started",
+    "infraTone": "ok",
+    "taskStatus": "unknown",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+    "runId": "b6eb73b8-3bf7-4ed7-97a5-5d7a5959c224",
+    "result": "pending",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": null,
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-books",
+    "seat": "prober",
+    "jobName": "QA Books - Prober",
+    "missedNotListed": 0,
+    "briefVersion": 1,
+    "briefVersionKind": "definition",
+    "checkCount": null,
+    "checkedUtc": null
+  }
+]
+[exit 0]
+
+$ POST /gateway/mail-desk/channels/mode      (raw HTTP, as session 0702acd2-cd96-4639-a00f-809bfc820253, with its own key, as its seat would call it)
+  body: {"address": "qa-one@example.com", "mode": "live", "why": "a factory session tries to switch a channel to live"}
+  status: 403
+  answer: {"error":"factory_session_refused","outcome":"FactorySessionRefused","detail":"a session of the factory 'qa-books' does not add or remove a Mail Desk channel or switch its mode; the owner does, or a session in no factory the owner tells to. A factory's session may change the rules: allow, block, rule and route"}
+
+# CHECK PASS: the factory session's mode change is refused 403, because it runs in a factory
+
+# CHECK PASS: qa-one is still in observe mode
+
+# mode changes recorded for qa-one
+#   read from the rig's gateway.db: SELECT AtUtc, Kind, Action, Subject, WhoKind FROM mail_desk_list_changes WHERE Kind = 'mode' []
+  AtUtc, Kind, Action, Subject, WhoKind
+  (0 rows)
+
+# CHECK PASS: no mode change was recorded
+
+# the session's history row (born into qa-books)
+#   read from the rig's gateway.db: SELECT SessionId, Factory, FactorySeat FROM session_history WHERE SessionId = ? COLLATE NOCASE ['0702acd2-cd96-4639-a00f-809bfc820253']
+  SessionId, Factory, FactorySeat
+  0702acd2-cd96-4639-a00f-809bfc820253, qa-books, prober
+  (1 rows)
+
+$ cc-devthrottle session stop 0702acd2-cd96-4639-a00f-809bfc820253 --reason "the Mail Desk rig is done with this session"      (as the rig's person)
+stopped 0702acd2 - process 2851957 ended, row removed
+the worktree <rig>/director-root/instances/default/factory-run/0702acd2-cd96-4639-a00f-809bfc820253/work was left untouched - whether it has uncommitted changes could not be determined
+reason: the Mail Desk rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+
+======================================================================================================================
+== LIVE MODE: FILING
+======================================================================================================================
+# qa-one is switched to live. Five new emails: two for Archive (one of them deleted from the Inbox by the rig after it is queued), one for Junk Email and one kept for the owner. Expected: the archive and junk decisions are queued in the memory, the next run moves exactly those - the fake Graph's only POSTs are moves to archive and junkemail - and writes filed / already-gone on their decision rows; the email kept for the owner stays in the Inbox; nothing decided in observe mode is filed.
+
+$ cc-devthrottle maildesk mode qa-one@example.com live --why "the rig's live filing case"      (as the rig's person)
+Mode change of channel qa-one@example.com recorded.
+channel[1]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,live,Live - decides and acts: files each email and starts the seat it routes to,Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 11:53: the mail it read was screened,12,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk channel list
+  cc-devthrottle maildesk rules history --kind mode
+[exit 0]
+
+# qa-one's filing queue in the stored memory after the deciding run (the rig then deletes 'Build 413 passed' from the Inbox)
+[
+ {
+  "messageKey": "7a5438be16bf245c",
+  "decision": "archive"
+ },
+ {
+  "messageKey": "8d55637f3a7f8549",
+  "decision": "archive"
+ },
+ {
+  "messageKey": "dfd466535b4ca742",
+  "decision": "junk"
+ }
+]
+
+# CHECK PASS: exactly the live archive and junk decisions are queued, oldest first
+
+$ cc-devthrottle maildesk decisions --channel qa-one@example.com -n 6      (as the rig's person)
+count: 6 of 16 total
+by-decision: route 3, archive 3, junk 3, keep-for-owner 2, mail-desk-agent 5, failed 0
+decisions[6]{id,received,channel,sender,subject,layer,decision,route,mode,outcome,reason}:
+  d97e662b-94fe-4bbc-92be-ca04e715c17f,2026-10-20T11:53:44.84Z,qa-one@example.com,deals@spam.example.net,Cheaper watches,block,junk,,live,filed,"block *@spam.example.net (cold sales, never answered)"
+  27be112c-e81c-4fae-a3e5-f5f67def5f5c,2026-10-20T11:53:44.839Z,qa-one@example.com,alerts@notices.example.com,Build 413 passed,allow,archive,,live,already-gone,allow *@notices.example.com (build notices)
+  3ff027e9-3262-43c8-8a3e-4f400563bdca,2026-10-20T11:53:44.838Z,qa-one@example.com,alerts@notices.example.com,Build 412 passed,allow,archive,,live,filed,allow *@notices.example.com (build notices)
+  0a75b259-5117-48af-8e9c-e52273091561,2026-10-20T11:53:44.837Z,qa-one@example.com,news@example.org,The November letter,allow,keep-for-owner,,live,,allow news@example.org (a letter the owner reads)
+  2fe7d18e-d919-43b2-8c63-d1d2d39f975e,2026-10-20T11:50:18.566Z,qa-one@example.com,customer@client.example,A question while the switch is off,route-model,mail-desk-agent,,observe,,route-model: unsure
+  abd4a6ef-a539-42e4-bd80-f15cbbeacdfa,2026-10-20T11:41:40.291Z,qa-one@example.com,visitor@unknown.example,Model down: please classify,route-model,mail-desk-agent,,observe,,route-model: unsure
+help[3]:
+  cc-devthrottle maildesk decisions --decision <decision>
+  cc-devthrottle maildesk decisions --since <iso-time>
+  cc-devthrottle maildesk status
+[exit 0]
+
+# the fake Graph's POSTs since qa-one went live
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=archive -> 201
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=archive -> 404
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=junkemail -> 201
+
+# CHECK PASS: the only POSTs are the three moves, to archive and junkemail
+
+# CHECK PASS: the archive email: filed, moved to Archive
+
+# CHECK PASS: the junk email: filed, moved to Junk Email
+
+# CHECK PASS: the email deleted before the move: already-gone, never filed
+
+# CHECK PASS: the fake Graph holds them in Archive and Junk Email
+
+# CHECK PASS: the email kept for the owner is still in the Inbox
+
+# CHECK PASS: the queue is empty once carried out
+
+# CHECK PASS: 'Build 311 passed', decided in observe mode before, is not filed
+
+# CHECK PASS: 'Cheap watches', decided in observe mode before, is not filed
+
+
+======================================================================================================================
+== OBSERVE MODE WITH A FILING QUEUE PRESENT
+======================================================================================================================
+# With qa-one live, a junk email is decided and queued; the rig switches qa-one back to observe before the next run. Expected: that run moves nothing (no POST), the queue is left as it was, and the decision's outcome stays empty.
+
+$ cc-devthrottle maildesk mode qa-one@example.com observe --why "the rig: back to observe with a queue present"      (as the rig's person)
+Mode change of channel qa-one@example.com recorded.
+channel[1]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-one@example.com,observe,"Observe - decides and records, changes nothing",Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 11:58: the mail it read was screened,17,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk channel list
+  cc-devthrottle maildesk rules history --kind mode
+[exit 0]
+
+# qa-one's filing queue when it was switched back to observe
+[
+ {
+  "messageKey": "a4a5b0a3f9a8b214",
+  "decision": "junk"
+ }
+]
+
+# the run that saw it (observe mode with a queue present): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('0C16C27E-6C7B-4059-9502-4F7A76714C64', '2026-10-20 11:59:37.4747049', '2026-10-20 11:59:37.4828995', 'screened', 0, None, '0 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# the run that saw it (a second run in observe mode): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('01860AB9-F5D4-418E-BDBF-E300EC470394', '2026-10-20 12:01:07.5438977', '2026-10-20 12:01:07.5535405', 'screened', 0, None, '0 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: no POST since qa-one went back to observe
+
+# CHECK PASS: the queued email is still in the Inbox
+
+# CHECK PASS: the queue is left exactly as it was
+
+# CHECK PASS: the decision's outcome stays empty
+
+
+======================================================================================================================
+== LIVE MODE: ROUTING TO SEATS
+======================================================================================================================
+# qa-two is switched to live. One run brings two invoices (a rule routes them to qa-books/clerk), a support question (the route model routes it to qa-support/desk) and a letter kept for the owner. Expected: TWO sessions start, one per seat, on this machine, naming the slot Director - the books seat with both invoices in one session - each with its emails in its prompt and in check.json and nothing of a preview anywhere; the decisions say seat-started; the letter kept for the owner stays in the Inbox and starts nothing.
+
+# the rig replaced two of the Director's tool links: <rig>/director-root/bin
+  cc-dev-reports -> <rig>/director-root/pyenv/bin/cc-dev-reports
+  cc-devthrottle (the rig's file)
+  cc-gmail -> <rig>/director-root/pyenv/bin/cc-gmail
+  cc-html -> <rig>/director-root/pyenv/bin/cc-html
+  cc-image -> <rig>/director-root/pyenv/bin/cc-image
+  cc-outlook (the rig's file)
+  cc-pdf -> <rig>/director-root/pyenv/bin/cc-pdf
+  cc-secrets -> <rig>/director-root/pyenv/bin/cc-secrets
+  cc-ship -> <rig>/director-root/pyenv/bin/cc-ship
+  cc-vault -> <rig>/director-root/pyenv/bin/cc-vault
+  cc-word -> <rig>/director-root/pyenv/bin/cc-word
+  cc-worktrees -> <rig>/director-root/pyenv/bin/cc-worktrees
+
+# CHECK PASS: the Director's cc-devthrottle is the rig's
+
+# CHECK PASS: the Director's cc-outlook is the rig's
+
+$ cc-devthrottle maildesk mode qa-two@example.com live --why "the rig's live routing case"      (as the rig's person)
+Mode change of channel qa-two@example.com recorded.
+channel[1]{address,mode,mode-label,signed-in,last-check,today,machines,provider}:
+  qa-two@example.com,live,Live - decides and acts: files each email and starts the seat it routes to,Signed in - the last check read the mailbox,The Mail Desk check last ran 2026-10-20 12:01: the mail it read was screened,25,devlinux qa-backup,outlook
+help[2]:
+  cc-devthrottle maildesk channel list
+  cc-devthrottle maildesk rules history --kind mode
+[exit 0]
+
+# the books seat's session - GET /sessions, the fields that say where, by whom and what
+[
+ {
+  "sessionId": "13a31798-b859-4391-a09c-b9f610f19ac2",
+  "name": "Mail Desk - qa-books/clerk - 2 emails - 2026-10-20 12:02",
+  "factory": "qa-books",
+  "factorySeat": "clerk",
+  "directorId": "76d4b193-910f-448f-9497-fec4fb6b7c66",
+  "machineName": "devlinux",
+  "activityState": "WaitingForInput",
+  "origin": null,
+  "originSurface": "trigger"
+ }
+]
+
+# the support seat's session - GET /sessions, the fields that say where, by whom and what
+[
+ {
+  "sessionId": "71dda8a1-5879-4745-a91b-11f10300bccc",
+  "name": "Mail Desk - qa-support/desk - 1 email - 2026-10-20 12:02",
+  "factory": "qa-support",
+  "factorySeat": "desk",
+  "directorId": "76d4b193-910f-448f-9497-fec4fb6b7c66",
+  "machineName": "devlinux",
+  "activityState": "WaitingForInput",
+  "origin": null,
+  "originSurface": "trigger"
+ }
+]
+
+# CHECK PASS: two routes to two seats started two sessions, one per seat
+
+# CHECK PASS: the books session runs on this machine, on the Director that ran the check
+
+# CHECK PASS: the books session is named 'Mail Desk - qa-books/clerk - 2 emails - <time>'
+
+# CHECK PASS: the support session is named 'Mail Desk - qa-support/desk - 1 email - <time>'
+
+# the routed rows after the first live run
+#   read from the rig's gateway.db: SELECT r.Id, d.Subject, r.Factory, r.Seat, r.SessionId, r.State, r.RerouteCount, r.StartFailures, r.OwnerReason, r.StartName FROM mail_desk_routed r JOIN mail_desk_decisions d ON d.Id = r.DecisionId ORDER BY d.ReceivedUtc []
+  Id, Subject, Factory, Seat, SessionId, State, RerouteCount, StartFailures, OwnerReason, StartName
+  C481B0E2-C35E-454F-9BDE-368FA45DD2FC, Invoice 3001 [rig: run nothing for this email], qa-books, clerk, 13a31798-b859-4391-a09c-b9f610f19ac2, open, 0, 0, None, Mail Desk - qa-books/clerk - 2 emails - 2026-10-20 12:02
+  AE14D7CA-D2B3-4717-942A-31F08F20EFBD, Invoice 3002 [rig: run nothing for this email], qa-books, clerk, 13a31798-b859-4391-a09c-b9f610f19ac2, open, 0, 0, None, Mail Desk - qa-books/clerk - 2 emails - 2026-10-20 12:02
+  49ACF84E-D09F-480D-A6A8-4C1978523A4A, Export question 3 [rig: close it with maildesk done], qa-support, desk, 71dda8a1-5879-4745-a91b-11f10300bccc, open, 0, 0, None, Mail Desk - qa-support/desk - 1 email - 2026-10-20 12:02
+  (3 rows)
+
+# CHECK PASS: 'Invoice 3001 [rig: run nothing for this email]' is open with the books session
+
+# CHECK PASS: 'Invoice 3002 [rig: run nothing for this email]' is open with the books session
+
+# session 13a31798-b859-4391-a09c-b9f610f19ac2's first prompt, as it received it (from its own transcript)
+  You are Clerk, QA Books of QA Books (factory id: qa-books; your agent id: clerk).
+  
+  This session was started by the Mail Desk for emails routed to this seat. Your brief is given to you here in full, as the Gateway holds it (definition version 1, part of the factory's definition); it is not a file in the factory's folder. With it comes what the Mail Desk asks of this session.
+  
+  --- your brief, definition version 1 ---
+  You are the QA Books seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+  - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+  - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+  - [rig: run nothing for this email]: run nothing for it.
+  Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+  --- end of your brief, definition version 1 ---
+  
+  Your kit is in the folder the environment variable CC_FACTORY_KIT_DIR names: brief.md in it holds this same brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.
+  
+  The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+  
+  The Mail Desk routed 2 emails to you (qa-books/clerk). They are listed in check.json in your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run `cc-devthrottle maildesk return <routed id> --note "<what you know about it>"` and it goes back to the Mail Desk.
+  
+  Email 1 of 2
+  Routed id: c481b0e2-c35e-454f-9bde-368fa45dd2fc
+  Mailbox: qa-two@example.com
+  Sender: billing@vendor.example
+  Subject: Invoice 3001 [rig: run nothing for this email]
+  Received: 2026-10-20 12:01 UTC
+  Why it was routed to you: rule, rule invoices
+  
+  Email 2 of 2
+  Routed id: ae14d7ca-d2b3-4717-942a-31f08f20efbd
+  Mailbox: qa-two@example.com
+  Sender: billing@vendor.example
+  Subject: Invoice 3002 [rig: run nothing for this email]
+  Received: 2026-10-20 12:01 UTC
+  Why it was routed to you: rule, rule invoices
+
+# CHECK PASS: the routed session opens as its seat's run does: who it is (QA Books), that the Mail Desk started it, and its brief
+
+# CHECK PASS: the books session's prompt names both routed ids
+
+# the books session's check.json, from its kit
+{
+ "checkPath": "checks/screen.py",
+ "count": 2,
+ "context": "{\"version\":1,\"kind\":\"mail-desk-routed\",\"factory\":\"qa-books\",\"seat\":\"clerk\",\"emails\":[{\"routedId\":\"c481b0e2-c35e-454f-9bde-368fa45dd2fc\",\"mailbox\":\"qa-two@example.com\",\"sender\":\"billing@vendor.example\",\"subject\":\"Invoice 3001 [rig: run nothing for this email]\",\"receivedUtc\":\"2026-10-20T12:01:08Z\",\"layer\":\"rule\",\"reason\":\"rule invoices\",\"returnNote\":null},{\"routedId\":\"ae14d7ca-d2b3-4717-942a-31f08f20efbd\",\"mailbox\":\"qa-two@example.com\",\"sender\":\"billing@vendor.example\",\"subject\":\"Invoice 3002 [rig: run nothing for this email]\",\"receivedUtc\":\"2026-10-20T12:01:08Z\",\"layer\":\"rule\",\"reason\":\"rule invoices\",\"returnNote\":null}]}",
+ "checkedUtc": "2026-10-20T12:02:37.8116612Z",
+ "definitionVersion": 2,
+ "seat": "clerk",
+ "start": 0
+}
+
+# CHECK PASS: check.json carries the two emails, kind mail-desk-routed
+
+# CHECK PASS: nothing of the preview is in the prompt or check.json
+
+# CHECK PASS: 'Invoice 3001 [rig: run nothing for this email]': outcome seat-started, naming the session
+
+# CHECK PASS: 'Export question 3 [rig: close it with maildesk done]': outcome seat-started, naming the session
+
+# CHECK PASS: the letter kept for the owner stays in the Inbox, with no routed row and nothing started
+
+# live routing: the body-preview marker 'RIGPREVIEW' in every table and column of gateway.db and in the Gateway's log
+  (found nowhere)
+
+# DONE - the one case a real seat acts in: the support seat's instructions tell it to close 'Export question 3' with maildesk done. Deadline: 6 minutes.
+
+# the support seat's session - read from the session's own agent transcript
+  transcript: <home>/.claude/projects/-tmp-mail-desk-rig-director-root-instances-default-factory-run-71dda8a1-5879-4745-a91b-11f10300bccc-work/6b4fd635-8509-48ec-8bda-1d2ff1ee3500.jsonl
+  its first prompt, as the session received it:
+      You are Desk, QA Support of QA Support (factory id: qa-support; your agent id: desk).
+      
+      This session was started by the Mail Desk for emails routed to this seat. Your brief is given to you here in full, as the Gateway holds it (definition version 1, part of the factory's definition); it is not a file in the factory's folder. With it comes what the Mail Desk asks of this session.
+      
+      --- your brief, definition version 1 ---
+      You are the QA Support seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not available; never try to read an email - every email you need is listed in your prompt with its routed id. Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command and no other:
+      - [rig: close it with maildesk done]: run <rig>/bin/cc-devthrottle maildesk done <routed id> --note "done by the rig's seat"
+      - [rig: return it with maildesk return]: run <rig>/bin/cc-devthrottle maildesk return <routed id> --note "not for this seat: the rig asked for a return"
+      - [rig: run nothing for this email]: run nothing for it.
+      Once every email listed in your prompt is handled this way, stop. Run no other command, never raise your hand and never write memory.
+      --- end of your brief, definition version 1 ---
+      
+      Your kit is in the folder the environment variable CC_FACTORY_KIT_DIR names: brief.md in it holds this same brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.
+      
+      The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+      
+      The Mail Desk routed 1 email to you (qa-support/desk). They are listed in check.json in your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run `cc-devthrottle maildesk return <routed id> --note "<what you know about it>"` and it goes back to the Mail Desk.
+      
+      Email 1 of 1
+      Routed id: 49acf84e-d09f-480d-a6a8-4c1978523a4a
+      Mailbox: qa-two@example.com
+      Sender: customer@client.example
+      Subject: Export question 3 [rig: close it with maildesk done]
+      Received: 2026-10-20 12:01 UTC
+      Why it was routed to you: route-model, route-model: qa-support/desk at 0.96 (threshold 0.90)
+  tool call: Bash {"command": "<rig>/bin/cc-devthrottle maildesk done 49acf84e-d09f-480d-a6a8-4c1978523a4a --note \"done by the rig's seat\"", "description": "Close routed email via maildesk done"}
+  tool result: Routed email 49acf84e-d09f-480d-a6a8-4c1978523a4a: Done.
+routed[1]{id,state,state-label,channel,sender,subject,received,route,session,returned,return-note}:
+  49acf84e-d09f-480d-a6a8-4c1978523a4a,done,Done,qa-two@example.com,customer@client.example,Export question 3 [rig: close it with maildesk done],2026-10-20T12:01:08.294Z,qa-support/desk,71dda8a1-5879-4745-a91b-11f10300bccc,0,
+help[1]:
+  cc-devthrottle maildesk routed
+  agent: The one routed email is closed. I ran `maildesk done` on routed id 49acf84e-d09f-480d-a6a8-4c1978523a4a with the note "done by the rig's seat", and the Mail Desk now shows it as Done.
+
+I did not read the email itself, since the brief says there is no mailbox to read. I'm stopping here as the brief asks.
+
+$ cc-devthrottle maildesk routed --state done      (as the rig's person)
+count: 1
+routed[1]{id,state,state-label,channel,sender,subject,received,route,session,returned,return-note}:
+  49acf84e-d09f-480d-a6a8-4c1978523a4a,done,Done,qa-two@example.com,customer@client.example,Export question 3 [rig: close it with maildesk done],2026-10-20T12:01:08.294Z,qa-support/desk,71dda8a1-5879-4745-a91b-11f10300bccc,0,
+help[3]:
+  cc-devthrottle maildesk routed --state open
+  cc-devthrottle maildesk done <routed id> --note "<what you did>"
+  cc-devthrottle maildesk return <routed id> --note "<what you know about it>"
+[exit 0]
+
+# CHECK PASS: the support email is done by its own session, with the seat's note
+
+$ POST /gateway/mail-desk/routed/C481B0E2-C35E-454F-9BDE-368FA45DD2FC/done      (raw HTTP, as the rig's person, not the session the email is with)
+  body: {"note": "a person"}
+  status: 403
+  answer: {"error":"not_your_email","detail":"This email is with session 13a31798-b859-4391-a09c-b9f610f19ac2; only that session may answer for it."}
+
+# CHECK PASS: a person's done is refused 403 not_your_email
+
+$ POST /gateway/mail-desk/routed/C481B0E2-C35E-454F-9BDE-368FA45DD2FC/done      (raw HTTP, as session 71dda8a1-5879-4745-a91b-11f10300bccc, with its own key, as its seat would call it)
+  body: {"note": "another seat's email"}
+  status: 403
+  answer: {"error":"not_your_email","detail":"This email is with session 13a31798-b859-4391-a09c-b9f610f19ac2; only that session may answer for it."}
+
+# CHECK PASS: another session's done is refused 403 not_your_email
+
+
+======================================================================================================================
+== A BUSY SEAT, THEN AN ORPHAN
+======================================================================================================================
+# While the books session is alive a third invoice arrives: it waits, queued, and no second session starts. The rig then ends the books session cleanly, with /exit (it never said done): at the next run its two emails are re-routed once and, with the queued one, given to ONE new books session. The rig ends that one abnormally (its agent killed): the two emails ended twice go to the owner, the third is re-routed once.
+
+# the run that saw it (one more run while the books seat is busy): Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId
+  ('C70F8BD0-547B-4D73-9CB7-A634D69BBD8F', '2026-10-20 12:05:37.4937824', '2026-10-20 12:05:37.500742', 'screened', 0, None, '0 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '76d4b193-910f-448f-9497-fec4fb6b7c66')
+
+# CHECK PASS: the third invoice is queued: open, with no session
+
+# CHECK PASS: no second books session started while the first is alive
+
+# the rig typed /exit, then Enter, into session 13a31798-b859-4391-a09c-b9f610f19ac2 (attempt 1)
+  why: the orphan case, the common way: the seat exits cleanly without done or return
+
+# the new books session
+[
+ {
+  "sessionId": "f2c9c510-b74c-4dc8-8097-2bcc875ef615",
+  "name": "Mail Desk - qa-books/clerk - 3 emails - 2026-10-20 12:07",
+  "factory": "qa-books",
+  "factorySeat": "clerk",
+  "directorId": "76d4b193-910f-448f-9497-fec4fb6b7c66",
+  "machineName": "devlinux",
+  "activityState": "WaitingForInput",
+  "origin": null,
+  "originSurface": "trigger"
+ }
+]
+
+# CHECK PASS: one new books session takes all three emails (the two re-routed and the queued one)
+
+# the routed rows after the first orphan
+#   read from the rig's gateway.db: SELECT r.Id, d.Subject, r.Factory, r.Seat, r.SessionId, r.State, r.RerouteCount, r.StartFailures, r.OwnerReason, r.StartName FROM mail_desk_routed r JOIN mail_desk_decisions d ON d.Id = r.DecisionId ORDER BY d.ReceivedUtc []
+  Id, Subject, Factory, Seat, SessionId, State, RerouteCount, StartFailures, OwnerReason, StartName
+  C481B0E2-C35E-454F-9BDE-368FA45DD2FC, Invoice 3001 [rig: run nothing for this email], qa-books, clerk, f2c9c510-b74c-4dc8-8097-2bcc875ef615, open, 1, 0, None, Mail Desk - qa-books/clerk - 3 emails - 2026-10-20 12:07
+  AE14D7CA-D2B3-4717-942A-31F08F20EFBD, Invoice 3002 [rig: run nothing for this email], qa-books, clerk, f2c9c510-b74c-4dc8-8097-2bcc875ef615, open, 1, 0, None, Mail Desk - qa-books/clerk - 3 emails - 2026-10-20 12:07
+  49ACF84E-D09F-480D-A6A8-4C1978523A4A, Export question 3 [rig: close it with maildesk done], qa-support, desk, 71dda8a1-5879-4745-a91b-11f10300bccc, done, 0, 0, None, Mail Desk - qa-support/desk - 1 email - 2026-10-20 12:02
+  35310A82-2DF4-4DF3-9545-4DBAE1D81198, Invoice 3003 [rig: run nothing for this email], qa-books, clerk, f2c9c510-b74c-4dc8-8097-2bcc875ef615, open, 0, 0, None, Mail Desk - qa-books/clerk - 3 emails - 2026-10-20 12:07
+  (4 rows)
+
+# CHECK PASS: 'Invoice 3001 [rig: run nothing for this email]' was re-routed once (RerouteCount 1) to the new session
+
+# CHECK PASS: 'Invoice 3002 [rig: run nothing for this email]' was re-routed once (RerouteCount 1) to the new session
+
+# the rig ended session f2c9c510-b74c-4dc8-8097-2bcc875ef615's agent with a kill signal
+  agent process 2934855 (working in <rig>/director-root/instances/default/factory-run/f2c9c510-b74c-4dc8-8097-2bcc875ef615/work, the session's own checkout under the rig)
+  why: the orphan case: the second session also ended without done or return
+
+# the routed rows after the second orphan
+#   read from the rig's gateway.db: SELECT r.Id, d.Subject, r.Factory, r.Seat, r.SessionId, r.State, r.RerouteCount, r.StartFailures, r.OwnerReason, r.StartName FROM mail_desk_routed r JOIN mail_desk_decisions d ON d.Id = r.DecisionId ORDER BY d.ReceivedUtc []
+  Id, Subject, Factory, Seat, SessionId, State, RerouteCount, StartFailures, OwnerReason, StartName
+  C481B0E2-C35E-454F-9BDE-368FA45DD2FC, Invoice 3001 [rig: run nothing for this email], qa-books, clerk, f2c9c510-b74c-4dc8-8097-2bcc875ef615, returned, 1, 0, its session ended twice without saying done or returning it, None
+  AE14D7CA-D2B3-4717-942A-31F08F20EFBD, Invoice 3002 [rig: run nothing for this email], qa-books, clerk, f2c9c510-b74c-4dc8-8097-2bcc875ef615, returned, 1, 0, its session ended twice without saying done or returning it, None
+  49ACF84E-D09F-480D-A6A8-4C1978523A4A, Export question 3 [rig: close it with maildesk done], qa-support, desk, 71dda8a1-5879-4745-a91b-11f10300bccc, done, 0, 0, None, Mail Desk - qa-support/desk - 1 email - 2026-10-20 12:02
+  35310A82-2DF4-4DF3-9545-4DBAE1D81198, Invoice 3003 [rig: run nothing for this email], qa-books, clerk, None, open, 1, 0, None, Mail Desk - qa-books/clerk - 1 email - 2026-10-20 12:08
+  (4 rows)
+
+# CHECK PASS: 'Invoice 3001 [rig: run nothing for this email]' is with the owner: its session ended twice without saying done or returning it
+
+# CHECK PASS: 'Invoice 3002 [rig: run nothing for this email]' is with the owner: its session ended twice without saying done or returning it
+
+# CHECK PASS: the third invoice, ended once, was re-routed once
+
+$ cc-devthrottle session stop f2c9c510-b74c-4dc8-8097-2bcc875ef615 --reason "the Mail Desk rig is done with this session"      (as the rig's person)
+already stopped f2c9c510 - no process was running; the row it left behind has been cleared
+the worktree <rig>/director-root/instances/default/factory-run/f2c9c510-b74c-4dc8-8097-2bcc875ef615/work was left untouched - whether it has uncommitted changes could not be determined
+reason: the Mail Desk rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+$ cc-devthrottle session stop 22093560-5a20-480a-a500-45d2bfec55cf --reason "the Mail Desk rig is done with this session"      (as the rig's person)
+stopped 22093560 - process 2944366 ended, row removed
+the worktree <rig>/director-root/instances/default/factory-run/22093560-5a20-480a-a500-45d2bfec55cf/work was left untouched - whether it has uncommitted changes could not be determined
+reason: the Mail Desk rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+
+======================================================================================================================
+== RETURN, THE MAIL DESK AGENT, AND THE OWNER
+======================================================================================================================
+# A support question is routed to the support seat; the rig returns it AS that session (its own key), as the seat would. Expected: it is re-queued to the Mail Desk agent (mail-desk/mail-desk) with the note, and the session it was with before is refused; the next run starts the Mail Desk agent with the note in its first prompt and in check.json; the rig returns it AS the Mail Desk agent, so it is handed to the owner: one Open problem on the mail-desk factory, and a line in the 08:00 email's Returned and routed part (composed on demand by the Gateway's own composer).
+
+# CHECK PASS: the support seat, whose earlier session finished every email (done), is free: a new session took it
+
+$ POST /gateway/mail-desk/routed/83a61d56-d079-41f9-9558-0602384c7657/return      (raw HTTP, as session eb754512-4604-4956-9d3f-9fb1b410d153, with its own key, as its seat would call it)
+  body: {"note": "not for support: a refund is the books seat's"}
+  status: 200
+  answer: {"id":"83a61d56-d079-41f9-9558-0602384c7657","decisionId":"784b3d41-f27d-424f-acf7-53d8dad3ddc2","channel":"qa-two@example.com","messageKey":"46d78a6d84c1868a","sender":"customer@client.example","subject":"Refund question [rig: run nothing for this email]","receivedUtc":"2026-10-20T12:08:39.819Z","factory":"mail-desk","seat":"mail-desk","sessionId":null,"state":"open","stateLabel":"Queued - waiting for mail-desk/mail-desk","queued":true,"returnNote":"not for support: a refund is the books seat's","returnedCount":1,"rerouteCount":0,"startFailures":0,"ownerReason":null,"doneNote":null,"createdUtc":"2026-10-20T12:10:07.7945038Z","changedUtc":"2026-10-20T12:10:10.0323141Z"}
+
+# CHECK PASS: the return re-queued it to the Mail Desk agent, with the note
+
+$ POST /gateway/mail-desk/routed/83a61d56-d079-41f9-9558-0602384c7657/return      (raw HTTP, as session eb754512-4604-4956-9d3f-9fb1b410d153, with its own key, as its seat would call it)
+  body: {"note": "again"}
+  status: 403
+  answer: {"error":"not_your_email","detail":"This email is queued for mail-desk/mail-desk and is with no session yet; only the session it is with may answer for it."}
+
+# CHECK PASS: the session it was with before is refused 403 not_your_email
+
+$ POST /gateway/mail-desk/routed/83a61d56-d079-41f9-9558-0602384c7657/return      (raw HTTP, as the rig's person, with no note)
+  status: 400
+  answer: {"error":"note_required"}
+
+# the Mail Desk agent's session
+[
+ {
+  "sessionId": "9719a3bf-b9b8-4252-a058-18d3e8315a79",
+  "name": "Mail Desk - mail-desk/mail-desk - 1 email - 2026-10-20 12:11",
+  "factory": "mail-desk",
+  "factorySeat": "mail-desk",
+  "directorId": "76d4b193-910f-448f-9497-fec4fb6b7c66",
+  "machineName": "devlinux",
+  "activityState": "WaitingForInput",
+  "origin": null,
+  "originSurface": "trigger"
+ }
+]
+
+# session 9719a3bf-b9b8-4252-a058-18d3e8315a79's first prompt, as it received it (from its own transcript)
+  You are Mail Desk, Mail Desk of Mail Desk (factory id: mail-desk; your agent id: mail-desk).
+  
+  This session was started by the Mail Desk for emails routed to this seat. Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory's definition); it is not a file in the factory's folder. With it comes what the Mail Desk asks of this session.
+  
+  --- your brief, definition version 2 ---
+  You are the Mail Desk agent. The Mail Desk screens every message that reaches the account's channels
+  (email today; other channels later). A check with no model reads each channel every few minutes, and the
+  Gateway decides what happens to each message, in four layers: the fixed rules, the allow-list, the block
+  list with a screen of unknown senders, and a small model that picks a route. You are started only for what
+  that screening could not place.
+  
+  WHAT YOU RECEIVE
+  Your prompt lists the messages handed to you, and the same list is in check.json in your kit. Each message
+  carries its routed id (what done and return take), its channel (address, provider and mode), and the
+  screening check's own fields: messageKey, receivedUtc, sender, senderName, subject, hasAttachments,
+  knownSender (true when we have written to that sender) and preview (the first 200 characters of the body,
+  cleaned). It came to you for one of two reasons:
+  - the model was unsure which route it belongs to, or not sure enough; or
+  - a seat it was routed to sent it back as "not for me", with a note saying what that seat knows about it.
+  The preview is all of the body you get; the Gateway stores no body text. Use it to decide, and never copy it
+  into a note, a list entry or a reason.
+  
+  WHAT YOU DO WITH EACH ONE
+  1. Decide where it belongs: a factory and seat of this account that handles it, Archive, Junk, or the owner.
+  2. Teach the lists, so the next message like it is placed without you. Every change needs --why, a sentence
+     saying why, and every change is recorded with who made it:
+       cc-devthrottle maildesk allow add <pattern> --what "<what this sender is>" --do archive|keep-for-owner|route:<factory>/<seat> --why "<why>"
+       cc-devthrottle maildesk block add <pattern> --why "<why>"
+       cc-devthrottle maildesk rule add <name> --subject-contains "<text>" --from <pattern> --route <factory>/<seat> --why "<why>"
+       cc-devthrottle maildesk route add <factory>/<seat> --handles "<one line: what that seat handles>" --why "<why>"
+     To take an entry out again, each list has its own remove, and it needs --why too:
+       cc-devthrottle maildesk allow remove <pattern> --why "<why>"
+       cc-devthrottle maildesk block remove <pattern> --why "<why>"
+       cc-devthrottle maildesk rule remove <name> --why "<why>"
+       cc-devthrottle maildesk route remove <factory>/<seat> --why "<why>"
+     A pattern is an exact address or *@domain. Add a sender to a list only when you are sure what it is. When
+     you are not sure, change nothing and leave it for the owner.
+  3. Close it, naming where it belongs:
+       cc-devthrottle maildesk done <routed id> --note "<where it belongs and what you changed>"
+     If it is not yours to place either, send it back with what you know:
+       cc-devthrottle maildesk return <routed id> --note "<what you know about it>"
+     A message returned a second time goes to the owner, on the Open problems card and in the 08:00 email.
+  
+  "NOT FOR ME"
+  When a message comes back with a note, read the note first: it says what the seat that returned it knows.
+  Do not route it to that seat again. Pick another route from the routes list, fix the list entry or rule that
+  sent it to the wrong place (remove it with its remove command above, then add the right one), or
+  leave it for the owner.
+  
+  WHAT YOU CAN READ
+       cc-devthrottle maildesk status                  the channels, their mode, the last check, today's counts
+       cc-devthrottle maildesk channel list [--all]    the supported addresses, with provider, machine and mode
+       cc-devthrottle maildesk decisions [--since <time>] [--layer <layer>] [--decision <decision>] [--channel <address>] [-n <count>]
+       cc-devthrottle maildesk rules show [--version <n>]
+       cc-devthrottle maildesk rules history [-n <count>] [--kind rule|allow|block|route|channel|mode]
+                                                       every change to the lists, with who and why
+  Add --json to any of them for the full record.
+  
+  WHAT YOU NEVER DO
+  - Never send a message, on any channel, to anyone.
+  - Never delete a message. Filing is Archive or Junk only, and the Gateway does it, not you.
+  - Never add or remove a channel, and never switch a channel between observe and live. Those are the owner's.
+  - Never assume a channel is Outlook, or that there is only one mailbox: read the channel list.
+  QA RIG: this Mail Desk runs on a test rig. There is no mailbox and cc-outlook is not available. For every message handed to you whose subject says [rig: return it with maildesk return], run exactly: <rig>/bin/cc-devthrottle maildesk return <routed id> --note "the rig's Mail Desk agent cannot place it" - and nothing else. Change no list.
+  --- end of your brief, definition version 2 ---
+  
+  Your kit is in the folder the environment variable CC_FACTORY_KIT_DIR names: brief.md in it holds this same brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.
+  
+  The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+  
+  The Mail Desk routed 1 email to you (mail-desk/mail-desk). They are listed in check.json in your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run `cc-devthrottle maildesk return <routed id> --note "<what you know about it>"` and it goes back to the Mail Desk.
+  
+  Email 1 of 1
+  Routed id: 83a61d56-d079-41f9-9558-0602384c7657
+  Mailbox: qa-two@example.com
+  Sender: customer@client.example
+  Subject: Refund question [rig: run nothing for this email]
+  Received: 2026-10-20 12:08 UTC
+  Why it was routed to you: route-model, route-model: qa-support/desk at 0.95 (threshold 0.90)
+  Returned before: not for support: a refund is the books seat's
+
+# CHECK PASS: its first prompt carries the return note
+
+# CHECK PASS: its check.json carries the return note
+
+$ POST /gateway/mail-desk/routed/83a61d56-d079-41f9-9558-0602384c7657/return      (raw HTTP, as session 9719a3bf-b9b8-4252-a058-18d3e8315a79, with its own key, as its seat would call it)
+  body: {"note": "the Mail Desk agent cannot place it either"}
+  status: 200
+  answer: {"id":"83a61d56-d079-41f9-9558-0602384c7657","decisionId":"784b3d41-f27d-424f-acf7-53d8dad3ddc2","channel":"qa-two@example.com","messageKey":"46d78a6d84c1868a","sender":"customer@client.example","subject":"Refund question [rig: run nothing for this email]","receivedUtc":"2026-10-20T12:08:39.819Z","factory":"mail-desk","seat":"mail-desk","sessionId":"9719a3bf-b9b8-4252-a058-18d3e8315a79","state":"returned","stateLabel":"With you - the Mail Desk agent returned it: the Mail Desk agent cannot place it either","queued":false,"returnNote":"the Mail Desk agent cannot place it either","returnedCount":2,"rerouteCount":0,"startFailures":0,"ownerReason":"the Mail Desk agent returned it: the Mail Desk agent cannot place it either","doneNote":null,"createdUtc":"2026-10-20T12:10:07.7945038Z","changedUtc":"2026-10-20T12:12:01.2340739Z"}
+
+$ cc-devthrottle maildesk routed --state returned      (as the rig's person)
+count: 4
+routed[4]{id,state,state-label,channel,sender,subject,received,route,session,returned,return-note}:
+  83a61d56-d079-41f9-9558-0602384c7657,returned,With you - the Mail Desk agent returned it: the Mail Desk agent cannot place it either,qa-two@example.com,customer@client.example,Refund question [rig: run nothing for this email],2026-10-20T12:08:39.819Z,mail-desk/mail-desk,9719a3bf-b9b8-4252-a058-18d3e8315a79,2,the Mail Desk agent cannot place it either
+  35310a82-2df4-4df3-9545-4dbae1d81198,returned,With you - its session ended twice without saying done or returning it,qa-two@example.com,billing@vendor.example,Invoice 3003 [rig: run nothing for this email],2026-10-20T12:03:11.088Z,qa-books/clerk,22093560-5a20-480a-a500-45d2bfec55cf,0,
+  c481b0e2-c35e-454f-9bde-368fa45dd2fc,returned,With you - its session ended twice without saying done or returning it,qa-two@example.com,billing@vendor.example,Invoice 3001 [rig: run nothing for this email],2026-10-20T12:01:08.292Z,qa-books/clerk,f2c9c510-b74c-4dc8-8097-2bcc875ef615,0,
+  ae14d7ca-d2b3-4717-942a-31f08f20efbd,returned,With you - its session ended twice without saying done or returning it,qa-two@example.com,billing@vendor.example,Invoice 3002 [rig: run nothing for this email],2026-10-20T12:01:08.293Z,qa-books/clerk,f2c9c510-b74c-4dc8-8097-2bcc875ef615,0,
+help[3]:
+  cc-devthrottle maildesk routed --state open
+  cc-devthrottle maildesk done <routed id> --note "<what you did>"
+  cc-devthrottle maildesk return <routed id> --note "<what you know about it>"
+[exit 0]
+
+# CHECK PASS: it is with the owner: the Mail Desk agent returned it: the Mail Desk agent cannot place it either
+
+$ cc-devthrottle run problems --factory mail-desk --json      (as the rig's person)
+{
+  "count": 4,
+  "occurrences": 4,
+  "asOfUtc": "2026-10-20T12:12:03.1506386Z",
+  "state": "open",
+  "factory": "mail-desk",
+  "timeZone": "UTC",
+  "problems": [
+    {
+      "runId": "83a61d56-d079-41f9-9558-0602384c7657",
+      "jobId": "83a61d56-d079-41f9-9558-0602384c7657",
+      "jobName": "qa-two@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T12:12:01.2340739Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mail-handed-to-owner",
+      "kindText": "email handed to you",
+      "reason": "the Mail Desk agent returned it: the Mail Desk agent cannot place it either",
+      "sentence": "customer@client.example - Refund question [rig: run nothing for this email] on qa-two@example.com is with you: the Mail Desk agent returned it: the Mail Desk agent cannot place it either",
+      "whenText": "Handed to you Tue 20 Oct 12:12",
+      "raisedAtUtc": "2026-10-20T12:12:01.2340739Z",
+      "occurrences": 1,
+      "openForText": "open less than a minute",
+      "sessionId": "9719a3bf-b9b8-4252-a058-18d3e8315a79",
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    },
+    {
+      "runId": "35310a82-2df4-4df3-9545-4dbae1d81198",
+      "jobId": "35310a82-2df4-4df3-9545-4dbae1d81198",
+      "jobName": "qa-two@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T12:10:07.8070869Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mail-handed-to-owner",
+      "kindText": "email handed to you",
+      "reason": "its session ended twice without saying done or returning it",
+      "sentence": "billing@vendor.example - Invoice 3003 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+      "whenText": "Handed to you Tue 20 Oct 12:10",
+      "raisedAtUtc": "2026-10-20T12:10:07.8070869Z",
+      "occurrences": 1,
+      "openForText": "open 1 minute",
+      "sessionId": "22093560-5a20-480a-a500-45d2bfec55cf",
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    },
+    {
+      "runId": "c481b0e2-c35e-454f-9bde-368fa45dd2fc",
+      "jobId": "c481b0e2-c35e-454f-9bde-368fa45dd2fc",
+      "jobName": "qa-two@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T12:08:37.5169989Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mail-handed-to-owner",
+      "kindText": "email handed to you",
+      "reason": "its session ended twice without saying done or returning it",
+      "sentence": "billing@vendor.example - Invoice 3001 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+      "whenText": "Handed to you Tue 20 Oct 12:08",
+      "raisedAtUtc": "2026-10-20T12:08:37.5169989Z",
+      "occurrences": 1,
+      "openForText": "open 3 minutes",
+      "sessionId": "f2c9c510-b74c-4dc8-8097-2bcc875ef615",
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    },
+    {
+      "runId": "ae14d7ca-d2b3-4717-942a-31f08f20efbd",
+      "jobId": "ae14d7ca-d2b3-4717-942a-31f08f20efbd",
+      "jobName": "qa-two@example.com",
+      "factory": "mail-desk",
+      "seat": "mail-desk",
+      "scheduledUtc": "2026-10-20T12:08:37.509212Z",
+      "startedUtc": null,
+      "shift": "morning",
+      "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+      "kind": "mail-handed-to-owner",
+      "kindText": "email handed to you",
+      "reason": "its session ended twice without saying done or returning it",
+      "sentence": "billing@vendor.example - Invoice 3002 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+      "whenText": "Handed to you Tue 20 Oct 12:08",
+      "raisedAtUtc": "2026-10-20T12:08:37.509212Z",
+      "occurrences": 1,
+      "openForText": "open 3 minutes",
+      "sessionId": "f2c9c510-b74c-4dc8-8097-2bcc875ef615",
+      "state": "open",
+      "stateText": null,
+      "closedUtc": null,
+      "resolvedBy": null,
+      "resolvedReason": null,
+      "clearedByRunId": null
+    }
+  ]
+}
+[exit 0]
+
+# the Open problems of the mail-desk factory
+{
+ "count": 4,
+ "occurrences": 4,
+ "asOfUtc": "2026-10-20T12:12:03.1506386Z",
+ "state": "open",
+ "factory": "mail-desk",
+ "timeZone": "UTC",
+ "problems": [
+  {
+   "runId": "83a61d56-d079-41f9-9558-0602384c7657",
+   "jobId": "83a61d56-d079-41f9-9558-0602384c7657",
+   "jobName": "qa-two@example.com",
+   "factory": "mail-desk",
+   "seat": "mail-desk",
+   "scheduledUtc": "2026-10-20T12:12:01.2340739Z",
+   "startedUtc": null,
+   "shift": "morning",
+   "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+   "kind": "mail-handed-to-owner",
+   "kindText": "email handed to you",
+   "reason": "the Mail Desk agent returned it: the Mail Desk agent cannot place it either",
+   "sentence": "customer@client.example - Refund question [rig: run nothing for this email] on qa-two@example.com is with you: the Mail Desk agent returned it: the Mail Desk agent cannot place it either",
+   "whenText": "Handed to you Tue 20 Oct 12:12",
+   "raisedAtUtc": "2026-10-20T12:12:01.2340739Z",
+   "occurrences": 1,
+   "openForText": "open less than a minute",
+   "sessionId": "9719a3bf-b9b8-4252-a058-18d3e8315a79",
+   "state": "open",
+   "stateText": null,
+   "closedUtc": null,
+   "resolvedBy": null,
+   "resolvedReason": null,
+   "clearedByRunId": null
+  },
+  {
+   "runId": "35310a82-2df4-4df3-9545-4dbae1d81198",
+   "jobId": "35310a82-2df4-4df3-9545-4dbae1d81198",
+   "jobName": "qa-two@example.com",
+   "factory": "mail-desk",
+   "seat": "mail-desk",
+   "scheduledUtc": "2026-10-20T12:10:07.8070869Z",
+   "startedUtc": null,
+   "shift": "morning",
+   "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+   "kind": "mail-handed-to-owner",
+   "kindText": "email handed to you",
+   "reason": "its session ended twice without saying done or returning it",
+   "sentence": "billing@vendor.example - Invoice 3003 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+   "whenText": "Handed to you Tue 20 Oct 12:10",
+   "raisedAtUtc": "2026-10-20T12:10:07.8070869Z",
+   "occurrences": 1,
+   "openForText": "open 1 minute",
+   "sessionId": "22093560-5a20-480a-a500-45d2bfec55cf",
+   "state": "open",
+   "stateText": null,
+   "closedUtc": null,
+   "resolvedBy": null,
+   "resolvedReason": null,
+   "clearedByRunId": null
+  },
+  {
+   "runId": "c481b0e2-c35e-454f-9bde-368fa45dd2fc",
+   "jobId": "c481b0e2-c35e-454f-9bde-368fa45dd2fc",
+   "jobName": "qa-two@example.com",
+   "factory": "mail-desk",
+   "seat": "mail-desk",
+   "scheduledUtc": "2026-10-20T12:08:37.5169989Z",
+   "startedUtc": null,
+   "shift": "morning",
+   "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+   "kind": "mail-handed-to-owner",
+   "kindText": "email handed to you",
+   "reason": "its session ended twice without saying done or returning it",
+   "sentence": "billing@vendor.example - Invoice 3001 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+   "whenText": "Handed to you Tue 20 Oct 12:08",
+   "raisedAtUtc": "2026-10-20T12:08:37.5169989Z",
+   "occurrences": 1,
+   "openForText": "open 3 minutes",
+   "sessionId": "f2c9c510-b74c-4dc8-8097-2bcc875ef615",
+   "state": "open",
+   "stateText": null,
+   "closedUtc": null,
+   "resolvedBy": null,
+   "resolvedReason": null,
+   "clearedByRunId": null
+  },
+  {
+   "runId": "ae14d7ca-d2b3-4717-942a-31f08f20efbd",
+   "jobId": "ae14d7ca-d2b3-4717-942a-31f08f20efbd",
+   "jobName": "qa-two@example.com",
+   "factory": "mail-desk",
+   "seat": "mail-desk",
+   "scheduledUtc": "2026-10-20T12:08:37.509212Z",
+   "startedUtc": null,
+   "shift": "morning",
+   "shiftText": "morning shift, Tue 20 Oct, 08:00-16:00",
+   "kind": "mail-handed-to-owner",
+   "kindText": "email handed to you",
+   "reason": "its session ended twice without saying done or returning it",
+   "sentence": "billing@vendor.example - Invoice 3002 [rig: run nothing for this email] on qa-two@example.com is with you: its session ended twice without saying done or returning it",
+   "whenText": "Handed to you Tue 20 Oct 12:08",
+   "raisedAtUtc": "2026-10-20T12:08:37.509212Z",
+   "occurrences": 1,
+   "openForText": "open 3 minutes",
+   "sessionId": "f2c9c510-b74c-4dc8-8097-2bcc875ef615",
+   "state": "open",
+   "stateText": null,
+   "closedUtc": null,
+   "resolvedBy": null,
+   "resolvedReason": null,
+   "clearedByRunId": null
+  }
+ ]
+}
+
+# CHECK PASS: the email handed to the owner is one Open problem, kind mail-handed-to-owner
+
+# the 08:00 email for 2026-10-21T08 (window 2026-10-20T08:00:00.0000000Z to 2026-10-21T08:00:00.0000000Z), composed now by the Gateway's own composer: its subject and its Mail Desk part from 'Returned and routed'
+  subject: Factories: all clear - Wednesday 21 October
+  Returned and routed: Routed 5 - Done 1 - Still open 0
+  Returned (2):
+  - customer@client.example - Refund question [rig: run nothing for this email]
+    qa-two@example.com - returned by qa-support/desk: not for support: a refund is the books seat's
+  - customer@client.example - Refund question [rig: run nothing for this email]
+    qa-two@example.com - returned by mail-desk/mail-desk: the Mail Desk agent cannot place it either
+  Handed to you (4):
+  - billing@vendor.example - Invoice 3002 [rig: run nothing for this email]
+    qa-two@example.com - its session ended twice without saying done or returning it
+  - billing@vendor.example - Invoice 3001 [rig: run nothing for this email]
+    qa-two@example.com - its session ended twice without saying done or returning it
+  - billing@vendor.example - Invoice 3003 [rig: run nothing for this email]
+    qa-two@example.com - its session ended twice without saying done or returning it
+  - customer@client.example - Refund question [rig: run nothing for this email]
+    qa-two@example.com - the Mail Desk agent returned it: the Mail Desk agent cannot place it either
+  
+  This email only reports. Each problem is handled on its factory page - open DevThrottle, Factories. A problem leaves this email when the next run of the same job succeeds, or when it is resolved with a reason.
+
+# CHECK PASS: the 08:00 email's Returned and routed part lists the email handed to the owner
+
+
+======================================================================================================================
+== BACKUP MACHINE HANDOVER AND HAND-BACK
+======================================================================================================================
+# The Mail Desk start is republished with backupMachines: [qa-backup], and both mailboxes name both machines. The rig stands in as a second Director on qa-backup (see StandInDirector: devlinux has one host name). Expected: while the slot 5 Director holds the claim the stand-in is handed nothing; once the slot Director is stopped and its claim has lapsed (two intervals and a minute), the stand-in is handed the trigger and the memory, its report is recorded and the cursor continues; when the slot Director starts again it takes the claim back, and the stand-in's next report is refused held_by_another_director, recording nothing.
+
+# the rig's mail-desk definition folder (<rig>/definitions/mail-desk): what differs from the template
+  factory.yaml: machine: devlinux, model: claude-haiku-5-5
+  seats/mail-desk.yaml: the brief ends with the rig's note: QA RIG: this Mail Desk runs on a test rig. There is no mailbox and cc-outlook is not available. For every message handed to you whose subject says [rig: return it with maildesk return], run exactly: <rig>/bin/cc-devthrottle maildesk return <routed id> --note "the rig's Mail Desk agent cannot place it" - and nothing else. Change no list.
+  seats/mail-desk.yaml: every: 1m, backupMachines: [qa-backup]
+  checks/screen.py: the rig's wrapper, docs/qa/mail-desk/rig/checks/screen.py
+  checks/real_screen.py: the template's checks/screen.py; sha256 identical: True
+  files/rig.json: {
+  "rigFolder": "<rig>",
+  "signInFolder": "<rig>/sign-in",
+  "fakeGraph": "http://127.0.0.1:33179"
+}
+
+# CHECK PASS: checks/real_screen.py is the template's real screen.py byte for byte
+
+$ cc-devthrottle factory definition history mail-desk --json      (as the rig's person)
+{
+  "factory": "mail-desk",
+  "publishedVersion": 2,
+  "newestVersion": 2,
+  "total": 2,
+  "versions": [
+    {
+      "version": 2,
+      "state": "published",
+      "authorKind": "person",
+      "authorId": "device browser qa-browser",
+      "changeNote": "the rig's Mail Desk: the template with the rig's wrapper",
+      "restoredFrom": null,
+      "writtenAtUtc": "2026-10-20T11:35:13.9273131Z",
+      "publishedAtUtc": "2026-10-20T11:35:14.3625595Z",
+      "publishedBy": "device browser qa-browser",
+      "publishedByKind": "person",
+      "publishedByName": null,
+      "publishedByText": "a person (device browser qa-browser)",
+      "contentBytes": 60966,
+      "fileCount": 5
+    },
+    {
+      "version": 1,
+      "state": "draft",
+      "authorKind": "gateway",
+      "authorId": "Mail Desk template",
+      "changeNote": "Offered by the Gateway: the Mail Desk template, version 6a1576373f2d. A draft; nothing runs until it is published.",
+      "restoredFrom": null,
+      "writtenAtUtc": "2026-10-20T11:35:09.6037584Z",
+      "publishedAtUtc": null,
+      "publishedBy": null,
+      "publishedByKind": null,
+      "publishedByName": null,
+      "publishedByText": null,
+      "contentBytes": 54174,
+      "fileCount": 3
+    }
+  ],
+  "nextBefore": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition save mail-desk --dir <rig>/definitions/mail-desk --expected-version 2 --note "the rig's backup machine" --json      (as the rig's person)
+{
+  "factory": "mail-desk",
+  "version": 3,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "the rig's backup machine",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-20T12:12:26.7538917Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 60998,
+  "fileCount": 5,
+  "newestVersion": 3,
+  "publishedVersion": 2,
+  "files": null,
+  "created": null,
+  "findings": [
+    {
+      "severity": "notice",
+      "file": "checks/real_screen.py",
+      "line": 0,
+      "message": "The check 'checks/real_screen.py' is not named by any start."
+    },
+    {
+      "severity": "notice",
+      "file": "files/rig.json",
+      "line": 0,
+      "message": "'files/rig.json' is not named by any seat."
+    }
+  ],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition publish mail-desk --version 3 --replaces 2      (as the rig's person)
+Published: version 3 of the definition of mail-desk. Version 3 is now the published definition.
+what changes: 1 start changed.
+  Mail Desk: start Every minute changed.
+    backup machines none -> qa-backup
+applied:
+  Definition: version 3 published.
+  Registry: nothing changes but who registered it.
+  Trigger mail-desk-mail-desk-start-1 changed: backup machines none -> qa-backup; its check is read from version 3.
+notices[3]:
+  checks/real_screen.py: The check 'checks/real_screen.py' is not named by any start.
+  files/rig.json: 'files/rig.json' is not named by any seat.
+  seats/mail-desk.yaml:66: Whether qa-backup has the uv the check 'checks/screen.py' runs under (it declares packages) could not be asked: the Director on qa-backup is version rig, which is too old to be asked. Update it. The check's run will check it.
+help[2]:
+  cc-devthrottle factory definition get mail-desk
+  cc-devthrottle factory definition history mail-desk
+[exit 0]
+
+$ cc-devthrottle trigger show 138d179a-95b6-4abd-a4bc-c7e2aa785e77      (as the rig's person)
+mail-desk-mail-desk-start-1 (138d179a-95b6-4abd-a4bc-c7e2aa785e77)
+  Status:        OK
+  Paused:        no
+  Factory:       mail-desk
+  Factory agent: mail-desk
+  Machine:       devlinux, then qa-backup if devlinux is away
+  Repository:    -
+  Check:         -
+  Every:         1m
+  Prompt:        The Mail Desk screening handed you these messages. Place each one as your brief says, then close it with\nmaildesk done or maildesk return.\n\n{context}\n
+  Last check:    2026-10-20T12:11:37.5840443Z (screened)
+  Last session:  -
+  Created:       2026-10-20T11:35:14.3625595Z by definition of mail-desk, published by device browser qa-browser
+help[2]:
+  cc-devthrottle trigger runs "mail-desk-mail-desk-start-1"
+  cc-devthrottle trigger pause "mail-desk-mail-desk-start-1"
+[exit 0]
+
+$ cc-devthrottle director list      (as the rig's person)
+count: 2 (online 1, wobbly 1)
+directors[2]{id,name,machine,state}:
+  8e68e2b4-2ca0-45c1-b638-b623de941d01,qa-backup,qa-backup,wobbly
+  76d4b193-910f-448f-9497-fec4fb6b7c66,devlinux,devlinux,online
+help[4]:
+  cc-devthrottle director list --state offline
+  cc-devthrottle director list --fields id,name,machine,state,version,pid,user,started,last-seen
+  cc-devthrottle session spawn <repo> --director <id> --controlled-by self
+  cc-devthrottle session list --machine <machine>
+[exit 0]
+
+# the trigger's claim before the handover
+#   read from the rig's gateway.db: SELECT ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson FROM triggers WHERE Id = ? COLLATE NOCASE ['138d179a-95b6-4abd-a4bc-c7e2aa785e77']
+  ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson
+  76d4b193-910f-448f-9497-fec4fb6b7c66, devlinux, ["qa-backup"]
+  (1 rows)
+
+# the stand-in's assignments while the slot Director holds the claim
+[]
+
+# CHECK PASS: the stand-in is handed nothing while the slot Director's claim is live
+
+# the test Director asked to stop by its lifecycle request file
+  request: <rig>/director-root/config/lifecycle-signals/cc-director-shutdown-76d4b193-910f-448f-9497-fec4fb6b7c66.request
+  pid 2802058 exited: True (exit code 0)
+
+# the slot 5 Director is stopped; its claim lapses two intervals and a minute after its last claim
+
+# the stand-in's assignments 163 seconds after the slot Director stopped
+[
+ {
+  "id": "138d179a-95b6-4abd-a4bc-c7e2aa785e77",
+  "name": "mail-desk-mail-desk-start-1",
+  "checkCommand": "",
+  "repoPath": "",
+  "intervalSeconds": 60,
+  "timeoutSeconds": 30,
+  "kind": "definition",
+  "factory": "mail-desk",
+  "seat": "mail-desk",
+  "definitionVersion": 3,
+  "checkPath": "checks/screen.py",
+  "secrets": []
+ }
+]
+
+# CHECK PASS: the stand-in was handed the memory the slot Director left (qa-one's cursor as it was)
+
+$ POST /directors/8e68e2b4-2ca0-45c1-b638-b623de941d01/triggers/138d179a-95b6-4abd-a4bc-c7e2aa785e77/checks      (raw HTTP, as the stand-in Director on qa-backup)
+  body: {"checkedAtUtc": "2026-10-20T12:15:13Z", "exitCode": 0, "timedOut": false, "output": "{\"count\":1,\"context\":\"{\\\"version\\\":2,\\\"channels\\\":[{\\\"id\\\":\\\"eea07cee-24e3-40dc-a23f-28cd349adc27\\\",\\\"address\\\":\\\"qa-one@example.com\\\",\\\"provider\\\":\\\"outlook\\\",\\\"mode\\\":\\\"observe\\\",\\\"messages\\\":[{\\\"messageKey\\\":\\\"5ed439a0fb3c30dd\\\",\\\"receivedUtc\\\":\\\"2026-10-20T12:12:32.358Z\\\",\\\"sender\\\":\\\"partner@firm.example\\\",\\\"senderName\\\":\\\"Partner\\\",\\\"subject\\\":\\\"Invoice 90 while the first machine is away\\\",\\\"hasAttachments\\\":false,\\\"knownSender\\\":false,\\\"preview\\\":\\\"RIGPREVIEW 49: a short made-up note for the rig.\\\"}],\\\"filing\\\":[],\\\"more\\\":false,\\\"filingNotCarriedOut\\\":{\\\"count\\\":1,\\\"reason\\\":\\\"the channel is in observe mode\\\"}},{\\\"id\\\":\\\"be1ed696-41df-45e5-af3c-0d02b103db4c\\\",\\\"address\\\":\\\"qa-two@example.com\\\",\\\"provider\\\":\\\"outlook\\\",\\\"mode\\\":\\\"live\\\",\\\"messages\\\":[],\\\"filing\\\":[],\\\"more\\\":false}]}\"}\n", "errorOutput": "screen.py: 2 channel(s): qa-one@example.com (outlook, observe), qa-two@example.com (outlook, live)\nscreen.py: qa-one@example.com: 1 queued filing item(s) NOT carried out: the channel is in observe mode\nscreen.py: qa-one@example.com: reported 1 new message(s)\nscreen.py: qa-two@example.com: reported 0 new message(s)\n", "state": "{\"channels\":[{\"id\":\"eea07cee-24e3-40dc-a23f-28cd349adc27\",\"address\":\"qa-one@example.com\",\"provider\":\"outlook\",\"mode\":\"observe\",\"cursor\":{\"newest\":\"2026-10-20T12:12:32.358Z\",\"idsAtNewest\":[\"rigmsg0049\"]},\"sentCache\":{\"refreshedUtc\":\"2026-10-20T11:35:37Z\",\"hashes\":[\"779fe4bb5e3c\"]},\"keys\":{\"5ed439a0fb3c30dd\":{\"id\":\"rigmsg0049\",\"reportedUtc\":\"2026-10-20T12:15:12Z\"},\"a4a5b0a3f9a8b214\":{\"id\":\"rigmsg0042\",\"reportedUtc\":\"2026-10-20T11:58:07Z\"},\"d83d392dbb4606ca\":{\"id\":\"rigmsg0038\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"7a5438be16bf245c\":{\"id\":\"rigmsg0039\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"8d55637f3a7f8549\":{\"id\":\"rigmsg0040\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"dfd466535b4ca742\":{\"id\":\"rigmsg0041\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"8da1f761ca1cc98f\":{\"id\":\"rigmsg0037\",\"reportedUtc\":\"2026-10-20T11:53:37Z\"},\"29b92f036b620e48\":{\"id\":\"rigmsg0012\",\"reportedUtc\":\"2026-10-20T11:44:37Z\"},\"dcc10f8643dbf77c\":{\"id\":\"rigmsg0013\",\"reportedUtc\":\"2026-10-20T11:44:37Z\"},\"fee001bc2a2a38f3\":{\"id\":\"rigmsg0010\",\"reportedUtc\":\"2026-10-20T11:41:37Z\"},\"83d454cc9adc15b6\":{\"id\":\"rigmsg0001\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"10a284a9304a7183\":{\"id\":\"rigmsg0002\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"0027d930146f8970\":{\"id\":\"rigmsg0003\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"bea12658f2b0e624\":{\"id\":\"rigmsg0004\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"d88987890b209f5a\":{\"id\":\"rigmsg0005\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"b9444758dfeee93f\":{\"id\":\"rigmsg0006\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"c0679241e37adbb0\":{\"id\":\"rigmsg0007\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"eef702e69cb241bd\":{\"id\":\"rigmsg0008\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"}},\"filingQueue\":[{\"messageKey\":\"a4a5b0a3f9a8b214\",\"decision\":\"junk\"}]},{\"id\":\"be1ed696-41df-45e5-af3c-0d02b103db4c\",\"address\":\"qa-two@example.com\",\"provider\":\"outlook\",\"mode\":\"live\",\"cursor\":{\"newest\":\"2026-10-20T12:08:39.819Z\",\"idsAtNewest\":[\"rigmsg0048\"]},\"sentCache\":{\"refreshedUtc\":\"2026-10-20T11:38:37Z\",\"hashes\":[]},\"keys\":{\"46d78a6d84c1868a\":{\"id\":\"rigmsg0048\",\"reportedUtc\":\"2026-10-20T12:10:07Z\"},\"9f4495984278f407\":{\"id\":\"rigmsg0047\",\"reportedUtc\":\"2026-10-20T12:04:07Z\"},\"8d9b02e6226e511d\":{\"id\":\"rigmsg0043\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"a6f4e33ebeb4d628\":{\"id\":\"rigmsg0044\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"4a720c9c2a313830\":{\"id\":\"rigmsg0045\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"f5fb85014214ac43\":{\"id\":\"rigmsg0046\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"4c0004a4c9270b78\":{\"id\":\"rigmsg0034\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"7ffd28359922995d\":{\"id\":\"rigmsg0035\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"16128fd63ac6aa43\":{\"id\":\"rigmsg0036\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"126c5985e7b27b6b\":{\"id\":\"rigmsg0024\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"bd69d53d019405e3\":{\"id\":\"rigmsg0025\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"8395b0403dc939d5\":{\"id\":\"rigmsg0026\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"82a9f45fa89d80b7\":{\"id\":\"rigmsg0027\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"5f5cf734d7767718\":{\"id\":\"rigmsg0028\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"ab59a0b520ede4bc\":{\"id\":\"rigmsg0029\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"37cf27e8bb273665\":{\"id\":\"rigmsg0030\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"9d0e2ecbb3175654\":{\"id\":\"rigmsg0031\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"c1c2780b5b6bba70\":{\"id\":\"rigmsg0032\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"95425c641f4d49b4\":{\"id\":\"rigmsg0033\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"7a080bcdd8e0161f\":{\"id\":\"rigmsg0014\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"afbeb7fb410cbd6d\":{\"id\":\"rigmsg0015\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"40fd3924c13b449d\":{\"id\":\"rigmsg0016\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"aa78a68e25bae323\":{\"id\":\"rigmsg0017\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"260df357d291fbd8\":{\"id\":\"rigmsg0018\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"cdb3b1c1d8f420fe\":{\"id\":\"rigmsg0019\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"f810178618182ac7\":{\"id\":\"rigmsg0020\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"a3439000d63ff929\":{\"id\":\"rigmsg0021\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"9ba48e57e191c578\":{\"id\":\"rigmsg0022\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"5cf0ccdc0db98ff4\":{\"id\":\"rigmsg0023\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"c492cf4052b59d88\":{\"id\":\"rigmsg0011\",\"reportedUtc\":\"2026-10-20T11:40:07Z\"},\"2743e47b2252e853\":{\"id\":\"rigmsg0009\",\"reportedUtc\":\"2026-10-20T11:38:37Z\"}}}]}", "stateOversize": false}
+  status: 202
+  answer: {"triggerId":"138d179a-95b6-4abd-a4bc-c7e2aa785e77","count":1,"starting":true}
+
+# CHECK PASS: the stand-in's report was accepted
+
+# the stand-in's run (Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId)
+  ('0F472D08-32B6-4A6F-A1F8-47014E422665', '2026-10-20 12:15:13', '2026-10-20 12:15:13.1043079', 'screened', 1, None, '1 decided, 0 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, 0 of 2 mailboxes failing', '8e68e2b4-2ca0-45c1-b638-b623de941d01')
+
+# CHECK PASS: the run is recorded, screened, for the stand-in Director
+
+# the trigger's claim
+#   read from the rig's gateway.db: SELECT ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson FROM triggers WHERE Id = ? COLLATE NOCASE ['138d179a-95b6-4abd-a4bc-c7e2aa785e77']
+  ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson
+  8e68e2b4-2ca0-45c1-b638-b623de941d01, qa-backup, ["qa-backup"]
+  (1 rows)
+
+# CHECK PASS: nothing already decided was decided again: the cursor continued
+
+# the slot 5 Director starts again on the same root
+
+# the slot Director again
+  pid 2988096, id 76d4b193-910f-448f-9497-fec4fb6b7c66
+
+# the trigger's claim after the hand-back
+#   read from the rig's gateway.db: SELECT ClaimedByDirectorId, ClaimedByMachine FROM triggers WHERE Id = ? COLLATE NOCASE ['138d179a-95b6-4abd-a4bc-c7e2aa785e77']
+  ClaimedByDirectorId, ClaimedByMachine
+  76d4b193-910f-448f-9497-fec4fb6b7c66, devlinux
+  (1 rows)
+
+$ POST /directors/8e68e2b4-2ca0-45c1-b638-b623de941d01/triggers/138d179a-95b6-4abd-a4bc-c7e2aa785e77/checks      (raw HTTP, as the stand-in Director on qa-backup, after the hand-back)
+  body: {"checkedAtUtc": "2026-10-20T12:15:20Z", "exitCode": 0, "timedOut": false, "output": "{\"count\":1,\"context\":\"{\\\"version\\\":2,\\\"channels\\\":[{\\\"id\\\":\\\"eea07cee-24e3-40dc-a23f-28cd349adc27\\\",\\\"address\\\":\\\"qa-one@example.com\\\",\\\"provider\\\":\\\"outlook\\\",\\\"mode\\\":\\\"observe\\\",\\\"messages\\\":[{\\\"messageKey\\\":\\\"5ed439a0fb3c30dd\\\",\\\"receivedUtc\\\":\\\"2026-10-20T12:12:32.358Z\\\",\\\"sender\\\":\\\"partner@firm.example\\\",\\\"senderName\\\":\\\"Partner\\\",\\\"subject\\\":\\\"Invoice 90 while the first machine is away\\\",\\\"hasAttachments\\\":false,\\\"knownSender\\\":false,\\\"preview\\\":\\\"RIGPREVIEW 49: a short made-up note for the rig.\\\"}],\\\"filing\\\":[],\\\"more\\\":false,\\\"filingNotCarriedOut\\\":{\\\"count\\\":1,\\\"reason\\\":\\\"the channel is in observe mode\\\"}},{\\\"id\\\":\\\"be1ed696-41df-45e5-af3c-0d02b103db4c\\\",\\\"address\\\":\\\"qa-two@example.com\\\",\\\"provider\\\":\\\"outlook\\\",\\\"mode\\\":\\\"live\\\",\\\"messages\\\":[],\\\"filing\\\":[],\\\"more\\\":false}]}\"}\n", "errorOutput": "screen.py: 2 channel(s): qa-one@example.com (outlook, observe), qa-two@example.com (outlook, live)\nscreen.py: qa-one@example.com: 1 queued filing item(s) NOT carried out: the channel is in observe mode\nscreen.py: qa-one@example.com: reported 1 new message(s)\nscreen.py: qa-two@example.com: reported 0 new message(s)\n", "state": "{\"channels\":[{\"id\":\"eea07cee-24e3-40dc-a23f-28cd349adc27\",\"address\":\"qa-one@example.com\",\"provider\":\"outlook\",\"mode\":\"observe\",\"cursor\":{\"newest\":\"2026-10-20T12:12:32.358Z\",\"idsAtNewest\":[\"rigmsg0049\"]},\"sentCache\":{\"refreshedUtc\":\"2026-10-20T11:35:37Z\",\"hashes\":[\"779fe4bb5e3c\"]},\"keys\":{\"5ed439a0fb3c30dd\":{\"id\":\"rigmsg0049\",\"reportedUtc\":\"2026-10-20T12:15:20Z\"},\"a4a5b0a3f9a8b214\":{\"id\":\"rigmsg0042\",\"reportedUtc\":\"2026-10-20T11:58:07Z\"},\"d83d392dbb4606ca\":{\"id\":\"rigmsg0038\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"7a5438be16bf245c\":{\"id\":\"rigmsg0039\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"8d55637f3a7f8549\":{\"id\":\"rigmsg0040\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"dfd466535b4ca742\":{\"id\":\"rigmsg0041\",\"reportedUtc\":\"2026-10-20T11:55:07Z\"},\"8da1f761ca1cc98f\":{\"id\":\"rigmsg0037\",\"reportedUtc\":\"2026-10-20T11:53:37Z\"},\"29b92f036b620e48\":{\"id\":\"rigmsg0012\",\"reportedUtc\":\"2026-10-20T11:44:37Z\"},\"dcc10f8643dbf77c\":{\"id\":\"rigmsg0013\",\"reportedUtc\":\"2026-10-20T11:44:37Z\"},\"fee001bc2a2a38f3\":{\"id\":\"rigmsg0010\",\"reportedUtc\":\"2026-10-20T11:41:37Z\"},\"83d454cc9adc15b6\":{\"id\":\"rigmsg0001\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"10a284a9304a7183\":{\"id\":\"rigmsg0002\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"0027d930146f8970\":{\"id\":\"rigmsg0003\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"bea12658f2b0e624\":{\"id\":\"rigmsg0004\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"d88987890b209f5a\":{\"id\":\"rigmsg0005\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"b9444758dfeee93f\":{\"id\":\"rigmsg0006\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"c0679241e37adbb0\":{\"id\":\"rigmsg0007\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"},\"eef702e69cb241bd\":{\"id\":\"rigmsg0008\",\"reportedUtc\":\"2026-10-20T11:35:37Z\"}},\"filingQueue\":[{\"messageKey\":\"a4a5b0a3f9a8b214\",\"decision\":\"junk\"}]},{\"id\":\"be1ed696-41df-45e5-af3c-0d02b103db4c\",\"address\":\"qa-two@example.com\",\"provider\":\"outlook\",\"mode\":\"live\",\"cursor\":{\"newest\":\"2026-10-20T12:08:39.819Z\",\"idsAtNewest\":[\"rigmsg0048\"]},\"sentCache\":{\"refreshedUtc\":\"2026-10-20T11:38:37Z\",\"hashes\":[]},\"keys\":{\"46d78a6d84c1868a\":{\"id\":\"rigmsg0048\",\"reportedUtc\":\"2026-10-20T12:10:07Z\"},\"9f4495984278f407\":{\"id\":\"rigmsg0047\",\"reportedUtc\":\"2026-10-20T12:04:07Z\"},\"8d9b02e6226e511d\":{\"id\":\"rigmsg0043\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"a6f4e33ebeb4d628\":{\"id\":\"rigmsg0044\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"4a720c9c2a313830\":{\"id\":\"rigmsg0045\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"f5fb85014214ac43\":{\"id\":\"rigmsg0046\",\"reportedUtc\":\"2026-10-20T12:02:37Z\"},\"4c0004a4c9270b78\":{\"id\":\"rigmsg0034\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"7ffd28359922995d\":{\"id\":\"rigmsg0035\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"16128fd63ac6aa43\":{\"id\":\"rigmsg0036\",\"reportedUtc\":\"2026-10-20T11:49:07Z\"},\"126c5985e7b27b6b\":{\"id\":\"rigmsg0024\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"bd69d53d019405e3\":{\"id\":\"rigmsg0025\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"8395b0403dc939d5\":{\"id\":\"rigmsg0026\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"82a9f45fa89d80b7\":{\"id\":\"rigmsg0027\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"5f5cf734d7767718\":{\"id\":\"rigmsg0028\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"ab59a0b520ede4bc\":{\"id\":\"rigmsg0029\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"37cf27e8bb273665\":{\"id\":\"rigmsg0030\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"9d0e2ecbb3175654\":{\"id\":\"rigmsg0031\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"c1c2780b5b6bba70\":{\"id\":\"rigmsg0032\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"95425c641f4d49b4\":{\"id\":\"rigmsg0033\",\"reportedUtc\":\"2026-10-20T11:47:37Z\"},\"7a080bcdd8e0161f\":{\"id\":\"rigmsg0014\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"afbeb7fb410cbd6d\":{\"id\":\"rigmsg0015\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"40fd3924c13b449d\":{\"id\":\"rigmsg0016\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"aa78a68e25bae323\":{\"id\":\"rigmsg0017\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"260df357d291fbd8\":{\"id\":\"rigmsg0018\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"cdb3b1c1d8f420fe\":{\"id\":\"rigmsg0019\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"f810178618182ac7\":{\"id\":\"rigmsg0020\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"a3439000d63ff929\":{\"id\":\"rigmsg0021\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"9ba48e57e191c578\":{\"id\":\"rigmsg0022\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"5cf0ccdc0db98ff4\":{\"id\":\"rigmsg0023\",\"reportedUtc\":\"2026-10-20T11:46:07Z\"},\"c492cf4052b59d88\":{\"id\":\"rigmsg0011\",\"reportedUtc\":\"2026-10-20T11:40:07Z\"},\"2743e47b2252e853\":{\"id\":\"rigmsg0009\",\"reportedUtc\":\"2026-10-20T11:38:37Z\"}}}]}", "stateOversize": false}
+  status: 409
+  answer: {"code":"held_by_another_director","error":"Director 76d4b193-910f-448f-9497-fec4fb6b7c66 runs the check of trigger 'mail-desk-mail-desk-start-1'; this report was not recorded"}
+
+# CHECK PASS: the stand-in's report is refused held_by_another_director
+
+# CHECK PASS: the refused report recorded nothing (no new run of the stand-in)
+
+# CHECK PASS: the stand-in's next poll hands it nothing
+
+# at the end of the run: <rig>/director-root/bin
+  cc-dev-reports -> <rig>/director-root/pyenv/bin/cc-dev-reports
+  cc-devthrottle (the rig's file)
+  cc-gmail -> <rig>/director-root/pyenv/bin/cc-gmail
+  cc-html -> <rig>/director-root/pyenv/bin/cc-html
+  cc-image -> <rig>/director-root/pyenv/bin/cc-image
+  cc-outlook (the rig's file)
+  cc-pdf -> <rig>/director-root/pyenv/bin/cc-pdf
+  cc-secrets -> <rig>/director-root/pyenv/bin/cc-secrets
+  cc-ship -> <rig>/director-root/pyenv/bin/cc-ship
+  cc-vault -> <rig>/director-root/pyenv/bin/cc-vault
+  cc-word -> <rig>/director-root/pyenv/bin/cc-word
+  cc-worktrees -> <rig>/director-root/pyenv/bin/cc-worktrees
+
+# CHECK PASS: the Director's cc-devthrottle is the rig's
+
+# CHECK PASS: the Director's cc-outlook is the rig's
+
+# any request toward the hosted endpoint - the throwaway Gateway's log, lines naming ['devthrottle.com']
+  (none)
+
+# CHECK PASS: the throwaway Gateway's log names no request to devthrottle.com: no model question left this machine
+
+# CHECK PASS: the fake model received the model questions this run's cases expect
+
+# every call the fake Graph received in the whole run
+  2026-10-20T11:35:37Z qa-one@example.com GET /v1.0/me/mailFolders/sentitems/messages folder=sentitems returned=1 -> 200
+  2026-10-20T11:35:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=8 -> 200
+  2026-10-20T11:37:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:38:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:38:37Z qa-two@example.com GET /v1.0/me/mailFolders/sentitems/messages folder=sentitems returned=0 -> 200
+  2026-10-20T11:38:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:40:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages -> 503
+  2026-10-20T11:40:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T11:41:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T11:41:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:43:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=3 -> 200
+  2026-10-20T11:43:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:44:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=3 -> 200
+  2026-10-20T11:44:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:46:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:46:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=24 -> 200
+  2026-10-20T11:47:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:47:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=14 -> 200
+  2026-10-20T11:49:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:49:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=4 -> 200
+  2026-10-20T11:50:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T11:50:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:52:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T11:52:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:53:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T11:53:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:55:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=5 -> 200
+  2026-10-20T11:55:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=archive -> 201
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=archive -> 404
+  2026-10-20T11:56:37Z qa-one@example.com POST /v1.0/me/messages/{id}/move destination=junkemail -> 201
+  2026-10-20T11:56:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=0 -> 200
+  2026-10-20T11:56:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:58:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:58:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:59:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T11:59:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:01:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:01:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:02:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:02:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=5 -> 200
+  2026-10-20T12:04:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:04:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T12:05:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:05:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:07:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:07:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:08:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:08:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:10:07Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:10:07Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T12:11:37Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:11:37Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:15:12Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T12:15:12Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:15:20Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:15:20Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+  2026-10-20T12:15:20Z qa-one@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=2 -> 200
+  2026-10-20T12:15:20Z qa-two@example.com GET /v1.0/me/mailFolders/inbox/messages folder=inbox returned=1 -> 200
+
+# every question the fake model was asked in the whole run
+  2026-10-20T11:35:37Z person-or-spam | Grow your traffic 300 percent -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z person-or-spam | How do I export my data? -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | How do I export my data? -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z person-or-spam | A question about something -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | A question about something -> C (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:35:37Z route | Lunch on Friday? -> C (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:41:37Z person-or-spam | Second question about exports -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:41:37Z route | Second question about exports -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:43:07Z person-or-spam | Model down: please classify -> HTTP 500 (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:43:07Z person-or-spam | Off the labels please -> maybe (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:44:37Z person-or-spam | Model down: please classify -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:44:37Z route | Model down: please classify -> C (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:53:37Z person-or-spam | A question while the switch is off -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T11:53:37Z route | A question while the switch is off -> C (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T12:02:37Z person-or-spam | Export question 3 [rig: close it with maildesk done] -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T12:02:37Z route | Export question 3 [rig: close it with maildesk done] -> B (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T12:10:07Z person-or-spam | Refund question [rig: run nothing for this email] -> A (model devthrottle/wingman-fast, logprobs True)
+  2026-10-20T12:10:07Z route | Refund question [rig: run nothing for this email] -> B (model devthrottle/wingman-fast, logprobs True)
+
+# the test Director asked to stop by its lifecycle request file
+  request: <rig>/director-root/config/lifecycle-signals/cc-director-shutdown-76d4b193-910f-448f-9497-fec4fb6b7c66.request
+  pid 2988096 exited: True (exit code 0)
+
+# processes still running from the rig folder after the stop
+  (none)
+
+# ~/.local/bin links AFTER the run
+  agenteyes -> <home>/.local/lib/agenteyes/agenteyes
+  az -> <home>/.local/share/uv/tools/azure-cli/bin/az
+  az.bat -> <home>/.local/share/uv/tools/azure-cli/bin/az.bat
+  az.completion.sh -> <home>/.local/share/uv/tools/azure-cli/bin/az.completion.sh
+  azps.ps1 -> <home>/.local/share/uv/tools/azure-cli/bin/azps.ps1
+  browser-harness -> <home>/.local/share/cc-director/instances/default/harness-env/bin/browser-harness
+  cc-dev-reports -> <home>/.local/share/cc-director/pyenv/bin/cc-dev-reports
+  cc-devthrottle -> <home>/.local/share/cc-director/pyenv/bin/cc-devthrottle
+  cc-gmail -> <home>/.local/share/cc-director/pyenv/bin/cc-gmail
+  cc-html -> <home>/.local/share/cc-director/pyenv/bin/cc-html
+  cc-image -> <home>/.local/share/cc-director/pyenv/bin/cc-image
+  cc-outlook -> <home>/.local/share/cc-director/pyenv/bin/cc-outlook
+  cc-pdf -> <home>/.local/share/cc-director/pyenv/bin/cc-pdf
+  cc-secrets -> <home>/.local/share/cc-director/pyenv/bin/cc-secrets
+  cc-ship -> <home>/.local/share/cc-director/pyenv/bin/cc-ship
+  cc-vault -> <home>/.local/share/cc-director/pyenv/bin/cc-vault
+  cc-word -> <home>/.local/share/cc-director/pyenv/bin/cc-word
+  cc-worktrees -> <home>/.local/share/cc-director/pyenv/bin/cc-worktrees
+  claude -> <home>/.local/share/claude/versions/2.1.304
+  codex -> <home>/.local/share/node/bin/codex
+  node -> <home>/.local/share/node/bin/node
+  npm -> <home>/.local/share/node/bin/npm
+  npx -> <home>/.local/share/node/bin/npx
+  pi.symlink-bak-2026-10-18 -> <home>/.local/share/node/bin/pi
+  pwsh -> <home>/.local/share/powershell-7.4.11/pwsh
+
+# ~/.local/bin unchanged by the run, and its tools still point at the owner's pyenv
+  unchanged: True
+  cc-devthrottle -> <home>/.local/share/cc-director/pyenv/bin/cc-devthrottle
