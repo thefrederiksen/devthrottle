@@ -212,7 +212,7 @@ internal static class MacAudioTools
             // The player has exited by now either way, so the file has served its purpose. A temporary
             // file left behind per dictation turn would accumulate for as long as the Director runs.
             try { if (File.Exists(path)) File.Delete(path); }
-            catch (Exception ex) { FileLog.Write($"[MacAudioTools] could not delete the cue file {path}: {ex.Message}"); }
+            catch (Exception ex) { FileLog.Write($"[MacAudioTools] PlayPcm16Mono FAILED to delete the cue file {path}: {ex.Message}"); }
         }
     }
 }
