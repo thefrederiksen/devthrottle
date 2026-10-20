@@ -248,16 +248,16 @@ public sealed class MailDeskChannelFold
             : throw new InvalidOperationException($"Mail Desk channel {channel} holds the provider '{provider}', which has no label.");
 
     /// <summary>
-    /// The machines that read the mailbox, in the order of preference stored: one is its name; two read
-    /// "A, then B if A is not answering"; three or more read "A, then B, then C - each only when the one before it is
-    /// not answering".
+    /// The machines that may read the mailbox, with no claim about order: one is its name; two read "A or B, whichever
+    /// runs the Mail Desk check"; three or more read "A, B or C, whichever runs the Mail Desk check". A channel's list
+    /// says only which machines may read it; which one runs the check, and the order of failover, belong to the Mail
+    /// Desk start (mission 5.9), so the fold must not claim them (review of the Gateway fold, finding F1).
     /// </summary>
     internal static string MachinesLabelOf(Guid channel, IReadOnlyList<string> machines) => machines.Count switch
     {
         0 => throw new InvalidOperationException($"Mail Desk channel {channel} names no machine to read it."),
         1 => machines[0],
-        2 => $"{machines[0]}, then {machines[1]} if {machines[0]} is not answering",
-        _ => string.Join(", then ", machines) + " - each only when the one before it is not answering",
+        _ => $"{string.Join(", ", machines.Take(machines.Count - 1))} or {machines[^1]}, whichever runs the Mail Desk check",
     };
 
     /// <summary>The mode's tone: observe is neutral, live asks for attention.</summary>
@@ -277,9 +277,26 @@ public sealed class MailDeskChannelFold
         _ => throw new InvalidOperationException($"'{state}' is not a sign-in state."),
     };
 
-    /// <summary>The last check's tone: no check yet is neutral, a failed check is bad, any other outcome is good.</summary>
-    internal static string LastCheckToneOf(DateTime? utc, string? outcome)
-        => utc is null ? Tones.Neutral : outcome == TriggerRunOutcome.Failed ? Tones.Bad : Tones.Good;
+    /// <summary>The outcome phase 3 adds to <see cref="TriggerRunOutcome"/>: the Mail Desk screened what the check read.
+    /// Named here so its tone is already decided when phase 3 lands; it becomes <c>TriggerRunOutcome.Screened</c> then.</summary>
+    internal const string ScreenedOutcome = "screened";
+
+    /// <summary>
+    /// The last check's tone, named for every outcome (review of the Gateway fold, finding F2). No check yet is neutral.
+    /// A check that read the mailbox and did its work is good. A paused start, or a check skipped because the last run
+    /// is still going, failed nothing but screened nothing either: neutral. A failed check is bad. An outcome not named
+    /// here is refused rather than shown green.
+    /// </summary>
+    internal static string LastCheckToneOf(DateTime? utc, string? outcome) => utc is null ? Tones.Neutral : outcome switch
+    {
+        TriggerRunOutcome.NothingToDo => Tones.Good,
+        TriggerRunOutcome.Started => Tones.Good,
+        ScreenedOutcome => Tones.Good,
+        TriggerRunOutcome.Paused => Tones.Neutral,
+        TriggerRunOutcome.SkippedRunning => Tones.Neutral,
+        TriggerRunOutcome.Failed => Tones.Bad,
+        _ => throw new InvalidOperationException($"The Mail Desk start's last check holds the outcome '{outcome}', which has no tone."),
+    };
 
     /// <summary>"No emails decided today", "1 email decided today", or "N emails decided today".</summary>
     internal static string TodayLabelOf(int total) => total switch
@@ -327,7 +344,7 @@ public sealed record MailDeskChannelRow(
     /// <summary>The provider's name as a reader sees it: <c>Outlook</c>.</summary>
     public required string ProviderLabel { get; init; }
 
-    /// <summary>The machines that read the mailbox, in order of preference, as one sentence.</summary>
+    /// <summary>The machines that may read the mailbox, as one sentence that claims no order.</summary>
     public required string MachinesLabel { get; init; }
 
     /// <summary><c>neutral</c> in observe mode, <c>attention</c> in live mode.</summary>

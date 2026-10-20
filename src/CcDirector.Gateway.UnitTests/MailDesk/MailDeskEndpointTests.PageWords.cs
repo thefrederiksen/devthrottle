@@ -68,7 +68,7 @@ public sealed partial class MailDeskEndpointTests
         Assert.Equal(1, row.GetProperty("today").GetProperty("byDecision").GetProperty(MailDeskWords.Decisions.Archive).GetInt32());
         // ... and the new ones beside them
         Assert.Equal("Outlook", row.GetProperty("providerLabel").GetString());
-        Assert.Equal("devlinux, then north-box if devlinux is not answering", row.GetProperty("machinesLabel").GetString());
+        Assert.Equal("devlinux or north-box, whichever runs the Mail Desk check", row.GetProperty("machinesLabel").GetString());
         Assert.Equal(MailDeskChannelFold.Tones.Neutral, row.GetProperty("modeTone").GetString());
         var signedIn = row.GetProperty("signedIn");
         Assert.Equal(MailDeskChannelFold.SignedInToneOf(signedIn.GetProperty("state").GetString()!), signedIn.GetProperty("tone").GetString());
