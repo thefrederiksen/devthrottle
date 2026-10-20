@@ -301,7 +301,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("<html><body>fake desktop</body></html>", await response.Content.ReadAsStringAsync());
         var address = Assert.Single(_rig.Connector.Addresses);
-        Assert.Equal("http://127.0.0.1:3110/", address.ToString());
+        Assert.Equal($"http://127.0.0.1:{DesktopRelayRig.BoxPort}/", address.ToString());
         Assert.Equal("/", Assert.Single(_rig.Box.Requests).Path);
     }
 
@@ -418,7 +418,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
 
         var response = await browser.GetAsync("/boxes/box-one/desktop/api/status").Within();
         await response.Content.ReadAsStringAsync();
-        await Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveRequestCount == 0);
+        await Watchdog.Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveRequestCount == 0);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -439,7 +439,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
         Assert.Equal("SETTINGS,{\"x\":1}", Encoding.UTF8.GetString(text.Data));
         Assert.Equal(WebSocketMessageType.Binary, binary.Type);
         Assert.Equal(new byte[] { 0, 1, 2, 255 }, binary.Data);
-        Assert.Equal("ws://127.0.0.1:3110/api/websockets", Assert.Single(_rig.Connector.Addresses).ToString());
+        Assert.Equal($"ws://127.0.0.1:{DesktopRelayRig.BoxPort}/api/websockets", Assert.Single(_rig.Connector.Addresses).ToString());
     }
 
     [Fact]
@@ -482,7 +482,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
 
         await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "tab closed", CancellationToken.None);
         var boxSaw = await _rig.Box.SawClose.Task.Within();
-        await Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
+        await Watchdog.Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
 
         Assert.Equal(1000, boxSaw.Status);
         Assert.Equal("tab closed", boxSaw.Reason);
@@ -496,7 +496,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
 
         await socket.SendAsync(Encoding.UTF8.GetBytes("close"), WebSocketMessageType.Text, true, CancellationToken.None);
         var closed = await FakeDesktop.ReceiveMessageAsync(socket).Within();
-        await Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
+        await Watchdog.Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
 
         Assert.Equal(WebSocketMessageType.Close, closed.Type);
         Assert.Equal(4000, closed.CloseStatus);
@@ -514,7 +514,7 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
         _rig.Director.CancelAll("the tunnel closed");
         var closed = await FakeDesktop.ReceiveMessageAsync(socket).Within();
         await _rig.Box.SocketEnded.Task.Within();
-        await Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
+        await Watchdog.Eventually(() => _rig.Registry.LiveStreamCount == 0 && _rig.Director.ActiveSocketCount == 0);
 
         Assert.Equal(WebSocketMessageType.Close, closed.Type);
         Assert.Equal(1001, closed.CloseStatus);
@@ -566,14 +566,4 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
     /// <summary>A desktop-host client already let into box-one, the way a browser is: ticket, then cookie.</summary>
     private async Task<HttpClient> SignedInDesktopAsync() => _rig.Desktop(await _rig.SignInToDesktopAsync(_rig.KeyA).Within());
 
-    /// <summary>Wait for a condition the relay reaches on its own after the browser has its answer (an end freed).</summary>
-    private static async Task Eventually(Func<bool> condition)
-    {
-        var watchdog = System.Diagnostics.Stopwatch.StartNew();
-        while (!condition())
-        {
-            if (watchdog.Elapsed > Watchdog.Limit) throw new TimeoutException("the relay never reached the expected state");
-            await Task.Yield();
-        }
-    }
 }
