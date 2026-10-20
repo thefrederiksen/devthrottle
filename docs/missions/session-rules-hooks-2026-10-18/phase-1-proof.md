@@ -158,5 +158,5 @@ Windows, not ours to remove.
   forwarding of leftovers are proven by unit tests only.
 - The release workflow publishing the Director with the hook embedded: it rests on the GitHub runners
   having the native toolchains (Windows C++ tools, Ubuntu clang); not run.
-- Codex never reviewed this work: it is not installed on devlinux, so every review ran on Claude Code
-  with Fable, the next in the owner's reviewer order.
+- Codex never reviewed this work: it is not installed on devlinux, so every review ran on the next
+  reviewer in the owner's order (`CLAUDE.md`, rule 5a).
