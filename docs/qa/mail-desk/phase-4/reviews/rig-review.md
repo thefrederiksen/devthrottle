@@ -158,8 +158,7 @@ with every CHECK passed, and "103 checks passed" would still be the summary quot
   deadline, and the README says so.
 - **Waits.** Every `wait_for` has a deadline. The two fixed sleeps (70 and 150 seconds) are on the real clock and
   bounded. Only the switch-off sleep carries weight, and finding 1 covers it.
-- **The public repository rule.** The committed files hold only example addresses and `email@devthrottle.com` (none
-  of the latter, in fact). `shown()` leaves no `<other address>`, `<user>` or `<token>` in the transcript; the only
+- **The public repository rule.** The committed files hold only example addresses. `shown()` leaves no `<other address>`, `<user>` or `<token>` in the transcript; the only
   hit is inside a quoted code comment. There are no owner paths, because `<home>`, `<repo>` and `<rig>` are used.
 - **The README's not-proven list** matches what the transcript shows: the stand-in backup is called a stand-in, the
   08:00 email is composed rather than sent, and the seats work from `check.json`. The exceptions are findings 1 and 5.
