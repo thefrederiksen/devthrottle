@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
+using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -6,6 +9,8 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 using static CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
@@ -37,7 +42,7 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
         _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
-        _ingest = new ApiModeEventIngest(_buffer, _receipts, _boundary);
+        _ingest = new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_harness.Open(_ambient), () => T0.UtcDateTime), _boundary);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -282,6 +287,245 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Null(refused.PromptText);
     }
 
+    // ----- a queued prompt whose ending was lost in a hole between two generations (item 9) -----
+
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheDelivery_TheLaterGenerationsFirstOtherEventRulesItUnknown()
+    {
+        // Arrange: p1 and p2 queued while t0 runs in generation A; p1's delivery and t0's end fell in the hole.
+        Push(A(Ready(1), Started(2, "t0"), Queued(3, "p1", position: 1), Queued(4, "p2", position: 2)));
+
+        // Act: generation B re-announces p2 (still waiting), then its next event.
+        Push(B(Queued(1, "p2", position: 1)));
+        var afterTheReannouncement = Receipt("p1").State;
+        Push(B(Started(2, "t9")));
+
+        // Assert: p1 stays Queued until an event that follows the re-announcements; then it is Unknown, text kept.
+        Assert.Equal(ApiModeReceiptState.Queued, afterTheReannouncement);
+        var p1 = Receipt("p1");
+        Assert.Equal(ApiModeReceiptState.Unknown, p1.State);
+        Assert.Equal("text of p1", p1.PromptText);
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p2").State);
+    }
+
+    [Fact]
+    public void Accept_TheLaterGenerationReannouncesTheQueuedPrompt_RulesNothingAndItsDeliveryStands()
+    {
+        // Arrange
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act
+        Push(B(Queued(1, "p1"), Ready(2), Delivered(3, "p1", PlainAck)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_NoLaterGeneration_LeavesTheQueuedPromptQueued()
+    {
+        // Arrange + Act: everything in one generation; a missing delivery there is not a lost one.
+        Push(A(Ready(1), Queued(2, "p1"), Started(3, "t9"), Ended(4, "t9", TurnOutcome.Done, null, "stop")));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_TheLaterGenerationsFirstEventIsTheQueuedPromptsOwnDelivery_IsDelivered()
+    {
+        // Arrange
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act
+        Push(B(Delivered(1, "p1", PlainAck)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsRuledUnknownAndCarriedByThatTurn()
+    {
+        // Arrange: p1 queued in generation A; its delivery fell in the hole. The Gateway holds no acknowledgement, so it
+        // may not rule it Delivered (the Delivery Lead's ruling on pull request #4209).
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act: generation B opens with the turn that carries p1, then a tool runs in it.
+        Push(B(Started(1, "t1", "p1"), Tool(2)));
+
+        // Assert
+        var receipt = Receipt("p1");
+        Assert.Equal((ApiModeReceiptState.Unknown, (string?)null, (string?)null, "t1"),
+            (receipt.State, receipt.Disposition, receipt.Acknowledgement, receipt.TurnId));
+        Assert.Equal(ApiModeLostQueuedPrompt.CarriedWords, ApiModeLiveRuling.ReceiptWords(receipt));
+    }
+
+    [Fact]
+    public void Accept_ACarriedPromptThenAPromptQueuedBehindIt_ThePlacesInLineAreTheDirectorsAndStayAcrossTheNextHole()
+    {
+        // Arrange: the reviewer's sequence. Generation A queues p1; its delivery falls in the hole.
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act: generation B opens with the turn that carries p1, the turn ends, and the user queues p2. Then generation
+        // C re-announces p2 only (the Director's line), and a tool runs.
+        Push(B(Started(1, "t1", "p1"), Ended(2, "t1", TurnOutcome.Done, null, "stop"), Queued(3, "p2")));
+        var afterB = WordsNow();
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Queued(1, "p2"), Tool(2)));
+        var afterC = WordsNow();
+
+        // Assert: p1 is Unknown in its carried words and out of the line, so p2 is 1st, in both generations.
+        Assert.Equal(ApiModeLostQueuedPrompt.CarriedWords, afterB["p1"]);
+        Assert.Equal("Queued, 1st in line: a turn is running", afterB["p2"]);
+        Assert.Equal(afterB, afterC);
+    }
+
+    // ----- a carried prompt's whole life without its delivery (review of pull request #4209, finding 6) -----
+
+    [Theory]
+    [InlineData(TurnOutcome.Done, null, "done")]
+    [InlineData(TurnOutcome.Failed, "the model refused", "failed")]
+    [InlineData(TurnOutcome.Cancelled, "stopped by the user", "cancelled")]
+    public void Accept_ACarriedPromptWithoutItsDelivery_NeverReadsDeliveredThroughItsTurnsEndTheNextHoleAndAGatewayRestart(TurnOutcome outcome, string? reason, string word)
+    {
+        // Arrange: generation A queues p1; its PromptDelivered falls in the hole, and generation B opens with the turn
+        // that carries it.
+        var shown = new List<ApiModeLiveItem>();
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Started(1, "t1", "p1")));
+        AssertCarried(turnOutcome: null, shown);
+
+        // Act + Assert: the turn ends with the real outcome; the receipt keeps it beside the carried words.
+        Push(B(Ended(2, "t1", outcome, reason, "stop")));
+        var ended = AssertCarried(word, shown);
+
+        // The next hole: generation C opens with a new agent process and a tool runs. Nothing changes.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Ready(1), Tool(2)));
+        Assert.Equal(ended, AssertCarried(word, shown));
+
+        // The Gateway restarts and generation C carries on.
+        AssertTheRestartRulesTheSame(Batch("gen-c", GenBStarted.AddHours(1), Tool(3)), ended, word, shown);
+        Assert.DoesNotContain(shown, item => item.Text.StartsWith("Delivered", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Accept_ACarriedPromptWithoutItsDeliveryWhoseTurnsEndWasLost_NeverReadsDeliveredThroughTheNextHoleAndAGatewayRestart()
+    {
+        // Arrange: as above, generation B opens with the turn that carries p1.
+        var shown = new List<ApiModeLiveItem>();
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Started(1, "t1", "p1")));
+        AssertCarried(turnOutcome: null, shown);
+
+        // Act + Assert: t1's TurnEnded falls in a hole too; generation C opens with a new agent process, which proves
+        // the turn is over, so its ending is ruled lost - and the receipt still reads the carried words.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Ready(1)));
+        var lost = AssertCarried(ApiModeLostTurnEnd.Outcome, shown);
+
+        // The next hole: generation D, and a tool runs. Nothing changes.
+        Push(Batch("gen-d", GenBStarted.AddHours(2), Tool(1)));
+        Assert.Equal(lost, AssertCarried(ApiModeLostTurnEnd.Outcome, shown));
+
+        // The Gateway restarts and generation D carries on.
+        AssertTheRestartRulesTheSame(Batch("gen-d", GenBStarted.AddHours(2), Tool(2)), lost, ApiModeLostTurnEnd.Outcome, shown);
+        Assert.DoesNotContain(shown, item => item.Text.StartsWith("Delivered", StringComparison.Ordinal));
+    }
+
+    /// <summary>p1 read through the store and the receipts endpoint's words: Unknown, carried by t1, the given turn
+    /// outcome, its text kept, no disposition and no acknowledgement. Adds its item to <paramref name="shown"/> and
+    /// answers what was read, to compare with a later step.</summary>
+    private (ApiModeReceiptState, string?, string?, string?, string?, string?, string) AssertCarried(string? turnOutcome, List<ApiModeLiveItem> shown)
+    {
+        var receipt = Receipt("p1");
+        var item = ApiModeLiveRuling.ReceiptItem(receipt, 0);
+        shown.Add(item);
+        var read = (receipt.State, receipt.TurnId, receipt.TurnOutcome, receipt.PromptText, receipt.Disposition, receipt.Acknowledgement, WordsNow()["p1"]);
+        Assert.Equal((ApiModeReceiptState.Unknown, "t1", turnOutcome, "text of p1", (string?)null, (string?)null, ApiModeLostQueuedPrompt.CarriedWords), read);
+        Assert.Equal((ApiModeLostQueuedPrompt.CarriedWords, "neutral"), (item.Text, item.Tone));
+        return read;
+    }
+
+    /// <summary>A Gateway restart: a NEW ingest and store over the same database (the once-per-generation memory empty)
+    /// take <paramref name="batch"/>, and a ruling rebuilt from the stored receipts renders p1 and rules the held event.
+    /// The stored receipt, its rendered item and every item the rebuilt ruling makes for p1 read as before.</summary>
+    private void AssertTheRestartRulesTheSame(ApiModeEventBatch batch, (ApiModeReceiptState, string?, string?, string?, string?, string?, string) before, string turnOutcome, List<ApiModeLiveItem> shown)
+    {
+        var buffer = new ApiModeEventBuffer();
+        var store = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        new ApiModeEventIngest(buffer, store, new ApiModeConversationStore(_harness.Open(_ambient), () => T0.UtcDateTime), _boundary).Accept(Alice, Director, batch);
+
+        IReadOnlyList<ApiModeStoredReceipt> stored;
+        using (_boundary.EnterScope(Alice))
+            stored = store.ReadWithPositions(Sid);
+        var ruling = new ApiModeLiveRuling(stored);
+        var p1 = Assert.Single(stored, r => r.Receipt.PromptId == "p1").Receipt;
+        var item = ApiModeLiveRuling.ReceiptItem(p1, 0);
+        shown.Add(item);
+        shown.AddRange(buffer.Read(Alice, Sid).Events.SelectMany(h => ruling.Rule(h)).Where(i => i.PromptId == "p1"));
+
+        Assert.Equal(before, AssertCarried(turnOutcome, shown));
+        Assert.Equal((ApiModeReceiptState.Unknown, ApiModeLostQueuedPrompt.CarriedWords, "neutral"), (p1.State, item.Text, item.Tone));
+    }
+
+    /// <summary>Each receipt's words as the receipts endpoint derives them.</summary>
+    private Dictionary<string, string> WordsNow()
+    {
+        using (_boundary.EnterScope(Alice))
+        {
+            var stored = _receipts.ReadWithPositions(Sid);
+            ApiModeLiveRuling.PlaceInLine(stored);
+            return stored.ToDictionary(r => r.Receipt.PromptId, r => ApiModeLiveRuling.ReceiptWords(r.Receipt));
+        }
+    }
+
+    [Fact]
+    public void Accept_ManyProofsInOneGeneration_ReadTheStoreForTheProofOnce()
+    {
+        // Arrange: p1 queued in generation A, then ruled Unknown at generation B's first tool event (review of pull
+        // request #4209, finding 3). The durable conversation records every tool card, so it is kept in a database file
+        // of its own here: the counter on the receipts' file then counts the receipt store's work alone.
+        using var conversationFile = new GatewayDbTestHarness();
+        var ingest = new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(conversationFile.Open(_ambient), () => T0.UtcDateTime), _boundary);
+        void PushHere(ApiModeEventBatch batch) => ingest.Accept(Alice, Director, batch);
+        PushHere(A(Ready(1), Queued(2, "p1")));
+        int firstProof;
+        using (var work = new DatabaseWork(_harness.DbPath))
+        {
+            PushHere(B(Tool(1)));
+            firstProof = work.Transactions;
+        }
+
+        // Act: three more tool events of the same generation, each a proof.
+        using var later = new DatabaseWork(_harness.DbPath);
+        PushHere(B(Tool(2), Tool(3)));
+        PushHere(B(Tool(4)));
+
+        // Assert: the first proof ran in the store, and the later ones did not touch the database at all.
+        Assert.Equal(1, firstProof);
+        Assert.Equal((0, 0, 0), later.Work);
+        Assert.Equal(ApiModeReceiptState.Unknown, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_AProofInEachOfTwoLaterGenerations_ProvesInEach()
+    {
+        // Arrange: p1 queued in A; B re-announced it and its tool event proved nothing against it.
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Queued(1, "p1"), Tool(2)));
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+
+        // Act: a third generation that does not re-announce it.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Tool(1)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Unknown, Receipt("p1").State);
+    }
+
+    private static ToolCallStarted Tool(long seq) => new()
+    {
+        SessionId = Sid, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = $"c{seq}", ToolName = "bash", Kind = ToolCallKind.Execute, Input = "ls",
+    };
+
     // ----- a turn whose end was lost in a hole between two generations (item 7) -----
 
     [Fact]
@@ -398,5 +642,61 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(3, HeldSequences(Bob).Count());
         Assert.Equal(3, bobSaw.Count);
         Assert.All(bobSaw, e => Assert.IsNotType<PromptDelivered>(e.Event));
+    }
+
+    /// <summary>
+    /// Counts the database work Entity Framework does against ONE database file, from its diagnostic events: every
+    /// connection opened, every transaction begun and every statement run. Other tests use other files and are not counted.
+    /// (The same instrument as pull request #4200's, kept here until one of the two is on main.)
+    /// </summary>
+    private sealed class DatabaseWork : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
+    {
+        private readonly string _dataSource;
+        private readonly IDisposable _all;
+        private readonly List<IDisposable> _subscriptions = new();
+        private int _connectionsOpened;
+        private int _transactions;
+        private int _commands;
+
+        public DatabaseWork(string databaseFile)
+        {
+            _dataSource = databaseFile;
+            _all = DiagnosticListener.AllListeners.Subscribe(this);
+        }
+
+        public int Transactions => Volatile.Read(ref _transactions);
+
+        /// <summary>Connections opened, transactions begun and statements run, together.</summary>
+        public (int ConnectionsOpened, int Transactions, int Commands) Work
+            => (Volatile.Read(ref _connectionsOpened), Volatile.Read(ref _transactions), Volatile.Read(ref _commands));
+
+        public void OnNext(DiagnosticListener listener)
+        {
+            if (listener.Name == DbLoggerCategory.Name)
+                lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
+        }
+
+        public void OnNext(KeyValuePair<string, object?> e)
+        {
+            if (e.Key == RelationalEventId.ConnectionOpening.Name && e.Value is ConnectionEventData c && Ours(c.Connection))
+                Interlocked.Increment(ref _connectionsOpened);
+            else if (e.Key == RelationalEventId.TransactionStarted.Name && e.Value is TransactionEndEventData t && Ours(t.Transaction.Connection))
+                Interlocked.Increment(ref _transactions);
+            else if (e.Key == RelationalEventId.CommandExecuting.Name && e.Value is CommandEventData d && Ours(d.Command.Connection))
+                Interlocked.Increment(ref _commands);
+        }
+
+        private bool Ours(System.Data.Common.DbConnection? connection)
+            => connection is not null && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
+
+        public void OnCompleted() { }
+        public void OnError(Exception error) { }
+
+        public void Dispose()
+        {
+            _all.Dispose();
+            lock (_subscriptions)
+                foreach (var s in _subscriptions) s.Dispose();
+        }
     }
 }

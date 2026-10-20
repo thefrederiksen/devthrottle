@@ -300,6 +300,48 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
     }
 
     [Fact]
+    public async Task SendPromptAsync_KeystrokeWhileTheProtocolHoldsTheConversation_IsRefusedInWordsAndNothingStaysInFlight()
+    {
+        // Arrange: the Terminal pane sends each key as a prompt without an Enter (phase 4 review, finding 2).
+        var session = ApiModeSession();
+        var key = new PromptRequest { Text = "a", AppendEnter = false, Surface = "cockpit" };
+
+        // Act: two keys, as a person typing would send them.
+        var first = await SessionCommandExecutor.SendPromptAsync(session, key);
+        var second = await SessionCommandExecutor.SendPromptAsync(session, key);
+
+        // Assert: each is answered not-delivered with the Director's sentence - never a failure the pane cannot show -
+        // and the input counter is back at zero, not raised once per key.
+        foreach (var result in new[] { first, second })
+        {
+            Assert.True(result.Ok, result.Error);
+            var body = SessionCommandExecutor.Deserialize<PromptResponse>(result.BodyJson)!;
+            Assert.False(body.Accepted);
+            Assert.Equal(DeliveryState.NotDelivered, body.DeliveryState);
+            Assert.Equal(
+                "This session's protocol holds the conversation, so it has no terminal and keystrokes cannot be typed. Take the wheel to type into its terminal, or send a prompt in the chat.",
+                body.DeliveryStateReason);
+        }
+        Assert.Equal(0, session.InputsInFlight);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_KeystrokeWhileTheUserHoldsTheWheel_IsTypedIntoTheirTerminal()
+    {
+        // Arrange: the control case - with the wheel taken the same key reaches the terminal.
+        var session = ApiModeSession();
+        Assert.True((await session.TakeWheelAsync()).Done);
+
+        // Act
+        var result = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "a", AppendEnter = false, Surface = "cockpit" });
+
+        // Assert
+        Assert.True(result.Ok, result.Error);
+        Assert.True(SessionCommandExecutor.Deserialize<PromptResponse>(result.BodyJson)!.Accepted);
+        Assert.Equal(0, session.InputsInFlight);
+    }
+
+    [Fact]
     public void Verbs_SessionWriteArea_HandlesTheGatewaysWheelCommands()
     {
         // Act

@@ -302,6 +302,52 @@ describe("InteractiveTerminal typing", () => {
   });
 });
 
+describe("InteractiveTerminal refused keystrokes (API mode phase 4 review, finding 2)", () => {
+  const REFUSAL =
+    "This session's protocol holds the conversation, so it has no terminal and keystrokes cannot be typed. Take the wheel to type into its terminal, or send a prompt in the chat.";
+  const refused = () => Promise.resolve({ delivering: false, refusal: REFUSAL }) as unknown as Promise<void>;
+
+  it("shows the Director's sentence verbatim, once for a run of refused keys", async () => {
+    startTerminal();
+    const term = hoisted.terminals[0];
+    sendPrompt.mockImplementation(refused);
+
+    term.onDataCb?.("a");
+    await flush();
+    term.onDataCb?.("b");
+    await flush();
+
+    expect(term.writes).toContain("\r\n\x1b[2m[" + REFUSAL + "]\x1b[0m\r\n");
+    expect(term.writes.filter((w) => w.includes(REFUSAL))).toHaveLength(1);
+    expect(hoisted.reportClientError).not.toHaveBeenCalled();
+  });
+
+  it("shows the sentence again after a key is taken and a later one is refused", async () => {
+    startTerminal();
+    const term = hoisted.terminals[0];
+    sendPrompt.mockImplementationOnce(refused);
+    term.onDataCb?.("a");
+    await flush();
+    term.onDataCb?.("b"); // taken: the user took the wheel
+    await flush();
+    sendPrompt.mockImplementationOnce(refused);
+    term.onDataCb?.("c");
+    await flush();
+
+    expect(term.writes.filter((w) => w.includes(REFUSAL))).toHaveLength(2);
+  });
+
+  it("shows nothing for a key that was typed", async () => {
+    startTerminal();
+    const term = hoisted.terminals[0];
+
+    term.onDataCb?.("a");
+    await flush();
+
+    expect(term.writes.some((w) => w.includes("cannot be typed"))).toBe(false);
+  });
+});
+
 describe("InteractiveTerminal keystroke ordering (issue #1021)", () => {
   // Model the Director as it really behaves under concurrent POSTs: it applies each POST body to the
   // PTY when that POST COMPLETES (arrives), and here every POST is given an adversarial latency so an

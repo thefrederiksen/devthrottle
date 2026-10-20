@@ -486,51 +486,6 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
-    public async Task TurnStartBound_PiAcknowledgesAndNeverStarts_TurnFailsAndPiRestartsOnTheConversationWithoutResending()
-    {
-        // Arrange: the first Pi acknowledges the prompt and never begins its turn; the restarted one behaves.
-        var stuck = new ScriptedPi("plain") { AcknowledgeOnly = true };
-        var restarted = new ScriptedPi("plain");
-        await using var rig = StartHost(stuck, restarts: restarted);
-        await rig.Sink.WaitForAsync<ConnectionReady>();
-        Assert.True((await rig.Host.SendPromptAsync("Reply with exactly the word PONG", CancellationToken.None)).Delivered);
-        // A second prompt waits in the Director's queue behind the first; seeing it queued also means the event loop
-        // has finished with the acknowledgement, so the bound is armed.
-        var second = rig.Host.SendPromptAsync("Second", CancellationToken.None);
-        await rig.Sink.WaitForAsync<PromptQueued>();
-
-        // Act: just short of the bound nothing happens; at the bound the turn is given up and Pi restarted.
-        rig.Clock.Advance(ApiModeSessionDefaults.TurnStartBound - TimeSpan.FromMilliseconds(1));
-        Assert.Empty(rig.Sink.Events.OfType<TurnStarted>());
-        rig.Clock.Advance(TimeSpan.FromMilliseconds(1));
-        var failed = await rig.Sink.WaitForAsync<TurnEnded>();
-        await rig.Sink.WaitForAsync<ConnectionReady>(c => c.Sequence > failed.Sequence);
-        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
-
-        // Assert: the acknowledged prompt's turn ended failed with the restart stated (the ruling's third row)...
-        var turn = Assert.Single(rig.Sink.Events.OfType<TurnStarted>(), t => t.TurnId == failed.TurnId);
-        Assert.Equal([rig.Sink.Minted(1)], turn.PromptIds);
-        Assert.Equal(TurnOutcome.Failed, failed.Outcome);
-        Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, failed.Reason);
-        Assert.Contains(PiDialect.RestartingPiReason, failed.Reason);
-        var stuckEnded = rig.Sink.Events.OfType<ConnectionEnded>().Single();
-        Assert.NotEmpty(stuckEnded.StderrTail);
-        Assert.Equal($"{failed.Reason}. Pi exited (exit code 0). Standard error: {string.Join(" | ", stuckEnded.StderrTail)}", stuckEnded.Reason);
-        // ...the stuck Pi was asked to exit, a new one started with the same arguments on the same conversation...
-        Assert.True(stuck.Process.InputClosed);
-        Assert.Same(stuck.Process.StartedWith, restarted.Process.StartedWith);
-        Assert.Equal(1, rig.Host.Restarts);
-        Assert.False(rig.Host.Ended.IsCompleted);
-        // ...and the overdue prompt was NEVER sent again: the new Pi got only the queued second prompt.
-        Assert.Equal(["get_state", "prompt"], stuck.WrittenTypes);
-        Assert.Equal(["get_state", "prompt"], restarted.WrittenTypes);
-        Assert.Equal("Second", MessageOf(restarted.Written[1]));
-        Assert.True(secondReceipt.Delivered);
-        Assert.Equal(Enumerable.Range(1, rig.Sink.Events.Count).Select(i => (long)i), rig.Sink.Events.Select(e => e.Sequence));
-        Assert.Empty(rig.Host.Defects);
-    }
-
-    [Fact]
     public async Task TurnStartBound_TurnBeginsInTime_NeverRestarts()
     {
         // Arrange

@@ -66,7 +66,7 @@ public sealed class LicenseNoRoomAlarmTests
     // Two account emails of the longest kind do not fit one alarm sentence: the sentence then calls the account "the
     // account in use", keeps the time, and stays within an alarm's limit, so the check is never refused.
     [Fact]
-    public void NoRoomAlarmConditions_LongAccountEmails_StillFitAnAlarmSentence_AndKeepTheTime()
+    public void NoRoomAlarmConditions_LongAccountEmails_ReturnsNoAlarm()
     {
         var longA = new string('a', 300) + "@example.com";
         var longB = new string('b', 300) + "@example.com";
@@ -79,11 +79,7 @@ public sealed class LicenseNoRoomAlarmTests
                 null, null, null, null, null, LicenseReadinessFold.NoRoomText, LicenseTones.Neutral, null),
         };
 
-        var condition = Assert.Single(LicenseReadinessFold.NoRoomAlarmConditions(snapshot, judged, Array.Empty<LicenseAlarmEntity>()));
-
-        Assert.Equal("The account in use is at 85% of its weekly limit and no other account has room to switch its machines to; "
-                     + "the first has room again at 2026-10-11 23:12 UTC.", condition.Problem);
-        Assert.Equal((null, null, longA), (condition.MachineId, condition.MachineName, condition.AccountEmail));
-        Assert.True(condition.Problem.Length <= LicenseAlarmService.MaxSentenceLength);
+        Assert.Equal(LicenseReadinessFold.NoRoomText, Assert.Single(judged).Text);
+        Assert.Empty(LicenseReadinessFold.NoRoomAlarmConditions(snapshot, judged, Array.Empty<LicenseAlarmEntity>()));
     }
 }

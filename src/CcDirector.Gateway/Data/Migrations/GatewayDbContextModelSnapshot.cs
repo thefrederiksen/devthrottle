@@ -179,6 +179,88 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("activity_events", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeConversationItemEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Characters")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EarlierDropped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("FirstSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Ordinal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TurnId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "SessionId", "ItemId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("api_mode_conversation_items", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeReceiptEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -275,6 +357,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.HasIndex("TenantId", "DirectorId", "State");
 
                     b.HasIndex("TenantId", "SessionId", "TurnId");
 

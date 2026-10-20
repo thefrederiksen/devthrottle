@@ -325,11 +325,10 @@ public static class DoorbellSafety
         if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
         {
             // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of
-            // spaces or a tab leaves nothing on the row at all; the cursor is what moved. An empty composer has
-            // the visible cursor on the prompt row, straight after the glyph and its separator.
-            if (!frame.CursorVisible)
-                return (ComposerReading.NotFound, "");
-            if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
+            // spaces or a tab leaves nothing on the row at all; the cursor is what moved. That proves whitespace
+            // only when the visible cursor is on the prompt row past the empty-composer column. A hidden cursor or
+            // a cursor parked elsewhere says nothing about the empty composer rows.
+            if (frame.CursorVisible && frame.CursorRow == prompt && frame.CursorCol > EmptyComposerCursorColumn)
                 return (ComposerReading.HoldsText, "");
             return (ComposerReading.Empty, "");
         }
@@ -446,12 +445,26 @@ public static class DoorbellSafety
             continuation.Add(rows[row].Length >= ContinuationIndent.Length ? rows[row][ContinuationIndent.Length..] : rows[row]);
         if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
         {
-            if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
+            if (frame.CursorRow == prompt && frame.CursorCol > EmptyComposerCursorColumn)
                 return (ComposerReading.HoldsText, "");
             return (ComposerReading.Empty, "");
         }
         var joined = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
         return (ComposerReading.HoldsText, joined);
+    }
+
+    /// <summary>The cursor and prompt rows used to explain a composer refusal from the same screen-frame rules as the reader.</summary>
+    internal static (int CursorRow, int CursorCol, int PromptRow, bool CursorVisible) ReadComposerPosition(
+        AgentKind agent, ScreenFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var promptRow = agent switch
+        {
+            AgentKind.ClaudeCode => FindClaudeComposer(frame.Rows).Prompt,
+            AgentKind.Codex => CodexPromptRow(frame, frame.Rows),
+            _ => -1,
+        };
+        return (frame.CursorRow, frame.CursorCol, promptRow, frame.CursorVisible);
     }
 
     /// <summary>The row of Codex's live composer prompt - the '›' row the visible cursor sits on, or the nearest one

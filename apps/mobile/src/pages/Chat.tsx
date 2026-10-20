@@ -4,6 +4,7 @@ import { listSessions } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { ApiModeLiveChat } from "@devthrottle/client-core/apimode/ApiModeLiveChat";
+import type { ApiModeSessionDisplay } from "@devthrottle/client-core/apimode/liveTypes";
 import { chatLinkLabel, chatPathLabel } from "@devthrottle/client-core/history/chatView";
 import { isNotOnDisk, usePathStatuses } from "@devthrottle/client-core/history/usePathStatuses";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
@@ -33,8 +34,20 @@ export function Chat() {
   const manage = useSessionManage(sessionId);
   // An API-mode session's conversation is the Gateway's live stream (mission #4070, phase 3), shown by the shared
   // ApiModeLiveChat; the row carries the Gateway's verdict only in API mode. The history read stands down for it.
-  const apiMode = manage.session?.apiMode ?? null;
-  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(apiMode === null ? sessionId : undefined);
+  //
+  // A failed roster poll drops the row (useSessionManage keeps no row a read could not confirm), but it does not change
+  // what mode the session is in. So the last mode a read showed for THIS route is kept across a failed poll: one
+  // failed poll no longer swaps the live Chat for the history Chat and its /history read until the next good one.
+  const lastRow = useRef<{ sessionId: string | undefined; apiMode: ApiModeSessionDisplay | null } | null>(null);
+  if (manage.session !== null) lastRow.current = { sessionId, apiMode: manage.session.apiMode ?? null };
+  const lastForRoute = lastRow.current?.sessionId === sessionId ? lastRow.current : null;
+  const apiMode = manage.session !== null ? (manage.session.apiMode ?? null) : (lastForRoute?.apiMode ?? null);
+  // Until the roster answers - a row, or a problem saying there will be none - the mode is not known, so the history
+  // read waits: starting it on the first render read /history for an API-mode session (phase 6 QA).
+  const modeKnown = manage.session !== null || lastForRoute !== null || manage.sessionProblem !== null;
+  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(
+    modeKnown && apiMode === null ? sessionId : undefined,
+  );
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
   const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [status, setStatus] = useState(STATUS_BASE);
@@ -116,7 +129,7 @@ export function Chat() {
 
       {/* Compact "Show:" filter, mirroring the desktop History tab: reveal tool calls, tool results,
           or thinking. All three hidden by default; the choice is remembered per browser. */}
-      {apiMode === null && (
+      {modeKnown && apiMode === null && (
         <div className="chat-filter">
           <span className="chat-filter-label">Show:</span>
           <label>
@@ -171,6 +184,10 @@ export function Chat() {
       {apiMode !== null ? (
         <div className="chat-stage">
           <ApiModeLiveChat sessionId={sessionId} display={apiMode} />
+        </div>
+      ) : !modeKnown ? (
+        <div className="chat-stage">
+          <div className="chat-empty" role="status">Loading session...</div>
         </div>
       ) : (
         <div className="chat-stage">

@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
@@ -35,7 +36,7 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_ATerminalModeRow_HasNoVerdict()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Terminal, WheelHolders.None, sessionEnded: false, new[] { Delivered("p1", "t1") }, NothingHeld);
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Terminal, WheelHolders.None, sessionEnded: false, new[] { Delivered("p1", "t1") }, NothingHeld, agentStarting: false);
 
         // Assert
         Assert.Null(verdict);
@@ -48,7 +49,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done"), Delivered("p2", "t2") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: false)!;
 
         // Assert
         Assert.Equal("working", verdict.Kind);
@@ -69,7 +70,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done"), QueuedFor("p2", "userHasTheWheel"), QueuedFor("p3", "userHasTheWheel") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.User, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.User, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Equal("userHasTheWheel", verdict.Kind);
@@ -89,7 +90,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { QueuedFor("p1", "agentStarting"), QueuedFor("p2", "turnRunning"), QueuedFor("p3", "turnRunning") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole())!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(), agentStarting: false)!;
 
         // Assert
         Assert.Equal("3 prompts waiting: 1 because the agent is starting, 2 because a turn is running", verdict.QueueLabel);
@@ -101,7 +102,7 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_OnePromptWaiting_SaysOnePrompt()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p1", "turnRunning") }, HeldWhole())!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p1", "turnRunning") }, HeldWhole(), agentStarting: false)!;
 
         // Assert
         Assert.Equal(1, verdict.QueuedCount);
@@ -115,7 +116,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.Working);
@@ -133,7 +134,7 @@ public sealed class ApiModeSessionFoldTests
         var held = HeldWhole(Ready(1), Gone(2, 0, "the user took the wheel"));
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held, agentStarting: false)!;
 
         // Assert
         Assert.Equal("stopped", verdict.Kind);
@@ -148,7 +149,7 @@ public sealed class ApiModeSessionFoldTests
         var held = HeldWhole(Ready(1));
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held, agentStarting: false)!;
 
         // Assert
         Assert.Equal("stopped", verdict.Kind);
@@ -163,7 +164,7 @@ public sealed class ApiModeSessionFoldTests
         var held = HeldWhole(Ready(1), Gone(2, 1, "the user took the wheel"));
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held, agentStarting: false)!;
 
         // Assert
         Assert.False(verdict.AgentConnected);
@@ -174,7 +175,7 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_TheWholeGenerationHeldAndNoConnectionYet_SaysTheAgentIsStarting()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p1", "agentStarting") }, HeldWhole(Queued(1, "p1", PromptQueuedReason.AgentStarting)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p1", "agentStarting") }, HeldWhole(Queued(1, "p1", PromptQueuedReason.AgentStarting)), agentStarting: false)!;
 
         // Assert
         Assert.False(verdict.AgentConnected);
@@ -185,7 +186,7 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_AWheelHolderThisGatewayDoesNotKnow_SaysUnknown()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Equal("unknown", verdict.Kind);
@@ -199,7 +200,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "failed", "the model errored"), Delivered("p2", "t2", "done") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.LastTurnEnding);
@@ -215,7 +216,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done"), Delivered("p2", "t2", ApiModeLostTurnEnd.Outcome) };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: false)!;
 
         // Assert: the turn is over (proven) and how it ended is not known, so no "last turn" line and no colour.
         Assert.Equal("idle", verdict.Kind);
@@ -234,7 +235,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done"), Delivered("p2", null, ApiModeLostTurnEnd.Outcome) };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: false)!;
 
         // Assert
         Assert.Equal("idle", verdict.Kind);
@@ -251,7 +252,7 @@ public sealed class ApiModeSessionFoldTests
         var trimmed = new ApiModeEventReplay("gen-a", new[] { new ApiModeHeldEvent("gen-a", GenAStarted, Queued(40, "p9")) }, Complete: false);
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p9", "turnRunning") }, trimmed)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, new[] { QueuedFor("p9", "turnRunning") }, trimmed, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.AgentConnected);
@@ -268,7 +269,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: false)!;
 
         // Assert
         Assert.True(verdict.Working);
@@ -286,7 +287,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: false)!;
 
         // Assert
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
@@ -303,7 +304,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "failed", "Pi exited") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1), Gone(2, 137, "Pi exited")))!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1), Gone(2, 137, "Pi exited")), agentStarting: false)!;
 
         // Assert
         Assert.False(verdict.AgentConnected);
@@ -320,7 +321,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.AgentConnected);
@@ -337,7 +338,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.User, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.User, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
@@ -355,7 +356,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
@@ -375,7 +376,7 @@ public sealed class ApiModeSessionFoldTests
         var receipts = new[] { Delivered("p1", "t1", "done") };
 
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, wheelHolder, sessionEnded: true, receipts, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, wheelHolder, sessionEnded: true, receipts, NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.WheelAction);
@@ -385,10 +386,141 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_AWheelHolderThisGatewayDoesNotKnow_ShowsNoWheelButton()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), NothingHeld, agentStarting: false)!;
 
         // Assert
         Assert.Null(verdict.WheelAction);
+    }
+
+    // ----- starting after a hand back: the row says starting, and so does the verdict -----
+
+    /// <summary>What the Gateway holds in the hand back window: turn 1 done, then the take's ending of that process.</summary>
+    private static ApiModeEventReplay HeldAfterTheTake() => HeldWhole(Ready(1), Gone(2, 0, "the user took the wheel"));
+
+    [Fact]
+    public void Fold_TheAgentIsStartingAfterAHandBack_IsStartingAndNeutralNotIdleAndRed()
+    {
+        // Arrange: the protocol holds the conversation again and the Director reports starting; the newest connection
+        // event held is still the take's ending.
+        var receipts = new[] { Delivered("p1", "t1", "done") };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldAfterTheTake(), agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.False(verdict.Working);
+        Assert.Equal(1, verdict.TurnNumber);
+        Assert.Equal("Starting - the agent is starting again after turn 1", verdict.ActivityLabel);
+        Assert.False(verdict.AgentConnected);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+        var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
+        Assert.Equal("takeTheWheel", wheel.Verb);
+        Assert.True(wheel.Enabled);
+    }
+
+    [Fact]
+    public void Fold_TheSameFactsOnceTheAgentIsNoLongerStarting_IsTheOrdinaryVerdict()
+    {
+        // Arrange: the same receipts and held events, with the Director no longer reporting starting.
+        var receipts = new[] { Delivered("p1", "t1", "done") };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldAfterTheTake(), agentStarting: false)!;
+
+        // Assert: what the fold said before this change.
+        Assert.Equal("idle", verdict.Kind);
+        Assert.Equal("Idle after turn 1", verdict.ActivityLabel);
+        Assert.False(verdict.AgentConnected);
+        Assert.Equal("red", verdict.Tone);
+    }
+
+    [Fact]
+    public void Fold_TheAgentIsStartingWithNoTurnYet_SaysItIsStarting()
+    {
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), HeldAfterTheTake(), agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Null(verdict.TurnNumber);
+        Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Fold_ANewSessionsFirstStart_IsStartingAndNeutralNotIdleAndRed(bool feedComplete)
+    {
+        // Arrange: a brand-new session (or a crash continuation): the protocol holds the wheel, the Director reports the
+        // session starting, and nothing is held - the whole generation with no event yet, or, after a Gateway restart,
+        // an empty feed that is not complete. Before the starting rule this read red "Idle - no turn yet".
+        var held = feedComplete ? HeldWhole() : NothingHeld;
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held, agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.False(verdict.Working);
+        Assert.Null(verdict.TurnNumber);
+        Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Fold_TheAgentIsStartingAndATurnIsOpen_IsStillWorking()
+    {
+        // Arrange: a turn started and has not ended; an open turn reads working, whatever the activity says.
+        var receipts = new[] { Delivered("p1", "t1") };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)), agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("working", verdict.Kind);
+        Assert.True(verdict.Working);
+    }
+
+    [Fact]
+    public void Fold_TheAgentIsStartingAfterAFailedTurn_KeepsTheFailedTurnRed()
+    {
+        // Arrange
+        var receipts = new[] { Delivered("p1", "t1", "failed", "Pi exited") };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldAfterTheTake(), agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("red", verdict.Tone);
+        Assert.Equal("The last turn failed: Pi exited", verdict.LastTurnEnding);
+    }
+
+    [Fact]
+    public void Fold_StartingWhileTheUserHasTheWheel_IsTheUsersWheel()
+    {
+        // Arrange: the activity is only read while the protocol process holds the conversation.
+        var receipts = new[] { Delivered("p1", "t1", "done") };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.User, sessionEnded: false, receipts, HeldAfterTheTake(), agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("userHasTheWheel", verdict.Kind);
+        Assert.Equal("The agent runs in your terminal", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Fold_ATerminalModeRowThatIsStarting_HasNoVerdict()
+    {
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Terminal, WheelHolders.None, sessionEnded: false, new[] { Delivered("p1", "t1") }, NothingHeld, agentStarting: true);
+
+        // Assert
+        Assert.Null(verdict);
     }
 }
 
@@ -424,7 +556,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
     private ApiModeDisplayFacts Facts() => new(_buffer, new ApiModeVerdictReceipts(_db));
 
     private void Push(TenantId tenant, params SessionEvent[] events)
-        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, _boundary).Accept(tenant, Director, A(events)));
+        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_db, () => T0.UtcDateTime), _boundary).Accept(tenant, Director, A(events)));
 
     private void Push(params SessionEvent[] events) => Push(Alice, events);
 
@@ -645,6 +777,70 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
 
         // Assert
         Assert.Null(row.ApiMode);
+    }
+
+    // ----- the hand back window: the row and the verdict agree -----
+
+    [Fact]
+    public void Stamp_HandBackWindow_TheRowAndTheApiModeVerdictAgreeTheAgentIsStarting()
+    {
+        // Arrange: turn 1 done, then the take ended that process; the user handed back, so the protocol holds the
+        // conversation again and the Director reports the session starting until the new process names its conversation.
+        Push(DeliveredThenDone());
+        Push(Gone(8, 0, "the user took the wheel"));
+        var row = new SessionDto { SessionId = Sid, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol, ActivityState = "Starting" };
+
+        // Act
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), Alice);
+
+        // Assert: the row is busy (blue, in the Active bucket, not asking for the user), and so is the verdict - starting,
+        // not idle, and not the disconnected red.
+        Assert.Equal("blue", SessionOrdering.EffectiveColor(row));
+        Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(row));
+        var verdict = Assert.IsType<ApiModeSessionDisplay>(row.ApiMode);
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.False(verdict.Working);
+        Assert.Equal("Starting - the agent is starting again after turn 1", verdict.ActivityLabel);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Stamp_FirstStart_TheRowAndTheApiModeVerdictAgreeTheAgentIsStarting()
+    {
+        // Arrange: a brand-new session - nothing pushed to the feed yet, the protocol holds the wheel, and the Director
+        // reports the session starting until the process names its conversation.
+        var row = new SessionDto { SessionId = Sid, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol, ActivityState = "Starting" };
+
+        // Act
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), Alice);
+
+        // Assert: the row is busy, and the verdict is starting and neutral - not the red "Idle - no turn yet".
+        Assert.Equal("blue", SessionOrdering.EffectiveColor(row));
+        var verdict = Assert.IsType<ApiModeSessionDisplay>(row.ApiMode);
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Stamp_HandBackWindowEnds_TheAgentNamesItsConversationAndTheVerdictIsIdleAndConnected()
+    {
+        // Arrange: the new process named its conversation, so the Director moved the session on to waiting for a prompt.
+        Push(DeliveredThenDone());
+        Push(Gone(8, 0, "the user took the wheel"));
+        Push(Ready(9));
+        var row = new SessionDto { SessionId = Sid, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol, ActivityState = "WaitingForInput" };
+
+        // Act
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), Alice);
+
+        // Assert
+        var verdict = Assert.IsType<ApiModeSessionDisplay>(row.ApiMode);
+        Assert.Equal("idle", verdict.Kind);
+        Assert.Equal("Idle after turn 1", verdict.ActivityLabel);
+        Assert.True(verdict.AgentConnected);
     }
 
     [Fact]

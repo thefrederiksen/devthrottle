@@ -1,12 +1,13 @@
 // The live conversation of one API-mode session, kept current from the Gateway's live stream (mission #4070, phase 3).
 //
-// The conversation is built from the stream ALONE, replayed from the start: not from /history, whose replies carry no
-// message id, so a reply loaded from it could not be matched to the same reply arriving live and would show twice.
-// The stream is opened with no cursor; the Gateway replays what it holds, then follows live, and resets the view when
+// The conversation is built from the stream ALONE: not from /history, whose replies carry no message id, so a reply
+// loaded from it could not be matched to the same reply arriving live and would show twice. The stream is opened with
+// no cursor; the Gateway opens it with the session's stored conversation (durable, so the same after a Gateway
+// restart), which replaces whatever is held, then follows live with items applied by item id, and resets the view when
 // it cannot continue it.
 import { useEffect, useRef, useState } from "react";
 import { describeAndReport } from "../errors/reportClientError";
-import { applyItems, applyReset, emptyConversation, type LiveConversation } from "./liveConversation";
+import { applyItems, applyOpening, applyReset, emptyConversation, type LiveConversation } from "./liveConversation";
 import { LIVE_CONNECTING_MESSAGE, openLiveStream, type LiveStreamDeps, type LiveStreamState } from "./liveStream";
 
 const SURFACE = "api-mode-live-chat";
@@ -36,10 +37,10 @@ export function useApiModeLiveChat(sessionId: string | undefined, deps?: LiveStr
     const close = openLiveStream(
       sessionId,
       {
-        onItems: (items) => {
+        onItems: (items, opening) => {
           // An entry point (a stream callback): an item that breaks the contract is reported here, never guessed at.
           try {
-            held.current = applyItems(held.current, items);
+            held.current = opening ? applyOpening(held.current, items) : applyItems(held.current, items);
             setConversation(held.current);
           } catch (err) {
             setProblem(describeAndReport(SURFACE, "show the live conversation", err, { sessionId }));

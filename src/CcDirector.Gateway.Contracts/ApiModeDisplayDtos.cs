@@ -11,7 +11,9 @@ public sealed class ApiModeLiveItem
 {
     /// <summary>Which item on screen this is. Two items with the same id are the same item: the later one appends to
     /// it or replaces it. <c>reply:&lt;messageId&gt;</c>, <c>tool:&lt;toolCallId&gt;</c>, <c>turn:&lt;turnId&gt;</c>,
-    /// <c>receipt:&lt;promptId&gt;</c>, <c>connection:&lt;sequence&gt;</c>, <c>permission:&lt;requestId&gt;</c>.</summary>
+    /// <c>receipt:&lt;promptId&gt;</c>, <c>connection:&lt;generation&gt;:&lt;sequence&gt;</c> (the sequence starts again
+    /// with every Director generation, so the generation keeps two lines apart), <c>permission:&lt;requestId&gt;</c>, and
+    /// <c>conversation:earlier-not-kept</c> for the line that opens a stored conversation whose oldest items were let go.</summary>
     public string ItemId { get; set; } = "";
 
     /// <summary>What sort of item, for the client's layout and style lookup only (never re-ruling): one of
@@ -48,9 +50,9 @@ public sealed class ApiModeLiveItem
     /// and on a receipt whose Director sent none.</summary>
     public string? PromptText { get; set; }
 
-    /// <summary>The sequence of the session event this item was ruled from, or 0 for an item that came from durable
-    /// state rather than from an event (the stored receipts the live relay sends when a reader starts from them; a real sequence starts at
-    /// 1). For logs and tests: a client applies items in the order they arrive and never sorts by it, because the
+    /// <summary>The sequence of the session event this item was ruled from (for an item of the stored conversation, the
+    /// last event that changed it), or 0 for a receipt from durable state and for the Gateway's own notice line (a real
+    /// sequence starts at 1). For logs and tests: a client applies items in the order they arrive and never sorts by it, because the
     /// sequence starts again with every Director generation.</summary>
     public long Sequence { get; set; }
 }
@@ -75,6 +77,10 @@ public static class ApiModeLiveItemKinds
 
     /// <summary>The agent asked for permission. Answering it from a client is not built (Pi never asks).</summary>
     public const string Permission = "permission";
+
+    /// <summary>A line from the Gateway about the conversation itself: today only that earlier conversation in the
+    /// session is not kept, at the start of a stored conversation the bound has cut.</summary>
+    public const string Notice = "notice";
 }
 
 /// <summary>The values of <see cref="ApiModeLiveItem.Mode"/>.</summary>
@@ -99,7 +105,10 @@ public static class ApiModeLiveItemModes
 public sealed class ApiModeSessionDisplay
 {
     /// <summary>Machine-readable state key, for the client's style lookup only (never re-ruling): <c>working</c>,
-    /// <c>idle</c>, <c>userHasTheWheel</c>, <c>stopped</c> (no process holds the conversation), or <c>unknown</c>.</summary>
+    /// <c>idle</c>, <c>starting</c> (the agent process holds the conversation and has not named it yet: while the agent
+    /// process is starting - a new session's first start, or a hand back - until it is ready, the same window the row reads
+    /// as starting), <c>userHasTheWheel</c>, <c>stopped</c> (no process
+    /// holds the conversation), or <c>unknown</c>.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>Render hint for the colour ONLY: <c>green</c>, <c>yellow</c>, <c>red</c> or <c>neutral</c>.</summary>
@@ -111,8 +120,9 @@ public sealed class ApiModeSessionDisplay
     /// <summary>True when the user holds the wheel (the agent's real terminal holds the conversation).</summary>
     public bool UserHasTheWheel { get; set; }
 
-    /// <summary>Working or idle, with the turn number, in words: "Working - turn 3", "Idle after turn 3", "Idle - no
-    /// turn yet", or the honest "Not known: ..." sentence.</summary>
+    /// <summary>Working, starting or idle, with the turn number, in words: "Working - turn 3", "Starting - the agent is
+    /// starting" (a new session's first start), "Starting - the agent is starting again after turn 3" (a hand back),
+    /// "Idle after turn 3", "Idle - no turn yet", or the honest "Not known: ..." sentence.</summary>
     public string ActivityLabel { get; set; } = "";
 
     /// <summary>True while a turn runs, false when idle, null when this Gateway cannot know.</summary>

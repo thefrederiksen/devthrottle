@@ -21,6 +21,7 @@ const switchLicenseNow = vi.fn();
 const setLicenseRenewalDate = vi.fn();
 const getLicenseApprovers = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
+  getLicenseAlarms: async () => ({ count: 0, summary: null, linkText: null, alarms: [] }),
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),

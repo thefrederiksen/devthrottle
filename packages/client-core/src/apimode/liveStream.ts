@@ -2,11 +2,14 @@
 //
 // The Gateway's contract for this route is in src/CcDirector.Gateway/Api/SessionLiveEndpoint.cs. What this reader does
 // with it:
-//   - It opens the stream with NO cursor, so the Gateway replays everything it holds for the session from the start,
-//     then follows live. (`after=0` is not a cursor the Gateway hands out; it answers 400.)
+//   - It opens the stream with NO cursor, so the Gateway opens it with the session's stored conversation (one items
+//     frame), then follows live. (`after=0` is not a cursor the Gateway hands out; it answers 400.) That first frame
+//     is the OPENING: the whole picture, handed on marked as such, to replace what the client holds - never merged.
 //   - Each `items` frame is a JSON array of ruled items, handed on whole and in order. Its `id` is the frame's cursor.
 //   - A `reset` frame is handed on, and its empty `id` clears the cursor, so a reconnect after it does not resend a
-//     cursor the Gateway could not honour.
+//     cursor the Gateway could not honour. The stored conversation follows it as the same opening frame.
+//   - A reconnect with no cursor (none was handed out - the opening of a session the Gateway holds no event of carries
+//     no id - or a reset cleared it) is opened with the opening again, and that is marked the same way.
 //   - The stream can end at any time (a proxy, a deploy, the network). That is not a gap: the reader reconnects with
 //     the cursor of the last frame it handed on, in the Last-Event-ID header, and the Gateway either continues from
 //     it or answers with a reset.
@@ -38,8 +41,10 @@ export interface LiveStreamState {
 }
 
 export interface LiveStreamHandlers {
-  /** One frame's items, in the order the Gateway sent them. */
-  onItems: (items: ApiModeLiveItem[]) => void;
+  /** One frame's items, in the order the Gateway sent them. `opening` is true for the opening - the first frame of a
+   *  stream opened with no cursor, and the first frame after a reset - which is the whole conversation, to replace
+   *  what the client holds. */
+  onItems: (items: ApiModeLiveItem[], opening: boolean) => void;
   /** The Gateway's reset: what the client holds must not be continued. */
   onReset: (reset: ApiModeLiveReset) => void;
   /** The reader's connection changed. */
@@ -149,6 +154,8 @@ export function openLiveStream(sessionId: string, handlers: LiveStreamHandlers, 
   let cancelRetry: (() => void) | null = null;
   // The cursor of the last frame handed on; empty means none (never sent, or cleared by a reset).
   let cursor = "";
+  // True until the opening of the current stream is handed on: set by a connect with no cursor and by a reset.
+  let openingNext = false;
   // A break in the contract is reported here, where it is found, and its sentence handed on to be shown.
   const reportBrokenFrame = (err: unknown) => handlers.onProblem(describeAndReport(SURFACE, "read the live conversation", err, { sessionId }));
 
@@ -167,6 +174,7 @@ export function openLiveStream(sessionId: string, handlers: LiveStreamHandlers, 
     controller = new AbortController();
     const headers: Record<string, string> = { Accept: "text/event-stream", ...(authHeaders() as Record<string, string>) };
     if (cursor !== "") headers["Last-Event-ID"] = cursor;
+    openingNext = cursor === "";
     let res: Response;
     try {
       res = await fetchFn(liveStreamUrl(sessionId), { method: "GET", headers, signal: controller.signal });
@@ -214,7 +222,9 @@ export function openLiveStream(sessionId: string, handlers: LiveStreamHandlers, 
         reportBrokenFrame(err);
         return;
       }
-      handlers.onItems(items);
+      const opening = openingNext;
+      openingNext = false;
+      handlers.onItems(items, opening);
       // The cursor moves only once the frame's items were handed on.
       if (frame.id !== undefined) cursor = frame.id;
       return;
@@ -228,6 +238,7 @@ export function openLiveStream(sessionId: string, handlers: LiveStreamHandlers, 
         return;
       }
       cursor = frame.id ?? "";
+      openingNext = true;
       handlers.onReset(reset);
       return;
     }

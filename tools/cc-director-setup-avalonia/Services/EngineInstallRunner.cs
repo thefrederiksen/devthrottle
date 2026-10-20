@@ -36,7 +36,7 @@ public sealed class EngineInstallRunner
     /// </summary>
     public static string? ReleaseDirectoryOverride { get; set; }
 
-    /// <summary>The on-disk Director path for this OS (~/Applications/Director.app on macOS).</summary>
+    /// <summary>The on-disk Director path for this OS (Director.app in the Applications folder on macOS).</summary>
     public string DirectorPath => _layout.PathFor(ComponentRegistry.Director);
 
     /// <summary>Everything ApplyAsync needs, plus the UI rows and up-to-date state.</summary>

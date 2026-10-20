@@ -307,7 +307,7 @@ public sealed class LicenseForgetMachineTests : IDisposable
     }
 
     [Fact]
-    public async Task ForgettingASilentMachine_ClosesItsAlarm_OnTheNextRaise()
+    public async Task ForgettingASilentMachine_NeverCreatesAnAlarm()
     {
         // The reason this exists (the review of pull request 4172, finding 3): a machine that is gone kept its
         // "Machine stopped reporting" alarm for ever.
@@ -316,7 +316,8 @@ public sealed class LicenseForgetMachineTests : IDisposable
         _now = Silent;
         _store.OpenSilence(TenantOne, View(TenantOne, id), _now);
         await alarm.RaiseAsync(TenantOne, CancellationToken.None);
-        Assert.Single(alarms.ListOpen(TenantOne), a => a.Kind == LicenseMachineHealthAlarm.Silent.Key);
+        Assert.Single(_store.ListOpenMachineHealth(TenantOne), row => row.Kind == LicenseLogKinds.MachineSilent);
+        Assert.Empty(alarms.ListOpen(TenantOne));
 
         Assert.Equal(200, Forget(TenantOne, id.ToString("N")).Status);
         await alarm.RaiseAsync(TenantOne, CancellationToken.None);

@@ -13,13 +13,27 @@ public class InstallProgressTests
     [Fact]
     public void NextStep_Mac_SaysWhereTheAppIsAndSignIn()
     {
-        var lines = InstallProgress.NextStep(InstallRole.Workstation, isMac: true, isWindows: false);
+        // The folder is the one the install actually used, passed in, not a folder this line assumes.
+        var lines = InstallProgress.NextStep(InstallRole.Workstation, isMac: true, isWindows: false, "/Applications");
         var text = string.Join("\n", lines);
         // The Mac bundle is Director.app: Spotlight and Finder show "Director", never "DevThrottle".
         Assert.Contains("type Director", text);
-        Assert.Contains("Director in ~/Applications", text);
+        Assert.Contains("Director in /Applications", text);
         Assert.DoesNotContain("type DevThrottle", text);
         Assert.Contains("Sign in and connect", text);
+    }
+
+    [Fact]
+    public void NextStep_MacWhereTheInstallFellBackToTheUsersOwnFolder_SaysThatFolder()
+    {
+        // A user who cannot write /Applications has the app in their own Applications folder. Telling
+        // them to look in /Applications would send them to an empty folder, which is the whole defect
+        // this line used to have in reverse.
+        var text = string.Join("\n",
+            InstallProgress.NextStep(InstallRole.Workstation, isMac: true, isWindows: false, "/Users/someone/Applications"));
+
+        Assert.Contains("Director in /Users/someone/Applications", text);
+        Assert.DoesNotContain("in /Applications", text);
     }
 
     [Fact]

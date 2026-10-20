@@ -49,12 +49,14 @@ public sealed class Uninstaller
         };
         if (!OperatingSystem.IsWindows())
         {
-            // On macOS the Director is the .app bundle in ~/Applications (the Windows AppDir above
-            // simply does not exist there). Include the pre-rename bundle name too (issue #1821) so
-            // an uninstall on a legacy host removes the app it actually has.
+            // On macOS the Director is the .app bundle in the Applications folder (the Windows AppDir
+            // above simply does not exist there). Include the older locations and names too - the
+            // pre-rename bundle (issue #1821) and the copy in ~/Applications from before the app moved
+            // to /Applications - so an uninstall on an existing host removes the app it actually has and
+            // leaves no icon behind.
             dirs.Add(("Director app bundle", _layout.PathFor(ComponentRegistry.Director)));
             foreach (var alias in _layout.LegacyAliasesFor(ComponentRegistry.Director))
-                dirs.Add(("Director app bundle (pre-rename name)", alias));
+                dirs.Add(("Director app bundle (earlier name or folder)", alias));
         }
         if (role == InstallRole.Gateway)
         {
@@ -93,9 +95,13 @@ public sealed class Uninstaller
                 UninstallKind.Autostart, "Launcher autostart (HKCU Run key)",
                 LauncherAutostart.ValueName, LauncherAutostart.IsRegistered()));
         else if (OperatingSystem.IsMacOS())
+        {
+            // Named from the layout's OWN home folder, never the machine's. The plan is a delete list,
+            // and a caller that sandboxed this layout has to be able to sandbox this entry too.
+            var plist = LauncherLaunchdAutostart.PlistPathIn(_layout.HomeDir);
             targets.Add(new UninstallTarget(
-                UninstallKind.Autostart, "Launcher launch agent (launchd)",
-                LauncherLaunchdAutostart.PlistPath, LauncherLaunchdAutostart.IsRegistered()));
+                UninstallKind.Autostart, "Launcher launch agent (launchd)", plist, File.Exists(plist)));
+        }
 
         foreach (var (desc, path) in Directories(role))
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
@@ -173,7 +179,8 @@ public sealed class Uninstaller
                 // loaded keeps its KeepAlive definition, so launchd restarts the launcher after the stop
                 // below has already been certified - and the restart binds the port again while the
                 // files are being deleted.
-                if (LauncherLaunchdAutostart.UnregisterVerified(out var agentFailure))
+                if (LauncherLaunchdAutostart.UnregisterVerified(out var agentFailure,
+                        LauncherLaunchdAutostart.PlistPathIn(_layout.HomeDir)))
                     steps.Add("Removed the Launcher launch agent (launchd)");
                 else
                     errors.Add($"Launcher launch agent: {agentFailure}. launchd may restart the launcher, "
@@ -515,22 +522,20 @@ public sealed class Uninstaller
     }
 
     /// <summary>
-    /// macOS removals the cross-platform directory pass does not cover: the Director .app in
-    /// ~/Applications, the ~/.local/bin shim symlinks that point into our pyenv, and the PATH block
-    /// cc-director appended to the shell rc files. (PythonDir/PyenvDir are removed by RemoveDirectories.)
+    /// macOS removals the cross-platform directory pass does not cover: the ~/.local/bin shim symlinks
+    /// that point into our pyenv, and the PATH block cc-director appended to the shell rc files.
+    /// (PythonDir/PyenvDir are removed by RemoveDirectories.)
+    ///
+    /// The Director .app is NOT removed here. It is in the plan - <see cref="Directories"/> names the
+    /// bundle and every earlier location and name of it on any non-Windows host - so RemoveDirectories
+    /// deletes it, and a second pass over the same paths would only report "not present" for bundles
+    /// this very uninstall had just deleted. It would also delete them in the one case the plan
+    /// deliberately does not: when the launcher could not be stopped, RemoveDirectories is skipped on
+    /// purpose, and removing the app anyway would make the uninstall contradict what it just reported.
     /// </summary>
     private void RemoveMacArtifacts(List<string> steps, List<string> errors)
     {
-        // 1. The Director .app.
-        var app = _layout.PathFor(ComponentRegistry.Director);
-        try
-        {
-            if (Directory.Exists(app)) { Directory.Delete(app, recursive: true); steps.Add($"removed Director app: {app}"); }
-            else steps.Add($"Director app: not present ({app})");
-        }
-        catch (Exception ex) { errors.Add($"Director app ({app}): {ex.Message}"); }
-
-        // 2. Our shim symlinks (only those pointing into our pyenv): ~/.local/bin for the machine's default
+        // 1. Our shim symlinks (only those pointing into our pyenv): ~/.local/bin for the machine's default
         //    root, the root's own bin for any other (InstallLayout.ToolShimDir).
         var userBin = _layout.ToolShimDir;
         if (Directory.Exists(userBin))
@@ -550,7 +555,7 @@ public sealed class Uninstaller
             }
         }
 
-        // 3. The PATH block in the shell rc files.
+        // 2. The PATH block in the shell rc files.
         foreach (var rc in InstallFinalizer.MacShellRcFiles())
             RemoveMacPathBlock(rc, steps, errors);
     }

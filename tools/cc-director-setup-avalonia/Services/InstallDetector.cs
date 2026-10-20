@@ -8,7 +8,7 @@ namespace CcDirectorSetup.Services;
 /// source of truth the command-line installer uses - so the wizard and the engine can
 /// never disagree about the machine. The wizard previously kept its own File.Exists
 /// check on &lt;root&gt;/bin/cc-director, a path that does not exist in the macOS layout
-/// (the Director there is the "~/Applications/Director.app" bundle), so every Mac
+/// (the Director there is the "Director.app" bundle in the Applications folder), so every Mac
 /// opened in fresh-install mode with update and repair unreachable (issue #1736).
 /// </summary>
 public static class InstallDetector

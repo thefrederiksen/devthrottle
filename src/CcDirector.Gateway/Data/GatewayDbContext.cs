@@ -333,6 +333,9 @@ public sealed class GatewayDbContext : DbContext
     /// the agent's own acknowledgement, or refused with the reason, and the outcome of the turn that carried it.</summary>
     public DbSet<ApiModeReceiptEntity> ApiModeReceipts => Set<ApiModeReceiptEntity>();
 
+    /// <summary>The durable conversation of an API-mode session (<c>api_mode_conversation_items</c>, mission #4070 phase
+    /// 2 follow-on): the final form of each item the live view shows, other than receipts, in the Gateway's own order.</summary>
+    public DbSet<ApiModeConversationItemEntity> ApiModeConversationItems => Set<ApiModeConversationItemEntity>();
     /// <summary>The channels the Mail Desk screens, one row per mailbox; a removed one is kept (Mail Desk, phase 1).</summary>
     public DbSet<MailDeskChannelEntity> MailDeskChannels => Set<MailDeskChannelEntity>();
 
@@ -979,6 +982,29 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.LastGeneration).HasMaxLength(64);
             // A turn's end finds the receipts of the prompts it carried by its turn id.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.TurnId });
+            // Retention cuts on updated-at, tenant-leading for the global filter.
+            b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+            // A Director that comes back as a new process finds the receipts it still holds as Queued by its own id
+            // (ApiModeLostQueuedPrompt, the second proof), on the path every Director takes after a Gateway deploy.
+            b.HasIndex(e => new { e.TenantId, e.DirectorId, e.State });
+        });
+
+        modelBuilder.Entity<ApiModeConversationItemEntity>(b =>
+        {
+            b.ToTable("api_mode_conversation_items");
+            // COMPOSITE primary key led by tenant_id, like api_mode_receipts: the session id and the item id both come
+            // from the Director's events. One row per item, so a later final replaces it in place.
+            b.HasKey(e => new { e.TenantId, e.SessionId, e.ItemId });
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.ItemId).HasMaxLength(ApiModeConversation.ApiModeConversationStore.MaxItemIdLength);
+            b.Property(e => e.Kind).HasMaxLength(32);
+            b.Property(e => e.Status).HasMaxLength(16);
+            b.Property(e => e.Tone).HasMaxLength(16);
+            b.Property(e => e.TurnId).HasMaxLength(64);
+            b.Property(e => e.LastGeneration).HasMaxLength(64);
+            // The Gateway's order of a session's items: unique, so two Gateways numbering the same session at once
+            // collide and the loser re-reads. Also what the opening reads in and what the bound drops from.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Ordinal }).IsUnique();
             // Retention cuts on updated-at, tenant-leading for the global filter.
             b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
         });
@@ -2389,6 +2415,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionTurnEntity>(modelBuilder);
         ApplyTenantScope<SessionTurnHeadEntity>(modelBuilder);
         ApplyTenantScope<ApiModeReceiptEntity>(modelBuilder);
+        ApplyTenantScope<ApiModeConversationItemEntity>(modelBuilder);
         ApplyTenantScope<MailDeskChannelEntity>(modelBuilder);
         ApplyTenantScope<MailDeskRulesVersionEntity>(modelBuilder);
         ApplyTenantScope<MailDeskListChangeEntity>(modelBuilder);
@@ -2497,6 +2524,10 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.PromptId).UseCollation("C");
             modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.TurnId).UseCollation("C");
+            // api_mode_conversation_items: the same, for its Director-supplied keys.
+            modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.ItemId).UseCollation("C");
+            modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.TurnId).UseCollation("C");
             // mail_desk_channels and mail_desk_decisions: the kind and the address are the unique index that keeps one
             // active channel per mailbox, and the message key is the unique index that records a message once, so the
             // two providers must agree on what counts as the same mailbox and the same message. The layer, the decision

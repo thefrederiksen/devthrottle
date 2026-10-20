@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
@@ -45,7 +46,7 @@ public sealed class ApiModeVerdictReceiptsTests : IDisposable
     public void Dispose() => _harness.Dispose();
 
     private void Push(TenantId tenant, params SessionEvent[] events)
-        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, _boundary).Accept(tenant, Director, A(events)));
+        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_db, () => T0.UtcDateTime), _boundary).Accept(tenant, Director, A(events)));
 
     private static SessionDto ApiRow(string sid) => new() { SessionId = sid, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol };
 

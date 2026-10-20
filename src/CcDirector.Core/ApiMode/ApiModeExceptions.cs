@@ -34,3 +34,17 @@ public sealed class ApiModeConnectionEndedException : Exception
     /// <summary>How the process ended.</summary>
     public ApiModeProcessEnded Ended { get; }
 }
+
+/// <summary>
+/// Input meant for the user's terminal reached an API-mode session that has none open: the protocol holds the
+/// conversation, or nothing does. Nothing was typed. The message is the Director's sentence for the person who typed,
+/// so the prompt verb answers it as a refusal the Cockpit and the phone show, never as a failure (phase 4 review,
+/// finding 2).
+/// </summary>
+public sealed class ApiModeNoTerminalException : InvalidOperationException
+{
+    public ApiModeNoTerminalException(string message)
+        : base(message)
+    {
+    }
+}

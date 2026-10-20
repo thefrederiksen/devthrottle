@@ -7,13 +7,12 @@ using CcDirector.Gateway.Tenancy;
 namespace CcDirector.Gateway.Licenses;
 
 /// <summary>
-/// THE ALARMS OF A MACHINE THAT IS REFUSED OR SILENT (License Switching phase 6, Track B). Two kinds of license alarm
-/// (contract section 9), each true exactly while its row of the Licenses log is open:
+/// Refused reports are license alarms. Silent machines are status on the Licenses page, and their retired alarms
+/// are closed by reconciling an empty set of conditions:
 /// <list type="bullet">
 /// <item><see cref="Refused"/> - a machine whose reports the Gateway refuses for what they say
 /// (<see cref="LicenseLogKinds.ReportRefused"/>, written by the ingest). Its sentence is the refusal's own reason.</item>
-/// <item><see cref="Silent"/> - a machine that reported and then sent nothing for longer than
-/// <see cref="LicenseStore.SilentAfter"/> (<see cref="LicenseLogKinds.MachineSilent"/>, written by the minute check).</item>
+/// <item><see cref="Silent"/> - the retired kind, retained only to close stored alarms.</item>
 /// </list>
 ///
 /// RAISED BY CONDITION, ONCE A MINUTE. The rows are the state: the ingest opens and ends a refusal and the minute check
@@ -130,13 +129,15 @@ public sealed class LicenseMachineHealthAlarm
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var (refused, silent) = ConditionsNow(tenant);
+            var (refused, _) = ConditionsNow(tenant);
             var failures = new List<Exception>();
             var refusedRaised = await RaiseKindAsync(tenant, Refused, refused, failures, ct).ConfigureAwait(false);
-            var silentRaised = await RaiseKindAsync(tenant, Silent, silent, failures, ct).ConfigureAwait(false);
+            // A machine that is switched off is status on the Licenses page, not an alarm. Raising the retired kind
+            // with no conditions closes every database row left open by an earlier Gateway without opening, pushing or mailing one.
+            var silentRaised = await RaiseKindAsync(tenant, Silent, Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             // Quiet when there is nothing to say; the alarm service logs every open and close itself.
-            if (refused.Count + silent.Count > 0)
-                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, refused={refused.Count}, silent={silent.Count}");
+            if (refused.Count > 0 || silentRaised?.Closed > 0)
+                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, refused={refused.Count}, silentClosed={silentRaised?.Closed}");
             if (failures.Count > 0)
                 throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
             return (refusedRaised, silentRaised);

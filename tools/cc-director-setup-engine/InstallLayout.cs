@@ -35,7 +35,12 @@ public sealed class InstallLayout
     /// caller, so a test decides where the tool links go without reading - or writing - a real home folder.
     /// Null means "ask the machine", which is what <see cref="InstallLayout(string)"/> does.
     /// </summary>
-    internal InstallLayout(string localRoot, string? defaultRoot, string? homeDir)
+    /// <param name="macAppsDir">
+    /// The macOS Applications folder this layout answers with, fixing the choice
+    /// <see cref="MacAppsFolder"/> would otherwise make by probing the disk. A test uses it to take
+    /// either branch - the system folder or the per-user one - on whatever machine it runs on.
+    /// </param>
+    internal InstallLayout(string localRoot, string? defaultRoot, string? homeDir, string? macAppsDir = null)
     {
         if (string.IsNullOrWhiteSpace(localRoot))
             throw new ArgumentException("localRoot must not be empty.", nameof(localRoot));
@@ -55,10 +60,12 @@ public sealed class InstallLayout
         LocalRoot = localRoot;
         _defaultRoot = defaultRoot;
         _homeDir = homeDir;
+        _macAppsDir = macAppsDir;
     }
 
     private readonly string? _defaultRoot;
     private readonly string? _homeDir;
+    private string? _macAppsDir;
 
     /// <summary>
     /// The production layout. The root is <see cref="CcStorage.MachineRoot"/> - the ONE folder per
@@ -114,8 +121,28 @@ public sealed class InstallLayout
     /// <summary>The shared venv's executables dir: "Scripts" on Windows, "bin" on macOS/Unix.</summary>
     public string PyenvBinDir => Path.Combine(PyenvDir, OperatingSystem.IsWindows() ? "Scripts" : "bin");
 
-    /// <summary>macOS user apps dir (~/Applications) - where the Director .app is placed (user-writable).</summary>
-    public string MacAppsDir => Path.Combine(HomeDir, "Applications");
+    /// <summary>
+    /// macOS: the Applications folder the Director .app is placed in, so its icon is where a Mac user
+    /// looks for it - <c>/Applications</c> when this user can write it, and <c>~/Applications</c> when
+    /// they cannot. <see cref="MacAppsFolder"/> carries the reasoning and makes the choice.
+    ///
+    /// Resolved once per layout and then kept: the production answer comes from a write probe, and a
+    /// property read many times per install must not perform many probes - nor change its answer
+    /// half-way through one, which would place the bundle in one folder and look for it in another.
+    ///
+    /// NOT the folder to hand back to the user with chown. It can be <c>/Applications</c>, which belongs
+    /// to root on every Mac and must stay that way; <see cref="MacUserAppsDir"/> is the one an install
+    /// may have created in the user's home. <see cref="MacFileOwnership"/> uses that one.
+    /// </summary>
+    public string MacAppsDir => _macAppsDir ??=
+        MacAppsFolder.Choose(MacAppsFolder.SystemAppsDir, MacUserAppsDir, MacAppsFolder.CanCreateDirectoryIn);
+
+    /// <summary>
+    /// macOS per-user apps dir (<c>~/Applications</c>) - the fallback for a user who cannot write
+    /// <c>/Applications</c>, and the folder older installs placed the bundle in. Always under the user's
+    /// own home, whatever <see cref="MacAppsDir"/> resolved to.
+    /// </summary>
+    public string MacUserAppsDir => Path.Combine(HomeDir, "Applications");
 
     /// <summary>
     /// Where the cc-* tool shims of THIS install are written, on the platform this process runs on. See
@@ -149,7 +176,14 @@ public sealed class InstallLayout
             platform == OSPlatform.Windows);
     }
 
-    private string HomeDir => _homeDir ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    /// <summary>
+    /// The user's own home folder. Public because the install writes things in it that are not under
+    /// <see cref="LocalRoot"/> - the shell start-up files it appends its PATH block to, and the per-user
+    /// Applications folder - and the code that repairs their ownership must name them from the HOME
+    /// folder itself. It used to derive them from the parent of the Applications folder, which was the
+    /// home folder only for as long as that folder was always <c>~/Applications</c>.
+    /// </summary>
+    public string HomeDir => _homeDir ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
     /// The configuration directory of this install - the parent of every per-tool config folder, and
@@ -263,9 +297,12 @@ public sealed class InstallLayout
             };
         }
 
-        // macOS is Workstation-only: the Director is a .app in ~/Applications (matching the manual
-        // install + UpdateInstaller.SwapMac); tools carry no .exe extension. Gateway/Launcher are
-        // Windows-only roles and are never placed on mac.
+        // macOS is Workstation-only: the Director is a .app in the Applications folder a Mac user opens
+        // (/Applications, or ~/Applications for a user who cannot write it - see MacAppsFolder), which is
+        // also where a manual drag-install from the disk image lands. The auto-updater does not read this:
+        // it swaps the bundle the running process is inside (UpdateInstaller.InstallTarget), so it follows
+        // the install wherever it is. Tools carry no .exe extension. Gateway/Launcher are Windows-only
+        // roles and are never placed on mac.
         if (platform == OSPlatform.OSX)
         {
             return component.Kind switch
@@ -328,13 +365,28 @@ public sealed class InstallLayout
             return new[] { Path.Combine(GatewayDir, legacyName) };
         }
 
-        // The macOS Director bundle was renamed "CC Director.app" -> "Director.app". A host installed
-        // before the rename still carries the old bundle in ~/Applications; accept it for detection so
-        // an update refreshes that host instead of orphaning it. Windows/tool names never changed,
-        // and Linux has no pre-rename history at all - it had no install before this mission - so the
-        // condition is macOS, not "not Windows".
+        // The macOS Director bundle has moved twice: it was renamed "CC Director.app" -> "Director.app"
+        // (issue #1821), and it moved out of ~/Applications into /Applications so that its icon is in the
+        // folder a Mac user actually opens. A host carrying either of the older shapes is still an
+        // install, so both are accepted for detection - otherwise an existing Mac would read as "nothing
+        // installed", and the update that should refresh it would orphan it instead. The CURRENT location
+        // stays the only one written to; MacAppPlacer removes what these find. Windows and tool names
+        // never changed, and Linux has no pre-rename history at all - it had no install before this
+        // mission - so the condition is macOS, not "not Windows".
+        //
+        // Every alias is composed from the user's OWN home folder, which this layout can be told. A
+        // hand-placed copy in /Applications is deliberately NOT listed, although one can exist: the
+        // aliases are fed to the uninstall, which deletes what it is given with no further check, and a
+        // hard-coded machine-wide path cannot be sandboxed by any caller - that is precisely the shape
+        // that let a unit test delete a developer's installed application. A stray copy in /Applications
+        // is handled by MacBundlePurger instead, which deletes a bundle only after reading its
+        // CFBundleIdentifier and finding the product's own.
         if (component.Kind == ComponentKind.Director && OperatingSystem.IsMacOS())
-            return new[] { Path.Combine(MacAppsDir, "CC Director.app") };
+        {
+            return new[] { Path.Combine(MacUserAppsDir, "Director.app"), Path.Combine(MacUserAppsDir, "CC Director.app") }
+                .Where(p => !string.Equals(p, PathFor(component, OSPlatform.OSX), StringComparison.Ordinal))
+                .ToArray();
+        }
 
         return Array.Empty<string>();
     }

@@ -121,7 +121,7 @@ export function turnEndedItem(turnId: string, text: string, tone: string, sequen
 }
 
 export function connectionItem(sequence: number, text: string, tone: string, detail?: string): ApiModeLiveItem {
-  return { itemId: `connection:${sequence}`, kind: "connection", mode: "replace", text, tone, detail: detail ?? null, sequence };
+  return { itemId: `connection:g1:${sequence}`, kind: "connection", mode: "replace", text, tone, detail: detail ?? null, sequence };
 }
 
 /** The session verdict mid-turn, worded as ApiModeSessionFold words it. */

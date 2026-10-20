@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -55,7 +56,7 @@ public sealed class PushApiModeEventsHubTests : IDisposable
 
     private DirectorHub NewHub(string connectionId, bool withIngest = true, CcDirector.Gateway.Fleet.FleetDisplayStateObserver? fleetDisplayState = null) => new(_store, _registry, InputStatsHandle.Available(_inputStats),
         new GatewayStreamRegistry(), _boundary, fleetDisplayState: fleetDisplayState,
-        apiModeEvents: withIngest ? new ApiModeEventIngest(_buffer, _receipts, _boundary) : null) { Context = new FakeHubCallerContext(connectionId) };
+        apiModeEvents: withIngest ? new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_harness.Open(), () => T0.UtcDateTime), _boundary) : null) { Context = new FakeHubCallerContext(connectionId) };
 
     private const string OtherSid = "77777777-7777-4777-8777-777777777777";
 
@@ -114,7 +115,7 @@ public sealed class PushApiModeEventsHubTests : IDisposable
         Assert.Empty(sent);
     }
 
-    private static DirectorStreamHello Hello() => new() { DirectorId = Director, Version = "test" };
+    private static DirectorStreamHello Hello(DateTime startedAt = default) => new() { DirectorId = Director, Version = "test", StartedAt = startedAt };
 
     [Fact]
     public void PushApiModeEvents_BeforeHello_IsRefused()
@@ -164,6 +165,40 @@ public sealed class PushApiModeEventsHubTests : IDisposable
 
         Assert.Null(hub.PushApiModeEvents(A(Ready(1), Queued(2, "p1"))));
         Assert.Empty(_receipts.Read(Sid));
+    }
+
+    // ----- the Director comes back as a new process (item 9, case 1) -----
+
+    [Fact]
+    public void Hello_FromANewProcessOfTheDirector_RulesItsEarlierProcesssQueuedReceiptsUnknown()
+    {
+        // Arrange: the first process (started before generation A) queued p1; then it died.
+        var first = NewHub("conn-1");
+        first.Hello(Hello(GenAStarted.AddMinutes(-5)));
+        first.PushApiModeEvents(A(Ready(1), Queued(2, "p1")));
+
+        // Act: the new process, started after generation A, says Hello on a new connection.
+        var capabilities = NewHub("conn-2").Hello(Hello(GenAStarted.AddHours(1)));
+
+        // Assert: the Hello answered as usual, and the receipt is Unknown.
+        Assert.NotNull(capabilities);
+        Assert.Equal(ApiModeReceiptState.Unknown, Assert.Single(_receipts.Read(Sid)).State);
+    }
+
+    [Fact]
+    public void Hello_TheSameProcessReconnecting_LeavesItsQueuedReceiptQueued()
+    {
+        // Arrange
+        var startedAt = GenAStarted.AddMinutes(-5);
+        var first = NewHub("conn-1");
+        first.Hello(Hello(startedAt));
+        first.PushApiModeEvents(A(Ready(1), Queued(2, "p1")));
+
+        // Act: the same process, on a new connection.
+        NewHub("conn-2").Hello(Hello(startedAt));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Queued, Assert.Single(_receipts.Read(Sid)).State);
     }
 
     [Fact]

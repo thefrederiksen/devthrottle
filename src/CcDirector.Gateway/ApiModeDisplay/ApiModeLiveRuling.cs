@@ -31,12 +31,16 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 /// A ruling fed across a Director restart would refuse every receipt event of the new generation as "not after" the old
 /// one.</para>
 ///
-/// <para><b>After an incomplete replay</b> (<see cref="ApiModeEvents.ApiModeEventReplay.Complete"/> false: a Gateway
-/// restart, an eviction, a new Director generation) the reader has missed events. Build a NEW ruling from the stored
-/// receipts and their positions (<see cref="ApiModeLiveRuling(IEnumerable{ApiModeStoredReceipt})"/>), render those
-/// receipts with <see cref="ReceiptItem"/>, and continue from there, handing each event with its position
-/// (<see cref="Rule(ApiModeEvents.ApiModeHeldEvent)"/>). A tool that finishes after the reader missed its start is shown
-/// with a title that says so, never a guessed one.</para>
+/// <para><b>A reader that starts from durable state</b> (no cursor, or a reset after an incomplete replay: a Gateway
+/// restart, an eviction, a new Director generation) gets a NEW ruling from the stored receipts with their positions and
+/// from the stored conversation
+/// (<see cref="ApiModeLiveRuling(IEnumerable{ApiModeStoredReceipt}, IEnumerable{ApiModeLiveItem})"/>), built by
+/// <see cref="ApiModeConversationOpening"/>, and continues from there, handing each event with its position
+/// (<see cref="Rule(ApiModeEvents.ApiModeHeldEvent)"/>). A tool still running in the stored conversation keeps its title
+/// when it finishes; one whose start nothing kept is shown with a title that says so, never a guessed one.</para>
+///
+/// <para><b>The durable conversation</b> (<see cref="ApiModeConversation.ApiModeConversationStore"/>) keeps the final
+/// forms this ruling makes, through <see cref="ConversationItems"/>, so a stored item reads exactly as it read live.</para>
 ///
 /// <para><b>Thought text is hidden.</b> The event model leaves showing the agent's thinking (<c>channel: thought</c>)
 /// to the Gateway; this ruling shows none of it (<see cref="ShowsThoughts"/>). The reply is what the user asked for.</para>
@@ -52,7 +56,7 @@ public sealed class ApiModeLiveRuling
     private readonly Dictionary<string, ApiModeReceiptDto> _receipts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _shownReceiptWords = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<string>> _turnPrompts = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, ToolCallStarted> _tools = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OpenTool> _tools = new(StringComparer.Ordinal);
     // For each receipt this ruling took from the store, the position of the last event the store applied to it. A reader
     // started from the stored receipts is then handed, again, events the store has already ruled on; an event at or
     // before this position is such a replay and changes nothing, and only an event after it is ruled.
@@ -67,11 +71,52 @@ public sealed class ApiModeLiveRuling
     private readonly List<string> _order = new();
     private readonly Dictionary<string, ApiModeEventPosition> _lastPositions = new(StringComparer.Ordinal);
 
+    /// <summary>A tool card's status while the tool runs: the one status a later finish replaces.</summary>
+    public const string ToolRunningStatus = "running";
+
     /// <summary>A ruling for a reader that starts at the first event of a complete replay.</summary>
     public ApiModeLiveRuling()
         : this(Array.Empty<ApiModeStoredReceipt>())
     {
     }
+
+    /// <summary>A ruling that starts from the stored receipts (as <see cref="ApiModeLiveRuling(IEnumerable{ApiModeStoredReceipt})"/>)
+    /// and from the stored conversation (<see cref="ApiModeConversation.ApiModeConversationStore"/>): every tool card in
+    /// it still <see cref="ToolRunningStatus"/> is a tool this ruling knows the start of, so its finish keeps the title
+    /// and input the reader already shows instead of saying the start was missed.</summary>
+    public ApiModeLiveRuling(IEnumerable<ApiModeStoredReceipt> receipts, IEnumerable<ApiModeLiveItem> storedConversation)
+        : this(receipts)
+    {
+        ArgumentNullException.ThrowIfNull(storedConversation);
+        foreach (var item in storedConversation)
+        {
+            if (item.Kind != ApiModeLiveItemKinds.ToolCard || item.Status != ToolRunningStatus) continue;
+            if (!item.ItemId.StartsWith(ToolItemPrefix, StringComparison.Ordinal) || item.TurnId is null)
+                throw new InvalidOperationException($"ApiModeLiveRuling: the stored tool card '{item.ItemId}' is not one this ruling made (it needs the {ToolItemPrefix} prefix and a turn)");
+            _tools[item.ItemId[ToolItemPrefix.Length..]] = new OpenTool(item.Text, item.Detail, item.TurnId);
+        }
+    }
+
+    /// <summary>
+    /// THE ITEMS OF ONE EVENT THE DURABLE CONVERSATION KEEPS (<see cref="ApiModeConversation.ApiModeConversationStore"/>):
+    /// what this ruling makes of the event, less the receipt items (the receipt store keeps receipts). A
+    /// <see cref="ApiModeLiveItemModes.Replace"/> item is a final form and is stored; an
+    /// <see cref="ApiModeLiveItemModes.Append"/> item (a reply's delta) is never stored, it only marks where the reply
+    /// began. <paramref name="storedToolCard"/> is the stored card of the tool a <see cref="ToolCallFinished"/> finishes,
+    /// when there is one, so a finish after a Gateway restart keeps the title the start gave it. Pure, like the ruling.
+    /// </summary>
+    public static IReadOnlyList<ApiModeLiveItem> ConversationItems(ApiModeEvents.ApiModeHeldEvent held, ApiModeLiveItem? storedToolCard)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+        var ruling = new ApiModeLiveRuling(Array.Empty<ApiModeStoredReceipt>(),
+            storedToolCard is null ? Array.Empty<ApiModeLiveItem>() : new[] { storedToolCard });
+        return ruling.Rule(held).Where(i => i.Kind != ApiModeLiveItemKinds.Receipt).ToList();
+    }
+
+    /// <summary>The item id of a tool card, from the tool call's id.</summary>
+    public static string ToolItemId(string toolCallId) => ToolItemPrefix + toolCallId;
+
+    private const string ToolItemPrefix = "tool:";
 
     /// <summary>A ruling that starts from the stored receipts (after an incomplete replay), each with the position of
     /// the last event the store applied to it. Each receipt counts as already shown with its own words; render them with
@@ -120,8 +165,11 @@ public sealed class ApiModeLiveRuling
         var lost = ApiModeLostTurnEnd.Proves(e, out var continuing)
             ? LostTurnEnds(e, continuing, position)
             : Array.Empty<ApiModeLiveItem>();
+        var left = ApiModeLostQueuedPrompt.Proves(e, out var ownPromptIds)
+            ? QueuesLeft(e, ownPromptIds, position)
+            : Array.Empty<ApiModeLiveItem>();
         var items = RuleEvent(e, position);
-        return lost.Count == 0 ? items : lost.Concat(items).ToList();
+        return lost.Count == 0 && left.Count == 0 ? items : lost.Concat(left).Concat(items).ToList();
     }
 
     private IReadOnlyList<ApiModeLiveItem> RuleEvent(SessionEvent e, ApiModeEventPosition? position)
@@ -130,14 +178,15 @@ public sealed class ApiModeLiveRuling
         {
             PromptQueued q => ReceiptChange(q, position, r =>
             {
-                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, q)) return;
+                if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, q)) return;
+                if (r.State == ApiModeReceiptState.Unknown) Unlink(r);
                 r.State = ApiModeReceiptState.Queued;
                 KeepPromptText(r, q.PromptText);
                 r.QueueReason = Word(q.Reason);
             }),
             PromptDelivered d => ReceiptChange(d, position, r =>
             {
-                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, d)) return;
+                if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, d)) return;
                 KeepPromptText(r, d.PromptText);
                 r.State = ApiModeReceiptState.Delivered;
                 r.Disposition = Word(d.Disposition);
@@ -145,7 +194,8 @@ public sealed class ApiModeLiveRuling
             }),
             PromptRefused f => ReceiptChange(f, position, r =>
             {
-                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, f)) return;
+                if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, f)) return;
+                if (r.State == ApiModeReceiptState.Unknown) Unlink(r);
                 KeepPromptText(r, f.PromptText);
                 r.State = ApiModeReceiptState.Refused;
                 r.RefusalReason = f.Reason;
@@ -168,7 +218,7 @@ public sealed class ApiModeLiveRuling
             }),
             ConnectionReady c => One(new ApiModeLiveItem
             {
-                ItemId = "connection:" + c.Sequence,
+                ItemId = ConnectionItemId(c, position),
                 Kind = ApiModeLiveItemKinds.Connection,
                 Mode = ApiModeLiveItemModes.Replace,
                 Text = $"Agent connected ({c.Model})",
@@ -177,7 +227,7 @@ public sealed class ApiModeLiveRuling
             }),
             ConnectionEnded c => One(new ApiModeLiveItem
             {
-                ItemId = "connection:" + c.Sequence,
+                ItemId = ConnectionItemId(c, position),
                 Kind = ApiModeLiveItemKinds.Connection,
                 Mode = ApiModeLiveItemModes.Replace,
                 Text = DisconnectedWords(c.Reason),
@@ -209,6 +259,19 @@ public sealed class ApiModeLiveRuling
         };
     }
 
+    /// <summary>
+    /// A connection line's item id: <c>connection:&lt;generation&gt;:&lt;sequence&gt;</c>. The sequence starts again with
+    /// every Director generation, so the sequence alone would name two different lines the same in the durable
+    /// conversation, which outlives a generation; the generation comes from the held event, so a connection event must be
+    /// handed as one.
+    /// </summary>
+    private static string ConnectionItemId(SessionEvent e, ApiModeEventPosition? position)
+    {
+        if (position is not { } at)
+            throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} sequence={e.Sequence} was handed without its position, and a connection line is named by its generation; hand it as a held event");
+        return "connection:" + at.Generation + ":" + e.Sequence.ToString(CultureInfo.InvariantCulture);
+    }
+
     /// <summary>How many second endings this ruling has logged (a Director defect each), for the tests.</summary>
     internal int SecondEndingsLogged { get; private set; }
 
@@ -222,8 +285,11 @@ public sealed class ApiModeLiveRuling
     /// <see cref="ApiModeReceiptDto.QueuePosition"/>; <c>Queued: &lt;why&gt;</c> when no place is known, never a guessed
     /// one), <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>,
     /// <c>Delivered - the turn's end was lost when the Director reconnected</c> (the Gateway's ruling for a turn whose
-    /// end fell in a hole, <see cref="ApiModeLostTurnEnd"/>), or <c>Refused: &lt;reason&gt;</c>. The reason is the
-    /// agent's (or the Director's) own words, verbatim.
+    /// end fell in a hole, <see cref="ApiModeLostTurnEnd"/>), <c>Refused: &lt;reason&gt;</c>, or for an
+    /// <see cref="ApiModeReceiptState.Unknown"/> receipt (the Gateway's ruling for a queued prompt whose ending was lost)
+    /// <see cref="ApiModeLostQueuedPrompt.CarriedWords"/> when a later turn carried it - the receipt is linked to that
+    /// turn (<see cref="ApiModeLostQueuedPrompt.IsCarried"/>) - and <see cref="ApiModeLostQueuedPrompt.Words"/> otherwise.
+    /// The reason is the agent's (or the Director's) own words, verbatim.
     /// </summary>
     public static string ReceiptWords(ApiModeReceiptDto receipt)
     {
@@ -234,6 +300,9 @@ public sealed class ApiModeLiveRuling
                 ? $"Queued, {Ordinal(place)} in line: {QueueReasonWords(receipt.QueueReason)}"
                 : "Queued: " + QueueReasonWords(receipt.QueueReason),
             ApiModeReceiptState.Refused => "Refused: " + (receipt.RefusalReason ?? "no reason was given"),
+            ApiModeReceiptState.Unknown => ApiModeLostQueuedPrompt.IsCarried(receipt.State, receipt.TurnId)
+                ? ApiModeLostQueuedPrompt.CarriedWords
+                : ApiModeLostQueuedPrompt.Words,
             ApiModeReceiptState.Delivered => receipt.TurnOutcome switch
             {
                 "failed" => "Delivered - the turn failed: " + (receipt.TurnOutcomeReason ?? "no reason was given"),
@@ -250,14 +319,15 @@ public sealed class ApiModeLiveRuling
     public const string LostWords = "Delivered - the turn's end was lost when the Director reconnected";
 
     /// <summary>A receipt's colour hint: <c>green</c> delivered, <c>red</c> refused or its turn failed,
-    /// <c>yellow</c> its turn was stopped, <c>neutral</c> still queued or its turn's end was lost (the delivery is
-    /// certain; how the turn ended is not known).</summary>
+    /// <c>yellow</c> its turn was stopped, <c>neutral</c> still queued, its turn's end was lost (the delivery is
+    /// certain; how the turn ended is not known), or whether it was delivered is not known.</summary>
     public static string ReceiptTone(ApiModeReceiptDto receipt)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         return receipt.State switch
         {
             ApiModeReceiptState.Queued => "neutral",
+            ApiModeReceiptState.Unknown => "neutral",
             ApiModeReceiptState.Refused => "red",
             _ => receipt.TurnOutcome switch
             {
@@ -359,7 +429,21 @@ public sealed class ApiModeLiveRuling
     private IReadOnlyList<ApiModeLiveItem> ReceiptChange(SessionEvent e, ApiModeEventPosition? position, Action<ApiModeReceiptDto> change)
     {
         var promptId = PromptIdOf(e);
-        if (_storedPositions.TryGetValue(promptId, out var stored))
+        // THE REAL EVENT REPLACES THE UNKNOWN RULING, WHATEVER ITS SEQUENCE (ApiModeLostQueuedPrompt), as the store
+        // replaces it: neither guard below applies to it. An event of an older generation than the ruling is a replay.
+        var replacesUnknown = false;
+        if (_receipts.TryGetValue(promptId, out var known) && known.State == ApiModeReceiptState.Unknown)
+        {
+            replacesUnknown = position is not { } p || !_lastPositions.TryGetValue(promptId, out var ruledAt)
+                || ApiModeLostQueuedPrompt.IsReplacedBy(p, ruledAt.Generation, ruledAt.GenerationStartedUtc);
+            if (!replacesUnknown)
+            {
+                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: {e.GetType().Name} is of a generation older than the {nameof(ApiModeReceiptState.Unknown)} ruling, a replay; it changes nothing");
+                return Array.Empty<ApiModeLiveItem>();
+            }
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: the prompt's real {e.GetType().Name} arrived after the Gateway ruled it {nameof(ApiModeReceiptState.Unknown)}; it replaces the ruling");
+        }
+        if (!replacesUnknown && _storedPositions.TryGetValue(promptId, out var stored))
         {
             if (position is not { } at)
                 throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} for prompt={promptId} was handed without its position, and this ruling took that prompt's receipt from the store; hand it as a held event");
@@ -368,13 +452,13 @@ public sealed class ApiModeLiveRuling
             if (!at.IsAfter(stored.Generation, stored.GenerationStartedUtc, stored.Sequence))
                 return Array.Empty<ApiModeLiveItem>();
         }
-        if (_receiptSequences.TryGetValue(promptId, out var last) && e.Sequence <= last)
+        if (!replacesUnknown && _receiptSequences.TryGetValue(promptId, out var last) && e.Sequence <= last)
         {
             // An older event handed over after a newer one: it never overwrites what the newer one decided.
             FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: {e.GetType().Name} is not after sequence {last}, already ruled for this prompt; it changes nothing");
             return Array.Empty<ApiModeLiveItem>();
         }
-        _receiptSequences[promptId] = e.Sequence;
+        _receiptSequences[promptId] = _receiptSequences.TryGetValue(promptId, out var ruled) ? Math.Max(ruled, e.Sequence) : e.Sequence;
         if (!_receipts.TryGetValue(promptId, out var receipt))
         {
             receipt = new ApiModeReceiptDto { PromptId = promptId, State = ApiModeReceiptState.Queued };
@@ -382,7 +466,8 @@ public sealed class ApiModeLiveRuling
             _order.Add(promptId);
         }
         change(receipt);
-        Touch(promptId, position);
+        if (replacesUnknown) TouchForward(promptId, position);
+        else Touch(promptId, position);
 
         return WaitingIfMoved(e.Sequence, receipt);
     }
@@ -481,6 +566,17 @@ public sealed class ApiModeLiveRuling
         return false;
     }
 
+    /// <summary>Drops the turn a later turn's start linked to an Unknown receipt (<see cref="ApiModeLostQueuedPrompt.IsCarried"/>)
+    /// when the prompt's real Queued or Refused replaces the ruling, as the store drops it.</summary>
+    private void Unlink(ApiModeReceiptDto receipt)
+    {
+        if (receipt.TurnId is { } turn && _turnPrompts.TryGetValue(turn, out var prompts))
+            prompts.Remove(receipt.PromptId);
+        receipt.TurnId = null;
+        receipt.TurnOutcome = null;
+        receipt.TurnOutcomeReason = null;
+    }
+
     private IReadOnlyList<ApiModeLiveItem> TurnStart(TurnStarted s, ApiModeEventPosition? position)
     {
         var prompts = PromptsOf(s.TurnId);
@@ -561,6 +657,50 @@ public sealed class ApiModeLiveRuling
         return items;
     }
 
+    /// <summary>
+    /// The Unknown ruling (<see cref="ApiModeLostQueuedPrompt"/>), under the condition the receipt store applies:
+    /// <paramref name="e"/> comes after every re-announcement of its generation, and a Queued receipt other than the one
+    /// the event itself names was last changed in an older generation. That last position is the one the store keeps on
+    /// the row, as for the lost turn ending (<see cref="LostTurnEnds"/>). A still-queued prompt a <c>TurnStarted</c>
+    /// carries is ruled Unknown too, linked to that turn, and moves to the proof's position, as the store rules it
+    /// (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>).
+    /// Either way it leaves the line, and the places in line that moved are sent again.
+    /// </summary>
+    private IReadOnlyList<ApiModeLiveItem> QueuesLeft(SessionEvent e, IReadOnlyCollection<string> ownPromptIds, ApiModeEventPosition? position)
+    {
+        var items = new List<ApiModeLiveItem>();
+        foreach (var promptId in _order)
+        {
+            if (!_lastPositions.TryGetValue(promptId, out var last)) continue;
+            var receipt = _receipts[promptId];
+            if (position is not { } at)
+            {
+                if (receipt.State == ApiModeReceiptState.Queued && !ownPromptIds.Contains(promptId, StringComparer.Ordinal))
+                    throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} was handed without its position, and prompt={promptId}'s queued receipt was last changed at {last}; hand it as a held event");
+                continue;
+            }
+            if (ApiModeLostQueuedPrompt.IsCarriedBy(e, at, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
+            {
+                var turnId = ((TurnStarted)e).TurnId;
+                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} carries it; its PromptDelivered was lost and the Gateway holds no acknowledgement, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}, carried by turn {turnId}");
+                receipt.State = ApiModeReceiptState.Unknown;
+                receipt.TurnId = turnId;
+                Touch(promptId, at);
+                items.AddRange(ReceiptIfChanged(receipt, e.Sequence));
+                continue;
+            }
+            if (!ApiModeLostQueuedPrompt.Applies(at, ownPromptIds, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} comes after every re-announcement of its generation, which did not re-announce it; the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
+            receipt.State = ApiModeReceiptState.Unknown;
+            Touch(promptId, at);
+            items.AddRange(ReceiptIfChanged(receipt, e.Sequence));
+        }
+        // A ruled receipt is no longer counted in the line, so every place behind it moves up.
+        if (items.Count > 0) items.AddRange(WaitingIfMoved(e.Sequence, null));
+        return items;
+    }
+
     private static IReadOnlyList<ApiModeLiveItem> Text(MessageText m)
     {
         if (m.Channel == MessageTextChannel.Thought && !ShowsThoughts)
@@ -580,8 +720,8 @@ public sealed class ApiModeLiveRuling
 
     private IReadOnlyList<ApiModeLiveItem> ToolStart(ToolCallStarted t)
     {
-        _tools[t.ToolCallId] = t;
-        return One(ToolCard(t.ToolCallId, t.ToolName, t.Input, "running", "neutral", t.TurnId, t.Sequence));
+        _tools[t.ToolCallId] = new OpenTool(t.ToolName, t.Input, t.TurnId);
+        return One(ToolCard(t.ToolCallId, t.ToolName, t.Input, ToolRunningStatus, "neutral", t.TurnId, t.Sequence));
     }
 
     private IReadOnlyList<ApiModeLiveItem> ToolFinish(ToolCallFinished t)
@@ -594,14 +734,14 @@ public sealed class ApiModeLiveRuling
             _ => throw new InvalidOperationException($"ApiModeLiveRuling: no status words for tool outcome {t.Outcome}"),
         };
         if (_tools.Remove(t.ToolCallId, out var started))
-            return One(ToolCard(t.ToolCallId, started.ToolName, started.Input, status, tone, t.TurnId, t.Sequence));
+            return One(ToolCard(t.ToolCallId, started.Title, started.Input, status, tone, t.TurnId, t.Sequence));
         // The reader joined after the tool started: its name and input are not here, and they are not guessed.
         return One(ToolCard(t.ToolCallId, "A tool that started before this view began", null, status, tone, t.TurnId, t.Sequence));
     }
 
     private static ApiModeLiveItem ToolCard(string toolCallId, string title, string? input, string status, string tone, string turnId, long sequence) => new()
     {
-        ItemId = "tool:" + toolCallId,
+        ItemId = ToolItemId(toolCallId),
         Kind = ApiModeLiveItemKinds.ToolCard,
         Mode = ApiModeLiveItemModes.Replace,
         Text = title,
@@ -635,8 +775,11 @@ public sealed class ApiModeLiveRuling
         // only; phase 2 review, observation C).
         if (_turnPrompts.Remove(t.TurnId, out var prompts))
         {
+            // A receipt a later turn carried (ApiModeLostQueuedPrompt.IsCarried) takes its turn's ending as a delivered one
+            // does, as the store writes it on every receipt of the turn; its words do not change with it.
             var delivered = prompts
-                .Select(p => _receipts.TryGetValue(p, out var r) && r.State == ApiModeReceiptState.Delivered ? r : null)
+                .Select(p => _receipts.TryGetValue(p, out var r)
+                    && (r.State == ApiModeReceiptState.Delivered || ApiModeLostQueuedPrompt.IsCarried(r.State, r.TurnId)) ? r : null)
                 .OfType<ApiModeReceiptDto>()
                 .ToList();
             var open = delivered.Where(r => r.TurnOutcome is null).ToList();
@@ -668,6 +811,10 @@ public sealed class ApiModeLiveRuling
         TurnOutcome.Failed => ("Turn failed: " + (reason ?? "no reason was given"), "red"),
         _ => throw new InvalidOperationException($"ApiModeLiveRuling: no words for turn outcome {outcome}"),
     };
+
+    /// <summary>A tool this ruling saw start (or took, still running, from the stored conversation): what its finish
+    /// needs, since the finish carries no tool name.</summary>
+    private sealed record OpenTool(string Title, string? Input, string TurnId);
 
     private List<string> PromptsOf(string turnId)
     {

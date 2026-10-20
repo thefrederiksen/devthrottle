@@ -150,6 +150,8 @@ $ICON_KEY
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleVersion</key>         <string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>DevThrottle Director uses the microphone for dictation: what you say is transcribed into the prompt box.</string>
     <key>NSHighResolutionCapable</key> <true/>
     <key>LSMinimumSystemVersion</key>  <string>11.0</string>
     <key>LSRequiresNativeExecution</key><true/>

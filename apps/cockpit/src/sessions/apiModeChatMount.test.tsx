@@ -39,7 +39,13 @@ vi.mock("../panes/TerminalPane", () => ({ TerminalPane: () => <div /> }));
 vi.mock("./SessionActionBar", () => ({ SessionActionBar: () => <div /> }));
 vi.mock("./SessionComposer", () => ({ SessionComposer: () => <div /> }));
 vi.mock("./SessionMenu", () => ({ SessionMenu: () => null }));
-vi.mock("./ChatTab", () => ({ ChatTab: ({ sessionId }: { sessionId: string }) => <div data-testid="history-chat">{sessionId}</div> }));
+const historyChatMounted = vi.fn();
+vi.mock("./ChatTab", () => ({
+  ChatTab: ({ sessionId }: { sessionId: string }) => {
+    historyChatMounted(sessionId);
+    return <div data-testid="history-chat">{sessionId}</div>;
+  },
+}));
 vi.mock("./VoiceTab", () => ({ VoiceTab: () => <div /> }));
 vi.mock("./SourceControlTab", () => ({ SourceControlTab: () => <div /> }));
 vi.mock("./QueuePanel", () => ({ QueuePanel: () => <div /> }));
@@ -49,8 +55,8 @@ import { SessionDetail } from "./SessionDetail";
 
 const SID = "7d2f9c10-0000-4000-8000-000000000041";
 
-function Shell({ sessions }: { sessions: SessionDto[] }) {
-  return <Outlet context={{ sessions }} />;
+function Shell({ sessions, rosterError = null }: { sessions: SessionDto[] | null; rosterError?: string | null }) {
+  return <Outlet context={{ sessions, rosterError }} />;
 }
 
 function renderWith(row: Record<string, unknown>) {
@@ -66,7 +72,22 @@ function renderWith(row: Record<string, unknown>) {
   fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  historyChatMounted.mockClear();
+});
+
+function page(sessions: SessionDto[] | null, rosterError: string | null = null) {
+  return (
+    <MemoryRouter initialEntries={[`/sessions/${SID}`]}>
+      <Routes>
+        <Route element={<Shell sessions={sessions} rosterError={rosterError} />}>
+          <Route path="/sessions/:sessionId" element={<SessionDetail />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>
+  );
+}
 
 describe("the Cockpit Chat tab", () => {
   it("ChatTab_ApiModeRow_MountsTheSharedLiveChatWithTheGatewayVerdict", () => {
@@ -74,6 +95,31 @@ describe("the Cockpit Chat tab", () => {
 
     expect(screen.getByTestId("live-chat").textContent).toBe(`${SID} Working - turn 2`);
     expect(screen.queryByTestId("history-chat")).toBeNull();
+  });
+
+  it("ChatTab_ColdDeepLinkToAnApiModeSession_NeverMountsTheHistoryChat", () => {
+    // Arrange: the page opens before the roster's first answer.
+    const view = render(page(null));
+
+    // Assert: the mode is not known yet, so neither Chat is mounted.
+    expect(screen.getByText("Loading session...")).toBeTruthy();
+    expect(screen.queryByTestId("history-chat")).toBeNull();
+
+    // Act: the roster answers with the API-mode row.
+    view.rerender(page([{ sessionId: SID, connectionMode: "api", apiMode: { kind: "idle", activityLabel: "Idle - no turn yet" } } as unknown as SessionDto]));
+
+    // Assert: the live Chat, and the history Chat (and its /history read) never started.
+    expect(screen.getByTestId("live-chat").textContent).toBe(`${SID} Idle - no turn yet`);
+    expect(historyChatMounted).not.toHaveBeenCalled();
+  });
+
+  it("ChatTab_FirstRosterReadFailed_TheHistoryChatStillLoads", () => {
+    // A failed read is an answer: the store keeps no rows after it, and no row is coming, so the history Chat
+    // loads as it did before - the Cockpit twin of the phone's Chat_RosterReadFails_TheHistoryChatStillLoads.
+    render(page(null, "The Gateway could not be reached."));
+
+    expect(screen.queryByText("Loading session...")).toBeNull();
+    expect(screen.getByTestId("history-chat").textContent).toBe(SID);
   });
 
   it("ChatTab_TerminalModeRow_KeepsTheHistoryChat", () => {

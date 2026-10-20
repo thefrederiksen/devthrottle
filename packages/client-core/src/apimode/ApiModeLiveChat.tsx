@@ -104,9 +104,10 @@ function LiveStatus({ display }: { display: ApiModeSessionDisplay }) {
 function LiveEntryView({ entry }: { entry: LiveEntry }) {
   switch (entry.kind) {
     case LIVE_ITEM_KINDS.replyText:
+      // Every line break the agent sent is kept: a reply written one item per line shows one item per line.
       return (
         <article className="live-chat-reply" data-item-id={entry.itemId}>
-          <div className="live-chat-body md" dangerouslySetInnerHTML={{ __html: markdownToHtml(entry.text) }} />
+          <div className="live-chat-body md" dangerouslySetInnerHTML={{ __html: markdownToHtml(entry.text, { keepLineBreaks: true }) }} />
         </article>
       );
     case LIVE_ITEM_KINDS.toolCard:

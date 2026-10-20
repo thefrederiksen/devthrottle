@@ -674,9 +674,9 @@ describe("Cockpit license alarm banner", () => {
     expect(screen.queryByTestId("license-alarm-banner")).toBeNull();
   });
 
-  it("shows one alarm's line and the link in the Gateway's own words", async () => {
+  it("shows only the summary and link in the Gateway's own words", async () => {
     const line = "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.";
-    alarmRead.answer = { ...NONE, count: 1, linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)] };
     render(
       <MemoryRouter initialEntries={["/history"]}>
         <AppShell />
@@ -685,13 +685,15 @@ describe("Cockpit license alarm banner", () => {
 
     const banner = await screen.findByTestId("license-alarm-banner");
     expect(banner.getAttribute("role")).toBe("alert");
-    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([line]);
-    expect(within(banner).queryByTestId("license-alarm-summary")).toBeNull();
+    expect(within(banner).getByTestId("license-alarm-summary").textContent).toBe("1 license problem");
+    expect(banner.textContent).toBe("1 license problem - Open Licenses");
+    expect(within(banner).queryByText(line)).toBeNull();
     const link = within(banner).getByTestId("license-alarm-link");
     expect(link.textContent).toBe("Open Licenses");
     expect(link.getAttribute("href")).toBe("/licenses");
-    // In the main pane, above the routed page: never inside the rail.
-    expect(document.querySelector(".main-pane")!.contains(banner)).toBe(true);
+    // In its own frame row, never inside the page or rail.
+    expect(document.querySelector(".shell-frame")!.contains(banner)).toBe(true);
+    expect(document.querySelector(".main-pane")!.contains(banner)).toBe(false);
   });
 
   // A team's pages on screen change nothing about the person's own machines: the banner stays (review finding 2).
@@ -712,7 +714,7 @@ describe("Cockpit license alarm banner", () => {
     myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
     window.localStorage.setItem(currentTeamStorageKey(), collaboratorTeam.id);
     const line = "machine-a is not ready. Add a spare to machine-a.";
-    alarmRead.answer = { ...NONE, count: 1, linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    alarmRead.answer = { ...NONE, count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [alarm("a1", line)] };
     render(
       <MemoryRouter initialEntries={["/questions"]}>
         <AppShell />
@@ -721,14 +723,15 @@ describe("Cockpit license alarm banner", () => {
 
     await waitFor(() => expect(document.querySelector(".shell")!.classList.contains("shell-team-pages")).toBe(true));
     const banner = await screen.findByTestId("license-alarm-banner");
-    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([line]);
+    expect(banner.textContent).toBe("1 license problem - Open Licenses");
+    expect(within(banner).queryByText(line)).toBeNull();
   });
 
-  it("shows the summary and every alarm, in order, when several are open", async () => {
+  it("keeps several alarms to one summary line and leaves details off the frame", async () => {
     alarmRead.answer = {
       ...NONE,
       count: 2,
-      summary: "2 license problems need you.",
+      summary: "2 license problems",
       linkText: "Open Licenses",
       alarms: [alarm("a1", "First problem. First thing to do."), alarm("a2", "Second problem. Second thing to do.")],
     };
@@ -739,10 +742,8 @@ describe("Cockpit license alarm banner", () => {
     );
 
     const banner = await screen.findByTestId("license-alarm-banner");
-    expect(within(banner).getByTestId("license-alarm-summary").textContent).toBe("2 license problems need you.");
-    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([
-      "First problem. First thing to do.",
-      "Second problem. Second thing to do.",
-    ]);
+    expect(banner.textContent).toBe("2 license problems - Open Licenses");
+    expect(within(banner).queryAllByTestId("license-alarm-line")).toHaveLength(0);
+    expect(screen.getByTestId("routed-page").contains(banner)).toBe(false);
   });
 });

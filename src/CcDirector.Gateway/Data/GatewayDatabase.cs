@@ -470,6 +470,22 @@ public sealed class GatewayDatabase : IDisposable
     /// </summary>
     public bool IsOpen => _factory is not null;
 
+    /// <summary>
+    /// The ambient tenant <see cref="CreateContext()"/> would scope a context to, read without opening one: for a store
+    /// that keeps per-tenant state in memory and must key it exactly as its rows are keyed. Fails loud on an invalid
+    /// tenant, as <see cref="CreateContext()"/> does.
+    /// </summary>
+    public TenantId AmbientTenant
+    {
+        get
+        {
+            var tenant = _tenant.Current;
+            if (!tenant.IsValid)
+                throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+            return tenant;
+        }
+    }
+
     // Every context factory goes through this. Before Open() the fields are null, and a bare null-deref
     // would surface as a NullReferenceException somewhere far from the cause; a caller that arrives during
     // the open window deserves to be told what is actually happening.

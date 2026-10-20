@@ -801,7 +801,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     // ----- no account has room: one owner email per event -----
 
     [Fact]
-    public async Task NoTarget_OneEmailAcrossManyChecks_NothingSwitched_AndTheLogSaysTheOwnerWasEmailed()
+    public async Task NoTarget_ManyChecks_RecordStatusWithoutEmail()
     {
         OnAWithNoRoomAnywhere();
         await Tick();
@@ -812,263 +812,36 @@ public sealed class LicenseSwitchServiceTests : IDisposable
             await Tick();
         }
 
-        var attempt = Assert.Single(_mail.Attempts);
-        Assert.Equal(Tenant, attempt.Tenant);
-        Assert.Contains("no Claude account has room", attempt.Email.Subject);
+        Assert.Empty(_mail.Attempts);
         Assert.Empty(_directors.Sent);
         Assert.Empty(Rows(LicenseLogKinds.Switch));
         var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((A, LicenseLogStates.Open, LicenseGatewayReasonCodes.OwnerEmailed, T0), (row.FromAccountEmail, row.State, row.ReasonCode, row.LastSentAtUtc));
+        Assert.Equal((A, LicenseLogStates.Open), (row.FromAccountEmail, row.State));
         Assert.Null(row.FinishedAtUtc);
-        Assert.Equal($"No account had room for the machines on {A}, so nothing was switched; the owner was emailed.", row.Message);
-    }
-
-    private const string RefuseTheEmailMark = "refuse_no_room_email_mark";
-
-    /// <summary>From now on the database refuses to record what became of a no-room event's owner email. Everything
-    /// else it still takes.</summary>
-    private void TheDatabaseRefusesToMarkANoRoomEmail()
-    {
-        using var ctx = _db.CreateContext(Tenant);
-        ctx.Database.ExecuteSqlRaw("CREATE TRIGGER " + RefuseTheEmailMark + " BEFORE UPDATE OF ReasonCode ON license_switch_log "
-                                   + "WHEN OLD.Kind = 'no-room' BEGIN SELECT RAISE(ABORT, 'the database refused the write'); END;");
-    }
-
-    private void TheDatabaseTakesTheEmailMarkAgain()
-    {
-        using var ctx = _db.CreateContext(Tenant);
-        ctx.Database.ExecuteSqlRaw("DROP TRIGGER " + RefuseTheEmailMark + ";");
-    }
-
-    [Fact]
-    public async Task NoTarget_AnEmailTheMailServiceConfirmed_IsNeverSentAgainByThisGateway_WhileTheDatabaseRefusesToMarkItsRow()
-    {
-        TheDatabaseRefusesToMarkANoRoomEmail();
-        OnAWithNoRoomAnywhere();
-
-        // The email goes out and is confirmed; marking the event's row fails, and the check fails with it.
-        await Assert.ThrowsAnyAsync<Exception>(() => Tick());
-        Assert.Single(_mail.Attempts);
-        Assert.Null(Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
-
-        // Minute after minute the row still reads "not emailed yet", and nothing more is sent.
-        for (var i = 0; i < 5; i++)
-        {
-            MinuteLater();
-            OnAWithNoRoomAnywhere();
-            await Assert.ThrowsAnyAsync<Exception>(() => Tick());
-        }
-        Assert.Single(_mail.Attempts);
-
-        // The database takes the write again: the row is marked with the moment the email really went.
-        TheDatabaseTakesTheEmailMarkAgain();
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-
-        Assert.Single(_mail.Attempts);
-        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, T0, 1), (row.ReasonCode, row.LastSentAtUtc, row.SendCount));
-    }
-
-    [Fact]
-    public async Task NoTarget_AMailSenderThatThrows_IsAFailedSend_TriedAgainLaterEachTime_NotEveryMinute()
-    {
-        _mail.Throws = _ => true;
-        OnAWithNoRoomAnywhere();
-
-        await Tick();
-        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailFailed, row.ReasonCode);
-        Assert.Contains("the owner has not been emailed yet because the mail sender failed (InvalidOperationException)", row.Message);
-        Assert.DoesNotContain("The mail service broke", row.Message);
-
-        // The sender works again, but the wait after a failed send holds: one minute, and it is tried once.
-        _mail.Throws = null;
-        _now = _now.AddSeconds(59);
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Empty(_mail.Attempts);
-        _now = _now.AddSeconds(1);
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Single(_mail.Attempts);
-        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
-    }
-
-    [Fact]
-    public async Task NoTarget_AFailedSendIsNotMarkedEmailed_IsRetriedOnALaterCheck_AndNeverSentAgainOnceItWent()
-    {
-        _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached"));
-        OnAWithNoRoomAnywhere();
-        await Tick();
-
-        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailFailed, null), (row.ReasonCode, row.LastSentAtUtc));
-        Assert.Contains("the owner has not been emailed yet because the DevThrottle account service could not be reached", row.Message);
-
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick(); // retried, and this time it goes
-        Assert.Equal(2, _mail.Attempts.Count);
-        row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((LicenseGatewayReasonCodes.OwnerEmailed, _now), (row.ReasonCode, row.LastSentAtUtc));
-
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Equal(2, _mail.Attempts.Count); // never again
-    }
-
-    [Fact]
-    public async Task NoTarget_WhenTheMailServiceAsksForAWait_TheRetryWaitsThatLong()
-    {
-        _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "too many emails", TimeSpan.FromMinutes(3)));
-        OnAWithNoRoomAnywhere();
-        await Tick();
-
-        MinuteLater(2);
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Single(_mail.Attempts); // two minutes of the three have passed
-
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Equal(2, _mail.Attempts.Count);
-    }
-
-    [Fact]
-    public async Task NoTarget_AnEmailThatKeepsBeingRefused_IsTriedFurtherAndFurtherApart()
-    {
-        // The mail service refuses every try and names no wait of its own.
-        for (var i = 0; i < 10; i++)
-            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
-        var triedAtMinute = new List<int>();
-
-        for (var minute = 0; minute < 40; minute++)
-        {
-            OnAWithNoRoomAnywhere();
-            var before = _mail.Attempts.Count;
-            await Tick();
-            if (_mail.Attempts.Count > before)
-                triedAtMinute.Add(minute);
-            MinuteLater();
-        }
-
-        // One minute, then two, four, eight, sixteen: six tries in forty checks, not forty.
-        Assert.Equal(new[] { 0, 1, 3, 7, 15, 31 }, triedAtMinute);
-    }
-
-    /// <summary>A machine on A whose WEEK is used up, with no room on its spare either: an event that lasts days.</summary>
-    private Guid OutOfRoomForTheWeek() => Reports(Tenant, Windows, "dir-win", (A, true, 10, 98), (B, false, 10, 99));
-
-    [Fact]
-    public async Task NoTarget_TheWaitBetweenTriesStopsGrowingAtAnHour()
-    {
-        for (var i = 0; i < 12; i++)
-            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
-        var triedAtMinute = new List<int>();
-
-        for (var minute = 0; minute < 200; minute++)
-        {
-            OutOfRoomForTheWeek();
-            var before = _mail.Attempts.Count;
-            await Tick();
-            if (_mail.Attempts.Count > before)
-                triedAtMinute.Add(minute);
-            MinuteLater();
-        }
-
-        // 1, 2, 4, 8, 16 and 32 minutes, and from then on an hour: 63, 123, 183 - not 127.
-        Assert.Equal(new[] { 0, 1, 3, 7, 15, 31, 63, 123, 183 }, triedAtMinute);
-        Assert.Equal(TimeSpan.FromHours(1), LicenseSwitchService.LongestOwnEmailWait);
+        Assert.Contains($"No account had room for the machines on {A}, so nothing was switched", row.Message);
     }
 
     [Theory]
-    [InlineData(false)] // the event ends while its email is still waiting to be tried again
-    [InlineData(true)]  // the email went before the event ended
-    public async Task NoTarget_TheWaitIsForgotten_SoANewEventStartsAgainAtOneMinute(bool theEmailWent)
+    [InlineData(LicenseGatewayReasonCodes.OwnerEmailFailed)]
+    [InlineData(null)]
+    public async Task NoTarget_OldPendingEmail_IsNeverRetried(string? previousState)
     {
-        // The first event: three refusals in a row, so the next try is four minutes away (minutes 0, 1 and 3).
-        for (var i = 0; i < 3; i++)
-            _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
-        for (var minute = 0; minute < 4; minute++)
-        {
-            OnAWithNoRoomAnywhere();
-            await Tick();
-            MinuteLater();
-        }
-        Assert.Equal(3, _mail.Attempts.Count);
-        if (theEmailWent)
-        {
-            MinuteLater(3); // minute 7: the fourth try, and it goes
-            OnAWithNoRoomAnywhere();
-            await Tick();
-            Assert.Equal(4, _mail.Attempts.Count);
-            MinuteLater();
-        }
+        OnAWithNoRoomAnywhere();
+        _store.OpenNoRoom(Tenant, A, T0, T0.AddHours(2), LicenseStore.NoRoomHappened(A));
+        if (previousState is not null)
+            _store.RecordNoRoomEmail(Tenant, A, previousState, "Earlier email failed.", null);
 
-        // The event ends, and a new one opens for the same account. Its email is refused once.
-        Reports(Tenant, Windows, "dir-win", (A, true, 20, 20), (B, false, 99, 30));
         await Tick();
-        MinuteLater();
-        var before = _mail.Attempts.Count;
-        _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the mail service refused it"));
+        MinuteLater(3);
         OnAWithNoRoomAnywhere();
         await Tick();
-        Assert.Equal(before + 1, _mail.Attempts.Count);
 
-        // The new event's second try is one minute later, not the old event's long wait.
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        Assert.Equal(before + 2, _mail.Attempts.Count);
+        Assert.Single(Rows(LicenseLogKinds.NoRoom));
+        Assert.Empty(_mail.Attempts);
     }
 
     [Fact]
-    public async Task NoTarget_WhileTheMailServiceHasNotAnswered_ASecondCheckOfTheSameTenantSendsNoSecondEmail()
-    {
-        OnAWithNoRoomAnywhere();
-        _mail.NotAnsweringYet = new TaskCompletionSource<LicenseOwnerEmailResult>();
-        var first = Tick();
-        Assert.False(first.IsCompleted);
-
-        // The next minute's check of the same tenant, while the first is still waiting on the mail service: it is
-        // skipped whole, so the one event's email is not tried a second time beside the first.
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        var second = Tick();
-        Assert.True(second.IsCompleted, "The second check is waiting on something.");
-        await second;
-        Assert.Single(_mail.Attempts);
-
-        _mail.NotAnsweringYet.SetResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
-        await first;
-        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(Rows(LicenseLogKinds.NoRoom)).ReasonCode);
-    }
-
-    [Fact]
-    public async Task NoTarget_OnAGatewayWithNoAccountToEmail_IsRecordedOnce_AndNeverTriedAgain()
-    {
-        _mail.Answers.Enqueue(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.NoAccount, "this self-hosted Gateway has no DevThrottle account to email"));
-        OnAWithNoRoomAnywhere();
-        await Tick();
-        MinuteLater();
-        OnAWithNoRoomAnywhere();
-        await Tick();
-
-        Assert.Single(_mail.Attempts);
-        var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((LicenseGatewayReasonCodes.NoOwnerAccount, null), (row.ReasonCode, row.LastSentAtUtc));
-        Assert.Contains("no owner email was sent because this self-hosted Gateway has no DevThrottle account to email", row.Message);
-    }
-
-    [Fact]
-    public async Task NoTarget_TheEventCloses_AndANewEventEmailsOnce()
+    public async Task NoTarget_TheEventCloses_AndANewEventStaysQuiet()
     {
         OnAWithNoRoomAnywhere();
         await Tick();
@@ -1079,9 +852,9 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         await Tick();
         var ended = Assert.Single(Rows(LicenseLogKinds.NoRoom));
         Assert.Equal((LicenseLogStates.Ended, _now), (ended.State, ended.FinishedAtUtc));
-        Assert.Single(_mail.Attempts);
+        Assert.Empty(_mail.Attempts);
 
-        // Out of room again: a new event, one new email, however many checks follow.
+        // Out of room again: a new status event, without an email.
         for (var i = 0; i < 2; i++)
         {
             MinuteLater();
@@ -1089,7 +862,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
             await Tick();
         }
 
-        Assert.Equal(2, _mail.Attempts.Count);
+        Assert.Empty(_mail.Attempts);
         var rows = Rows(LicenseLogKinds.NoRoom);
         Assert.Equal(new[] { LicenseLogStates.Ended, LicenseLogStates.Open }, rows.Select(r => r.State));
     }
@@ -1107,7 +880,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         await Tick();
 
         Assert.Equal(T0.AddDays(4), Assert.Single(Rows(LicenseLogKinds.NoRoom)).NotAfterUtc);
-        Assert.Single(_mail.Attempts);
+        Assert.Empty(_mail.Attempts);
     }
 
     // ----- Switch now -----
@@ -1351,11 +1124,12 @@ public sealed class LicenseSwitchServiceTests : IDisposable
     [Fact]
     public async Task TickEveryTenant_ChecksEachTenantInItsOwnScope_AndOneTenantsFailureDoesNotStopTheNext()
     {
-        Reports(Tenant, Windows, "dir-of-tenant-one", (A, true, 98, 20), (B, false, 99, 30)); // no room: this tenant emails
+        Reports(Tenant, Windows, "dir-of-tenant-one", (A, true, 98, 20), (B, false, 99, 30));
         OnA(Windows, "dir-of-tenant-two", 97, Other);
-        // Tenant one's check fails: its email goes out and the database refuses to mark its event's row. (A mail
-        // sender that throws is no longer a failed check - it is a failed send.) Tenant two has no such row.
-        TheDatabaseRefusesToMarkANoRoomEmail();
+        // Tenant one's status write fails. Tenant two has no no-room event and must still switch.
+        using (var ctx = _db.CreateContext(Tenant))
+            ctx.Database.ExecuteSqlRaw("CREATE TRIGGER refuse_no_room_status BEFORE INSERT ON license_switch_log "
+                + "WHEN NEW.Kind = 'no-room' BEGIN SELECT RAISE(ABORT, 'the database refused the write'); END;");
 
         await _service.TickEveryTenantAsync(new ListedTenants(Tenant, Other), CancellationToken.None);
 

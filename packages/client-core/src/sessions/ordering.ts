@@ -213,6 +213,17 @@ export function classifyOrNull(s: SessionDto): TriageBucket | null {
   return null;
 }
 
+// isWorking's non-throwing door, for the same reason as classifyOrNull: a control that only draws the word
+// "Working" must not take the composer down with it. Null means the Gateway did not stamp the colour.
+//
+// It is the working rule, NOT the "active" bucket. Active also holds a session that is green and Ready - a new
+// session that has not had a turn yet - so reading the bucket as "working" put "Working" beside an idle session
+// (API mode phase 6 QA, finding 1).
+export function isWorkingOrNull(s: SessionDto): boolean | null {
+  const color = (s as GatewayStampedSession).effectiveColor?.trim();
+  return color ? color.toLowerCase() === "blue" : null;
+}
+
 export function inBucket(sessions: SessionDto[], bucket: TriageBucket): SessionDto[] {
   return inDesktopOrder(sessions.filter((s) => classify(s) === bucket));
 }

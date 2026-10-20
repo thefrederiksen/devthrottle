@@ -31,7 +31,9 @@ public sealed class ApiModeReceiptEntity : TenantScopedEntity
     public string DirectorId { get; set; } = "";
 
     /// <summary><c>Queued</c>, <c>Delivered</c> or <c>Refused</c> (<see cref="Contracts.ApiModeReceiptState"/>).
-    /// Delivered and Refused are final: one or the other per prompt, never both (event model rule 1).</summary>
+    /// Delivered and Refused are final: one or the other per prompt, never both (event model rule 1). Or
+    /// <c>Unknown</c>, the Gateway's own ruling on a Queued prompt whose ending was lost
+    /// (<see cref="Receipts.ApiModeLostQueuedPrompt"/>), which the prompt's next real event replaces.</summary>
     public string State { get; set; } = "";
 
     /// <summary>Why the Director is holding the prompt, while Queued (<c>userHasTheWheel</c>, <c>turnRunning</c>,

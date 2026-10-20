@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
@@ -53,10 +54,12 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly AsyncLocalTenantContext _ambient = new();
     private readonly HostedTenantBoundary _boundary;
-    private readonly ApiModeEventBuffer _buffer = new();
-    private readonly ApiModeReceiptStore _receipts;
-    private readonly ApiModeEventIngest _ingest;
-    private readonly CountingFeed _feed;
+    // A Gateway process: replaced whole by RestartGatewayAsync, over the same database file.
+    private ApiModeEventBuffer _buffer = new();
+    private ApiModeReceiptStore _receipts;
+    private ApiModeConversationStore _conversation;
+    private ApiModeEventIngest _ingest;
+    private CountingFeed _feed;
     private DateTime _now = T0.UtcDateTime;
     private readonly PushedSessionStore _pushed;
     private readonly Gate _gate = new();
@@ -68,7 +71,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     {
         _boundary = new HostedTenantBoundary(_ambient, _harness.OpenDevices(), hosted: false);
         _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
-        _ingest = new ApiModeEventIngest(_buffer, _receipts, _boundary);
+        _conversation = new ApiModeConversationStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        _ingest = new ApiModeEventIngest(_buffer, _receipts, _conversation, _boundary);
         _feed = new CountingFeed(_buffer);
         _pushed = new PushedSessionStore(() => _now);
         _pushed.RegisterConnection(Alice, AliceDirector, "conn-alice");
@@ -90,22 +94,24 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     // ----- the stream: replay, then live -----
 
     [Fact]
-    public async Task Stream_NoCursor_ReplaysWhatIsHeldThenFollowsLive()
+    public async Task Stream_NoCursor_OpensWithTheStoredConversationThenFollowsLive()
     {
         await StartAsync();
         PushA(Ready(1), Delivered(2, "p1"), Started(3));
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
-        var first = await stream.NextAsync();
-        var second = await stream.NextAsync();
+        var opening = await stream.NextAsync();
         PushA(Text(4, "PONG"));
         var live = await stream.NextAsync();
 
-        // Each frame is the ruling's items for one event, under that event's cursor. The turn starting (sequence 3)
-        // shows nothing, so it sends no frame.
-        Assert.Equal(("items", "gen-a:1", ApiModeLiveItemKinds.Connection), (first!.Event, first.Id, Single(first).Kind));
-        Assert.Equal(("items", "gen-a:2", ApiModeLiveItemKinds.Receipt, "Delivered", "p1", 2L),
-            (second!.Event, second.Id, Single(second).Kind, Single(second).Text, Single(second).PromptId, Single(second).Sequence));
+        // ONE frame opens the stream: the stored conversation with the receipts in their places, under the cursor of the
+        // last event it reflects (the turn starting, which shows nothing). Then each live event is its own frame.
+        Assert.Equal(("items", "gen-a:3"), (opening!.Event, opening.Id));
+        Assert.Equal(new[]
+        {
+            ("connection:gen-a:1", ApiModeLiveItemKinds.Connection, "Agent connected (gpt-5.6-sol)"),
+            ("receipt:p1", ApiModeLiveItemKinds.Receipt, "Delivered"),
+        }, Items(opening).Select(i => (i.ItemId, i.Kind, i.Text)));
         Assert.Equal(("items", "gen-a:4", ApiModeLiveItemKinds.ReplyText, "PONG", ApiModeLiveItemModes.Append),
             (live!.Event, live.Id, Single(live).Kind, Single(live).Text, Single(live).Mode));
         Assert.Equal(1, _feed.Active);
@@ -158,22 +164,25 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
         var reset = await stream.NextAsync();
-        var next = await stream.NextAsync();
-
-        var after = await stream.NextAsync();
+        var opening = await stream.NextAsync();
+        PushB(Text(3, "hello"));
+        var live = await stream.NextAsync();
 
         Assert.Equal("reset", reset!.Event);
         Assert.Equal("", reset.Id);   // clears the browser's Last-Event-ID
         var body = Reset(reset);
         Assert.Equal(ApiModeLiveResetCodes.NewGeneration, body.Code);
-        Assert.Equal(new[] { $"/sessions/{ApiSession}/receipts", $"/sessions/{ApiSession}/history" }, body.RebuildFrom);
+        Assert.Equal(new[] { $"/sessions/{ApiSession}/live" }, body.RebuildFrom);
         Assert.False(string.IsNullOrWhiteSpace(body.Message));
-        // Then the stored receipts, with no id (they are not an event), so what follows continues from them. p1's turn
-        // never ended in generation A, and generation B's ConnectionReady proves it is over, so its end was lost (item 7)...
-        Assert.Null(next!.Id);
-        Assert.Equal(new[] { ("p1", "Delivered - the turn's end was lost when the Director reconnected", 0L), ("p2", "Delivered", 0L) }, Items(next).Select(i => (i.PromptId!, i.Text, i.Sequence)));
-        // ...and the new generation's events: its connection line; p2's delivery is already in the receipts, so it adds nothing.
-        Assert.Equal(("gen-b:1", ApiModeLiveItemKinds.Connection), (after!.Id, Single(after).Kind));
+        // Then the opening, under the cursor of the last event it reflects: the receipts and the new generation's
+        // connection line in the order they arrived. p1's turn never ended in generation A, and generation B's
+        // ConnectionReady proves it is over, so its end was lost (item 7)...
+        Assert.Equal("gen-b:2", opening!.Id);
+        Assert.Equal(new[] { "receipt:p1", "connection:gen-b:1", "receipt:p2" }, Items(opening).Select(i => i.ItemId));
+        Assert.Equal(new[] { ApiModeLiveRuling.LostWords, "Delivered" },
+            Items(opening).Where(i => i.Kind == ApiModeLiveItemKinds.Receipt).Select(i => i.Text));
+        // ...and the live items after it.
+        Assert.Equal(("gen-b:3", "hello"), (live!.Id, Single(live).Text));
     }
 
     [Fact]
@@ -185,10 +194,13 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:1");
         var reset = await stream.NextAsync();
-        var first = await stream.NextAsync();
+        var opening = await stream.NextAsync();
 
         Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
-        Assert.Equal("gen-a:6", first!.Id);
+        // The reply has no final yet: the opening shows it at its place with what the held deltas streamed.
+        Assert.Equal($"gen-a:{ApiModeEventBuffer.MaxEventsPerSession + 5}", opening!.Id);
+        Assert.Equal(("reply:m1", ApiModeLiveItemModes.Replace, ApiModeEventBuffer.MaxEventsPerSession),
+            (Single(opening).ItemId, Single(opening).Mode, Single(opening).Text.Length));
     }
 
     [Fact]
@@ -217,15 +229,17 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
         PushB(Delivered(1, "p2"), Text(2, "hello"));
         var reset = await stream.NextAsync();
-        var receipts = await stream.NextAsync();
+        var opening = await stream.NextAsync();
+        PushB(Text(3, " there"));
         var next = await stream.NextAsync();
 
         Assert.Equal(("reset", "", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, reset.Id, Reset(reset).Code));
-        // The ruling starts again from the stored receipts, which the ingest wrote before the buffer handed the events
-        // on: p2 is already Delivered there, so its event adds nothing and the reply follows.
-        Assert.Null(receipts!.Id);
-        Assert.Equal(new[] { "p1", "p2" }, Items(receipts).Select(i => i.PromptId));
-        Assert.Equal(("items", "gen-b:2", "hello"), (next!.Event, next.Id, Single(next).Text));
+        // The opening is read under the feed's lock after the whole batch was stored, so it already holds both of the
+        // new generation's events - the reply with what it has streamed - and neither is sent again after it.
+        Assert.Equal("gen-b:2", opening!.Id);
+        Assert.Equal(new[] { ("receipt:p1", "Delivered"), ("receipt:p2", "Delivered"), ("reply:m1", "hello") },
+            Items(opening).Select(i => (i.ItemId, i.Text)));
+        Assert.Equal(("items", "gen-b:3", " there", ApiModeLiveItemModes.Append), (next!.Event, next.Id, Single(next).Text, Single(next).Mode));
     }
 
     [Fact]
@@ -238,10 +252,10 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
         var reset = await stream.NextAsync();
-        var first = await stream.NextAsync();
+        var opening = await stream.NextAsync();
 
         Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
-        Assert.Equal("gen-a:5", first!.Id);
+        Assert.Equal(("gen-a:6", "ab"), (opening!.Id, Single(opening).Text));
     }
 
     [Fact]
@@ -255,7 +269,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
         var first = await stream.NextAsync();
 
-        Assert.Equal(("items", "gen-a:5"), (first!.Event, first.Id));
+        Assert.Equal(("items", "gen-a:6", "ab"), (first!.Event, first.Id, Single(first).Text));
     }
 
     [Fact]
@@ -283,7 +297,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         PushA(Delivered(1, "p1"), Started(2));
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
-        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        Assert.Equal("gen-a:2", (await stream.NextAsync())!.Id);
         PushA(Failed(3, "Pi exited during the turn (exit code 137)"));
         var frame = await stream.NextAsync();
 
@@ -327,19 +341,17 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     [Fact]
     public async Task Stream_NoCursorOnAGenerationHeldFromItsMiddle_OpensWithTheStoredReceipts()
     {
-        // The Gateway holds this generation only from sequence 5 (it restarted), so the ruling starts from the stored
-        // receipts and they open the stream, with no reset: the client holds nothing to reset.
+        // The Gateway holds this generation only from sequence 5 (it restarted): the stored receipts open the stream with
+        // what is held, and no reset, since the client holds nothing to reset.
         await StartAsync();
         RecordDelivered("p0");
         PushA(Text(5, "a"));
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
         var opening = await stream.NextAsync();
-        var first = await stream.NextAsync();
 
-        Assert.Equal(("items", (string?)null), (opening!.Event, opening.Id));
-        Assert.Equal(("receipt:p0", "Delivered"), (Single(opening).ItemId, Single(opening).Text));
-        Assert.Equal("gen-a:5", first!.Id);
+        Assert.Equal(("items", "gen-a:5"), (opening!.Event, opening.Id));
+        Assert.Equal(new[] { ("receipt:p0", "Delivered"), ("reply:m1", "a") }, Items(opening).Select(i => (i.ItemId, i.Text)));
     }
 
     [Fact]
@@ -407,13 +419,14 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2003");
         PushA(ToolEnd(2004));
         var reset = await stream.NextAsync();
-        var receipts = await stream.NextAsync();
-        var card = await stream.NextAsync();
+        var opening = await stream.NextAsync();
 
-        // A reset, then the stored receipts, and only then the card: the client rebuilt before it was told the finish.
+        // A reset, then the opening, which already holds the finish: the stored card kept the title its start gave it.
         Assert.Equal(("reset", "", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, reset.Id, Reset(reset).Code));
-        Assert.Equal(((string?)null, "receipt:p1", "Delivered"), (receipts!.Id, Single(receipts).ItemId, Single(receipts).Text));
-        Assert.Equal(("gen-a:2004", "tool:tc1", "done"), (card!.Id, Single(card).ItemId, Single(card).Status));
+        Assert.Equal("gen-a:2004", opening!.Id);
+        var items = Items(opening);
+        Assert.Equal(new[] { "receipt:p1", "tool:tc1", "reply:m1" }, items.Select(i => i.ItemId));
+        Assert.Equal(("bash", "done", "ls -la"), (items[1].Text, items[1].Status, items[1].Detail));
     }
 
     [Fact]
@@ -428,14 +441,14 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2002");
         PushA(Failed(2003, "Pi exited during the turn (exit code 137)"));
         var reset = await stream.NextAsync();
-        var receipts = await stream.NextAsync();
-        var ended = await stream.NextAsync();
+        var opening = await stream.NextAsync();
 
         Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
-        Assert.Equal(("receipt:p1", "Delivered - the turn failed: Pi exited during the turn (exit code 137)"),
-            (Single(receipts!).ItemId, Single(receipts!).Text));
-        Assert.Equal(("gen-a:2003", ApiModeLiveItemKinds.TurnEnded, "Turn failed: Pi exited during the turn (exit code 137)"),
-            (ended!.Id, Single(ended).Kind, Single(ended).Text));
+        Assert.Equal("gen-a:2003", opening!.Id);
+        var items = Items(opening);
+        Assert.Equal(new[] { "receipt:p1", "reply:m1", "turn:t1" }, items.Select(i => i.ItemId));
+        Assert.Equal("Delivered - the turn failed: Pi exited during the turn (exit code 137)", items[0].Text);
+        Assert.Equal((ApiModeLiveItemKinds.TurnEnded, "Turn failed: Pi exited during the turn (exit code 137)"), (items[2].Kind, items[2].Text));
     }
 
     [Fact]
@@ -448,13 +461,13 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:2002");
 
-        // The reply piece before the gap is dropped with the rest of the continued page: the client rebuilds instead.
+        // The page is the opening: the receipt beside the failed turn, the reply with what the held deltas streamed, and
+        // the turn's line.
         Assert.Equal(ApiModeLiveResetCodes.MissedEvents, page.Reset!.Code);
-        Assert.Equal(new[]
-        {
-            ("receipt:p1", "Delivered - the turn failed: Pi exited during the turn (exit code 137)"),
-            ("turn:t1", "Turn failed: Pi exited during the turn (exit code 137)"),
-        }, page.Items.Select(i => (i.ItemId, i.Text)));
+        Assert.Equal(new[] { "receipt:p1", "reply:m1", "turn:t1" }, page.Items.Select(i => i.ItemId));
+        Assert.Equal("Delivered - the turn failed: Pi exited during the turn (exit code 137)", page.Items[0].Text);
+        Assert.EndsWith("xy", page.Items[1].Text, StringComparison.Ordinal);
+        Assert.Equal("Turn failed: Pi exited during the turn (exit code 137)", page.Items[2].Text);
         Assert.Equal("gen-a:2004", page.Next);
     }
 
@@ -597,15 +610,16 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     // ----- the poll form -----
 
     [Fact]
-    public async Task Items_NoCursor_ListsWhatIsHeldWithTheNextCursor()
+    public async Task Items_NoCursor_ListsTheOpeningWithTheNextCursor()
     {
         await StartAsync();
         PushA(Ready(1), Delivered(2, "p1"), Started(3));
 
         var page = await GetPageAsync(Alice, ApiSession);
 
+        // The stored connection line carries the sequence of the event that wrote it; a receipt from durable state, 0.
         Assert.Null(page.Reset);
-        Assert.Equal(new[] { (ApiModeLiveItemKinds.Connection, 1L), (ApiModeLiveItemKinds.Receipt, 2L) }, page.Items.Select(i => (i.Kind, i.Sequence)));
+        Assert.Equal(new[] { (ApiModeLiveItemKinds.Connection, 1L), (ApiModeLiveItemKinds.Receipt, 0L) }, page.Items.Select(i => (i.Kind, i.Sequence)));
         Assert.Equal("gen-a:3", page.Next);   // past the turn starting, which shows nothing
     }
 
@@ -672,7 +686,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         var page = await GetPageAsync(Alice, ApiSession);
 
-        Assert.Equal(new[] { 1L }, page.Items.Select(i => i.Sequence));
+        Assert.Equal(new[] { "receipt:p1" }, page.Items.Select(i => i.ItemId));
         Assert.Equal("gen-a:2", page.Next);
     }
 
@@ -689,6 +703,53 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         // The stored receipts lead; the new generation's events add nothing they do not already say.
         Assert.Equal(new[] { ("p1", 0L), ("p2", 0L) }, page.Items.Select(i => (i.PromptId!, i.Sequence)));
         Assert.Equal("gen-b:2", page.Next);
+    }
+
+    [Fact]
+    public async Task Stream_AQueuedPromptTheLaterGenerationDidNotReannounce_IsSentUnknownAsTheReceiptsEndpointSaysIt()
+    {
+        // Item 9: p1 and p2 queued in generation A; generation B re-announces p2 only, then the agent connects.
+        await StartAsync();
+        PushA(Queued(1, "p1"), Queued(2, "p2"));
+        PushB(Queued(1, "p2"), Ready(2));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var (status, body) = await GetAsync(Alice, ApiSession, "/receipts");
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(HttpStatusCode.OK, status);
+        var streamed = Items(receipts!).Where(i => i.PromptId is not null).ToDictionary(i => i.PromptId!, i => (i.Text, i.Tone));
+        var served = JsonSerializer.Deserialize<SessionReceiptsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
+            .Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
+        Assert.Equal(("Not known - the Director reconnected without this prompt in its queue or any record of sending it", "neutral"), streamed["p1"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), streamed["p2"]);
+        Assert.Equal(streamed.OrderBy(kv => kv.Key, StringComparer.Ordinal), served.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Stream_AQueuedPromptALaterTurnCarries_IsSentUnknownInItsCarriedWordsAsTheReceiptsEndpointSaysIt()
+    {
+        // Item 9: p1 queued in generation A; its delivery fell in the hole, generation B opens with the turn that carries
+        // it, and the user queues p2 behind that turn.
+        await StartAsync();
+        PushA(Queued(1, "p1"));
+        PushB(Started(1), Queued(2, "p2"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:1");
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var (status, body) = await GetAsync(Alice, ApiSession, "/receipts");
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(HttpStatusCode.OK, status);
+        var streamed = Items(receipts!).Where(i => i.PromptId is not null).ToDictionary(i => i.PromptId!, i => (i.Text, i.Tone));
+        var served = JsonSerializer.Deserialize<SessionReceiptsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
+            .Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
+        Assert.Equal((ApiModeLostQueuedPrompt.CarriedWords, "neutral"), streamed["p1"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), streamed["p2"]);
+        Assert.Equal(streamed.OrderBy(kv => kv.Key, StringComparer.Ordinal), served.OrderBy(kv => kv.Key, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -858,7 +919,249 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal(text, SessionLiveEndpoint.Format(cursor));
     }
 
+    // ----- the opening: the durable conversation -----
+
+    [Fact]
+    public async Task Stream_NoCursorAfterAGatewayRestart_OpensWithWhatAReaderSawLive()
+    {
+        // Arrange: a reader follows a whole turn live, applying every item as a client does.
+        await StartAsync();
+        var sawLive = new ClientView();
+        await using (var stream = await OpenStreamAsync(Alice, ApiSession))
+        {
+            PushA(Ready(1), Queued(2, "p1"), Delivered(3, "p1"), Started(4), Text(5, "Lis"), Text(6, "ting"), Reply(7, "m1", "Listing"),
+                ToolStart(8, "bash", "ls -la"), ToolEnd(9), Reply(10, "m2", "Two files."), Done(11));
+            Frame? frame;
+            do
+            {
+                frame = await stream.NextAsync();
+                sawLive.Apply(Items(frame!));
+            }
+            while (frame!.Id != "gen-a:11");
+        }
+
+        // Act: the Gateway restarts (its buffer is in memory, so it holds no event of the session), and a new reader
+        // attaches with no cursor; another polls.
+        await RestartGatewayAsync();
+        await using var reopened = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await reopened.NextAsync();
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        // Assert: one frame, with no cursor since no event is held, that shows exactly what the live reader shows. The
+        // one field apart is a receipt's turn: the live stream sends a receipt again only when its words change, and
+        // starting a turn does not change "Delivered", so the live reader never got the turn id the stored receipt has.
+        Assert.Equal(("items", (string?)null), (opening!.Event, opening.Id));
+        var reopenedView = new ClientView();
+        reopenedView.Apply(Items(opening));
+        Assert.Equal(WithoutReceiptTurns(sawLive.Shown), WithoutReceiptTurns(reopenedView.Shown));
+        Assert.Equal(((string?)null, "t1"), (sawLive.Shown[1].TurnId, reopenedView.Shown[1].TurnId));
+        Assert.Equal(new[] { "connection:gen-a:1", "receipt:p1", "reply:m1", "tool:tc1", "reply:m2", "turn:t1" }, reopenedView.Shown.Select(i => i.ItemId));
+        var polled = new ClientView();
+        polled.Apply(page.Items);
+        Assert.Equal(reopenedView.Shown, polled.Shown);
+        Assert.Null(page.Next);
+
+        static IEnumerable<object> WithoutReceiptTurns(IEnumerable<(string ItemId, string Kind, string Text, string? Status, string? Detail, string Tone, string? TurnId, string? PromptId, string? PromptText)> shown)
+            => shown.Select(i => (object)(i.Kind == ApiModeLiveItemKinds.Receipt ? i with { TurnId = null } : i));
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorAfterATurnsEndWasLost_OpensWithTheReceiptAsTheLiveReaderSawIt()
+    {
+        // Arrange: p1's turn never ends in generation A. A reader opens in generation B before anything proves that turn
+        // over, then follows live while a different turn starts, which does (item 7, ApiModeLostTurnEnd).
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        PushB(Text(1, "x"));
+        var sawLive = new ClientView();
+        await using (var stream = await OpenStreamAsync(Alice, ApiSession))
+        {
+            var first = await stream.NextAsync();
+            Assert.Equal("Delivered", Items(first!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(first!));
+            PushB(new TurnStarted { SessionId = ApiSession, Sequence = 2, At = T0, TurnId = "t2", PromptIds = new[] { "p2" } });
+            var lost = await stream.NextAsync();
+            Assert.Equal(("gen-b:2", "receipt:p1", ApiModeLiveRuling.LostWords), (lost!.Id, Single(lost).ItemId, Single(lost).Text));
+            sawLive.Apply(Items(lost));
+        }
+
+        // Act: a new reader attaches with no cursor; then the Gateway restarts and another does.
+        await using var reopened = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await reopened.NextAsync();
+        await RestartGatewayAsync();
+        await using var afterRestart = await OpenStreamAsync(Alice, ApiSession);
+        var restartedOpening = await afterRestart.NextAsync();
+
+        // Assert: the receipt comes from the receipt store, which ruled the same lost ending, so each opening shows it
+        // exactly as the live reader shows it - its words, its tone, its turn and its prompt text.
+        var live = sawLive.Shown.Single(i => i.ItemId == "receipt:p1");
+        Assert.Equal((ApiModeLiveRuling.LostWords, "neutral", "t1", "text of p1"), (live.Text, live.Tone, live.TurnId, live.PromptText));
+        foreach (var frame in new[] { opening, restartedOpening })
+        {
+            var view = new ClientView();
+            view.Apply(Items(frame!));
+            Assert.Equal(live, view.Shown.Single(i => i.ItemId == "receipt:p1"));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stream_NoCursorAfterAQueuedPromptWasRuledUnknown_OpensWithTheReceiptAsTheLiveReaderSawIt(bool carried)
+    {
+        // Arrange: p1 is queued in generation A. A reader opens in generation B before anything proves p1 left the queue,
+        // then follows live while the event that does arrives (item 9, ApiModeLostQueuedPrompt): a connection the queue
+        // did not re-announce p1 before, or the turn that carries it.
+        await StartAsync();
+        PushA(Queued(1, "p1"));
+        PushB(Text(1, "x"));
+        var sawLive = new ClientView();
+        await using (var stream = await OpenStreamAsync(Alice, ApiSession))
+        {
+            var first = await stream.NextAsync();
+            Assert.Equal("Queued, 1st in line: a turn is running", Items(first!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(first!));
+            if (carried) PushB(Started(2));
+            else PushB(Ready(2));
+            var ruled = await stream.NextAsync();
+            Assert.Equal(carried ? ApiModeLostQueuedPrompt.CarriedWords : ApiModeLostQueuedPrompt.Words,
+                Items(ruled!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(ruled!));
+        }
+
+        // Act: a new reader attaches with no cursor; then the Gateway restarts and another does.
+        await using var reopened = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await reopened.NextAsync();
+        await RestartGatewayAsync();
+        await using var afterRestart = await OpenStreamAsync(Alice, ApiSession);
+        var restartedOpening = await afterRestart.NextAsync();
+
+        // Assert: the receipt store ruled the same Unknown at the same event, so each opening shows the receipt exactly
+        // as the live reader shows it - its words, its tone, its turn (the carrying turn's, when carried) and its text.
+        var live = sawLive.Shown.Single(i => i.ItemId == "receipt:p1");
+        Assert.Equal((carried ? ApiModeLostQueuedPrompt.CarriedWords : ApiModeLostQueuedPrompt.Words, "neutral", carried ? "t1" : null),
+            (live.Text, live.Tone, live.TurnId));
+        foreach (var frame in new[] { opening, restartedOpening })
+        {
+            var view = new ClientView();
+            view.Apply(Items(frame!));
+            Assert.Equal(live, view.Shown.Single(i => i.ItemId == "receipt:p1"));
+        }
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorMidReply_OpensWithWhatHasStreamedThenFollowsWithNoGapAndNoDouble()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), Text(3, "Hel"), Text(4, "lo"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await stream.NextAsync();
+        PushA(Text(5, " world"), Reply(6, "m1", "Hello world"));
+        var delta = await stream.NextAsync();
+        var final = await stream.NextAsync();
+
+        // The reply is in the opening with what streamed so far, as one replace; the deltas after it append to it.
+        Assert.Equal("gen-a:4", opening!.Id);
+        Assert.Equal(new[] { ("receipt:p1", "Delivered", ApiModeLiveItemModes.Replace), ("reply:m1", "Hello", ApiModeLiveItemModes.Replace) },
+            Items(opening).Select(i => (i.ItemId, i.Text, i.Mode)));
+        Assert.Equal(("gen-a:5", " world", ApiModeLiveItemModes.Append), (delta!.Id, Single(delta).Text, Single(delta).Mode));
+        Assert.Equal(("gen-a:6", "Hello world"), (final!.Id, Single(final).Text));
+        var view = new ClientView();
+        view.Apply(Items(opening));
+        view.Apply(Items(delta));
+        Assert.Equal("Hello world", view.Shown.Single(i => i.ItemId == "reply:m1").Text);
+    }
+
+    [Fact]
+    public async Task Stream_AToolRunningAcrossAGatewayRestart_FinishesLiveWithItsTitle()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), ToolStart(3, "bash", "ls -la"));
+        await RestartGatewayAsync();
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await stream.NextAsync();
+        PushA(ToolEnd(4));
+        var finished = await stream.NextAsync();
+
+        // The opening shows the card running; the finish carries no tool name and the new Gateway never saw the start,
+        // but the reader's ruling started from the stored card, so the title stays.
+        Assert.Equal(("tool:tc1", "bash", "running"), (Items(opening!)[1].ItemId, Items(opening!)[1].Text, Items(opening!)[1].Status));
+        Assert.Equal(("gen-a:4", "bash", "done", "ls -la"), (finished!.Id, Single(finished).Text, Single(finished).Status, Single(finished).Detail));
+    }
+
+    [Fact]
+    public async Task Stream_ACursorReaderWithAStoredConversation_GetsOnlyTheEventsAfterItsCursor()
+    {
+        // Nothing changes for a reader that sends a cursor the held events continue: no opening, just what follows.
+        await StartAsync();
+        PushA(Ready(1), Delivered(2, "p1"), Started(3), Reply(4, "m1", "PONG"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("items", "gen-a:4", "reply:m1", "PONG"), (first!.Event, first.Id, Single(first).ItemId, Single(first).Text));
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorOnAConversationOverTheBound_OpensWithTheLineThatEarlierIsNotKept()
+    {
+        // Arrange: a receipt, then one reply more than the stored conversation keeps.
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        PushA(Enumerable.Range(2, ApiModeConversationStore.MaxItemsPerSession + 1).Select(i => (SessionEvent)Reply(i, "m" + i, "reply " + i)).ToArray());
+
+        // Act
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var items = Items((await stream.NextAsync())!);
+
+        // Assert: the oldest reply was let go, and the opening says so first, never a silent gap. The receipt came
+        // before what is kept, so it is left out of the opening (it is still on the receipts route).
+        Assert.Equal((ApiModeLiveItemKinds.Notice, ApiModeConversationOpening.EarlierNotKeptWords), (items[0].Kind, items[0].Text));
+        Assert.Equal("reply:m3", items[1].ItemId);
+        Assert.Equal(ApiModeConversationStore.MaxItemsPerSession + 1, items.Count);
+        Assert.DoesNotContain(items, i => i.Kind == ApiModeLiveItemKinds.Receipt);
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorInAnotherAccount_OpensWithOnlyThatAccountsConversation()
+    {
+        // Bob's Director runs a session with the same id; each account's reader opens with its own conversation only.
+        await StartAsync();
+        _pushed.RegisterConnection(Bob, "dir-bob", "conn-bob");
+        Assert.True(_pushed.ApplySnapshot(Bob, "dir-bob", "conn-bob", 1, new List<SessionDto>
+        {
+            new() { SessionId = ApiSession, Name = "Bob's Pi", Agent = "Pi", ActivityState = "Working", LastActivityAt = _now, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol },
+        }));
+        PushA(Reply(1, "m1", "for Alice"));
+        Assert.NotNull(_ingest.Accept(Bob, "dir-bob", new ApiModeEventBatch
+        {
+            SessionId = ApiSession, Generation = "gen-a", GenerationStartedUtc = GenAStarted,
+            Events = new List<string> { JsonSerializer.Serialize<SessionEvent>(Reply(1, "m1", "for Bob"), SessionEventJson.Options) },
+        }));
+
+        await using var alice = await OpenStreamAsync(Alice, ApiSession);
+        await using var bob = await OpenStreamAsync(Bob, ApiSession);
+
+        Assert.Equal("for Alice", Single((await alice.NextAsync())!).Text);
+        Assert.Equal("for Bob", Single((await bob.NextAsync())!).Text);
+    }
+
     // ----- the host -----
+
+    /// <summary>The Gateway restarts: its in-memory buffer is gone, and new stores open the same database file.</summary>
+    private async Task RestartGatewayAsync()
+    {
+        _client?.Dispose();
+        if (_app is not null) await _app.DisposeAsync();
+        _buffer = new ApiModeEventBuffer();
+        _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        _conversation = new ApiModeConversationStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        _ingest = new ApiModeEventIngest(_buffer, _receipts, _conversation, _boundary);
+        _feed = new CountingFeed(_buffer);
+        await StartAsync();
+    }
 
     private async Task StartAsync(int liveBacklog = SessionLiveEndpoint.DefaultLiveBacklog)
     {
@@ -884,7 +1187,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
             await next();
         });
         GatewayResponseCompression.Use(app);
-        SessionLiveEndpoint.Map(app, _feed, _receipts, _pushed, StaleAfter, _boundary, _clock, liveBacklog);
+        SessionLiveEndpoint.Map(app, _feed, _receipts, _conversation, _pushed, StaleAfter, _boundary, _clock, liveBacklog);
+        SessionReceiptsEndpoint.Map(app, _receipts, _pushed, StaleAfter, _boundary);
 
         await app.StartAsync();
         _app = app;
@@ -959,6 +1263,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     private static ToolCallStarted ToolStart(long seq, string name, string input) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", ToolName = name, Kind = ToolCallKind.Execute, Input = input };
     private static ToolCallFinished ToolEnd(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", Outcome = ToolCallOutcome.Succeeded, Output = "total 0", DurationMilliseconds = 12 };
     private static TurnEnded Failed(long seq, string reason) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", Outcome = TurnOutcome.Failed, Reason = reason, AgentStopReason = null, Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 } };
+    private static MessageText Reply(long seq, string messageId, string text) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", MessageId = messageId, Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Final, Text = text };
+    private static TurnEnded Done(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", Outcome = TurnOutcome.Done, Reason = null, AgentStopReason = "stop", Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 } };
     private static ApiModeHeldEvent Held(long seq) => new("gen-a", GenAStarted, Text(seq, "x"));
 
     // ----- reading frames -----
@@ -967,6 +1273,38 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         JsonSerializer.Deserialize<List<ApiModeLiveItem>>(frame.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     private static ApiModeLiveItem Single(Frame frame) => Assert.Single(Items(frame));
     private static ApiModeLiveResetDto Reset(Frame frame) => JsonSerializer.Deserialize<ApiModeLiveResetDto>(frame.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    /// <summary>What a client shows, built the way a client builds it: each item found by its id and replaced or appended
+    /// to, as its mode says, in the order the items first arrived.</summary>
+    private sealed class ClientView
+    {
+        private readonly List<string> _order = new();
+        private readonly Dictionary<string, ApiModeLiveItem> _items = new(StringComparer.Ordinal);
+
+        public void Apply(IEnumerable<ApiModeLiveItem> items)
+        {
+            foreach (var item in items)
+            {
+                if (!_items.TryGetValue(item.ItemId, out var shown))
+                {
+                    _order.Add(item.ItemId);
+                    _items[item.ItemId] = Copy(item, item.Text);
+                }
+                else
+                    _items[item.ItemId] = Copy(item, item.Mode == ApiModeLiveItemModes.Append ? shown.Text + item.Text : item.Text);
+            }
+        }
+
+        /// <summary>Every field a client renders; the sequence is for logs, so it is left out.</summary>
+        public List<(string ItemId, string Kind, string Text, string? Status, string? Detail, string Tone, string? TurnId, string? PromptId, string? PromptText)> Shown
+            => _order.Select(id => _items[id]).Select(i => (i.ItemId, i.Kind, i.Text, i.Status, i.Detail, i.Tone, i.TurnId, i.PromptId, i.PromptText)).ToList();
+
+        private static ApiModeLiveItem Copy(ApiModeLiveItem i, string text) => new()
+        {
+            ItemId = i.ItemId, Kind = i.Kind, Mode = ApiModeLiveItemModes.Replace, Text = text, Status = i.Status, Detail = i.Detail,
+            Tone = i.Tone, TurnId = i.TurnId, PromptId = i.PromptId, PromptText = i.PromptText, Sequence = i.Sequence,
+        };
+    }
 
     /// <summary>One event of the stream. <see cref="Id"/> is null when the frame had no id line, empty when it cleared it.</summary>
     private sealed record Frame(string? Id, string Event, string Data);
@@ -1036,6 +1374,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         public Task Released => _released.Task;
 
         public ApiModeEventReplay Read(TenantId tenant, string sessionId, ApiModeEventCursor? after = null) => inner.Read(tenant, sessionId, after);
+
+        public T Snapshot<T>(TenantId tenant, string sessionId, Func<ApiModeEventReplay, T> withHeld) => inner.Snapshot(tenant, sessionId, withHeld);
 
         public ApiModeEventSubscription Subscribe(TenantId tenant, string sessionId, ApiModeEventCursor? after, Action<ApiModeHeldEvent> onEvent)
         {

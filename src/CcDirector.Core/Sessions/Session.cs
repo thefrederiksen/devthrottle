@@ -3058,6 +3058,12 @@ public sealed class Session : IDisposable
         }
     }
 
+    /// <summary>How many inputs are being written now. Zero whenever nothing is typing; a test reads it.</summary>
+    internal int InputsInFlight
+    {
+        get { lock (_inputLock) return _inputInFlight; }
+    }
+
     private void EndInput()
     {
         lock (_inputLock) _inputInFlight--;
@@ -3315,7 +3321,14 @@ public sealed class Session : IDisposable
             }
             _inputGeneration++;
             _inputInFlight++;
-            WriteRawInput(data, origin);
+            try { WriteRawInput(data, origin); }
+            catch
+            {
+                // Nothing was written, so nothing is in flight: a refused write must not leave the counter raised
+                // (phase 4 review, finding 2 - an API-mode session with no terminal refuses every keystroke).
+                _inputInFlight--;
+                throw;
+            }
             submits = NoteRawInputLocked(data, provenance);
         }
         try { AfterRawInput(data, origin, provenance, submits); }
@@ -4332,12 +4345,16 @@ public sealed class Session : IDisposable
             return token;
         }
         var frame = SnapshotLiveFrame();
-        var (rows, cursorRow, cursorCol, cursorVisible) = (frame.Rows, frame.CursorRow, frame.CursorCol, frame.CursorVisible);
-        var row = cursorRow >= 0 && cursorRow < rows.Count ? rows[cursorRow] : "";
-        var rowWithoutFaint = frame.RowsWithoutFaint is { } input && cursorRow >= 0 && cursorRow < input.Count ? input[cursorRow] : row;
+        var position = Drivers.DoorbellSafety.ReadComposerPosition(AgentKind, frame);
+        var rows = frame.Rows;
+        var row = position.CursorRow >= 0 && position.CursorRow < rows.Count ? rows[position.CursorRow] : "";
+        var rowWithoutFaint = frame.RowsWithoutFaint is { } input && position.CursorRow >= 0 && position.CursorRow < input.Count
+            ? input[position.CursorRow]
+            : row;
         var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint={Quoted(rowWithoutFaint)} (the rest was drawn faint, not typed)";
-        return $"reading={reading}, text={Quoted(composerText)}, cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
-               $"row={Quoted(row)}{faint}, screen={_screenCols}x{_screenRows}";
+        return $"reading={reading}, text={Quoted(composerText)}, cursorRow={position.CursorRow}, cursorCol={position.CursorCol}, " +
+               $"promptRow={position.PromptRow}, cursorVisible={position.CursorVisible}, row={Quoted(row)}{faint}, " +
+               $"screen={_screenCols}x{_screenRows}";
     }
 
     /// <summary>

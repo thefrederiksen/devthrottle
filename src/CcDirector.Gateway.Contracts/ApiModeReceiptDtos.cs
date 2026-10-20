@@ -18,6 +18,11 @@ public enum ApiModeReceiptState
 
     /// <summary>The prompt did not enter the conversation; the receipt says why and who refused it.</summary>
     Refused,
+
+    /// <summary>The Gateway's own ruling, never a Director's: the prompt left the Director's queue and the event that
+    /// says whether it was delivered or refused was lost, as a later Director generation proves
+    /// (<c>ApiModeLostQueuedPrompt</c>). A later real event for the prompt replaces it.</summary>
+    Unknown,
 }
 
 /// <summary>
@@ -82,8 +87,9 @@ public sealed class ApiModeReceiptDto
     /// <summary>The receipt's finished words, rendered verbatim (event model rule 5): <c>Queued, &lt;place&gt; in line:
     /// &lt;why&gt;</c> (<c>Queued: &lt;why&gt;</c> when no place is known),
     /// <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>,
-    /// <c>Delivered - the turn's end was lost when the Director reconnected</c>, or
-    /// <c>Refused: &lt;reason&gt;</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
+    /// <c>Delivered - the turn's end was lost when the Director reconnected</c>,
+    /// <c>Refused: &lt;reason&gt;</c>, or, for an <see cref="ApiModeReceiptState.Unknown"/> receipt,
+    /// <c>Not known - the Director reconnected without this prompt in its queue or any record of sending it</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
     /// composes a receipt.</summary>
     public string Words { get; set; } = "";
 

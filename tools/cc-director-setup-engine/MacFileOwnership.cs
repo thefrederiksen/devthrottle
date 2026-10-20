@@ -24,7 +24,8 @@ public static class MacFileOwnership
 
     /// <summary>
     /// What must belong to the user. <see cref="Trees"/> are ours and are checked and repaired all the way
-    /// down. <see cref="Folders"/> are shared parents (~/Applications, ~/Library/LaunchAgents, ~/.local/bin) that a sudo
+    /// down. <see cref="Folders"/> are shared parents (~/Applications, ~/Library/LaunchAgents, ~/.local/bin) - all of
+    /// them inside the user's own home, never /Applications - that a sudo
     /// run may have CREATED: only the folder itself is checked and repaired, never what other apps keep in it.
     /// A root-owned parent matters on its own: replacing anything inside it needs the parent to be writable.
     /// </summary>
@@ -39,26 +40,43 @@ public static class MacFileOwnership
     /// <summary>The setup wizard's bundle, which install-mac.sh places beside the Director.</summary>
     public const string SetupAppName = "DevThrottle Setup.app";
 
-    /// <summary>Everything an install writes in the user's home, and the parents it may have created.</summary>
-    public static Targets InstallTargets(InstallLayout layout, string launchAgentPlistPath) => new(
-        [
-            layout.LocalRoot,
-            Path.Combine(layout.MacAppsDir, "Director.app"),
-            Path.Combine(layout.MacAppsDir, "CC Director.app"),
-            Path.Combine(layout.MacAppsDir, SetupAppName),
-            launchAgentPlistPath,
-            // The shell start-up files the install appends its PATH block to (InstallFinalizer). Files, so the
-            // recursive repair changes only the file itself.
-            Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".zshrc"),
-            Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".bash_profile"),
-        ],
-        [
-            layout.MacAppsDir,
-            Path.GetDirectoryName(launchAgentPlistPath)!,
-            // The cc-* command links: the Python tools step creates this folder and replaces links in it.
-            Path.GetDirectoryName(layout.ToolShimDir)!,
-            layout.ToolShimDir,
-        ]);
+    /// <summary>
+    /// Everything an install writes in the user's home, and the parents it may have created.
+    ///
+    /// Every path here is under the user's own HOME, and that is the point: what is repaired is what a
+    /// sudo run created in the user's home owned by root, and the repair is a recursive chown to the
+    /// user. The Applications folder named here is therefore <see cref="InstallLayout.MacUserAppsDir"/>
+    /// and never <see cref="InstallLayout.MacAppsDir"/>, which now resolves to <c>/Applications</c> on an
+    /// administrator's Mac: that folder belongs to root on every Mac and must keep belonging to root, and
+    /// its parent is <c>/</c>, so deriving the shell start-up files from it would have named
+    /// <c>/.zshrc</c> and handed the root of the disk's dot-files to the user. The Director bundle in
+    /// <c>/Applications</c> needs no repair - launchd's EX_CONFIG refusal (#3411) is about the launch
+    /// agent's own program and logs in the user's Library, not about where the application sits.
+    /// </summary>
+    public static Targets InstallTargets(InstallLayout layout, string launchAgentPlistPath)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        var userApps = layout.MacUserAppsDir;
+        return new(
+            [
+                layout.LocalRoot,
+                Path.Combine(userApps, "Director.app"),
+                Path.Combine(userApps, "CC Director.app"),
+                Path.Combine(userApps, SetupAppName),
+                launchAgentPlistPath,
+                // The shell start-up files the install appends its PATH block to (InstallFinalizer). Files, so the
+                // recursive repair changes only the file itself.
+                Path.Combine(layout.HomeDir, ".zshrc"),
+                Path.Combine(layout.HomeDir, ".bash_profile"),
+            ],
+            [
+                userApps,
+                Path.GetDirectoryName(launchAgentPlistPath)!,
+                // The cc-* command links: the Python tools step creates this folder and replaces links in it.
+                Path.GetDirectoryName(layout.ToolShimDir)!,
+                layout.ToolShimDir,
+            ]);
+    }
 
     /// <summary>What the install says, and does, when it is run as root on macOS.</summary>
     public const string RefuseRootMessage =

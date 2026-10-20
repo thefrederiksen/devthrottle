@@ -127,10 +127,13 @@ public static class LicenseReadinessFold
     /// license alarm.</summary>
     public const double AlarmPercent = 80.0;
 
-    /// <summary>The kind the readiness check raises its alarms under.</summary>
-    public static readonly LicenseAlarmKind AlarmKind = new("not-ready-at-80", "Not ready to switch");
+    /// <summary>The retired mixed weekly and five-hour alarm kind, raised empty so its stored rows close.</summary>
+    public static readonly LicenseAlarmKind RetiredAlarmKind = new("not-ready-at-80", "Not ready to switch");
 
-    /// <summary>The kind the readiness check raises when an account in use is at 80% and no other account has room.</summary>
+    /// <summary>The kind raised only when the short usage window is high and a machine is not ready.</summary>
+    public static readonly LicenseAlarmKind AlarmKind = new("not-ready-five-hour", "Not ready to switch");
+
+    /// <summary>The retired no-room alarm kind, raised empty so its stored rows close.</summary>
     public static readonly LicenseAlarmKind NoRoomAlarmKind = new("no-room-at-80", "No account to switch to");
 
     /// <summary>The wait after <paramref name="failuresInARow"/> failed sign-ins (at least one).</summary>
@@ -261,11 +264,9 @@ public static class LicenseReadinessFold
     private static bool IsSignedIn(LicenseSwitchLogEntity row) => row.State is LicenseSignInOutcomes.Added or LicenseSignInOutcomes.Renewed;
 
     /// <summary>
-    /// THE 80% ALARM. One alarm for each machine that is not ready while the account it is on stands at or above
-    /// <see cref="AlarmPercent"/> of either window: it names the machine, the account in use, the account it would switch
-    /// to and why it cannot, and the one thing to do, true to what the last attempt did. Under 80% there is no alarm,
-    /// though the fixing still runs. "No other account has room" is not a readiness gap and raises nothing here: it has its
-    /// own alarm, <see cref="NoRoomAlarmConditions"/>.
+    /// One alarm for each machine that is not ready while its account stands at or above <see cref="AlarmPercent"/>
+    /// of the five-hour window. Weekly use and no-room conditions are status on the Licenses page, never alarms.
+    /// Automatic sign-ins still run regardless of usage.
     ///
     /// OPENED ONLY ON A FRESH READING, CLOSED ONLY ON A FACT (the Tech Lead's ruling on the review of A3). An alarm opens
     /// only on a fresh reading at or above 80%. An open one stays open while the reading is stale: a banner that vanished
@@ -288,8 +289,8 @@ public static class LicenseReadinessFold
             var reading = snapshot.Accounts.FirstOrDefault(a => a.AccountEmail == gap.ActiveAccountEmail);
             if (reading is not null && !LicenseDecisionEngine.IsReadingStale(reading, snapshot.NowUtc))
             {
-                // Fresh: at or above 80% the alarm is true; under 80% it is not, and an open one closes.
-                if (HighestWindowAtAlarm(reading, snapshot.NowUtc) is { } window)
+                // Fresh: the short window at or above 80% is an alarm; weekly use is status on the Licenses page.
+                if (FiveHourAtAlarm(reading, snapshot.NowUtc) is { } window)
                     conditions.Add(new LicenseAlarmCondition(gap.MachineId, gap.Label, gap.ActiveAccountEmail,
                         $"{gap.Label} is not ready to switch off {gap.ActiveAccountEmail}, which is at {Percent(window.Utilization)} of its {window.Name}: {why}",
                         action));
@@ -306,17 +307,7 @@ public static class LicenseReadinessFold
     }
 
     /// <summary>
-    /// THE 80% NO-ROOM ALARM. The owner, 16 October 2026: "at 80%, of license expiry, we need to make sure that the next
-    /// License is available on all the computers. We need to warn about this if it's not the case." One alarm for each
-    /// account in use that stands at or above <see cref="AlarmPercent"/> of either window while no other account has room
-    /// for its machines - one for the account, never one for each machine on it. It names the account and its use, says
-    /// no other account has room, which account has room again first and when
-    /// (<see cref="LicenseDecisionEngine.FirstBackWithRoom"/>), and the one thing to do. The no-room email at the switch
-    /// threshold is separate and unchanged; this is the warning that comes while there is still time to act.
-    ///
-    /// The same rule of freshness as <see cref="AlarmConditions"/>: it opens only on a fresh reading at or above 80%, an
-    /// open one stays open while the reading is stale, and it closes on a fresh reading under 80%, on an account having
-    /// room again, or on no machine being left on the account.
+    /// No room is status, not an alarm. The empty condition set also closes alarms stored by older versions.
     /// </summary>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
     /// <see cref="NoRoomAlarmKind"/> are looked at.</param>
@@ -326,45 +317,7 @@ public static class LicenseReadinessFold
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(judged);
         ArgumentNullException.ThrowIfNull(openAlarms);
-        var conditions = new List<LicenseAlarmCondition>();
-        var accounts = judged.Where(j => j.State == LicenseReadinessStates.NoRoom)
-            .Select(j => LicenseStore.NormalizeEmail(j.ActiveAccountEmail))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(a => a, StringComparer.Ordinal);
-        foreach (var account in accounts)
-        {
-            var back = LicenseDecisionEngine.FirstBackWithRoom(snapshot, account);
-            var reading = snapshot.Accounts.FirstOrDefault(a => LicenseStore.NormalizeEmail(a.AccountEmail) == account);
-            if (reading is not null && !LicenseDecisionEngine.IsReadingStale(reading, snapshot.NowUtc))
-            {
-                // Fresh: at or above 80% the alarm is true; under 80% it is not, and an open one closes.
-                if (HighestWindowAtAlarm(reading, snapshot.NowUtc) is { } window)
-                    conditions.Add(NoRoomCondition(account, $"is at {Percent(window.Utilization)} of its {window.Name}", back));
-                continue;
-            }
-            // Not fresh: nothing opens on it, and an alarm already open for this account stays open.
-            if (openAlarms.Any(a => a.Kind == NoRoomAlarmKind.Key && a.ClosedAtUtc is null && a.MachineId == Guid.Empty && a.AccountEmail == account))
-                conditions.Add(NoRoomCondition(account, "was at or above 80% at its last fresh reading", back));
-        }
-        return conditions;
-    }
-
-    // The no-room alarm's two sentences. A pair of long account emails would not fit an alarm's sentence, so then the
-    // account names are left to the Licenses page and only the time is kept.
-    private static LicenseAlarmCondition NoRoomCondition(string account, string use, LicenseAccountReturn? back)
-    {
-        var first = back is null
-            ? "no other account's reading says when it will have room again"
-            : $"the first to have room again is {back.AccountEmail}, at {FullClock(back.BackAtUtc)}";
-        var problem = $"{account} {use} and no other account has room to switch its machines to; {first}.";
-        if (problem.Length > LicenseAlarmService.MaxSentenceLength)
-            problem = back is null
-                ? $"The account in use {use} and no other account has room to switch its machines to; the Licenses page names them."
-                : $"The account in use {use} and no other account has room to switch its machines to; the first has room again at {FullClock(back.BackAtUtc)}.";
-        var action = back is null
-            ? "Nothing can be switched to until another account has room; to keep working, free up or add an account."
-            : $"Nothing can be switched to before {FullClock(back.BackAtUtc)}; to keep working, free up or add an account.";
-        return new LicenseAlarmCondition(null, null, account, problem, action);
+        return Array.Empty<LicenseAlarmCondition>();
     }
 
     /// <summary>Copy each machine's readiness onto its line of the Licenses page.</summary>
@@ -388,15 +341,10 @@ public static class LicenseReadinessFold
 
     private sealed record AlarmWindow(string Name, double Utilization);
 
-    private static AlarmWindow? HighestWindowAtAlarm(LicenseAccountReading reading, DateTime nowUtc)
-    {
-        var windows = new List<AlarmWindow>();
-        if (reading.SevenDay is { } week && AtAlarm(week, nowUtc))
-            windows.Add(new AlarmWindow("weekly limit", week.Utilization));
-        if (reading.FiveHour is { } five && AtAlarm(five, nowUtc))
-            windows.Add(new AlarmWindow("5-hour window", five.Utilization));
-        return windows.OrderByDescending(w => w.Utilization).FirstOrDefault();
-    }
+    private static AlarmWindow? FiveHourAtAlarm(LicenseAccountReading reading, DateTime nowUtc)
+        => reading.FiveHour is { } five && AtAlarm(five, nowUtc)
+            ? new AlarmWindow("5-hour window", five.Utilization)
+            : null;
 
     // At or above the alarm line, and the window has not reset since it was read (the same reading of a pre-reset
     // number as LicenseDecisionEngine.IsTired).
@@ -412,8 +360,6 @@ public static class LicenseReadinessFold
     private static DateTime EndedAt(LicenseSwitchLogEntity row) => Utc(row.FinishedAtUtc ?? row.CreatedAtUtc);
 
     private static string Clock(DateTime utc) => Utc(utc).ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture);
-
-    private static string FullClock(DateTime utc) => Utc(utc).ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
     private static string Percent(double value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 

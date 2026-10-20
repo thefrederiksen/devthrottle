@@ -39,14 +39,20 @@ internal static class InstallProgress
     /// The lines printed after a successful install: what to do next on this machine. Only a Workstation
     /// install gets them - a Gateway install is signed in with `signin`, which its own output already says.
     /// </summary>
-    public static IReadOnlyList<string> NextStep(InstallRole role, bool isMac, bool isWindows)
+    /// <param name="macAppsDir">
+    /// On a Mac, the Applications folder the Director was actually placed in - normally
+    /// <c>/Applications</c>, and the one in the user's home when they could not write that. Named, not
+    /// assumed: this line used to say "~/Applications" always, and add that Finder's sidebar does not open
+    /// it, which was true and was the defect rather than something to explain to the user.
+    /// </param>
+    public static IReadOnlyList<string> NextStep(InstallRole role, bool isMac, bool isWindows, string? macAppsDir = null)
     {
         if (role != InstallRole.Workstation) return [];
-        // On a Mac the app is placed as Director.app in the Applications folder inside the home folder
-        // (~/Applications), which Finder's sidebar does not open. Its name there and in Spotlight is "Director",
-        // not "DevThrottle" - typing DevThrottle finds only the setup wizard.
+        // On a Mac the app is placed as Director.app in the Applications folder. Its name there and in
+        // Spotlight is "Director", not "DevThrottle" - typing DevThrottle finds only the setup wizard.
+        var folder = macAppsDir is { Length: > 0 } ? macAppsDir : "the Applications folder";
         var open = isMac
-            ? "open the DevThrottle app, which is called Director on a Mac (press Command-Space and type Director, or open Director in ~/Applications),"
+            ? $"open the DevThrottle app, which is called Director on a Mac (press Command-Space and type Director, or open Director in {folder}),"
             : isWindows ? "open DevThrottle from the Start menu" : "open DevThrottle from your app menu";
         return
         [

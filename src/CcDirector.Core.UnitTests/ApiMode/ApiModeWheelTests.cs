@@ -114,6 +114,21 @@ public sealed class ApiModeWheelTests : IDisposable
     }
 
     [Fact]
+    public async Task SendInput_WhileTheProtocolHoldsTheConversation_IsRefusedAndLeavesNoInputInFlight()
+    {
+        // Arrange: the Terminal pane's keys reach the session while there is no terminal (phase 4 review, finding 2).
+        var rig = StartSession(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act: three keys, each refused.
+        for (var i = 0; i < 3; i++)
+            Assert.Throws<ApiModeNoTerminalException>(() => rig.Session.SendInput([(byte)'a'], origin: null, Door));
+
+        // Assert: nothing was written, so nothing is in flight - the counter is not raised once per refused key.
+        Assert.Equal(0, rig.Session.InputsInFlight);
+    }
+
+    [Fact]
     public async Task TakeWheelAsync_ThenHandBack_NeverHasTwoProcessesOnTheConversation()
     {
         // Arrange

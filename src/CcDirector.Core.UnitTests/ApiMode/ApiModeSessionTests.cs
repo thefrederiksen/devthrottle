@@ -405,10 +405,10 @@ public sealed class ApiModeSessionTests : IDisposable
         var (_, backend, _) = StartSession(new ScriptedPi("plain"));
 
         // Act
-        var error = Assert.Throws<InvalidOperationException>(() => backend.Write([0x1B]));
+        var error = Assert.Throws<ApiModeNoTerminalException>(() => backend.Write([0x1B]));
 
         // Assert
-        Assert.Contains("is in API mode and its protocol holds the conversation: it has no terminal", error.Message);
+        Assert.Equal("This session's protocol holds the conversation, so it has no terminal and keystrokes cannot be typed. Take the wheel to type into its terminal, or send a prompt in the chat.", error.Message);
         Assert.Null(backend.Buffer);
     }
 

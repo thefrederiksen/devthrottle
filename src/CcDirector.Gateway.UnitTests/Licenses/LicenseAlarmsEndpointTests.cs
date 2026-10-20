@@ -19,7 +19,7 @@ public sealed class LicenseAlarmsEndpointTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
     private static readonly TenantId Two = new("acct-two");
-    private static readonly LicenseAlarmKind NotReady = new("not-ready-at-80", "Not ready to switch");
+    private static readonly LicenseAlarmKind NotReady = new("not-ready-five-hour", "Not ready to switch");
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseAlarmService _alarms;

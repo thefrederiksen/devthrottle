@@ -136,29 +136,24 @@ public sealed class LicenseSwitchHoldServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_EveryMachineOfTheTiredAccountHeld_TellsTheOwnerOnce_ByTheEventOfTheNoRoomCase()
+    public async Task TickAsync_EveryMachineOfTheTiredAccountHeld_RecordsStatusWithoutEmail()
     {
         for (var minute = 0; minute <= 70; minute++)
             await CheckAt(minute);
 
-        // Minute 3 is the first check that finds the only machine held: the event opens there and its email goes.
-        var email = Assert.Single(_mailed);
-        Assert.Equal("DevThrottle: the switch away from account-a@example.com keeps failing - it is at 98% of its weekly limit", email.Subject);
-        Assert.Contains("the-windows-machine: its switch from account-a@example.com to account-b@example.com has failed more than once in a row "
-                        + "(the exchange failed and was undone; the machine is on the account it was on), so the automatic switch leaves it out until 2026-10-11 03:16 UTC.", email.BodyText);
+        Assert.Empty(_mailed);
         var row = Assert.Single(Rows(LicenseLogKinds.NoRoom));
-        Assert.Equal((A, LicenseLogStates.Open, LicenseGatewayReasonCodes.OwnerEmailed, T0.AddMinutes(3), 1),
-            (row.FromAccountEmail, row.State, row.ReasonCode, row.CreatedAtUtc, row.SendCount));
+        Assert.Equal((A, LicenseLogStates.Open, T0.AddMinutes(3)), (row.FromAccountEmail, row.State, row.CreatedAtUtc));
         Assert.Null(row.FinishedAtUtc);
-        Assert.Equal("The switch of the machines on account-a@example.com keeps failing and is tried again later each time, so nothing is switched for now; the owner was emailed.", row.Message);
+        Assert.Contains("The switch of the machines on account-a@example.com keeps failing", row.Message);
     }
 
     [Fact]
-    public async Task TickAsync_TheSwitchThatWorksAtLast_ClosesTheEvent_AndALaterRunOfFailuresIsANewEventWithItsOwnEmail()
+    public async Task TickAsync_TheSwitchThatWorksAtLast_ClosesTheStatusEventWithoutEmail()
     {
         for (var minute = 0; minute <= 3; minute++)
             await CheckAt(minute);
-        Assert.Single(_mailed);
+        Assert.Empty(_mailed);
 
         // At minute 4 the hold has passed and the Director switches: the machine is on B, and nothing is on A.
         _answer = (_, request) => Switches(request);
@@ -171,7 +166,7 @@ public sealed class LicenseSwitchHoldServiceTests : IDisposable
         await _service.TickAsync(Tenant, CancellationToken.None);
 
         Assert.Equal(LicenseLogStates.Ended, Assert.Single(Rows(LicenseLogKinds.NoRoom)).State);
-        Assert.Single(_mailed);
+        Assert.Empty(_mailed);
     }
 
     [Fact]

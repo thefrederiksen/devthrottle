@@ -84,13 +84,32 @@ to the section 8 decision (LaunchAgent vs LaunchDaemon changes the Gateway root)
 
 | Role | Windows | macOS (proposed) |
 |------|---------|------------------|
-| Per-user app | `%LOCALAPPDATA%\cc-director\app\` | `~/Applications/CC Director.app` |
+| Per-user app | `%LOCALAPPDATA%\cc-director\app\` | `/Applications/Director.app` (see below) |
 | Per-user tools | `%LOCALAPPDATA%\cc-director\bin\` (+ PATH) | `~/Library/Application Support/cc-director/bin` (+ shell profile) |
 | Per-user data/config | `%LOCALAPPDATA%\cc-director\` | `~/Library/Application Support/cc-director/` |
 | Gateway (LaunchAgent) | `%ProgramFiles%\CC Director\` | `~/Library/Application Support/cc-director/gateway\|cockpit/` + `~/Library/LaunchAgents/<label>.plist` |
 | Gateway (LaunchDaemon opt-in) | (n/a) | `/Library/Application Support/cc-director/` + `/Library/LaunchDaemons/<label>.plist` |
 
 Per-user macOS install needs no admin, matching the Windows Workstation story.
+
+**Correction (2026-10-19): the application itself goes in `/Applications`, not `~/Applications`.**
+The table above proposed `~/Applications` because it mirrors the per-user Windows install, and that is
+where the install put the bundle until now. The result was an install that left no icon in the folder a
+Mac user opens: Finder's sidebar Applications entry and the Applications view of Spotlight both show
+`/Applications`, so the Director was findable only by searching for it by name. Linux had already been
+given the equivalent step - `LinuxDesktopEntry` writes the application-menu entry and icon - and macOS
+had none.
+
+`/Applications` is owned by root and writable by the `admin` group, so an administrator - which the
+person installing their own Mac almost always is - writes it with no password and no elevation, and the
+"no admin" property of the install is kept. A user who is NOT an administrator cannot write it, and for
+them the install still falls back to `~/Applications`; the choice is made by probing the folder, never
+by guessing from group membership (`MacAppsFolder`). Everything else in this table is unchanged and
+stays in the user's own home.
+
+A Mac that already has the bundle in `~/Applications` is migrated rather than duplicated: the
+identity-gated `MacBundlePurger` removes the old copy as part of placing the new one, so a reinstall
+moves the icon instead of leaving one in each folder.
 
 ## 5. Self-update on macOS
 

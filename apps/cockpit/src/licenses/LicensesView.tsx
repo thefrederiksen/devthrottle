@@ -25,6 +25,7 @@ import {
   type LicenseSwitchNowResult,
 } from "@devthrottle/client-core/licenses/licensesClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
+import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
@@ -129,6 +130,7 @@ export function foldNewestLogPage(current: LogView | null, page: LicenseLogPage)
 }
 
 export function LicensesView() {
+  const alarms = useLicenseAlarms(true);
   const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
   const log = usePolled<LicenseLogPage, LogView>(readNewestLog, "read the switch log", foldNewestLogPage);
@@ -304,6 +306,15 @@ export function LicensesView() {
           )
         }
       />
+
+      {alarms !== null && alarms.count > 0 && (
+        <section aria-label="License problems" className="lic-alarm-details" data-testid="license-alarm-details">
+          <h2 className="lic-h2">{alarms.summary}</h2>
+          <ul>
+            {alarms.alarms.map((alarm) => <li key={alarm.alarmId}>{alarm.text}</li>)}
+          </ul>
+        </section>
+      )}
 
       {/* error-reported-by: usePolled */}
       {overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}

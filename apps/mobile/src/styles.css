@@ -3341,6 +3341,37 @@ a.banner-btn {
   border-color: #e5484d;
 }
 
+/* The rename sheet's name box. The card's own full-width text row: taller than a desktop dialog's
+   input because it is typed into with a phone keyboard, and the same surface/border pair the card
+   and its buttons use, so the sheet reads as one object. The confirm-remove red is deliberately NOT
+   reused on the Save button - renaming is not a destructive verb. */
+.confirm-label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.confirm-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 16px;
+  padding: 12px;
+  min-height: 46px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 16px; /* 16px is what stops iOS Safari zooming the page on focus. */
+}
+
+/* Save is the accent, not the stop sheet's red: renaming changes a name, it ends nothing. */
+.confirm-save {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
 /* ===== Hamburger menu + nav drawer (mobile settings) ===== */
 .hamburger {
   align-self: center;

@@ -2,6 +2,7 @@ using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
@@ -50,7 +51,7 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
         _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => At.UtcDateTime);
-        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), _receipts, _boundary);
+        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), _receipts, new ApiModeConversationStore(_harness.Open(_ambient), () => At.UtcDateTime), _boundary);
         _current = _gatewayOff;
         // As the session manager wires it: the stream's sink is whichever the Director's setting makes current.
         _stream = new SessionEventStream(Sid, new ForwardingSessionEventSink(() => _current), new FakeTimeProvider(At));
@@ -115,6 +116,17 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
     {
         SessionId = Sid, Sequence = Next(), At = At,
         TurnId = "turn-1", MessageId = "turn-1-message-1", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = "x",
+    };
+
+    private ToolCallStarted Tool() => new()
+    {
+        SessionId = Sid, Sequence = Next(), At = At,
+        TurnId = "turn-1", ToolCallId = "call-" + Guid.NewGuid().ToString("N"), ToolName = "bash", Kind = ToolCallKind.Execute, Input = "ls",
+    };
+
+    private TurnStarted TurnStarts(params string[] promptIds) => new()
+    {
+        SessionId = Sid, Sequence = Next(), At = At, TurnId = "turn-1", PromptIds = promptIds,
     };
 
     private static List<SessionEvent> Events(ApiModeEventBatch batch) =>
@@ -264,6 +276,81 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
             e => Assert.Equal(("p2", 2, 2L), (Assert.IsType<PromptQueued>(e).PromptId, ((PromptQueued)e).Position, e.Sequence)),
             e => Assert.Equal(3L, Assert.IsType<MessageText>(e).Sequence));
         Assert.Equal(new Dictionary<string, int?> { ["p1"] = 1, ["p2"] = 2 }, Places());
+    }
+
+    // ----- a queued prompt whose ending fell in the hole (item 9; review of pull request #4209, finding 1) -----
+
+    [Fact]
+    public async Task Publish_AHoleSwallowsADelivery_ThePromptIsRuledUnknownAtTheFirstEventAfterTheReannouncements()
+    {
+        // Arrange: p1, p2 and p3 queued and on the Gateway.
+        var pusher = Pusher();
+        _current = pusher;
+        _stream.Publish([Queued("p1", 1), Queued("p2", 2), Queued("p3", 3)]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Act: p1 is delivered while the Gateway is turned off, so its delivery falls in the hole; then a reply streams
+        // (which proves nothing), and then a tool runs.
+        _current = _gatewayOff;
+        _stream.Publish([Delivered("p1")]);
+        _current = pusher;
+        _stream.Publish([Text()]);
+        await pusher.PushSessionAsync(Sid);
+        var reannounced = Events(_received[^1]).OfType<PromptQueued>().Select(q => q.PromptId).ToList();
+        var beforeTheProof = Words("p1");
+        _stream.Publish([Tool()]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Assert: the new generation re-announced p2 and p3 only; p1 read Queued until the first event after the
+        // re-announcements that proves, and then the Unknown words; p2 and p3 moved up to 1st and 2nd.
+        Assert.Equal(new[] { "p2", "p3" }, reannounced);
+        Assert.StartsWith("Queued", beforeTheProof);
+        Assert.Equal(ApiModeLostQueuedPrompt.Words, Words("p1"));
+        Assert.StartsWith("Queued, 1st in line", Words("p2"));
+        Assert.StartsWith("Queued, 2nd in line", Words("p3"));
+    }
+
+    [Fact]
+    public async Task Publish_AHoleWhileThePromptStaysQueued_ItIsReannouncedAndStaysQueued()
+    {
+        // Arrange
+        var pusher = Pusher();
+        _current = pusher;
+        _stream.Publish([Queued("p1", 1)]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Act: a hole, then a tool runs.
+        _current = _gatewayOff;
+        _stream.Publish([Text()]);
+        _current = pusher;
+        _stream.Publish([Tool()]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Assert
+        Assert.NotEqual(_stream.Generation, _received[^1].Generation);
+        Assert.StartsWith("Queued, 1st in line", Words("p1"));
+    }
+
+    [Fact]
+    public async Task Publish_AHoleSwallowsADeliveryAndTheNextEventIsItsTurnsStart_ThePromptIsRuledUnknownCarriedByThatTurn()
+    {
+        // Arrange
+        var pusher = Pusher();
+        _current = pusher;
+        _stream.Publish([Queued("p1", 1)]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Act: p1's delivery falls in the hole; the generation after it opens with the turn that carries p1 (review of
+        // pull request #4209, finding 2), and a tool runs in it.
+        _current = _gatewayOff;
+        _stream.Publish([Delivered("p1")]);
+        _current = pusher;
+        _stream.Publish([TurnStarts("p1"), Tool()]);
+        await pusher.PushSessionAsync(Sid);
+
+        // Assert: the record of p1's delivery was lost and a turn carrying it started; no acknowledgement, so not Delivered.
+        Assert.IsType<TurnStarted>(Assert.Single(Events(_received[^1]), e => e.Sequence == 1));
+        Assert.Equal(ApiModeLostQueuedPrompt.CarriedWords, Words("p1"));
     }
 
     [Fact]
