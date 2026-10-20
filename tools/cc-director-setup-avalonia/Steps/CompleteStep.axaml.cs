@@ -263,7 +263,7 @@ public partial class CompleteStep : UserControl
     /// window's closing (<see cref="InstallCompletion.OpensDirectorOnClose"/>).
     ///
     /// _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
-    /// installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
+    /// installed cc-director.exe; on macOS it is the Director.app bundle in the Applications folder. The two
     /// launch differently: run the exe directly on Windows, but on macOS hand the bundle to
     /// /usr/bin/open so LaunchServices registers it - that is what gives the application its Dock icon and
     /// foreground activation. Launching the inner Mach-O binary directly gives neither.
