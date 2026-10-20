@@ -47,9 +47,21 @@ export function LocalTime({ iso }: { iso: string }) {
  * text beside them: "not read" is never drawn as an empty bar, because an empty bar reads as zero use, and an old
  * number is never drawn as today's.
  */
-export function WindowBar({ label, window, testId }: { label: string; window: LicenseWindow; testId: string }) {
+export function WindowBar({
+  label,
+  window,
+  testId,
+  projectedPercent = null,
+}: {
+  label: string;
+  window: LicenseWindow;
+  testId: string;
+  /** Where the Gateway's forecast says the window gets to: drawn striped beneath the fill. Null draws none. */
+  projectedPercent?: number | null;
+}) {
   const known = window.utilization !== null && (window.level === "normal" || window.level === "at-limit");
   const width = known ? Math.min(100, Math.max(0, window.utilization as number)) : 0;
+  const projected = known && projectedPercent !== null ? Math.min(100, Math.max(0, projectedPercent)) : null;
   return (
     <div className="lic-window" data-testid={testId} data-level={window.level}>
       <div className="lic-window-label">
@@ -69,6 +81,9 @@ export function WindowBar({ label, window, testId }: { label: string; window: Li
           aria-valuenow={width}
           aria-valuetext={window.utilizationText}
         >
+          {projected !== null && (
+            <span className="lic-bar-projected" data-testid="lic-bar-projected" style={{ width: `${projected}%` }} />
+          )}
           <span className={`lic-bar-fill lic-bar-${window.level}`} style={{ width: `${width}%` }} />
         </div>
       ) : (

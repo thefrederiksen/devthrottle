@@ -20,6 +20,8 @@ const EXAMPLES: ReadonlyArray<{ fixture: string | null; fragment?: boolean }> = 
   { fixture: "OVERVIEW" },
   { fixture: "BARRED_FIELDS", fragment: true },
   { fixture: "FORECAST" },
+  { fixture: "FORECAST_GAP" },
+  { fixture: null },
   { fixture: "LOG_PAGE" },
   { fixture: "EMPTY_OVERVIEW" },
   { fixture: null },
@@ -65,7 +67,7 @@ describe("the Licenses fixtures", () => {
       expect(held[example.fixture], `${example.fixture} is not example ${index + 1} of cockpit-api.md`).toEqual(inDocument);
       compared += 1;
     });
-    expect(compared).toBe(27);
+    expect(compared).toBe(28);
     // And no fixture exists that came from somewhere else.
     const named = EXAMPLES.flatMap((example) => (example.fixture === null ? [] : [example.fixture]));
     expect(Object.keys(fixtures).filter((name) => name !== "copyOf").sort()).toEqual([...named].sort());

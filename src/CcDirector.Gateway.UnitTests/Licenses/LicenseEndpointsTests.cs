@@ -197,7 +197,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var (status, _, json) = Forecast(TenantOne);
 
         Assert.Equal(200, status);
-        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "nextSwitch", "nextSwitchText", "accounts", "machines" }, Names(json));
+        Assert.Equal(new[] { "asOfUtc", "isEmpty", "emptyText", "nextSwitch", "nextSwitchText", "accounts", "machines", "outlook" }, Names(json));
         var next = json.GetProperty("nextSwitch");
         Assert.Equal(new[] { "fromAccountEmail", "expectedAtUtc", "window", "windowText", "targetAccountEmail", "machines" }, Names(next));
         Assert.Equal((A, "five-hour", "5-hour window", B),
@@ -210,14 +210,22 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "accountEmail", "isInUse", "isStale", "fiveHour", "sevenDay", "expectedAtLimitUtc", "expectedText",
-            "nextSwitchTargetAccountEmail", "nextSwitchText",
+            "nextSwitchTargetAccountEmail", "nextSwitchText", "rows", "projectedWeekPercent",
         }, Names(account));
+        Assert.Equal(new[] { "label", "text", "atUtc", "tone" }, Names(account.GetProperty("rows")[0]));
         Assert.Equal(new[] { "utilization", "utilizationText", "level", "resetsAtUtc", "resetsText", "percentPerHour", "rateText", "expectedAtLimitUtc", "expectedText" },
             Names(account.GetProperty("fiveHour")));
         Assert.Equal(("96%", "normal", "Resets in 2 hours"),
             (account.GetProperty("fiveHour").GetProperty("utilizationText").GetString(), account.GetProperty("fiveHour").GetProperty("level").GetString(),
              account.GetProperty("fiveHour").GetProperty("resetsText").GetString()));
         Assert.Equal("30% an hour", account.GetProperty("fiveHour").GetProperty("rateText").GetString());
+
+        var outlook = json.GetProperty("outlook");
+        Assert.Equal(new[] { "axisStartUtc", "axisEndUtc", "headline", "runsOut", "nextRoom", "nextRenewal", "rows", "gaps", "legendText" }, Names(outlook));
+        Assert.Equal(new[] { "text", "detail", "tone", "isAlert" }, Names(outlook.GetProperty("headline")));
+        Assert.Equal(new[] { "label", "valueText", "atUtc", "detailText", "tone" }, Names(outlook.GetProperty("runsOut")));
+        Assert.Equal(new[] { "accountEmail", "spans", "marks" }, Names(outlook.GetProperty("rows")[0]));
+        Assert.Equal(new[] { "startUtc", "endUtc", "kind", "text" }, Names(outlook.GetProperty("rows")[0].GetProperty("spans")[0]));
 
         var machine = json.GetProperty("machines")[0];
         Assert.Equal(new[] { "machineId", "machineName", "osUser", "label", "activeAccountEmail", "nextAccountEmail", "expectedSwitchAtUtc", "text" }, Names(machine));

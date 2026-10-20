@@ -259,7 +259,7 @@ describe("LicensesView: the renewal date of a subscription", () => {
     answers[RENEWAL] = () => json(200, RENEWAL_SET);
     render(<LicensesView />);
     const drawn = await edit(ACCOUNT_A);
-    expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set");
+    expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set");
     // Nothing can be saved before a date is given, and there is nothing to clear.
     expect((within(drawn).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(drawn).queryByRole("button", { name: "Clear date" })).toBeNull();
@@ -269,14 +269,14 @@ describe("LicensesView: the renewal date of a subscription", () => {
     fireEvent.change(dateField(drawn, ACCOUNT_A), { target: { value: "2026-10-17" } });
     fireEvent.click(within(drawn).getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Max - Renews 17 Oct"));
+    await waitFor(() => expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Renews 17 Oct"));
     expect(writes().length).toBe(1);
     expect(writes()[0].call).toBe(RENEWAL);
     expect(writes()[0].contentType).toBe("application/json");
     expect(writes()[0].body).toEqual({ accountEmail: ACCOUNT_A, renewsOn: "2026-10-17" });
     expect(within(drawn).queryByTestId("lic-renewal-editor")).toBeNull();
     // Another account's date is not touched.
-    expect(within(await card(ACCOUNT_B)).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set");
+    expect(within(await card(ACCOUNT_B)).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set");
   });
 
   it("clears a date with an explicit null, which is the only thing the Gateway takes as clearing", async () => {
@@ -291,7 +291,7 @@ describe("LicensesView: the renewal date of a subscription", () => {
 
     fireEvent.click(within(drawn).getByRole("button", { name: "Clear date" }));
 
-    await waitFor(() => expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set"));
+    await waitFor(() => expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set"));
     expect(writes().length).toBe(1);
     expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: ACCOUNT_A, renewsOn: null }));
   });
@@ -306,7 +306,7 @@ describe("LicensesView: the renewal date of a subscription", () => {
 
     const refusal = await within(drawn).findByTestId("lic-renewal-error");
     expect(refusal.textContent).toBe(RENEWAL_OWNER_ONLY.error);
-    expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set");
+    expect(within(drawn).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set");
     // The editor stays open with what was typed, and can be used again.
     expect(dateField(drawn, ACCOUNT_A).value).toBe("2026-10-17");
     expect((within(drawn).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
@@ -355,6 +355,6 @@ describe("LicensesView: an account barred from the automatic choice, and a store
     expect(failed[0].className).toContain("lic-tone-bad");
     expect(failed[0].closest("[data-testid=lic-holding]")?.textContent).toContain("the-windows-machine");
     // It is about the sign-in, not the subscription: the account's renewal line is untouched.
-    expect(within(await card(ACCOUNT_B)).getByTestId("lic-account-renewal").textContent).toBe("Max - Renewal date not set");
+    expect(within(await card(ACCOUNT_B)).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set");
   });
 });

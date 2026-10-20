@@ -29,11 +29,13 @@ import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarm
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
+import { LicenseOutlookChart, LicenseOutlookHeadline, LicenseOutlookTiles } from "./LicenseOutlook";
 import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
 import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./licenseParts";
 
-// THE LICENSES PAGE (the License Switching mission, phase 3): every Claude account as a card with its two usage
-// windows, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
+// THE LICENSES PAGE (the License Switching mission, phase 3): the next seven days above everything (an alert when no
+// account will have room, three tiles and a timeline of every account, LicenseOutlook.tsx), every Claude account as a
+// card with its two usage windows and its Forecast and Subscription boxes, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
 // and the things a person does here: Switch now, setting the day a subscription is billed again, saying which
 // machine approves the sign-ins of an account, adding a spare to a machine, renewing a sign-in, and forgetting a machine
 // that is gone.
@@ -326,6 +328,15 @@ export function LicensesView() {
         <EmptyState message={data.emptyText ?? ""} />
       ) : (
         <>
+          {/* The next seven days, above the cards: the alert (only when the Gateway says no account will have room),
+              the three tiles and the timeline. The forecast's own error banner is under Schedule below. */}
+          {forecast.data !== null && !forecast.data.isEmpty && (
+            <>
+              <LicenseOutlookHeadline outlook={forecast.data.outlook} />
+              <LicenseOutlookTiles outlook={forecast.data.outlook} />
+              <LicenseOutlookChart outlook={forecast.data.outlook} />
+            </>
+          )}
           <div className="lic-cards">
             {data.accounts.map((account) => (
               <LicenseAccountCard
