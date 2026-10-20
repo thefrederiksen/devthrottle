@@ -297,6 +297,42 @@ public sealed class MailDeskRoutedStore
     // ---------- the router's other writes ----------
 
     /// <summary>
+    /// A RESTORED SESSION (section 3.2, step 3; review of 4283, finding 2): a Smart Restart brought the session these
+    /// open rows are with back under a new id. Every open row with <paramref name="fromSessionId"/> takes
+    /// <paramref name="toSessionId"/> and stays open - nothing is re-routed and no count changes - and each decision's
+    /// outcome detail names the new session. The rows' start becomes <paramref name="toStartedUtc"/>, the new session's
+    /// own start, because every rule that counts from a row's start is about the session it is with (review of the
+    /// restart record work, finding 1). Returns the rows that followed it.
+    /// </summary>
+    public IReadOnlyList<MailDeskRoutedEntity> Follow(TenantId tenant, string fromSessionId, string toSessionId, string? machine,
+        DateTime toStartedUtc, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fromSessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(toSessionId);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.MailDeskRouted
+                .Where(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId == fromSessionId)
+                .ToList();
+            foreach (var row in rows)
+            {
+                row.SessionId = toSessionId;
+                row.StartedUtc = toStartedUtc;
+                row.ChangedUtc = nowUtc;
+                if (ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision)
+                {
+                    var where = string.IsNullOrWhiteSpace(machine) ? "" : $" on {machine}";
+                    decision.OutcomeDetail = Cut($"session {toSessionId}{where} ({row.Factory}/{row.Seat})", MailDeskDecisionStore.MaxReasonLength);
+                }
+            }
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskRoutedStore] Follow: session {fromSessionId} was restored as {toSessionId}; {rows.Count} open rows follow it: {Ids(rows)}");
+            return rows;
+        }
+    }
+
+    /// <summary>
     /// AN ORPHAN (section 3.2, step 3): the session this open row is with ended without saying done or returning it.
     /// The first time it is queued again for the same seat (<see cref="MailDeskRoutedEntity.RerouteCount"/> 1); the
     /// second time it is handed to the owner, "its session ended twice without saying done or returning it". A row
@@ -633,6 +669,15 @@ public static class MailDeskRoutedReasons
 {
     /// <summary>Why an orphan went to the owner the second time.</summary>
     public const string SessionEndedTwice = "its session ended twice without saying done or returning it";
+
+    /// <summary>Why an email whose session a restart ended, and which its restart record still owed a Bring back after
+    /// <see cref="MailDeskRouter.RestartOwedFor"/>, went to the owner - never re-routed, so two sessions never work it.</summary>
+    public const string NotBroughtBack = "its session was ended by a Director restart and was not brought back within 72 hours";
+
+    /// <summary>Why an email whose session was restarted and brought back more times than the router follows in one run
+    /// (<see cref="MailDeskRouter.MaxRestartsFollowed"/>) went to the owner - never re-routed, since the last session
+    /// may still be owed a Bring back.</summary>
+    public const string RestartChainTooLong = "its session was restarted and brought back more than 10 times before the Mail Desk could follow it";
 
     /// <summary>Why an email whose session could not be started went to the owner.</summary>
     public static string StartFailedTimes(int times, string error) => $"its session could not be started {times} times: {error}";

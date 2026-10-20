@@ -30,6 +30,14 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
 
     public async Task DisposeAsync() => await _rig.DisposeAsync();
 
+    private static IReadOnlyDictionary<string, CcDirector.Gateway.History.SessionEndingFact> NoEndings(
+        CcDirector.Core.Tenancy.TenantId tenant, IReadOnlyCollection<string> ids)
+        => new Dictionary<string, CcDirector.Gateway.History.SessionEndingFact>();
+
+    private static IReadOnlyDictionary<string, CcDirector.Gateway.Workspaces.WorkspaceSeatOnRecord> NoRestartSeats(
+        CcDirector.Core.Tenancy.TenantId tenant, IReadOnlyCollection<string> ids, DateTime since)
+        => new Dictionary<string, CcDirector.Gateway.Workspaces.WorkspaceSeatOnRecord>();
+
     // ---------- 1. a live route starts the seat, with every email, and no preview anywhere ----------
 
     [Fact]
@@ -737,7 +745,7 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         _rig.Published.Clear();
         var rig = _rig;
         var throwing = new MailDeskRouter(rig.Routed, rig.Channels, rig.Decisions,
-            (_, _, _) => Task.FromResult(TriggerStartAttempt.Started("x")), (_, _) => null, (_, _) => null,
+            (_, _, _) => Task.FromResult(TriggerStartAttempt.Started("x")), (_, _) => null, (_, _) => null, (_, _) => Array.Empty<SessionDto>(), NoEndings, NoRestartSeats,
             (_, _) => throw new TimeoutException("the definition store did not answer"), _ => TimeZoneInfo.Utc, () => rig.Now,
             CancellationToken.None);
         var triggers = new TriggerService(rig.TriggerStore, new CcDirector.Gateway.Factory.FactoryActivityRecord(rig.Db),
@@ -794,7 +802,7 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         var gate = new TaskCompletionSource<TriggerStartAttempt>(TaskCreationOptions.RunContinuationsAsynchronously);
         var rig = _rig;
         var router = new MailDeskRouter(rig.Routed, rig.Channels, rig.Decisions, (_, _, _) => gate.Task, (_, _) => null, (_, _) => null,
-            (_, f) => rig.Published.GetValueOrDefault(f), _ => TimeZoneInfo.Utc, () => rig.Now, CancellationToken.None);
+            (_, _) => Array.Empty<SessionDto>(), NoEndings, NoRestartSeats, (_, f) => rig.Published.GetValueOrDefault(f), _ => TimeZoneInfo.Utc, () => rig.Now, CancellationToken.None);
         var first = router.RouteAsync(MailDeskRoutingRig.Account, rig.Trigger(), DirectorA, MachineA, rig.Now);
 
         // Act

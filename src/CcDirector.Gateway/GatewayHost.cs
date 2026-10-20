@@ -466,6 +466,33 @@ public sealed class GatewayHost : IAsyncDisposable
     public const string AuthDisabledEnvVar = "CC_GATEWAY_NO_AUTH";
 
     /// <summary>
+    /// The Mail Desk router as the Gateway wires it (phase 4 contract, section 3.2 step 3): the routed sessions' history
+    /// endings come from <paramref name="sessionHistory"/>, so a session a Director reaped after a clean exit counts as
+    /// ended at once instead of after 24 hours; and a session a Smart Restart brought back under a new id is looked up by
+    /// name on every Director of the account, from any origin surface, through <paramref name="directors"/> and
+    /// <paramref name="pushedSessions"/>; and a seat a Smart Restart captured is read from its restart record in
+    /// <paramref name="workspaces"/>, in the routed row's own account. A static seam so a test builds the router exactly as the host does.
+    /// </summary>
+    internal static MailDesk.MailDeskRouter NewMailDeskRouter(MailDesk.MailDeskRoutedStore routed,
+        MailDesk.MailDeskChannelStore channels, MailDesk.MailDeskDecisionStore decisions,
+        Factory.Triggers.TriggerSessionStarter startSession, Func<TenantId, string, SessionDto?> findSession,
+        Func<TenantId, string, SessionDto?> findSessionByName, History.SessionHistoryStore sessionHistory,
+        Discovery.DirectorRegistry directors, Streaming.PushedSessionStore? pushedSessions,
+        Workspaces.WorkspaceStore workspaces,
+        Func<TenantId, string, Factory.Definition.PublishedFactoryDefinition?> definitionOf,
+        Func<TenantId, TimeZoneInfo> zoneOf, Func<DateTime> nowUtc, CancellationToken startLifetime)
+    {
+        ArgumentNullException.ThrowIfNull(sessionHistory);
+        ArgumentNullException.ThrowIfNull(directors);
+        ArgumentNullException.ThrowIfNull(workspaces);
+        return new MailDesk.MailDeskRouter(routed, channels, decisions, startSession, findSession, findSessionByName,
+            findSessionsByName: (tenant, name) => GatewayEndpoints.LastKnownSessionsByName(directors, pushedSessions, tenant, name),
+            endingsOf: (tenant, ids) => sessionHistory.EndingsOf(tenant, ids),
+            restartSeatsOf: (tenant, ids, since) => workspaces.SeatsCapturedFrom(tenant, ids, since),
+            definitionOf, zoneOf, nowUtc, startLifetime);
+    }
+
+    /// <summary>
     /// Resolves whether the host-wide auth gate runs. As of issue #917 enforcement is ON by default:
     /// <list type="bullet">
     /// <item>An explicit constructor choice (<paramref name="explicitChoice"/> non-null) always wins - a
@@ -2850,12 +2877,19 @@ public sealed class GatewayHost : IAsyncDisposable
         Func<TenantId, TimeZoneInfo> zoneOf = tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant));
         Func<TenantId, string, Factory.Definition.PublishedFactoryDefinition?> definitionOf =
             (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory);
+        // Work history (issue #2194): the durable session record. Made here because the Mail Desk router below reads
+        // how its sessions ended; its observers are wired further down.
+        _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
         // Mail Desk phase 4: live mail routed to seats, started through the trigger's own starter, session list and
         // published definitions, and the same lookup by name for a start whose outcome was not known.
-        var mailDeskRouter = new MailDesk.MailDeskRouter(MailDeskRouted, MailDeskChannels, MailDeskDecisions,
+        var mailDeskRouter = NewMailDeskRouter(MailDeskRouted, MailDeskChannels, MailDeskDecisions,
             triggerStarter,
             findSession,
             findSessionByName: (tenant, name) => GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
+            _sessionHistory,
+            Registry,
+            PushedSessions,
+            _workspaces,
             definitionOf,
             zoneOf,
             nowUtc: () => DateTime.UtcNow,
@@ -2908,7 +2942,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // brain is the tenant's FAST wingman model over the same hosted inference path Wingman speaks
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
-        _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+        // The store itself is made further up, before the Mail Desk router that reads its endings.
 
         // The Mentor's weekly page (devthrottle_internal#2305). The store is always there; the writer and its sweep
         // exist only when both switches are on. The model is the team tenant's FAST Wingman model over the same hosted

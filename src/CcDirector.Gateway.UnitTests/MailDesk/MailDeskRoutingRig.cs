@@ -2,11 +2,15 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Triggers;
+using CcDirector.Gateway.History;
 using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Settings;
+using CcDirector.Gateway.Streaming;
+using CcDirector.Gateway.Workspaces;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Factory.Definition;
 using Xunit;
@@ -16,7 +20,8 @@ namespace CcDirector.Gateway.Tests.MailDesk;
 /// <summary>
 /// THE RIG FOR ROUTING IN LIVE MODE (phase 4, task B): the real stores over a throwaway database, the real
 /// <see cref="MailDeskService"/>, the real <see cref="MailDeskRouter"/> and the real <see cref="TriggerService"/> that runs
-/// it, with the session starter and the session list as fakes and the clock injected. No port, no network, no real
+/// it, with the session starter, the session list and the sessions' history endings as fakes and the clock injected.
+/// No port, no network, no real
 /// Director, no sleep.
 ///
 /// Three factories are published: <c>mail-desk</c> (seat <c>mail-desk</c>), <c>qa-books</c> (seat <c>clerk</c>) and
@@ -44,6 +49,10 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     private readonly GatewayDbTestHarness _h = new();
     private int _sessionNumber;
     private readonly Func<MailDeskRouter> _newRouter;
+    private readonly TriggerSessionStarter _starter;
+    private readonly Func<TenantId, string, SessionDto?> _find;
+    private readonly Func<TenantId, string, SessionDto?> _findByName;
+    private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
 
     public GatewayDatabase Db { get; }
     public MailDeskSwitch Switch { get; }
@@ -67,6 +76,27 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
 
     /// <summary>The session list the fakes read: by id.</summary>
     public Dictionary<string, SessionDto> Sessions { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The sessions' history records the fake reads: the ending kind by session id (a session with no record is
+    /// not in it).</summary>
+    public Dictionary<string, string?> Endings { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every time the router asked for history endings: the session ids it asked about.</summary>
+    public List<IReadOnlyCollection<string>> EndingsAsked { get; } = new();
+
+    /// <summary>The restart records the fake reads: the seat captured from each session id, with its record's time (a
+    /// session no restart captured is not in it). <see cref="CaptureForRestart"/> adds one.</summary>
+    public Dictionary<string, WorkspaceSeatOnRecord> RestartSeats { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A restart, now, captured <paramref name="seat"/> on a record the fake reads.</summary>
+    public WorkspaceSeat CaptureForRestart(WorkspaceSeat seat)
+    {
+        RestartSeats[seat.SessionId!] = new WorkspaceSeatOnRecord("restart-record", Now, seat);
+        return seat;
+    }
+
+    /// <summary>Every time the router asked for restart records: the session ids and the oldest start it gave.</summary>
+    public List<(IReadOnlyCollection<string> Ids, DateTime Since)> RestartSeatsAsked { get; } = new();
 
     /// <summary>The published definitions, by factory. Remove one to make a factory with no published definition.</summary>
     public Dictionary<string, PublishedFactoryDefinition> Published { get; } = new(StringComparer.Ordinal);
@@ -92,7 +122,7 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         Publish(Books, Clerk);
         Publish(Support, Desk);
 
-        TriggerSessionStarter starter = (machine, request, _) =>
+        TriggerSessionStarter starter = _starter = (machine, request, _) =>
         {
             lock (Starts) Starts.Add((machine, request));
             if (StartThrows is { } thrown) throw thrown;
@@ -100,9 +130,24 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         };
         SessionDto? Find(TenantId _, string id) => Sessions.GetValueOrDefault(id);
         SessionDto? FindByName(TenantId _, string name) => Sessions.Values.FirstOrDefault(s => s.Name == name);
+        IReadOnlyList<SessionDto> FindAllByName(TenantId _, string name) => Sessions.Values.Where(s => s.Name == name).ToList();
         PublishedFactoryDefinition? DefinitionOf(TenantId _, string factory) => Published.GetValueOrDefault(factory);
+        IReadOnlyDictionary<string, SessionEndingFact> EndingsOf(TenantId _, IReadOnlyCollection<string> ids)
+        {
+            EndingsAsked.Add(ids.ToList());
+            return ids.Where(Endings.ContainsKey)
+                .ToDictionary(id => id, id => new SessionEndingFact(Endings[id], Endings[id] is null ? null : Now), StringComparer.Ordinal);
+        }
+        IReadOnlyDictionary<string, WorkspaceSeatOnRecord> RestartSeatsOf(TenantId _, IReadOnlyCollection<string> ids, DateTime since)
+        {
+            RestartSeatsAsked.Add((ids.ToList(), since));
+            return ids.Where(RestartSeats.ContainsKey)
+                .ToDictionary(id => id, id => RestartSeats[id], StringComparer.Ordinal);
+        }
+        (_find, _findByName, _definitionOf) = (Find, FindByName, DefinitionOf);
 
-        _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, DefinitionOf,
+        _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, FindAllByName, EndingsOf,
+            RestartSeatsOf, DefinitionOf,
             _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
         Router = _newRouter();
         Triggers = new TriggerService(TriggerStore, new FactoryActivityRecord(Db),
@@ -234,6 +279,64 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     {
         Sessions.Clear();
         Router = _newRouter();
+    }
+
+    /// <summary>
+    /// Build the router EXACTLY as GatewayHost does (<see cref="GatewayHost.NewMailDeskRouter"/>), reading the sessions'
+    /// history endings from the real <paramref name="history"/> store over this rig's database, and finding a session by
+    /// name in a real Director registry and pushed-session store (<see cref="ListOnTheGateway"/>), and reading restart
+    /// records from the real workspace store over this rig's database (<see cref="SaveRestartRecord"/>), instead of the
+    /// fakes.
+    /// </summary>
+    public void UseGatewayHostWiring(SessionHistoryStore history)
+    {
+        _directors ??= new DirectorRegistry(_h.LegacyPath("instances"));
+        Router = GatewayHost.NewMailDeskRouter(Routed, Channels, Decisions, _starter, _find, _findByName, history,
+            _directors, _pushed, new WorkspaceStore(Db), _definitionOf, _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+    }
+
+    /// <summary>A captured restart record in this rig's account, as a Smart Restart's drain saves it, holding
+    /// <paramref name="seats"/>.</summary>
+    public void SaveRestartRecord(string id, params WorkspaceSeat[] seats) => SaveRestartRecord(id, null, seats);
+
+    /// <summary>The same, cancelled at <paramref name="cancelledAtUtc"/> ("Cancel and keep working") when given.</summary>
+    public void SaveRestartRecord(string id, DateTime? cancelledAtUtc, params WorkspaceSeat[] seats)
+    {
+        var doc = new WorkspaceDocument
+        {
+            Id = id, Name = id, Origin = WorkspaceOrigins.Captured, Seats = seats.ToList(), CancelledAtUtc = cancelledAtUtc,
+        };
+        using var ctx = Db.CreateContext(Account);
+        ctx.Workspaces.Add(new WorkspaceEntity
+        {
+            TenantId = ctx.ActiveTenant!,
+            Id = id,
+            Name = id,
+            Origin = WorkspaceOrigins.Captured,
+            DirectorId = DirectorA,
+            SeatCount = seats.Length,
+            CreatedUtc = Now,
+            UpdatedUtc = Now,
+            DocumentJson = System.Text.Json.JsonSerializer.Serialize(doc, WorkspaceStore.DocumentJsonOptions),
+        });
+        ctx.SaveChanges();
+    }
+
+    private DirectorRegistry? _directors;
+    private readonly PushedSessionStore _pushed = new();
+    private long _snapshot;
+
+    /// <summary>Director A, connected to the real registry and pushed-session store, now lists exactly these
+    /// sessions - as its snapshot reaches the Gateway. Call <see cref="UseGatewayHostWiring"/> first.</summary>
+    public void ListOnTheGateway(params SessionDto[] sessions)
+    {
+        var directors = _directors ?? throw new InvalidOperationException("Call UseGatewayHostWiring first.");
+        if (_snapshot == 0)
+        {
+            directors.RegisterFromStream(DirectorA, MachineA, "qa", "1.0", 1, Now, Account);
+            _pushed.RegisterConnection(Account, DirectorA, "conn-a");
+        }
+        Assert.True(_pushed.ApplySnapshot(Account, DirectorA, "conn-a", ++_snapshot, sessions));
     }
 
     // ---------- running ----------

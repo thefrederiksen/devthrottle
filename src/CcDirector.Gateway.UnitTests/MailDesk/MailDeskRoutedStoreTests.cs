@@ -45,6 +45,28 @@ public sealed class MailDeskRoutedStoreTests : IAsyncLifetime
         return Store.Get(MailDeskRoutingRig.Account, row.Id)!;
     }
 
+    // ---------- follow a restored session (review of 4283, finding 2) ----------
+
+    [Fact]
+    public void Follow_OpenRowsOfTheOldSession_TakeTheNewIdAndStayOpen_ADoneRowIsLeftAsItIs()
+    {
+        // Arrange
+        var open = Routed("k-1");
+        var done = Routed("k-2");
+        Assert.True(Store.Done(MailDeskRoutingRig.Account, done.Id, SessionOne, "paid", _rig.Now).Succeeded);
+
+        // Act
+        var followed = Store.Follow(MailDeskRoutingRig.Account, SessionOne, SessionTwo, MachineB, _rig.Now.AddHours(30), _rig.Now.AddMinutes(1));
+
+        // Assert
+        Assert.Equal(open.Id, Assert.Single(followed).Id);
+        var row = Store.Get(MailDeskRoutingRig.Account, open.Id)!;
+        Assert.Equal((SessionTwo, MailDeskWords.RoutedStates.Open, 0, _rig.Now.AddMinutes(1), _rig.Now.AddHours(30)),
+            (row.SessionId, row.State, row.RerouteCount, row.ChangedUtc, row.StartedUtc));
+        Assert.Equal($"session {SessionTwo} on {MachineB} ({Books}/{Clerk})", _rig.DecisionRow(open.DecisionId).OutcomeDetail);
+        Assert.Equal(SessionOne, Store.Get(MailDeskRoutingRig.Account, done.Id)!.SessionId);
+    }
+
     // ---------- create ----------
 
     [Fact]
