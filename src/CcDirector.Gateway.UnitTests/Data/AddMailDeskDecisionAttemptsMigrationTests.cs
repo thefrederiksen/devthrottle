@@ -10,16 +10,16 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The SQLite half of <c>AddMailDeskDecisionAttempts</c> (Mail Desk, phase 3, section 8): <c>mail_desk_decisions</c>
-/// gains <c>AttemptCount</c> and <c>RulesVersion</c>. It applies right after main's newest migration,
-/// <c>AddApiModeReceiptDirectorIndex</c>, keeps the decisions stored before it, and counts each of them as screened
+/// gains <c>AttemptCount</c> and <c>RulesVersion</c>. It applies right after the phase's
+/// <c>AddMailDeskChannelChecks</c>, keeps the decisions stored before it, and counts each of them as screened
 /// once (attempt 1) under rules version 0. That attempt count of 1 is a hand edit over what the tool generates (0),
 /// so a regeneration that drops it is caught here. Its Down removes both columns and keeps the rows. The PostgreSQL
 /// half is <c>MailDeskDecisionAttemptsPostgresTests</c>, run by scripts/test-database.ps1.
 /// </summary>
 public sealed class AddMailDeskDecisionAttemptsMigrationTests
 {
-    private const string SqliteBefore = "20261019020017_AddApiModeReceiptDirectorIndex";
-    private const string SqliteUnderTest = "20261019030630_AddMailDeskDecisionAttempts";
+    private const string SqliteBefore = "20261020020203_AddMailDeskChannelChecks";
+    private const string SqliteUnderTest = "20261020020444_AddMailDeskDecisionAttempts";
 
     [Fact]
     public void AddMailDeskDecisionAttempts_OnSqlite_CountsAnEarlierDecisionAsScreenedOnce_AndItsDownRemovesBothColumns()

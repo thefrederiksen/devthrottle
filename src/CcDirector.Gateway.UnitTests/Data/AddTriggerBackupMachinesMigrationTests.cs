@@ -10,16 +10,16 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The SQLite half of <c>AddTriggerBackupMachines</c> (Mail Desk, phase 5): <c>triggers</c> gains
-/// <c>BackupMachinesJson</c> and <c>ClaimedByMachine</c>. It applies right after <c>AddApiModeReceiptPromptText</c>,
-/// keeps the triggers stored before it, gives each no backups, and gives a claim held before it the trigger's own
-/// machine - the only machine a claim was ever held on until now - while an unclaimed trigger's holder machine stays
-/// empty. Its Down removes both columns and keeps the rows. The PostgreSQL half is
+/// <c>BackupMachinesJson</c> and <c>ClaimedByMachine</c>. It applies right after main's newest migration,
+/// <c>AddSessionRuleChanges</c>, keeps the triggers stored before it, gives each no backups, and gives a claim held
+/// before it the trigger's own machine - the only machine a claim was ever held on until now - while an unclaimed
+/// trigger's holder machine stays empty. Its Down removes both columns and keeps the rows. The PostgreSQL half is
 /// <c>AddTriggerBackupMachinesPostgresTests</c>, run by scripts/test-database.ps1.
 /// </summary>
 public sealed class AddTriggerBackupMachinesMigrationTests
 {
-    private const string SqliteBefore = "20261018153106_AddMailDesk";
-    private const string SqliteUnderTest = "20261018182424_AddTriggerBackupMachines";
+    private const string SqliteBefore = "20261020002835_AddSessionRuleChanges";
+    private const string SqliteUnderTest = "20261020015915_AddTriggerBackupMachines";
 
     [Fact]
     public void AddTriggerBackupMachines_OnSqlite_AddsBothColumns_GivesAHeldClaimItsMachine_AndItsDownRemovesThem()
