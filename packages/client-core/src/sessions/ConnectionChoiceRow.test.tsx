@@ -21,7 +21,7 @@ const DESCRIBED: AgentChoice = {
   ],
 };
 
-// What the Gateway serves for Pi on a Director of 2.25.0 or later (mission #4070, section 9).
+// What the Gateway would serve for Pi once an agent is switched over to API mode by default - none is today: the owner's decision of 20 October 2026 keeps Pi on Terminal (DESCRIBED is what it serves today).
 const API_BY_DEFAULT: AgentChoice = {
   ...DESCRIBED,
   connections: DESCRIBED.connections.map((c) => ({ ...c, isDefault: c.mode === "api" })),
@@ -30,7 +30,15 @@ const API_BY_DEFAULT: AgentChoice = {
 describe("ConnectionChoiceRow", () => {
   afterEach(() => cleanup());
 
-  it("shows the Gateway's default as chosen before the person picks: API mode for Pi, with its sentence", () => {
+  it("shows Terminal as chosen before the person picks, as the Gateway marks it for Pi today", () => {
+    render(<ConnectionChoiceRow agent={DESCRIBED} chosen={null} onChoose={() => {}} idPrefix="t" />);
+
+    expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "API mode" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("connection-choice-description")).toBeNull();
+  });
+
+  it("shows the Gateway's default as chosen before the person picks: API mode, with its sentence, when it is marked", () => {
     render(<ConnectionChoiceRow agent={API_BY_DEFAULT} chosen={null} onChoose={() => {}} idPrefix="t" />);
 
     expect(screen.getByRole("button", { name: "API mode" }).getAttribute("aria-pressed")).toBe("true");

@@ -416,8 +416,31 @@ describe("mobile new session", () => {
     });
   });
 
-  // Mission #4070, section 9: once the Gateway marks API mode as Pi's default, the review starts on it, and Terminal is
-  // one click away.
+  // Today the Gateway marks Terminal as Pi's default (the owner's decision, 20 October 2026), and the review starts on it.
+  it("starts Pi on Terminal with no click when the Gateway marks Terminal as the default, as it does today", async () => {
+    const connections = [
+      { mode: "terminal", label: "Terminal", description: null, isDefault: true },
+      { mode: "api", label: "API mode", description: "Prompts are handed to Pi agent as messages.", isDefault: false },
+    ];
+    api.getAgents.mockResolvedValue([agent("Pi", "Pi agent", "GLM", connections)]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Select Director North Director" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select agent Pi agent" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select repository Repository 1" }));
+    expect(await screen.findByRole("heading", { name: "Review the new session" })).toBeTruthy();
+
+    expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledTimes(1));
+    expect(api.createSession).toHaveBeenCalledWith("north", "D:\\Repositories\\repository-1", {
+      agent: "Pi",
+      connectionMode: "terminal",
+    });
+  });
+
+  // Once the Gateway marks API mode as Pi's default (when Pi is switched over), the review starts on it, and Terminal
+  // is one click away.
   it("starts Pi on API mode when the Gateway marks it as the default, and sends Terminal when Terminal is picked", async () => {
     const connections = [
       { mode: "terminal", label: "Terminal", description: null, isDefault: false },
@@ -442,7 +465,7 @@ describe("mobile new session", () => {
     });
   });
 
-  it("sends API mode for Pi with no click when the Gateway marks it as the default", async () => {
+  it("sends API mode with no click when the Gateway marks it as the default", async () => {
     const connections = [
       { mode: "terminal", label: "Terminal", description: null, isDefault: false },
       { mode: "api", label: "API mode", description: "Prompts are handed to Pi agent as messages.", isDefault: true },

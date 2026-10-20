@@ -186,7 +186,7 @@ describe("new session client", () => {
     expect(agents[1].connections).toEqual([{ mode: "terminal", label: "Terminal", isDefault: true }]);
   });
 
-  it("reads which connection the Gateway marks as each agent's default (API mode for Pi, mission #4070 section 9)", async () => {
+  it("reads which connection the Gateway marks as each agent's default (mission #4070 section 9)", async () => {
     globalThis.fetch = (async () =>
       jsonResponse([
         {

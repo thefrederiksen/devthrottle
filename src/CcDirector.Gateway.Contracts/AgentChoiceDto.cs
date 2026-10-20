@@ -58,7 +58,7 @@ public sealed class ConnectionChoiceDto
 
     /// <summary>
     /// True on the one choice New Session starts on for this agent, ruled by the Gateway (mission #4070, section 9):
-    /// API mode for Pi on a Director that can carry it as the default, Terminal for every other agent. A client
+    /// Terminal for every agent today, Pi included (the owner's decision, 20 October 2026). A client
     /// selects it when the agent is picked and never decides the default itself. An older Gateway marks none, and a
     /// client then starts on Terminal, as it always did.
     /// </summary>

@@ -14,7 +14,8 @@ function agent(type: string, modes: Array<[string, string]>, defaultMode: string
 
 const PI = agent("Pi", [["terminal", "Terminal"], ["api", "API mode"]]);
 const CODEX = agent("Codex", [["terminal", "Terminal"]]);
-// What the Gateway serves for Pi on a Director of 2.25.0 or later (mission #4070, section 9): API mode is the default.
+// What the Gateway serves today for Pi on a Director of 2.25.0 or later: both offered, Terminal the default (the owner's
+// decision, 20 October 2026). PI_API_DEFAULT is what it would serve once Pi is switched over to API mode by default.
 const PI_API_DEFAULT = agent("Pi", [["terminal", "Terminal"], ["api", "API mode"]], "api");
 // What an older Gateway serves: no choice is marked.
 const PI_FROM_AN_OLDER_GATEWAY = agent("Pi", [["terminal", "Terminal"], ["api", "API mode"]], null);
@@ -52,7 +53,7 @@ describe("connectionToSend", () => {
     expect(connectionToSend(null, "api")).toBe(TERMINAL_CONNECTION);
   });
 
-  it("sends the agent's default before the person picks: API mode for Pi when the Gateway marks it", () => {
+  it("sends the agent's default before the person picks: Terminal for Pi today, API mode when the Gateway marks it", () => {
     expect(connectionToSend(PI_API_DEFAULT, null)).toBe("api");
     expect(connectionToSend(PI, null)).toBe("terminal");
     expect(connectionToSend(CODEX, null)).toBe("terminal");

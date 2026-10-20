@@ -2282,8 +2282,8 @@ def spawn_session(
     # How the agent is driven (API mode mission, #4070). Whether API mode is offered, and whether this agent has it, is
     # the Gateway's and the Director's to answer - each refuses in words, and that sentence is what the caller sees.
     #
-    # With no --connection, the spawn asks for the GATEWAY'S DEFAULT for this agent on the Director it reaches (section 9,
-    # the owner's decision): API mode for Pi on a Director that carries it as the default, terminal for every other.
+    # With no --connection, the spawn asks for the GATEWAY'S DEFAULT for this agent on the Director it reaches (section 9):
+    # terminal for every agent today, Pi included (the owner's decision, 20 October 2026).
     # This tool does not decide the default - it cannot even know which Director a --machine spawn reaches - and an
     # older Gateway ignores the field and starts the terminal, as it always did.
     if connection_mode is not None:

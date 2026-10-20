@@ -3537,8 +3537,8 @@ def spawn(
         None,
         "--connection",
         help="How the Director drives the agent: terminal (typing into its terminal) or api (API mode: the "
-        "agent's own protocol). Left out, the Gateway chooses its default: API mode for Pi on a Director of "
-        "2.25.0 or later, terminal for every other agent. API mode is refused, with the reason, for an agent "
+        "agent's own protocol). Left out, the Gateway chooses its default: terminal for every agent today, "
+        "Pi included. API mode is refused, with the reason, for an agent "
         "whose wrapper has none.",
     ),
 ) -> None:

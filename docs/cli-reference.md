@@ -1267,9 +1267,9 @@ OPTIONS:
 **`--connection api` starts the agent in API mode** (API mode mission #4070): the Director speaks the
 agent's own protocol instead of typing into its terminal - Pi today. `--connection terminal` starts it in
 its terminal. **Without the flag the spawn asks for the Gateway's default** (`defaultConnection` on the
-create): API mode for Pi on a Director of 2.25.0 or later, the terminal for every other agent and on an
-older Director. An older Gateway ignores the request and starts the terminal. An unknown value exits 2
-before anything is sent. API mode is refused, with the reason printed and exit 1, while the Gateway does
+create): the terminal for every agent today, Pi included - the owner's decision of 20 October 2026, to
+keep Pi on the terminal until API mode has been tested and used more. An older Gateway ignores the
+request and starts the terminal. An unknown value exits 2 before anything is sent. API mode is refused, with the reason printed and exit 1, while the Gateway does
 not offer it and for an agent whose wrapper has no API mode ("Claude Code cannot be started in API mode:
 its wrapper speaks only through the terminal.").
 

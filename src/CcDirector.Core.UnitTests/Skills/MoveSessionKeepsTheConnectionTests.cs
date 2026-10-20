@@ -5,9 +5,10 @@ namespace CcDirector.Core.UnitTests.Skills;
 /// <summary>
 /// A MOVED SESSION KEEPS ITS CONNECTION (API mode mission #4070, the review of pull request #4277).
 ///
-/// A spawn that names no <c>--connection</c> asks the Gateway for the agent's default, and that default is API mode for
-/// Pi. The shipped move-session skill started the target with no <c>--connection</c>, so moving a Pi session that ran in
-/// its terminal landed it in API mode - a mode nobody chose. These guards read the SHIPPED file, which is what every
+/// A spawn that names no <c>--connection</c> asks the Gateway for the agent's default. That default was API mode for Pi
+/// when #4277 merged, and the shipped move-session skill started the target with no <c>--connection</c>, so moving a Pi
+/// session that ran in its terminal landed it in API mode - a mode nobody chose. The default is Terminal again (the
+/// owner's decision, 20 October 2026), but it is the Gateway's to change, so a move still passes the source's word. These guards read the SHIPPED file, which is what every
 /// agent is served.
 /// </summary>
 public sealed class MoveSessionKeepsTheConnectionTests
