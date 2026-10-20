@@ -612,6 +612,12 @@ def prepare_director():
                     "'import sys; sys.argv[0] = \"cc-devthrottle\"; from src.cli import tool_main; tool_main()' \"$@\"\n",
                     encoding="utf-8")
     tool.chmod(0o755)
+    # The routed prompt tells a seat to read each email with cc-outlook. On the rig there is no mailbox to read, and a
+    # seat must never reach a real one, so cc-outlook here is a stub that refuses and points at check.json.
+    outlook = RIG_BIN / "cc-outlook"
+    outlook.write_text("#!/bin/sh\necho 'cc-outlook is not available on the Mail Desk rig: there is no mailbox to read. "
+                       "Work from the emails in check.json in your kit.' >&2\nexit 1\n", encoding="utf-8")
+    outlook.chmod(0o755)
 
 
 def director_env():
@@ -738,10 +744,13 @@ def seat_definition(factory, seat_id, title, handles):
         shutil.rmtree(folder)
     brief = (f"You are the {title} seat of a QA rig. The Mail Desk gives you emails in your prompt and in check.json in "
              "your kit. For each one, in order, run exactly one command with Bash and nothing else:\n"
+             "- if its subject contains the word WAIT, do nothing with it;\n"
              "- if its subject contains the word RETURN, run: cc-devthrottle maildesk return <routed id> --note "
              "\"not for this seat: the rig asked for a return\"\n"
              "- otherwise run: cc-devthrottle maildesk done <routed id> --note \"done by the rig's seat\"\n"
-             "Then stop. Never read the mailbox; never run any other command.")
+             "First run cat \"$CC_FACTORY_KIT_DIR/check.json\" with Bash. Then stop. This is a test rig: there is no "
+             "mailbox, cc-outlook is not available, and you never read an email; never run any other command, never "
+             "raise your hand and never write memory.")
     files = {
         "factory.yaml": (f"factory: {factory}\ntitle: {title}\npurpose: A QA rig factory the Mail Desk routes to\n"
                          f"goalText: |\n  Handle {handles}.\ngoalApprovedOn: 2026-10-19\nbossSeat: boss\n"
@@ -1065,7 +1074,20 @@ def finished(path):
     return bool(last) and (last[-1].get("message") or {}).get("stop_reason") == "end_turn"
 
 
-def wait_answer(marker, since, seconds=600):
+def wait_session_turn(sid, seconds=900):
+    """A seat session's own transcript - its project folder is named after the session's work folder, which carries
+    the session id - once its first turn has finished."""
+    def found():
+        files = sorted(CLAUDE_PROJECTS.glob(f"*{sid}*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return files[0] if files else None
+    path = wait_tending(f"no transcript for session {sid} appeared", found, seconds=seconds, every=2)
+    USED_TRANSCRIPTS.add(path)
+    wait_tending(f"session {sid} did not finish its turn", lambda: finished(path), seconds=seconds)
+    time.sleep(3)
+    return path
+
+
+def wait_answer(marker, since, seconds=900):
     path = find_transcript(marker, since)
     USED_TRANSCRIPTS.add(path)
     wait_tending(f"the session carrying '{marker}' did not finish its turn", lambda: finished(path), seconds=seconds)
@@ -1201,6 +1223,9 @@ def section_observe():
               and d.get("outcome") is None,
               f"'{subject}' decided {decided} by the {layer} layer in observe mode, nothing done (outcome null)")
     record("what the fake model was asked (question | subject -> answer)", model.shown_log())
+    check(len(model.calls()) >= 4 and all(c["model"] == "devthrottle/wingman-fast" for c in model.calls()),
+          "the Gateway's model questions reached the rig's fake model, with the rig-only key (the fake refuses any "
+          "other key)")
     check(not [c for c in model.calls() if c["subject"] == "Lunch on Friday?" and c["question"] == "person-or-spam"],
           "the known sender (written to from qa-one's Sent folder) was never asked person-or-spam")
     record("every call the fake Graph received so far", graph.shown_log())
@@ -1455,22 +1480,21 @@ def wait_decided(subject, channel, seconds=300):
 
 def section_live_filing():
     section("LIVE MODE: FILING", "qa-one is switched to live. Five new emails: two for Archive (one of them deleted from "
-                                 "the Inbox by the rig after it is queued), one for Junk Email, one kept for the owner "
-                                 "and one routed by a rule. Expected: the archive and junk decisions are queued in the "
+                                 "the Inbox by the rig after it is queued), one for Junk Email and one kept for the "
+                                 "owner. Expected: the archive and junk decisions are queued in the "
                                  "memory, the next run moves exactly those - the fake Graph's only POSTs are moves to "
                                  "archive and junkemail - and writes filed / already-gone on their decision rows; the "
-                                 "email kept for the owner and the routed one stay in the Inbox; nothing decided in "
-                                 "observe mode is filed.")
+                                 "email kept for the owner stays in the Inbox; nothing decided in observe mode is "
+                                 "filed.")
     graph = STATE["graph"]
     cli(["maildesk", "mode", ONE, "live", "--why", "the rig's live filing case"])
     keep = mail("news@example.org", "The November letter")
     archive = mail("alerts@notices.example.com", "Build 412 passed")
     gone = mail("alerts@notices.example.com", "Build 413 passed")
     junk = mail("deals@spam.example.net", "Cheaper watches")
-    routed = mail("billing@vendor.example", "Invoice 2001 for November")
     t = now()
-    graph.put(ONE, "inbox", keep, archive, gone, junk, routed)
-    for m in (keep, archive, gone, junk, routed):
+    graph.put(ONE, "inbox", keep, archive, gone, junk)
+    for m in (keep, archive, gone, junk):
         wait_decided(m["subject"], ONE)
     queue = wait_for("the archive and junk decisions were not queued",
                      lambda: (lambda q: q if len(q) >= 3 else None)((memory_of(ONE) or {}).get("filingQueue") or []),
@@ -1503,7 +1527,6 @@ def section_live_filing():
     check(graph.folder_of(ONE, archive["id"]) == "archive" and graph.folder_of(ONE, junk["id"]) == "junkemail",
           "the fake Graph holds them in Archive and Junk Email")
     check(graph.folder_of(ONE, keep["id"]) == "inbox", "the email kept for the owner is still in the Inbox")
-    check(graph.folder_of(ONE, routed["id"]) == "inbox", "the routed email is still in the Inbox")
     check(not (memory_of(ONE) or {}).get("filingQueue"), "the queue is empty once carried out")
     for subject in ("Build 311 passed", "Cheap watches"):
         old = decision_of(subject, ONE)
@@ -1538,6 +1561,150 @@ def section_observe_queue():
     STATE["live"] = False
 
 
+def routed_rows(title=None):
+    """The account's routed rows, from the Gateway's database (task C adds the route that serves them)."""
+    sql = ("SELECT r.Id, d.Subject, r.Factory, r.Seat, r.SessionId, r.State, r.RerouteCount, r.StartFailures, "
+           "r.OwnerReason, r.StartName FROM mail_desk_routed r JOIN mail_desk_decisions d ON d.Id = r.DecisionId "
+           "ORDER BY d.ReceivedUtc")
+    return rows(title, sql) if title else query(sql)
+
+
+def routed_of(subject):
+    return [r for r in routed_rows() if r[1] == subject]
+
+
+def seat_sessions(factory, seat):
+    return [x for x in listed_sessions() if x.get("factory") == factory and x.get("factorySeat") == seat]
+
+
+def kit_check(sid):
+    found = sorted((DIR_INSTANCE / "factory-run").rglob("check.json")) if (DIR_INSTANCE / "factory-run").exists() else []
+    mine = [f for f in found if sid in str(f)]
+    return json.loads(mine[0].read_text(encoding="utf-8-sig")) if mine else None
+
+
+def end_session(sid, why):
+    """Ends a seat's session the way a person at its screen would - /exit typed into it - so its agent exits and the
+    Gateway SEES it gone (contract 3.2 step 3: a session counts as ended only on evidence). It waits for the session's
+    turn to finish first: typed into a busy session, /exit would only queue as text."""
+    summarize(f"session {sid} before the rig ends it", wait_session_turn(sid))
+
+    def exited():
+        return next((x for x in listed_sessions() if (x.get("sessionId") or x.get("id")) == sid
+                     and (x.get("crashed") or str(x.get("activityState", "")).lower() == "exited")), None)
+    for attempt in range(1, 4):
+        keys(sid, "/exit")
+        time.sleep(2)
+        keys(sid, "\r")
+        record(f"the rig typed /exit, then Enter, into session {sid} (attempt {attempt})", f"  why: {why}")
+        try:
+            return wait_for(f"session {sid} was not seen exited", exited, seconds=60, every=3)
+        except SystemExit:
+            screen = buffer_of(sid)
+            record(f"session {sid} had not exited; the end of its screen", "\n".join(
+                f"  {x}" for x in screen.splitlines()[-15:]))
+    raise SystemExit(f"session {sid} was not seen exited after three /exit attempts")
+
+
+SESSION_FIELDS = ("sessionId", "name", "factory", "factorySeat", "directorId", "machineName", "activityState", "origin",
+                  "originSurface")
+
+
+def section_live_routing():
+    section("LIVE MODE: ROUTING TO SEATS", "qa-two is switched to live. One run brings two invoices (a rule routes them "
+            f"to {BOOKS}/{CLERK}), a support question (the route model routes it to {SUPPORT}/{DESK}) and a letter kept "
+            "for the owner. Expected: TWO sessions start, one per seat, on this machine, naming the slot Director - the "
+            "books seat with both invoices in one session - each with its emails in its prompt and in check.json and "
+            "nothing of a preview anywhere; the decisions say seat-started; the letter kept for the owner stays in the "
+            "Inbox and starts nothing.")
+    graph, model = STATE["graph"], STATE["model"]
+    plant_sign_in(TWO)
+    cli(["maildesk", "mode", TWO, "live", "--why", "the rig's live routing case"])
+    model.say("Export question 3 WAIT", spam="person", route=SUPPORT_HANDLES, confidence=0.96)
+    first = [mail("billing@vendor.example", "Invoice 3001 WAIT"), mail("billing@vendor.example", "Invoice 3002 WAIT"),
+             mail("customer@client.example", "Export question 3 WAIT"), mail("news@example.org", "The December letter")]
+    graph.put(TWO, "inbox", *first)
+    books = wait_for("no session started for the books seat", lambda: seat_sessions(BOOKS, CLERK), seconds=420, every=3)
+    support = wait_for("no session started for the support seat", lambda: seat_sessions(SUPPORT, DESK), seconds=180, every=3)
+    for title, found in (("the books seat's session", books), ("the support seat's session", support)):
+        record(f"{title} - GET /sessions, the fields that say where, by whom and what",
+               json.dumps([{k: x.get(k) for k in SESSION_FIELDS} for x in found], indent=1))
+    check(len(books) == 1 and len(support) == 1, "two routes to two seats started two sessions, one per seat")
+    b, sp = books[0], support[0]
+    check(b.get("machineName") == MACHINE and (b.get("directorId") or "").lower() == STATE["director_id"].lower(),
+          "the books session runs on this machine, on the Director that ran the check")
+    check(b.get("name", "").startswith(f"Mail Desk - {BOOKS}/{CLERK} - 2 emails - "),
+          "the books session is named 'Mail Desk - qa-books/clerk - 2 emails - <time>'")
+    check(sp.get("name", "").startswith(f"Mail Desk - {SUPPORT}/{DESK} - 1 email - "),
+          "the support session is named 'Mail Desk - qa-support/desk - 1 email - <time>'")
+    routed_rows("the routed rows after the first live run")
+    for subject in ("Invoice 3001 WAIT", "Invoice 3002 WAIT"):
+        r = routed_of(subject)
+        check(len(r) == 1 and (r[0][4] or "").lower() == b["sessionId"].lower() and r[0][5] == "open",
+              f"'{subject}' is open with the books session")
+    path = wait_session_turn(b["sessionId"])
+    said = summarize("the books seat's session", path)
+    ids = {r[1]: r[0] for r in routed_rows()}
+    check(all(ids[x].lower() in said.lower() for x in ("Invoice 3001 WAIT", "Invoice 3002 WAIT")),
+          "the books session's prompt names both routed ids")
+    context = kit_check(b["sessionId"])
+    record("the books session's check.json, from its kit", json.dumps(context, indent=1))
+    inner = json.loads(context["Context"] if "Context" in context else context["context"]) if context else None
+    check(inner is not None and inner.get("kind") == "mail-desk-routed"
+          and sorted(e["subject"] for e in inner["emails"]) == ["Invoice 3001 WAIT", "Invoice 3002 WAIT"],
+          "check.json carries the two emails, kind mail-desk-routed")
+    check(PREVIEW_MARKER not in said and PREVIEW_MARKER not in json.dumps(context),
+          "nothing of the preview is in the prompt or check.json")
+    for subject in ("Invoice 3001 WAIT", "Export question 3 WAIT"):
+        d = decision_of(subject, TWO)
+        check(d.get("outcome") == "seat-started" and "session" in (d.get("outcomeDetail") or ""),
+              f"'{subject}': outcome seat-started, naming the session")
+    letter = decision_of("The December letter", TWO)
+    check(letter["decision"] == "keep-for-owner" and letter.get("outcome") is None
+          and graph.folder_of(TWO, first[3]["id"]) == "inbox" and not routed_of("The December letter"),
+          "the letter kept for the owner stays in the Inbox, with no routed row and nothing started")
+    marker_anywhere("live routing")
+    STATE["books_session"] = b["sessionId"]
+
+
+def section_busy_and_orphan():
+    section("A BUSY SEAT, THEN AN ORPHAN", "While the books session is alive a third invoice arrives: it waits, queued, "
+            "and no second session starts. The rig then ends the books session (it never said done): its two emails "
+            "are re-routed once and, with the queued one, given to ONE new books session. The rig ends that one too: "
+            "the two emails ended twice go to the owner, the third is re-routed once.")
+    graph = STATE["graph"]
+    third = mail("billing@vendor.example", "Invoice 3003 WAIT")
+    graph.put(TWO, "inbox", third)
+    wait_for("the third invoice got no routed row", lambda: routed_of("Invoice 3003 WAIT"), seconds=300, every=3)
+    wait_run_after(now(), "one more run while the books seat is busy", outcome="screened")
+    r = routed_of("Invoice 3003 WAIT")[0]
+    check(r[4] is None and r[5] == "open", "the third invoice is queued: open, with no session")
+    check(len(seat_sessions(BOOKS, CLERK)) == 1, "no second books session started while the first is alive")
+    first_session = STATE["books_session"]
+    end_session(first_session, "the orphan case: the seat ended without done or return")
+    second = wait_for("no new books session after the orphan", lambda: [
+        x for x in seat_sessions(BOOKS, CLERK) if x["sessionId"].lower() != first_session.lower()
+        and str(x.get("activityState", "")).lower() != "exited"], seconds=420, every=3)
+    record("the new books session", json.dumps([{k: x.get(k) for k in SESSION_FIELDS} for x in second], indent=1))
+    check(len(second) == 1 and second[0].get("name", "").startswith(f"Mail Desk - {BOOKS}/{CLERK} - 3 emails - "),
+          "one new books session takes all three emails (the two re-routed and the queued one)")
+    routed_rows("the routed rows after the first orphan")
+    for subject in ("Invoice 3001 WAIT", "Invoice 3002 WAIT"):
+        row = routed_of(subject)[0]
+        check(row[6] == 1 and (row[4] or "").lower() == second[0]["sessionId"].lower(),
+              f"'{subject}' was re-routed once (RerouteCount 1) to the new session")
+    end_session(second[0]["sessionId"], "the orphan case: the second session also ended without done or return")
+    wait_for("the twice-ended emails were not handed to the owner", lambda: all(
+        routed_of(x)[0][5] == "returned" for x in ("Invoice 3001 WAIT", "Invoice 3002 WAIT")), seconds=300, every=3)
+    routed_rows("the routed rows after the second orphan")
+    for subject in ("Invoice 3001 WAIT", "Invoice 3002 WAIT"):
+        row = routed_of(subject)[0]
+        check(row[5] == "returned" and "ended twice" in (row[8] or ""),
+              f"'{subject}' is with the owner: {row[8]}")
+    third_row = routed_of("Invoice 3003 WAIT")[0]
+    check(third_row[5] == "open" and third_row[6] == 1, "the third invoice, ended once, was re-routed once")
+
+
 SECTIONS = {
     "observe": section_observe,
     "signin": section_signin,
@@ -1548,6 +1715,8 @@ SECTIONS = {
     "factory-refused": section_factory_refused,
     "live-filing": section_live_filing,
     "observe-queue": section_observe_queue,
+    "live-routing": section_live_routing,
+    "busy-orphan": section_busy_and_orphan,
     "backup": section_backup,
 }
 
@@ -1602,6 +1771,11 @@ def main():
         section_setup()
         for name in only:
             SECTIONS[name]()
+        hosted = [line for line in gateway_log("any request toward the hosted endpoint", ("devthrottle.com",))]
+        check(not hosted, "the throwaway Gateway's log names no request to devthrottle.com: no model question left "
+                          "this machine")
+        if any(name in only for name in ("observe", "model", "graph-error", "signin")):
+            check(model.calls(), "the fake model received the model questions this run's cases expect")
         record("every call the fake Graph received in the whole run", graph.shown_log())
         record("every question the fake model was asked in the whole run", model.shown_log())
     finally:
