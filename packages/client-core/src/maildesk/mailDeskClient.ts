@@ -3,9 +3,10 @@
 // docs/qa/mail-desk/phase-7/CONTRACT.md section 2 (the words and tones the page shows); every field here is one of
 // theirs.
 //
-// CRITICAL RULE 7 - THE GATEWAY DECIDES EVERY WORD. "Outlook", "Kept for you", "3 emails decided today", which machine
-// is tried first, and which tone a sign-in carries are all folded once on the Gateway (MailDeskChannelFold). This
-// client carries them verbatim; it never turns a provider, a mode or a decision word into words of its own.
+// CRITICAL RULE 7 - THE GATEWAY DECIDES EVERY WORD. "Outlook", "Keep for you", "3 emails decided today", the sentence
+// naming the machines that may read a mailbox, and which tone a sign-in carries are all folded once on the Gateway
+// (MailDeskChannelFold). This client carries them verbatim; it never turns a provider, a mode or a decision word into
+// words of its own.
 //
 // THE ANSWER HAS TWO KINDS, and neither is a failure:
 //   - `channels`: the Gateway answered 200 with the envelope (possibly no channels);
@@ -65,7 +66,7 @@ export interface MailDeskChannel {
   provider: string;
   providerLabel: string;
   address: string;
-  /** In order of preference. */
+  /** The machines that may read the mailbox, in the order the channel lists them; no claim about which reads first. */
   machines: string[];
   machinesLabel: string;
   mode: "observe" | "live";

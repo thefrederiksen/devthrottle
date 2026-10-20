@@ -97,7 +97,7 @@ vi.mock("@devthrottle/client-core/teams/CurrentTeam", async (importActual) => ({
 }));
 
 // The Mail Desk entry (Mail Desk mission, phase 7) follows the Gateway's answer to the Mail Desk page's own read: the
-// switch off (404) hides it, the list offers it, and any other failure SHOWS it and is reported. Unstaged, the switch is
+// switch off (404) hides it, the list offers it, and any other failure also hides it and is reported (contract F1). Unstaged, the switch is
 // off, so a test about something else sees the rail it always saw.
 const mailDeskRead = vi.hoisted(() => ({ answers: [] as unknown[], calls: 0 }));
 vi.mock("@devthrottle/client-core/maildesk/mailDeskClient", () => ({
@@ -446,28 +446,32 @@ describe("Cockpit left rail", () => {
       expect(reported.calls).toEqual([]);
     });
 
+    // Contract section 1, corrected after the phase review (F1): drawn ONLY on a successful read. No failure draws it.
     it.each([
-      ["a network failure", new TypeError("Failed to fetch")],
-      ["a Gateway fault", new GatewayError(500, "fault")],
-      ["an answer that breaks the contract", new GatewayError(502, "The Gateway sent a Mail Desk list this app cannot read")],
-    ])("is SHOWN, and the failure reported, on %s", async (_name, failure) => {
+      ["offline", new TypeError("Failed to fetch")],
+      ["a timeout", Object.assign(new Error("The operation timed out."), { name: "TimeoutError" })],
+      ["a 5xx", new GatewayError(503, "the Gateway is restarting")],
+      ["a broken answer", new GatewayError(502, "The Gateway sent a Mail Desk list this app cannot read")],
+    ])("is NOT drawn, and the failure reported, on %s", async (_name, failure) => {
       mailDeskRead.answers = [failure];
       renderShell();
 
-      await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
-      expect(reported.calls).toHaveLength(1);
+      await readSettled();
+      await waitFor(() => expect(reported.calls).toHaveLength(1));
+      expect(railLabels()).not.toContain("Mail Desk");
+      expect(document.querySelector("a[href='/mail-desk']")).toBeNull();
       expect(reported.calls[0][0]).toMatchObject({ surface: "mail-desk-entry", user_visible: false, exception_type: failure.name });
     });
 
-    it("asks again on the shell's rhythm after a failure, and takes the entry away when the Gateway then answers 404", async () => {
+    it("asks again on the shell's rhythm after a failure, and draws the entry only when the Gateway then answers with its list", async () => {
       rhythm.delayMs = 5;
-      mailDeskRead.answers = [new GatewayError(500, "fault"), { kind: "off" }];
+      mailDeskRead.answers = [new GatewayError(500, "fault"), LIST];
       renderShell();
 
+      await waitFor(() => expect(mailDeskRead.calls).toBe(2));
       await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
-      await waitFor(() => expect(railLabels()).not.toContain("Mail Desk"));
-      expect(mailDeskRead.calls).toBe(2);
       expect(rhythm.asked).toEqual([1]);
+      expect(reported.calls).toHaveLength(1);
     });
   });
 

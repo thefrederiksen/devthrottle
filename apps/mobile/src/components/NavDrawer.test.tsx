@@ -12,7 +12,8 @@ vi.mock("@devthrottle/client-core/auth/useAccounts", () => ({
 }));
 
 // The Mail Desk entry (Mail Desk mission, phase 7) follows the Gateway's answer to the Mail Desk page's own read: the
-// switch off (404) hides it, the list offers it, and any other failure shows it. Unstaged, the switch is off.
+// switch off (404) hides it, the list offers it, and any other failure also hides it (contract F1). Unstaged, the
+// switch is off.
 const mailDeskRead = vi.hoisted(() => ({ answer: null as unknown, calls: 0 }));
 vi.mock("@devthrottle/client-core/maildesk/mailDeskClient", () => ({
   getMailDeskChannels: vi.fn(async () => {
@@ -27,6 +28,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual
   reportClientError: vi.fn(),
 }));
 
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { NavDrawer } from "./NavDrawer";
@@ -108,12 +110,18 @@ describe("NavDrawer", () => {
     expect(reportClientError).not.toHaveBeenCalled();
   });
 
-  it("NavDrawer_MailDeskReadFails_StillOffersTheEntryAndReportsIt", async () => {
-    mailDeskRead.answer = new TypeError("Failed to fetch");
+  // Contract section 1, corrected after the phase review (F1): drawn ONLY on a successful read. No failure draws it.
+  it.each([
+    ["Offline", new TypeError("Failed to fetch")],
+    ["Timeout", Object.assign(new Error("The operation timed out."), { name: "TimeoutError" })],
+    ["ServerFault", new GatewayError(503, "the Gateway is restarting")],
+    ["BrokenAnswer", new GatewayError(502, "The Gateway sent a Mail Desk list this app cannot read")],
+  ])("NavDrawer_MailDeskReadFails_%s_DrawsNoMailDeskEntryAndReportsIt", async (_kind, failure) => {
+    mailDeskRead.answer = failure;
 
     const links = await openMenuSettled();
 
-    expect(links.map((a) => a.textContent)).toContain("Mail Desk");
+    expect(links.filter((a) => a.getAttribute("href") === "/mail-desk" || a.textContent === "Mail Desk")).toEqual([]);
     expect(reportClientError).toHaveBeenCalledTimes(1);
   });
 });
