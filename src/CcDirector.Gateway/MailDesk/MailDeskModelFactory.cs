@@ -35,6 +35,9 @@ public static class MailDeskModelFactory
     /// <param name="http">HTTP client; tests inject one over a fake handler.</param>
     /// <param name="log">Log sink; <see cref="FileLog.Write"/> when null.</param>
     /// <param name="time">The clock the per-call deadline runs on; the system clock when null.</param>
+    /// <param name="baseUrl">Where the questions go: the Gateway's <see cref="MailDeskModelEndpointConfig.Read"/>, which
+    /// is the hosted Wingman endpoint unless a rig's config.json names a loopback model. The Wingman endpoint's when
+    /// null.</param>
     public static IMailDeskModel Create(
         TenantId tenant,
         TenantAiGate aiGate,
@@ -42,7 +45,8 @@ public static class MailDeskModelFactory
         TranscriptionMode mode,
         HttpClient? http = null,
         Action<string>? log = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        string? baseUrl = null)
     {
         ArgumentNullException.ThrowIfNull(aiGate);
         ArgumentNullException.ThrowIfNull(readKey);
@@ -80,7 +84,7 @@ public static class MailDeskModelFactory
         }
 
         write($"[MailDeskModelFactory] Create: model={IncludedModelId.WingmanFast.Value}, {tag}");
-        return new MailDeskModel(ep.BaseUrl, key, IncludedModelId.WingmanFast, tag, http, write, time: time);
+        return new MailDeskModel(baseUrl ?? ep.BaseUrl, key, IncludedModelId.WingmanFast, tag, http, write, time: time);
     }
 }
 

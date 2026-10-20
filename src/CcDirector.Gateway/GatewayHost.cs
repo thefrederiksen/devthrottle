@@ -276,6 +276,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     internal MailDesk.MailDeskSwitch MailDeskSwitch { get; }
 
+    /// <summary>
+    /// Where the Mail Desk's model questions go on this Gateway: the hosted Wingman endpoint, unless this machine's
+    /// config.json names a model on the loopback host (<see cref="MailDesk.MailDeskModelEndpointConfig"/>, used only by
+    /// the phase 4 rig). Read once at construction.
+    /// </summary>
+    internal string MailDeskModelBaseUrl { get; }
+
     /// <summary>The Mail Desk's channels, rules and decisions (the Mail Desk mission, phase 1), each built ONCE per
     /// process: every store holds its own lock, so a second instance would let two writers in one process race to the
     /// database, where only the unique indexes would stop them.</summary>
@@ -2528,6 +2535,9 @@ public sealed class GatewayHost : IAsyncDisposable
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
         // The Mail Desk switch per account, in the same per-tenant settings; no machine switch, so no config.json key.
         MailDeskSwitch = new MailDesk.MailDeskSwitch(_tenantSettings);
+        // Where the Mail Desk asks its model: the hosted endpoint, or a loopback fake named in a rig's config.json.
+        // Read once; anything else in that key refuses the start (MailDeskModelEndpointConfig).
+        MailDeskModelBaseUrl = MailDesk.MailDeskModelEndpointConfig.Read();
         MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);
         MailDeskRules = new MailDesk.MailDeskRulesStore(_gatewayDb);
         MailDeskDecisions = new MailDesk.MailDeskDecisionStore(_gatewayDb);
@@ -2543,7 +2553,7 @@ public sealed class GatewayHost : IAsyncDisposable
         MailDeskScreening = new MailDesk.MailDeskService(MailDeskChannels, MailDeskRules, MailDeskDecisions, MailDeskSettings,
             MailDeskChannelChecks,
             tenant => MailDesk.MailDeskModelFactory.Create(tenant, AiGate, name => _keyVault.Get(name),
-                Core.Configuration.TranscriptionModeConfig.Get()),
+                Core.Configuration.TranscriptionModeConfig.Get(), baseUrl: MailDeskModelBaseUrl),
             () => DateTime.UtcNow);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
