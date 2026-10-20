@@ -379,7 +379,9 @@ public sealed class BoxDesktopOriginTests
 
     [Theory]
     [InlineData("https://devthrottle-gw.azurewebsites.net", "https://gateway.devthrottle.com")]
-    [InlineData("http://localhost:7996", "http://127.0.0.1:7996")]
+    // A test machine: localhost and 127.0.0.1 are different host names, so the desktop origin is separate. No port is
+    // needed to say that, and a fixed port in a gate test reads as one the test depends on.
+    [InlineData("http://localhost", "http://127.0.0.1")]
     public void AssertSeparateFrom_AnotherHost_Passes(string desktopOrigin, string gatewayAddress)
     {
         BoxDesktopOrigin.AssertSeparateFrom(BoxDesktopOrigin.Parse(desktopOrigin), gatewayAddress);
