@@ -1,17 +1,29 @@
-The Cockpit's composer says "Working" with a Stop button while an API-mode session is idle.
-Seen on the Terminal tab of a session the Gateway itself labelled "Idle - no turn yet" (19 October dry run, before phase 3 part B). The Gateway's own status line beside it was right; the composer's state is read elsewhere.
+On Windows the model provider was slow or refused, so no single Windows run passed every check.
+The Windows runs used Pi 1.3.0 with GLM-5.3 (zai-org); the Linux runs used Pi 1.2.0 with gpt-5.6-sol. In run 4 the first reply took over seven minutes; in run 6 PONG came back after 2 minutes 17 seconds, after the script had stopped waiting, and the bash tool's turn was still running nearly four minutes after it was sent; in run 7, with every wait raised to five minutes, the provider refused every turn with 429 engine_overloaded ("Model busy, retry later"). These are the provider's answers, not the product's: each of those checks passed on Windows in another run (Stop is the exception, below), and every check passed in one Linux run.
 
-Mid-turn, the Cockpit's Chat showed the receipt but not the streaming reply, while the phone streamed it.
-Seen in the 19 October dry run, before phase 3 part B was merged; the reply appeared in the Cockpit once the turn ended. The recorded run says whether it still happens.
+Run 7 shows the product reporting the provider's refusal truthfully.
+Pi acknowledged each prompt, so each receipt reads "Delivered - the turn failed: 429: ... engine_overloaded", and each turn ended failed with the provider's own words. The phone's Chat shows both on every prompt (chat-after-stop-phone.png in windows-20261020-041719), and the session strip says "Idle after turn 3" with "The last turn failed: 429 ...". Nothing was shown as a success that was not one.
 
-Both clients join a reply's lines into one paragraph.
-"Write the numbers from 1 to 600, one per line" shows as "1 2 3 ..." in the Cockpit and the phone; the reply Pi sent has a line per number.
+The Stop check passed in no Windows run, but run 6 shows Stop working on Windows.
+In run 6 the provider was slow, so the bash tool's turn was still running when the long prompt was sent, and the long prompt was queued behind it ("Queued, 1st in line: a turn is running"). Stop then cancelled the turn that was running: the bash prompt's receipt reads Delivered with the turn cancelled, "stopped by the user" (wire.jsonl and director-pi.log in windows-20261020-021210, Stop at 02:30:05 UTC), and both Chat screens after Stop showed "stopped". The check failed because it watched the long prompt's turn, which had not started. In run 5 the long turn ended 21 seconds before Stop arrived, so the Director answered truthfully that no turn was running (windows-20261020-015945); the script then asked for the numbers 1 to 5000 so the turn would still be running (b83d6973c). In run 7 the provider refused every turn, so there was nothing to stop. The Stop check itself passed on Linux (linux-20261020-010149), and the unit tests prove it.
 
-cc-devthrottle session prompt says "Held: ... may already be in" for a prompt API mode queued because the user has the wheel.
-The receipt already says "Queued, 1st in line: you have the wheel"; the command's words do not say what the Gateway knows. Fixed by pull request #4244: the command now prints the receipt's own words.
+The Cockpit's composer said "Working" with a Stop button while an API-mode session was idle.
+Fixed by pull request #4245: the strip now reads the Gateway's working colour. Stop is still drawn while idle, by the owner's ruling written at the top of SessionActionBar.tsx: a Stop hidden mid-turn costs more than a Stop shown while idle. The recorded runs' Terminal tab screens show the strip without "Working".
+
+Mid-turn, the Cockpit's Chat showed no streaming reply while the phone streamed it.
+This was the proof's capture timing, measured, not a product defect. A diagnostic run measured the Cockpit drawing Pi's first word 83 milliseconds after the Director stored it; the picture had been taken before the first word existed. Pull request #4265 makes the mid-turn screen wait for the reply to start streaming, and in linux-20261020-010149 both the Cockpit and the phone show it streaming.
+
+Both clients joined a reply's lines into one paragraph.
+"Write the numbers from 1 to 600, one per line" showed as "1 2 3 ...". Fixed by pull request #4245 (the live Chat keeps a reply's line breaks); the recorded runs show one number per line on both clients.
+
+cc-devthrottle session prompt said "Held: ... may already be in" for a prompt API mode queued because the user has the wheel.
+Fixed by pull request #4244: the command now prints the receipt's own words, "Queued, 1st in line: you have the wheel".
 
 cc-devthrottle has no command for receipts, the live items, the wheel, Stop or typing into the terminal.
 The proof calls the Gateway's routes for those; the Delivery Lead has taken the missing commands as follow-up work outside this mission.
 
 A test Director on a scratch storage root used to relink the user's real ~/.local/bin.
-Found in the first dry run on devlinux; fixed in the product by #4211, and the proof script also gives its test Director a home folder of its own and checks the links after every run.
+Found in the first dry run on devlinux; fixed in the product by pull request #4211. The proof script also gives its test Director a home folder of its own and checks the links after every run; every Linux run found them unchanged. The Windows runs do not make this check: on Windows the same repair writes only under the test Director's root.
+
+Most Windows pictures were withheld by the runner.
+The Cockpit and desktop pictures show the machine name, which contains the user's name, or a path under the user's home folder, or another application's window, so the runner did not commit them. Each run's screens/WITHHELD.txt lists them. Their accessibility dumps, which are scrubbed text, are kept and embedded in this report, and every screen check is a check of the words in that dump.

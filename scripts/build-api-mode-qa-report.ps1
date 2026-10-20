@@ -16,7 +16,13 @@
     file of blocks separated by a blank line, each block's first line its title and the rest its detail.
 
 .PARAMETER Runs
-    The run folders, one per platform. A platform with no run is reported as not proven.
+    The run folders. A platform may have several runs: each is shown on its own, and a table across them says which
+    checks passed in at least one run. A platform is proven only by a run in which every check passed. A platform with
+    no run is reported as not proven.
+
+.PARAMETER Note
+    Sentences for the summary, each "<platform>: <sentence>", shown under that platform's line - what the runs on it
+    came to, in words the numbers cannot say.
 
 .PARAMETER Out
     The HTML file to write.
@@ -25,8 +31,8 @@
     The findings file. Default: qa-findings.txt beside the report.
 
 .PARAMETER Status
-    The report's status word: done, waiting-on-you or agent-working. Default: done when every run passed and both
-    Linux and Windows have a run, otherwise agent-working.
+    The report's status word: done, waiting-on-you or agent-working. Default: done when Linux and Windows each have a
+    run in which every check passed, otherwise agent-working.
 
 .EXAMPLE
     pwsh -File scripts/build-api-mode-qa-report.ps1 -Runs proofs/phase-6/linux-20261019-060000,proofs/phase-6/windows-20261019-080000 -Out proofs/phase-6/qa-report.html
@@ -36,10 +42,13 @@ param(
     [Parameter(Mandatory)][string[]]$Runs,
     [Parameter(Mandatory)][string]$Out,
     [string]$Findings,
+    [string[]]$Note = @(),
     [ValidateSet('done', 'waiting-on-you', 'agent-working')][string]$Status
 )
 
 $ErrorActionPreference = 'Stop'
+# pwsh -File hands "a,b,c" over as one string; split it, so the command in the README works as written.
+$Runs = @($Runs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (-not $Findings) { $Findings = Join-Path (Split-Path $Out) 'qa-findings.txt' }
 
 function Html([string]$Text) { [System.Net.WebUtility]::HtmlEncode($Text) }
@@ -54,7 +63,18 @@ function Read-Run([string]$Folder) {
 
 function Image([string]$Folder, [string]$Relative) {
     $path = Join-Path $Folder $Relative
-    if (-not (Test-Path $path)) { return '<p class="missing">no picture was taken</p>' }
+    if (-not (Test-Path $path)) {
+        # A runner withholds a picture that shows something private, and lists it with the reason in screens/WITHHELD.txt.
+        $withheld = Join-Path $Folder 'screens/WITHHELD.txt'
+        if ($Relative -and (Test-Path $withheld)) {
+            $text = Get-Content $withheld -Raw
+            if ($text -match [regex]::Escape((Split-Path $Relative -Leaf))) {
+                $reason = (($text -split "(\r?\n){2,}")[0] -replace '\s+', ' ').Trim()
+                return "<p class=""other"">The picture was withheld by the runner. $(Html $reason)</p>"
+            }
+        }
+        return '<p class="missing">no picture was taken</p>'
+    }
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
     return "<img alt=""$(Html $Relative)"" src=""data:image/png;base64,$b64"">"
 }
@@ -70,13 +90,40 @@ function Badge([string]$Result) {
     "<span class=""badge $class"">$(Html $Result)</span>"
 }
 
+function Test-RunPassed($Run) { @($Run.steps | Where-Object { $_.result -eq 'FAIL' }).Count -eq 0 -and $Run.exitCode -eq 0 }
+
 $runData = @($Runs | ForEach-Object { Read-Run $_ })
-$platforms = @($runData | ForEach-Object { $_.platform })
+$byPlatform = [ordered]@{}
+foreach ($run in $runData) {
+    if (-not $byPlatform.Contains($run.platform)) { $byPlatform[$run.platform] = [System.Collections.Generic.List[object]]::new() }
+    $byPlatform[$run.platform].Add($run)
+}
+$platforms = @($byPlatform.Keys)
 $missing = @('linux', 'windows' | Where-Object { $_ -notin $platforms })
-$failedSteps = @($runData | ForEach-Object { $run = $_; $_.steps | Where-Object { $_.result -eq 'FAIL' } | ForEach-Object { "$($run.platform): $($_.step)" } })
-$allPassed = $failedSteps.Count -eq 0 -and @($runData | Where-Object { $_.exitCode -ne 0 }).Count -eq 0
+
+# Each platform's checks in the order its first run made them, and for each whether it passed in any run.
+function Get-CheckNames($PlatformRuns) { @($PlatformRuns | ForEach-Object { $_.steps } | ForEach-Object { $_.step } | Select-Object -Unique) }
+function Get-Result($Run, [string]$Name) { $s = @($Run.steps | Where-Object { $_.step -eq $Name }) | Select-Object -First 1; if ($s) { $s.result } else { 'not run' } }
+$neverPassed = @(foreach ($p in $platforms) {
+    $platformRuns = $byPlatform[$p]
+    foreach ($name in Get-CheckNames $platformRuns) {
+        if (-not @($platformRuns | Where-Object { (Get-Result $_ $name) -eq 'PASS' })) { "${p}: $name" }
+    }
+})
+$provenPlatforms = @($platforms | Where-Object { @($byPlatform[$_] | Where-Object { Test-RunPassed $_ }).Count -gt 0 })
+$allPassed = $provenPlatforms.Count -eq $platforms.Count
 if (-not $Status) { $Status = if ($allPassed -and $missing.Count -eq 0) { 'done' } else { 'agent-working' } }
 $spend = ($runData | Measure-Object -Property spendDollars -Sum).Sum
+
+# The mission's running total, from spend.md beside the proofs folder, when it is there.
+$spendFile = Join-Path (Split-Path (Split-Path (Split-Path $Out))) 'spend.md'
+$missionSpend = $null
+if (Test-Path $spendFile) {
+    $text = Get-Content $spendFile -Raw
+    $so = [regex]::Match($text, "\| Mission so far[^|]*\| ([0-9.]+) \|")
+    $left = [regex]::Match($text, "\| Left of the 10 dollar grant \| ([0-9.]+) \|")
+    if ($so.Success -and $left.Success) { $missionSpend = "The whole mission has spent about $($so.Groups[1].Value) dollars of the owner's 10 dollar grant for Pi, with $($left.Groups[1].Value) left (spend.md records every run)." }
+}
 
 $findingBlocks = @()
 if (Test-Path $Findings) {
@@ -105,23 +152,39 @@ Add '</style></head><body>'
 # ---- header, summary, questions ------------------------------------------------------------------------------
 Add "<section data-dev-report=""header"" data-dev-report-status=""$Status"">"
 Add '<h1>API mode on Pi: QA report</h1>'
-Add "<p class=""muted"">Mission #4070, phase 6 (section 7 of the mission document). Built $(Html ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm'))) UTC from $($runData.Count) proof run(s): $(Html ($platforms -join ', ')).</p>"
+Add "<p class=""muted"">Mission #4070, phase 6 (section 7 of the mission document). Built $(Html ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm'))) UTC from $($runData.Count) proof run(s): $(Html (($runData | ForEach-Object { "$($_.platform) $($_.stamp)" }) -join ', ')).</p>"
 Add '</section>'
 
+function RunLine($Run) {
+    $pass = @($Run.steps | Where-Object { $_.result -eq 'PASS' }).Count
+    $fail = @($Run.steps | Where-Object { $_.result -eq 'FAIL' }).Count
+    $word = if (Test-RunPassed $Run) { 'every check passed' } else { "$fail check(s) failed" }
+    "$word ($pass passed, $fail failed). Pi $(Html $Run.pi), commit <code>$(Html (([string]$Run.commit).Substring(0, 9)))</code>, tree $(Html $Run.tree)"
+}
+
 Add '<section data-dev-report="summary"><h2>Summary</h2>'
-foreach ($run in $runData) {
-    $pass = @($run.steps | Where-Object { $_.result -eq 'PASS' }).Count
-    $fail = @($run.steps | Where-Object { $_.result -eq 'FAIL' }).Count
-    $word = if ($fail -eq 0 -and $run.exitCode -eq 0) { 'every check passed' } else { "$fail check(s) failed" }
-    Add "<p><strong>$(Html $run.platform)</strong>: $word ($pass passed, $fail failed). Pi $(Html $run.pi), commit <code>$(Html (([string]$run.commit).Substring(0, 9)))</code>, tree $(Html $run.tree).</p>"
+foreach ($p in $platforms) {
+    $platformRuns = $byPlatform[$p]
+    if ($platformRuns.Count -eq 1) {
+        Add "<p><strong>$(Html $p)</strong>, run $(Html $platformRuns[0].stamp): $(RunLine $platformRuns[0]).</p>"
+    } else {
+        $whole = @($platformRuns | Where-Object { Test-RunPassed $_ })
+        $wholeWords = if ($whole.Count -gt 0) { "Run $(Html (($whole | ForEach-Object { $_.stamp }) -join ', ')) passed every check." } else { 'No single run passed every check.' }
+        $never = @($neverPassed | Where-Object { $_ -like "${p}: *" } | ForEach-Object { $_.Substring($p.Length + 2) })
+        $everyWords = if ($never.Count -eq 0) { 'Every check passed in at least one run.' } else { "Every check passed in at least one run except: $(Html ($never -join '; '))." }
+        Add "<p><strong>$(Html $p)</strong>, $($platformRuns.Count) runs: $wholeWords $everyWords</p><ul>"
+        foreach ($run in $platformRuns) { Add "<li>Run $(Html $run.stamp): $(RunLine $run).</li>" }
+        Add '</ul>'
+    }
+    foreach ($n in @($Note | Where-Object { $_ -like "${p}: *" })) { Add "<p>$(Html $n.Substring($p.Length + 2))</p>" }
 }
 foreach ($m in $missing) { Add "<p><strong>$m</strong>: <span class=""missing"">no run yet, so nothing on $m is proven by this report.</span></p>" }
 if ($allPassed) {
     Add "<p>On the platforms above, a user can start Pi in API mode, every prompt shows Delivered (Pi's own acknowledgement) or a reason, the Chat shows the conversation live with tool cards, Stop ends the turn as cancelled, take the wheel opens Pi's real terminal on the same conversation, and hand back returns to API mode with what was typed kept and the waiting prompts delivered.</p>"
 } else {
-    Add "<p class=""missing"">Not every check passed, so the flow is not proven as a whole: $(Html ($failedSteps -join '; ')).</p>"
+    Add "<p class=""missing"">Not proven as a whole on $(Html ((@($platforms | Where-Object { $_ -notin $provenPlatforms })) -join ', ')): no run there passed every check.$(if ($provenPlatforms.Count -gt 0) { " Proven as a whole on $(Html ($provenPlatforms -join ', '))." })</p>"
 }
-Add "<p>Estimated Pi spend for these runs: $([math]::Round($spend, 2)) dollars.</p>"
+Add "<p>Estimated Pi spend for the runs in this report: $([math]::Round($spend, 2)) dollars.$(if ($missionSpend) { ' ' + (Html $missionSpend) })</p>"
 Add '</section>'
 
 Add '<section data-dev-report="questions"><h2>Questions</h2><p data-dev-report-no-questions>No questions - nothing needed from you.</p></section>'
@@ -135,14 +198,29 @@ foreach ($row in @(
     @('3. Live Chat', 'The Chat tab renders the live events, receipts and tool cards, once in client-core for the Cockpit and the phone.'),
     @('4. Take the wheel', 'Mode switching with one holder per conversation, the queue held while the user has the wheel, and the Terminal tab''s button.'),
     @('5. Choosing it', 'The New Session Connection row (Cockpit, phone, desktop), the roster tag, and --connection on spawn and list.'),
-    @('6. Proof', 'The switch turned on (with a guard refusing API mode to a Director older than 2.23.0), the end-to-end proof script, and this report.'))) {
+    @('6. Proof', 'The switch turned on, API mode offered and allowed only on a Director of 2.25.0 or newer (the first release with all of it), the end-to-end proof script, and this report.'))) {
     Add "<tr><td>$(Html $row[0])</td><td>$(Html $row[1])</td></tr>"
 }
 Add '</table></section>'
 
-# ---- the checks, per platform --------------------------------------------------------------------------------
+# ---- across the runs, for a platform with more than one ------------------------------------------------------
+foreach ($p in $platforms) {
+    $platformRuns = $byPlatform[$p]
+    if ($platformRuns.Count -lt 2) { continue }
+    Add "<section data-dev-report=""detail""><h2>The checks across the runs on $(Html $p)</h2>"
+    Add "<p class=""muted"">Each run's own section below has the evidence for every result.</p>"
+    Add "<table><tr><th>Check</th>$(($platformRuns | ForEach-Object { "<th>Run $(Html $_.stamp)<br>Pi $(Html $_.pi)</th>" }) -join '')<th>Passed in a run</th></tr>"
+    foreach ($name in Get-CheckNames $platformRuns) {
+        $cells = ($platformRuns | ForEach-Object { "<td>$(Badge (Get-Result $_ $name))</td>" }) -join ''
+        $any = if (@($platformRuns | Where-Object { (Get-Result $_ $name) -eq 'PASS' })) { 'PASS' } else { 'FAIL' }
+        Add "<tr><td>$(Html $name)</td>$cells<td>$(Badge $any)</td></tr>"
+    }
+    Add '</table></section>'
+}
+
+# ---- the checks, per run -------------------------------------------------------------------------------------
 foreach ($run in $runData) {
-    Add "<section data-dev-report=""detail""><h2>The checks on $(Html $run.platform)</h2>"
+    Add "<section data-dev-report=""detail""><h2>The checks on $(Html $run.platform), run $(Html $run.stamp)</h2>"
     Add "<p class=""muted"">Run $(Html $run.stamp), started $(Html $(if ($run.startedUtc -is [datetime]) { $run.startedUtc.ToUniversalTime().ToString('yyyy-MM-dd HH:mm') + ' UTC' } else { [string]$run.startedUtc })). Evidence beside this report: <code>$(Html (Split-Path $run.folder -Leaf))/</code> wire.jsonl (every request and answer), director-pi.log, summary.txt, spend.txt.</p>"
     Add '<table><tr><th>Check</th><th>Result</th><th>Evidence</th></tr>'
     foreach ($s in $run.steps | Where-Object { $_.step -notlike 'Screen:*' }) {
@@ -156,7 +234,7 @@ foreach ($run in $runData) {
     }
     Add '</section>'
 
-    Add "<section data-dev-report=""detail""><h2>Screens on $(Html $run.platform)</h2><div class=""shots"">"
+    Add "<section data-dev-report=""detail""><h2>Screens on $(Html $run.platform), run $(Html $run.stamp)</h2><div class=""shots"">"
     foreach ($shot in $run.screens) {
         $word = if ($shot.ok) { 'PASS' } else { 'FAIL' }
         Add "<div class=""shot""><h3>$(Html $shot.name) - $(Html $shot.surface) $(Badge $word)</h3><p class=""muted"">$(Html $shot.detail)</p>$(Image $run.folder $shot.png)$(Dump $run.folder $shot.aria)</div>"
@@ -183,12 +261,13 @@ Add '<section data-dev-report="evidence"><h2>What this rests on, and what it doe
 Add '<p>Each run built a Gateway and a slot-5 test Director from the tree named above, on a throwaway storage root, and drove a real Pi through that Gateway with cc-devthrottle and the Gateway''s own routes. The screens are the real Cockpit and phone app that Gateway served, photographed while the run held each state, and every screen check is a presence check of the words the state shows.</p>'
 Add '<p><strong>Not proven by this report:</strong></p><ul>'
 foreach ($m in $missing) { Add "<li>Anything on ${m}: there is no run.</li>" }
-foreach ($f in $failedSteps) { Add "<li>$(Html $f): it failed (see its row).</li>" }
+foreach ($f in $neverPassed) { Add "<li>$(Html $f): it passed in no run on that platform (see the runs' rows and Found along the way).</li>" }
 foreach ($line in @(
     'The hosted Gateway: these runs used a Gateway built from the tree. The hosted one gets API mode at the mission''s single deploy, after this report.',
     'Pi exiting mid-turn and Pi refusing a prompt in a real run: proven by the unit tests above, not by these runs.',
-    'A real Director older than 2.23.0 refusing an API-mode create: proven by the Gateway''s tests with a fake Director, not against a real old build.',
-    'That the released v2.23.0 Director gives the full experience: the version floor admits it, but it predates the event push, the wheel and the crash journal''s connection mode, which are on main under the same version number.',
+    'A real Director older than 2.25.0 being offered no API mode and refused an API-mode create: proven by the Gateway''s tests with a fake Director, not against a real old build.',
+    'An installed release: every run built its Gateway and its Director from the tree it names.',
+    'The two platforms on the same Pi and model: Linux ran Pi 1.2.0 with gpt-5.6-sol, Windows Pi 1.3.0 with GLM-5.3.',
     'Steering mid-turn, permission cards and other agents: out of the mission''s scope.')) {
     Add "<li>$(Html $line)</li>"
 }
