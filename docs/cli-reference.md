@@ -2138,7 +2138,8 @@ session of the factory STARTED AS the `bossSeat` of the published definition, ne
 seat from the session that spawned it - publishes and restores any
 change on its own authority. A version that changes the Boss's own seat or its authority needs the owner's
 approval: its `seats/<bossSeat>.yaml`, which seat `factory.yaml` names as the boss, any grant in `grants.yaml` whose
-`seats` include the Boss seat (a new one, or a change to its `allows` or `limits`; removing one is free), or any
+`seats` include the Boss seat (a new one, or a change to its `allows` or `limits`; removing one also edits
+`seats/<bossSeat>.yaml`, which must list the same grants, so it needs the words too), or any
 `rules/<name>.json` the Boss seat names. Other seats' grants and rules, and the factory defaults, stay free; so does
 factory memory (`factory memory set`), which is not part of the definition. The words are passed verbatim:
 `publish <factory> --version N --owner-approved "<the owner's words, verbatim>"` (the same flag on `restore`).

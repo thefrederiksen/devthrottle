@@ -1028,8 +1028,9 @@ internal static class FactoryDefinitionEndpoints
     /// <item>which seat factory.yaml names as the boss;</item>
     /// <item>a grant in grants.yaml whose seats include the Boss seat that is new for the Boss (a new grant, or the Boss
     /// newly added to its seats) or whose allows or limits text changed. Both are free text, so whether a change widens
-    /// or narrows cannot be told mechanically, and any change to them counts; a grant removed, or the Boss taken off its
-    /// seats, only narrows and is free;</item>
+    /// or narrows cannot be told mechanically, and any change to them counts. A grant removed, or the Boss taken off its
+    /// seats, is not by itself counted here - but the check requires the Boss's seat file to list exactly the grants
+    /// that name it, so such a version changes the seat file too, and that needs the owner's words;</item>
     /// <item>a rule set the Boss seat names (<c>rules/&lt;name&gt;.json</c>) whose text changed.</item>
     /// </list>
     /// Every other seat's grants and rules, and the factory defaults, stay free. Each file is read on its own, never

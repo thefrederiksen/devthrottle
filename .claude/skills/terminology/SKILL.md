@@ -72,8 +72,8 @@ recorded on every session and every run participant.
   drafts of it, see what changes (`factory definition diff`), publish and restore it; the owner's word in
   that session is the approval, and the Gateway asks for nothing more. THE BOSS IS THE BOSS OF ITS
   FACTORY (the owner, 21 October 2026): a factory's Boss session publishes and restores any change to its
-  own factory on its own authority, and a change to the Boss's OWN seat or its authority (its seat file, a
-  grant that includes it, a rule set it names) needs the owner's approval, passed verbatim (`factory definition publish <factory> --version N --owner-approved "<the owner's words>"`).
+  own factory on its own authority, and a change to the Boss's OWN seat or its authority (its seat file, which
+  seat factory.yaml names as the boss, a grant that includes it, a rule set it names) needs the owner's approval, passed verbatim (`factory definition publish <factory> --version N --owner-approved "<the owner's words>"`).
   Every other session of a factory saves drafts only, and no factory's session creates a factory. Every
   publish records who did it - the person, or the session's id and name - and the owner's words when given.
 

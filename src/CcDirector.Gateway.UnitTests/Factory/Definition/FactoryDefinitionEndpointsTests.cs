@@ -567,7 +567,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void A_GRANT_THAT_INCLUDES_THE_BOSS_IS_ITS_AUTHORITY_when_new_or_its_allows_or_limits_change_and_removing_one_is_free()
+    public void A_GRANT_THAT_INCLUDES_THE_BOSS_IS_ITS_AUTHORITY_when_new_or_its_allows_or_limits_change_and_grants_yaml_alone_does_not_count_a_removal()
     {
         var published = WithGrants(TwoGrants);
 
@@ -587,7 +587,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         // Another seat's grant widened: free.
         Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
             WithGrants(TwoGrants.Replace("At most 20 a day", "At most 200 a day", StringComparison.Ordinal)), "boss"));
-        // The Boss's grant removed, and the Boss taken off a grant: both only narrow, so both are free.
+        // The Boss's grant removed, and the Boss taken off a grant: grants.yaml alone does not count them. (A real version
+        // also edits seats/boss.yaml, which must list the same grants, and that edit needs the owner's words.)
         Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published, DefinitionFixture.Publishable(), "boss"));
         Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
             WithGrants(TwoGrants.Replace("seats: [boss]", "seats: [outreach]", StringComparison.Ordinal)), "boss"));
@@ -623,7 +624,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void A_CHANGE_TO_THE_BOSS_SEAT_IS_ITS_FILE_OR_WHICH_SEAT_FACTORY_YAML_NAMES_and_nothing_else()
+    public void A_CHANGE_TO_THE_BOSS_SEAT_IS_ITS_FILE_OR_WHICH_SEAT_FACTORY_YAML_NAMES_and_another_seats_file_is_free()
     {
         var published = DefinitionFixture.Publishable();
 
