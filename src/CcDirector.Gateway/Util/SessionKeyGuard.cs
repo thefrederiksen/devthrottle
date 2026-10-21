@@ -424,7 +424,7 @@ public static class SessionKeyGuard
             // One factory's page on the Factories screen (issue #3685): its status word, the reason, what is
             // failing and what is waiting on the owner, each with its row id - what `factory status --factory`
             // prints. Exactly three parts: the Seats tab beneath it (four parts) and every write on the page -
-            // Handled, the bulk handled, archive, restore, Talk - stay the owner's, so a boss can read its screen
+            // Handled, the bulk handled, archive, restore, delete, Talk - stay the owner's, so a boss can read its screen
             // and mark its own rows through the activity record, and nothing else.
             if (s.Length == 3 && s[0] == "gateway" && s[1] == "factories") return true;
 

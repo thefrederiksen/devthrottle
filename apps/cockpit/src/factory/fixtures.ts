@@ -528,6 +528,7 @@ export const FACTORY_PAGE: FactoryPageView = {
   },
   archivedText: null,
   restore: null,
+  delete: null,
 };
 
 const SEAT_BOSS: FactorySeatRow = {
