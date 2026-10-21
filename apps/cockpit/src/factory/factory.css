@@ -2252,3 +2252,27 @@ a:focus .ff-bay rect {
 .fa-goal-label {
   font-weight: 600;
 }
+
+/* The upgrade page (FactoryAreaGate, "plan_required"): the Gateway's heading and sentence, then See Pro beside Try
+   again, then the hint. At phone width the two buttons wrap onto their own lines and fill the width. */
+.factories-upgrade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.factories-upgrade-actions .ui-btn {
+  text-decoration: none;
+  white-space: nowrap;
+}
+.factories-upgrade-hint {
+  margin-top: 14px;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .factories-upgrade-actions .ui-btn {
+    flex: 1 1 100%;
+    text-align: center;
+    padding: 10px 14px;
+  }
+}

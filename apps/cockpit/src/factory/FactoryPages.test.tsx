@@ -140,4 +140,130 @@ describe("The Factory Agents switch gate", () => {
 
     expect(await screen.findByText("the factory area")).toBeTruthy();
   });
+
+  it("on with the new fields (reason null): shows the area", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: true, reason: null, howToStart: null, title: null, subscribeUrl: null });
+    renderGate();
+
+    expect(await screen.findByText("the factory area")).toBeTruthy();
+    expect(screen.queryByTestId("factories-upgrade")).toBeNull();
+  });
+
+  // The hosted Gateway says the account's plan does not include Factories: the page is the upgrade page, in the
+  // Gateway's words, with the Gateway's pricing address.
+  const PLAN_REQUIRED = {
+    enabled: false,
+    reason: "plan_required",
+    howToStart: "A factory runs your agents on a schedule. Gateway sentence for the test.",
+    title: "Gateway heading for the test",
+    subscribeUrl: "https://example.test/pricing",
+  };
+
+  it("plan_required: shows the upgrade page with the Gateway's heading, sentence and pricing link", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue(PLAN_REQUIRED);
+    renderGate();
+
+    const page = await screen.findByTestId("factories-upgrade");
+    expect(within(page).getByRole("heading", { level: 1 }).textContent).toBe("Gateway heading for the test");
+    expect(screen.getByTestId("factories-upgrade-body").textContent).toBe(PLAN_REQUIRED.howToStart);
+    const seePro = screen.getByRole("link", { name: "See Pro" });
+    expect(seePro.getAttribute("href")).toBe("https://example.test/pricing");
+    expect(seePro.getAttribute("target")).toBe("_blank");
+    expect(seePro.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.getByTestId("factories-upgrade-hint").textContent).toBe(
+      "Subscribed already? Press Try again. It can take a minute after subscribing.",
+    );
+    expect(screen.queryByTestId("factories-off")).toBeNull();
+    expect(screen.queryByText("the factory area")).toBeNull();
+  });
+
+  it("plan_required: Try again forgets the answer and asks the Gateway again, showing the area once it is on", async () => {
+    client.getFactoryAgentsSwitch
+      .mockResolvedValueOnce(PLAN_REQUIRED)
+      .mockResolvedValueOnce({ enabled: true, reason: null, howToStart: null, title: null, subscribeUrl: null });
+    renderGate();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("the factory area")).toBeTruthy();
+    expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("factories-upgrade")).toBeNull();
+  });
+
+  it("plan_required: Try again while still without the plan shows the upgrade page again", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue(PLAN_REQUIRED);
+    renderGate();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("factories-upgrade")).toBeTruthy();
+    expect(reported).not.toHaveBeenCalled();
+  });
+
+  it("plan_required without its heading or address: says so as an error, in the page, and reports it once", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ ...PLAN_REQUIRED, subscribeUrl: null });
+    renderGate();
+
+    expect((await screen.findByRole("alert")).textContent).toContain("did not send the page's heading or pricing address");
+    expect(screen.queryByTestId("factories-upgrade")).toBeNull();
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(reported.mock.calls[0][0]).toMatchObject({ surface: "cockpit-factory-switch", action: "read the Factories upgrade page" });
+  });
+
+  // Every other off reason keeps today's page with the Gateway's sentence.
+  it.each(["not_switched_on", "plan_unknown"])("%s: shows the how-to-start page, not the upgrade page", async (reason) => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({
+      enabled: false,
+      reason,
+      howToStart: `Gateway sentence for ${reason}.`,
+      title: null,
+      subscribeUrl: null,
+    });
+    renderGate();
+
+    const off = await screen.findByTestId("factories-off");
+    expect(off.textContent).toContain(`Gateway sentence for ${reason}.`);
+    expect(screen.queryByTestId("factories-upgrade")).toBeNull();
+    expect(screen.queryByRole("link", { name: "See Pro" })).toBeNull();
+  });
+
+  // plan_unknown is the hosted Gateway's failed plan read ("try again shortly"): it is not remembered, so the next visit
+  // to Factories asks the Gateway again - while a settled off answer is still asked only once per page load.
+  it("plan_unknown is not remembered: the next visit asks the Gateway again and shows the area once it is on", async () => {
+    client.getFactoryAgentsSwitch
+      .mockResolvedValueOnce({ enabled: false, reason: "plan_unknown", howToStart: "Could not check the plan; try again shortly.", title: null, subscribeUrl: null })
+      .mockResolvedValueOnce({ enabled: true, reason: null, howToStart: null, title: null, subscribeUrl: null });
+    renderGate();
+    expect((await screen.findByTestId("factories-off")).textContent).toContain("Could not check the plan; try again shortly.");
+    cleanup();
+
+    renderGate();
+
+    expect(await screen.findByText("the factory area")).toBeTruthy();
+    expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(2);
+  });
+
+  it("a settled off answer is remembered: the next visit does not ask the Gateway again", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, reason: "not_switched_on", howToStart: "Off here.", title: null, subscribeUrl: null });
+    renderGate();
+    await screen.findByTestId("factories-off");
+    cleanup();
+
+    renderGate();
+
+    expect(await screen.findByTestId("factories-off")).toBeTruthy();
+    expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  // A Gateway too old to send a reason: exactly today's behaviour (the first "off" test above sends only enabled and
+  // howToStart, and shows the how-to-start page with no upgrade page).
+  it("no reason from an older Gateway: no upgrade page", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, howToStart: "Older Gateway sentence." });
+    renderGate();
+
+    expect((await screen.findByTestId("factories-off")).textContent).toContain("Older Gateway sentence.");
+    expect(screen.queryByTestId("factories-upgrade")).toBeNull();
+  });
 });
