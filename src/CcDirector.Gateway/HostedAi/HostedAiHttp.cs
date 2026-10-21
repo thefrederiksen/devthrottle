@@ -53,10 +53,17 @@ public static class HostedAiHttp
         return decision.Verdict switch
         {
             Tenancy.TenantAiVerdict.Refused => PaymentRequiredResult(HostedAiState.SubscriptionRequired),
-            Tenancy.TenantAiVerdict.Unknown => new EntitlementUnknownResult(),
+            Tenancy.TenantAiVerdict.Unknown => EntitlementUnknown(),
             _ => throw new ArgumentException("An allowed call has no refusal to answer.", nameof(decision)),
         };
     }
+
+    /// <summary>
+    /// The temporary answer for a plan that could not be read: 503 with Retry-After 10 and code
+    /// <c>entitlement_unknown</c>, the same answer the access lease writes (<c>AuthMiddleware</c>,
+    /// <see cref="Tenancy.HostedAccessDecision.RetryUnknown"/>). Also the factory gate's answer to an Unknown plan.
+    /// </summary>
+    public static IResult EntitlementUnknown() => new EntitlementUnknownResult();
 
     /// <summary>The code the hosted proxy answers for each state, or null for a state it has no code for.</summary>
     internal static string? CodeFor(HostedAiState state) => state switch

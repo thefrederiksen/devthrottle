@@ -72,6 +72,9 @@ internal static class CronRunEndpoints
                     Results.NotFound(new { error = "no such cron job", id }),
                 CronFireOutcome.Paused =>
                     Results.Conflict(new { error = PausedRefusal, id }),
+                // A factory schedule on an account whose plan could not be read: the temporary answer the hosted
+                // request path gives an unreadable plan (Factories need Pro mission). Nothing was recorded.
+                CronFireOutcome.SkippedFactoriesUnknown => HostedAi.HostedAiHttp.EntitlementUnknown(),
                 _ => throw new InvalidOperationException($"unhandled fire outcome: {result.Outcome}"),
             };
         });

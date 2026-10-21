@@ -195,11 +195,16 @@ internal static class FactoryTalkEndpoints
                 "a session may not start a talk with a factory agent; a talk is the owner's own session, opened from the owner's phone or browser",
                 nameof(FactoryTalkEndpoints), out var notOwner) is null)
             return notOwner!;
-        if (!FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why))
+        var factories = FactoryAgentsGate.AnswerFor(ctx, factorySwitch, resolveTenant);
+        if (factories.State == Factory.FactoryAgentsState.Unknown)
         {
-            FileLog.Write($"[FactoryTalkEndpoints] REFUSED: {why}");
-            return Refused(StatusCodes.Status404NotFound,
-                "Factory agents are switched off for this account, so no talk was started. The administrator switches them on per account.");
+            FileLog.Write($"[FactoryTalkEndpoints] UNKNOWN: {factories.Why} - answering 503");
+            return HostedAi.HostedAiHttp.EntitlementUnknown();
+        }
+        if (!factories.IsOn)
+        {
+            FileLog.Write($"[FactoryTalkEndpoints] REFUSED: {factories.OffReason}: {factories.Why}");
+            return Refused(StatusCodes.Status404NotFound, FactoryAgentsGate.OffSentence(factories, "no talk was started"));
         }
         if (resolveTenant(ctx) is not { } resolved)
             return Refused(StatusCodes.Status403Forbidden, "No account is bound to this request.");

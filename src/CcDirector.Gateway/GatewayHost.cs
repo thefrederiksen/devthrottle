@@ -2560,9 +2560,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _tenantSettings = new Settings.TenantSettingsStore(_gatewayDb);
         _savedSessionFilters = new SessionFilters.SavedSessionFilterStore(_gatewayDb);
         _tenantSettingsResolver = new Settings.TenantSettingsResolver(_tenantSettings);
-        // The factory agents switch per account: the machine switch, or the account's own recorded decision, which
-        // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
-        FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
+        // The factory agents switch per account: the machine switch, the owner's recorded switch for the account (in the
+        // per-tenant settings just built, written by the administrator route), or - on the hosted Gateway only - the
+        // account's plan, read through the same AI gate every model call asks (Factories need Pro mission). A
+        // self-hosted Gateway passes no plan read: its gate allows everything and must never grant factories.
+        FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings,
+            plans: AiGate.IsGating ? AiGate : null);
         // The Mail Desk switch per account, in the same per-tenant settings; no machine switch, so no config.json key.
         MailDeskSwitch = new MailDesk.MailDeskSwitch(_tenantSettings);
         MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);
@@ -2840,8 +2843,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Issue #3910: the account's pause-everything switch, read at the top of every sweep and run-now.
             isPaused: _cronPause.IsPaused,
             // Phase 5b: a due check is handed to a Director only through the factory routes, which answer nothing while
-            // the account's Factory Agents switch is off - so the fire of a checked schedule says so instead.
-            factoryAgentsOn: tenant => FactoryAgentsSwitch.MachineWide || FactoryAgentsSwitch.IsOn(tenant));
+            // the account's Factory Agents area is off - so the fire of a checked schedule says so instead. A factory
+            // seat's schedule obeys the same one decision (Factories need Pro mission): off, it starts no session.
+            factoryAgents: tenant => FactoryAgentsSwitch.Answer(tenant));
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
         // did not report or ran past their shift (Factory Control, step 1).
@@ -5103,7 +5107,7 @@ public sealed class GatewayHost : IAsyncDisposable
             messageLinkRecord: MessageLinkRecord,
             // The Website Business Factory, Screen 6: the "factory agent" chip is read from the activity record, and
             // only for an account the Factory Agents switch is on for - off, no row carries one.
-            factoryStarts: (tenant, sessionIds) => FactoryAgentsSwitch.IsOn(tenant)
+            factoryStarts: (tenant, sessionIds) => FactoryAgentsSwitch.AnswerQuietly(tenant).IsOn
                 ? Factory.FactorySessionStarts.Read(FactoryActivity, tenant, sessionIds)
                 : Factory.FactorySessionStarts.None,
             // API mode (mission #4070, phase 2): the receipts and the held events each API-mode row's verdict is

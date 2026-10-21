@@ -149,11 +149,16 @@ internal static class FactoryOwnerActionEndpoints
                     $"a session may not {what}; that is the owner's act, from the owner's own phone or browser",
                     nameof(FactoryOwnerActionEndpoints), out var notOwner) is null)
                 return notOwner!;
-            if (!FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why))
+            var factories = FactoryAgentsGate.AnswerFor(ctx, factorySwitch, resolveTenant);
+            if (factories.State == FactoryAgentsState.Unknown)
             {
-                FileLog.Write($"[FactoryOwnerActionEndpoints] REFUSED: {why}");
-                return Refused(StatusCodes.Status404NotFound,
-                    "Factory agents are switched off for this account, so nothing was done. The administrator switches them on per account.");
+                FileLog.Write($"[FactoryOwnerActionEndpoints] UNKNOWN: {factories.Why} - answering 503");
+                return HostedAi.HostedAiHttp.EntitlementUnknown();
+            }
+            if (!factories.IsOn)
+            {
+                FileLog.Write($"[FactoryOwnerActionEndpoints] REFUSED: {factories.OffReason}: {factories.Why}");
+                return Refused(StatusCodes.Status404NotFound, FactoryAgentsGate.OffSentence(factories, "nothing was done"));
             }
             if (resolveTenant(ctx) is not { } tenant)
                 return Refused(StatusCodes.Status403Forbidden, "No account is bound to this request.");
