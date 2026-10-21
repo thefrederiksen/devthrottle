@@ -253,12 +253,19 @@ Borderless, blends into background. For menus, toggles.
 
 ```xml
 <Button Content="..."
+        Classes="ghost"
         Background="Transparent"
         Foreground="#888888"
         BorderThickness="0"
         Cursor="Hand"
         FontWeight="Bold" />
 ```
+
+### Ghost/Transparent Button - add `Classes="ghost"`
+
+A transparent button has no colour to brighten, so it is the one kind that needs the grey wash under
+the pointer. `Classes="ghost"` is what asks for it. Without the class a transparent button gets no
+hover feedback at all.
 
 ### Common Button Properties
 
@@ -267,6 +274,33 @@ Borderless, blends into background. For menus, toggles.
 - `Focusable="False"` on toolbar buttons that shouldn't steal keyboard focus
 - Standard heights: 28px (toolbar), 30px (sidebar/dialog)
 - Standard widths: 60-80px (action), 120px (dialog primary)
+- `Classes="ghost"` on transparent buttons, and only those
+
+### Two things you do NOT write on a button, because the application does them for you
+
+`Styles/ButtonStyles.axaml` holds both, and `App.axaml` and the headless test harness load that one
+file. Do not repeat either on a button, and do not work around them.
+
+**Centring the label.** Avalonia leaves `VerticalContentAlignment` at `Stretch`, which means a button
+taller than its text - because it set a `Height`, or because its container stretched it - hands the
+label the whole box, and the label draws its single line at the **top** of it. The policy sets
+`Center` for every button.
+
+> This section is why the rule is written down. The recipes above gave every button a height, a
+> padding and a colour and never mentioned the alignment, so a button written correctly to this guide
+> inherited the defect. On 20 October 2026 the owner photographed the Stop window with `Cancel` and
+> `Stop the session` printed against the top edge of their buttons - 14 pixels of text in a 28 pixel
+> button, all the slack underneath. An audit of all 94 XAML files found **170 buttons across 54 files**
+> in that state. It was never one window's mistake.
+
+**The colour under the pointer.** The Fluent theme's hover and pressed states paint a background onto
+the template's `ContentPresenter`, which is a different object from the button - so the `Background`
+you set is painted over and lost, and a `#007ACC` primary button turns grey the moment the pointer
+touches it. The policy re-asserts the button's own brush and lets opacity carry the feedback. **Never
+add a `:pointerover` background to a button to work around this**; that was the old workaround and it
+is what the policy replaces.
+
+A button that genuinely wants something else still wins - a value set on the button beats the policy.
 
 ---
 

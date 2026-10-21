@@ -321,7 +321,7 @@
                         <TextBlock x:Name="BadgePendingText" Text="0" Foreground="White" FontSize="10" FontWeight="Bold"/>
                     </Border>
 
-                    <Button x:Name="BtnTabApproved" Content="Approved" Tag="Approved"
+                    <Button Classes="ghost" x:Name="BtnTabApproved" Content="Approved" Tag="Approved"
                             Background="Transparent" Foreground="#888888"
                             Padding="12,4" FontSize="12" Cursor="Hand" BorderThickness="0"
                             Click="StatusTab_Click"/>
@@ -331,7 +331,7 @@
                         <TextBlock x:Name="BadgeApprovedText" Text="0" Foreground="White" FontSize="10" FontWeight="Bold"/>
                     </Border>
 
-                    <Button x:Name="BtnTabRejected" Content="Rejected" Tag="Rejected"
+                    <Button Classes="ghost" x:Name="BtnTabRejected" Content="Rejected" Tag="Rejected"
                             Background="Transparent" Foreground="#888888"
                             Padding="12,4" FontSize="12" Cursor="Hand" BorderThickness="0"
                             Click="StatusTab_Click"/>
@@ -341,7 +341,7 @@
                         <TextBlock x:Name="BadgeRejectedText" Text="0" Foreground="White" FontSize="10" FontWeight="Bold"/>
                     </Border>
 
-                    <Button x:Name="BtnTabSent" Content="Sent" Tag="Sent"
+                    <Button Classes="ghost" x:Name="BtnTabSent" Content="Sent" Tag="Sent"
                             Background="Transparent" Foreground="#888888"
                             Padding="12,4" FontSize="12" Cursor="Hand" BorderThickness="0"
                             Click="StatusTab_Click"/>
@@ -485,7 +485,7 @@
                         <StackPanel>
                             <TextBlock Text="Recipient" Foreground="#888888" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,4"/>
                             <TextBlock Text="{Binding SelectedItem.RecipientDisplay}" Foreground="#E8A838" FontSize="13"/>
-                            <Button Content="Open Profile" Foreground="#007ACC" Background="Transparent"
+                            <Button Classes="ghost" Content="Open Profile" Foreground="#007ACC" Background="Transparent"
                                     BorderThickness="0" Padding="0" Margin="0,4,0,0" FontSize="11"
                                     Cursor="Hand" Command="{Binding OpenRecipientUrlCommand}"
                                     IsVisible="{Binding SelectedItem.HasRecipientProfile}"/>
@@ -549,15 +549,15 @@
 
                     <!-- Context/Destination URLs -->
                     <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,0,0,8">
-                        <Button Content="Open Context" Foreground="#007ACC" Background="Transparent"
+                        <Button Classes="ghost" Content="Open Context" Foreground="#007ACC" Background="Transparent"
                                 BorderThickness="0" Padding="0" FontSize="12" Cursor="Hand"
                                 Command="{Binding OpenContextUrlCommand}"
                                 IsVisible="{Binding SelectedItem.ContextUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        <Button Content="Open Destination" Foreground="#007ACC" Background="Transparent"
+                        <Button Classes="ghost" Content="Open Destination" Foreground="#007ACC" Background="Transparent"
                                 BorderThickness="0" Padding="0" FontSize="12" Cursor="Hand"
                                 Command="{Binding OpenDestinationUrlCommand}"
                                 IsVisible="{Binding SelectedItem.DestinationUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        <Button Content="Copy Destination URL" Foreground="#007ACC" Background="Transparent"
+                        <Button Classes="ghost" Content="Copy Destination URL" Foreground="#007ACC" Background="Transparent"
                                 BorderThickness="0" Padding="0" FontSize="12" Cursor="Hand"
                                 Command="{Binding CopyDestinationUrlCommand}"
                                 IsVisible="{Binding SelectedItem.DestinationUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>

@@ -84,7 +84,7 @@
                 </StackPanel>
                 <StackPanel Spacing="2">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="BackButton" Content="&#8592;" Background="Transparent" Foreground="#8A8A8A"
+                        <Button Classes="ghost" x:Name="BackButton" Content="&#8592;" Background="Transparent" Foreground="#8A8A8A"
                                 FontSize="14" Padding="4,0" BorderThickness="0" Click="BackButton_Click"
                                 ToolTip.Tip="Back to all repositories" />
                         <TextBlock x:Name="RepoName" Text="" Foreground="#CCCCCC" FontSize="16" FontWeight="SemiBold" />

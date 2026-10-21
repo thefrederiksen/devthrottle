@@ -212,19 +212,19 @@
                                 <ColumnDefinition Width="90" />
                                 <ColumnDefinition Width="30" />
                             </Grid.ColumnDefinitions>
-                            <Button x:Name="RepoHeaderName" Grid.Column="0"
+                            <Button Classes="ghost" x:Name="RepoHeaderName" Grid.Column="0"
                                     Content="Name" Click="RepoHeader_Click" Tag="Name"
                                     Background="Transparent" Foreground="#AAAAAA"
                                     BorderThickness="0" Padding="8,6" Cursor="Hand"
                                     FontSize="11" FontWeight="SemiBold"
                                     HorizontalContentAlignment="Left" />
-                            <Button x:Name="RepoHeaderPath" Grid.Column="1"
+                            <Button Classes="ghost" x:Name="RepoHeaderPath" Grid.Column="1"
                                     Content="Path" Click="RepoHeader_Click" Tag="Path"
                                     Background="Transparent" Foreground="#AAAAAA"
                                     BorderThickness="0" Padding="8,6" Cursor="Hand"
                                     FontSize="11" FontWeight="SemiBold"
                                     HorizontalContentAlignment="Left" />
-                            <Button x:Name="RepoHeaderLastUsed" Grid.Column="2"
+                            <Button Classes="ghost" x:Name="RepoHeaderLastUsed" Grid.Column="2"
                                     Content="Last Used  v" Click="RepoHeader_Click" Tag="LastUsed"
                                     Background="Transparent" Foreground="#CCCCCC"
                                     BorderThickness="0" Padding="8,6" Cursor="Hand"
@@ -283,7 +283,7 @@
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="2" Text="{Binding LastUsedDisplay}"
                                                FontSize="11" Foreground="#888888" Padding="8,5" />
-                                    <Button Grid.Column="3" Content="X"
+                                    <Button Classes="ghost" Grid.Column="3" Content="X"
                                             Click="BtnRemoveRepo_Click"
                                             IsVisible="{Binding CanRemove}"
                                             Tag="{Binding Path}"
@@ -424,7 +424,7 @@
                                                     ToolTip.Tip="{Binding LaunchTooltip}" />
 
                                             <!-- Delete -->
-                                            <Button Grid.Column="3" Content="X"
+                                            <Button Classes="ghost" Grid.Column="3" Content="X"
                                                     Click="BtnDeleteNamedSession_Click"
                                                     Tag="{Binding Slug}"
                                                     Width="24" Height="26" Margin="6,0,0,0"
