@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import "./factory.css";
-import { ErrorBanner, LoadingState } from "../components";
+import { SUBSCRIBED_ALREADY_HINT } from "@devthrottle/client-core/plan/RemotePlanNotice";
+import { Button, ErrorBanner, LoadingState } from "../components";
 import { useFactorySwitch } from "./useFactorySwitch";
 
 // The Factories pages show the area only while the Gateway says it is on. FACTORIES IS ALWAYS IN THE MENU (owner, 8 Oct
@@ -34,12 +35,12 @@ export function FactoryAreaGate({ children }: { children: ReactNode }) {
           >
             See Pro
           </a>
-          <button type="button" className="ui-btn ui-btn-secondary" onClick={askAgain} data-testid="factories-upgrade-try-again">
+          <Button variant="secondary" onClick={askAgain} data-testid="factories-upgrade-try-again">
             Try again
-          </button>
+          </Button>
         </div>
         <p className="pane-note factories-upgrade-hint" data-testid="factories-upgrade-hint">
-          Subscribed already? Press Try again. It can take a minute after subscribing.
+          {SUBSCRIBED_ALREADY_HINT}
         </p>
       </section>
     );

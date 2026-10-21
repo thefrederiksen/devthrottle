@@ -29,6 +29,12 @@ let cached: Promise<FactoryAgentsSwitch> | null = null;
 function load(): Promise<FactoryAgentsSwitch> {
   if (cached === null) {
     cached = getFactoryAgentsSwitch()
+      .then((s) => {
+        // "plan_unknown" is the hosted Gateway saying its plan read failed and to try again shortly: a failure, not a
+        // settled answer, so it is not remembered either - the next visit to Factories asks again.
+        if (s.reason === "plan_unknown") cached = null;
+        return s;
+      })
       .catch((err: unknown) => {
         cached = null; // ask again next time rather than remembering a failure
         throw err;

@@ -13,9 +13,9 @@ error, the same way an off answer without `howToStart` already is.
 | Command | Result |
 |---|---|
 | `npm ci` (root) | installed |
-| `npm test` in `apps/cockpit` | 130 files, 1395 tests passed |
+| `npm test` in `apps/cockpit` | 130 files, 1397 tests passed |
 | `npm test` in `packages/client-core` | 185 files, 2331 tests passed |
-| `npx vitest run src/factory/FactoryPages.test.tsx` in `apps/cockpit` | 15 passed (8 new) |
+| `npx vitest run src/factory/FactoryPages.test.tsx` in `apps/cockpit` | 17 passed (10 new) |
 | `npm run typecheck` (root) | exit 0, no errors |
 | `npm run lint` (root) | exit 1: 5 errors, all in files this change does not touch (`FactoryRecordsTab.tsx`, `fixtures.ts`, `push/sw.test.ts`, mobile `Recorder.tsx`, `VoiceMode.tsx`) - four are "rule definition not found", one is an address literal in a fixture |
 
@@ -24,7 +24,8 @@ New tests in `apps/cockpit/src/factory/FactoryPages.test.tsx`: `plan_required` r
 second time and shows the area once it is on; Try again while still without the plan shows the upgrade page again;
 `plan_required` missing its address is a reported error; `not_switched_on` and `plan_unknown` render
 `factories-off` with `howToStart`; no `reason` renders `factories-off`; `enabled` with `reason: null` renders the
-children.
+children; a `plan_unknown` answer is not remembered, so the next visit asks the Gateway again (review finding 1;
+proven red with the fix line removed), while a settled off answer is still asked once per page load.
 
 ## Screenshots
 

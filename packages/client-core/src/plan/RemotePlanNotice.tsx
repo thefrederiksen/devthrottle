@@ -16,6 +16,9 @@ import {
   type RemotePlanRequired,
 } from "./remotePlan";
 
+/** The one line both the Remote plan notice and the Cockpit's Factories upgrade page show under Try again. */
+export const SUBSCRIBED_ALREADY_HINT = "Subscribed already? Press Try again. It can take a minute after subscribing.";
+
 const container = { maxWidth: 420, margin: "0 auto", padding: "2.5rem 1.25rem", textAlign: "center" as const };
 
 const button = {
@@ -59,7 +62,7 @@ export function RemotePlanNotice({ info, onTryAgain, onUseAnotherAccount }: Remo
         Try again
       </button>
       <p style={{ opacity: 0.7, marginTop: "1.25rem", fontSize: "0.9rem" }} data-testid="remote-plan-hint">
-        Subscribed already? Press Try again. It can take a minute after subscribing.
+        {SUBSCRIBED_ALREADY_HINT}
       </p>
       {onUseAnotherAccount !== undefined && (
         <button

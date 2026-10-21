@@ -229,6 +229,34 @@ describe("The Factory Agents switch gate", () => {
     expect(screen.queryByRole("link", { name: "See Pro" })).toBeNull();
   });
 
+  // plan_unknown is the hosted Gateway's failed plan read ("try again shortly"): it is not remembered, so the next visit
+  // to Factories asks the Gateway again - while a settled off answer is still asked only once per page load.
+  it("plan_unknown is not remembered: the next visit asks the Gateway again and shows the area once it is on", async () => {
+    client.getFactoryAgentsSwitch
+      .mockResolvedValueOnce({ enabled: false, reason: "plan_unknown", howToStart: "Could not check the plan; try again shortly.", title: null, subscribeUrl: null })
+      .mockResolvedValueOnce({ enabled: true, reason: null, howToStart: null, title: null, subscribeUrl: null });
+    renderGate();
+    expect((await screen.findByTestId("factories-off")).textContent).toContain("Could not check the plan; try again shortly.");
+    cleanup();
+
+    renderGate();
+
+    expect(await screen.findByText("the factory area")).toBeTruthy();
+    expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(2);
+  });
+
+  it("a settled off answer is remembered: the next visit does not ask the Gateway again", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, reason: "not_switched_on", howToStart: "Off here.", title: null, subscribeUrl: null });
+    renderGate();
+    await screen.findByTestId("factories-off");
+    cleanup();
+
+    renderGate();
+
+    expect(await screen.findByTestId("factories-off")).toBeTruthy();
+    expect(client.getFactoryAgentsSwitch).toHaveBeenCalledTimes(1);
+  });
+
   // A Gateway too old to send a reason: exactly today's behaviour (the first "off" test above sends only enabled and
   // howToStart, and shows the how-to-start page with no upgrade page).
   it("no reason from an older Gateway: no upgrade page", async () => {
