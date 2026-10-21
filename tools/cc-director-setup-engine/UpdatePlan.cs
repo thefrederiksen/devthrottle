@@ -17,6 +17,17 @@ public enum PlanItemKind
 
     /// <summary>The manifest version is pinned (rolled back from) - intentionally skipped.</summary>
     Pinned,
+
+    /// <summary>
+    /// The component has its own install step and this planner must not touch it: the shared Python
+    /// tools bundle, installed by PythonToolsInstaller. Reported so that a plan ACCOUNTS for it rather
+    /// than omitting it, and deliberately not actionable, so the generic UpdateRunner never sees it.
+    ///
+    /// Not actionable is the whole point. The macOS and Linux bundles are .tar.gz and the runner only
+    /// skips .zip, so an actionable bundle would be downloaded and placed as if it were a single
+    /// executable.
+    /// </summary>
+    InstalledByTheToolsStep,
 }
 
 /// <summary>The planner's decision for one component.</summary>
