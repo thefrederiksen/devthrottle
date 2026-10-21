@@ -173,11 +173,19 @@ public sealed class TeamChoicesTests
     }
 
     [Fact]
-    public void Build_WithTeams_IsTheGatewaysListInOrderThenPersonal()
+    public void Build_WithTeams_IsPersonalFirstThenTheGatewaysListInOrder()
     {
         var choices = TeamChoices.Build(new[] { Team("t-b", "Beta", "manager", 2), Team("t-a", "Alpha", "developer", 1) });
 
-        Assert.Equal(new string?[] { "t-b", "t-a", null }, choices.Select(c => c.TeamId));
+        Assert.Equal(new string?[] { null, "t-b", "t-a" }, choices.Select(c => c.TeamId));
+    }
+
+    [Fact]
+    public void Build_PersonalIsFirstSoItIsWhatD1StartsSelectedOn()
+    {
+        // The first option is the selected one, and the selected one is what a person gets by accepting the
+        // screen in front of them. That must be their own account, never somebody else's tenant.
+        Assert.True(TeamChoices.Build(new[] { Team("t-a", "Alpha", "owner", 3) })[0].IsPersonal);
     }
 
     [Fact]
@@ -186,7 +194,7 @@ public sealed class TeamChoicesTests
         // Screen D3 lists Build's choices: a move is the person's own choice, so Personal stays offered.
         var choices = TeamChoices.Build(new[] { Team("t-a", "Alpha", "owner", 3) });
 
-        Assert.Equal(new string?[] { "t-a", null }, choices.Select(c => c.TeamId));
+        Assert.Equal(new string?[] { null, "t-a" }, choices.Select(c => c.TeamId));
     }
 
     [Fact]
@@ -199,11 +207,14 @@ public sealed class TeamChoicesTests
     }
 
     [Fact]
-    public void TakenWithoutAsking_OneTeam_ThatTeamNotAsked()
+    public void TakenWithoutAsking_OneTeam_NullSoThePersonIsAsked()
     {
+        // A single team is NOT "no choice". Taking it silently is what put devthrottle-mac-mini into the
+        // DevThrottle team on 2026-10-20, where its Director and all its sessions were invisible from the
+        // personal account the rest of the fleet runs in.
         var taken = TeamChoices.TakenWithoutAsking(TeamChoices.Build(new[] { Team("t-a", "Alpha", "developer", 3) }));
 
-        Assert.Equal(new TeamChoice("t-a", "Alpha", "You are a Developer, 3 people"), taken);
+        Assert.Null(taken);
     }
 
     [Fact]

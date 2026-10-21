@@ -48,7 +48,8 @@ public sealed record TeamChoice(string? TeamId, string Name, string Detail)
 }
 
 /// <summary>The question D1 asks: the options, in order, the first one selected.</summary>
-/// <param name="Choices">The Gateway's teams in its order, then the personal account last.</param>
+/// <param name="Choices">The personal account first - it is what D1 starts selected on - then the Gateway's
+/// teams in its order.</param>
 /// <param name="MachineName">This computer's name, which starts the suggested Director name.</param>
 public sealed record TeamQuestion(IReadOnlyList<TeamChoice> Choices, string MachineName);
 
@@ -63,39 +64,43 @@ public sealed record TeamAnswer(TeamChoice Choice, string DirectorName);
 public static class TeamChoices
 {
     /// <summary>
-    /// The options: every listed team, in the Gateway's order, then the personal account ("Just you"). With no
-    /// listed team there is exactly one option. Whether setup asks is <see cref="TakenWithoutAsking"/>.
+    /// The options: the personal account ("Just you") FIRST, then every listed team in the Gateway's order. With
+    /// no listed team there is exactly one option. Whether setup asks is <see cref="TakenWithoutAsking"/>.
+    ///
+    /// The personal account leads because the first option is the one D1 starts selected on, so the personal
+    /// account is what a person gets when they accept what is in front of them. A team is the bigger, shared
+    /// consequence - the Director's sessions, transcripts and prompts land in the team's tenant and are invisible
+    /// from the person's own account - so a team is only ever the result of someone picking it.
     /// </summary>
     public static IReadOnlyList<TeamChoice> Build(IReadOnlyList<HostedTeam> teams)
     {
         ArgumentNullException.ThrowIfNull(teams);
-        var choices = new List<TeamChoice>(teams.Count + 1);
+        var choices = new List<TeamChoice> { new(null, DirectorTeam.PersonalName, "Just you") };
         foreach (var team in teams)
         {
             if (string.IsNullOrWhiteSpace(team.TeamId))
                 throw new InvalidDataException("The Gateway listed a team with no id.");
             choices.Add(new TeamChoice(team.TeamId, team.Name, Describe(team)));
         }
-        choices.Add(new TeamChoice(null, DirectorTeam.PersonalName, "Just you"));
         return choices;
     }
 
     /// <summary>
     /// The one rule for SETUP (screen D1): the choice taken without asking, or null when the person must be asked.
-    /// No team listed: the personal account. Exactly one team: that team - a person with one team is never asked to
-    /// choose (devthrottle_internal#2311). Two or more: null, and D1 offers them all with the personal account.
+    /// No team listed: the personal account, because there is nothing to choose between. Any team at all: null, so
+    /// D1 is shown with the personal account selected and every team offered beside it.
     /// A move (screen D3) never uses this: there the person is choosing, so the personal account stays offered.
+    ///
+    /// A SINGLE team used to be taken silently (devthrottle_internal#2311). That is reversed. On 2026-10-20 a fresh
+    /// install on devthrottle-mac-mini was put into the account's one team without a word, and the machine's
+    /// Director and every session it started went into that team's tenant - invisible from the personal account
+    /// that the rest of the fleet runs in, and only an owner, in the Settings move screen, can get it back. One
+    /// team is not the same as no choice: a team is somewhere ELSE for the work to land, so it is always asked.
     /// </summary>
     public static TeamChoice? TakenWithoutAsking(IReadOnlyList<TeamChoice> choices)
     {
         ArgumentNullException.ThrowIfNull(choices);
-        var teams = choices.Where(c => !c.IsPersonal).ToList();
-        return teams.Count switch
-        {
-            0 => choices.Single(c => c.IsPersonal),
-            1 => teams[0],
-            _ => null,
-        };
+        return choices.Any(c => !c.IsPersonal) ? null : choices.Single(c => c.IsPersonal);
     }
 
     /// <summary>

@@ -39,13 +39,16 @@ public sealed class DirectorTeamScreensTests
     // ===================== D1 =====================
 
     [AvaloniaFact]
-    public void TeamChoiceDialog_Opens_FirstTeamSelectedAndNamePrefilled()
+    public void TeamChoiceDialog_Opens_PersonalSelectedAndNamePrefilled()
     {
         var dialog = new TeamChoiceDialog(SorenQuestion);
 
-        Assert.Equal("DevThrottle", dialog.SelectedChoice.Name);
-        Assert.Equal("SOREN_NORTH - DevThrottle", dialog.DirectorName);
-        Assert.Equal(new[] { "DevThrottle", "You are the Owner, 5 people, you pay", "Personal", "Just you" },
+        // Personal leads and is selected: pressing straight through D1 puts the Director in the person's own
+        // account, never in a team they did not pick.
+        Assert.True(dialog.SelectedChoice.IsPersonal);
+        Assert.Equal("Personal", dialog.SelectedChoice.Name);
+        Assert.Equal("SOREN_NORTH - Personal", dialog.DirectorName);
+        Assert.Equal(new[] { "Personal", "Just you", "DevThrottle", "You are the Owner, 5 people, you pay" },
             Texts(dialog).Where(t => t is "DevThrottle" or "Personal" or "Just you" || t.StartsWith("You are")).ToArray());
     }
 
@@ -55,7 +58,7 @@ public sealed class DirectorTeamScreensTests
         var dialog = new TeamChoiceDialog(SorenQuestion);
 
         dialog.Select(SorenQuestion.Choices[1]);
-        Assert.Equal("SOREN_NORTH - Personal", dialog.DirectorName);
+        Assert.Equal("SOREN_NORTH - DevThrottle", dialog.DirectorName);
 
         dialog.NameInput.Text = "Soren - home lab";
         dialog.Select(SorenQuestion.Choices[0]);
@@ -72,7 +75,7 @@ public sealed class DirectorTeamScreensTests
         var answer = dialog.TryAnswer();
 
         Assert.NotNull(answer);
-        Assert.True(answer!.Choice.IsPersonal);
+        Assert.Equal("8f1d2c34-dev", answer!.Choice.TeamId);
         Assert.Equal("Soren - home lab", answer.DirectorName);
     }
 
