@@ -27,9 +27,9 @@ public sealed class LicenseUsageHistoryTests
 
         var read = history.Read(TenantA, T0.AddMinutes(8));
         Assert.Equal(new[] { A, B }, read.Select(h => h.AccountEmail));
-        Assert.Equal(new LicenseUsagePoint(T0 + shift, 50), Assert.Single(read[0].FiveHour));
-        Assert.Equal(new LicenseUsagePoint(T0 + shift, 20), Assert.Single(read[0].SevenDay));
-        Assert.Equal(new LicenseUsagePoint(T0.AddMinutes(-5) + shift, 4), Assert.Single(read[1].FiveHour));
+        Assert.Equal(new LicenseUsagePoint(T0 + shift, 50, T0.AddHours(2)), Assert.Single(read[0].FiveHour));
+        Assert.Equal(new LicenseUsagePoint(T0 + shift, 20, T0.AddDays(4)), Assert.Single(read[0].SevenDay));
+        Assert.Equal(new LicenseUsagePoint(T0.AddMinutes(-5) + shift, 4, T0.AddHours(2)), Assert.Single(read[1].FiveHour));
     }
 
     [Fact]

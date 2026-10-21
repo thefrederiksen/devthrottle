@@ -412,7 +412,9 @@ public static class SessionKeyGuard
                 // of its weekly limit - names, numbers, times and percentages, never a word of a conversation. A read only,
                 // so an agent - the Fleet Manager first - can answer "what should we cut?". Setting a subscription's price
                 // (PUT gateway/licenses/accounts/price) is NOT here: it is the owner's own action.
+                // The "make it last" planner (GET gateway/licenses/plan) is a read too, and only suggests.
                 case "gateway/licenses/usage":
+                case "gateway/licenses/plan":
                     return true;
             }
 

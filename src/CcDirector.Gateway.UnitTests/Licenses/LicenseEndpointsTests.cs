@@ -213,7 +213,7 @@ public sealed class LicenseEndpointsTests : IDisposable
             "nextSwitchTargetAccountEmail", "nextSwitchText", "rows", "projectedWeekPercent",
         }, Names(account));
         Assert.Equal(new[] { "label", "text", "atUtc", "tone" }, Names(account.GetProperty("rows")[0]));
-        Assert.Equal(new[] { "utilization", "utilizationText", "level", "resetsAtUtc", "resetsText", "percentPerHour", "rateText", "expectedAtLimitUtc", "expectedText" },
+        Assert.Equal(new[] { "utilization", "utilizationText", "level", "resetsAtUtc", "resetsText", "percentPerHour", "rateText", "expectedAtLimitUtc", "expectedText", "averagePercentPerHour", "recentPercentPerHour", "averageAtLimitUtc" },
             Names(account.GetProperty("fiveHour")));
         Assert.Equal(("96%", "normal", "Resets in 2 hours"),
             (account.GetProperty("fiveHour").GetProperty("utilizationText").GetString(), account.GetProperty("fiveHour").GetProperty("level").GetString(),

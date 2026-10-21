@@ -168,3 +168,92 @@ def sessions(account: Optional[str], by: str, closed: bool, fields: Optional[str
     help_lines.append(f"{_SESSIONS} --json")
     blocks.append(axi_output.format_help(help_lines))
     axi_output.write_blocks(sys.stdout, *blocks)
+
+
+# ----- make it last -----
+
+PLAN_PATH = "gateway/licenses/plan"
+_PLAN = "cc-devthrottle license plan"
+
+PLAN_SESSION_FIELDS = ("number", "name", "state", "rate-now", "suggested")
+CHOICE_FIELDS = ("label", "live", "working", "waiting", "rate-now", "id")
+
+
+def read_plan(account: Optional[str], until: Optional[str], stop: Optional[str], stop_group: Optional[str]) -> Dict[str, Any]:
+    """The Gateway's plan for one account (default: the one in use). Fails loudly on anything else."""
+    params: Dict[str, str] = {}
+    for key, value in (("account", account), ("until", until), ("stop", stop), ("stopGroup", stop_group)):
+        if value:
+            params[key] = value
+    path = PLAN_PATH + (f"?{urlencode(params)}" if params else "")
+    try:
+        answer = gateway.get_json(path)
+    except gateway.GatewayError as err:
+        axi_cli.fail(axi_output.escape_ascii(str(err)), [axi_cli.CHECK_GATEWAY, f"{_PLAN} --until reset"])
+    if not isinstance(answer, dict) or not isinstance(answer.get("verdict"), str) or not isinstance(answer.get("sessions"), list):
+        axi_cli.fail(
+            "the Gateway's answer has no verdict. This tool will not read that as a plan. "
+            "A Gateway older than this command does not have the route.",
+            [axi_cli.CHECK_GATEWAY],
+        )
+    return answer
+
+
+def plan(account: Optional[str], until: Optional[str], stop: Optional[str], stop_group: Optional[str], json_output: bool) -> None:
+    """Will the account last until a time, and what to stop if not. Suggestions only: nothing is stopped."""
+    answer = read_plan(account, until, stop, stop_group)
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+
+    email = answer.get("accountEmail")
+    header = [f"account: {email or '(none)'}" + (" (in use)" if answer.get("accountInUse") else "")]
+    if answer.get("targetAtUtc"):
+        header.append(f"target: {axi_output.escape_ascii(str(answer.get('targetText') or ''))} ({answer['targetAtUtc']})")
+    if answer.get("leftPercent") is not None and answer.get("hoursToGo") is not None:
+        header.append(f"left: {_percent(answer['leftPercent'])} before 97% over {_hours(answer['hoursToGo'])} "
+                      f"= {_rate(answer.get('allowedPercentPerHour'))} allowed")
+    header.append("burn: " + axi_output.escape_ascii(str(answer.get("burnText") or "")))
+    header.append("verdict: " + axi_output.escape_ascii(str(answer.get("verdict") or "")))
+    suggestion = answer.get("suggestion") or {}
+    header.append("suggestion: " + axi_output.escape_ascii(str(suggestion.get("text") or "")))
+    what_if = answer.get("whatIf")
+    if isinstance(what_if, dict):
+        header.append("what-if: " + axi_output.escape_ascii(str(what_if.get("verdict") or "")))
+        if what_if.get("notFound"):
+            header.append("not found: " + ", ".join(axi_output.escape_ascii(str(i)) for i in what_if["notFound"]))
+
+    sessions_rows = [{
+        "number": "" if s.get("number") is None else str(s["number"]),
+        "name": axi_output.escape_ascii(str(s.get("name") or "")),
+        "state": str(s.get("stateText") or ""),
+        "rate-now": _rate(s.get("rateNowPercentPerHour")),
+        "suggested": "stop" if s.get("suggested") else "",
+    } for s in answer["sessions"]]
+    choice_rows = [{
+        "label": axi_output.escape_ascii(str(c.get("label") or "")),
+        "live": len(c.get("sessionIds") or []),
+        "working": c.get("working", 0),
+        "waiting": c.get("waiting", 0),
+        "rate-now": _rate(c.get("rateNowPercentPerHour")),
+        "id": str(c.get("topLevelSessionId") or ""),
+    } for c in answer.get("choices") or []]
+
+    blocks = ["\n".join(header), axi_output.format_count(len(sessions_rows))]
+    blocks.append(axi_output.render_list("sessions", PLAN_SESSION_FIELDS, sessions_rows))
+    if choice_rows:
+        blocks.append(axi_output.render_list("choices", CHOICE_FIELDS, choice_rows))
+    if answer.get("emptyText"):
+        blocks.append(axi_output.escape_ascii(str(answer["emptyText"])))
+
+    help_lines = []
+    for target in answer.get("targets") or []:
+        if target.get("id") != answer.get("targetId"):
+            help_lines.append(f"{_PLAN} --until {target.get('id')}")
+            break
+    if choice_rows:
+        help_lines.append(f"{_PLAN} --stop-group {choice_rows[0]['id']}")
+    help_lines.append(f"{_PLAN} --until 2026-12-31T18:00:00Z")
+    help_lines.append(f"{_PLAN} --json")
+    blocks.append(axi_output.format_help(help_lines))
+    axi_output.write_blocks(sys.stdout, *blocks)

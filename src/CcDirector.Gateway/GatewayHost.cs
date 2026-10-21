@@ -576,6 +576,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
     internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
 
+    /// <summary>The "make it last" planner: will an account last until a time, and what to stop if not.</summary>
+    internal Licenses.LicensePlanService LicensePlans { get; }
+
     /// <summary>What is using the license: each session's running use of a Claude account, recorded once a minute.</summary>
     internal Licenses.SessionUsageStore SessionUsage { get; }
 
@@ -2596,7 +2599,10 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         LicenseStore = new Licenses.LicenseStore(_gatewayDb);
-        LicenseHistory = new Licenses.LicenseUsageHistory();
+        // What is using the license keeps every account's readings over the week; the forecast's weekly pace is read
+        // from them, so it is measured over hours a restart does not erase (the usage-by-session mandate).
+        SessionUsage = new Licenses.SessionUsageStore(_gatewayDb);
+        LicenseHistory = new Licenses.LicenseUsageHistory((tenant, since) => SessionUsage.ReadReadings(tenant, since));
         LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
         LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
         LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
@@ -2609,11 +2615,11 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
         // What is using the license (the usage-by-session mandate): recorded beside the minute license check, from the
         // sessions of every connected Director, and read by the usage route.
-        SessionUsage = new Licenses.SessionUsageStore(_gatewayDb);
         SessionUsageRecorder = new Licenses.SessionUsageRecorder(SessionUsage, LicenseStore, LicenseReads,
             tenant => PushedSessions.SnapshotConnected(tenant), LicenseNow.UtcNow);
         SessionUsageReads = new Licenses.SessionUsageService(SessionUsage, LicenseStore, LicenseReads,
             tenant => PushedSessions.SnapshotConnected(tenant).Select(l => l.Session.SessionId).ToHashSet(StringComparer.Ordinal));
+        LicensePlans = new Licenses.LicensePlanService(SessionUsageReads, LicenseSnapshots, LicenseHistory);
         LicenseOwnerMail = licenseOwnerMailer.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
             SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
@@ -6066,6 +6072,13 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             usage: SessionUsageReads,
             store: LicenseStore,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
+
+        // Make it last: will an account last until a time, and what to stop if not. A read in SessionKeyGuard's allow
+        // list, so an agent can ask it; it only suggests.
+        Api.LicenseEndpoints.MapPlan(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            plans: LicensePlans,
             nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and

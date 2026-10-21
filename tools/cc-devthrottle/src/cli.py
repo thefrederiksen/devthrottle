@@ -388,6 +388,19 @@ _ACTIONS = [
                  {"name": "closed", "required": False}],
     },
     {
+        "id": "license-plan",
+        "description": (
+            "Make a Claude account last until a time: percent left before 97, hours to go, the allowed percent an hour "
+            "against the current burn, a verdict, and what to stop (waiting sessions first, biggest first, or whole "
+            "top-level sessions). --stop and --stop-group ask what-if. Suggestions only: nothing is stopped."
+        ),
+        "command": "cc-devthrottle license plan [--account <email>] [--until reset|room:<email>|<ISO time>] "
+                   "[--stop <ids>] [--stop-group <ids>] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "account", "required": False}, {"name": "until", "required": False},
+                 {"name": "stop", "required": False}, {"name": "stop-group", "required": False}],
+    },
+    {
         "id": "fleet-digest",
         "description": (
             "Everything the Fleet Manager reads at the start of a conversation: open outcome records, the "
@@ -2282,6 +2295,26 @@ def license_sessions(
     Each session's rate now (over the last hour), its last 4 hours and its use so far through every compaction, all in
     percent of the account's weekly limit."""
     license_fleet_ops.sessions(account, by, closed, fields, json_output)
+
+
+@license_app.command("plan")
+def license_plan(
+    account: Optional[str] = typer.Option(None, "--account", help="The Claude account to plan for. Default: the one in use."),
+    until: Optional[str] = typer.Option(
+        None, "--until",
+        help="Make it last until: a target id (reset, or room:<email> - when that account has room again) or a time "
+        "in ISO 8601. Default: the first target.",
+    ),
+    stop: Optional[str] = typer.Option(None, "--stop", help="What if these sessions stopped: session ids, comma separated."),
+    stop_group: Optional[str] = typer.Option(
+        None, "--stop-group", help="What if every live session under these top-level sessions stopped: ids, comma separated."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer unchanged."),
+) -> None:
+    """Will a Claude account last until a time, and what to stop if not.
+
+    Suggestions only: waiting sessions before working ones, biggest first, and each top-level session as one choice.
+    Nothing is stopped."""
+    license_fleet_ops.plan(account, until, stop, stop_group, json_output)
 
 
 @license_app.command("refresh")

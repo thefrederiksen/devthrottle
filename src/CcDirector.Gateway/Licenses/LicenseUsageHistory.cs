@@ -30,6 +30,11 @@ namespace CcDirector.Gateway.Licenses;
 /// Kept in memory on purpose: it is two hours of numbers that the Directors send again every two minutes, so after a
 /// Gateway restart the forecast has a rate again within two reports. Until then it says there are not enough readings.
 /// Nothing here can carry a sign-in: account emails, percentages and times.
+///
+/// THE WEEKLY SERIES IS NOT THIS ONE when the history is built over the kept readings (the usage-by-session mandate): a
+/// weekly pace needs at least six hours of one week, which two hours in memory cannot hold and a restart would erase. The
+/// Gateway then answers the weekly series from <c>license_usage_readings</c> (SessionUsageStore), eight days of them, each
+/// with its reset time.
 /// </summary>
 public sealed class LicenseUsageHistory
 {
@@ -46,7 +51,7 @@ public sealed class LicenseUsageHistory
     public const int MaxAccountsPerTenant = 256;
 
     // One kept reading: when the Gateway judges it by, its number, and the machine's own read time as it was sent.
-    private readonly record struct Reading(DateTime AtUtc, double Utilization, DateTime ReadAtUtc);
+    private readonly record struct Reading(DateTime AtUtc, double Utilization, DateTime ReadAtUtc, DateTime? ResetsAtUtc);
 
     private sealed class Series
     {
@@ -58,6 +63,17 @@ public sealed class LicenseUsageHistory
 
     private readonly object _gate = new();
     private readonly Dictionary<TenantId, Dictionary<string, Series>> _byTenant = new();
+    private readonly Func<TenantId, DateTime, IReadOnlyList<LicenseUsageReadingRecord>>? _weekly;
+
+    /// <summary>Both series in memory, two hours of each.</summary>
+    public LicenseUsageHistory() { }
+
+    /// <summary>The 5-hour series in memory, and the weekly series from <paramref name="weekly"/>: every kept reading of
+    /// a tenant at or after the given time (SessionUsageStore.ReadReadings).</summary>
+    public LicenseUsageHistory(Func<TenantId, DateTime, IReadOnlyList<LicenseUsageReadingRecord>> weekly)
+    {
+        _weekly = weekly ?? throw new ArgumentNullException(nameof(weekly));
+    }
 
     /// <summary>
     /// Add the readings of one accepted report. <paramref name="readAtShift"/> is what the ingest adds to every
@@ -84,8 +100,8 @@ public sealed class LicenseUsageHistory
                 var email = LicenseStore.NormalizeEmail(holding.AccountEmail);
                 if (!accounts.TryGetValue(email, out var series))
                     accounts[email] = series = new Series();
-                if (holding.FiveHour is { } five && Add(series.FiveHour, at, five.Utilization, read)) added++;
-                if (holding.SevenDay is { } week && Add(series.SevenDay, at, week.Utilization, read)) added++;
+                if (holding.FiveHour is { } five && Add(series.FiveHour, at, five.Utilization, read, five.ResetsAtUtc)) added++;
+                if (holding.SevenDay is { } week && Add(series.SevenDay, at, week.Utilization, read, week.ResetsAtUtc)) added++;
             }
             Trim(accounts, nowUtc);
             while (accounts.Count > MaxAccountsPerTenant)
@@ -97,8 +113,30 @@ public sealed class LicenseUsageHistory
     }
 
     /// <summary>The kept readings of every account of <paramref name="tenant"/>, in account email order, each window
-    /// oldest first. An account with no point left is not listed.</summary>
+    /// oldest first. An account with no point left is not listed. With a weekly source, the weekly series is that
+    /// source's, and an account it alone knows is listed too.</summary>
     public IReadOnlyList<LicenseAccountHistory> Read(TenantId tenant, DateTime nowUtc)
+    {
+        var histories = ReadInMemory(tenant, nowUtc);
+        if (_weekly is null)
+            return histories;
+        var weekly = _weekly(tenant, nowUtc - TimeSpan.FromDays(8))
+            .Where(r => r.SevenDayUtilization is not null)
+            .GroupBy(r => LicenseStore.NormalizeEmail(r.AccountEmail), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<LicenseUsagePoint>)g
+                .OrderBy(r => r.AtUtc)
+                .Select(r => new LicenseUsagePoint(r.AtUtc, r.SevenDayUtilization!.Value, r.SevenDayResetsAtUtc))
+                .ToList(), StringComparer.Ordinal);
+        var fiveHour = histories.ToDictionary(h => h.AccountEmail, h => h.FiveHour, StringComparer.Ordinal);
+        return fiveHour.Keys.Union(weekly.Keys)
+            .Order(StringComparer.Ordinal)
+            .Select(email => new LicenseAccountHistory(email,
+                fiveHour.TryGetValue(email, out var five) ? five : Array.Empty<LicenseUsagePoint>(),
+                weekly.TryGetValue(email, out var week) ? week : Array.Empty<LicenseUsagePoint>()))
+            .ToList();
+    }
+
+    private IReadOnlyList<LicenseAccountHistory> ReadInMemory(TenantId tenant, DateTime nowUtc)
     {
         List<LicenseAccountHistory> histories;
         lock (_gate)
@@ -121,18 +159,18 @@ public sealed class LicenseUsageHistory
     }
 
     private static List<LicenseUsagePoint> Points(List<Reading> kept)
-        => kept.Select(k => new LicenseUsagePoint(k.AtUtc, k.Utilization)).ToList();
+        => kept.Select(k => new LicenseUsagePoint(k.AtUtc, k.Utilization, k.ResetsAtUtc)).ToList();
 
     // Kept oldest first. A reading with a read time already held is the same reading sent again (another report
     // carrying the numbers of the last successful read), so it is not added twice.
-    private static bool Add(List<Reading> points, DateTime atUtc, double utilization, DateTime readAtUtc)
+    private static bool Add(List<Reading> points, DateTime atUtc, double utilization, DateTime readAtUtc, DateTime? resetsAtUtc)
     {
         if (points.Exists(p => p.ReadAtUtc == readAtUtc))
             return false;
         var index = points.Count;
         while (index > 0 && points[index - 1].AtUtc > atUtc)
             index--;
-        points.Insert(index, new Reading(atUtc, utilization, readAtUtc));
+        points.Insert(index, new Reading(atUtc, utilization, readAtUtc, resetsAtUtc is { } r ? AsUtc(r) : null));
         if (points.Count > MaxPointsPerWindow)
             points.RemoveRange(0, points.Count - MaxPointsPerWindow);
         return true;

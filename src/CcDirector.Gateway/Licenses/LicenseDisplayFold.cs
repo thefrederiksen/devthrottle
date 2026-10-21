@@ -819,13 +819,11 @@ public static partial class LicenseDisplayFold
             ResetsAtUtc = words.ResetsAtUtc,
             ResetsText = words.ResetsText,
             PercentPerHour = window.PercentPerHour,
-            RateText = window.PercentPerHour switch
-            {
-                null => "No rate yet",
-                <= 0 => "Not rising",
-                { } rate => $"{rate.ToString("0.#", CultureInfo.InvariantCulture)}% an hour",
-            },
+            RateText = WindowRateText(window),
             ExpectedAtLimitUtc = window.ExpectedAtThresholdUtc is { } at ? Utc(at) : null,
+            AveragePercentPerHour = window.AveragePercentPerHour,
+            RecentPercentPerHour = window.RecentPercentPerHour,
+            AverageAtLimitUtc = window.AverageAtThresholdUtc is { } averageAt ? Utc(averageAt) : null,
         };
         dto.ExpectedText = window switch
         {
@@ -833,12 +831,38 @@ public static partial class LicenseDisplayFold
             _ when accountIsStale => "No forecast: the latest reading is too old.",
             { ResetsAtUtc: { } reset } when reset <= now => "No forecast: the window has reset since the latest reading.",
             { ExpectedAtThresholdUtc: { } expected } when expected <= now => $"Has reached {Threshold}.",
+            { ExpectedAtThresholdUtc: { } expected, AverageAtThresholdUtc: { } late } when late > expected.AddMinutes(30) =>
+                $"Expected to reach {Threshold} in about {Span(expected - now)} at the pace of the last 6 hours, and in about {Span(late - now)} at this week's average pace.",
+            { ExpectedAtThresholdUtc: { } expected, Window: LicenseWindowNames.SevenDay, AverageAtThresholdUtc: null, RecentPercentPerHour: not null } =>
+                $"Expected to reach {Threshold} in about {Span(expected - now)} at the pace of the last 6 hours; at this week's average pace it does not before it resets.",
             { ExpectedAtThresholdUtc: { } expected } => $"Expected to reach {Threshold} in about {Span(expected - now)}.",
             { PercentPerHour: null } => "No forecast yet: there are not enough readings to show a rate.",
             { PercentPerHour: <= 0 } => $"Not rising, so not expected to reach {Threshold}.",
             _ => $"Not expected to reach {Threshold} before it resets.",
         };
         return dto;
+    }
+
+    // The weekly window names both of its paces: its average this week, which is the forecast, and the pace of the last 6 hours,
+    // which is its early end. The 5-hour window has the one.
+    private static string WindowRateText(LicenseWindowForecast window)
+    {
+        static string Rate(double perHour) => $"{perHour.ToString("0.#", CultureInfo.InvariantCulture)}% an hour";
+        if (window.Window == LicenseWindowNames.SevenDay && (window.AveragePercentPerHour is not null || window.RecentPercentPerHour is not null))
+        {
+            var parts = new List<string>();
+            if (window.AveragePercentPerHour is { } average)
+                parts.Add(average > 0 ? $"{Rate(average)} on average this week" : "Not rising this week");
+            if (window.RecentPercentPerHour is { } recent)
+                parts.Add($"{Rate(recent)} over the last 6 hours");
+            return string.Join(", ", parts);
+        }
+        return window.PercentPerHour switch
+        {
+            null => "No rate yet",
+            <= 0 => "Not rising",
+            { } rate => Rate(rate),
+        };
     }
 
     private static LicenseMachineForecastDto MachineForecast(LicenseMachineView machine, MachineNames names,

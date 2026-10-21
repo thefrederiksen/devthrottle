@@ -934,7 +934,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
             (a.FiveHour.UtilizationText, a.FiveHour.Level, a.FiveHour.ResetsText, a.FiveHour.ResetsAtUtc));
         Assert.Equal((overviewWindow.UtilizationText, overviewWindow.Level, overviewWindow.ResetsText, overviewWindow.ResetsAtUtc, overviewWindow.Utilization),
             (a.FiveHour.UtilizationText, a.FiveHour.Level, a.FiveHour.ResetsText, a.FiveHour.ResetsAtUtc, a.FiveHour.Utilization));
-        Assert.Equal(("Not rising", "Not rising, so not expected to reach 97%."), (a.SevenDay.RateText, a.SevenDay.ExpectedText));
+        // The weekly window's pace is its average this week: 20% over the 72 hours since it began does not reach 97% first.
+        Assert.Equal(("0.3% an hour on average this week", "Not expected to reach 97% before it resets."), (a.SevenDay.RateText, a.SevenDay.ExpectedText));
         Assert.Equal(("No rate yet", "No forecast yet: there are not enough readings to show a rate."), (b.FiveHour.RateText, b.FiveHour.ExpectedText));
 
         Assert.False(b.IsInUse);
