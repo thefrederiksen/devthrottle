@@ -68,7 +68,9 @@ internal static class FactoryAgentsGate
     }
 
     /// <summary>Whether this request is a Director's own machine pull rather than a person's: every
-    /// <c>/directors/{id}/...</c> route (the trigger pull, the check report, the check download) and a seat's kit.</summary>
+    /// <c>/directors/{id}/...</c> route (the trigger pull, the check report, the check download) and a seat's kit. The
+    /// Director's memory read before a seat starts is NOT here on purpose: it is one request per seat start, not a timer,
+    /// so it is logged like any decision.</summary>
     internal static bool IsDirectorHalf(HttpContext ctx)
         => ctx.Request.Path.StartsWithSegments("/directors", StringComparison.OrdinalIgnoreCase)
            || (ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText == FactoryKitEndpoints.Route;
