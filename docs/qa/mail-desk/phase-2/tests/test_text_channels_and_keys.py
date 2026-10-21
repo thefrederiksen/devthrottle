@@ -90,8 +90,8 @@ def test_UnknownProvider_FailsThatChannelNamingItAndTheOtherIsRead(world):
     """Changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: the unknown provider fails its own channel
     only, before anything is asked of the network for it, and the Outlook channel beside it is read."""
     world.plant()
-    world.memory(channel(MAILBOX, cursor=CURSOR), channel(SECOND, provider="gmail"))
-    assert "provider gmail has no reader in this version of screen.py" in channel_failed(world, SECOND)
+    world.memory(channel(MAILBOX, cursor=CURSOR), channel(SECOND, provider="imap"))
+    assert "provider imap has no reader in this version of screen.py" in channel_failed(world, SECOND)
     assert {entry[3] for entry in world.graph.log} == {f"token-for-{MAILBOX}"}
     assert world.sign_in.authorities == [("f575e3f4-8f62-4bfb-8f30-f776e55b51bd",
                                           "https://login.microsoftonline.com/common")]   # one sign-in: the Outlook one
@@ -101,9 +101,9 @@ def test_Providers_EverythingOutlookIsInsideTheOutlookReader(world):
     """Gmail is a new reader, not a redesign: the run itself names no Graph address, MSAL or cc-outlook."""
     source = open(world.screen.__file__, encoding="utf-8").read()
     run_body = source.split("\ndef run(")[1].split("\ndef main(")[0]
-    for outlook_only in ("graph", "msal", "cc-outlook", "outlook_", "OUTLOOK"):
+    for outlook_only in ("graph", "msal", "cc-outlook", "outlook_", "OUTLOOK", "gmail", "GMAIL"):
         assert outlook_only not in run_body
-    assert world.screen.READERS == {"outlook": world.screen.OutlookReader}
+    assert world.screen.READERS == {"outlook": world.screen.OutlookReader, "gmail": world.screen.GmailReader}
 
 
 # ---------------------------------------------------------------------------------------------------- known senders
@@ -192,6 +192,6 @@ def test_ChannelId_TheGatewaysIdIsCarriedIntoTheReport(world):
 
 
 def test_UnknownProvider_TheSentenceIsTheChannelsFailure(world):
-    world.memory(channel(provider="gmail"))
-    assert channel_failed(world).splitlines()[0] == ("provider gmail has no reader in this version of screen.py (channel "
-                                   "email@devthrottle.com); this version reads: outlook")
+    world.memory(channel(provider="imap"))
+    assert channel_failed(world).splitlines()[0] == ("provider imap has no reader in this version of screen.py (channel "
+                                   "email@devthrottle.com); this version reads: outlook, gmail")
