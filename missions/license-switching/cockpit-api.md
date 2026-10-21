@@ -106,13 +106,14 @@ Gateway handles by itself:
 | Order | `status` | `statusText` | Tone | When |
 |---|---|---|---|---|
 | 1 | `not-held` | Not on any machine | neutral | No machine holds a sign-in for it any more. |
-| 2 | `sign-in-needed` | Sign-in needed | bad | On some machine its sign-in has expired (at or before now), or the provider refused it (`unauthorized`, `refresh-failed`). It comes before `stale` because it is why the numbers go stale. |
-| 3 | `stale` | Stale | warning | Its freshest reading is older than 6 minutes (read where it is active) or 30 minutes (read as a spare), or it was never read. Nothing can be said about its use. |
-| 4 | `at-limit` | At limit | bad | A fresh reading shows a window at or over 97% whose reset is still ahead. |
-| 5 | `sign-in-expires-soon` | Sign-in expires soon | warning | A sign-in for it expires within 3 days. |
-| 6 | `in-use` | In use | good | A machine is working on it. |
-| 7 | `has-room` | Has room | good | Not in use, and both windows are under 97%. |
-| 8 | `use-not-known` | Use not known | warning | The reading is fresh but does not say what its use is now: a window is missing, or a window reset since the reading. |
+| 2 | `no-paid-plan` | No paid plan | bad | Some machine reported `no-paid-plan` for it and no machine has read it cleanly since. The detail says "No paid plan since <time> - renew it on claude.ai". It comes before `sign-in-needed` because a lapsed plan is refused like a dead sign-in, and a new sign-in cannot help it. The timeline row and the forecast say the same sentence. |
+| 3 | `sign-in-needed` | Sign-in needed | bad | On some machine its sign-in has expired (at or before now), or the provider refused it (`unauthorized`, `refresh-failed`). It comes before `stale` because it is why the numbers go stale. |
+| 4 | `stale` | Stale | warning | Its freshest reading is older than 6 minutes (read where it is active) or 30 minutes (read as a spare), or it was never read. Nothing can be said about its use. |
+| 5 | `at-limit` | At limit | bad | A fresh reading shows a window at or over 97% whose reset is still ahead. |
+| 6 | `sign-in-expires-soon` | Sign-in expires soon | warning | A sign-in for it expires within 3 days. |
+| 7 | `in-use` | In use | good | A machine is working on it. |
+| 8 | `has-room` | Has room | good | Not in use, and both windows are under 97%. |
+| 9 | `use-not-known` | Use not known | warning | The reading is fresh but does not say what its use is now: a window is missing, or a window reset since the reading. |
 
 **The level of a window** (`level`), the first that applies: `not-known` (no number), `stale` (the account's
 reading is too old to trust - the number is still given, and it says nothing about the window now), `reset-since`
@@ -2162,6 +2163,7 @@ Nothing was written and nothing was sent:
 | 409 | `target-is-source` | The target named is the account the machines are already on. |
 | 409 | `target-not-held` | The target has room and no machine to be switched is ready for it; at least one holds no usable sign-in for it. The sentence names every machine and its reason: "account-b@example.com has room; machine-a holds no sign-in for it." Also the answer with no target named, when an account has room and no machine is ready for any account with room. |
 | 409 | `target-sign-in-expiring` | The same, when every machine's sign-in for the target expires before a switch could finish. |
+| 409 | `target-no-paid-plan` | The target has no paid plan: "account-b@example.com has had no paid plan since <time>; renew it on claude.ai first." |
 | 409 | `target-stale` | The latest reading of the target is too old to show it has room. |
 | 409 | `target-full` | The target has no room. |
 | 409 | `no-target` | No target was named and no other account has room, judged on each account alone. The sentence gives each account's reason: "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit." |

@@ -633,10 +633,13 @@ def read_usage(key: KeyHandle, http_get: HttpGet = _requests_get, now: Callable[
     except NetworkFailure as ex:
         return _failed(reading, NETWORK, f"api.anthropic.com was not reached ({_network_kind(ex)}).")
 
-    if answer.status in (401, 403, 429) and (lapsed := _no_paid_plan(reading.account_email, headers, http_get)):
+    # An expired key cannot read the profile either, so it is not asked then.
+    key_expired = expires is not None and expires <= asked_at
+    if answer.status in (401, 403, 429) and not key_expired \
+            and (lapsed := _no_paid_plan(reading.account_email, headers, http_get)):
         return _failed(reading, NO_PAID_PLAN, lapsed)
     if answer.status in (401, 403):
-        if expires is not None and expires <= asked_at:
+        if key_expired:
             return _failed(reading, UNAUTHORIZED,
                            f"The access token expired at {iso_utc(expires)} and was not renewed in time.")
         return _failed(reading, UNAUTHORIZED,

@@ -357,6 +357,8 @@ public static class LicenseDecisionEngine
         LicenseAccountReturn? first = null;
         foreach (var reading in IndexReadings(snapshot.Accounts).Values.Where(r => !SameAccount(r.AccountEmail, source)))
         {
+            if (reading.NoPaidPlanSinceUtc is not null)
+                continue; // no paid plan: its kept numbers say nothing about when it has room
             if (reading.FiveHour is not { } five || reading.SevenDay is not { } week)
                 continue;
             var full = new[] { five, week }.Where(w => w.Utilization >= ThresholdPercent).ToList();

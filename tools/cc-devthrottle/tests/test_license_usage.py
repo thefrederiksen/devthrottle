@@ -208,6 +208,22 @@ def test_read_usage_FreeWithAnOddStatusWord_DoesNotRepeatIt(machine):
     assert reading.read_error_detail == "The account has no paid plan; renew it on claude.ai."
 
 
+def test_read_usage_401WithExpiredKey_NeverAsksTheProfile(machine):
+    get = RoutedGet(HttpAnswer(401, b""), _profile("claude_free"))
+    reading = license_usage.read_usage(_key(machine, "account-b@example.com"), get, now=lambda: NOW + 3600 * 6)
+    assert reading.read_error == "unauthorized"
+    assert [url for url, _ in get.calls] == ["https://api.anthropic.com/api/oauth/usage"]
+
+
+def test_license_usage_Command_NoPaidPlanSpare_IsNotOfferedARefresh(machine, capsys):
+    answers = iter([HttpAnswer(200, GOOD_BODY), HttpAnswer(429, b""), _profile("claude_free")])
+    license_usage_ops.usage(False, "account,state,detail", *_dirs(machine), http_get=lambda u, h, t: next(answers))
+    text = capsys.readouterr().out
+    assert "count: 2 (ok 1, no-paid-plan 1)" in text
+    assert "account-b@example.com,no-paid-plan" in text
+    assert "cc-devthrottle license refresh <account>" not in text
+
+
 def test_read_usage_GoodAnswer_NeverAsksTheProfile(machine):
     get = RoutedGet(HttpAnswer(200, GOOD_BODY), _profile("claude_free"))
     license_usage.read_usage(_key(machine, "account-a@example.com"), get, now=lambda: NOW)
