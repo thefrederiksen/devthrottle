@@ -270,6 +270,11 @@ public sealed class ApiModeSessionBackend : ISessionBackend
             _ownership.Release();
         }
 
+        // The session applies Pi's events on the host's observer loop, after the stream has them. Everything Pi said before
+        // the take - the end of its last turn, its process's end - is applied before the terminal is attached, so none of it
+        // can land over what the terminal's detector reads afterwards: a stale "waiting for a prompt" over a terminal mid-turn
+        // let a hand back end Pi in the middle of its work (issue #4353). Outside the ownership lock, which no handler takes.
+        await host.HeardAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
         RaiseTerminalChanged();
         return WheelSwitchResult.Switched;
     }

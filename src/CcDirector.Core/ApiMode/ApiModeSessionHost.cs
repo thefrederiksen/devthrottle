@@ -90,9 +90,10 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
     // Every published batch, in order, for Published's handlers - run on their own loop, outside the lock, so a
     // handler that calls back into the host can never wait on the lock it was called under. The session's end is
-    // reported from that loop too, after the last batch.
-    private readonly Channel<IReadOnlyList<SessionEvent>> _observed =
-        Channel.CreateUnbounded<IReadOnlyList<SessionEvent>>(new UnboundedChannelOptions { SingleReader = true });
+    // reported from that loop too, after the last batch. A mark (HeardAsync) rides the same queue, so it is reached only
+    // once every batch written before it has been handled.
+    private readonly Channel<Observed> _observed =
+        Channel.CreateUnbounded<Observed>(new UnboundedChannelOptions { SingleReader = true });
     private Task _observer = Task.CompletedTask;
     private ApiModeProcessStartInfo? _startInfo;
     private Connection? _connection;
@@ -158,6 +159,25 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// <summary>Raised with each batch of events the stream published, in order, on one loop outside the host's lock.
     /// The session reads its activity from it (a turn running or not).</summary>
     public event Action<IReadOnlyList<SessionEvent>>? Published;
+
+    /// <summary>
+    /// Completes once every batch published before the call has reached <see cref="Published"/>'s handlers - the session
+    /// has heard everything Pi said so far. The stream is fed under the host's lock, the handlers afterwards on their own
+    /// loop, so a caller that saw an event on the stream cannot assume the session has applied it (issue #4353). Never
+    /// call it from a <see cref="Published"/> handler: that loop would wait on itself.
+    /// </summary>
+    public Task HeardAsync()
+    {
+        FileLog.Write($"[ApiModeSessionHost] HeardAsync: session={_sessionId}");
+        HeardRequested?.Invoke();
+        var heard = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The queue is closed once the session has ended; its loop then finishes after the last batch.
+        return _observed.Writer.TryWrite(new Observed(null, heard)) ? heard.Task : _observer;
+    }
+
+    /// <summary>Raised as <see cref="HeardAsync"/> starts to wait, on the caller's thread: lets a test hold the observer loop
+    /// until a caller is waiting on it, and let it go then, with no clock.</summary>
+    internal event Action? HeardRequested;
 
     /// <summary>Dialect defects seen so far (each already logged): our own code or Pi's record shape is wrong.</summary>
     public IReadOnlyList<string> Defects
@@ -586,11 +606,16 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
     private async Task ObserveAsync()
     {
-        await foreach (var batch in _observed.Reader.ReadAllAsync().ConfigureAwait(false))
+        await foreach (var (batch, heard) in _observed.Reader.ReadAllAsync().ConfigureAwait(false))
         {
+            if (heard is not null)
+            {
+                heard.TrySetResult();
+                continue;
+            }
             try
             {
-                Published?.Invoke(batch);
+                Published?.Invoke(batch!);
             }
             catch (Exception ex)
             {
@@ -775,7 +800,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             events = WithTheWheelsReasonLocked(events);
         _stream.Publish(events);
         if (events.Count > 0)
-            _observed.Writer.TryWrite(events);
+            _observed.Writer.TryWrite(new Observed(events, null));
         foreach (var e in events)
         {
             switch (e)
@@ -1065,4 +1090,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             TurnStartTimer = null;
         }
     }
+
+    /// <summary>One entry of the observer's queue: a published batch, or a mark that <see cref="HeardAsync"/> waits on.</summary>
+    private readonly record struct Observed(IReadOnlyList<SessionEvent>? Batch, TaskCompletionSource? Heard);
 }
