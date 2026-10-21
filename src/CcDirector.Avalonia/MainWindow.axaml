@@ -523,7 +523,7 @@
                                             Background="#3A4A63"
                                             IsVisible="{Binding IsRailChild}" />
                                     <Border Grid.Column="3" Width="14">
-                                        <Button IsVisible="{Binding HasCrew}"
+                                        <Button Classes="ghost" IsVisible="{Binding HasCrew}"
                                                 Click="CrewChevron_Click"
                                                 Focusable="False"
                                                 Background="Transparent" BorderThickness="0"
@@ -605,7 +605,7 @@
                                         <!-- A REQUEST TO TALK TO ANOTHER SESSION (issue #3851): an amber phone and a
                                              count on the session that ASKED. Amber, never red - the red badge beside it
                                              means prompts wait in the queue. Click to approve or deny. -->
-                                        <Button Grid.Column="2"
+                                        <Button Classes="ghost" Grid.Column="2"
                                                 IsVisible="{Binding HasLinkAsks}"
                                                 Click="LinkAsk_Click"
                                                 Focusable="False"
@@ -640,7 +640,7 @@
                                             </Border>
                                         </Button>
                                         <!-- Queue count badge (click to preview queued prompts) -->
-                                        <Button Grid.Column="3"
+                                        <Button Classes="ghost" Grid.Column="3"
                                                 IsVisible="{Binding HasQueuedItems}"
                                                 Click="QueuePreview_Click"
                                                 Background="Transparent"
@@ -678,7 +678,7 @@
                                                 FontWeight="Bold"
                                                 FontSize="12"
                                                 ToolTip.Tip="Session options"
-                                                Classes="sessionMenuBtn" />
+                                                Classes="sessionMenuBtn ghost" />
                                     </Grid>
                                     <!-- The request's own line, under the title, only while one waits (issue #3851). -->
                                     <TextBlock Text="{Binding LinkAskLine}"
@@ -1002,7 +1002,7 @@
                                         Margin="0,3"
                                         HorizontalAlignment="Center"
                                         Cursor="Hand"
-                                        Classes="slimDot"
+                                        Classes="slimDot ghost"
                                         ToolTip.Tip="{Binding DisplayName}">
                                     <Border Width="18" Height="18"
                                             CornerRadius="5"
@@ -1197,7 +1197,7 @@
                                     FontWeight="SemiBold"
                                     Margin="0,0,6,0"
                                     IsVisible="False" />
-                            <Button x:Name="TabBarCaptureButton"
+                            <Button Classes="ghost" x:Name="TabBarCaptureButton"
                                     Content="Capture"
                                     Click="TabBarCaptureButton_Click"
                                     Background="Transparent"
@@ -1208,7 +1208,7 @@
                                     FontSize="11"
                                     ToolTip.Tip="Capture terminal diagnostic snapshot (Ctrl+Shift+F12)"
                                     IsVisible="False" />
-                            <Button x:Name="TabBarRefreshButton"
+                            <Button Classes="ghost" x:Name="TabBarRefreshButton"
                                     Content="Reset View"
                                     Click="TabBarRefreshButton_Click"
                                     Background="Transparent"
@@ -1262,7 +1262,7 @@
                                     Padding="12,4"
                                     FontSize="12"
                                     Click="TerminalTabButton_Click" />
-                            <Button x:Name="SourceControlTabButton"
+                            <Button Classes="ghost" x:Name="SourceControlTabButton"
                                     Content="Source Control"
                                     Background="Transparent"
                                     Foreground="#888888"
@@ -1301,7 +1301,7 @@
                             </ItemsControl>
 
                             <!-- Close All document tabs button -->
-                            <Button x:Name="CloseAllDocsButton"
+                            <Button Classes="ghost" x:Name="CloseAllDocsButton"
                                     Content="x"
                                     Background="Transparent"
                                     Foreground="#666666"
@@ -1614,12 +1614,12 @@
                             <Border DockPanel.Dock="Top" Padding="8,6"
                                     BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
                                 <DockPanel>
-                                    <Button Content="Clear All" DockPanel.Dock="Right"
+                                    <Button Classes="ghost" Content="Clear All" DockPanel.Dock="Right"
                                             Click="BtnClearScreenshots_Click"
                                             Background="Transparent" Foreground="#888888"
                                             BorderThickness="0" FontSize="11" Cursor="Hand"
                                             Padding="6,2" Margin="4,0,0,0" />
-                                    <Button Content="Refresh" DockPanel.Dock="Right"
+                                    <Button Classes="ghost" Content="Refresh" DockPanel.Dock="Right"
                                             Click="BtnRefreshScreenshots_Click"
                                             Background="Transparent" Foreground="#888888"
                                             BorderThickness="0" FontSize="11" Cursor="Hand"
@@ -1651,7 +1651,7 @@
                                                     <StackPanel Orientation="Horizontal"
                                                                 HorizontalAlignment="Right"
                                                                 Spacing="4">
-                                                        <Button Content="View"
+                                                        <Button Classes="ghost" Content="View"
                                                                 Tag="{Binding FilePath}"
                                                                 Click="ScreenshotView_Click"
                                                                 Background="Transparent"
@@ -1659,7 +1659,7 @@
                                                                 BorderThickness="0"
                                                                 FontSize="10" Cursor="Hand"
                                                                 Padding="4,2" />
-                                                        <Button Content="Copy"
+                                                        <Button Classes="ghost" Content="Copy"
                                                                 Tag="{Binding FilePath}"
                                                                 Click="ScreenshotCopy_Click"
                                                                 ToolTip.Tip="Copy image to clipboard"
@@ -1668,7 +1668,7 @@
                                                                 BorderThickness="0"
                                                                 FontSize="10" Cursor="Hand"
                                                                 Padding="4,2" />
-                                                        <Button Content="Issue"
+                                                        <Button Classes="ghost" Content="Issue"
                                                                 Tag="{Binding FilePath}"
                                                                 Click="ScreenshotCreateIssue_Click"
                                                                 ToolTip.Tip="Create GitHub issue with this screenshot"
@@ -1677,7 +1677,7 @@
                                                                 BorderThickness="0"
                                                                 FontSize="10" Cursor="Hand"
                                                                 Padding="4,2" />
-                                                        <Button Content="Del"
+                                                        <Button Classes="ghost" Content="Del"
                                                                 Tag="{Binding FilePath}"
                                                                 Click="ScreenshotDelete_Click"
                                                                 Background="Transparent"
@@ -1702,7 +1702,7 @@
                             <Border DockPanel.Dock="Top" Padding="8,6"
                                     BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
                                 <DockPanel>
-                                    <Button Content="Clear" DockPanel.Dock="Right"
+                                    <Button Classes="ghost" Content="Clear" DockPanel.Dock="Right"
                                             Click="BtnClearQueue_Click"
                                             Background="Transparent" Foreground="#888888"
                                             BorderThickness="0" FontSize="11" Cursor="Hand"
@@ -1751,7 +1751,7 @@
                                                             Spacing="1"
                                                             VerticalAlignment="Top">
                                                     <StackPanel Orientation="Horizontal" Spacing="2">
-                                                        <Button Content="/\"
+                                                        <Button Classes="ghost" Content="/\"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemMoveUp_Click"
                                                                 Background="Transparent"
@@ -1760,7 +1760,7 @@
                                                                 FontSize="9" Cursor="Hand"
                                                                 Padding="3,1"
                                                                 ToolTip.Tip="Move up" />
-                                                        <Button Content="\/"
+                                                        <Button Classes="ghost" Content="\/"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemMoveDown_Click"
                                                                 Background="Transparent"
@@ -1769,7 +1769,7 @@
                                                                 FontSize="9" Cursor="Hand"
                                                                 Padding="3,1"
                                                                 ToolTip.Tip="Move down" />
-                                                        <Button Content="Edit"
+                                                        <Button Classes="ghost" Content="Edit"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemEdit_Click"
                                                                 Background="Transparent"
@@ -1778,7 +1778,7 @@
                                                                 FontSize="10" Cursor="Hand"
                                                                 Padding="4,2"
                                                                 ToolTip.Tip="Open in the review editor (text + image preview)" />
-                                                        <Button Content="Pop"
+                                                        <Button Classes="ghost" Content="Pop"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemPop_Click"
                                                                 Background="Transparent"
@@ -1786,7 +1786,7 @@
                                                                 BorderThickness="0"
                                                                 FontSize="10" Cursor="Hand"
                                                                 Padding="4,2" />
-                                                        <Button Content="X"
+                                                        <Button Classes="ghost" Content="X"
                                                                 Tag="{Binding Id}"
                                                                 Click="QueueItemRemove_Click"
                                                                 Background="Transparent"
@@ -1844,7 +1844,7 @@
                         BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
                         Padding="12,8">
                     <DockPanel>
-                        <Button x:Name="BtnCommsClose"
+                        <Button Classes="ghost" x:Name="BtnCommsClose"
                                 DockPanel.Dock="Right"
                                 Content="[x] Close"
                                 Click="BtnCommsClose_Click"
@@ -1879,7 +1879,7 @@
                         BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
                         Padding="12,8">
                     <DockPanel>
-                        <Button x:Name="BtnConnectionsClose"
+                        <Button Classes="ghost" x:Name="BtnConnectionsClose"
                                 DockPanel.Dock="Right"
                                 Content="[x] Close"
                                 Click="BtnConnectionsClose_Click"
@@ -1914,7 +1914,7 @@
                         BorderBrush="#3C3C3C" BorderThickness="0,0,0,1"
                         Padding="12,8">
                     <DockPanel>
-                        <Button x:Name="BtnRepositoriesClose"
+                        <Button Classes="ghost" x:Name="BtnRepositoriesClose"
                                 DockPanel.Dock="Right"
                                 Content="[x] Close"
                                 Click="BtnRepositoriesClose_Click"
@@ -1956,7 +1956,7 @@
                 ZIndex="20"
                 IsVisible="False">
             <DockPanel Margin="14,10,8,12">
-                <Button DockPanel.Dock="Right"
+                <Button Classes="ghost" DockPanel.Dock="Right"
                         Content="X"
                         Click="PasteCardClose_Click"
                         VerticalAlignment="Top"

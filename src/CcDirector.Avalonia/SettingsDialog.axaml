@@ -413,7 +413,7 @@
         <!-- Bottom row: Open config.json link on the left (replaces the old Advanced
              read-only dump); Save / Cancel on the right. -->
         <Grid Grid.Row="4" Margin="0,12,0,0" ColumnDefinitions="*,Auto">
-            <Button Grid.Column="0" x:Name="OpenConfigButton"
+            <Button Classes="ghost" Grid.Column="0" x:Name="OpenConfigButton"
                     Content="Open config.json"
                     Background="Transparent" BorderThickness="0"
                     Foreground="#3B82F6" Cursor="Hand"

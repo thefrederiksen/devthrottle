@@ -1,0 +1,63 @@
+<!-- THE BUTTON POLICY, in one place because the TESTS load it too.
+
+     These styles live here rather than inline in App.axaml so the headless test application can include
+     the very same file. A policy the tests cannot see is a policy that drifts: the sweep in
+     ButtonPolicyTests would have passed against a test harness that never loaded it, and
+     certified nothing. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- App-wide policy: a button's label is CENTRED in it, never printed against the top edge.
+         Avalonia leaves VerticalContentAlignment at Stretch, so a button taller than its text -
+         because it sets a Height, or because its container stretched it - hands the label the whole
+         box, and the label draws its one line at the TOP of what it was given. The owner photographed
+         the Stop window on 20 October 2026 doing exactly this: 14 pixels of text in a 28 pixel button,
+         all of the slack underneath it. 170 buttons across 54 files were in that state, because
+         docs/VisualStyle.md's recipes give a height and a padding and never mention this property.
+         Setting it here fixes the lot, including the ones no sweep of the markup would find - a button
+         with no Height that its Grid row stretched. A local value still wins, so a button that sets
+         its own alignment is untouched.
+         HORIZONTAL alignment is deliberately NOT set here. The rail and header buttons hold a DockPanel
+         or a Grid that has to stretch across the button's width; centring that would break them. -->
+    <Style Selector=":is(Button)">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!-- App-wide policy: a button keeps ITS OWN colour under the pointer.
+         The Fluent theme's hover and pressed states set a Background on the template's
+         ContentPresenter, which is a different object from the button - so the button's own
+         Background, bound into that presenter at rest, is simply painted over and lost. A #007ACC
+         primary button turns #3A3A3B grey the moment the pointer touches it, which is the second
+         thing visible in the owner's screenshot. Re-assert the button's own brush and let brightness
+         carry the feedback instead.
+         Buttons with no Background of their own are left to the theme, which is already right for
+         them. Transparent buttons are the exception that needs saying out loud: re-asserting
+         "transparent" would leave a three-dot menu or an icon button with NO hover cue at all, so
+         they carry Classes="ghost" and keep the grey wash. -->
+    <Style Selector=":is(Button):pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{Binding $parent[Button].Background}" />
+    </Style>
+    <Style Selector=":is(Button):pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{Binding $parent[Button].Background}" />
+    </Style>
+    <Style Selector=":is(Button):pointerover">
+        <Setter Property="Opacity" Value="0.86" />
+    </Style>
+    <Style Selector=":is(Button):pressed">
+        <Setter Property="Opacity" Value="0.72" />
+    </Style>
+
+    <!-- The ghost buttons opt back in to a visible wash, because transparent has no brightness to
+         change. #505050 is the ButtonHover the style guide already defines. -->
+    <Style Selector=":is(Button).ghost:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#505050" />
+    </Style>
+    <Style Selector=":is(Button).ghost:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#5A5A5A" />
+    </Style>
+    <Style Selector=":is(Button).ghost:pointerover">
+        <Setter Property="Opacity" Value="1.0" />
+    </Style>
+    <Style Selector=":is(Button).ghost:pressed">
+        <Setter Property="Opacity" Value="1.0" />
+    </Style>
+</Styles>

@@ -132,7 +132,7 @@
 
                 <!-- Staged Changes section -->
                 <StackPanel x:Name="StagedSection" IsVisible="False">
-                    <ToggleButton x:Name="StagedToggle" IsChecked="True"
+                    <ToggleButton Classes="ghost" x:Name="StagedToggle" IsChecked="True"
                                   Background="Transparent" BorderThickness="0"
                                   Cursor="Hand" Padding="4">
                         <DockPanel>
@@ -164,7 +164,7 @@
 
                 <!-- Changes section -->
                 <StackPanel Margin="0,4,0,0">
-                    <ToggleButton x:Name="ChangesToggle" IsChecked="True"
+                    <ToggleButton Classes="ghost" x:Name="ChangesToggle" IsChecked="True"
                                   Background="Transparent" BorderThickness="0"
                                   Cursor="Hand" Padding="4">
                         <DockPanel>

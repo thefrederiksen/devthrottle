@@ -29,15 +29,24 @@
                                  Foreground="#F0B4B4" FontSize="12" TextWrapping="Wrap" />
         </Border>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+        <!-- VerticalContentAlignment, on every button. Avalonia leaves content alignment at Stretch,
+             so a button with a fixed Height hands its label the whole 30 pixels and the label draws
+             itself at the TOP of that box - the text sits hard against the top edge with an empty
+             band under it, which is what the owner saw on this dialog. Centre it explicitly; the
+             dialog height here is 30 and the padding 14, per docs/VisualStyle.md. -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Spacing="8" Margin="0,16,0,0">
             <Button x:Name="BtnClose" Content="Cancel"
-                    Height="28" Padding="12,0" Click="BtnClose_Click"
+                    MinWidth="90" Height="30" Padding="14,0" Click="BtnClose_Click"
                     Background="#3C3C3C" Foreground="#CCCCCC" BorderThickness="0"
-                    Cursor="Hand" IsCancel="True" />
+                    Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    IsCancel="True" />
             <Button x:Name="BtnStop" Content="Stop the session"
-                    Height="28" Padding="12,0" Click="BtnStop_Click"
+                    MinWidth="100" Height="30" Padding="14,0" Click="BtnStop_Click"
                     Background="#007ACC" Foreground="White" BorderThickness="0"
-                    Cursor="Hand" Margin="8,0,0,0" />
+                    Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
         </StackPanel>
     </Grid>
 </Window>

@@ -9,6 +9,10 @@
         <Style Selector="ScrollViewer">
             <Setter Property="AllowAutoHide" Value="False" />
         </Style>
+
+        <!-- The button policy - label centring and the hover colour. In its own file because the
+             headless tests include the same one; see Styles/ButtonStyles.axaml. -->
+        <StyleInclude Source="avares://cc-director/Styles/ButtonStyles.axaml" />
     </Application.Styles>
 
     <Application.Resources>
