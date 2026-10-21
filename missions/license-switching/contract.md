@@ -1323,7 +1323,8 @@ public sealed class LicenseUsageReport
 ```
 
 Reason words (`LicenseCannotSwitchReasons`): `"tool-missing"` - `cc-devthrottle` is not in the machine's
-Python tool environment, where the switch looks for it.
+Python tool environment, where the switch looks for it. `"switching-off"` - license switching is turned off on
+the Director while the machine holds spares (section 12.2).
 
 **The Director** asks on every report, with the very lookup the switch makes before it starts the tool
 (`ILicenseCommandLine.IsInstalled`) - never a second one. It is a file lookup, so it costs nothing to ask
@@ -1353,3 +1354,30 @@ before the field existed - its status, its switches and its log are unchanged - 
 today stops working. When a machine that said it cannot is next reported by a Director that says
 nothing, the machine goes back to that rule, and no `can-switch-again` row is written, because nothing
 said it can.
+
+### 12.2 Switching on by default, and a machine with it off is never silent (issue #4327)
+
+On 21 October 2026 an account reached 97%. Two machines switched; a third stayed on the tired account and nothing
+said so. Its Director data folder had been created fresh the day before, its `config.json` had no
+`licenseSwitching` section, a missing key read as off, and an off Director sent no report at all.
+
+**The setting.** `licenseSwitching.enabled` explicit `true` is on and explicit `false` is off - the false is how
+the owner keeps a machine out. Anything else (no file, no section, no key, not a boolean) is ON when the machine's
+key store holds at least one spare (`<store>/spares/*/.claude.json` naming an account, read by
+`LicenseHeldOnDisk` without a key or the tool) and off when it holds none. `CC_LICENSE_ALLOW_REAL_DEFAULT` is set
+on the Director's own tool runs only when this EFFECTIVE value is on. `cc-devthrottle license switching
+status / on / off` reads and writes it in the same place, by the same rules. A change takes a Director restart.
+
+**Off, with spares held.** The Director runs no tool and reads no usage, but it still reports: every
+`ReportInterval`, on a new connection, and when the account files change, with what the machine holds and no
+numbers, `CanSwitch = false` and `CannotSwitchReason = "switching-off"`. It takes the key holder lock only for
+that one send and releases it at once, so a Director on the same machine with switching on can always take it;
+while another Director holds it, that Director speaks for the machine and nothing is sent. The machine's card
+says "Cannot switch: license switching is turned off on its Director, although it holds spares", with the
+command that turns it on.
+
+**A threshold switch names who it left behind.** On the minute check that writes a new threshold switch off an
+account, every other machine on that account that was not sent one - for any reason the engine skipped it -
+gets one `left-behind` row in the Licenses log ("Not switched", "Left behind"), with the reason. A machine
+with a switch already open is taking part and is not named. Rows are written only with a new switch, never
+once a minute.

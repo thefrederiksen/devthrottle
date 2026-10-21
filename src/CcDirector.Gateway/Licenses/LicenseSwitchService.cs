@@ -453,6 +453,7 @@ public sealed class LicenseSwitchService
 
         // 4. Switches: the same decision as a waiting row is that row sent again; any other is a new row.
         var machines = MachinesByName(overview);
+        var newThresholdSources = new HashSet<string>(StringComparer.Ordinal);
         foreach (var decision in decisions.Switches)
         {
             var machine = machines[MachineKey(decision.MachineName, decision.OsUser)];
@@ -468,8 +469,13 @@ public sealed class LicenseSwitchService
                 written++;
             }
             if (PlanNewSwitch(tenant, machine, decision, now) is { } planned)
+            {
                 sends.Add(planned);
+                if (decision.Reason == LicenseSwitchReasons.Threshold)
+                    newThresholdSources.Add(LicenseStore.NormalizeEmail(decision.FromAccountEmail));
+            }
         }
+        written += RecordLeftBehind(tenant, decisions, newThresholdSources, machines, open.Blocked, now);
         // A waiting Switch now has no minute check to decide it again: it is sent again while the engine would still
         // accept the same Switch now for that machine. A waiting threshold switch the engine no longer decides is
         // simply not sent; it ends at its NotAfterUtc.
@@ -504,6 +510,30 @@ public sealed class LicenseSwitchService
         // The event rows above remain, because switching and the page still need their start and reset times.
 
         return new TickPlan(sends, written);
+    }
+
+    /// <summary>
+    /// A THRESHOLD SWITCH NAMES THE MACHINES IT LEAVES BEHIND (issue #4327). On the check that writes a new threshold
+    /// switch off an account, every other machine on that account that was not sent one gets a row saying why - switching
+    /// turned off on it, its reports too old, a hold, no target ready for it. A machine with a switch already open is in
+    /// the middle of taking part and is not named. Written only with a NEW switch, so a tired account does not repeat
+    /// the rows every minute. Returns how many rows it wrote.
+    /// </summary>
+    private int RecordLeftBehind(TenantId tenant, LicenseDecisions decisions, HashSet<string> newThresholdSources,
+        IReadOnlyDictionary<string, LicenseMachineView> machines, HashSet<Guid> blocked, DateTime now)
+    {
+        if (newThresholdSources.Count == 0) return 0;
+        var written = 0;
+        foreach (var left in decisions.Skipped)
+        {
+            if (!newThresholdSources.Contains(LicenseStore.NormalizeEmail(left.AccountEmail)))
+                continue;
+            if (!machines.TryGetValue(MachineKey(left.MachineName, left.OsUser), out var machine) || blocked.Contains(machine.MachineId))
+                continue;
+            _store.RecordLeftBehind(tenant, machine.MachineId, left.AccountEmail, left.Why, now);
+            written++;
+        }
+        return written;
     }
 
     /// <summary>

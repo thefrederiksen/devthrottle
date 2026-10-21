@@ -452,7 +452,7 @@ public static partial class LicenseDisplayFold
             // Before "signed out": a machine that cannot run a switch cannot be moved onto any account either.
             : machine.CannotSwitchReason is { } reason
                 ? (LicenseMachineStatuses.CannotSwitch, $"Cannot switch: {LicenseStore.CannotSwitchSentence(reason)}", LicenseTones.Warning,
-                    (string?)"It is not sent a switch until its Director says it can run one again.")
+                    (string?)CannotSwitchDetail(reason))
             : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning, null)
             : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good, null);
         // A read error of a sign-in whose account no machine has ever read must not speak of "the numbers shown":
@@ -980,6 +980,8 @@ public static partial class LicenseDisplayFold
             LicenseLogStates.AlreadyActive => ("Already on the target", LicenseTones.Good),
             LicenseLogStates.Failed => ("Failed", LicenseTones.Bad),
             LicenseLogStates.Recorded when row.Kind is LicenseLogKinds.ReportAccepted or LicenseLogKinds.ReportingAgain => ("Recorded", LicenseTones.Good),
+            // A machine a threshold switch left on the tired account (issue #4327): the switch is not the whole story.
+            LicenseLogStates.Recorded when row.Kind == LicenseLogKinds.LeftBehind => ("Left behind", LicenseTones.Warning),
             LicenseLogStates.Recorded => ("Recorded", LicenseTones.Neutral),
             // A failed-renewal warning: open while the renewal keeps failing, ended when one has worked.
             LicenseLogStates.Open when row.Kind == LicenseRenewalFailureLog.Kind => ("Failing", LicenseTones.Bad),
@@ -1007,6 +1009,7 @@ public static partial class LicenseDisplayFold
             LicenseLogKinds.ReportingAgain => "Reporting again",
             LicenseLogKinds.CannotSwitch => "Cannot switch",
             LicenseLogKinds.CanSwitchAgain => "Can switch again",
+            LicenseLogKinds.LeftBehind => "Not switched",
             LicenseLogKinds.Forgotten => ForgottenKindText,
             _ => "Note",
         };
@@ -1111,9 +1114,19 @@ public static partial class LicenseDisplayFold
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
         LicenseGatewayReasonCodes.MachineForgotten => "The machine was forgotten, so this switch can never be answered.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
+        LicenseCannotSwitchReasons.SwitchingOff => "License switching is turned off on the machine's Director, although it holds spares.",
         LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,
     };
+
+    /// <summary>What the card says under "Cannot switch". A machine with switching turned off is told how to turn it on,
+    /// because nothing the Gateway does will change it (issue #4327).</summary>
+    internal static string CannotSwitchDetail(string reason) => reason == LicenseCannotSwitchReasons.SwitchingOff
+        ? $"It stays on its account when the others switch. To include it, run {TurnSwitchingOnCommand} on that machine and restart its Director."
+        : "It is not sent a switch until its Director says it can run one again.";
+
+    /// <summary>The command that turns license switching on for a machine's Director.</summary>
+    public const string TurnSwitchingOnCommand = "cc-devthrottle license switching on";
 
     // ----- words -----
 

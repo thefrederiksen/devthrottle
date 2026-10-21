@@ -58,6 +58,22 @@ public sealed class LicenseKeyHolderLock : IDisposable
         }
     }
 
+    /// <summary>
+    /// Gives the lock back while the process goes on. Only a Director with license switching OFF does this: it takes the
+    /// lock for the one report that says so, then releases it, so a Director on the same machine with switching on can
+    /// always become the key holder (issue #4327).
+    /// </summary>
+    public void Release()
+    {
+        lock (_gate)
+        {
+            if (_held is null) return;
+            _held.Dispose();
+            _held = null;
+            FileLog.Write("[LicenseKeyHolderLock] Release: gave the key holder lock back");
+        }
+    }
+
     /// <summary>Records who holds it, for a person reading the folder. Nothing reads this back.</summary>
     private static void WriteHolder(FileStream stream)
     {

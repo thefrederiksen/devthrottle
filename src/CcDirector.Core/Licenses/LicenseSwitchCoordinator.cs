@@ -64,8 +64,8 @@ public sealed class LicenseSwitchCoordinator
         FileLog.Write($"[LicenseSwitchCoordinator] SwitchAsync: switchId={request.SwitchId}, target={request.TargetAccountEmail}, expected={request.ExpectedActiveAccountEmail}, reason={request.Reason}");
 
         // License switching is off (LicenseSwitchingSetting): nothing touches the key store. Answered with the
-        // contract's "not the key holder", which is literally true - an off Director never takes the lock - so the
-        // contract needs no new reason code. Not stored: the same SwitchId must run on a Director that has it on.
+        // contract's "not the key holder", which is true - an off Director holds the lock only for the moment it sends
+        // the report saying switching is off (issue #4327), never to switch - so the contract needs no new reason code. Not stored: the same SwitchId must run on a Director that has it on.
         if (!_enabled)
         {
             FileLog.Write($"[LicenseSwitchCoordinator] switchId={request.SwitchId} refused: license switching is turned off on this Director");

@@ -22,21 +22,26 @@ public sealed class LicenseSwitching : IDisposable
 
     private static readonly Lazy<LicenseSwitching> SharedInstance = new(CreateForThisMachine);
 
+    private readonly LicenseHeldOnDisk? _heldOnDisk;
     private int _started;
 
     /// <param name="enabled">The license switching setting (<see cref="Configuration.LicenseSwitchingSetting"/>). Off:
-    /// no report loop, no renewal, the key holder lock is never taken, and every switch, sign-in and approval is
-    /// answered failed or refused.</param>
+    /// no usage is read, no renewal, the key holder lock is held only for the report that says switching is off (when
+    /// the machine holds spares), and every switch, sign-in and approval is answered failed or refused.</param>
     /// <param name="signInDelay">Test seam: how the wait for another machine's approval passes (<see cref="LicenseSignInCoordinator"/>),
     /// and the longest wait of a sign-in or approval for a running approver check (<see cref="LicenseBrowserLane"/>).</param>
     /// <param name="offersApprovers">The offer setting (<see cref="Configuration.LicenseApproverOfferSetting"/>): the
     /// daily approver check looks at this Director's own browser profiles too.</param>
     /// <param name="browserProfiles">This Director's own browser profiles; the machine's registry when not given.</param>
+    /// <param name="heldOnDisk">What the machine's key store holds, read from its account files. While switching is off
+    /// and it holds a spare, <see cref="Start"/> still tells the Gateway so (issue #4327). Null: nothing is sent while off.</param>
     public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled,
-        Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = false, ILicenseBrowserProfiles? browserProfiles = null)
+        Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = false, ILicenseBrowserProfiles? browserProfiles = null,
+        LicenseHeldOnDisk? heldOnDisk = null)
     {
         BrowserLane = new LicenseBrowserLane(signInDelay);
         Enabled = enabled;
+        _heldOnDisk = heldOnDisk;
         HolderLock = new LicenseKeyHolderLock(directorFolder);
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
         Results = new LicenseSwitchResultStore(Path.Combine(directorFolder, "switch-results"), utcNow);
@@ -96,20 +101,33 @@ public sealed class LicenseSwitching : IDisposable
         var configDir = Environment.GetEnvironmentVariable(DefaultConfigDirVariable);
         var storeDir = Environment.GetEnvironmentVariable(StoreDirVariable);
         var folder = DirectorFolder(storeDir);
-        var enabled = Configuration.LicenseSwitchingSetting.Get();
+        var heldOnDisk = LicenseHeldOnDisk.ForThisMachine(configDir, storeDir);
+        var written = Configuration.LicenseSwitchingSetting.ReadExplicit(Configuration.CcDirectorConfigService.ReadRaw());
+        var holdsSpare = heldOnDisk.HoldsSpare();
+        // Issue #4327: nothing written means on exactly when the machine holds a spare. The tool may open the machine's
+        // real default login (AllowRealDefault) only when this EFFECTIVE value is on, never on what config.json says alone.
+        var enabled = Configuration.LicenseSwitchingSetting.Resolve(written, holdsSpare);
         var offersApprovers = Configuration.LicenseApproverOfferSetting.Get();
-        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled}, offersApprovers={offersApprovers}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
+        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled} (config.json says {(written is { } w ? (w ? "true" : "false") : "nothing")}, holdsSpare={holdsSpare}), offersApprovers={offersApprovers}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
         return new LicenseSwitching(new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(configDir, storeDir, AllowRealDefault: enabled)),
-            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled, offersApprovers: offersApprovers);
+            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled, offersApprovers: offersApprovers,
+            heldOnDisk: heldOnDisk);
     }
 
     /// <summary>Puts the usage reporter on the scheduler once for the life of the process, when license switching is
-    /// on. Further calls do nothing.</summary>
+    /// on. Off, and the machine holds a spare, only the report that says switching is off here is scheduled (issue
+    /// #4327). Further calls do nothing.</summary>
     public void Start()
     {
         if (Interlocked.Exchange(ref _started, 1) == 1) return;
         if (!Enabled)
         {
+            if (_heldOnDisk?.HoldsSpare() == true)
+            {
+                FileLog.Write("[LicenseSwitching] Start: license switching is turned off on this Director while the machine holds spares; no usage is read, and the Gateway is told this machine cannot switch");
+                Reporter.StartSwitchedOff(Background.BackgroundJobs.Default, _heldOnDisk);
+                return;
+            }
             FileLog.Write("[LicenseSwitching] Start: license switching is turned off on this Director; no usage is read or reported");
             return;
         }
