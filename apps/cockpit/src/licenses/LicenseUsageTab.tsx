@@ -481,7 +481,7 @@ function PriceSetting({ accountEmail, price, onSaved }: { accountEmail: string; 
     const trimmed = text.trim();
     const value = trimmed.length === 0 ? null : Number(trimmed);
     if (value !== null && (!Number.isFinite(value) || value < 0)) {
-      setError("The price is a number of dollars, or empty to clear it.");
+      setError("The price is a number of dollars, or empty to clear it."); // error-report-exempt: input check, the price typed is not a number of dollars
       return;
     }
     setBusy(true);
