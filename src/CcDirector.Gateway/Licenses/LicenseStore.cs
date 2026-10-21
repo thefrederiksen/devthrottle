@@ -227,7 +227,7 @@ public sealed class LicenseStore
                     ctx.LicenseHoldings.Add(row);
                     added.Add(email);
                 }
-                CopyReading(holding, row, readAtShift);
+                CopyReading(holding, row, readAtShift, now);
             }
 
             UpsertAccounts(ctx, report.Holdings, now);
@@ -267,8 +267,11 @@ public sealed class LicenseStore
         }
     }
 
-    private static void CopyReading(LicenseHolding holding, LicenseHoldingEntity row, TimeSpan readAtShift)
+    private static void CopyReading(LicenseHolding holding, LicenseHoldingEntity row, TimeSpan readAtShift, DateTime now)
     {
+        var readError = Trimmed(holding.ReadError, 32);
+        if (readError != row.ReadError)
+            row.ReadErrorSinceUtc = readError is null ? null : now;
         row.IsActive = holding.IsActive;
         row.Plan = Trimmed(holding.Plan, 64);
         row.RateLimitTier = Trimmed(holding.RateLimitTier, 128);
@@ -280,7 +283,7 @@ public sealed class LicenseStore
         row.ExtraUsageUtilization = holding.ExtraUsage?.Utilization;
         row.ReadAtUtc = UtcOrNull(holding.ReadAtUtc);
         row.JudgedReadAtUtc = row.ReadAtUtc is { } read ? read + readAtShift : null;
-        row.ReadError = Trimmed(holding.ReadError, 32);
+        row.ReadError = readError;
         row.ReadErrorDetail = Trimmed(holding.ReadErrorDetail, 500);
         row.SignedInAtUtc = UtcOrNull(holding.SignedInAtUtc);
         row.SignInExpiresAtUtc = UtcOrNull(holding.SignInExpiresAtUtc);

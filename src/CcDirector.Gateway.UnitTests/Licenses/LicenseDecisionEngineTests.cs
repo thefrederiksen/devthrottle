@@ -461,6 +461,40 @@ public sealed class LicenseDecisionEngineTests
     }
 
     [Fact]
+    public void Decide_AnAccountWithNoPaidPlan_IsNeverChosen_EvenWithTheMostRoom()
+    {
+        var machine = Machine("windows", A, B, C);
+        var snapshot = Snapshot([Reading(A, 97, 50, active: true), Reading(B, 5, 5) with { NoPaidPlanSinceUtc = Now.AddHours(-1) },
+            Reading(C, 30, 30)], [machine]);
+
+        var result = LicenseDecisionEngine.Decide(snapshot);
+
+        Assert.Equal(C, Assert.Single(result.Switches).TargetAccountEmail);
+    }
+
+    [Fact]
+    public void DecideManual_NamedTargetWithNoPaidPlan_IsRefusedSayingRenewIt()
+    {
+        var machine = Machine("windows", A, B);
+        var snapshot = Snapshot([Reading(A, 50, 50, active: true), Reading(B, 5, 5) with { NoPaidPlanSinceUtc = Now.AddHours(-1) }], [machine]);
+
+        var verdict = LicenseDecisionEngine.DecideManual(snapshot, A, B);
+
+        Assert.Equal(LicenseManualRefusals.TargetNoPaidPlan, verdict.RefusalCode);
+        Assert.Contains("renew it on claude.ai", verdict.RefusalMessage);
+        Assert.Empty(verdict.Switches);
+    }
+
+    [Fact]
+    public void FirstBackWithRoom_AnAccountWithNoPaidPlan_IsNeverNamed()
+    {
+        var snapshot = Snapshot([Reading(A, 97, 50, active: true), Reading(B, 5, 5) with { NoPaidPlanSinceUtc = Now.AddHours(-1) }],
+            [Machine("windows", A, B)]);
+
+        Assert.Null(LicenseDecisionEngine.FirstBackWithRoom(snapshot, A));
+    }
+
+    [Fact]
     public void Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosenForThatMachine()
     {
         // B is the better account, but the Mac's sign-in for B expires exactly at now + 10 minutes (the

@@ -136,7 +136,11 @@ public sealed class LicenseExtraUsage
 
 Read error codes (`LicenseReadErrors`): `"unauthorized"` (the provider refused the sign-in - it needs a
 new sign-in), `"refresh-failed"` (the stored sign-in could not be renewed), `"rate-limited"`,
-`"network"`, `"unexpected-answer"`, `"store-unreadable"`. When a read fails, the holding keeps the
+`"network"`, `"unexpected-answer"`, `"store-unreadable"`, `"no-paid-plan"` (the usage read was refused
+or limited and the account's own profile, `GET /api/oauth/profile`, says its organization type is
+`claude_free`: only renewing the plan helps, never a new sign-in). The Gateway keeps since when each
+holding has carried its current code, so the page can say "No paid plan since <time>". Such an account is never a switch target. An ACTIVE account that loses its plan is not switched away from
+automatically yet: the engine switches on a tired window, and a lapsed account's kept numbers are not tired. When a read fails, the holding keeps the
 **previous** numbers and their old `ReadAtUtc` and sets `ReadError`; the Gateway sees from `ReadAtUtc`
 how old the numbers are (section 5.2). It never sees a zero standing in for "unknown".
 

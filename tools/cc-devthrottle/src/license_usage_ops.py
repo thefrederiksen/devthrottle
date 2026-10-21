@@ -124,7 +124,8 @@ def usage(json_output: bool, fields: Optional[str], default_config_dir: Optional
         axi_output.render_list("accounts", chosen, [_usage_record(r, chosen) for r in readings]),
     ]
     help_lines = []
-    if any(r.read_error and not r.is_active for r in readings):
+    # A renewed key cannot bring back a plan that lapsed, so an account with no paid plan is not offered one.
+    if any(r.read_error not in (None, license_usage.NO_PAID_PLAN) and not r.is_active for r in readings):
         help_lines.append(f"{_REFRESH} <account>")
     if any(r.read_error for r in readings):
         help_lines.append(f"{_USAGE} --fields account,state,detail")

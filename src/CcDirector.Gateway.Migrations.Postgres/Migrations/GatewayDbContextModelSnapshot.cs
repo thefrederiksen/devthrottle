@@ -2821,6 +2821,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<DateTime?>("ReadErrorSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("RenewalError")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");

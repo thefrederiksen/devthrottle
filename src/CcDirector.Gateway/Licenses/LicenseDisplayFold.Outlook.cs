@@ -143,6 +143,11 @@ public static partial class LicenseDisplayFold
         AccountOutlook Done(DateTime? runsOut = null, DateTime? slow = null, string? limitWindow = null)
             => new(forecast.AccountEmail, inUse, spans, runsOut, slow, limitWindow);
 
+        if (reading.NoPaidPlanSinceUtc is { } lapsed)
+        {
+            Add(now, end, LicenseOutlookSpanKinds.Unknown, NoPaidPlanText(lapsed));
+            return Done();
+        }
         if (reading.ReadAtUtc is null)
         {
             Add(now, end, LicenseOutlookSpanKinds.Unknown, "Not known: it has never been read");

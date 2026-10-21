@@ -47,6 +47,9 @@ public static class LicenseAccountStatuses
     /// <summary>No machine holds a sign-in for it any more.</summary>
     public const string NotHeld = "not-held";
 
+    /// <summary>The account has no paid plan: a new sign-in cannot help it, only renewing the plan on claude.ai.</summary>
+    public const string NoPaidPlan = "no-paid-plan";
+
     /// <summary>A machine's sign-in for it has expired or was refused: it needs a new sign-in there.</summary>
     public const string SignInNeeded = "sign-in-needed";
 

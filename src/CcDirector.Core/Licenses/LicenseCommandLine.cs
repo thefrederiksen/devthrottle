@@ -145,6 +145,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     {
         LicenseReadErrors.Unauthorized, LicenseReadErrors.RefreshFailed, LicenseReadErrors.RateLimited,
         LicenseReadErrors.Network, LicenseReadErrors.UnexpectedAnswer, LicenseReadErrors.StoreUnreadable,
+        LicenseReadErrors.NoPaidPlan,
     };
 
     /// <summary>The contract's switch reason codes (section 3.4), for the same reason.</summary>

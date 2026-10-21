@@ -130,6 +130,11 @@ public sealed class LicenseHoldingEntity : GatewayMintedKeyEntity
     /// <summary>The Director's one plain sentence about the failed read.</summary>
     public string? ReadErrorDetail { get; set; }
 
+    /// <summary>When the Gateway first received <see cref="ReadError"/> as it is now, by its own clock; null with no
+    /// error. A report that repeats the same error keeps it, so it says since when, not when last. It is the time the
+    /// report ARRIVED - the Director does not say when the failed read happened - so it can be one report late.</summary>
+    public DateTime? ReadErrorSinceUtc { get; set; }
+
     /// <summary>When the sign-in was made, as the Director reported it; null when not known.</summary>
     public DateTime? SignedInAtUtc { get; set; }
 
