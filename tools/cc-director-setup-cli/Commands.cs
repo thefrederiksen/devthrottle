@@ -888,6 +888,8 @@ internal static class Commands
                 PlanItemKind.Install => $"install {i.ToVersion}",
                 PlanItemKind.UpToDate => $"up to date ({i.ToVersion})",
                 PlanItemKind.MissingAsset => "no asset in release",
+                PlanItemKind.InstalledByTheToolsStep =>
+                    $"installed by the tools step{(i.FromVersion is null ? "" : $" (have {i.FromVersion})")}",
                 PlanItemKind.Pinned => $"pinned (skipping {i.ToVersion})",
                 _ => i.Kind.ToString(),
             };
