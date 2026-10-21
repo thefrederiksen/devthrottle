@@ -87,7 +87,8 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         Seats = { new RegisteredFactorySeatDto { Id = TheBoss }, new RegisteredFactorySeatDto { Id = TheFinder } },
     };
 
-    private async Task StartGatewayAsync()
+    /// <param name="defined">Whether the factory has a published definition - the only kind a seated Boss exists in.</param>
+    private async Task StartGatewayAsync(bool defined = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -128,7 +129,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         CronJobEndpoints.Map(app, _schedules, sessionFactoryOf: _history.FactoryOf,
             findFactory: (_, id) => id == TheFactory ? Registration() : null,
             runRecords: new CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, _) => false);
+            isDefined: (_, id) => defined && id == TheFactory);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
@@ -137,7 +138,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, mailDeskOn: _ => false);
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
             directorMachine: (_, _) => Machine, nowUtc: () => Now, sessionFactoryOf: _history.FactoryOf,
-            isDefined: (_, _) => false,
+            isDefined: (_, id) => defined && id == TheFactory,
             dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")),
             bossSeatOf: (_, id) => id == TheFactory ? TheBoss : null);
 
@@ -307,5 +308,45 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Delete, $"/cron/jobs/{id}", boss)).StatusCode);
         Assert.Null(_schedules.Get(id));
+    }
+
+    // ---- a defined factory: what the owner-talk Boss of dev-sales actually meets -------------------------------------
+
+    [Fact]
+    public async Task IN_A_DEFINED_FACTORY_THE_BOSS_PAUSES_A_TRIGGER_AND_SWITCHES_A_SCHEDULE_OFF_AND_A_FINDER_IS_REFUSED()
+    {
+        // A seated Boss exists only in a factory with a published definition, so this is the state production is in.
+        await StartGatewayAsync(defined: true);
+        var finder = Session(TheFactory, TheFinder);
+        var boss = Session(TheFactory, TheBoss);
+        var (created, error) = _triggers!.Store.Create(TenantId.Local, Trigger(), "the definition", Now);
+        Assert.Null(error);
+        var trigger = created!.Id.ToString("D");
+        var job = _schedules!.Create(Schedule());
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, $"/triggers/{trigger}/pause", finder)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Post, $"/triggers/{trigger}/pause", boss)).StatusCode);
+        Assert.True(_triggers.Store.Find(TenantId.Local, trigger)!.Paused);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Put, $"/cron/jobs/{job.Id}", finder, Schedule(enabled: false))).StatusCode);
+        Assert.True(_schedules.Get(job.Id)!.Enabled);
+        var switched = await Send(HttpMethod.Put, $"/cron/jobs/{job.Id}", boss, Schedule(enabled: false));
+        Assert.True(switched.StatusCode == HttpStatusCode.OK, await switched.Content.ReadAsStringAsync());
+        Assert.False(_schedules.Get(job.Id)!.Enabled);
+    }
+
+    [Fact]
+    public async Task IN_A_DEFINED_FACTORY_THE_BOSS_ADDING_A_TRIGGER_IS_SENT_TO_THE_DEFINITION()
+    {
+        // The Boss passes the factory gate, and a defined factory's triggers are still written by publishing its
+        // definition: the answer is the definition's 409, not a 403. Publishing is the Boss's way to add one (#4348).
+        await StartGatewayAsync(defined: true);
+        var boss = Session(TheFactory, TheBoss);
+
+        var answer = await Send(HttpMethod.Post, "/triggers", boss, Trigger());
+
+        Assert.Equal(HttpStatusCode.Conflict, answer.StatusCode);
+        Assert.Contains(DefinedByDefinition.Outcome, await answer.Content.ReadAsStringAsync());
+        Assert.Empty(_triggers!.Store.List(TenantId.Local));
     }
 }

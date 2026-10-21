@@ -294,10 +294,14 @@ internal static class SpawnFactory
     /// <summary>
     /// THE OWNER'S BOSS (issue #4351; the owner, 21 October 2026: "The boss should be allowed to do that ... the idea of
     /// having a boss is that it can do things like this"). A session in no factory names a factory and a seat; it starts
-    /// a session in that factory only when the seat is the factory's Boss. The new session is the Boss exactly as its
-    /// night start is: in the factory (its memory, journals and starts), and - for a factory with a published definition
-    /// - recorded as the Boss seat of that version with a rules-only kit, so it is held by the Boss's own rules and its
-    /// children inherit them. A factory with no published definition has no kit to build, so its Boss is started in the
+    /// a session in that factory only when the seat is the factory's Boss. The new session is in the factory (its memory,
+    /// journals and starts), and - for a factory with a published definition - recorded as the Boss seat of that version
+    /// with a RULES-ONLY kit: held by the Boss's own rules, which its children inherit, but not given the brief, grants,
+    /// files or skills a night start's seat kit carries. The caller tells it what to do.
+    ///
+    /// WHO MAY ASK. Any session in no factory, which is wider than the issue's "the owner or a session the owner started
+    /// for that factory" and deliberately so: the same caller may already publish any factory's definition
+    /// (<see cref="FactoryDefinitionEndpoints"/>), which decides far more than starting its Boss does. A factory with no published definition has no kit to build, so its Boss is started in the
     /// factory with no seat recorded, as every session of such a factory is.
     ///
     /// Every other seat is refused: a Finder or a Writer is started by its schedule, its trigger or the owner's Talk
