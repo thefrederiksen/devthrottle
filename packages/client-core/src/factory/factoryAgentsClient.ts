@@ -20,16 +20,21 @@ export type FactoryTone =
 
 export interface FactoryAgentsSwitch {
   enabled: boolean;
-  /** While the area is off: the Gateway's own sentence saying so and how to switch it on on this kind of Gateway. Null
-   *  when it is on. Rendered verbatim (rule 7). */
+  /**
+   * Why the area is off, null exactly when it is on. `plan_required`: the hosted account's plan does not include
+   * factories (show the upgrade page). `not_switched_on`: a self-hosted Gateway whose machine switch is off.
+   * `plan_unknown`: the plan could not be checked just now. Optional: a Gateway from before the Factories need Pro
+   * mission sends no reason, and is then read as today (the `howToStart` page).
+   */
+  reason?: "plan_required" | "not_switched_on" | "plan_unknown" | null;
+  /** While the area is off: the Gateway's own sentence - the upgrade page's body for `plan_required`, how to switch it
+   *  on for `not_switched_on`, to try again for `plan_unknown`. Never null while off; null when it is on. Rendered
+   *  verbatim (rule 7). */
   howToStart: string | null;
-  /** Why the area is off, so the page can show the right one: null exactly when it is on. "plan_required" (hosted, the
-   *  account's plan does not include Factories) shows the upgrade page; any other reason shows the howToStart page. */
-  reason: "plan_required" | "not_switched_on" | "plan_unknown" | null;
-  /** The upgrade page's heading, in the Gateway's words. Non-null only for "plan_required". */
-  title: string | null;
-  /** Where "See Pro" goes: the Gateway's pricing address. Non-null only for "plan_required". */
-  subscribeUrl: string | null;
+  /** The upgrade page's heading ("Factories come with Pro"). Set only for `plan_required`. */
+  title?: string | null;
+  /** The pricing page, where a plan with factories is bought. Set only for `plan_required`. */
+  subscribeUrl?: string | null;
 }
 
 export interface FactoryTab {

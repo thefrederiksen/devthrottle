@@ -52,7 +52,7 @@ export interface FactorySwitchAnswer {
   state: FactorySwitchState;
   /** "plan_required" shows the upgrade page; anything else that is off shows howToStart. Null while on or unknown, and
    *  from a Gateway that sends no reason. */
-  reason: FactoryAgentsSwitch["reason"];
+  reason: NonNullable<FactoryAgentsSwitch["reason"]> | null;
   howToStart: string | null;
   title: string | null;
   subscribeUrl: string | null;
