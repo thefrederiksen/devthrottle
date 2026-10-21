@@ -15,6 +15,17 @@ public enum PlanItemKind
     /// <summary>The manifest has no asset for this component - cannot install/update.</summary>
     MissingAsset,
 
+    /// <summary>
+    /// The component is DELIBERATELY not a standalone download on this platform - it arrives inside the
+    /// shared Python tools bundle instead. Not actionable by this planner, and not a fault.
+    ///
+    /// It is its own kind rather than a MissingAsset because the two call for opposite responses. A
+    /// missing asset means the release is incomplete and somebody should look at the release. This means
+    /// the release is exactly as intended and there is nothing to do. Reporting the second as the first
+    /// told an agent that a correct install was broken, and left it with no way to act (#4291).
+    /// </summary>
+    ProvidedByToolsBundle,
+
     /// <summary>The manifest version is pinned (rolled back from) - intentionally skipped.</summary>
     Pinned,
 }
