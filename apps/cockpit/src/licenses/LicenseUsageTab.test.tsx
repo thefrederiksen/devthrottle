@@ -149,13 +149,96 @@ describe("LicenseUsageTab", () => {
     expect(screen.getByTestId("lic-usage-verdict").className).toContain("lic-tone-good");
   });
 
-  it("unticking a top-level session asks about every live session under it", async () => {
+  it("ticking a top-level session asks about every live session under it, with the table's convention", async () => {
     render(<LicenseUsageTab />);
     const groups = await screen.findByTestId("lic-usage-groups");
+    const group = within(groups).getByLabelText("What if #101 Lead and every session under it stopped") as HTMLInputElement;
+    expect(group.checked).toBe(false);
 
-    fireEvent.click(within(groups).getByRole("checkbox"));
+    // One session under it ticked in the table: the group box is part-ticked.
+    fireEvent.click(within(screen.getByTestId("lic-usage-sessions")).getByLabelText("What if Developer one stopped"));
+    await waitFor(() => expect(group.indeterminate).toBe(true));
+    expect(group.checked).toBe(false);
 
+    // Clicking a part-ticked group ticks the rest - it never clears the tick the person made.
+    fireEvent.click(group);
     await waitFor(() => expect(lastPlanQuestion().stop).toEqual(["dev", "lead"]));
+    expect(group.checked).toBe(true);
+    expect(group.indeterminate).toBe(false);
+
+    // Clicking a fully ticked group clears it.
+    fireEvent.click(group);
+    await waitFor(() => expect(lastPlanQuestion().stop).toEqual([]));
+    expect(group.checked).toBe(false);
+  });
+
+  it("never shows an answer to an older question as current: an earlier answer that lands late is dropped", async () => {
+    let releaseFirst: (value: unknown) => void = () => undefined;
+    getLicensePlan.mockImplementation((question: { stop?: string[] }, signal?: AbortSignal) => {
+      if (question.stop && question.stop.length > 0) return Promise.resolve(whatIf(question.stop, "The new answer."));
+      return new Promise((resolve, reject) => {
+        releaseFirst = resolve;
+        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    render(<LicenseUsageTab />);
+    const table = await screen.findByTestId("lic-usage-sessions");
+
+    fireEvent.click(within(table).getByLabelText("What if Developer one stopped"));
+    await waitFor(() => expect(screen.getByTestId("lic-usage-verdict").textContent).toBe("The new answer."));
+    releaseFirst(structuredClone(PLAN));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.getByTestId("lic-usage-verdict").textContent).toBe("The new answer.");
+  });
+
+  it("while a new question is asked, the old verdict is not shown as its answer", async () => {
+    render(<LicenseUsageTab />);
+    await screen.findByTestId("lic-usage-verdict");
+    getLicensePlan.mockImplementation(() => new Promise(() => undefined));
+
+    fireEvent.click(within(screen.getByTestId("lic-usage-sessions")).getByLabelText("What if Developer one stopped"));
+
+    expect(screen.getByTestId("lic-usage-verdict").textContent).toBe("Asking the Gateway about this choice...");
+    expect(screen.queryByTestId("lic-usage-suggestion")).toBeNull();
+  });
+
+  it("a failed plan read says so with a retry, and never leaves the old answer standing for the new choice", async () => {
+    render(<LicenseUsageTab />);
+    await screen.findByTestId("lic-usage-verdict");
+    getLicensePlan.mockRejectedValue(new Error("The Gateway is not answering."));
+
+    fireEvent.click(within(screen.getByTestId("lic-usage-sessions")).getByLabelText("What if Developer one stopped"));
+
+    expect(await screen.findByText("The Gateway is not answering.")).toBeTruthy();
+    expect(screen.getByTestId("lic-usage-verdict").textContent).toBe(
+      "No answer for this choice: the Gateway did not answer. Try again above.",
+    );
+    expect(screen.getAllByRole("button", { name: /try again/i }).length).toBeGreaterThan(0);
+  });
+
+  it("Pick a time with no time entered asks nothing and says to pick one", async () => {
+    render(<LicenseUsageTab />);
+    await screen.findByTestId("lic-usage-verdict");
+    const calls = getLicensePlan.mock.calls.length;
+
+    fireEvent.click(screen.getByText("Pick a time").closest("label")!.querySelector("input[type=radio]")!);
+
+    expect(screen.getByTestId("lic-usage-verdict").textContent).toBe("Pick a time to ask about.");
+    expect(getLicensePlan.mock.calls.length).toBe(calls);
+  });
+
+  it("after another account is picked, nothing of the old account is shown until its answer comes", async () => {
+    const B = "account-b@example.com";
+    getLicenseUsage.mockResolvedValue({ ...structuredClone(USAGE), accounts: [...USAGE.accounts, { accountEmail: B, inUse: false, label: B }] });
+    render(<LicenseUsageTab />);
+    await screen.findByTestId("lic-usage-sessions");
+    getLicenseUsage.mockImplementation(() => new Promise(() => undefined));
+
+    fireEvent.change(screen.getByTestId("lic-usage-account"), { target: { value: B } });
+
+    expect(screen.queryByTestId("lic-usage-sessions")).toBeNull();
+    expect(screen.queryByTestId("lic-usage-price")).toBeNull();
   });
 
   it("Suggest what to stop ticks exactly the sessions the planner suggested, and Clear unticks them", async () => {

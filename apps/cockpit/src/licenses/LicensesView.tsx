@@ -323,14 +323,14 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
         </section>
       )}
 
-      <div className="lic-tabs" role="tablist" aria-label="Licenses view">
+      <div className="thr-tabs" role="tablist" aria-label="Licenses view">
         {(["accounts", "usage"] as const).map((t) => (
           <button
             key={t}
             type="button"
             role="tab"
             aria-selected={tab === t}
-            className={`lic-tab${tab === t ? " active" : ""}`}
+            className={`thr-tab${tab === t ? " active" : ""}`}
             onClick={() => setTab(t)}
           >
             {t === "accounts" ? "Accounts" : "What is using it"}

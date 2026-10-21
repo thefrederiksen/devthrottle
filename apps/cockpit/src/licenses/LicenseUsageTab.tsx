@@ -64,7 +64,8 @@ export function LicenseUsageTab() {
 
   const [usage, setUsage] = useState<LicenseUsage | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [plan, setPlan] = useState<LicensePlan | null>(null);
+  // The answer on screen carries the question it answers, so an answer to an older question is never shown as current.
+  const [plan, setPlan] = useState<{ key: string; answer: LicensePlan } | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
 
   const readUsage = useCallback(
@@ -85,12 +86,14 @@ export function LicenseUsageTab() {
   // One question to the planner per state of the panel: a change asks again at once, and the answer to an older
   // question is dropped when its request is cancelled.
   const until = target === CUSTOM ? isoFromLocal(customTime) : target;
+  const needsTime = target === CUSTOM && until === null;
   const stopKey = [...stop].sort().join(",");
+  const planKey = JSON.stringify([account, until, stopKey]);
   const readPlan = useCallback(
     async (signal?: AbortSignal) => {
       try {
         const stopped = stopKey.length === 0 ? [] : stopKey.split(",");
-        setPlan(await getLicensePlan({ account, until, stop: stopped }, signal));
+        setPlan({ key: planKey, answer: await getLicensePlan({ account, until, stop: stopped }, signal) });
         setPlanError(null);
         backgroundRecovered(SURFACE, "read the plan");
       } catch (err) {
@@ -98,9 +101,9 @@ export function LicenseUsageTab() {
         setPlanError(describeAndReport(SURFACE, "read the plan", err, { background: true }));
       }
     },
-    [account, until, stopKey],
+    [account, until, stopKey, planKey],
   );
-  useVisiblePolling(readPlan, POLL_MS, target !== CUSTOM || until !== null);
+  useVisiblePolling(readPlan, POLL_MS, !needsTime);
 
   const chooseAccount = (email: string) => {
     setAccount(email);
@@ -117,8 +120,10 @@ export function LicenseUsageTab() {
   const toggleChoice = (choice: LicensePlanChoice) =>
     setStop((current) => {
       const next = new Set(current);
-      const keepRunning = stoppedOf(choice, current) !== "none";
-      choice.sessionIds.forEach((id) => (keepRunning ? next.delete(id) : next.add(id)));
+      // The same convention as the session table: ticked means "what if it stopped". A box with some of its sessions
+      // ticked ticks the rest; a fully ticked box clears them.
+      const stopAll = stoppedOf(choice, current) !== "all";
+      choice.sessionIds.forEach((id) => (stopAll ? next.add(id) : next.delete(id)));
       return next;
     });
 
@@ -127,6 +132,8 @@ export function LicenseUsageTab() {
   }
 
   const shownAccount = account ?? usage.accountEmail;
+  // Another account was just picked and its answer is not here yet: nothing of the old account is shown under its name.
+  const usagePending = account !== null && usage.accountEmail !== account;
   return (
     <div className="lic-usage" data-testid="lic-usage">
       {/* error-reported-by: readUsage */}
@@ -157,7 +164,9 @@ export function LicenseUsageTab() {
         </span>
       </div>
 
-      {usage.emptyText !== null && usage.accountEmail === null ? (
+      {usagePending ? (
+        <LoadingState />
+      ) : usage.emptyText !== null && usage.accountEmail === null ? (
         <EmptyState message={usage.emptyText} />
       ) : (
         <>
@@ -173,7 +182,9 @@ export function LicenseUsageTab() {
           </section>
 
           <MakeItLast
-            plan={plan}
+            plan={plan?.answer ?? null}
+            pending={needsTime || (plan !== null && plan.key !== planKey)}
+            needsTime={needsTime}
             error={planError}
             onRetry={() => void readPlan()}
             target={target}
@@ -184,17 +195,17 @@ export function LicenseUsageTab() {
               setTarget(CUSTOM);
             }}
             stopCount={stop.size}
-            onSuggest={() => plan !== null && setStop(new Set(plan.suggestion.sessionIds))}
+            onSuggest={() => plan !== null && setStop(new Set(plan.answer.suggestion.sessionIds))}
             onClear={() => setStop(new Set())}
           />
 
-          {plan !== null && plan.choices.length > 0 && (
+          {plan !== null && plan.answer.choices.length > 0 && (
             <section className="lic-panel" aria-label="By top-level session">
-              <h2 className="lic-panel-title">By top-level session - untick one to see what stopping it and every session it started would do</h2>
+              <h2 className="lic-panel-title">By top-level session - tick one to see what stopping it and every session it started would do</h2>
               <div className="lic-usage-groups" data-testid="lic-usage-groups">
-                {plan.choices.map((choice) => (
+                {plan.answer.choices.map((choice) => (
                   <TopLevelRow key={choice.topLevelSessionId} choice={choice} stopped={stoppedOf(choice, stop)}
-                    onToggle={() => toggleChoice(choice)} widest={plan.choices[0].rateNowPercentPerHour} />
+                    onToggle={() => toggleChoice(choice)} widest={plan.answer.choices[0].rateNowPercentPerHour} />
                 ))}
               </div>
             </section>
@@ -217,6 +228,8 @@ export function LicenseUsageTab() {
 
 function MakeItLast({
   plan,
+  pending,
+  needsTime,
   error,
   onRetry,
   target,
@@ -228,6 +241,10 @@ function MakeItLast({
   onClear,
 }: {
   plan: LicensePlan | null;
+  /** The answer on screen is to another question than the one the panel now shows. */
+  pending: boolean;
+  /** "Pick a time" is chosen and no time is entered. */
+  needsTime: boolean;
   error: string | null;
   onRetry: () => void;
   target: string | null;
@@ -244,6 +261,15 @@ function MakeItLast({
   const allowed = plan?.allowedPercentPerHour ?? null;
   const chosen = target ?? plan?.targetId ?? null;
   const scale = Math.max(running ?? 0, allowed ?? 0) * 1.15;
+  const verdict = needsTime
+    ? "Pick a time to ask about."
+    : pending
+      ? error !== null
+        ? "No answer for this choice: the Gateway did not answer. Try again above."
+        : "Asking the Gateway about this choice..."
+      : whatIf !== null
+        ? whatIf.verdict
+        : plan?.verdict ?? "";
   return (
     <section className="lic-panel lic-usage-plan" aria-label="Make it last" data-testid="lic-usage-plan">
       <h2 className="lic-panel-title">Make it last</h2>
@@ -277,6 +303,7 @@ function MakeItLast({
             </label>
           </div>
 
+          <div className={pending ? "lic-usage-pending" : undefined} aria-busy={pending && !needsTime && error === null}>
           <div className="lic-usage-tiles">
             <Tile label="Left before 97%" value={pct(plan.leftPercent)}
               detail={plan.weekUsedPercent === null ? "" : `${pct(plan.weekUsedPercent)} used of the weekly limit`} />
@@ -293,23 +320,28 @@ function MakeItLast({
           {running !== null && allowed !== null && scale > 0 && (
             <div className="lic-usage-meter" aria-hidden="true">
               <span className={`lic-usage-meter-fill ${toneClass(tone)}`} style={{ width: `${(running / scale) * 100}%` }} />
-              <span className="lic-usage-meter-limit" style={{ left: `${(allowed / scale) * 100}%` }}>
-                <span>you can run {rate(allowed)}</span>
+              <span className="lic-usage-meter-limit" style={{ left: `${(allowed / scale) * 100}%` }} />
+              {/* The label is kept inside the meter's ends, so it never runs past the panel. */}
+              <span className="lic-usage-meter-label" style={{ left: `${Math.min(85, Math.max(15, (allowed / scale) * 100))}%` }}>
+                you can run {rate(allowed)}
               </span>
             </div>
           )}
+          </div>
 
-          <p className={`lic-usage-verdict ${toneClass(tone)}`} data-testid="lic-usage-verdict">
-            {whatIf !== null ? whatIf.verdict : plan.verdict}
+          <p className={`lic-usage-verdict ${pending ? "lic-tone-neutral" : toneClass(tone)}`} data-testid="lic-usage-verdict">
+            {verdict}
           </p>
-          {whatIf !== null && whatIf.notFound.length > 0 && (
+          {!pending && whatIf !== null && whatIf.notFound.length > 0 && (
             <p className="lic-dim">No longer running: {whatIf.notFound.length} of the ticked sessions.</p>
           )}
-          <p className="lic-dim" data-testid="lic-usage-suggestion">
-            {plan.suggestion.text}
-          </p>
+          {!pending && (
+            <p className="lic-dim" data-testid="lic-usage-suggestion">
+              {plan.suggestion.text}
+            </p>
+          )}
           <div className="lic-usage-buttons">
-            <Button variant="primary" onClick={onSuggest} disabled={plan.suggestion.sessionIds.length === 0}>
+            <Button variant="primary" onClick={onSuggest} disabled={pending || plan.suggestion.sessionIds.length === 0}>
               Suggest what to stop
             </Button>
             <Button variant="ghost" onClick={onClear} disabled={stopCount === 0}>
@@ -347,7 +379,8 @@ function TopLevelRow({ choice, stopped, onToggle, widest }: {
   return (
     <div className="lic-usage-group">
       <label>
-        <input ref={box} type="checkbox" checked={stopped === "none"} onChange={onToggle} /> {choice.label}{" "}
+        <input ref={box} type="checkbox" checked={stopped === "all"} onChange={onToggle}
+          aria-label={`What if ${choice.label} and every session under it stopped`} /> {choice.label}{" "}
         <span className="lic-dim">
           ({choice.working} working, {choice.waiting} waiting)
         </span>
@@ -412,9 +445,12 @@ function SessionTable({ sessions, topLevel, stop, onToggle }: {
                 <td>{s.model ?? ""}</td>
                 <td className="lic-num">
                   {rate(s.rateNowPercentPerHour)}
-                  <span className="lic-usage-bar lic-usage-bar-small">
-                    <i style={{ width: `${widest > 0 ? ((s.rateNowPercentPerHour ?? 0) / widest) * 100 : 0}%` }} />
-                  </span>
+                  {/* No bar for a rate that is not measured: an empty bar reads as zero use. */}
+                  {s.rateNowPercentPerHour !== null && (
+                    <span className="lic-usage-bar lic-usage-bar-small">
+                      <i style={{ width: `${widest > 0 ? (s.rateNowPercentPerHour / widest) * 100 : 0}%` }} />
+                    </span>
+                  )}
                 </td>
                 <td className="lic-num">{pct(s.last4HoursPercent)}</td>
                 <td className="lic-num">

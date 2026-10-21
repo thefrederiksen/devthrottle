@@ -631,32 +631,6 @@
   position: relative;
 }
 
-/* ---- The two tabs: Accounts and What is using it (the usage-by-session mandate) ---- */
-.lic-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin: 4px 0 16px;
-}
-.lic-tab {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  color: var(--text-dim);
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.lic-tab:hover:not(.active) {
-  color: var(--text);
-}
-.lic-tab.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
 /* ---- What is using it ---- */
 .lic-usage-filters {
   display: flex;
@@ -780,14 +754,16 @@
   width: 3px;
   background: var(--text);
 }
-.lic-usage-meter-limit span {
+.lic-usage-meter-label {
   position: absolute;
-  top: 34px;
-  left: -70px;
-  width: 140px;
-  text-align: center;
+  top: 30px;
+  transform: translateX(-50%);
+  white-space: nowrap;
   font-size: 12px;
   color: var(--text-dim);
+}
+.lic-usage-pending {
+  opacity: 0.5;
 }
 .lic-usage-verdict {
   font-size: 16px;
