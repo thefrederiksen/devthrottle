@@ -368,3 +368,47 @@ class TestSingleEventLookupMatchesO365:
         client, calendar = self._client_with_calendar()
         client.respond_to_event("evt-1", "accept")
         calendar.get_event.assert_called_once_with("evt-1")
+
+
+class TestFormatEventPlainStrings:
+    """O365 hands importance, show-as, attendee type and response back as enums.
+    _format_event passed them through, so `calendar get` crashed in rich with
+    "unable to render ImportanceLevel" and attendee responses never matched."""
+
+    def _event(self):
+        from O365.calendar import AttendeeType, EventResponse, EventSensitivity, EventShowAs
+        from O365.utils import ImportanceLevel
+
+        attendee = MagicMock(address="a@example.com", type=AttendeeType.Required)
+        attendee.name = "A"
+        attendee.response_status.status = EventResponse.Accepted
+        event = MagicMock(
+            object_id="evt-1", subject="s", start=None, end=None, location=None,
+            is_all_day=False, organizer=None, body="", is_online_meeting=False,
+            importance=ImportanceLevel.Normal, sensitivity=EventSensitivity.Normal,
+            show_as=EventShowAs.Busy, categories=[], attendees=[attendee],
+        )
+        event.response_status.status = EventResponse.Organizer
+        return event
+
+    def test_enums_become_plain_strings(self):
+        result = OutlookClient(account=MagicMock())._format_event(self._event())
+        assert result["importance"] == "normal"
+        assert result["sensitivity"] == "normal"
+        assert result["show_as"] == "busy"
+        assert result["my_response"] == "organizer"
+        assert result["attendees"][0]["type"] == "required"
+        assert result["attendees"][0]["response"] == "accepted"
+
+    def test_calendar_get_renders_a_formatted_event(self):
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from src.cli import app
+
+        formatted = OutlookClient(account=MagicMock())._format_event(self._event())
+        client = MagicMock()
+        client.get_event.return_value = formatted
+        with patch("src.cli.get_client", return_value=client):
+            result = CliRunner().invoke(app, ["calendar", "get", "evt-1"])
+        assert result.exit_code == 0, result.output
+        assert "normal" in result.output
