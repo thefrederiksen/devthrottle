@@ -1,0 +1,515 @@
+G0 transcript, 2026-10-21T11:42:02Z, machine devlinux, commit bca238290
+The address is passed as --address "$ADDRESS", read from accounts/personal/config.json; it is never printed.
+gmail_probe.py SHA-256: 224e18267ae10afe0abfe4af98dfd60222668eb0661c2f11d9804305703cea39
+gmail_probe.py is byte-for-byte the version committed at bca238290
+
+=== token.json before ===
+  mode 0o600, modified 1792582350, keys ['token', 'refresh_token', 'token_uri', 'client_id', 'client_secret', 'scopes', 'universe_domain', 'account', 'expiry']
+  value hash prefixes: {'token': '9a5699d5', 'refresh_token': '95c32992', 'token_uri': '8b2b6501', 'client_id': '7a5acbdb', 'client_secret': '64bc27b1', 'scopes': '1be73155', 'universe_domain': '7ae267f5', 'account': '12ae32cb', 'expiry': '68a82d69'}
+
+=== Run 1: stripped environment, forced refresh ===
+$ env -i PATH=/usr/bin:/bin:~/.local/bin uv run --script gmail_probe.py --address "$ADDRESS" --force-refresh
+{
+  "environment": {
+    "HOME": null,
+    "LOCALAPPDATA": null,
+    "ccVariableNames": [],
+    "accountRecordHome": "~"
+  },
+  "a_lookup": {
+    "store": "~/.cc-director/config/gmail",
+    "accountDirectoriesExamined": 2,
+    "accountNickname": "personal",
+    "tokenFile": "~/.cc-director/config/gmail/accounts/personal/token.json"
+  },
+  "b_refresh": {
+    "forced": true,
+    "renewed": true,
+    "modeBefore": "0o600",
+    "modeAfter": "0o600",
+    "keysBefore": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "keysAfter": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "sameKeysSameOrder": true,
+    "unchangedValues": {
+      "token_uri": {
+        "before": "8b2b6501",
+        "after": "8b2b6501",
+        "equal": true
+      },
+      "client_id": {
+        "before": "7a5acbdb",
+        "after": "7a5acbdb",
+        "equal": true
+      },
+      "client_secret": {
+        "before": "64bc27b1",
+        "after": "64bc27b1",
+        "equal": true
+      },
+      "scopes": {
+        "before": "1be73155",
+        "after": "1be73155",
+        "equal": true
+      },
+      "universe_domain": {
+        "before": "7ae267f5",
+        "after": "7ae267f5",
+        "equal": true
+      },
+      "account": {
+        "before": "12ae32cb",
+        "after": "12ae32cb",
+        "equal": true
+      }
+    },
+    "tokenChanged": true,
+    "refreshTokenChanged": false,
+    "expiryAfterMinutesFromNow": 60,
+    "readOnlyGetWorked": true
+  }
+}
+
+=== token.json after run 1 ===
+  mode 0o600, modified 1792582922, keys ['token', 'refresh_token', 'token_uri', 'client_id', 'client_secret', 'scopes', 'universe_domain', 'account', 'expiry']
+  value hash prefixes: {'token': '65c752c4', 'refresh_token': '95c32992', 'token_uri': '8b2b6501', 'client_id': '7a5acbdb', 'client_secret': '64bc27b1', 'scopes': '1be73155', 'universe_domain': '7ae267f5', 'account': '12ae32cb', 'expiry': '4cec6519'}
+
+=== cc-gmail reads the account after run 1 ===
+$ cc-gmail accounts status personal
+                                 Account Status: personal                                 
++----------------------------------------------------------------------------------------+
+| Property          | Value                                                              |
+|-------------------+--------------------------------------------------------------------|
+| Account Directory | ~/.cc-director/config/gmail/accounts/personal            |
+| Auth Method       | oauth                                                              |
+| Email             | <address>                                                 |
+| Credentials File  | Found                                                              |
+| Token File        | Found                                                              |
+| Token Path        | ~/.cc-director/config/gmail/accounts/personal/token.json |
+| Authenticated     | Yes                                                                |
+| Default Account   | No                                                                 |
+| Gmail Scopes      | OK                                                                 |
+| Calendar Scopes   | OK                                                                 |
+| Contacts Scopes   | OK                                                                 |
++----------------------------------------------------------------------------------------+
+$ cc-gmail accounts list
+                                  Gmail Accounts                                  
++--------------------------------------------------------------------------------+
+| Account    | Default | Auth Method | Email                      | Status       |
+|------------+---------+-------------+----------------------------+--------------|
+| consulting |         | OAuth       | <address> | Setup needed |
+| personal   |         | OAuth       | <address>         | Ready        |
++--------------------------------------------------------------------------------+
+
+Store: ~/.cc-director/config/gmail
+  consulting: No OAuth credentials file at ~/.cc-director/config/gmail/accounts/consulting/credentials.json
+
+=== token.json after cc-gmail read it (cc-gmail rewrites it only when it had to refresh) ===
+  mode 0o600, modified 1792582922, keys ['token', 'refresh_token', 'token_uri', 'client_id', 'client_secret', 'scopes', 'universe_domain', 'account', 'expiry']
+  value hash prefixes: {'token': '65c752c4', 'refresh_token': '95c32992', 'token_uri': '8b2b6501', 'client_id': '7a5acbdb', 'client_secret': '64bc27b1', 'scopes': '1be73155', 'universe_domain': '7ae267f5', 'account': '12ae32cb', 'expiry': '4cec6519'}
+
+=== Run 2: stripped environment, the read-only measurements (no forced refresh) ===
+$ env -i PATH=/usr/bin:/bin:~/.local/bin uv run --script gmail_probe.py --address "$ADDRESS" --measure
+{
+  "environment": {
+    "HOME": null,
+    "LOCALAPPDATA": null,
+    "ccVariableNames": [],
+    "accountRecordHome": "~"
+  },
+  "a_lookup": {
+    "store": "~/.cc-director/config/gmail",
+    "accountDirectoriesExamined": 2,
+    "accountNickname": "personal",
+    "tokenFile": "~/.cc-director/config/gmail/accounts/personal/token.json"
+  },
+  "b_refresh": {
+    "forced": false,
+    "renewed": false,
+    "modeBefore": "0o600",
+    "modeAfter": "0o600",
+    "keysBefore": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "keysAfter": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "sameKeysSameOrder": true,
+    "unchangedValues": {
+      "token_uri": {
+        "before": "8b2b6501",
+        "after": "8b2b6501",
+        "equal": true
+      },
+      "client_id": {
+        "before": "7a5acbdb",
+        "after": "7a5acbdb",
+        "equal": true
+      },
+      "client_secret": {
+        "before": "64bc27b1",
+        "after": "64bc27b1",
+        "equal": true
+      },
+      "scopes": {
+        "before": "1be73155",
+        "after": "1be73155",
+        "equal": true
+      },
+      "universe_domain": {
+        "before": "7ae267f5",
+        "after": "7ae267f5",
+        "equal": true
+      },
+      "account": {
+        "before": "12ae32cb",
+        "after": "12ae32cb",
+        "equal": true
+      }
+    },
+    "tokenChanged": false,
+    "refreshTokenChanged": false,
+    "expiryAfterMinutesFromNow": 60,
+    "readOnlyGetWorked": true
+  },
+  "c_scopes": {
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.compose",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/contacts"
+    ],
+    "canSend": true
+  },
+  "d_inbox": {
+    "messagesLast30DaysCapped200": 200,
+    "pageSizesAskedFor100": [
+      100,
+      100
+    ],
+    "listCallTimes": {
+      "calls": 2,
+      "totalMs": 577,
+      "medianMs": 303,
+      "minMs": 274,
+      "maxMs": 303,
+      "http429": 0
+    }
+  },
+  "e_metadata": {
+    "sampled": 20,
+    "topLevelKeySets": [
+      {
+        "keys": [
+          "historyId",
+          "id",
+          "internalDate",
+          "labelIds",
+          "payload",
+          "sizeEstimate",
+          "snippet",
+          "threadId"
+        ],
+        "messages": 20
+      }
+    ],
+    "payloadKeys": [
+      "headers",
+      "mimeType"
+    ],
+    "payloadHeaderNamesReturned": [
+      "From",
+      "Subject"
+    ],
+    "payloadShapeOfOneMessage": {
+      "mimeType": "str(21)",
+      "headers": {
+        "listLength": 2,
+        "first": {
+          "name": "str(4)",
+          "value": "str(40)"
+        }
+      }
+    },
+    "responseBytes": {
+      "min": 434,
+      "max": 1114,
+      "median": 627
+    },
+    "messagesWithPayloadParts": 0,
+    "messagesWithAFilenameInMetadata": 0,
+    "subjectsSeen": 20,
+    "subjectsStillRfc2047Encoded": 0,
+    "snippetsWithHtmlEntities": 10,
+    "metadataGetTimes": {
+      "calls": 20,
+      "totalMs": 4811,
+      "medianMs": 242,
+      "minMs": 223,
+      "maxMs": 280,
+      "http429": 0
+    }
+  },
+  "e_attachments": {
+    "comparedMessages": 36,
+    "payloadMimeTypeCounts": {
+      "multipart/alternative": 15,
+      "multipart/mixed": 13,
+      "multipart/related": 5,
+      "text/html": 3
+    },
+    "hasAttachmentSearchVersusMultipartMixed": {
+      "searchYesMixedYes": 12,
+      "searchYesMixedNo": 5,
+      "searchNoMixedYes": 1,
+      "searchNoMixedNo": 18
+    },
+    "hasAttachmentListCalls": {
+      "calls": 1,
+      "totalMs": 261,
+      "medianMs": 261,
+      "minMs": 261,
+      "maxMs": 261,
+      "http429": 0
+    },
+    "inboxLast30DaysWithAttachment": 17,
+    "sampleOf20WithAttachmentBySearch": 1,
+    "minimalFormatKeys": [
+      "historyId",
+      "id",
+      "internalDate",
+      "labelIds",
+      "sizeEstimate",
+      "snippet",
+      "threadId"
+    ],
+    "minimalGetTimes": {
+      "calls": 5,
+      "totalMs": 1431,
+      "medianMs": 233,
+      "minMs": 232,
+      "maxMs": 478,
+      "http429": 0
+    }
+  },
+  "f_knownSender": {
+    "a_sentCache": {
+      "sentMessages": 500,
+      "listPageSizes": [
+        500
+      ],
+      "distinctAddressesWrittenTo": 116,
+      "wholeBuildMs": 118984,
+      "sentGetTimes": {
+        "calls": 500,
+        "totalMs": 118487,
+        "medianMs": 235,
+        "minMs": 194,
+        "maxMs": 340,
+        "http429": 0
+      }
+    },
+    "b_searchPerSender": {
+      "senders": 10,
+      "searchTimes": {
+        "calls": 10,
+        "totalMs": 2340,
+        "medianMs": 226,
+        "minMs": 215,
+        "maxMs": 254,
+        "http429": 0
+      },
+      "confirmGetTimes": {
+        "calls": 2,
+        "totalMs": 479,
+        "medianMs": 248,
+        "minMs": 231,
+        "maxMs": 248,
+        "http429": 0
+      },
+      "wholeMs": 2819,
+      "outcomes": {
+        "not-plain": 0,
+        "no-hit": 8,
+        "confirmed": 2,
+        "hit-not-confirmed": 0
+      },
+      "knownBySearch": 2
+    },
+    "agreement": {
+      "knownByCache": 2,
+      "knownBySearch": 2,
+      "sendersWhereTheyDiffer": 0
+    }
+  },
+  "g_ids": {
+    "lengths": [
+      16
+    ],
+    "allLowercaseHex": true,
+    "allLettersAndDigits": true,
+    "sameIdsInSecondList": true,
+    "idEqualsThreadIdCount": 155,
+    "listedCount": 200
+  },
+  "h_rate": {
+    "realisticRunOf10Ms": 5818,
+    "realisticRunCalls": 24,
+    "allCalls": {
+      "calls": 604,
+      "totalMs": 144240,
+      "medianMs": 236,
+      "minMs": 194,
+      "maxMs": 478,
+      "http429": 0
+    },
+    "statusCounts": {
+      "200": 604
+    }
+  }
+}
+
+=== Run 3: bogus HOME and bogus LOCALAPPDATA, each holding a decoy store with the same address; forced refresh ===
+Decoys: <scratch>/home/.cc-director/config/gmail/accounts/decoy and <scratch>/localappdata/cc-director/config/gmail/accounts/decoy
+(app_password accounts: if the probe used either, it would fail naming 'decoy' before any network call)
+$ env -i PATH=/usr/bin:/bin:~/.local/bin HOME=<scratch>/home LOCALAPPDATA=<scratch>/localappdata uv run --script gmail_probe.py --address "$ADDRESS" --force-refresh
+{
+  "environment": {
+    "HOME": "<scratch>/home",
+    "LOCALAPPDATA": "<scratch>/localappdata",
+    "ccVariableNames": [],
+    "accountRecordHome": "~"
+  },
+  "a_lookup": {
+    "store": "~/.cc-director/config/gmail",
+    "accountDirectoriesExamined": 2,
+    "accountNickname": "personal",
+    "tokenFile": "~/.cc-director/config/gmail/accounts/personal/token.json"
+  },
+  "b_refresh": {
+    "forced": true,
+    "renewed": true,
+    "modeBefore": "0o600",
+    "modeAfter": "0o600",
+    "keysBefore": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "keysAfter": [
+      "token",
+      "refresh_token",
+      "token_uri",
+      "client_id",
+      "client_secret",
+      "scopes",
+      "universe_domain",
+      "account",
+      "expiry"
+    ],
+    "sameKeysSameOrder": true,
+    "unchangedValues": {
+      "token_uri": {
+        "before": "8b2b6501",
+        "after": "8b2b6501",
+        "equal": true
+      },
+      "client_id": {
+        "before": "7a5acbdb",
+        "after": "7a5acbdb",
+        "equal": true
+      },
+      "client_secret": {
+        "before": "64bc27b1",
+        "after": "64bc27b1",
+        "equal": true
+      },
+      "scopes": {
+        "before": "1be73155",
+        "after": "1be73155",
+        "equal": true
+      },
+      "universe_domain": {
+        "before": "7ae267f5",
+        "after": "7ae267f5",
+        "equal": true
+      },
+      "account": {
+        "before": "12ae32cb",
+        "after": "12ae32cb",
+        "equal": true
+      }
+    },
+    "tokenChanged": true,
+    "refreshTokenChanged": false,
+    "expiryAfterMinutesFromNow": 60,
+    "readOnlyGetWorked": true
+  }
+}
+(UV_CACHE_DIR is set in run 3 only so uv does not build a fresh cache under the bogus HOME; the probe does not read it)
+
+=== token.json after run 3 ===
+  mode 0o600, modified 1792583069, keys ['token', 'refresh_token', 'token_uri', 'client_id', 'client_secret', 'scopes', 'universe_domain', 'account', 'expiry']
+  value hash prefixes: {'token': 'f9efaa80', 'refresh_token': '95c32992', 'token_uri': '8b2b6501', 'client_id': '7a5acbdb', 'client_secret': '64bc27b1', 'scopes': '1be73155', 'universe_domain': '7ae267f5', 'account': '12ae32cb', 'expiry': '2d3fd12b'}
+
+=== cc-gmail reads the account after run 3 ===
+$ cc-gmail accounts status personal
+                                 Account Status: personal                                 
++----------------------------------------------------------------------------------------+
+| Property          | Value                                                              |
+|-------------------+--------------------------------------------------------------------|
+| Account Directory | ~/.cc-director/config/gmail/accounts/personal            |
+| Auth Method       | oauth                                                              |
+| Email             | <address>                                                 |
+| Credentials File  | Found                                                              |
+| Token File        | Found                                                              |
+| Token Path        | ~/.cc-director/config/gmail/accounts/personal/token.json |
+| Authenticated     | Yes                                                                |
+| Default Account   | No                                                                 |
+| Gmail Scopes      | OK                                                                 |
+| Calendar Scopes   | OK                                                                 |
+| Contacts Scopes   | OK                                                                 |
++----------------------------------------------------------------------------------------+
