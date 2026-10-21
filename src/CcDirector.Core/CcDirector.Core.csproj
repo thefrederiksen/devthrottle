@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <!-- Pin the patched native SQLite library (3.0.x) to resolve advisory GHSA-2m69-gcr7-jv3q
          (NU1903 high-severity). All of SQLitePCLRaw <= 2.1.11 is vulnerable and Microsoft.Data.Sqlite
          still pulls 2.1.11 transitively, so override its native bundle + core to the patched 3.0 line.

@@ -424,16 +424,27 @@ public sealed class FleetOutcomeStoreTests : IDisposable
             var id = Guid.Parse(filed.Id);
             using var start = new Barrier(callers);
             var results = new FleetOutcomeAnswerResult[callers];
+            var failures = new Exception?[callers];
 
+            // Each caller catches its own exception: one escaping a raw thread ends the whole test host, so every
+            // test after this one never runs (issue #4352). Caught here, it fails THIS test with what was thrown.
             var threads = Enumerable.Range(0, callers).Select(i => new Thread(() =>
             {
-                start.SignalAndWait();
-                results[i] = instances[i % 2].Answer(TenantA, id, $"answer {i}",
-                    i % 2 == 0 ? FleetOutcomeStore.OwnerCaller : FleetManagerId,
-                    i % 2 == 0 ? FleetOutcomeStore.RoleOwner : FleetOutcomeStore.RoleFleetManager, Now);
+                try
+                {
+                    start.SignalAndWait();
+                    results[i] = instances[i % 2].Answer(TenantA, id, $"answer {i}",
+                        i % 2 == 0 ? FleetOutcomeStore.OwnerCaller : FleetManagerId,
+                        i % 2 == 0 ? FleetOutcomeStore.RoleOwner : FleetOutcomeStore.RoleFleetManager, Now);
+                }
+                catch (Exception ex)
+                {
+                    failures[i] = ex;
+                }
             })).ToList();
             threads.ForEach(t => t.Start());
             threads.ForEach(t => t.Join());
+            Assert.All(failures, f => Assert.Null(f));
 
             var winners = results.Select((r, i) => (r, i)).Where(x => x.r.Status == FleetOutcomeAnswerStatus.Answered).ToList();
             Assert.Single(winners);
