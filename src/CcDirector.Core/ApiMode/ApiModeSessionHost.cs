@@ -168,10 +168,16 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// </summary>
     public Task HeardAsync()
     {
+        FileLog.Write($"[ApiModeSessionHost] HeardAsync: session={_sessionId}");
+        HeardRequested?.Invoke();
         var heard = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // The queue is closed once the session has ended; its loop then finishes after the last batch.
         return _observed.Writer.TryWrite(new Observed(null, heard)) ? heard.Task : _observer;
     }
+
+    /// <summary>Raised as <see cref="HeardAsync"/> starts to wait, on the caller's thread: lets a test hold the observer loop
+    /// until a caller is waiting on it, and let it go then, with no clock.</summary>
+    internal event Action? HeardRequested;
 
     /// <summary>Dialect defects seen so far (each already logged): our own code or Pi's record shape is wrong.</summary>
     public IReadOnlyList<string> Defects
