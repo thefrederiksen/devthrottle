@@ -439,6 +439,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 SendCommandAsync)
             .AskAsync(tenant, questions, ct);
 
+    /// <summary>Whether a registered factory is archived (issue #4343: an archived factory is not refused for having no
+    /// boss seat until it is restored). A factory that is not registered is not archived.</summary>
+    private bool FactoryIsArchived(Core.Tenancy.TenantId tenant, string factory)
+        => FactoryRegistry.Find(tenant, factory)?.ArchivedAtUtc is not null;
+
     /// <summary>
     /// What the Gateway holds today about one factory, for the export of a factory that has no definition (Factory
     /// Definition, phase 3; decision A8): its registry entry, each seat's published brief, and the schedules and
@@ -5659,7 +5664,7 @@ public sealed class GatewayHost : IAsyncDisposable
             apply: FactoryDefinitionPublish,
             liveOf: FactoryLivePartsOf,
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync, FactoryIsArchived),
             nowUtc: () => DateTime.UtcNow);
         // The factory page's Records tab (Factory Definition mission, phase 6): its journals by seat, its working
         // documents with every version, and its attachments - read only; the factory's sessions write them.
@@ -5725,7 +5730,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // into Api.MailDeskGate.Group(...), which answers 404 with no body for an account that is off.
         // Turning the switch ON offers the Mail Desk template as a draft (phase 3, section 10); turning it off offers nothing.
         MailDeskTemplateOffer = new MailDesk.MailDeskTemplateOffer(FactoryDefinitions,
-            new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync, FactoryIsArchived),
             MailDeskSwitch.IsOn, () => DateTime.UtcNow);
         Api.AdminMailDeskEndpoint.Map(_app, MailDeskSwitch, TenantRegistry, offerTemplate: tenant => MailDeskTemplateOffer.Offer(tenant));
         // The Mail Desk routes (phase 1 contract, sections 4 and 5): status, channels, rules and decisions, every one
@@ -6342,7 +6347,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // A defined factory's briefs are read from and saved into its definition, checked as any definition save is,
             // and a person's publish or restore of one publishes the whole definition through the publish transaction.
             defined: new Api.FactoryBriefEndpoints.Defined(_factorySeatBriefs,
-                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync, FactoryIsArchived),
                 FactoryDefinitionPublish));
 
         // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
@@ -6358,6 +6363,7 @@ public sealed class GatewayHost : IAsyncDisposable
             apply: FactoryDefinitionPublish,
             nowUtc: () => DateTime.UtcNow,
             askMachines: AskFactoryMachinesAsync,
+            isArchived: FactoryIsArchived,
             // Phase 5b: the state each definition check keeps, listed per checked start and reset by a person.
             checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List,
                 _cronJobs.ListAll));
@@ -6367,7 +6373,7 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: FactoryDefinitions,
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync, FactoryIsArchived),
             nowUtc: () => DateTime.UtcNow,
             whyNotNew: (tenant, content) => Api.FactoryDefinitionTabEndpoints.CreateRefusal(factoriesScreenSources, tenant, content));
 

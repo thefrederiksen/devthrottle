@@ -35,7 +35,7 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     },
     "bossSeat": {
-      "description": "The id of the factory's boss seat: lower-case letters and digits joined by single hyphens, at most 64 characters. A seat with that id must exist, with the role Boss.",
+      "description": "The id of the factory's boss seat: lower-case letters and digits joined by single hyphens, at most 64 characters. A seat with that id must exist, with the name Boss and the role Boss. Every factory has a Boss: a save, an import or a publish of a factory.yaml without bossSeat is refused, unless the factory is archived.",
       "type": "string",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
       "maxLength": 64

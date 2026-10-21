@@ -1,5 +1,6 @@
 factory: mail-desk
 title: Mail Desk
+bossSeat: boss
 purpose: Screens every incoming message on every channel and routes it to the factory that handles it
 goalText: |
   Every message that reaches one of the account's channels is looked at within one check interval, and

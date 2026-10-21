@@ -137,7 +137,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         // The brief's own routes, as the host maps them: what the brief panel's buttons send.
         FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now,
             new FactoryBriefEndpoints.Defined(defined,
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody), new FactoryPublishApply(_db)));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived), new FactoryPublishApply(_db)));
 
         await app.StartAsync();
         _app = app;

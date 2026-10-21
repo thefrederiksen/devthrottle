@@ -55,6 +55,7 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
             Title = "WarmForward",
             Folder = "/home/soren/warmforward-factory",
             Computer = "DEVLINUX",
+            BossSeat = Boss,
             Seats = { new FactorySeatManifest { Id = Boss, Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml" } },
         }, "the owner (test)", Now);
 
@@ -67,7 +68,7 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             nowUtc: () => Now,
             defined: new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), briefs),
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody), new FactoryPublishApply(db)));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived), new FactoryPublishApply(db)));
     }
 
     public void Dispose()

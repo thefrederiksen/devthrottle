@@ -46,7 +46,12 @@ internal sealed class FactoryPublishScenario
             Title = "Invoices",
             Folder = @"D:\ReposFred\invoices",
             Computer = "SOREN_NORTH",
-            Seats = { new FactorySeatManifest { Id = "clerk", Name = "Clerk", Role = "Clerk", BriefFile = "briefs/clerk.md" } },
+            BossSeat = "boss",
+            Seats =
+            {
+                new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "briefs/boss.md" },
+                new FactorySeatManifest { Id = "clerk", Name = "Clerk", Role = "Clerk", BriefFile = "briefs/clerk.md" },
+            },
         }, "test", Now.AddDays(-1));
         AddSchedule(Undefined, "clerk", "cj_inv1", "0 6 * * *", "Book the invoices.");
         AddTrigger("invoice-inbox", Undefined);

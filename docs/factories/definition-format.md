@@ -39,7 +39,7 @@ purpose: Builds DevThrottle       # optional; one line, at most 120 characters
 goalText: |                       # optional
   Ship the product.
 goalApprovedOn: 2026-10-10        # optional, YYYY-MM-DD; only with goalText
-bossSeat: boss                    # optional; that seat must exist and its role must be Boss
+bossSeat: boss                    # required; that seat must exist, named Boss with the role Boss
 defaults:                         # required
   machine: SOREN_NORTH            # required: where a seat runs when it names no machine
   agent: ClaudeCode               # required: the agent a seat runs when it names none
@@ -52,7 +52,12 @@ repositories: [devthrottle]       # optional: repository names the factory may w
 - `purpose` - one line saying what the factory does.
 - `goalText` - the factory's goal, in prose.
 - `goalApprovedOn` - the date the owner approved the goal.
-- `bossSeat` - the id of the boss seat.
+- `bossSeat` - the id of the boss seat. Every factory has a Boss: it holds what the factory is about - its goal, its
+  memory and the job of improving it. A save, an import or a publish of a `factory.yaml` without `bossSeat` is
+  refused with what to add (`bossSeat: boss` and a `seats/boss.yaml` with `name: Boss` and `role: Boss`), and so is
+  `cc-devthrottle factory register` of a manifest without one. An archived factory is left alone: it is not refused
+  for having no boss until it is restored. A version stored before the rule (21 October 2026) still reads, runs and
+  exports as before; only a new write is held to it.
 - `defaults` - holds `machine`, `agent` and `model`, which a seat takes when it names none of its own.
 - `repositories` - the repositories the factory may work in.
 
@@ -242,7 +247,7 @@ Errors:
 - An unknown key (with the keys that file takes), a missing required key, a wrong type, a bad value.
 - A path that is not one of the places above, a file over 256 KB, a version over 4 MB or over 1000 files.
 - A reference that does not resolve, reported on the line that makes it: a seat's grant, rule set, factory skill,
-  file, check or repository; a fleet skill not in the account's skill store; the boss seat missing or not role Boss;
+  file, check or repository; a fleet skill not in the account's skill store; no boss seat named, the boss seat missing, or not role Boss;
   a grant naming a seat that does not exist; the two grant lists disagreeing; a skill file whose folder has no
   `SKILL.md`.
 - A factory skill and a fleet skill with one name; a factory skill on an agent that cannot load one; a rule set on

@@ -171,9 +171,15 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         _registry = new FactoryRegistryStore(Db);
         // The CEO is run by cj_a721e6, linked first: a seat's schedules are the ones that point at it (issue #3650).
         ScheduleLinkSeed.Link(Db, TenantId.Local, "warmforward", "nora-hale", "cj_a721e6");
-        var manifest = WarmForward();
-        if (bossless) manifest.BossSeat = null;
-        _registry.Register(TenantId.Local, manifest, "the owner (test)", DateTime.UtcNow);
+        _registry.Register(TenantId.Local, WarmForward(), "the owner (test)", DateTime.UtcNow);
+        if (bossless)
+        {
+            // A factory with no boss can no longer be registered (issue #4343), but rows stored before that rule - and
+            // archived factories, which are left alone - still have none, and the talk route must still answer them.
+            using var ctx = Db.CreateContext(TenantId.Local);
+            ctx.FactoryRegistry.Single(f => f.Factory == "warmforward").BossSeat = null;
+            ctx.SaveChanges();
+        }
 
         var schedules = new Dictionary<string, CronJobDto>
         {

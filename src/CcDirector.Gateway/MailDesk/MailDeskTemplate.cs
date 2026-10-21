@@ -10,8 +10,10 @@ namespace CcDirector.Gateway.MailDesk;
 /// <c>MailDesk/Template/</c>, compiled into the Gateway binary as embedded resources the way the built-in skills are,
 /// and read back here as the same map of path to text a person's import sends.
 ///
-/// The folder holds <c>factory.yaml</c>, the one seat <c>seats/mail-desk.yaml</c> (its brief inline, as the seat
-/// format requires), and the screening check <c>checks/screen.py</c>. Nothing in it names a mailbox, an address or a
+/// The folder holds <c>factory.yaml</c>, the Mail Desk seat <c>seats/mail-desk.yaml</c> (its brief inline, as the seat
+/// format requires), the screening check <c>checks/screen.py</c>, and the Boss seat <c>seats/boss.yaml</c>: every
+/// factory has a Boss (issue #4343). The Boss is the one the owner's own Mail Desk was given by hand on 21 October 2026,
+/// byte for byte, so the template's version equals that definition's and the offer finds it already held. Nothing in it names a mailbox, an address or a
 /// provider: the channels are Mail Desk data on the Gateway (design 5.3, decisions D19 and D20), so adding a mailbox is
 /// a command and never a new template.
 ///
@@ -30,17 +32,21 @@ public static class MailDeskTemplate
     /// <summary>The factory the template defines. <see cref="MailDeskStart.Is"/> reads it.</summary>
     public const string Factory = "mail-desk";
 
-    /// <summary>The template's one seat.</summary>
+    /// <summary>The template's Mail Desk seat: the one its screening check starts.</summary>
     public const string Seat = "mail-desk";
 
     /// <summary>The screening check the seat's start runs. <see cref="MailDeskStart.Is"/> reads it.</summary>
     public const string CheckPath = "checks/screen.py";
+
+    /// <summary>The template's Boss seat (issue #4343).</summary>
+    public const string BossSeat = "boss";
 
     /// <summary>Every file the template holds, by its path in the definition, in ordinal order.</summary>
     public static readonly IReadOnlyList<string> ExpectedPaths = new[]
     {
         CheckPath,
         "factory.yaml",
+        $"seats/{BossSeat}.yaml",
         $"seats/{Seat}.yaml",
     };
 

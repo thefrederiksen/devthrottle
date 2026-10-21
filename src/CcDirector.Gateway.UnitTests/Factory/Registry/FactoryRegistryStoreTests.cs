@@ -401,11 +401,56 @@ public sealed class FactoryRegistryStoreTests : IDisposable
     }
 
     [Fact]
-    public void Register_NoBoss_IsAllowed()
+    public void Register_NoBoss_IsRefusedWithTheFix_AndNothingIsStored()
     {
+        // Issue #4343: every factory has a Boss. A manifest without one is refused with what to add.
+        var store = NewStore();
         var m = WarmForward();
         m.BossSeat = null;
-        Assert.Null(NewStore().Register(A, m, "s", Now).BossSeat);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.Register(A, m, "s", Now));
+
+        Assert.Equal(FactoryRegistryStore.NoBossSeat, ex.Message);
+        Assert.Contains("\"bossSeat\": \"boss\"", ex.Message);
+        Assert.Empty(store.List(A));
+    }
+
+    [Fact]
+    public void Register_WithABoss_IsAccepted()
+    {
+        Assert.Equal("nora-hale", NewStore().Register(A, WarmForward(), "s", Now).BossSeat);
+    }
+
+    [Fact]
+    public void Register_NoBoss_OfAnArchivedFactory_IsAccepted_AndItStaysArchived()
+    {
+        // Issue #4343: an archived factory is left alone until it is restored, so a scheduled re-registration from
+        // its own computer is not refused for a boss it never had.
+        var store = NewStore();
+        store.Register(A, WarmForward(), "s", Now.AddDays(-2));
+        store.Archive(A, "warmforward", "owner", Array.Empty<string>(), Now.AddDays(-1));
+        var m = WarmForward();
+        m.BossSeat = null;
+
+        var registered = store.Register(A, m, "s", Now);
+
+        Assert.Null(registered.BossSeat);
+        Assert.NotNull(registered.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public void Register_NoBoss_OfARestoredFactory_IsRefused()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "s", Now.AddDays(-3));
+        store.Archive(A, "warmforward", "owner", Array.Empty<string>(), Now.AddDays(-2));
+        store.Restore(A, "warmforward");
+        var m = WarmForward();
+        m.BossSeat = null;
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.Register(A, m, "s", Now));
+
+        Assert.Equal(FactoryRegistryStore.NoBossSeat, ex.Message);
     }
 
     // ---------- goal numbers ----------

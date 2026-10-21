@@ -48,6 +48,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
     private readonly FactoryDefinitionEndpoints.Account _account;
 
+    /// <summary>The factories the account's registry holds archived, as the check is told them (issue #4343).</summary>
+    private readonly HashSet<string> _archived = new(StringComparer.Ordinal);
+
     public FactoryDefinitionEndpointsTests()
     {
         var db = _h.Open();
@@ -55,7 +58,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         _apply = new FactoryPublishApply(db);
         // A publish drives the factory from phase 4, and until phase 5 it must be registered (it runs in its folder).
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
-        _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody);
+        _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody,
+            (_, factory) => _archived.Contains(factory));
     }
 
     public void Dispose() => _h.Dispose();
@@ -600,6 +604,27 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(422, Status(refused));
         Assert.Contains(FindingsOf(refused), f => f.Severity == "error" && f.File == "files/huge.txt");
         Assert.Equal(0, VersionsKept());
+    }
+
+    [Fact]
+    public void A_SAVE_WITH_NO_BOSS_SEAT_IS_REFUSED_BY_THE_CHECK_saying_the_fix_and_nothing_is_stored()
+    {
+        // Issue #4343: every factory has a Boss.
+        var refused = Save(Person(), DefinitionFixture.PublishableEdit("factory.yaml", "bossSeat: boss", ""), expect: 0);
+
+        AssertRefusedByTheCheck(refused, "factory.yaml", 1, FactoryDefinitionCheck.NoBossSeat);
+        Assert.Equal(0, VersionsKept());
+    }
+
+    [Fact]
+    public void A_SAVE_WITH_NO_BOSS_SEAT_FOR_AN_ARCHIVED_FACTORY_IS_STORED_it_is_left_alone_until_restored()
+    {
+        _archived.Add(TheFactory);
+
+        var saved = Save(Person(), DefinitionFixture.PublishableEdit("factory.yaml", "bossSeat: boss", ""), expect: 0);
+
+        Assert.Equal(200, Status(saved));
+        Assert.Equal(1, VersionsKept());
     }
 
     [Fact]

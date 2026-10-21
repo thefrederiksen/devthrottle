@@ -4681,7 +4681,7 @@ def factory_register(
 ) -> None:
     """Register a factory from a JSON manifest, replacing its last registration.
 
-    The manifest holds exactly: factory, title, folder (absolute), computer, bossSeat (optional; that seat's name is Boss), goalFile
+    The manifest holds exactly: factory, title, folder (absolute), computer, bossSeat (required: every factory has a Boss; that seat's name and role are Boss), goalFile
     (optional, relative to the folder - its text is read here and sent, so run this on the factory's computer),
     goalApprovedOn (optional, YYYY-MM-DD), and seats: a list of {id, name, role, briefFile (relative to the
     folder), schedules (Gateway schedule ids), computer (optional, defaults to the factory's)}. An unknown key
