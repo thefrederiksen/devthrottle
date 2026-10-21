@@ -93,7 +93,10 @@ export function LicenseUsageTab() {
     async (signal?: AbortSignal) => {
       try {
         const stopped = stopKey.length === 0 ? [] : stopKey.split(",");
-        setPlan({ key: planKey, answer: await getLicensePlan({ account, until, stop: stopped }, signal) });
+        const answer = await getLicensePlan({ account, until, stop: stopped }, signal);
+        // An answer to a question that has since changed is dropped, not stored.
+        if (signal?.aborted === true) return;
+        setPlan({ key: planKey, answer });
         setPlanError(null);
         backgroundRecovered(SURFACE, "read the plan");
       } catch (err) {
