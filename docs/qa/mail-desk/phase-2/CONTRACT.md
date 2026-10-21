@@ -5,6 +5,9 @@ This is what the screening check reads, what it writes back, and what it prints.
 tests are in `docs/qa/mail-desk/phase-2/tests/`. Where this document and the code disagree, the tests decide, and one
 of the two is a defect.
 
+**Gmail:** a channel whose `provider` is `gmail` is read by the Gmail reader, whose sign-in, request guard, cursor,
+fields and failures are in `docs/qa/mail-desk/gmail/CONTRACT.md`. Everything else here holds for it as for Outlook.
+
 It follows the mission document (`docs/missions/mail-desk-2026-10-18/MISSION.md`, sections 5.4 to 5.7, with the phase 0
 findings) and uses phase 1's words (`docs/qa/mail-desk/phase-1/CONTRACT.md`): the modes `observe` and `live`, the
 decisions `archive` and `junk`, and `messageKey`, `sender` and `receivedUtc` as in phase 1's decision row.
@@ -104,14 +107,32 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | Graph answers something that is not JSON | `Microsoft Graph answered something that is not JSON for <address> while <step>` |
 | A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
 | A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
-| An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook` |
+| An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook, gmail` |
+| Gmail: no cc-gmail account holds the address | `<address> is not signed in on <machine>: run cc-gmail accounts add <the address before the @> and give it this address` (line 2: where it looked) |
+| Gmail: more than one cc-gmail account holds it | `<address> is in more than one cc-gmail account on <machine>: keep one and remove the others with cc-gmail accounts remove <name>` (line 2: every account directory) |
+| Gmail: the account signs in with an app password | `<address> signs in to cc-gmail on <machine> without OAuth: run cc-gmail -a <nickname> auth --method oauth` |
+| Gmail: no token.json | `<address> is not signed in on <machine>: run cc-gmail -a <nickname> auth` |
+| Gmail: token.json not cc-gmail's, missing a key the refresh needs, or the refresh refused by Google | `<address> is not signed in on <machine>: run cc-gmail -a <nickname> auth --force` (line 2: what was wrong, or Google's error code) |
+| Gmail: the token lacks the scope the mode needs | `<address> on <machine> lacks the Gmail permission <mode> mode needs: run cc-gmail -a <nickname> auth --force` |
+| Gmail: token.json names another sign-in service | `the Gmail sign-in of <address> on <machine> names another sign-in service: run cc-gmail -a <nickname> auth --force` |
+| Gmail: an account's config.json cannot be read | `<address> is not signed in on <machine>, and a cc-gmail account's settings cannot be read: <error kind>` |
+| Gmail: token.json cannot be read, or the renewed one cannot be saved | the two Outlook rows above, word for word |
+| Gmail: Google's sign-in service cannot be reached | `could not reach the Google sign-in service from <machine> for <address>: <error, cut to 50 characters>` |
+| Gmail: Google's sign-in service fails | `the Google sign-in service failed on <machine> for <address>: HTTP <status>` (or `: it answered something that is not JSON`, or `: its answer held no access token`) |
+| Gmail: the Gmail API answers an HTTP error | `the Gmail API answered HTTP <status> for <address> while <step>` |
+| Gmail: the Gmail API cannot be reached | `the Gmail API could not be reached from <machine> for <address> while <step>: <error, cut to 50 characters>` |
+| Gmail: the Gmail API answers something that is not JSON | `the Gmail API answered something that is not JSON for <address> while <step>` |
+| Gmail: a list without usable message ids | `the Gmail API answered a list without usable message ids for <address> while <step>` |
+| Gmail: a message without a usable id or receive time | `the Gmail API answered a message without a usable id or receive time for <address> while reading the Inbox` |
+| Gmail: more new mail than one run can list | `<address> has more than 10000 new Inbox messages, more than screen.py lists in one run: archive the oldest of them in Gmail` |
 | More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes failed on <machine>, too many to name in the context; first: <address>`, leaving out `; first: <address>` when the address would take the sentence past 165 characters (the first one's own sentence, which names it, on line 2) |
 | The memory would outgrow the Director's limit | `the Mail Desk check's memory would be <n> bytes, over the Director's 65536, so nothing was written: give this factory fewer channels` |
 | The memory is missing, empty, not JSON, unreadable, or holds a field this check did not write | one sentence naming the file or the channel and the field (3.2) |
 | Anything else | `screen.py stopped on an error it does not handle: <kind>: <message>` |
 
 `<step>` is one of `reading the Inbox`, `reading the Sent folder`, `moving a message to archive`, `moving a message to
-junkemail`.
+junkemail`; for Gmail, `reading the Inbox`, `reading the Sent mail`, `archiving a message`, `moving a message to Spam`.
+`<nickname>` for Gmail is the cc-gmail account's directory name (`docs/qa/mail-desk/gmail/CONTRACT.md` 2.2).
 
 ## 2. Limits
 
@@ -186,12 +207,12 @@ prove that a channel id, a machine name and nested objects come back unchanged.
 |---|---|---|
 | `channels` | Gateway | One entry per mailbox, in the order they are reported. It must be a list with at least one entry. An empty or missing list is a failed check, and so is an empty memory file. There is no default. |
 | `address` | Gateway | The mailbox, as in phase 1's channel row. The check reads it in lower case. The saved sign-in's file name is made from it and matched **without regard to case**, because cc-outlook names the file after the address as it was typed when the account was added (6). Two entries with the same address, in any case, are a failed check. The check never hard-codes an address. |
-| `provider` | Gateway | `outlook`. Any other value fails that channel, naming it: `provider gmail has no reader in this version of screen.py (channel ...); this version reads: outlook`. Every channel is checked before any network call. (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: that channel only, no longer the run.) |
+| `provider` | Gateway | `outlook` or `gmail` (the Gmail reader: `docs/qa/mail-desk/gmail/CONTRACT.md`). Any other value fails that channel, naming it: `provider imap has no reader in this version of screen.py (channel ...); this version reads: outlook, gmail`. Every channel is checked before any network call. (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: that channel only, no longer the run.) |
 | `mode` | Gateway | `observe` or `live`. Anything else fails that channel (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026). |
 | `id` | Gateway, optional | Copied into the channel's section of the report (4.2), so the Gateway can match it to its channel row. |
 | `filingQueue` | Gateway adds; check removes | Items `{"messageKey": <short key>, "decision": "archive" or "junk"}`, oldest first. See 3.4. A missing queue means an empty one. |
-| `cursor` | check | The newest receive time reported, and the Graph ids reported at exactly that time (the phase 0 pattern). A missing cursor means this channel has never reported a message, so the next run is a first run. The Gateway must not write it. |
-| `sentCache` | check | When the Sent folder was last read, and a 12-hex-digit hash of each address written to (the SHA-256 of the lower-case address). **No address is kept in the memory.** |
+| `cursor` | check | The newest receive time reported, and the Graph ids reported at exactly that time (the phase 0 pattern). A Gmail channel's cursor has its own shape, `{"provider": "gmail", "newestMs", "idsAtNewest"}`, and neither is accepted on the other's channel (Gmail contract, 4). A missing cursor means this channel has never reported a message, so the next run is a first run. The Gateway must not write it. |
+| `sentCache` | check | When the Sent folder was last read, and a 12-hex-digit hash of each address written to (the SHA-256 of the lower-case address). **No address is kept in the memory.** Outlook only: a Gmail channel knows a sender by one search and has no `sentCache`; one there fails that channel. |
 | `keys` | check | The short-key table: each key, the Graph id it stands for, and when it was reported. |
 
 The channel row carries **no nickname**. The sign-in fix finds the nickname for itself (section 6).
@@ -375,6 +396,8 @@ for the next run, where it comes first.
 
 ## 5. What the check may send to Microsoft Graph
 
+(What it may send to the Gmail API and to Google's sign-in service is in `docs/qa/mail-desk/gmail/CONTRACT.md`, 3.)
+
 Every Graph call goes through one function, `graph_request()`. It refuses all of the following **before anything
 reaches the network**:
 
@@ -398,6 +421,8 @@ The check's only other network traffic is MSAL's own renewal of the sign-in, to 
 `https://graph.microsoft.com/Mail.ReadWrite` only.
 
 ## 6. The sign-in (Outlook)
+
+(The Gmail sign-in, cc-gmail's store and its refresh, is in `docs/qa/mail-desk/gmail/CONTRACT.md`, 2.)
 
 - The check looks for the saved sign-in only under the Director's per-user base folder: on Linux
   `~/.local/share/cc-director`, on macOS `~/Library/Application Support/cc-director`, and on Windows
@@ -457,6 +482,13 @@ person reading the Director's own record of the run.
 
 ```
 uv run --no-project --with pytest --with "msal>=1.28" python -m pytest docs/qa/mail-desk/phase-2/tests -v
+```
+
+With the Gmail reader's tests (google-auth is needed by those tests only, never by the check):
+
+```
+uv run --no-project --with pytest --with "msal>=1.28" --with google-auth python -m pytest \
+    docs/qa/mail-desk/phase-2/tests docs/qa/mail-desk/gmail/tests -q
 ```
 
 The tests run with every `CC_` variable removed, a scratch home and a scratch Director base folder, a fake MSAL
