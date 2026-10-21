@@ -26,12 +26,18 @@ public sealed class FactoryOwnerActionConflictException : Exception
 ///    off, and named in the confirm; the ones already off are named as left off. History, memory and the registry
 ///    entry are kept. RESTORE switches back on only the schedules the archive switched off - never one somebody else
 ///    switched off - and says which.
+///  - DELETE (issue #4324). Only an archived factory. Its registry entry, its definition and every version of it, its
+///    schedules and triggers, and its seats' briefs are deleted for good. Its activity record, journals, memory,
+///    records and goal numbers are kept as the account's history; the items still waiting on the owner are marked
+///    handled, so none is left on Waiting on you for a factory that is gone. The confirm names every schedule and
+///    trigger, and the request sends the schedules back: a different set is refused.
 /// </summary>
 public static class FactoryOwnerActions
 {
     public const string HandledOlder = "handled-older";
     public const string Archive = "archive";
     public const string Restore = "restore";
+    public const string Delete = "delete";
 
     /// <summary>How old an item must be for the bulk "mark handled".</summary>
     public static readonly TimeSpan BulkAge = TimeSpan.FromDays(7);
@@ -237,6 +243,64 @@ public static class FactoryOwnerActions
             Schedules = plan.SwitchIds,
         };
     }
+
+    /// <summary>The schedules a delete removes: every schedule linked to the factory, on or off.</summary>
+    public static List<CronJobDto> DeleteSchedules(RegisteredFactoryDto f, IReadOnlyList<CronJobDto> schedules) =>
+        schedules.Where(j => string.Equals(j.Factory, f.Factory, StringComparison.Ordinal))
+            .OrderBy(j => j.Id, StringComparer.Ordinal).ToList();
+
+    /// <summary>Delete, offered on an archived factory only; null on a factory that is not archived.</summary>
+    public static FactoryOwnerActionDto? DeleteAction(RegisteredFactoryDto f, IReadOnlyList<CronJobDto> schedules,
+        IReadOnlyList<string> triggerNames, int openWaiting)
+    {
+        ArgumentNullException.ThrowIfNull(triggerNames);
+        if (f.ArchivedAtUtc is null) return null;
+        var jobs = DeleteSchedules(f, schedules);
+        var lines = new List<string>
+        {
+            $"{f.Title} is deleted for good. It leaves Show archived and cannot be restored.",
+            "Deleted: its registry entry, its definition and every version of it, and its seats' briefs.",
+            jobs.Count == 0
+                ? "It has no Gateway schedule, so none is deleted."
+                : $"{(jobs.Count == 1 ? "This Gateway schedule is" : "These Gateway schedules are")} deleted: {Names(jobs)}.",
+            triggerNames.Count == 0
+                ? "It has no trigger, so none is deleted."
+                : $"{(triggerNames.Count == 1 ? "This trigger is" : "These triggers are")} deleted: {Join(triggerNames)}.",
+            "Kept as history: its activity record, journals, memory, records and goal numbers, and the runs of its schedules and triggers.",
+        };
+        if (openWaiting > 0)
+            lines.Add($"{Count(openWaiting, "item")} waiting on you from it {(openWaiting == 1 ? "is" : "are")} marked handled, so {(openWaiting == 1 ? "it leaves" : "they leave")} Waiting on you.");
+        lines.Add("This is recorded in its activity record as your act.");
+        return new FactoryOwnerActionDto
+        {
+            Action = Delete,
+            FactoryId = f.Factory,
+            Label = "Delete",
+            BusyLabel = $"Deleting {f.Title}...",
+            ConfirmTitle = $"Delete {f.Title} for good?",
+            ConfirmLines = lines,
+            ConfirmLabel = $"Delete {f.Title}",
+            Danger = true,
+            Schedules = jobs.Select(j => j.Id).ToList(),
+        };
+    }
+
+    /// <summary>The owner's row for a delete, written in the delete's own transaction.</summary>
+    public static AppendFactoryActivityRequest DeleteRow(string factory, string title, IReadOnlyList<string> scheduleNames,
+        IReadOnlyList<string> triggerNames, int definitionVersions, int briefVersions, int handled, string actor, DateTime nowUtc) => new()
+    {
+        Factory = factory,
+        FactoryAgent = OwnerAgent,
+        What = Clip($"The owner deleted {title}: its registry entry, {Count(definitionVersions, "definition version")}, " +
+                    $"{Count(briefVersions, "brief version")}, " +
+                    (scheduleNames.Count == 0 ? "no schedule" : $"schedules {Join(scheduleNames)}") + ", " +
+                    (triggerNames.Count == 0 ? "no trigger" : $"triggers {Join(triggerNames)}") +
+                    (handled == 0 ? "" : $"; {Count(handled, "item")} waiting on the owner marked handled") +
+                    ". Its history is kept."),
+        Outcome = FactoryActivityOutcome.Done,
+        Actor = actor,
+        OccurredUtc = nowUtc,
+    };
 
     /// <summary>Refuse when the schedules the request carries are not the ones the plan would switch now: the owner
     /// read a confirm that no longer describes the action.</summary>

@@ -6,6 +6,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
+using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.Pairing;
@@ -70,9 +71,9 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
         },
     };
 
-    private void Schedule(string id, string name, bool enabled) => _schedules[id] = new CronJobDto
+    private void Schedule(string id, string name, bool enabled, string? factory = null) => _schedules[id] = new CronJobDto
     {
-        Id = id, Name = name, Enabled = enabled, ScheduleKind = CronSchedule.KindRecurring, CronExpression = "0 6 * * *", TimeZoneId = "UTC",
+        Id = id, Name = name, Enabled = enabled, Factory = factory, ScheduleKind = CronSchedule.KindRecurring, CronExpression = "0 6 * * *", TimeZoneId = "UTC",
     };
 
     private async Task StartAsync(Caller caller = Caller.OwnerBrowser, bool switchOn = true)
@@ -153,7 +154,7 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
 
     private static CronJobDto Copy(CronJobDto j) => new()
     {
-        Id = j.Id, Name = j.Name, Enabled = j.Enabled, ScheduleKind = j.ScheduleKind, CronExpression = j.CronExpression, TimeZoneId = j.TimeZoneId,
+        Id = j.Id, Name = j.Name, Enabled = j.Enabled, Factory = j.Factory, ScheduleKind = j.ScheduleKind, CronExpression = j.CronExpression, TimeZoneId = j.TimeZoneId,
     };
 
     private FactoryActivityDto Waiting(string agent, string outcome, string what, DateTime at) =>
@@ -364,12 +365,124 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
         Assert.Equal("Website Business is not archived.", await ErrorOf(response));
     }
 
+    // ---------- delete (issue #4324) ----------
+
+    private void SeedWhatMakesTheFactory()
+    {
+        using var ctx = Db.CreateContext(TenantId.Local);
+        ctx.FactoryDefinitions.Add(new FactoryDefinitionVersionEntity
+            { TenantId = TenantId.Local.Value, Factory = "website-business", Version = 1, Content = "{}", State = FactoryDefinitionStates.Published, AuthorKind = "person", WrittenAtUtc = Now.AddDays(-20) });
+        ctx.FactoryDefinitions.Add(new FactoryDefinitionVersionEntity
+            { TenantId = TenantId.Local.Value, Factory = "website-business", Version = 2, Content = "{}", AuthorKind = "person", WrittenAtUtc = Now.AddDays(-19) });
+        ctx.FactoryBriefs.Add(new FactoryBriefVersionEntity
+            { TenantId = TenantId.Local.Value, Factory = "website-business", Seat = "malik", Version = 1, Text = "brief", AuthorKind = "person", WrittenAtUtc = Now.AddDays(-20) });
+        ctx.Triggers.Add(new TriggerEntity
+            { TenantId = TenantId.Local.Value, Name = "website-new-mail", Factory = "website-business", FactoryAgent = "malik", Machine = "SOREN_NORTH", CreatedBy = "test", CreatedUtc = Now.AddDays(-20) });
+        // Another factory's trigger and a plain schedule: a delete never touches them.
+        ctx.Triggers.Add(new TriggerEntity
+            { TenantId = TenantId.Local.Value, Name = "other-mail", Factory = "other-factory", FactoryAgent = "boss", Machine = "SOREN_NORTH", CreatedBy = "test", CreatedUtc = Now.AddDays(-20) });
+        ctx.SaveChanges();
+        ScheduleLinkSeed.Link(Db, TenantId.Local, null, null, "cj_else");
+    }
+
+    private void LinkedSchedulesOnTheList()
+    {
+        Schedule("cj_ceo", "Website - Malik Grant - morning run", enabled: false, factory: "website-business");
+        Schedule("cj_send", "Website - Sender - send", enabled: false, factory: "website-business");
+        Schedule("cj_off", "Website - Sender - retry", enabled: false, factory: "website-business");
+        Schedule("cj_else", "A plain job", enabled: true);
+    }
+
+    [Fact]
+    public async Task Delete_OfAnArchivedFactory_RemovesWhatMakesIt_KeepsItsHistory_AndClosesWhatWaitsOnTheOwner()
+    {
+        LinkedSchedulesOnTheList();
+        await StartAsync();
+        SeedWhatMakesTheFactory();
+        var waiting = Waiting("malik", "escalated", "Approve the new price?", Now.AddDays(-2));
+        Waiting("sender", "done", "Sent 4 emails", Now.AddDays(-1));
+        Assert.Null(Page().Delete);
+        Assert.Equal(HttpStatusCode.OK, (await Post("archive", new FactoryOwnerActionRequest { Schedules = new() })).StatusCode);
+
+        var delete = Page().Delete!;
+        Assert.Equal(new[] { "cj_ceo", "cj_off", "cj_send" }, delete.Schedules);
+        Assert.True(delete.Danger);
+        Assert.Equal("Delete Website Business for good?", delete.ConfirmTitle);
+        Assert.Contains("Kept as history: its activity record, journals, memory, records and goal numbers, and the runs of its schedules and triggers.", delete.ConfirmLines);
+        Assert.Contains("1 item waiting on you from it is marked handled, so it leaves Waiting on you.", delete.ConfirmLines);
+
+        var response = await Post("delete", new FactoryOwnerActionRequest { Schedules = delete.Schedules });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = (await response.Content.ReadFromJsonAsync<FactoryOwnerActionResultDto>(Web))!;
+        Assert.Equal("Website Business is deleted. Schedules deleted: cj_ceo, cj_off, cj_send. Triggers deleted: website-new-mail. Its history is kept.", result.Text);
+        Assert.Null(_registry!.Find(TenantId.Local, "website-business"));
+        Assert.DoesNotContain(_registry.List(TenantId.Local), f => f.Factory == "website-business");
+        using (var ctx = Db.CreateContext(TenantId.Local))
+        {
+            Assert.Empty(ctx.FactoryDefinitions.Where(v => v.Factory == "website-business"));
+            Assert.Empty(ctx.FactoryBriefs.Where(b => b.Factory == "website-business"));
+            Assert.Equal(new[] { "cj_else" }, ctx.CronJobs.Select(j => j.Id).ToList());
+            Assert.Equal(new[] { "other-mail" }, ctx.Triggers.Select(t => t.Name).ToList());
+        }
+        // History stays: both rows written before, plus the archive row, the handled row and the delete row.
+        var rows = AllRows();
+        Assert.Contains(rows, r => r.Id == waiting.Id);
+        Assert.Contains(rows, r => r.What == "Sent 4 emails");
+        Assert.Contains(rows, r => r.CorrectsId == waiting.Id);
+        var deleteRow = Assert.Single(rows, r => r.FactoryAgent == "owner" && r.What.StartsWith("The owner deleted", StringComparison.Ordinal));
+        Assert.Contains("2 definition versions, 1 brief version", deleteRow.What);
+        Assert.Contains("triggers website-new-mail", deleteRow.What);
+    }
+
+    [Fact]
+    public async Task Delete_OfAFactoryThatIsNotArchived_IsRefused_AndNothingIsDeleted()
+    {
+        LinkedSchedulesOnTheList();
+        await StartAsync();
+        SeedWhatMakesTheFactory();
+
+        var response = await Post("delete", new FactoryOwnerActionRequest { Schedules = new() { "cj_ceo", "cj_off", "cj_send" } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Website Business is not archived. Archive it first: only an archived factory can be deleted.", await ErrorOf(response));
+        Assert.NotNull(_registry!.Find(TenantId.Local, "website-business"));
+        using var ctx = Db.CreateContext(TenantId.Local);
+        Assert.Equal(2, ctx.FactoryDefinitions.Count());
+        Assert.Equal(4, ctx.CronJobs.Count());
+        Assert.Empty(AllRows());
+    }
+
+    [Fact]
+    public async Task Delete_WhenTheSchedulesChangedSinceTheConfirm_Is409_AndNothingIsDeleted()
+    {
+        LinkedSchedulesOnTheList();
+        await StartAsync();
+        SeedWhatMakesTheFactory();
+        Assert.Equal(HttpStatusCode.OK, (await Post("archive", new FactoryOwnerActionRequest { Schedules = new() })).StatusCode);
+        var rowsBefore = AllRows().Count;
+
+        var response = await Post("delete", new FactoryOwnerActionRequest { Schedules = new() { "cj_ceo" } });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.NotNull(_registry!.Find(TenantId.Local, "website-business"));
+        using var ctx = Db.CreateContext(TenantId.Local);
+        Assert.Equal(2, ctx.FactoryDefinitions.Count());
+        Assert.Equal(1, ctx.FactoryBriefs.Count());
+        Assert.Equal(2, ctx.Triggers.Count());
+        Assert.Equal(4, ctx.CronJobs.Count());
+        Assert.Equal(rowsBefore, AllRows().Count);
+    }
+
     // ---------- only the owner ----------
 
     [Theory]
     [InlineData(Caller.SessionKey, "waiting/handled-older")]
     [InlineData(Caller.SessionKey, "archive")]
     [InlineData(Caller.SessionKey, "restore")]
+    [InlineData(Caller.SessionKey, "delete")]
+    [InlineData(Caller.DirectorDeviceKey, "delete")]
+    [InlineData(Caller.MachineToken, "delete")]
     [InlineData(Caller.DirectorDeviceKey, "waiting/handled-older")]
     [InlineData(Caller.DirectorDeviceKey, "archive")]
     [InlineData(Caller.DirectorDeviceKey, "restore")]
@@ -413,6 +526,7 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
     [InlineData("/gateway/factories/website-business/waiting/handled-older")]
     [InlineData("/gateway/factories/website-business/archive")]
     [InlineData("/gateway/factories/website-business/restore")]
+    [InlineData("/gateway/factories/website-business/delete")]
     public void ASessionsOwnKey_NeverReachesTheRoute(string path)
         => Assert.False(SessionKeyGuard.Check("POST", path).Allowed, "the owner's acts on a factory are not a session's");
 }

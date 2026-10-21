@@ -393,6 +393,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-definition-create",
     # License Switching, the usage-by-session mandate (the owner, 2026-10-20): what is using a Claude account.
     "license-sessions", "license-plan",
+    # Issue #4324: the owner deletes an archived factory.
+    "factory-delete",
 }
 
 

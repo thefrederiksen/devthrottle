@@ -32,8 +32,8 @@ export interface FactoryTalkTarget {
  * refuse rather than do something other than what the owner read.
  */
 export interface FactoryOwnerAction {
-  /** "handled-older", "archive" or "restore". */
-  action: "handled-older" | "archive" | "restore";
+  /** "handled-older", "archive", "restore" or "delete". */
+  action: "handled-older" | "archive" | "restore" | "delete";
   factoryId: string;
   label: string;
   busyLabel: string;
@@ -391,6 +391,8 @@ export interface FactoryPageView {
   archivedText: string | null;
   /** "Restore", when it is archived. */
   restore: FactoryOwnerAction | null;
+  /** "Delete", when it is archived: only an archived factory can be deleted. */
+  delete: FactoryOwnerAction | null;
 }
 
 export interface FactorySeatRow {
@@ -958,6 +960,7 @@ const OWNER_ACTION_PATH: Record<FactoryOwnerAction["action"], string> = {
   "handled-older": "waiting/handled-older",
   archive: "archive",
   restore: "restore",
+  delete: "delete",
 };
 
 /**
