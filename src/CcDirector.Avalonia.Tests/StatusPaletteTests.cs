@@ -174,6 +174,39 @@ public sealed class StatusPaletteTests
     }
 
     /// <summary>
+    /// The sentinel's ADVICE, not just the fact that it logs (piece D of the mission "a new install lands in
+    /// the tenant you intended").
+    ///
+    /// This line used to open with "Likely a Gateway/Director version or tenancy mismatch; redeploy the Gateway
+    /// and Director together". On 20 October 2026 every session on a freshly installed Mac rendered this
+    /// sentinel, and the real cause was a Director enrolled in the account's only team while the rest of the
+    /// fleet ran in the personal account. The words sent the investigation at the deploy for several hours.
+    ///
+    /// Asserted as a PRESENCE and an ORDER, never as the absence of the old sentence: an absence check would
+    /// also pass on a message that came back empty.
+    /// </summary>
+    [AvaloniaFact]
+    public void MissingStampMessage_PutsTheTenancyCheckBeforeTheRedeployAdvice()
+    {
+        var message = StatusPalette.MissingStampMessage("11111111-2222-3333-4444-555555555555");
+
+        // It still says which session, and which pixel, so the line is still the one a person greps for.
+        Assert.Contains("11111111-2222-3333-4444-555555555555", message);
+        Assert.Contains("BROKEN magenta sentinel", message);
+
+        // The cheap check is named, and it is actionable - it says where to look.
+        Assert.Contains("TENANCY", message);
+        Assert.Contains("Settings, Team", message);
+
+        // And it comes first. The redeploy advice is still there, because a version mismatch is a real cause -
+        // it is simply no longer the first thing a reader is sent to do.
+        var tenancy = message.IndexOf("TENANCY", StringComparison.Ordinal);
+        var redeploy = message.IndexOf("redeploying the two together", StringComparison.Ordinal);
+        Assert.True(tenancy >= 0 && redeploy > tenancy,
+            $"The tenancy check must be named before the redeploy advice. tenancy={tenancy}, redeploy={redeploy}.");
+    }
+
+    /// <summary>
     /// THE UNREACHABILITY PROOF, and the reason the sentinel is a tripwire rather than a guess.
     ///
     /// Drives the REAL fold (<see cref="SessionOrdering.EffectiveColor"/> - the same function the

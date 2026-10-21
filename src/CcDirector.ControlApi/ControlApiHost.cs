@@ -2093,6 +2093,15 @@ public sealed class ControlApiHost : IAsyncDisposable
             _apiModeEventPusher?.Start();
             // Issue #1292: keep the async-vs-local numbering decision in step with the new config.
             _sessionManager.FleetNumberingActive = gatewayConfig.IsEnabled;
+            // Issue #3377: and keep the session credential in step with it too. This line used to live only in
+            // StartAsync, so a Director that STARTED with no Gateway and was connected afterwards - which is
+            // every first run, because the setup wizard signs in seconds after the window opens - kept a null
+            // GatewayUrl for the rest of the process life. SessionManager gates the whole credential block on
+            // it, so no session key was ever minted and every session was launched with neither CC_GATEWAY_URL
+            // nor CC_GATEWAY_SESSION_KEY: each one reported "CC_GATEWAY_URL is not set" on its first fleet
+            // command while the Director beside it was healthy and connected. Measured on devthrottle-mac-mini
+            // on 20 October 2026, where the log held no SessionGatewayKeys Mint line for any real session.
+            _sessionManager.GatewayUrl = gatewayConfig.IsEnabled ? gatewayConfig.Url : null;
         }
         finally
         {

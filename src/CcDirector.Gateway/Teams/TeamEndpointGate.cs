@@ -87,10 +87,20 @@ public sealed class TeamEndpointGate
     public const string CallerUnknownRefusal =
         "DevThrottle cannot tell which member of the team is making this request, so it refuses it. Nothing was done.";
 
-    /// <summary>What a request for something private is told when it cannot be shown to be the caller's own.</summary>
+    /// <summary>
+    /// What a request for something private is told when it cannot be shown to be the caller's own.
+    ///
+    /// It names BOTH causes, because the refusal alone sent an investigation the wrong way on 20 October 2026:
+    /// a Director enrolled in a team while everything it addressed belonged to the person's own account was read
+    /// as a broken sign-in for several hours. The two causes are a thing that belongs to another member of the
+    /// team, and a Director enrolled in a different team or account from the thing it is addressing. Neither the
+    /// other tenant nor its contents is named - only the caller's own situation and where to look.
+    /// </summary>
     public const string OwnershipUnknownRefusal =
         "DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts " +
-        "and prompts - so inside a team it refuses it. Nothing was done.";
+        "and prompts - so inside a team it refuses it. Nothing was done. Two things cause this: the thing belongs to " +
+        "another member of the team, or this Director is enrolled in a different account or team from the thing it is " +
+        "addressing. Settings, Team says which account or team this Director works for.";
 
     /// <summary>The <see cref="HttpContext.Items"/> key under which <see cref="RunAsync"/> records the team a request
     /// was ALLOWED in. Read through <see cref="AllowedTeam"/>.</summary>
