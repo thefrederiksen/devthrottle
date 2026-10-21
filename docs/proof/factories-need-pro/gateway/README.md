@@ -6,25 +6,22 @@ the retired `hosted` tier and the pre-column legacy row). A plan that cannot be 
 on. One decision, `FactoryAgentsSwitch.Answer`, is read by every factory route, the switch question, the roster chip,
 the administrator read and the scheduler.
 
-All runs below were on SOREN_NORTH, 21 October 2026, Debug, from the worktree `D:\wt\fnp-gateway` on base
-`8f3cd136c` with this change applied.
+All runs below were on SOREN_NORTH, 21 October 2026, Debug, from the worktree `D:\wtnp-gateway`.
 
 ## Commands and counts
 
 | Command | Result |
 |---|---|
-| `.\scripts\test-local.ps1` | 13 of 14 suites Completed. `CcDirector.Gateway.UnitTests` (288 parked classes this change reaches) 4,751 passed; `CcDirector.Core.Tests` (30 reached classes) 303 passed. `CcDirector.Core.UnitTests` 2,601 passed, **1 failed** - see below. |
-| `.\scripts\test-local.ps1 -Gateway` (the parked suite the COVERAGE GAP line named) | 1,779 passed, 3 skipped, 0 failed, all four shards Completed. |
+| `.\scripts	est-local.ps1` at `42f6f7dbe` (this change rebased on `1e3daab40`), tree clean | **GREEN**: all 14 suites `outcome=Completed`, 0 failed. Among them `CcDirector.Gateway.UnitTests` (the 288 parked classes this change reaches) 4,751 passed, `CcDirector.Core.Tests` (30 reached classes) 303 passed, `CcDirector.Core.UnitTests` 2,602 passed. |
+| `.\scripts	est-local.ps1 -Gateway` (the parked suite the COVERAGE GAP line names) | 1,779 passed, 3 skipped, 0 failed, all four shards Completed. Run on the change before the rebase, on base `8f3cd136c`; the rebase brought only a release commit and a test-only fix (#4332). |
 | `dotnet test CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Factory.\|FullyQualifiedName~CcDirector.Gateway.Tests.Tenancy."` | 2,600 passed, 0 failed. |
 | `dotnet test CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CronEngine\|FullyQualifiedName~FactoriesNeedProTests"` | 75 passed, 0 failed. |
 | `dotnet test ... --filter "FullyQualifiedName~FactoriesNeedProTests"` (the new tests) | 50 passed, 0 failed. |
 | `npm run typecheck` in `packages/client-core` | clean. |
 
-**The one red test is not this change.** `GateTestsDoNotDependOnTheMachineTests` fails on
-`src/CcDirector.Gateway.UnitTests/SessionCredentialAfterLateEnrollTests.cs` ("fixed-port ... (new)"). That file was
-added by `df943ef86` (#3377), which is already on main; this change does not touch it or the check's baseline. I did
-not re-run the check on an untouched main tree; the reasoning is that the check reads source files only, and the one it
-names is not in this diff.
+The first default run, before the rebase, had one red test in `CcDirector.Core.UnitTests`:
+`GateTestsDoNotDependOnTheMachineTests` named `SessionCredentialAfterLateEnrollTests.cs`, a file added on main by
+`df943ef86` and not touched here. Main fixed it in `1e3daab40` (#4332); the run above is after that.
 
 **The new tests can fail.** Two mutations, each restored afterwards:
 
