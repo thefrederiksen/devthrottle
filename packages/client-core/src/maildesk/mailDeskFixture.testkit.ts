@@ -2,8 +2,7 @@
 //
 // A GET /gateway/mail-desk/channels answer in the shape of docs/qa/mail-desk/phase-7/CONTRACT.md section 2, whose
 // WORDS ARE DELIBERATELY ODD. Every sentence a page shows is one no client would write for itself: a provider called
-// "outlook" whose label is not "Outlook" (and one row with the Gateway's real "gmail" and "Gmail", so the page is seen
-// to show the second provider's word as the Gateway sent it), decision words whose labels are not the obvious ones, a count that is not
+// "outlook" whose label is not "Outlook", a "gmail" whose label is not "Gmail", decision words whose labels are not the obvious ones, a count that is not
 // the decision's usual count. A page that renders the Gateway's words verbatim shows them; a page that works out its
 // own words from `provider`, `mode`, `decision` or `byDecision` shows something else and fails.
 //
@@ -96,7 +95,7 @@ export function oddChannels(): MailDeskChannels {
         id: "ch-4",
         address: "support@example.org",
         provider: "gmail",
-        providerLabel: "Gmail",
+        providerLabel: "Not Gmail Either",
         signedIn: {
           state: "failing",
           label: "Failing - the last check could not read the mailbox: support@example.org is not signed in on kettle-03: run cc-gmail -a support auth --force",

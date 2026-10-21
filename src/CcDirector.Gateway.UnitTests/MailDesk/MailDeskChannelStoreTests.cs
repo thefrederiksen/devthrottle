@@ -105,7 +105,28 @@ public sealed class MailDeskChannelStoreTests : IDisposable
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("gmailx")]
+    [InlineData("g mail")]
+    [InlineData("googlemail")]
+    [InlineData("imap")]
+    [InlineData("outlook2")]
+    public void Add_ABlankOrNearMissProvider_IsRefusedNamingBothAndRecordsNothing(string? provider)
+    {
+        var store = Store();
+
+        var write = store.Add(A, Mailbox, provider!, Machines, Owner, "why", Now);
+
+        Assert.Equal(MailDeskChannelOutcome.BadProvider, write.Outcome);
+        Assert.EndsWith("is not one the Mail Desk reads; give 'outlook' or 'gmail'", write.Refusal);
+        Assert.Empty(store.List(A, includeRemoved: true));
+    }
+
+    [Theory]
     [InlineData("gmail")]
+    [InlineData("GMAIL")]
     [InlineData(" Gmail ")]
     public void Add_Gmail_IsAddedWithTheProviderFolded(string provider)
     {

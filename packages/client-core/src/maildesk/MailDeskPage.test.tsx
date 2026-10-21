@@ -121,7 +121,7 @@ describe("MailDeskPage", () => {
 
     const heading = await screen.findByRole("heading", { level: 2, name: gmail.address });
     const card = heading.closest("[data-testid=mail-desk-channel]") as HTMLElement;
-    expect(card.querySelector(".mail-desk-provider")?.textContent).toBe("Gmail");
+    expect(card.querySelector(".mail-desk-provider")?.textContent).toBe("Not Gmail Either");
     expect(within(card).getByText(gmail.signedIn.label).textContent).toBe(gmail.signedIn.label);
   });
 

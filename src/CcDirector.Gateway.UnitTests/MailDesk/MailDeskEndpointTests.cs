@@ -385,6 +385,35 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
             answer.Body.GetProperty("detail").GetString());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("gmailx")]
+    [InlineData("g mail")]
+    [InlineData("googlemail")]
+    [InlineData("imap")]
+    [InlineData("outlook2")]
+    public async Task AddChannel_ABlankOrNearMissProvider_Answers400NamingBothAndRecordsNothing(string provider)
+    {
+        var before = Recorded();
+
+        var answer = await Post(P + "/channels", new { address = Mailbox, provider, machines = new[] { Machine }, why = "a near miss" });
+
+        AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
+        Assert.EndsWith("give 'outlook' or 'gmail'", answer.Body.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task AddChannel_NoProviderInTheBody_Answers400NamingBothAndRecordsNothing()
+    {
+        var before = Recorded();
+
+        var answer = await Post(P + "/channels", new { address = Mailbox, machines = new[] { Machine }, why = "no provider" });
+
+        AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
+        Assert.EndsWith("give 'outlook' or 'gmail'", answer.Body.GetProperty("detail").GetString());
+    }
+
     [Fact]
     public async Task AddChannel_Gmail_Answers201WithTheProviderAndItsLabel()
     {
