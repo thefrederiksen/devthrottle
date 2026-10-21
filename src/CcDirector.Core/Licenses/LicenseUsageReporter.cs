@@ -73,6 +73,7 @@ public sealed class LicenseUsageReporter
     private string? _lastSentShape;
     private List<LicenseHolding>? _lastSentHoldings;
     private bool _toolMissingLogged;
+    private bool _otherHolderLogged;
     private string? _lastFailure;
     private volatile ILicenseReportSink? _sink;
     private BackgroundJob? _job;
@@ -166,6 +167,89 @@ public sealed class LicenseUsageReporter
             async ct => await TickAsync(ct));
         _job.StartTimer(TimeSpan.Zero);
         FileLog.Write($"[LicenseUsageReporter] Start: machine={_machineName}, user={_osUser}, every {ChangeCheckInterval.TotalSeconds:0}s");
+    }
+
+    /// <summary>
+    /// LICENSE SWITCHING IS OFF on this Director while the machine holds spares (issue #4327). Nothing is read from the
+    /// provider and the license tool is never run, but the Gateway is still told: a report every
+    /// <see cref="LicenseContract.ReportInterval"/>, on a new connection, and when the account files change, listing what
+    /// the machine holds with no numbers (<see cref="LicenseHeldOnDisk"/>) and saying it cannot switch,
+    /// <see cref="LicenseCannotSwitchReasons.SwitchingOff"/>. Without it the machine was simply absent, and a threshold
+    /// switch left it on a tired account with nobody told.
+    /// </summary>
+    public void StartSwitchedOff(BackgroundJobs jobs, LicenseHeldOnDisk heldOnDisk)
+    {
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(heldOnDisk);
+        if (_job is not null) return;
+        _job = jobs.Register(
+            new BackgroundJobSpec("License switching off report", BackgroundJobTier.SlowAndSteady, ChangeCheckInterval,
+                "no Gateway tunnel that has PushLicenseUsage", () => _sink?.CanSend == true),
+            async ct => await TickSwitchedOffAsync(heldOnDisk, ct));
+        _job.StartTimer(TimeSpan.Zero);
+        FileLog.Write($"[LicenseUsageReporter] StartSwitchedOff: machine={_machineName}, user={_osUser}; license switching is off and the machine holds spares, so the Gateway is told it cannot switch");
+    }
+
+    /// <summary>
+    /// One step of <see cref="StartSwitchedOff"/>: send the switched-off report when one is due. The key holder lock
+    /// decides which Director speaks for the machine, as it does for a usage report, but here it is taken only for the
+    /// one send and given back at once, so a Director on this machine with switching on can always take it. While
+    /// another Director holds it, that Director speaks for the machine and nothing is sent. Returns the report sent,
+    /// or null. Public for tests; the scheduler is the only production caller.
+    /// </summary>
+    public async Task<LicenseUsageReport?> TickSwitchedOffAsync(LicenseHeldOnDisk heldOnDisk, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(heldOnDisk);
+        await _oneAtATime.WaitAsync(cancellationToken);
+        try
+        {
+            var sink = _sink;
+            if (sink is null || !sink.CanSend) return null;
+
+            var trigger = TakePendingTrigger();
+            var holdings = heldOnDisk.Holdings().ToList();
+            if (trigger is null)
+            {
+                if (_lastSentUtc is null || _utcNow() - _lastSentUtc.Value >= LicenseContract.ReportInterval)
+                    trigger = LicenseReportTriggers.Interval;
+                else if (ShapeOf(holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)), canSwitch: false) != _lastSentShape)
+                    trigger = LicenseReportTriggers.Changed;
+                else
+                    return null;
+            }
+
+            if (!_holder.TryAcquire())
+            {
+                if (!_otherHolderLogged)
+                    FileLog.Write("[LicenseUsageReporter] TickSwitchedOffAsync: another Director on this machine holds the key holder lock and speaks for it; no switched-off report is sent");
+                _otherHolderLogged = true;
+                Requeue(trigger);
+                return null;
+            }
+            _otherHolderLogged = false;
+            try
+            {
+                var report = new LicenseUsageReport
+                {
+                    MachineName = _machineName,
+                    OsUser = _osUser,
+                    SentAtUtc = _utcNow(),
+                    Trigger = trigger,
+                    Holdings = holdings,
+                    CanSwitch = false,
+                    CannotSwitchReason = LicenseCannotSwitchReasons.SwitchingOff,
+                };
+                return await SendAsync(sink, report, trigger, cancellationToken);
+            }
+            finally
+            {
+                _holder.Release();
+            }
+        }
+        finally
+        {
+            _oneAtATime.Release();
+        }
     }
 
     /// <summary>Whether the reporter is on the scheduler.</summary>

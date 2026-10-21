@@ -7,8 +7,9 @@ using Xunit;
 namespace CcDirector.Core.UnitTests.Licenses;
 
 /// <summary>
-/// The license switching setting: OFF unless config.json says exactly true, because until phase 5 nothing may touch a
-/// machine's real default Claude login. Off means no usage is read or reported and no switch runs.
+/// The license switching setting (issue #4327): an explicit true is on and an explicit false is off; when config.json
+/// says nothing, it is on exactly when the machine holds a spare. Off means no usage is read and no switch runs - and,
+/// when the machine holds spares, one report that says so.
 /// </summary>
 public sealed class LicenseSwitchingSettingTests : IDisposable
 {
@@ -19,25 +20,81 @@ public sealed class LicenseSwitchingSettingTests : IDisposable
     [Theory]
     [InlineData("{}")]
     [InlineData("{\"licenseSwitching\": {}}")]
-    [InlineData("{\"licenseSwitching\": {\"enabled\": false}}")]
     [InlineData("{\"licenseSwitching\": {\"enabled\": \"true\"}}")]
+    [InlineData("{\"licenseSwitching\": {\"enabled\": null}}")]
     [InlineData("{\"licenseSwitching\": true}")]
-    public void ReadFrom_AnythingButAnExplicitTrue_IsOff(string config)
+    public void ReadExplicit_AnythingButABoolean_SaysNothing(string config)
     {
-        Assert.False(LicenseSwitchingSetting.ReadFrom(JsonNode.Parse(config)!.AsObject()));
+        Assert.Null(LicenseSwitchingSetting.ReadExplicit(JsonNode.Parse(config)!.AsObject()));
+    }
+
+    [Theory]
+    [InlineData("{\"licenseSwitching\": {\"enabled\": true}}", true)]
+    [InlineData("{\"licenseSwitching\": {\"enabled\": false}}", false)]
+    public void ReadExplicit_ABoolean_IsWhatItSays(string config, bool expected)
+    {
+        Assert.Equal(expected, LicenseSwitchingSetting.ReadExplicit(JsonNode.Parse(config)!.AsObject()));
     }
 
     [Fact]
-    public void ReadFrom_ExplicitTrue_IsOn()
+    public void Resolve_NothingWrittenOnAMachineHoldingASpare_IsOn()
     {
-        Assert.True(LicenseSwitchingSetting.ReadFrom(JsonNode.Parse("{\"licenseSwitching\": {\"enabled\": true}}")!.AsObject()));
+        // The case that dropped a machine out of a threshold switch on 21 October 2026: a fresh config.json with no
+        // licenseSwitching section, on a machine whose key store still held its spares.
+        var fresh = JsonNode.Parse("{\"gateway\": {}, \"agent\": {}}")!.AsObject();
+
+        Assert.True(LicenseSwitchingSetting.Resolve(LicenseSwitchingSetting.ReadExplicit(fresh), holdsSpare: true));
+    }
+
+    [Fact]
+    public void Resolve_NothingWrittenOnAMachineWithNoSpare_IsOff()
+    {
+        Assert.False(LicenseSwitchingSetting.Resolve(null, holdsSpare: false));
+    }
+
+    [Fact]
+    public void Resolve_ExplicitFalse_StaysOffWhateverIsHeld()
+    {
+        Assert.False(LicenseSwitchingSetting.Resolve(false, holdsSpare: true));
+        Assert.True(LicenseSwitchingSetting.Resolve(true, holdsSpare: false));
     }
 
     [Fact]
     public void BuildPatch_ReadsBackAsWritten()
     {
-        Assert.True(LicenseSwitchingSetting.ReadFrom(LicenseSwitchingSetting.BuildPatch(true)));
-        Assert.False(LicenseSwitchingSetting.ReadFrom(LicenseSwitchingSetting.BuildPatch(false)));
+        Assert.True(LicenseSwitchingSetting.ReadExplicit(LicenseSwitchingSetting.BuildPatch(true)));
+        Assert.False(LicenseSwitchingSetting.ReadExplicit(LicenseSwitchingSetting.BuildPatch(false)));
+    }
+
+    [Fact]
+    public void Start_TurnedOffWhileTheMachineHoldsSpares_SchedulesOnlyTheSwitchedOffReport()
+    {
+        var store = Path.Combine(_folder.Path, "store");
+        var home = Path.Combine(_folder.Path, "home");
+        WriteAccount(Path.Combine(store, "spares", "b"), "account-b@example.com");
+        var tool = new FakeLicenseCommandLine().Hold("account-a@example.com", active: true).Hold("account-b@example.com");
+        var licenses = new LicenseSwitching(tool, Path.Combine(_folder.Path, "director"), new FakeClock().UtcNow, "the-windows-machine", "owner",
+            enabled: false, heldOnDisk: new LicenseHeldOnDisk(null, store, home));
+        try
+        {
+            licenses.Start();
+
+            Assert.True(licenses.Reporter.IsScheduled);   // the switched-off report, so the Gateway knows
+            Assert.Equal(0, tool.ListCalls);              // and still the tool is never run
+            Assert.Empty(tool.UsageCalls);
+            Assert.False(licenses.HolderLock.IsHeld);
+        }
+        finally
+        {
+            licenses.Dispose();
+        }
+    }
+
+    internal static void WriteAccount(string folder, string email)
+    {
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, LicenseHeldOnDisk.AccountFile),
+            "{\"oauthAccount\": {\"emailAddress\": \"" + email + "\"}}");
     }
 
     [Fact]

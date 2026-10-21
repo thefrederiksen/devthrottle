@@ -27,7 +27,7 @@ public sealed class LicenseApproverOfferSettingTests
         var root = JsonNode.Parse("{\"licenseSwitching\": {\"enabled\": false, \"offerApprovers\": true}}")!.AsObject();
 
         Assert.True(LicenseApproverOfferSetting.ReadFrom(root));
-        Assert.False(LicenseSwitchingSetting.ReadFrom(root));
+        Assert.False(LicenseSwitchingSetting.ReadExplicit(root));
     }
 
     [Fact]

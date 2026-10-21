@@ -5,29 +5,38 @@ namespace CcDirector.Core.Configuration;
 
 /// <summary>
 /// The License Switching mission's one Director setting, stored in config.json under "licenseSwitching" -&gt;
-/// "enabled". OFF by default, and only an explicit <c>true</c> turns it on: until phase 5 nothing may touch a machine's
-/// real default Claude login, and with it on a Director whose Gateway takes usage reports runs
-/// <c>cc-devthrottle license ...</c> against that login.
+/// "enabled". With it on, the Director runs <c>cc-devthrottle license ...</c> against the machine's real default Claude
+/// login: it reads usage, reports it, and carries out the switches the Gateway sends.
 ///
-/// Off means this Director reads no usage, sends no report, never takes the key holder lock, and answers every
-/// <c>license-switch</c> failed with a plain sentence. The live proof and phase 5 turn it on. It is read when the
-/// Director starts, so changing it takes a restart.
+/// WHAT IT IS WHEN NOTHING IS WRITTEN (issue #4327). An explicit <c>true</c> is on and an explicit <c>false</c> is off -
+/// the false is how the owner opts a machine out. When config.json says neither (no file, no section, no key, or a
+/// value that is not a boolean), the setting is ON when this machine's license store holds at least one spare, and off
+/// when it holds none. A fresh Director data folder on a machine that already holds spares therefore comes up taking
+/// part in switches, instead of silently dropping out of them the way one machine did on 21 October 2026.
+///
+/// Off means this Director never runs the license tool, never reads usage, never switches, and answers every
+/// <c>license-switch</c> failed with a plain sentence. When it holds spares it still tells the Gateway that switching is
+/// off here, so the machine is not missed. It is read when the Director starts, so changing it takes a restart.
 /// </summary>
 public static class LicenseSwitchingSetting
 {
-    /// <summary>Default posture: off. A missing file, section, key or a value that is not a boolean is off.</summary>
-    public const bool Default = false;
-
-    /// <summary>The effective value of <c>licenseSwitching.enabled</c> in config.json.</summary>
-    public static bool Get() => ReadFrom(CcDirectorConfigService.ReadRaw());
-
-    /// <summary>The value from an already-loaded config root; the same rules as <see cref="Get"/>.</summary>
-    public static bool ReadFrom(JsonObject root)
+    /// <summary>What config.json says, from an already-loaded config root: true or false when it says so, null when it
+    /// says nothing - a missing section or key, or a value that is not a boolean.</summary>
+    public static bool? ReadExplicit(JsonObject root)
     {
         ArgumentNullException.ThrowIfNull(root);
-        if (root["licenseSwitching"] is not JsonObject section) return Default;
-        return section["enabled"] is JsonValue value && value.GetValueKind() == JsonValueKind.True;
+        if (root["licenseSwitching"] is not JsonObject section) return null;
+        if (section["enabled"] is not JsonValue value) return null;
+        return value.GetValueKind() switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        };
     }
+
+    /// <summary>The effective setting: what config.json says, else on exactly when the machine holds a spare.</summary>
+    public static bool Resolve(bool? explicitValue, bool holdsSpare) => explicitValue ?? holdsSpare;
 
     /// <summary>Persists <paramref name="enabled"/>, deep-merging into config.json so every other section is kept.</summary>
     public static void Set(bool enabled) => CcDirectorConfigService.MergePatch(BuildPatch(enabled));

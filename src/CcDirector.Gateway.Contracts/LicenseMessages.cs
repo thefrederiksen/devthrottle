@@ -353,10 +353,15 @@ public static class LicenseCannotSwitchReasons
     /// looks for it.</summary>
     public const string ToolMissing = "tool-missing";
 
+    /// <summary>License switching is turned off on this Director (config.json says <c>"enabled": false</c>), while the
+    /// machine holds spares (issue #4327). Such a Director reads no usage, so the report it sends lists what the machine
+    /// holds with no numbers.</summary>
+    public const string SwitchingOff = "switching-off";
+
     /// <summary>Every word above. A value outside it is never carried: it could be anything a tool printed.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        ToolMissing,
+        ToolMissing, SwitchingOff,
     };
 }
 

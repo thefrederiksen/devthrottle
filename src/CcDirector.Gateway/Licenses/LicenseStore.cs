@@ -69,6 +69,12 @@ public static class LicenseLogKinds
 
     /// <summary>A machine that said it cannot run a switch says it can again. Written once, when it stops.</summary>
     public const string CanSwitchAgain = "can-switch-again";
+
+    /// <summary>A threshold switch moved machines off an account and this machine, also on it, was not sent one - with
+    /// the reason (issue #4327). Written for each machine left behind on a minute check that writes a new threshold
+    /// switch (never every minute), so the switch never reads as done while a machine is still on the tired account.
+    /// Final when written.</summary>
+    public const string LeftBehind = "left-behind";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -433,6 +439,7 @@ public sealed class LicenseStore
     public static string CannotSwitchSentence(string reason) => reason switch
     {
         LicenseCannotSwitchReasons.ToolMissing => "the DevThrottle tool is missing from its Python tool environment",
+        LicenseCannotSwitchReasons.SwitchingOff => "license switching is turned off on its Director, although it holds spares",
         _ => "its Director says it cannot run a switch, for a reason this Gateway does not know",
     };
 
@@ -868,6 +875,43 @@ public sealed class LicenseStore
     private static IQueryable<LicenseSwitchLogEntity> OpenSwitch(GatewayDbContext ctx, string id)
         => ctx.LicenseSwitchLog.Where(r => r.SwitchId == id && r.Kind == LicenseLogKinds.Switch
                                            && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown));
+
+    /// <summary>
+    /// Record that a threshold switch moved machines off <paramref name="accountEmail"/> and left
+    /// <paramref name="machineId"/> on it, for <paramref name="why"/> - the decision engine's clause, which starts "it ...".
+    /// Final when written. Nothing is written for a machine unknown to this account.
+    /// </summary>
+    public void RecordLeftBehind(TenantId tenant, Guid machineId, string accountEmail, string why, DateTime nowUtc)
+    {
+        var email = NormalizeEmail(accountEmail);
+        FileLog.Write($"[LicenseStore] RecordLeftBehind: tenant={tenant.ToLogString()}, machine={machineId}, account={email}");
+        var now = Utc(nowUtc);
+        using var ctx = _db.CreateContext(tenant);
+        var machine = ctx.LicenseMachines.AsNoTracking().FirstOrDefault(m => m.Id == machineId);
+        if (machine is null)
+        {
+            FileLog.Write($"[LicenseStore] RecordLeftBehind: no machine {machineId} in this account; nothing written");
+            return;
+        }
+        ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+        {
+            Kind = LicenseLogKinds.LeftBehind,
+            MachineId = machine.Id,
+            MachineName = machine.MachineName,
+            OsUser = machine.OsUser,
+            DirectorId = machine.DirectorId,
+            FromAccountEmail = email,
+            ToAccountEmail = "",
+            Reason = LicenseSwitchReasons.Threshold,
+            State = LicenseLogStates.Recorded,
+            ReasonCode = machine.CannotSwitchReason,
+            Message = Trimmed($"{machine.MachineName} stays on {email} while the other machines on it switch: {why}.", MaxMessageLength),
+            CreatedAtUtc = now,
+            FinishedAtUtc = now,
+            TenantId = ctx.ActiveTenant!,
+        });
+        ctx.SaveChanges();
+    }
 
     // ---- Accounts barred as targets (written and read by the decision engine) ----
 
