@@ -16,13 +16,13 @@ Everything here is behind the Mail Desk switch, which is off for every account b
 | The refusal when the switch is off | Inside the report handling of `POST /directors/{directorId}/triggers/{id}/checks`, before anything is recorded: **409**, body `{"error":"mail_desk_off","detail":"<sentence>"}`. No run row, no kept memory, no claim change, no start, no decision. | The factory gate in front of that route is ON for the owner's account, so it cannot be the refusal (phase 0 (d)). A 404 would read as "no such trigger". The Director treats every non-success the same way - it logs the HTTP status and body and runs nothing (`GatewayClient.ReportTriggerCheckAsync`) - so 409 needs no Director change. |
 | The written command for phase 6 | `scripts/mail-desk-switch.ps1 -Account <email> -On\|-Off -Reason "<why>" [-DryRun]`, reading the Gateway address (`gateway-admin-url`) and the token (`admin-service-token`) from cc-secrets, looking the account up with `GET /gateway/admin/accounts?email=`, then `POST /gateway/admin/mail-desk`, then reading it back with `GET`. | No tool calls an administrator switch today (phase 0 (d)); phase 6 needs one exact command. |
 | Rules document format | **JSON**, one document per account per version, shape in section 3. | The Gateway is C# and every edit is a command, never a hand-edited file; JSON has one reading. |
-| Which providers a channel accepts | `outlook` only. Any other value is refused with the list of accepted providers; `gmail` is one added constant in the next mission (D20). | Accepting `gmail` now would make a channel whose every check fails. |
+| Which providers a channel accepts | `outlook` only. Any other value is refused with the list of accepted providers; `gmail` is one added constant in the next mission (D20). (changed by Mail Desk Gmail support, 21 October 2026: `outlook` or `gmail`; any other value is refused naming both.) | Accepting `gmail` now would make a channel whose every check fails. |
 | A removed channel | Kept, marked removed (`RemovedUtc`, `RemovedBy`, `RemovedWhy`); its decisions stay. Adding the same address again makes a new row. | "removal keeps its decisions" (5.8). |
 | Where channel and mode changes are recorded | In the same `mail_desk_list_changes` table as rule changes, with `kind` `channel` or `mode` and no rule versions. | One record of who changed what and why, for `rules history` and the 08:00 section. |
 
 ## 2. The tables (both databases, one migration pair, tenant-scoped like every other table)
 
-- **`mail_desk_channels`**: id, tenant, kind (`email`), provider (`outlook`), address (lower case), machines (JSON array
+- **`mail_desk_channels`**: id, tenant, kind (`email`), provider (`outlook`; changed by Mail Desk Gmail support, 21 October 2026: `outlook` or `gmail`, no migration), address (lower case), machines (JSON array
   of machine names, in order of preference, at least one), factory (default `mail-desk`), seat (default `mail-desk`),
   mode (`observe` | `live`, default `observe`), created utc/by, changed utc/by, removed utc/by/why (null while active).
   At most one ACTIVE row per (tenant, kind, address).
@@ -158,6 +158,9 @@ maildesk route add <factory>/<seat> --handles "<text>" --why "<text>"
 maildesk route remove <factory>/<seat> --why "<text>"
 maildesk decisions [--since <time>] [--layer L] [--decision D] [--channel <address>] [-n N] [--json]
 ```
+
+(Changed by Mail Desk Gmail support, 21 October 2026: `channel add` takes `--provider outlook|gmail`. The command
+sends `--provider` as given; the Gateway decides which providers it accepts.)
 
 - The command decides nothing: it prints what the Gateway answered. Every filter goes to the Gateway and applies to
   `--json` too. An unknown flag fails with exit 2; a missing `--why` fails with exit 2 before any request is made.

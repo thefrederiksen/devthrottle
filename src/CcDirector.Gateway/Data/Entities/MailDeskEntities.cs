@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
 /// ONE CHANNEL THE MAIL DESK SCREENS, in the <c>mail_desk_channels</c> table (Mail Desk mission, phase 1, contract
-/// section 2). For now a channel is one mailbox: its kind is <c>email</c> and its provider <c>outlook</c>.
+/// section 2). For now a channel is one mailbox: its kind is <c>email</c> and its provider <c>outlook</c> or <c>gmail</c>.
 ///
 /// A REMOVED CHANNEL IS KEPT. Removing marks the row (<see cref="RemovedUtc"/>, <see cref="RemovedBy"/>,
 /// <see cref="RemovedWhy"/>) and its decisions stay, because the owner may still need to read what the Mail Desk did
@@ -14,7 +14,7 @@ public sealed class MailDeskChannelEntity : GatewayMintedKeyEntity
     /// <summary>The kind of channel: <c>email</c> (<see cref="MailDesk.MailDeskWords.ChannelKinds"/>).</summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>Who holds the mailbox: <c>outlook</c> (<see cref="MailDesk.MailDeskWords.Providers"/>).</summary>
+    /// <summary>Who holds the mailbox: <c>outlook</c> or <c>gmail</c> (<see cref="MailDesk.MailDeskWords.Providers"/>).</summary>
     public string Provider { get; set; } = "";
 
     /// <summary>The mailbox address, lower case.</summary>

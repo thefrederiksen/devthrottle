@@ -92,7 +92,7 @@ def unusable_message(world, failing):
 
 
 def unknown_provider(world, failing):
-    return f"provider gmail has no reader in this version of screen.py (channel {failing})"
+    return f"provider imap has no reader in this version of screen.py (channel {failing})"
 
 
 def memory_too_big(world, failing):
@@ -124,7 +124,7 @@ def build(world, kind, channels, mode):
             fields.update(keys={key: {"id": graph_id, "reportedUtc": "2026-10-18T06:05:00Z"}},
                           filingQueue=[{"messageKey": key, "decision": "archive"}])
         if address == failing and kind is unknown_provider:
-            fields["provider"] = "gmail"
+            fields["provider"] = "imap"
         if address == failing and kind is memory_too_big:
             fields["padding"] = "x" * (64 * 1024)
         entries.append(channel(address, mode=mode, **fields))

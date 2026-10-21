@@ -82,6 +82,12 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
   "emptyLabel": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\"" }
 ```
 
+(Changed by Mail Desk Gmail support, 21 October 2026: `emptyLabel` now reads `... --provider outlook|gmail --machine
+<machine> --why "<text>"`, written by `MailDeskWords.ChannelAddCommand`. The envelope gains one additive field,
+`help`: a list of command lines, holding that same add command when `channels` is empty and nothing otherwise. The
+`cc-devthrottle maildesk channel list` command prints it as its next step on an empty list. The page ignores it.
+`providerLabel` gains `gmail` -> "Gmail".)
+
 The exact sentences are the Gateway Developer's to word well; the client renders whatever arrives. Two wordings were
 settled while building (accepted by the Tech Lead): a decision's label reads as the decision ("Archive", not
 "Archived"), because in observe mode nothing was done; and the summary says "every few minutes", because the interval

@@ -1543,7 +1543,7 @@ _ACTIONS = [
     {
         "id": "maildesk-channel-add",
         "description": "Add a mailbox for the Mail Desk to read; it starts in observe.",
-        "command": "cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<text>\"",
+        "command": "cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine <machine> --why \"<text>\"",
         "mutatesState": True,
         "args": [{"name": "address", "required": True}, {"name": "provider", "required": True}, {"name": "machine", "required": True}, {"name": "why", "required": True}],
     },
@@ -5502,7 +5502,7 @@ def maildesk_channel_list(
 @maildesk_channel_app.command("add")
 def maildesk_channel_add(
     address: str = typer.Argument(..., help="The mailbox address."),
-    provider: str = typer.Option(..., "--provider", help="The mail provider: outlook."),
+    provider: str = typer.Option(..., "--provider", help="The mail provider: outlook or gmail. The Gateway decides which it accepts."),
     machines: List[str] = typer.Option(
         ..., "--machine", help="A machine that reads it; repeat for a backup, in order of preference."
     ),

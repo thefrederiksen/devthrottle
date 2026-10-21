@@ -96,12 +96,44 @@ public sealed class MailDeskChannelStoreTests : IDisposable
     }
 
     [Fact]
-    public void Add_AProviderOtherThanOutlook_IsRefusedListingTheAcceptedOnes()
+    public void Add_AnUnknownProvider_IsRefusedListingBothAcceptedOnes()
     {
-        var write = Store().Add(A, Mailbox, "gmail", Machines, Owner, "why", Now);
+        var write = Store().Add(A, Mailbox, "carrier-pigeon", Machines, Owner, "why", Now);
 
         Assert.Equal(MailDeskChannelOutcome.BadProvider, write.Outcome);
-        Assert.Equal("provider 'gmail' is not one the Mail Desk reads; give 'outlook'", write.Refusal);
+        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook' or 'gmail'", write.Refusal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("gmailx")]
+    [InlineData("g mail")]
+    [InlineData("googlemail")]
+    [InlineData("imap")]
+    [InlineData("outlook2")]
+    public void Add_ABlankOrNearMissProvider_IsRefusedNamingBothAndRecordsNothing(string? provider)
+    {
+        var store = Store();
+
+        var write = store.Add(A, Mailbox, provider!, Machines, Owner, "why", Now);
+
+        Assert.Equal(MailDeskChannelOutcome.BadProvider, write.Outcome);
+        Assert.EndsWith("is not one the Mail Desk reads; give 'outlook' or 'gmail'", write.Refusal);
+        Assert.Empty(store.List(A, includeRemoved: true));
+    }
+
+    [Theory]
+    [InlineData("gmail")]
+    [InlineData("GMAIL")]
+    [InlineData(" Gmail ")]
+    public void Add_Gmail_IsAddedWithTheProviderFolded(string provider)
+    {
+        var write = Store().Add(A, Mailbox, provider, Machines, Owner, "why", Now);
+
+        Assert.Equal(MailDeskChannelOutcome.Added, write.Outcome);
+        Assert.Equal(MailDeskWords.Providers.Gmail, write.Channel!.Provider);
     }
 
     [Fact]

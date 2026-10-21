@@ -92,12 +92,17 @@ def test_GraphRequest_AGet_ReachesTheNetwork(world):
 
 def test_Source_OnlyTheGuardReachesTheNetwork(world):
     """The guard holds only if nothing goes round it: urlopen appears once, inside transport(); transport() is called
-    once, from graph_request(); and graph_request() calls check_request() before it."""
+    once from each of the three guards - graph_request(), and since the Gmail reader gmail_request() and
+    google_token_request() (docs/qa/mail-desk/gmail/CONTRACT.md) - and each guard checks before it calls."""
     source = world.screen.__file__ and open(world.screen.__file__, encoding="utf-8").read()
     assert len(re.findall(r"urlopen\(", source)) == 1
-    assert len(re.findall(r"(?<!def )transport\(", source)) == 1
+    assert len(re.findall(r"(?<!def )transport\(", source)) == 3
     guard = source.split("def graph_request(")[1].split("\ndef ")[0]
     assert guard.index("check_request(") < guard.index("transport(")
+    gmail = source.split("def gmail_request(")[1].split("\ndef ")[0]
+    assert gmail.index("check_gmail_request(") < gmail.index("transport(")
+    token = source.split("def google_token_request(")[1].split("\ndef ")[0]
+    assert token.index("raise RefusedRequest(") < token.index("transport(")
     for forbidden in ("http.client", "requests", "socket.create_connection", "subprocess"):
         assert f"import {forbidden}" not in source
 

@@ -18,7 +18,46 @@ public sealed partial class MailDeskEndpointTests
         Assert.Equal(MailDeskChannelFold.PageSummary, body.GetProperty("summary").GetString());
         Assert.Equal(MailDeskChannelFold.PageEmptyLabel, body.GetProperty("emptyLabel").GetString());
         Assert.StartsWith("No mailbox is on the Mail Desk yet.", body.GetProperty("emptyLabel").GetString());
-        Assert.Contains("cc-devthrottle maildesk channel add", body.GetProperty("emptyLabel").GetString());
+        Assert.Contains("cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine <machine>",
+            body.GetProperty("emptyLabel").GetString());
+    }
+
+    [Fact]
+    public async Task ListChannels_NoChannels_HelpIsTheAddCommandNamingBothProviders()
+    {
+        // Act
+        var (_, body) = await Get(P + "/channels");
+
+        // Assert
+        var help = body.GetProperty("help").EnumerateArray().Select(h => h.GetString()).ToList();
+        Assert.Equal(new[] { "cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine <machine> --why \"<text>\"" }, help);
+    }
+
+    [Fact]
+    public async Task ListChannels_AChannel_HelpIsEmpty()
+    {
+        // Arrange
+        await AddMailbox();
+
+        // Act
+        var (_, body) = await Get(P + "/channels");
+
+        // Assert
+        Assert.Equal(0, body.GetProperty("help").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ListChannels_GmailRow_ProviderIsGmailAndLabelIsTheGatewaysWord()
+    {
+        // Arrange
+        await Post(P + "/channels", new { address = Mailbox, provider = "gmail", machines = new[] { Machine }, why = "the support mailbox" });
+
+        // Act
+        var row = await OnlyRow();
+
+        // Assert
+        Assert.Equal("gmail", row.GetProperty("provider").GetString());
+        Assert.Equal("Gmail", row.GetProperty("providerLabel").GetString());
     }
 
     [Fact]

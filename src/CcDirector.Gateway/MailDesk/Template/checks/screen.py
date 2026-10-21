@@ -1,19 +1,20 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["msal>=1.28"]
+# dependencies = ["msal>=1.28"]   # Outlook's sign-in only; the Gmail reader uses plain urllib, no Google library
 # ///
 """The Mail Desk's screening check: read new mail, and file what the Gateway queued. It never decides.
 
 Run by a Director every 5 minutes from the published Mail Desk factory, with every CC_ variable stripped from its
 environment except the CC_CHECK_ ones. The whole contract - the memory, the output, every limit - is in
-docs/qa/mail-desk/phase-2/CONTRACT.md. In short:
+docs/qa/mail-desk/phase-2/CONTRACT.md, and the Gmail reader's in docs/qa/mail-desk/gmail/CONTRACT.md. In short:
 
 - The memory (the file named by CC_CHECK_STATE_FILE) is a JSON object whose "channels" list the Gateway writes: one
-  entry per mailbox, with its address, provider and mode. This check keeps its own fields in each entry (cursor,
+  entry per mailbox, with its address, provider and mode. The provider chooses the reader: "outlook" (cc-outlook's
+  sign-in, Microsoft Graph) or "gmail" (cc-gmail's sign-in, the Gmail API). This check keeps its own fields in each entry (cursor,
   sentCache, keys) and removes from "filingQueue" the items it attempted. It writes the whole memory back, keeping
   every field it does not own exactly as it was.
-- Live mode only: each queued item is moved to Archive or Junk Email, and nothing else. Observe mode moves nothing
-  and leaves the queue as it is.
+- Live mode only: each queued item is moved to Archive or Junk Email (Gmail: taken out of the Inbox, or moved to Spam),
+  and nothing else. Observe mode moves nothing and leaves the queue as it is.
 - New Inbox mail since the cursor, oldest first, is reported in batches of at most 10 messages and 7 KB of context
   across all channels; the cursor moves only past what was reported, and the next run continues.
 - Standard output is exactly {"count": N, "context": "<JSON>"}.
@@ -30,20 +31,29 @@ docs/qa/mail-desk/phase-2/CONTRACT.md. In short:
 
 Every Microsoft Graph call goes through graph_request(), the one request guard. It lets out only GET to
 graph.microsoft.com and POST /v1.0/me/messages/{id}/move with a body of exactly {"destinationId": "archive"} or
-{"destinationId": "junkemail"}. The saved sign-in can send mail (Mail Desk phase 0 finding), so this guard is the only
-thing that keeps the Mail Desk from sending, replying, forwarding, changing or deleting anything.
+{"destinationId": "junkemail"}. Every Gmail API call goes through gmail_request(), which lets out only the message list
+and one message's metadata, and - in live mode only - POST .../messages/{id}/modify with a body of exactly
+{"removeLabelIds": ["INBOX"]} or {"addLabelIds": ["SPAM"], "removeLabelIds": ["INBOX"]}; the Gmail sign-in's refresh
+goes through google_token_request(), to Google's token address only. Both saved sign-ins can send mail (phase 0 and
+G0 findings), so these guards are the only thing that keeps the Mail Desk from sending, replying, forwarding, changing
+or deleting anything.
 
 Standard error is the check's only log. It says what was done in plain words, and never holds a token, a sender, a
 subject or any body text.
 """
 
 import copy
+import email.errors
+import email.header
+import email.utils
 import hashlib
+import html
 import json
 import os
 import re
 import socket
 import sys
+import tempfile
 import traceback
 import unicodedata
 import urllib.error
@@ -111,11 +121,13 @@ class RefusedRequest(Exception):
 
 
 class GraphError(Exception):
-    """Graph answered with an HTTP error status. The reader that made the call turns it into a sentence."""
+    """Graph (or the Gmail API, or Google's sign-in service) answered with an HTTP error status. The reader that made
+    the call turns it into a sentence. `answer` is the error's body as JSON when it was JSON, else None."""
 
-    def __init__(self, status, detail):
+    def __init__(self, status, detail, answer=None):
         super().__init__(detail)
         self.status = status
+        self.answer = answer
 
 
 class GraphUnreachable(Exception):
@@ -143,11 +155,11 @@ def machine():
     return socket.gethostname().split(".")[0]
 
 
-def short_error(text):
-    """An error message on one line, cut to SHORT_ERROR_CHARS, for a failure sentence. The whole message goes on the
-    detail line."""
+def short_error(text, limit=SHORT_ERROR_CHARS):
+    """An error message on one line, cut to `limit` (SHORT_ERROR_CHARS unless a sentence needs it shorter), for a
+    failure sentence. The whole message goes on the detail line."""
     flat = " ".join(str(text).split())
-    return flat if len(flat) <= SHORT_ERROR_CHARS else flat[:SHORT_ERROR_CHARS - 3] + "..."
+    return flat if len(flat) <= limit else flat[:limit - 3] + "..."
 
 
 def utc_now():
@@ -262,18 +274,28 @@ def check_request(method, url, body):
 def shown_url(url):
     """A Graph address for the log: no query, and no message id (it may come from the memory, and the Gateway never
     handles a Graph id)."""
-    return re.sub(r"/messages/[^/]+/move$", "/messages/{id}/move", url.split("?")[0])
+    path = re.sub(r"/messages/[^/]+/move$", "/messages/{id}/move", url.split("?")[0])
+    return re.sub(r"(/gmail/v1/users/me/messages)/[^/]+", r"\1/{id}", path)
+
+
+def error_answer(error):
+    """The JSON body of an HTTP error, or None when it has none or it is not JSON."""
+    try:
+        answer = json.loads(error.read().decode("utf-8"))
+    except (OSError, ValueError, AttributeError):
+        return None
+    return answer if isinstance(answer, dict) else None
 
 
 def transport(method, url, headers, data):
-    """The network. Only graph_request() calls it; the tests replace urlopen with a fake Graph that records every
-    call."""
+    """The network. Only graph_request(), gmail_request() and google_token_request() call it; the tests replace urlopen
+    with a fake that records every call."""
     request = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             raw = response.read()
     except urllib.error.HTTPError as e:
-        raise GraphError(e.code, f"HTTP {e.code} to {method} {shown_url(url)}") from None
+        raise GraphError(e.code, f"HTTP {e.code} to {method} {shown_url(url)}", error_answer(e)) from None
     except (urllib.error.URLError, OSError) as e:
         reason = getattr(e, "reason", e)
         raise GraphUnreachable(reason, f"{method} {shown_url(url)}: {reason}") from None
@@ -367,9 +389,28 @@ def outlook_fix(address, base):
 class OutlookReader:
     """Everything Outlook-specific: the saved cc-outlook sign-in, MSAL, the Graph addresses and folder names."""
 
+    # The Sent-folder cache (3.2) is how this reader knows a sender.
+    SENT_CACHE = True
+
     def __init__(self, channel):
         self.address = channel["address"].strip().lower()
         self.token = None
+
+    @staticmethod
+    def cursor_ok(cursor):
+        """A cursor this reader wrote: {"newest": <text>, "idsAtNewest": [<text>, ...]}."""
+        return (isinstance(cursor, dict) and isinstance(cursor.get("newest"), str)
+                and isinstance(cursor.get("idsAtNewest"), list) and all(isinstance(i, str) for i in cursor["idsAtNewest"]))
+
+    @staticmethod
+    def advance(cursor, mine):
+        """The cursor after reporting `mine` (oldest first): the newest receive time, and every id reported at exactly
+        that time, plus the ids already held when the time did not change."""
+        newest = mine[-1]["received"]
+        ids = {m["id"] for m in mine if m["received"] == newest}
+        if cursor and cursor["newest"] == newest:
+            ids |= set(cursor["idsAtNewest"])
+        return {"newest": newest, "idsAtNewest": sorted(ids)}
 
     def not_signed_in(self, base, detail):
         fix, then = outlook_fix(self.address, base)
@@ -505,7 +546,7 @@ class OutlookReader:
             page = self.page(url, "reading the Inbox")
             seen.extend(self.message(m, "reading the Inbox") for m in page["value"])
             url = page.get("@odata.nextLink")
-        return list(reversed(seen[:FIRST_RUN_MESSAGES]))
+        return list(reversed(seen[:FIRST_RUN_MESSAGES])), False
 
     def inbox_since(self, cursor, wanted):
         """Inbox messages received at or after the cursor's time and not among the ids already read at exactly that
@@ -535,7 +576,532 @@ class OutlookReader:
 
 INBOX_FIELDS = "id,receivedDateTime,from,subject,hasAttachments,bodyPreview"
 
-READERS = {"outlook": OutlookReader}
+
+# ---------------------------------------------------------------------------------------------------- Gmail
+#
+# The whole Gmail contract is docs/qa/mail-desk/gmail/CONTRACT.md, following the Tech Lead's rulings R1 to R5
+# (docs/qa/mail-desk/gmail/RULINGS.md). Plain urllib throughout: no Google library, so msal stays the only package.
+
+GMAIL_HOST = "gmail.googleapis.com"
+GMAIL = f"https://{GMAIL_HOST}/gmail/v1/users/me"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
+# The scopes each mode needs, any one of them (R1.5): observe only reads, live also files.
+GMAIL_MODE_SCOPES = {"observe": (GMAIL_READONLY, GMAIL_MODIFY), "live": (GMAIL_MODIFY,)}
+# The two filing bodies, exactly (R3). A Gmail message keeps its id when it is filed.
+GMAIL_FILING = {"archive": {"removeLabelIds": ["INBOX"]},
+                "junk": {"addLabelIds": ["SPAM"], "removeLabelIds": ["INBOX"]}}
+GMAIL_FILING_STEPS = {"archive": "archiving a message", "junk": "moving a message to Spam"}
+# A Gmail message id is hexadecimal; the guard allows letters and digits and nothing else.
+GMAIL_ID = re.compile(r"[A-Za-z0-9]+")
+GMAIL_MESSAGE_PATH = re.compile(r"/gmail/v1/users/me/messages/([^/]*)")
+GMAIL_MODIFY_PATH = re.compile(r"/gmail/v1/users/me/messages/([^/]*)/modify")
+GMAIL_LIST_QUERY = {"labelIds": ("INBOX", "SENT"), "q": None, "maxResults": None, "pageToken": None}
+GMAIL_GET_QUERY = {"format": ("metadata", "minimal"), "metadataHeaders": ("From", "Subject", "To", "Cc", "Bcc")}
+GMAIL_LIST_PAGE = 500           # the Gmail API's largest page of message ids
+GMAIL_LIST_MAX_PAGES = 20       # 10,000 new ids at most; past that the oldest cannot be known, and the channel fails
+# Each run reads the metadata of at most this many messages, from the oldest end of the list, stopping once it has one
+# more new message than a run can report. The query cannot leave out the ids already reported in the second before the
+# cursor (R4); those still in the key table are skipped unread, the rest cost one read each.
+GMAIL_METADATA_PER_RUN = 60
+GMAIL_REFRESH_MARGIN = timedelta(minutes=5)
+# "the Gmail API could not be reached ... while moving a message to Spam: <error>" is the longest Gmail sentence; with
+# its error cut to 41 characters it is 165 with a 31-character address and a 15-character computer name (review
+# observation 3, taken as a finding).
+GMAIL_UNREACHABLE_ERROR_CHARS = 41
+# A sender address the Sent search may take (the Tech Lead's ruling on G0 review finding 1): the From address is the
+# sender's to write, and a known sender skips the spam screen, so only a plain address ever goes into a Gmail query.
+# Local part: letters, digits and . _ + - ; domain: labels of letters, digits and -, with dots between.
+GMAIL_PLAIN_ADDRESS = re.compile(r"[a-z0-9_+][a-z0-9._+-]*@[a-z0-9-]+(\.[a-z0-9-]+)+")
+# google-auth's Credentials.from_authorized_user_info needs these three; a refresh also needs token_uri (R2).
+GMAIL_TOKEN_KEYS = ("refresh_token", "client_id", "client_secret", "token_uri")
+
+
+def gmail_request(method, url, token, body=None, live=False):
+    """The one way this check talks to the Gmail API. Refuses, before any network call, everything but reading
+    messages and - in live mode only - the two filing bodies (R3)."""
+    check_gmail_request(method, url, body, live)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    return transport(method, url, headers, data)
+
+
+def check_query(query, allowed):
+    """Each query parameter is one this check names, and a named value list holds every value given. A value may hold
+    a space once decoded (both searches need one, G0); a name may not, and neither may hold a control character."""
+    try:
+        pairs = urllib.parse.parse_qsl(query, keep_blank_values=True, strict_parsing=bool(query))
+    except ValueError:
+        raise RefusedRequest("refused: a Gmail query that does not parse") from None
+    for name, value in pairs:
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name + value) or " " in name:
+            raise RefusedRequest("refused: a Gmail query parameter holds a control character or a space in its name")
+        if name not in allowed:
+            raise RefusedRequest(f"refused: the Gmail query parameter {name!r} is not one this check sends")
+        if allowed[name] is not None and value not in allowed[name]:
+            raise RefusedRequest(f"refused: {name}={value!r} is not one this check sends")
+    return dict(pairs)
+
+
+def check_gmail_request(method, url, body, live):
+    # Before parsing, for the same reason as Graph's: urlsplit silently removes tab, carriage return and line feed.
+    if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in url):
+        raise RefusedRequest("refused: the address holds a space or a control character")
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != GMAIL_HOST:
+        raise RefusedRequest(f"refused: {parts.scheme}://{parts.netloc} is not https://{GMAIL_HOST}")
+    if parts.fragment:
+        raise RefusedRequest("refused: a Gmail address with a fragment")
+    if ".." in parts.path or "%" in parts.path or "\\" in parts.path:
+        raise RefusedRequest("refused: the path holds '..', '%' or '\\'")
+    if method == "GET":
+        if body is not None:
+            raise RefusedRequest("refused: a GET with a body")
+        if parts.path == "/gmail/v1/users/me/messages":
+            check_query(parts.query, GMAIL_LIST_QUERY)
+            return
+        match = GMAIL_MESSAGE_PATH.fullmatch(parts.path)
+        if not match:
+            raise RefusedRequest("refused: a GET that is not the list of messages or one message")
+        if not GMAIL_ID.fullmatch(match.group(1)):
+            raise RefusedRequest("refused: the message id holds a character a Gmail id never has")
+        if "format" not in check_query(parts.query, GMAIL_GET_QUERY):
+            raise RefusedRequest("refused: a GET of one message names no format, so it would read the whole message")
+        return
+    if method == "POST":
+        match = GMAIL_MODIFY_PATH.fullmatch(parts.path)
+        if not match:
+            raise RefusedRequest("refused: a POST that is not the filing of one message")
+        if not live:
+            raise RefusedRequest("refused: a channel in observe mode never files a message")
+        if not GMAIL_ID.fullmatch(match.group(1)):
+            raise RefusedRequest("refused: the message id holds a character a Gmail id never has")
+        if parts.query:
+            raise RefusedRequest("refused: a filing with a query")
+        if not any(isinstance(body, dict) and body == allowed and list(body) == list(allowed)
+                   for allowed in GMAIL_FILING.values()):
+            raise RefusedRequest('refused: a filing body must be exactly {"removeLabelIds": ["INBOX"]} or '
+                                 '{"addLabelIds": ["SPAM"], "removeLabelIds": ["INBOX"]}')
+        return
+    raise RefusedRequest(f"refused: {method} is never sent to the Gmail API; only GET and the two filings")
+
+
+def google_token_request(url, form):
+    """The one way this check talks to Google's sign-in service: the standard refresh of one saved sign-in (R2), to
+    exactly https://oauth2.googleapis.com/token with exactly the four form fields. Refused before the network
+    otherwise."""
+    if url != GOOGLE_TOKEN_URI:
+        raise RefusedRequest(f"refused: a sign-in refresh goes to {GOOGLE_TOKEN_URI} only")
+    if not (isinstance(form, dict) and set(form) == {"grant_type", "client_id", "client_secret", "refresh_token"}
+            and form["grant_type"] == "refresh_token" and all(isinstance(v, str) and v for v in form.values())):
+        raise RefusedRequest("refused: a sign-in refresh carries exactly grant_type=refresh_token, client_id, "
+                             "client_secret and refresh_token")
+    data = urllib.parse.urlencode(form).encode("utf-8")
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    return transport("POST", url, headers, data)
+
+
+def gmail_store(home):
+    """cc-gmail's one store per operating-system user (R1): CcStorage.user_tool_config("gmail") in
+    tools/cc_storage/storage.py, whose _user_base() is %LOCALAPPDATA%\\cc-director on Windows, Application Support on
+    macOS and ~/.cc-director elsewhere. On Linux and macOS the home comes from the account record and LOCALAPPDATA is
+    not read: it is not that system's variable."""
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) / "cc-director" if local else Path(home) / ".cc-director"
+    elif sys.platform == "darwin":
+        base = Path(home) / "Library" / "Application Support" / "cc-director"
+    else:
+        base = Path(home) / ".cc-director"
+    return base / "config" / "gmail"
+
+
+def gmail_expiry(text):
+    """google-auth's own reading of `expiry` (from_authorized_user_info): the text before any fraction, without the
+    "Z", is a UTC time. Returns None when there is none; raises ValueError when it is not one."""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise ValueError("expiry is not text")
+    return datetime.strptime(text.rstrip("Z").split(".")[0], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+
+
+def gmail_header(headers, name):
+    """One header's value from a Gmail message's metadata (the first, as Gmail lists them), or ""."""
+    for header in headers:
+        if isinstance(header, dict) and str(header.get("name", "")).lower() == name.lower():
+            value = header.get("value")
+            return value if isinstance(value, str) else ""
+    return ""
+
+
+def decoded_subject(text):
+    """RFC 2047 encoded words decoded (decoding is not rewording, R5). A word in a character set Python does not know
+    is kept as Gmail gave it."""
+    try:
+        return str(email.header.make_header(email.header.decode_header(text)))
+    except (LookupError, ValueError, UnicodeError, email.errors.HeaderParseError):
+        return text
+
+
+def read_gmail_message(raw):
+    """One Gmail message (format=metadata) in the check's own shape, or None when it has no usable id or internalDate,
+    or a field of the wrong kind. `received` is internalDate in whole seconds (R4); `ms` keeps the milliseconds for
+    the cursor. hasAttachments is set after, from Gmail's own attachment search: format=metadata carries no parts
+    (G0)."""
+    try:
+        mid, internal = raw["id"], raw["internalDate"]
+        headers = (raw.get("payload") or {}).get("headers") or []
+        snippet = raw.get("snippet") or ""
+        if not (isinstance(mid, str) and GMAIL_ID.fullmatch(mid) and isinstance(internal, str)
+                and internal.isdigit() and isinstance(headers, list) and isinstance(snippet, str)):
+            return None
+        ms = int(internal)
+        received = iso(datetime.fromtimestamp(ms / 1000, timezone.utc))
+        name, address = email.utils.parseaddr(gmail_header(headers, "From"))
+        # fromAscii: the address as written was ASCII. Only then is it searched for in the Sent mail, because the Kelvin
+        # sign (U+212A) is the one character outside ASCII whose lower case is ASCII (review observation 4).
+        return {"id": mid, "ms": ms, "received": received, "from": address.lower(), "fromAscii": address.isascii(),
+                "name": name,
+                "subject": decoded_subject(gmail_header(headers, "Subject")), "hasAttachments": False,
+                "preview": html.unescape(snippet)}
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+class GmailReader:
+    """Everything Gmail-specific: cc-gmail's saved sign-in, its refresh, the Gmail API addresses and labels."""
+
+    # A sender is known by one search of the SENT label (known_hashes), never a Sent cache: G0 measured 2.4 seconds for
+    # 10 senders against 123 seconds to build a 500-message cache. So a Gmail channel never has a sentCache.
+    SENT_CACHE = False
+
+    def __init__(self, channel):
+        self.address = channel["address"].strip().lower()
+        self.live = channel["mode"] == "live"
+        self.mode = channel["mode"]
+        self.token = None
+        # Every id in the key table was reported already, so it is never new mail and its metadata is never read.
+        self.reported = {entry["id"] for entry in channel.get("keys", {}).values()}
+
+    # ------------------------------------------------------------------------------------------------ the cursor
+
+    @staticmethod
+    def cursor_ok(cursor):
+        """A cursor this reader wrote: {"provider": "gmail", "newestMs": <whole number>, "idsAtNewest": [<text>, ...]}.
+        The provider key keeps an Outlook cursor from ever being read as a Gmail one, and the other way round."""
+        return (isinstance(cursor, dict) and set(cursor) == {"provider", "newestMs", "idsAtNewest"}
+                and cursor["provider"] == "gmail" and isinstance(cursor["newestMs"], int)
+                and not isinstance(cursor["newestMs"], bool) and cursor["newestMs"] >= 0
+                and isinstance(cursor["idsAtNewest"], list) and all(isinstance(i, str) for i in cursor["idsAtNewest"]))
+
+    @staticmethod
+    def advance(cursor, mine):
+        """The cursor after reporting `mine` (oldest first): internalDate in milliseconds of the newest reported, and
+        every id reported at exactly that millisecond, plus those already held when it did not change."""
+        newest = mine[-1]["ms"]
+        ids = {m["id"] for m in mine if m["ms"] == newest}
+        if cursor and cursor["newestMs"] == newest:
+            ids |= set(cursor["idsAtNewest"])
+        return {"provider": "gmail", "newestMs": newest, "idsAtNewest": sorted(ids)}
+
+    # ------------------------------------------------------------------------------------------------ the sign-in
+
+    def find_account(self, store):
+        """The one account directory whose config.json names this address (R1.2). cc-gmail's -a takes the directory
+        name exactly (resolve_account returns it as given, and get_account_dir joins it under accounts/)."""
+        found = []
+        for config in sorted(Path(store).glob("accounts/*/config.json")):
+            try:
+                text = config.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                raise CheckFailed(f"{self.address} is not signed in on {machine()}, and a cc-gmail account's settings "
+                                  f"cannot be read: {type(e).__name__}", f"{config}: {e}") from None
+            try:
+                settings = json.loads(text)
+            except ValueError:
+                continue  # cc-gmail cannot read this account either, so it names no address
+            if isinstance(settings, dict) and isinstance(settings.get("email"), str) \
+                    and settings["email"].strip().lower() == self.address:
+                found.append((config.parent, settings))
+        if not found:
+            raise CheckFailed(f"{self.address} is not signed in on {machine()}: run cc-gmail accounts add "
+                              f"{self.free_name(store)} and give it this address",
+                              f"no account under {store}/accounts holds {self.address} in its config.json")
+        if len(found) > 1:
+            raise CheckFailed(f"{self.address} is in more than one cc-gmail account on {machine()}: keep one and remove "
+                              f"the others with cc-gmail accounts remove <name>",
+                              "the accounts found: " + ", ".join(folder.name for folder, _ in found))
+        return found[0]
+
+    def free_name(self, store):
+        """A name for `cc-gmail accounts add` that no account has yet, because cc-gmail's accounts_add does nothing for
+        a name that exists (review finding 1): the part before the @, else that and the domain's first label, else
+        that with a number. Compared without regard to case, so it is free on Windows and macOS too."""
+        taken = {folder.name.lower() for folder in Path(store).glob("accounts/*")}
+        local, domain = self.address.split("@", 1)
+        base = f"{local}-{domain.split('.')[0]}"
+        for name in [local, base] + [f"{base}-{n}" for n in range(2, 100)]:
+            if name.lower() not in taken:
+                return name
+        return "<a new name>"
+
+    def sign_in(self):
+        store = gmail_store(account_record_home())
+        folder, settings = self.find_account(store)
+        nickname = folder.name
+        if settings.get("auth_method") != "oauth":
+            # An app password reads IMAP, never the Gmail API (R1.3).
+            raise CheckFailed(f"{self.address} signs in to cc-gmail on {machine()} without OAuth: run cc-gmail -a "
+                              f"{nickname} auth --method oauth",
+                              f"{folder / 'config.json'} has auth_method {settings.get('auth_method')!r}")
+        path = folder / "token.json"
+        renew = f"{self.address} is not signed in on {machine()}: run cc-gmail -a {nickname} auth --force"
+        if not path.exists():
+            # cc-gmail's auth signs in when there is no token yet; with one, it needs --force (authenticate()).
+            raise CheckFailed(f"{self.address} is not signed in on {machine()}: run cc-gmail -a {nickname} auth",
+                              f"looked for {path} and found none")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise CheckFailed(f"the saved sign-in of {self.address} on {machine()} cannot be read "
+                              f"({type(e).__name__}): check its permissions or sign in again", f"{path}: {e}") from None
+        try:
+            saved = json.loads(text)
+            if not isinstance(saved, dict):
+                raise ValueError("not a JSON object")
+            expiry = gmail_expiry(saved.get("expiry"))
+        except ValueError as e:
+            raise CheckFailed(renew, f"the saved sign-in at {path} is not one cc-gmail wrote ({e})") from None
+        missing = [key for key in GMAIL_TOKEN_KEYS if not (isinstance(saved.get(key), str) and saved[key])]
+        if missing:
+            # No fallback to credentials.json: cc-gmail's own refresh reads token.json only (R2).
+            raise CheckFailed(renew, f"the saved sign-in at {path} has no {', '.join(missing)}")
+        if saved["token_uri"] != GOOGLE_TOKEN_URI:
+            raise CheckFailed(f"the Gmail sign-in of {self.address} on {machine()} names another sign-in service: "
+                              f"run cc-gmail -a {nickname} auth --force",
+                              f"{path}: token_uri is not {GOOGLE_TOKEN_URI}, and it is never followed")
+        scopes = saved.get("scopes") or []
+        scopes = scopes.split(" ") if isinstance(scopes, str) else scopes
+        if not isinstance(scopes, list) or not any(s in scopes for s in GMAIL_MODE_SCOPES[self.mode]):
+            needed = " or ".join(s.rsplit("/", 1)[1] for s in GMAIL_MODE_SCOPES[self.mode])
+            raise CheckFailed(f"{self.address} on {machine()} lacks the Gmail permission {self.mode} mode needs: "
+                              f"run cc-gmail -a {nickname} auth --force",
+                              f"{path} grants {len(scopes) if isinstance(scopes, list) else 0} scope(s), none of them "
+                              f"{needed}")
+        token = saved.get("token")
+        if isinstance(token, str) and token and expiry is not None and expiry - GMAIL_REFRESH_MARGIN > utc_now():
+            self.token = token
+            return
+        self.token = self.refresh(path, saved, nickname)
+
+    def refresh(self, path, saved, nickname):
+        """The standard OAuth refresh (R2), then the write-back exactly as cc-gmail would leave the file."""
+        form = {"grant_type": "refresh_token", "client_id": saved["client_id"],
+                "client_secret": saved["client_secret"], "refresh_token": saved["refresh_token"]}
+        now = utc_now()
+        try:
+            answer = google_token_request(saved["token_uri"], form)
+        except GraphError as e:
+            error = (e.answer or {}).get("error")
+            if e.status in (400, 401) and isinstance(error, str):
+                raise CheckFailed(f"{self.address} is not signed in on {machine()}: run cc-gmail -a {nickname} auth "
+                                  f"--force", f"Google refused the refresh of the saved sign-in at {path} ({error})") \
+                    from None
+            raise CheckFailed(f"the Google sign-in service failed on {machine()} for {self.address}: HTTP {e.status}",
+                              str(e)) from None
+        except GraphUnreachable as e:
+            raise CheckFailed(f"could not reach the Google sign-in service from {machine()} for {self.address}: "
+                              f"{short_error(e.reason)}", str(e)) from None
+        except GraphNotJson as e:
+            raise CheckFailed(f"the Google sign-in service failed on {machine()} for {self.address}: it answered "
+                              f"something that is not JSON", str(e)) from None
+        # Checked as an object first: a JSON list or text from the service is this channel's failure, never the run's
+        # (review finding 2).
+        token = answer.get("access_token") if isinstance(answer, dict) else None
+        lifetime = answer.get("expires_in") if isinstance(answer, dict) else None
+        if not (isinstance(answer, dict) and isinstance(token, str) and token and isinstance(lifetime, int)
+                and not isinstance(lifetime, bool) and lifetime > 0):
+            raise CheckFailed(f"the Google sign-in service failed on {machine()} for {self.address}: its answer held "
+                              f"no access token", f"POST {GOOGLE_TOKEN_URI}")
+        renewed = dict(saved)
+        renewed["token"] = token
+        # As google-auth writes it (to_json): a naive UTC time in isoformat, then "Z".
+        renewed["expiry"] = (now + timedelta(seconds=lifetime)).astimezone(timezone.utc).replace(tzinfo=None) \
+            .isoformat() + "Z"
+        if isinstance(answer.get("refresh_token"), str) and answer["refresh_token"]:
+            renewed["refresh_token"] = answer["refresh_token"]
+        self.write_back(path, renewed)
+        return token
+
+    def write_back(self, path, renewed):
+        """The same keys in the same order, to a temporary file in the same folder, then os.replace; owner-only on
+        Linux and macOS. Nothing in the store is ever deleted, and token-refresh-error.json is never written (R2)."""
+        temporary = None
+        try:
+            handle, temporary = tempfile.mkstemp(prefix=".token-", suffix=".json", dir=path.parent)
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(renewed))
+            if os.name == "posix":
+                os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+            temporary = None
+        except OSError as e:
+            raise CheckFailed(f"the renewed sign-in of {self.address} could not be saved on {machine()} "
+                              f"({type(e).__name__}): check the file's permissions and the free space",
+                              f"{path}: {e}") from None
+        finally:
+            if temporary is not None and os.path.exists(temporary):
+                os.unlink(temporary)   # this check's own temporary file, never one of cc-gmail's
+        log(f"{self.address}: the renewed sign-in was written back to its file")
+
+    # ------------------------------------------------------------------------------------------------ the Gmail API
+
+    def gmail(self, method, url, what, body=None, missing=None):
+        """One Gmail API call through the guard, its failure turned into a sentence naming this mailbox and what was
+        being done. With `missing`, an HTTP 404 returns it instead."""
+        try:
+            return gmail_request(method, url, self.token, body, live=self.live)
+        except GraphError as e:
+            if e.status == 404 and missing is not None:
+                return missing
+            raise CheckFailed(f"the Gmail API answered HTTP {e.status} for {self.address} while {what}", str(e)) from None
+        except GraphUnreachable as e:
+            raise CheckFailed(f"the Gmail API could not be reached from {machine()} for {self.address} while {what}: "
+                              f"{short_error(e.reason, GMAIL_UNREACHABLE_ERROR_CHARS)}", str(e)) from None
+        except GraphNotJson as e:
+            raise CheckFailed(f"the Gmail API answered something that is not JSON for {self.address} while {what}",
+                              str(e)) from None
+
+    def message_ids(self, label, query, limit, what):
+        """The ids of a label's messages matching `query`, newest first as the Gmail API lists them, at most `limit`.
+        Returns (ids, whether the list went on past `limit`)."""
+        ids, token = [], None
+        for _ in range(GMAIL_LIST_MAX_PAGES):
+            params = [("labelIds", label), ("q", query), ("maxResults", str(min(GMAIL_LIST_PAGE, limit - len(ids))))]
+            if token:
+                params.append(("pageToken", token))
+            url = f"{GMAIL}/messages?{urllib.parse.urlencode(params)}"
+            page = self.gmail("GET", url, what)
+            listed = page.get("messages", []) if isinstance(page, dict) else None
+            token = page.get("nextPageToken") if isinstance(page, dict) else None
+            if not isinstance(listed, list) or not all(isinstance(m, dict) and isinstance(m.get("id"), str)
+                                                       and GMAIL_ID.fullmatch(m["id"]) for m in listed) \
+                    or (token is not None and not (isinstance(token, str) and token and token.isascii()
+                                                   and token.isprintable() and " " not in token)):
+                raise CheckFailed(f"the Gmail API answered a list without usable message ids for {self.address} "
+                                  f"while {what}", f"GET {shown_url(url)}")
+            ids.extend(m["id"] for m in listed if m["id"] not in ids)
+            if not token or len(ids) >= limit:
+                return ids[:limit], bool(token) or len(ids) > limit
+        raise self.too_many(what)
+
+    def too_many(self, what):
+        """More new mail than GMAIL_LIST_MAX_PAGES pages: the oldest of it cannot be known, so nothing is guessed, and
+        every later run would stop here too until the Inbox holds fewer."""
+        return CheckFailed(f"{self.address} has more than {GMAIL_LIST_PAGE * GMAIL_LIST_MAX_PAGES} new Inbox messages, "
+                           f"more than screen.py lists in one run: archive the oldest of them in Gmail", f"while {what}")
+
+    def metadata(self, mid, headers, what):
+        query = urllib.parse.urlencode([("format", "metadata")] + [("metadataHeaders", h) for h in headers])
+        return self.gmail("GET", f"{GMAIL}/messages/{mid}?{query}", what)
+
+    def oldest(self, ids, keep, query, limit):
+        """Walks a newest-first list from its oldest end, reading each message's metadata, until it holds one more
+        message `keep` accepts than a run can report, or has read GMAIL_METADATA_PER_RUN. Returns those accepted,
+        oldest first by internalDate, and whether ids were left unread. The Gmail API lists by internalDate, newest
+        first, so the oldest new mail is at the end. hasAttachments comes from one more list, of the same query with
+        has:attachment, when anything was found."""
+        found, read, left = [], 0, list(ids)
+        while left and len(found) <= MAX_MESSAGES_PER_RUN and read < GMAIL_METADATA_PER_RUN:
+            mid = left.pop()
+            if mid in self.reported:
+                continue
+            read += 1
+            message = read_gmail_message(self.metadata(mid, ("From", "Subject"), "reading the Inbox"))
+            if message is None or message["id"] != mid:
+                raise CheckFailed(f"the Gmail API answered a message without a usable id or receive time for "
+                                  f"{self.address} while reading the Inbox")
+            if keep(message):
+                found.append(message)
+        if found:
+            attached = self.attachment_ids(query, limit)
+            for message in found:
+                message["hasAttachments"] = message["id"] in attached
+        found.sort(key=lambda m: (m["ms"], m["id"]))
+        return found, bool(left)
+
+    def attachment_ids(self, query, limit):
+        """The Inbox ids Gmail's own search calls attached, for the same window as the Inbox list: one list a run,
+        whatever the number of messages (G0: format=metadata carries no parts, and the MIME type disagreed with this
+        search on 6 of 36 messages). It is Gmail's definition of an attachment, which may differ from Outlook's at the
+        edges (an inline picture)."""
+        ids, cut = self.message_ids("INBOX", f"{query} has:attachment", limit, "reading the Inbox")
+        if cut and limit > FIRST_RUN_MESSAGES:
+            raise self.too_many("reading the Inbox")
+        return set(ids)
+
+    def inbox_first_run(self, now):
+        """First run: the most recent 200 Inbox messages, or those of the last 30 days, whichever is fewer (D18).
+        Returns the oldest of them first, and whether more are waiting."""
+        since = int((now - timedelta(days=FIRST_RUN_DAYS)).timestamp())
+        ids, _ = self.message_ids("INBOX", f"after:{since}", FIRST_RUN_MESSAGES, "reading the Inbox")
+        floor = since * 1000
+        return self.oldest(ids, lambda m: m["ms"] >= floor, f"after:{since}", FIRST_RUN_MESSAGES)
+
+    def inbox_since(self, cursor, wanted):
+        """Inbox messages at or after the cursor's millisecond and not among the ids already reported at exactly it,
+        oldest first. The query is one second before the cursor (Gmail's after: counts whole seconds); the rest is
+        filtered here. Returns (messages, more)."""
+        already, newest = set(cursor["idsAtNewest"]), cursor["newestMs"]
+        query, limit = f"after:{newest // 1000 - 1}", GMAIL_LIST_PAGE * GMAIL_LIST_MAX_PAGES
+        ids, cut = self.message_ids("INBOX", query, limit, "reading the Inbox")
+        if cut:
+            raise self.too_many("reading the Inbox")
+        found, more = self.oldest(ids, lambda m: m["ms"] >= newest and m["id"] not in already, query, limit)
+        return found[:wanted + 1], more or len(found) > wanted
+
+    def known_hashes(self, found):
+        """"We have written to this sender" (R5, settled by G0): for each distinct sender found, one search of the SENT
+        label for a message to, cc or bcc that address, at most one result. It covers the whole Sent history. Returns
+        the hashes of those written to; nothing of it is kept.
+
+        Two guards (the Tech Lead's ruling on G0 review finding 1), because the address is the sender's to write and a
+        known sender skips the spam screen: only a plain address (GMAIL_PLAIN_ADDRESS) is searched for, anything else
+        is not known and costs no call; and a hit counts only when the found message's own To, Cc or Bcc holds exactly
+        that address."""
+        known = set()
+        for sender in sorted({m["from"] for m in found if m["from"] and m["fromAscii"]}):
+            if not GMAIL_PLAIN_ADDRESS.fullmatch(sender):
+                continue
+            ids, _ = self.message_ids("SENT", f"to:{sender} OR cc:{sender} OR bcc:{sender}", 1, "reading the Sent mail")
+            if not ids:
+                continue
+            raw = self.metadata(ids[0], ("To", "Cc", "Bcc"), "reading the Sent mail")
+            payload = raw.get("payload") if isinstance(raw, dict) else None
+            headers = payload.get("headers") if isinstance(payload, dict) else None
+            if not isinstance(headers, list):
+                # This channel's failure, never the run's (review finding 2).
+                raise CheckFailed(f"the Gmail API answered a Sent message without usable headers for {self.address} "
+                                  f"while reading the Sent mail", f"GET {shown_url(f'{GMAIL}/messages/{ids[0]}')}")
+            # Only headers that are there: getaddresses in strict mode answers nothing at all for a list holding "".
+            values = [v for v in (gmail_header(headers, f) for f in ("To", "Cc", "Bcc")) if v]
+            if sender in {a.lower() for _, a in email.utils.getaddresses(values) if a}:
+                known.add(address_hash(sender))
+        return known
+
+    def file(self, message_id, decision):
+        """Files one message: archive takes it out of the Inbox, junk moves it to Spam. Returns "moved", or
+        "already-gone" when the Gmail API no longer has it (404). The id stays the same, so a retry is a no-op."""
+        answer = self.gmail("POST", f"{GMAIL}/messages/{message_id}/modify", GMAIL_FILING_STEPS[decision],
+                            copy.deepcopy(GMAIL_FILING[decision]), missing="already-gone")
+        return "already-gone" if answer == "already-gone" else "moved"
+
+
+READERS = {"outlook": OutlookReader, "gmail": GmailReader}
 
 
 def read_message(raw):
@@ -592,13 +1158,12 @@ def check_channel(channel, address):
     provider = channel.get("provider")
     if not isinstance(provider, str) or provider not in READERS:
         raise CheckFailed(f"provider {provider} has no reader in this version of screen.py "
-                          f"(channel {address}); this version reads: {', '.join(sorted(READERS))}")
+                          f"(channel {address}); this version reads: {', '.join(READERS)}")
     if not isinstance(channel.get("filingQueue", []), list):
         raise CheckFailed(f"the channel {address} has a 'filingQueue' that is not a list")
     cursor = channel.get("cursor")
-    if cursor is not None and not (isinstance(cursor, dict) and isinstance(cursor.get("newest"), str)
-                                   and isinstance(cursor.get("idsAtNewest"), list)
-                                   and all(isinstance(i, str) for i in cursor["idsAtNewest"])):
+    # Each reader knows its own cursor, so a channel whose provider changed never reads the other's as its own.
+    if cursor is not None and not READERS[provider].cursor_ok(cursor):
         raise CheckFailed(f"the channel {address} has a 'cursor' this check did not write")
     keys = channel.get("keys", {})
     if not (isinstance(keys, dict) and all(isinstance(entry, dict) and isinstance(entry.get("id"), str)
@@ -606,6 +1171,8 @@ def check_channel(channel, address):
                                            for entry in keys.values())):
         raise CheckFailed(f"the channel {address} has a 'keys' table this check did not write")
     sent = channel.get("sentCache")
+    if sent is not None and not READERS[provider].SENT_CACHE:
+        raise CheckFailed(f"the channel {address} has a 'sentCache' this check did not write")
     if sent is not None and not (isinstance(sent, dict) and isinstance(sent.get("refreshedUtc"), str)
                                  and isinstance(sent.get("hashes"), list)
                                  and all(isinstance(h, str) for h in sent["hashes"])):
@@ -716,7 +1283,7 @@ def read_channel(channel, reader, address, now, filing_room):
             + (f"; {len(left)} left queued for the next run" if left else ""))
 
     sent = channel.get("sentCache")
-    if not sent or sent.get("refreshedUtc", "") < iso(now - SENT_REFRESH):
+    if reader.SENT_CACHE and (not sent or sent.get("refreshedUtc", "") < iso(now - SENT_REFRESH)):
         sent = {"refreshedUtc": iso(now), "hashes": reader.sent_hashes()}
         channel["sentCache"] = sent
         log(f"{address}: the Sent folder was read again: {len(sent['hashes'])} address(es) written to")
@@ -724,10 +1291,10 @@ def read_channel(channel, reader, address, now, filing_room):
     if channel.get("cursor"):
         found, more_left = reader.inbox_since(channel["cursor"], MAX_MESSAGES_PER_RUN)
     else:
-        found = reader.inbox_first_run(now)
-        more_left = False
+        found, more_left = reader.inbox_first_run(now)
         log(f"{address}: first run: {len(found)} message(s) in the look-back")
-    return results, used, found, more_left, set(sent["hashes"])
+    known = set(sent["hashes"]) if reader.SENT_CACHE else reader.known_hashes(found)
+    return results, used, found, more_left, known
 
 
 def run(state_path, now):
@@ -841,12 +1408,7 @@ def run(state_path, now):
         left = len([c for c in candidates if c[1] == index]) - len(mine)
         sections[index]["more"] = more[index] or left > 0
         if mine:
-            newest = mine[-1]["received"]
-            cursor = channel.get("cursor")
-            ids = {m["id"] for m in mine if m["received"] == newest}
-            if cursor and cursor["newest"] == newest:
-                ids |= set(cursor["idsAtNewest"])
-            channel["cursor"] = {"newest": newest, "idsAtNewest": sorted(ids)}
+            channel["cursor"] = type(readers[index]).advance(channel.get("cursor"), mine)
         channel["keys"] = prune_keys(channel.get("keys", {}), channel.get("filingQueue", []), now)
         log(f"{sections[index]['address']}: reported {len(mine)} new message(s)"
             + ("; more is waiting for the next run" if sections[index]["more"] else ""))

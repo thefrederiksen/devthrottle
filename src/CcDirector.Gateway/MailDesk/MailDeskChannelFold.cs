@@ -268,9 +268,8 @@ public sealed class MailDeskChannelFold
         + "it is routed to.";
 
     /// <summary>What the Mail Desk page shows when the account has no mailbox on it.</summary>
-    public const string PageEmptyLabel =
-        "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook "
-        + "--machine <machine> --why \"<why>\"";
+    public static readonly string PageEmptyLabel =
+        "No mailbox is on the Mail Desk yet. Add one with: " + MailDeskWords.ChannelAddCommand("<machine>");
 
     /// <summary>The provider's name as a reader sees it. A provider with no label is refused, never shown raw.</summary>
     internal static string ProviderLabelOf(Guid channel, string provider)
@@ -368,7 +367,7 @@ public sealed record MailDeskChannelRow(
     string ChangedBy,
     DateTime? RemovedUtc)
 {
-    /// <summary>The provider's name as a reader sees it: <c>Outlook</c>.</summary>
+    /// <summary>The provider's name as a reader sees it: <c>Outlook</c> or <c>Gmail</c>.</summary>
     public required string ProviderLabel { get; init; }
 
     /// <summary>The machines that may read the mailbox, as one sentence that claims no order.</summary>

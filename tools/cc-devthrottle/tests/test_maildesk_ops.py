@@ -212,7 +212,23 @@ def test_channel_list_Json_WithAll_SendsTheFilterAndPrintsTheAnswer(fake_gateway
     assert json.loads(result.stdout) == answer
 
 
-def test_channel_list_Empty_SaysCountZero(fake_gateway):
+def test_channel_list_Empty_SaysCountZeroAndShowsTheGatewaysNextStepVerbatim(fake_gateway):
+    # Arrange - a provider list no client would write, so the line can only have come from the Gateway
+    add = 'cc-devthrottle maildesk channel add <address> --provider owl|pigeon --machine <machine> --why "<text>"'
+    fake_gateway.answer("GET", "/channels", 200, {"count": 0, "channels": [], "help": [add]})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "channel", "list"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("count: 0\n")
+    assert "channels[0]" in result.stdout
+    assert f"help[1]:\n  {add}" in result.stdout
+    assert "outlook" not in result.stdout
+
+
+def test_channel_list_EmptyWithNoHelpFromTheGateway_SaysCountZeroAndInventsNoProvider(fake_gateway):
     # Arrange
     fake_gateway.answer("GET", "/channels", 200, {"count": 0, "channels": []})
 
@@ -222,8 +238,35 @@ def test_channel_list_Empty_SaysCountZero(fake_gateway):
     # Assert
     assert result.exit_code == 0, result.output
     assert result.stdout.startswith("count: 0\n")
-    assert "channels[0]" in result.stdout
-    assert "maildesk channel add <address>" in result.stdout
+    assert "--provider" not in result.stdout
+
+
+def test_channel_add_Gmail_IsPassedToTheGatewayAsGiven(fake_gateway):
+    # Arrange
+    fake_gateway.answer("POST", "/channels", 200, dict(CHANNEL, provider="gmail", providerLabel="Gmail"))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "channel", "add", LONG_ADDRESS, "--provider", "gmail",
+                                 "--machine", "devlinux", "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["body"]["provider"] == "gmail"
+
+
+def test_channel_add_AProviderTheGatewayRefuses_IsSentAndTheGatewaysRefusalShown(fake_gateway):
+    # Arrange - the command does not judge the provider; the Gateway does
+    refusal = "provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook' or 'gmail'"
+    fake_gateway.answer("POST", "/channels", 400, {"error": "bad_provider", "detail": refusal})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "channel", "add", LONG_ADDRESS, "--provider", "carrier-pigeon",
+                                 "--machine", "devlinux", "--why", WHY])
+
+    # Assert
+    assert result.exit_code != 0
+    assert _only_call(fake_gateway)["body"]["provider"] == "carrier-pigeon"
+    assert refusal in result.output
 
 
 def test_channel_list_LongAddresses_AreNeverCutShort(fake_gateway):
