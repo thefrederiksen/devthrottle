@@ -2371,7 +2371,7 @@ USAGE: cc-devthrottle maildesk [--gateway URL] COMMAND [ARGS]...
 COMMANDS:
   status [--json]
   channel list [--all] [--json]
-  channel add ADDRESS --provider outlook --machine MACHINE [--machine BACKUP] --why "TEXT"
+  channel add ADDRESS --provider outlook|gmail --machine MACHINE [--machine BACKUP] --why "TEXT"
   channel remove ADDRESS --why "TEXT"
   mode ADDRESS observe|live --why "TEXT"
   rules show [--version N] [--json]
@@ -2397,9 +2397,11 @@ A `PATTERN` is an exact address or `*@domain`. A block entry's own reason is its
   `route-model`; `--decision` takes `route`, `archive`, `junk`, `keep-for-owner`, `mail-desk-agent`,
   `failed`; `--kind` takes `rule`, `allow`, `block`, `route`, `channel`, `mode`; a mode is `observe` or
   `live`. Any other value, a malformed `FACTORY/SEAT`, or an unknown flag fails with exit 2 and lists
-  what is valid.
+  what is valid. The provider is not one of them: `--provider` is sent as given, and the Gateway accepts
+  `outlook` or `gmail` and refuses any other provider, naming the ones it accepts.
 - **The Gateway decides, the command prints.** A channel's mode label, whether it is signed in, and how
-  its last check went are printed as the Gateway wrote them. A refusal prints the Gateway's own `error`
+  its last check went are printed as the Gateway wrote them, and so is the next step of an empty
+  `channel list`, the command that adds a mailbox. A refusal prints the Gateway's own `error`
   and `detail` and exits 1.
 - **The switch.** The Mail Desk is off for every account by default. While it is off, every command
   says "Mail Desk is not switched on for this account." and exits 1.

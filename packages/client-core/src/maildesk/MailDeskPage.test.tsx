@@ -112,6 +112,19 @@ describe("MailDeskPage", () => {
     });
   });
 
+  it("MailDeskPage_GmailChannel_ShowsTheGatewaysProviderLabelAndSignInSentenceVerbatim", async () => {
+    const envelope = oddChannels();
+    const gmail = envelope.channels.find((c) => c.provider === "gmail")!;
+    answers({ kind: "channels", envelope });
+
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { level: 2, name: gmail.address });
+    const card = heading.closest("[data-testid=mail-desk-channel]") as HTMLElement;
+    expect(card.querySelector(".mail-desk-provider")?.textContent).toBe("Gmail");
+    expect(within(card).getByText(gmail.signedIn.label).textContent).toBe(gmail.signedIn.label);
+  });
+
   it("MailDeskPage_NoChannels_ShowsTheGatewaysEmptySentence", async () => {
     const envelope = noChannels();
     answers({ kind: "channels", envelope });

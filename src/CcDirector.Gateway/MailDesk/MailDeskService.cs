@@ -81,7 +81,7 @@ public sealed class MailDeskService
     public string? NoChannelSentence(TenantId tenant, string machine)
         => MailDeskMemory.HandedTo(_channels.List(tenant), machine).Count > 0
             ? null
-            : $"the Mail Desk start runs on {machine}, but no channel names it: add it with maildesk channel add <address> --provider outlook --machine {machine} --why \"<text>\"";
+            : $"the Mail Desk start runs on {machine}, but no channel names it: add it with {MailDeskWords.ChannelAddCommand(machine)}";
 
     // ---------- the screening (sections 1, 3 and 8) ----------
 

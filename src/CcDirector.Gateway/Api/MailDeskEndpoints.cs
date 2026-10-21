@@ -64,6 +64,10 @@ internal static class MailDeskEndpoints
     /// <summary>The outcome word of a factory's own session refused a channel change.</summary>
     public const string FactorySessionRefusedOutcome = "FactorySessionRefused";
 
+    /// <summary>The help line <c>GET /channels</c> ends with when the account has no channel: the command that adds
+    /// one, naming every provider the Gateway accepts, so no client writes the provider list itself.</summary>
+    public static readonly IReadOnlyList<string> NoChannelHelp = new[] { MailDeskWords.ChannelAddCommand("<machine>") };
+
     /// <summary>The help lines <c>GET /status</c> ends with.</summary>
     public static readonly IReadOnlyList<string> StatusHelp = new[]
     {
@@ -160,6 +164,7 @@ internal static class MailDeskEndpoints
             title = MailDeskChannelFold.PageTitle,
             summary = MailDeskChannelFold.PageSummary,
             emptyLabel = MailDeskChannelFold.PageEmptyLabel,
+            help = folded.Channels.Count == 0 ? NoChannelHelp : Array.Empty<string>(),
         });
     }
 

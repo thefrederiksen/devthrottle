@@ -374,14 +374,24 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
     // ---------- adding a channel: its refusals ----------
 
     [Fact]
-    public async Task AddChannel_AProviderOtherThanOutlook_Answers400NamingOutlookAndRecordsNothing()
+    public async Task AddChannel_AnUnknownProvider_Answers400NamingBothAcceptedOnesAndRecordsNothing()
     {
         var before = Recorded();
 
-        var answer = await Post(P + "/channels", new { address = Mailbox, provider = "gmail", machines = new[] { Machine }, why = "try gmail" });
+        var answer = await Post(P + "/channels", new { address = Mailbox, provider = "carrier-pigeon", machines = new[] { Machine }, why = "try a pigeon" });
 
         AssertRefusedAndNothingRecorded(answer, HttpStatusCode.BadRequest, "bad_provider", before);
-        Assert.Contains("'outlook'", answer.Body.GetProperty("detail").GetString());
+        Assert.Equal("provider 'carrier-pigeon' is not one the Mail Desk reads; give 'outlook' or 'gmail'",
+            answer.Body.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task AddChannel_Gmail_Answers201WithTheProviderAndItsLabel()
+    {
+        var answer = await Post(P + "/channels", new { address = Mailbox, provider = "gmail", machines = new[] { Machine }, why = "the support mailbox" });
+
+        Assert.Equal(HttpStatusCode.Created, answer.Status);
+        Assert.Equal(MailDeskWords.Providers.Gmail, _channels.List(A).Single().Provider);
     }
 
     [Fact]
@@ -926,6 +936,25 @@ public sealed partial class MailDeskEndpointTests : IAsyncLifetime
         var signedIn = (await OnlyRow()).GetProperty("signedIn");
 
         // Assert
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, signedIn.GetProperty("state").GetString());
+        Assert.Equal(MailDeskChannelFold.SignedInFailingPrefix + sentence, signedIn.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_GmailChannelsNewestCheckFailed_SignedInFailingWithTheChecksOwnSentenceVerbatim()
+    {
+        // Arrange - the check writes the fix; the Gateway quotes it and never expects cc-outlook in it
+        await Post(P + "/channels", new { address = Mailbox, provider = "gmail", machines = new[] { Machine }, why = "the support mailbox" });
+        var channel = _channels.List(A).Single();
+        const string sentence = "support@example.com is not signed in on devlinux: run cc-gmail -a support auth --force";
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, _now.AddMinutes(-10), Machine, sentence, "the refresh was refused"));
+
+        // Act
+        var row = await OnlyRow();
+
+        // Assert
+        Assert.Equal("Gmail", row.GetProperty("providerLabel").GetString());
+        var signedIn = row.GetProperty("signedIn");
         Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, signedIn.GetProperty("state").GetString());
         Assert.Equal(MailDeskChannelFold.SignedInFailingPrefix + sentence, signedIn.GetProperty("label").GetString());
     }

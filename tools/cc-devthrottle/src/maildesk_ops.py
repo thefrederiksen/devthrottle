@@ -307,7 +307,10 @@ def channel_list(all_channels: bool, json_output: bool) -> None:
     fields, records = _channel_records(channels, with_removed=all_channels)
     _write(_count(answer, channels), axi_output.render_list("channels", fields, records))
     if not channels:
-        axi_cli.print_next([f'{_TOOL} channel add <address> --provider outlook --machine <machine> --why "<text>"'])
+        # The Gateway names the command that adds one, with every provider it accepts (rule 7).
+        lines = [axi_cli.ascii_text(str(h)).strip() for h in (answer.get("help") or []) if str(h).strip()]
+        if lines:
+            axi_cli.print_next(lines)
         return
     axi_cli.print_next([_STATUS, f"{_DECISIONS} --channel <address>"])
 

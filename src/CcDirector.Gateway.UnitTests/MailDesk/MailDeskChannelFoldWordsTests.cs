@@ -24,6 +24,19 @@ public sealed class MailDeskChannelFoldWordsTests
     }
 
     [Fact]
+    public void ProviderLabelOf_Gmail_IsGmail()
+    {
+        Assert.Equal("Gmail", MailDeskChannelFold.ProviderLabelOf(Channel, MailDeskWords.Providers.Gmail));
+    }
+
+    [Fact]
+    public void ChannelAddCommand_NamesEveryProviderTheGatewayAccepts()
+    {
+        Assert.Equal("cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine devlinux --why \"<text>\"",
+            MailDeskWords.ChannelAddCommand("devlinux"));
+    }
+
+    [Fact]
     public void ProviderLabels_EveryProvider_HasALabel()
     {
         Assert.All(MailDeskWords.Providers.All, p => Assert.False(string.IsNullOrWhiteSpace(MailDeskWords.Providers.Labels[p])));
@@ -33,9 +46,9 @@ public sealed class MailDeskChannelFoldWordsTests
     [Fact]
     public void ProviderLabelOf_ProviderWithNoLabel_Throws()
     {
-        var thrown = Assert.Throws<InvalidOperationException>(() => MailDeskChannelFold.ProviderLabelOf(Channel, "gmail"));
+        var thrown = Assert.Throws<InvalidOperationException>(() => MailDeskChannelFold.ProviderLabelOf(Channel, "carrier-pigeon"));
 
-        Assert.Contains("'gmail'", thrown.Message);
+        Assert.Contains("'carrier-pigeon'", thrown.Message);
         Assert.Contains(Channel.ToString(), thrown.Message);
     }
 
