@@ -4,6 +4,7 @@ import html as _html
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Optional, List
 
 
@@ -1245,6 +1246,12 @@ class OutlookClient:
 
         return True
 
+    @staticmethod
+    def _enum_value(value):
+        """O365 returns importance, show-as, attendee type and response as enums; the
+        callers render and serialise plain strings ('normal', 'busy', 'accepted')."""
+        return value.value if isinstance(value, Enum) else value
+
     def _format_event(self, event) -> dict:
         """Format an event object into a dict with full details."""
         result = {
@@ -1258,9 +1265,9 @@ class OutlookClient:
             'body': event.body,
             'is_recurring': getattr(event, 'is_recurring', False),
             'is_cancelled': getattr(event, 'is_cancelled', False),
-            'importance': getattr(event, 'importance', 'normal'),
-            'sensitivity': getattr(event, 'sensitivity', 'normal'),
-            'show_as': getattr(event, 'show_as', 'busy'),
+            'importance': self._enum_value(getattr(event, 'importance', 'normal')),
+            'sensitivity': self._enum_value(getattr(event, 'sensitivity', 'normal')),
+            'show_as': self._enum_value(getattr(event, 'show_as', 'busy')),
             'categories': getattr(event, 'categories', []),
             'web_link': getattr(event, 'web_link', None),
         }
@@ -1280,12 +1287,12 @@ class OutlookClient:
                 att_info = {
                     'email': att.address,
                     'name': getattr(att, 'name', ''),
-                    'type': getattr(att, 'type', 'required'),
+                    'type': self._enum_value(getattr(att, 'type', 'required')),
                 }
                 response_status = getattr(att, 'response_status', None)
                 if response_status:
                     status_val = getattr(response_status, 'status', None)
-                    att_info['response'] = str(status_val) if status_val else 'none'
+                    att_info['response'] = str(self._enum_value(status_val)) if status_val else 'none'
                 attendees.append(att_info)
         result['attendees'] = attendees
 
@@ -1293,7 +1300,7 @@ class OutlookClient:
         response_status = getattr(event, 'response_status', None)
         if response_status:
             status_val = getattr(response_status, 'status', None)
-            result['my_response'] = str(status_val) if status_val else 'none'
+            result['my_response'] = str(self._enum_value(status_val)) if status_val else 'none'
 
         return result
 
