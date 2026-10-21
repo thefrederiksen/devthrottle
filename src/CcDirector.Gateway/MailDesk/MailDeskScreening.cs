@@ -195,8 +195,11 @@ public static class MailDeskScreening
                 case MailDeskAnswerKind.OffLabels:
                     return ToAgent(layer, $"{layer}: answered outside the labels", null, cost, version);
                 case MailDeskAnswerKind.Label when answer.Label == SpamLabel:
+                    // DeepInfra returns no log probabilities for the included fast model (logprobs null on a request
+                    // that asks for them), so its labels carry no confidence. The owner's ruling: the label is acted
+                    // on as answered, and the reason says no confidence came with it.
                     if (answer.Confidence is not { } sure)
-                        return ToAgent(layer, $"{layer}: no confidence returned", null, cost, version);
+                        return Decided(layer, MailDeskWords.Decisions.Junk, null, null, $"{layer}: spam, no confidence returned", version, null, cost);
                     var threshold = Number(settings.SpamThreshold);
                     return sure >= (double)settings.SpamThreshold
                         ? Decided(layer, MailDeskWords.Decisions.Junk, null, null, $"{layer}: spam at {Number(sure)} (threshold {threshold})", version, sure, cost)
@@ -231,8 +234,9 @@ public static class MailDeskScreening
             }
             var chosen = routes.FirstOrDefault(r => r.Key == answer.Label)
                          ?? throw new InvalidOperationException($"The route question answered the label '{answer.Label}', which it did not offer.");
+            // As for spam above: a label with no confidence is acted on as answered. Unsure still goes to the agent.
             if (answer.Confidence is not { } sure)
-                return ToAgent(layer, $"{layer}: {chosen.Key} with no confidence returned", null, cost, version);
+                return Decided(layer, MailDeskWords.Decisions.Route, chosen.Factory, chosen.Seat, $"{layer}: {chosen.Key}, no confidence returned", version, null, cost);
             var threshold = Number(settings.RouteThreshold);
             return sure >= (double)settings.RouteThreshold
                 ? Decided(layer, MailDeskWords.Decisions.Route, chosen.Factory, chosen.Seat, $"{layer}: {chosen.Key} at {Number(sure)} (threshold {threshold})", version, sure, cost)

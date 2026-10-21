@@ -65,9 +65,13 @@ document is the account's newest version, read **once per run**, and its version
 | 1. Fixed rules | `rule` | the first rule, in document order, whose every given condition holds (`subjectContains`: any of the texts; `fromAny`: any of the patterns) | `route` to its factory and seat | `rule <name>` |
 | 2. Allow-list | `allow` | the first entry whose pattern matches the sender | its `do`: `archive`, `keep-for-owner`, or `route` | `allow <pattern> (<what>)` |
 | 3a. Block list | `block` | the first entry whose pattern matches | `junk` | `block <pattern> (<why>)` |
-| 3b. Unknown sender | `sender-screen` | the sender is not known (`knownSender` false; lists 1 to 3a have not matched by now) | `spam` at or above the spam threshold: `junk`. `person`, any confidence: on to layer 4. Anything else (an answer off the labels, `spam` below the threshold, no confidence returned): `mail-desk-agent` | `sender-screen: spam at 0.97 (threshold 0.95)`, `... spam at 0.80, under the threshold 0.95`, `... answered outside the labels`, `... no confidence returned` |
-| 4. Route | `route-model` | always, for what is left | a route at or above the route threshold: `route` to it. `unsure`, an answer off the labels, below the threshold, or no confidence: `mail-desk-agent` | `route-model: devthrottle/mail-desk at 0.93 (threshold 0.90)`, `... unsure`, and so on |
+| 3b. Unknown sender | `sender-screen` | the sender is not known (`knownSender` false; lists 1 to 3a have not matched by now) | `spam` at or above the spam threshold, or `spam` with no confidence returned: `junk`. `person`, any confidence: on to layer 4. Anything else (an answer off the labels, `spam` below the threshold): `mail-desk-agent` | `sender-screen: spam at 0.97 (threshold 0.95)`, `... spam, no confidence returned`, `... spam at 0.80, under the threshold 0.95`, `... answered outside the labels` |
+| 4. Route | `route-model` | always, for what is left | a route at or above the route threshold, or a route with no confidence returned: `route` to it. `unsure`, an answer off the labels, or below the threshold: `mail-desk-agent` | `route-model: devthrottle/mail-desk at 0.93 (threshold 0.90)`, `... devthrottle/mail-desk, no confidence returned`, `... unsure`, and so on |
 
+- **No confidence returned (amended 21 October 2026, the owner's ruling):** DeepInfra returns `logprobs: null` for
+  `Qwen/Qwen2.5-72B-Instruct`, the included fast model, even when the request asks for them - proven with one real
+  reply. So every label comes back with no confidence, and a label with none is acted on as answered; the reason says
+  no confidence came with it. When a confidence does come back, the thresholds decide as before.
 - **A known sender skips 3b** and goes straight to layer 4.
 - **No routes in the document:** layer 4 asks nothing and decides `mail-desk-agent`, reason "no routes are defined".
   At most 25 routes are offered (letters A to Y, `unsure` last); phase 3 adds that cap to `MailDeskRulesValidator`, so

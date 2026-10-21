@@ -337,9 +337,9 @@ public sealed class MailDeskScreeningTests
     }
 
     [Fact]
-    public async Task DecideAsync_SpamWithNoConfidence_GoesToTheMailDeskAgent()
+    public async Task DecideAsync_SpamWithNoConfidence_IsJunkAndSaysNoConfidenceCame()
     {
-        // Arrange
+        // Arrange: the included fast model on DeepInfra returns no log probabilities, so a label comes with none.
         var model = new FakeModel();
         model.PersonOrSpam.Enqueue(Label("spam", null));
 
@@ -347,7 +347,9 @@ public sealed class MailDeskScreeningTests
         var decision = await Decide(Message(), model);
 
         // Assert
-        Assert.Equal((MailDeskWords.Decisions.MailDeskAgent, "sender-screen: no confidence returned"), (decision.Decision, decision.Reason));
+        Assert.Equal((MailDeskWords.Decisions.Junk, "sender-screen: spam, no confidence returned", (double?)null),
+            (decision.Decision, decision.Reason, decision.Confidence));
+        Assert.Equal(new[] { "person-or-spam" }, model.Calls);
     }
 
     [Fact]
@@ -486,9 +488,9 @@ public sealed class MailDeskScreeningTests
     }
 
     [Fact]
-    public async Task DecideAsync_RouteWithNoConfidence_GoesToTheMailDeskAgent()
+    public async Task DecideAsync_RouteWithNoConfidence_IsRoutedAndSaysNoConfidenceCame()
     {
-        // Arrange
+        // Arrange: the included fast model on DeepInfra returns no log probabilities, so a label comes with none.
         var model = new FakeModel();
         model.Route.Enqueue(Label("books/clerk", null));
 
@@ -496,8 +498,23 @@ public sealed class MailDeskScreeningTests
         var decision = await Decide(Message(known: true), model);
 
         // Assert
-        Assert.Equal((MailDeskWords.Decisions.MailDeskAgent, "route-model: books/clerk with no confidence returned", (double?)null),
+        Assert.Equal((MailDeskWords.Decisions.Route, "route-model: books/clerk, no confidence returned", (double?)null),
             (decision.Decision, decision.Reason, decision.Confidence));
+        Assert.Equal(("books", "clerk"), (decision.RouteFactory, decision.RouteSeat));
+    }
+
+    [Fact]
+    public async Task DecideAsync_UnsureWithNoConfidence_StillGoesToTheMailDeskAgent()
+    {
+        // Arrange
+        var model = new FakeModel();
+        model.Route.Enqueue(Label(MailDeskModel.UnsureLabel, null));
+
+        // Act
+        var decision = await Decide(Message(known: true), model);
+
+        // Assert
+        Assert.Equal((MailDeskWords.Decisions.MailDeskAgent, "route-model: unsure"), (decision.Decision, decision.Reason));
     }
 
     [Fact]
