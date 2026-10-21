@@ -10,10 +10,12 @@ using Microsoft.AspNetCore.Routing;
 namespace CcDirector.Gateway.Api;
 
 /// <summary>
-/// The administrator factory agents switch - the one way to switch the Factory Agents area on or off for ONE
-/// account on a Gateway whose machine switch is off (the hosted Gateway, which serves every customer):
+/// The administrator factory agents switch - the OWNER's grant of the Factory Agents area to ONE account on a Gateway
+/// whose machine switch is off (the hosted Gateway, which serves every customer). Pro and Teams carry factories by
+/// their plan (<see cref="Tenancy.EntitlementScopes.Factories"/>); this switch is how an account on any other plan is
+/// given them (Factories need Pro mission, decision D4). Switching an account OFF removes only this grant:
 ///
-///   GET  /gateway/admin/factory-agents?account=&lt;id&gt;  -> { account, enabled, machine_wide, decision }
+///   GET  /gateway/admin/factory-agents?account=&lt;id&gt;  -> { account, enabled, state, grant, reason, tier, machine_wide, decision }
 ///   POST /gateway/admin/factory-agents  { account, enabled, actor, reason }  -> { outcome, account, enabled }
 ///
 /// Find the account identifier from an email with <c>GET /gateway/admin/accounts?email=...</c>.
@@ -109,12 +111,18 @@ internal static class AdminFactoryAgentsEndpoint
             return Results.NotFound(new { error = UnknownAccount(account) });
 
         var decision = factorySwitch.Decision(tenant);
-        var enabled = factorySwitch.IsOn(tenant);
-        FileLog.Write($"[AdminFactoryAgentsEndpoint] GET: account={tenant.ToLogString()} enabled={enabled} machine_wide={factorySwitch.MachineWide} decision={(decision is null ? "none" : decision.Enabled.ToString())}");
+        var answer = factorySwitch.Answer(tenant);
+        FileLog.Write($"[AdminFactoryAgentsEndpoint] GET: account={tenant.ToLogString()} enabled={answer.IsOn} state={answer.State} grant={answer.GrantName} machine_wide={factorySwitch.MachineWide} decision={(decision is null ? "none" : decision.Enabled.ToString())}");
+        // What the gate will answer and which of the three grants produced it: an account on Pro and switched on by
+        // hand reads grant "owner switch", because the owner switch is asked first.
         return Results.Json(new
         {
             account = tenant.Value,
-            enabled,
+            enabled = answer.IsOn,
+            state = answer.State.ToString().ToLowerInvariant(),
+            grant = answer.GrantName,
+            reason = answer.OffReason,
+            tier = answer.Tier,
             machine_wide = factorySwitch.MachineWide,
             decision,
         });

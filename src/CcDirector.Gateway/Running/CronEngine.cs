@@ -18,6 +18,13 @@ public enum CronFireOutcome
 
     /// <summary>Nothing was started because the account's scheduler is paused (issue #3910; run-now only).</summary>
     Paused,
+
+    /// <summary>
+    /// A factory schedule was not fired because whether the account has factories could not be read (its plan read
+    /// failed - Factories need Pro mission). Nothing is recorded and the schedule is NOT moved on, so the next sweep
+    /// asks again; a run-now answers a temporary 503.
+    /// </summary>
+    SkippedFactoriesUnknown,
 }
 
 /// <summary>The result of <see cref="CronEngine.RunNowAsync"/>.</summary>
@@ -62,7 +69,7 @@ public sealed class CronEngine
     // CronRunResultService.Announce; a test that does not watch factory rows passes nothing.
     private readonly Action<TenantId, CronJobDto, CronRunRecord>? _onResultRecorded;
     private readonly Func<TenantId, bool> _isPaused;
-    private readonly Func<TenantId, bool> _factoryAgentsOn;
+    private readonly Func<TenantId, Factory.FactoryAgentsAnswer> _factoryAgents;
 
     private readonly object _inFlightGate = new();
     // Overlap admission, PARTITIONED BY TENANT (audit MED, gap audit-e). A cron job's id is tenant-relative
@@ -96,6 +103,11 @@ public sealed class CronEngine
     /// run-now, so a pause takes effect on the next sweep and survives a restart with the stored switch. Omitted
     /// (tests that are not about the switch) nothing is ever paused.
     /// </param>
+    /// <param name="factoryAgents">
+    /// Whether the account has factories: <see cref="Factory.FactoryAgentsSwitch.Answer"/>, the one decision every
+    /// factory route reads. Asked only for a FACTORY schedule - one linked to a factory seat, or one with a check - and
+    /// never for a plain schedule, which this does not gate. Omitted (tests that are not about factories) it is on.
+    /// </param>
     public CronEngine(
         CronJobStore store,
         CronRunHistoryStore history,
@@ -107,10 +119,10 @@ public sealed class CronEngine
         Func<TenantId?>? resolveTenant = null,
         Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null,
         Func<TenantId, bool>? isPaused = null,
-        Func<TenantId, bool>? factoryAgentsOn = null)
+        Func<TenantId, Factory.FactoryAgentsAnswer>? factoryAgents = null)
     {
         _onResultRecorded = onResultRecorded;
-        _factoryAgentsOn = factoryAgentsOn ?? (_ => true);
+        _factoryAgents = factoryAgents ?? (_ => AlwaysOn);
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
@@ -232,8 +244,22 @@ public sealed class CronEngine
             // seed schedule WITH A CHECK (Factory Definition, phase 5b) starts neither: it records the due check and
             // returns, so nothing in the sweep ever waits on a Director.
             var isWorkList = !string.IsNullOrWhiteSpace(job.Action.WorkListName);
-            if (job.HasCheck && !isWorkList)
-                return FireCheck(tenant, job, scheduledUtc, isManual);
+            var isCheck = job.HasCheck && !isWorkList;
+
+            // FACTORIES NEED PRO: a factory schedule - a factory seat's, or one with a check, which is handed to a
+            // Director only through the factory routes - asks the same one decision those routes ask. A plain schedule
+            // is not asked (the mission's R2). An answer that could not be read is not a verdict: this pass skips the
+            // schedule, records nothing and leaves it due, so the next sweep asks again.
+            var factories = isCheck || CronRunHistoryStore.IsFactoryLinked(job) ? _factoryAgents(tenant) : null;
+            if (factories is { State: Factory.FactoryAgentsState.Unknown })
+            {
+                FileLog.Write($"[CronEngine] skip, factories unknown: tenant={tenant.ToLogString()} job={job.Id} manual={isManual}: {factories.Why} - asked again on the next pass");
+                return new CronRunNowResult(CronFireOutcome.SkippedFactoriesUnknown, null);
+            }
+            if (isCheck)
+                return FireCheck(tenant, job, scheduledUtc, isManual, factories!);
+            if (factories is { IsOn: false })
+                return FireFactoryOff(tenant, job, scheduledUtc, isManual, factories);
 
             string? sessionId;
             string? error;
@@ -380,6 +406,16 @@ public sealed class CronEngine
     public const string FactoryAgentsOffSentence =
         "factory agents are switched off for this account, so no Director is handed the check";
 
+    /// <summary>Why a due check cannot run on an account whose PLAN does not include factories (Factories need Pro).</summary>
+    public const string FactoriesNeedAPlanCheckSentence =
+        "factories come with the Pro and Teams plans and this account's plan does not include them, so no Director is handed the check";
+
+    /// <summary>Why a due check cannot run, in the decision's own terms: the plan when the plan is why, otherwise the
+    /// switch - the same split <see cref="FactoryOffReason"/> makes for a seat's schedule, so one account never reads
+    /// two causes for one.</summary>
+    internal static string CheckOffSentence(Factory.FactoryAgentsAnswer answer)
+        => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired ? FactoriesNeedAPlanCheckSentence : FactoryAgentsOffSentence;
+
     /// <summary>
     /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
     /// Director: it appends the run row with result <c>checking</c> - that row IS the due check, handed to a Director on
@@ -390,15 +426,19 @@ public sealed class CronEngine
     /// before its next time. That row becomes a <c>check-not-run</c> problem first, so a machine that is off for days
     /// shows one problem per missed time, never a pile of rows still waiting.
     /// </summary>
-    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual)
+    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual,
+        Factory.FactoryAgentsAnswer factories)
     {
         var firedUtc = _clock.UtcNow;
         // A Director is handed a due check only through the factory routes, which answer nothing while the account's
-        // Factory Agents switch is off - so then the check cannot run, and the run and the schedule say why.
-        var switchedOff = !_factoryAgentsOn(tenant);
-        // The reason is the superseded run's own truth: whether the switch was off when IT fired.
+        // Factory Agents area is off - so then the check cannot run, and the run and the schedule say why.
+        var switchedOff = !factories.IsOn;
+        var offSentence = switchedOff ? CheckOffSentence(factories) : FactoryAgentsOffSentence;
+        // Whether the area was off when the superseded run fired is that run's own truth (its status); WHY it was off is
+        // not kept on it, so it is told in the terms of this fire's answer when this fire is off too, and otherwise as
+        // the switch it has always been told as.
         var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => infra == CheckDueSwitchedOffStatus
-            ? $"{FactoryAgentsOffSentence}; the check of {job.Name} did not run before its next time"
+            ? $"{offSentence}; the check of {job.Name} did not run before its next time"
             : $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time", firedUtc);
         if (superseded is not null)
         {
@@ -406,7 +446,7 @@ public sealed class CronEngine
             _onResultRecorded?.Invoke(tenant, job, superseded);
         }
         var infraStatus = switchedOff ? CheckDueSwitchedOffStatus : CheckDueStatus;
-        var lastStatus = switchedOff ? $"{CheckDueStatus}: {FactoryAgentsOffSentence}" : CheckDueStatus;
+        var lastStatus = switchedOff ? $"{CheckDueStatus}: {offSentence}" : CheckDueStatus;
 
         var record = new CronRunRecord
         {
@@ -432,6 +472,58 @@ public sealed class CronEngine
         FileLog.Write($"[CronEngine] fired a due check: job={job.Id}, manual={isManual}, run={record.RunId}, check={job.CheckPath}, machine={job.Target.Machine}, factory agents on={!switchedOff}");
         return new CronRunNowResult(CronFireOutcome.Fired, record);
     }
+
+    /// <summary>The infrastructure status of a factory seat's fire on an account that does not have factories.</summary>
+    public const string FactoryAgentsOffStatus = "factory-agents-off";
+
+    /// <summary>Why a factory seat's scheduled run was not started, in the decision's own terms.</summary>
+    internal static string FactoryOffReason(Factory.FactoryAgentsAnswer answer)
+        => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired
+            ? "factories come with the Pro and Teams plans and this account's plan does not include them, so the scheduled run was not started"
+            : "factory agents are switched off for this account, so the scheduled run was not started";
+
+    /// <summary>
+    /// THE FIRE OF A FACTORY SEAT'S SCHEDULE ON AN ACCOUNT WITHOUT FACTORIES (Factories need Pro mission). No session is
+    /// started and no Director is called. The run is recorded as one that did not run, with why, and the schedule moves
+    /// on exactly as a fire that started nothing does - so the schedule's own page says why it is not running, and a
+    /// later grant (a plan, or the owner's switch) is obeyed from the next time on.
+    /// </summary>
+    private CronRunNowResult FireFactoryOff(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual,
+        Factory.FactoryAgentsAnswer factories)
+    {
+        var firedUtc = _clock.UtcNow;
+        var record = new CronRunRecord
+        {
+            ScheduledUtc = scheduledUtc,
+            FiredUtc = firedUtc,
+            Machine = job.Target.Machine,
+            TargetDirectorId = "",
+            SessionId = null,
+            InfraStatus = FactoryAgentsOffStatus,
+            TaskStatus = TaskStatusUnknown,
+            Result = CronRunResults.Problem,
+            Problem = CronRunProblems.DidNotRun,
+            ResultReason = FactoryOffReason(factories),
+            ResultUtc = firedUtc,
+        };
+        CronRunResultFold.StampFactoryLink(record, job);
+        _history.Append(job.Id, record);
+
+        if (isManual)
+            _store.MarkFired(job.Id, firedUtc, FactoryAgentsOffStatus, job.NextRunUtc, job.Enabled);
+        else if (CronSchedule.KindOneOff.Equals(job.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
+            _store.MarkFired(job.Id, firedUtc, FactoryAgentsOffStatus, nextRunUtc: null, enabled: false);
+        else
+            _store.MarkFired(job.Id, firedUtc, FactoryAgentsOffStatus, CronSchedule.ComputeNextRunUtc(job, firedUtc), enabled: true);
+
+        _onResultRecorded?.Invoke(tenant, job, record);
+        FileLog.Write($"[CronEngine] not started, no factories: tenant={tenant.ToLogString()} job={job.Id} manual={isManual} run={record.RunId} reason={factories.OffReason}: {factories.Why}");
+        return new CronRunNowResult(CronFireOutcome.Fired, record);
+    }
+
+    // The answer when the engine is given no factory decision: on, so a test that is not about factories fires as before.
+    private static readonly Factory.FactoryAgentsAnswer AlwaysOn =
+        Factory.FactoryAgentsAnswer.On(Factory.FactoryAgentsGrant.MachineSwitch, tier: null, "no factory decision was given to this engine");
 
     /// <summary>
     /// Deliver the run-complete notification when <paramref name="job"/> opts in via its

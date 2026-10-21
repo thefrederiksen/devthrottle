@@ -33,7 +33,7 @@ internal sealed record FactoryAgentsSources(
 /// The Factory Agents area of the Cockpit (Website Business Factory, product track, Screens 1-5): every read is
 /// folded once by <see cref="FactoryAgentsFold"/> and returned finished (critical rule 7).
 ///
-///   GET  /gateway/factory-agents/switch                              -> { enabled }            (ALWAYS mapped)
+///   GET  /gateway/factory-agents/switch                              -> FactoryAgentsSwitchDto (ALWAYS mapped)
 ///   GET  /gateway/factory-agents/factories?window=&amp;from=&amp;to=          -> FactoriesViewDto
 ///   GET  /gateway/factory-agents/factories/{factory}/map              -> FactoryMapViewDto (issue #3383)
 ///   GET  /gateway/factory-agents/activity?factory=&amp;agent=&amp;outcome=&amp;window=&amp;from=&amp;to= -> FactoryActivityViewDto
@@ -72,11 +72,47 @@ internal static class FactoryAgentsViewEndpoints
             : "Factories is off on this Gateway. To start, add \"factoryAgents\": { \"enabled\": true } to the Gateway's config.json, then restart the Gateway.";
     }
 
+    /// <summary>The upgrade page's heading, for an account whose plan does not include factories.</summary>
+    internal const string PlanRequiredTitle = "Factories come with Pro";
+
+    /// <summary>The upgrade page's body: what a factory does and which plans include it. Short and true; no trial is
+    /// offered, because there is none (owner, 21 Oct 2026).</summary>
+    internal const string PlanRequiredText =
+        "A factory runs your agents for you on a schedule and reports what they did. Factories come with the Pro and Teams plans.";
+
+    /// <summary>The sentence while the account's plan cannot be read.</summary>
+    internal const string PlanUnknownText =
+        "Your plan could not be checked just now, so Factories cannot be shown. Try again in a minute.";
+
+    /// <summary>The switch question's answer for one decision of <see cref="Factory.FactoryAgentsSwitch"/>: the
+    /// reason, and for each reason the sentence and fields the Cockpit shows verbatim. Internal so it is tested
+    /// directly.</summary>
+    internal static FactoryAgentsSwitchDto SwitchAnswer(Factory.FactoryAgentsAnswer answer, bool hosted)
+    {
+        if (answer.IsOn) return new FactoryAgentsSwitchDto { Enabled = true };
+        return answer.OffReason switch
+        {
+            Factory.FactoryAgentsOffReasons.PlanRequired => new FactoryAgentsSwitchDto
+            {
+                Reason = answer.OffReason,
+                HowToStart = PlanRequiredText,
+                Title = PlanRequiredTitle,
+                SubscribeUrl = Tenancy.EntitlementRegistry.SubscribeUrl,
+            },
+            Factory.FactoryAgentsOffReasons.PlanUnknown => new FactoryAgentsSwitchDto
+            {
+                Reason = answer.OffReason,
+                HowToStart = PlanUnknownText,
+            },
+            _ => new FactoryAgentsSwitchDto { Reason = answer.OffReason, HowToStart = HowToStart(false, hosted) },
+        };
+    }
+
     /// <summary>
-    /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT? Always mapped, and never behind
-    /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
-    /// gate test the routes use, so the Factories pages show the area exactly when the routes answer, and say how to
-    /// start (<see cref="HowToStart"/>) when they do not.
+    /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT, and if not, why? Always mapped,
+    /// never behind <see cref="FactoryAgentsGate"/>, and always 200 for a signed-in caller, because it is how the
+    /// Cockpit learns the answer - an Unknown plan is a reason here, not a 503. It reads the same decision the gate
+    /// reads, so the Factories pages show the area exactly when the routes answer.
     /// </summary>
     public static void MapSwitch(IEndpointRouteBuilder app, bool hosted, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant)
@@ -85,9 +121,10 @@ internal static class FactoryAgentsViewEndpoints
         ArgumentNullException.ThrowIfNull(resolveTenant);
         app.MapGet(Prefix + "/switch", (HttpContext ctx) =>
         {
-            var enabled = FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why);
-            FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={enabled} ({why})");
-            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled, HowToStart = HowToStart(enabled, hosted) });
+            var answer = FactoryAgentsGate.AnswerFor(ctx, factorySwitch, resolveTenant);
+            var dto = SwitchAnswer(answer, hosted);
+            FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={dto.Enabled} reason={dto.Reason ?? "none"} grant={answer.GrantName}");
+            return Results.Json(dto);
         });
         FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (machine switch={(factorySwitch.MachineWide ? "on" : "off")}, per account otherwise)");
     }

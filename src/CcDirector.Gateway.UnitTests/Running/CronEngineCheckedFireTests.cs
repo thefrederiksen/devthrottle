@@ -28,7 +28,12 @@ public sealed class CronEngineCheckedFireTests : IDisposable
     private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, IClock clock,
         List<CronRunRecord>? announced = null, bool factoryAgentsOn = true)
         => new(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock,
-            onResultRecorded: (_, _, run) => announced?.Add(run), factoryAgentsOn: _ => factoryAgentsOn);
+            onResultRecorded: (_, _, run) => announced?.Add(run), factoryAgents: _ => Factories(factoryAgentsOn));
+
+    // The factory decision as the switch answers it: on by the owner switch, or off and not switched on.
+    private static CcDirector.Gateway.Factory.FactoryAgentsAnswer Factories(bool on) => on
+        ? CcDirector.Gateway.Factory.FactoryAgentsAnswer.On(CcDirector.Gateway.Factory.FactoryAgentsGrant.OwnerSwitch, null, "switched on")
+        : CcDirector.Gateway.Factory.FactoryAgentsAnswer.Off(CcDirector.Gateway.Factory.FactoryAgentsOffReasons.NotSwitchedOn, null, "not switched on");
 
     private static CronJobDto Hourly(string name) => new()
     {
@@ -152,7 +157,7 @@ public sealed class CronEngineCheckedFireTests : IDisposable
         var clock = new FakeClock(Now);
         var on = true;
         var engine = new CronEngine(store, history, new RecordingStarter(), new UnusedWorkListRunner(), new NullCronNotifier(), clock,
-            factoryAgentsOn: _ => on);
+            factoryAgents: _ => Factories(on));
         await engine.EvaluateDueAsync(CancellationToken.None);
 
         // Act

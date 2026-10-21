@@ -26,17 +26,30 @@ public static class FactoryTone
     public const string Blue = "blue";
 }
 
-/// <summary><c>GET /gateway/factory-agents/switch</c>: whether the Factory Agents area is on for this Gateway. Always
-/// mapped, so the Cockpit can ask even when the area is off. The Factories menu row is always shown (owner, 8 Oct
-/// 2026); when the area is off the Factories page shows <see cref="HowToStart"/> verbatim.</summary>
+/// <summary><c>GET /gateway/factory-agents/switch</c>: whether the Factory Agents area is on for the calling account,
+/// and when it is not, why. Always mapped, so the Cockpit can ask even when the area is off. The Factories menu row is
+/// always shown (owner, 8 Oct 2026); when the area is off the Factories page shows <see cref="HowToStart"/> verbatim,
+/// and for <c>plan_required</c> the upgrade page with <see cref="Title"/> and <see cref="SubscribeUrl"/> (Factories
+/// need Pro mission, 21 Oct 2026). Every field is the Gateway's: the Cockpit writes no sentence about plans.</summary>
 public sealed class FactoryAgentsSwitchDto
 {
     public bool Enabled { get; set; }
 
-    /// <summary>When the area is off: the Gateway's own sentence saying so and how to switch it on, which differs
-    /// between a self-hosted Gateway (its config.json) and the hosted one (an administrator, per account). Null when
-    /// the area is on.</summary>
+    /// <summary>Why the area is off: <c>plan_required</c> (hosted, the plan does not include factories),
+    /// <c>not_switched_on</c> (self-hosted, the machine switch is off) or <c>plan_unknown</c> (hosted, the plan could
+    /// not be read just now). Null exactly when <see cref="Enabled"/> is true.</summary>
+    public string? Reason { get; set; }
+
+    /// <summary>When the area is off: the Gateway's own sentence. For <c>plan_required</c> it is the upgrade page's body;
+    /// for <c>not_switched_on</c> how to switch it on on this kind of Gateway; for <c>plan_unknown</c> to try again
+    /// shortly. Never null while the area is off; null when it is on.</summary>
     public string? HowToStart { get; set; }
+
+    /// <summary>The upgrade page's heading, "Factories come with Pro". Set only for <c>plan_required</c>.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Where a plan with factories is bought (the pricing page). Set only for <c>plan_required</c>.</summary>
+    public string? SubscribeUrl { get; set; }
 }
 
 /// <summary>One of the four tabs, with its finished label ("All factory agents (9)").</summary>
