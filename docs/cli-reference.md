@@ -2116,7 +2116,8 @@ does not go backwards: `restore` publishes a copy of an older version as the new
 copied, and the versions in between stay in the history.
 
 **The Boss is the boss of its factory** (the owner's ruling of 21 October 2026). The factory's Boss session - a
-session of the factory whose seat is the `bossSeat` of the published definition - publishes and restores any
+session of the factory STARTED AS the `bossSeat` of the published definition, never a session that inherited that
+seat from the session that spawned it - publishes and restores any
 change on its own authority. A version that changes the Boss's own seat (its `seats/<bossSeat>.yaml`, or which
 seat `factory.yaml` names as the boss) needs the owner's approval, passed verbatim:
 `publish <factory> --version N --owner-approved "<the owner's words, verbatim>"` (the same flag on `restore`).

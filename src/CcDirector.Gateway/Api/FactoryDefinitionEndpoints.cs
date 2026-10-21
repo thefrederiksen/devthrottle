@@ -946,8 +946,9 @@ internal static class FactoryDefinitionEndpoints
     /// inherits the seat without becoming the Boss ("the Boss session"; review finding 2). And when the version changes the Boss's own
     /// seat - its seats/&lt;seat&gt;.yaml, or which seat factory.yaml names as the boss - only with the owner's words.
     /// A version that does not exist is left to the store's own ruling, which names it. The Boss's publish is held to
-    /// the published version it was judged against (<paramref name="replaces"/>, when the caller stated none), so a
-    /// publish that lands in between is refused rather than skipping this comparison.
+    /// the published version it was judged against (<paramref name="replaces"/>: set to it when the caller stated none,
+    /// refused as stale when the caller stated another), so a publish that lands in between is refused rather than
+    /// skipping this comparison.
     /// </summary>
     private static bool TryBossMayPublish(Caller caller, TenantId tenant, string folded, int version, string? approval,
         bool restore, FactoryDefinitionStore store, string route, ref int? replaces, out IResult? error)
