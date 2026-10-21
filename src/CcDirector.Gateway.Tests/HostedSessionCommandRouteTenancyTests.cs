@@ -189,6 +189,7 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
         new object[] { "GET",    "/recap",          null! },
         new object[] { "POST",   "/interrupt",      "{}" },
         new object[] { "POST",   "/escape",         "{}" },
+        new object[] { "POST",   "/enter",          "{}" },
         new object[] { "POST",   "/prompt",         "{\"text\":\"hello\"}" },
         new object[] { "POST",   "/role",           "{\"role\":\"Worker\"}" },
         new object[] { "POST",   "/hold",           "{\"onHold\":true}" },

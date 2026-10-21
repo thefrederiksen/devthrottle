@@ -23,7 +23,7 @@ public enum RaisedGrant
     /// <summary>Not a raised grant: a route any session key may call.</summary>
     None,
 
-    /// <summary>Typing into a session: prompt, interrupt, escape, the fan-out, answering a judged stop, and the API-mode
+    /// <summary>Typing into a session: prompt, interrupt, escape, enter, the fan-out, answering a judged stop, and the API-mode
     /// verbs - taking or handing back the wheel, and stopping the turn.</summary>
     AgentInput,
 
@@ -59,13 +59,26 @@ public static class AgentInputRefusal
         "A session may type into a session it owns - one it started with --controlled-by self, or was handed - with " +
         "cc-devthrottle session prompt <session> \"<text>\" or session compact-continue.";
 
-    /// <summary>A session key asked to interrupt or escape a session, to fan a prompt out, or to answer a judged stop
-    /// (which types the verdict's option into the session). None of these is open to a session key, even on a session it
-    /// owns: Ctrl+C and Escape clear the owner's unsent words from the composer, and a fan-out or a verdict answer is
-    /// not addressed to one session the caller owns.</summary>
+    /// <summary>What a session MAY press, said once and appended to the refusals below (the owner's ruling, 21 October
+    /// 2026).</summary>
+    public const string OwnedKeysMay =
+        "A session may press Enter or Escape in a session it owns - one it started with --controlled-by self, or was " +
+        "handed - with cc-devthrottle session enter <session> or cc-devthrottle session escape <session>.";
+
+    /// <summary>A session key asked to interrupt a session, to fan a prompt out, or to answer a judged stop (which types
+    /// the verdict's option into the session). None of these is open to a session key, even on a session it owns: a
+    /// fan-out or a verdict answer is not addressed to one session the caller owns, and Ctrl+C stays the owner's. Enter
+    /// and Escape are not here: since the owner's ruling of 21 October 2026 a session presses them in a session it
+    /// owns, which their route decides.</summary>
     public const string Typing =
-        "An agent may not interrupt or escape a session, fan a prompt out, or answer a judged stop: only the owner " +
-        "does that, from his own screens. " + OwnedMay + " " + Instead + " " + FleetManagerMay;
+        "An agent may not interrupt a session, fan a prompt out, or answer a judged stop: only the owner " +
+        "does that, from his own screens. " + OwnedMay + " " + OwnedKeysMay + " " + Instead + " " + FleetManagerMay;
+
+    /// <summary>A session key asked to press Enter or Escape in a session it does not own directly. The ROUTE says this
+    /// sentence, not the guard: the guard cannot read an id.</summary>
+    public const string KeysNotYourSession =
+        "An agent may press Enter or Escape only in a session it owns - one it started with --controlled-by self, or " +
+        "was handed: this session is not owned by yours. " + Instead + " " + FleetManagerMay;
 
     /// <summary>A session key asked to take the wheel of, hand back, or stop the turn of an API-mode session it does not
     /// control (issue #4070; the owner's ruling on review finding 1). These decide who types into the session, or end
@@ -155,7 +168,8 @@ public static class SmartRestartRefusal
 /// A SESSION MAY TYPE INTO A SESSION IT OWNS (Parent Control, fix 1, 26 September 2026) - the prompt route, and
 /// the continuation of a compaction, on a session whose owner is the caller, never over the owner's unsent words.
 /// The guard lets the prompt shape through; the route decides ownership (<see cref="OwnedSessionInput"/>). The
-/// paragraph below is the rule for every other target, and for interrupt, escape, the fan-out and a verdict answer.
+/// paragraph below is the rule for every other target, and for interrupt, the fan-out and a verdict answer. Enter and
+/// Escape follow the same owned-session split as the prompt (the owner's ruling, 21 October 2026).
 ///
 /// TYPING INTO A SESSION IS NOT BEHAVING, IT IS THE OWNER'S (the Message Load mission, 16 September 2026).
 /// Prompt, interrupt, escape and the raw fan-out were on the allowed side until then. Every one of them put
@@ -252,12 +266,16 @@ public static class SessionKeyGuard
             // A SESSION MAY TYPE INTO A SESSION IT OWNS (Parent Control, fix 1, 26 September 2026). This guard sees a
             // path and never reads an id, so it cannot tell a child from a stranger: it lets the one prompt shape
             // through, and the ROUTE decides, with the roster in hand, whether the target is the caller's own
-            // (OwnedSessionInput). Interrupt, escape, the fan-out and a verdict answer stay refused here.
+            // (OwnedSessionInput). Interrupt, the fan-out and a verdict answer stay refused here.
             if (IsPrompt(verb, segments)) return SessionKeyVerdict.Allow;
             // THE API-MODE VERBS on a session the caller controls (the owner's ruling on review finding 1 of issue #4070
             // phase 2). The same split as the prompt: the guard lets the shape through, and the route refuses every
             // session the caller does not control (OwnedSessionInput.OwnsDirectly) with AgentInputRefusal.ApiModeNotYourSession.
             if (IsApiModeVerb(verb, segments)) return SessionKeyVerdict.Allow;
+            // ENTER AND ESCAPE on a session the caller owns (the owner's ruling, 21 October 2026: "other agents can press
+            // escape and [enter] in the session they started, or the sessions they own"). The same split again: the
+            // route refuses every session the caller does not own with AgentInputRefusal.KeysNotYourSession.
+            if (IsKey(verb, segments)) return SessionKeyVerdict.Allow;
             return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
         }
 
@@ -318,11 +336,16 @@ public static class SessionKeyGuard
         => verb == "POST" && s.Length == 4 && s[0] == "sessions"
            && ((s[2] == "wheel" && s[3] is ("take" or "hand-back")) || (s[2] == "turn" && s[3] == "stop"));
 
+    /// <summary><c>POST /sessions/{sid}/enter</c> and <c>POST /sessions/{sid}/escape</c> exactly - one key pressed in a
+    /// session. Open to a session key only on a session it owns, which the route decides.</summary>
+    private static bool IsKey(string verb, string[] s)
+        => verb == "POST" && s.Length == 3 && s[0] == "sessions" && s[2] is "enter" or "escape";
+
     private static bool IsAgentInput(string verb, string[] s)
     {
         if (verb != "POST") return false;
         if (IsApiModeVerb(verb, s)) return true;
-        if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape") return true;
+        if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape" or "enter") return true;
         if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
         return s.Length == 1 && s[0] == "fanout";
     }
@@ -534,7 +557,7 @@ public static class SessionKeyGuard
         {
             // Act on a session: queue it a message, park it, give it a role or a mission, ask it to compact,
             // or flag it finished. Every one of these names a session in the path, and the tenant binding keeps
-            // it inside the calling account. Typing into it - prompt, interrupt, escape - is refused above.
+            // it inside the calling account. Typing into it - prompt, interrupt, enter, escape - is decided above.
             if (s.Length == 3 && s[0] == "sessions")
             {
                 switch (s[2])

@@ -227,17 +227,16 @@ public sealed class LookBeforeTypingTests : IDisposable
         Assert.Empty(screen.Written);
     }
 
+    /// <summary>The owner's ruling, 21 October 2026: "If there are texts already entered in the text box, we should be
+    /// allowed to add more to it and then hit enter." Until then (pull request #4072) this send was refused.</summary>
     [Fact]
-    public async Task SharedSubmit_OwnerDraftInComposer_RefusesAndLeavesTheDraft()
+    public async Task SharedSubmit_OwnerDraftInComposer_TypesAfterItWithASpaceAndSubmitsBoth()
     {
         using var screen = new ClaudeScreen(composer: "my unfinished draft");
 
-        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+        await Send(screen, Prompt);
 
-        Assert.Contains("never sent", ex.Message);
-        Assert.Empty(screen.Written);
-        Assert.Empty(screen.Submitted);
-        Assert.Equal("my unfinished draft", screen.Composer);
+        Assert.Equal(["my unfinished draft " + Prompt], screen.Submitted);
     }
 
     [Fact]
@@ -263,19 +262,15 @@ public sealed class LookBeforeTypingTests : IDisposable
     }
 
     [Fact]
-    public async Task SharedSubmit_WhitespaceDraft_RefusesWithWhitespaceWordingAndLogsCursorPosition()
+    public async Task SharedSubmit_WhitespaceDraft_TypesAfterItWithNoExtraSpace()
     {
         using var screen = new ClaudeScreen(composer: "   ");
-        var position = DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, screen.Frame());
         var trail = SendTrail.Begin();
 
-        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+        await Send(screen, Prompt);
 
-        Assert.Contains("holds unsent whitespace", ex.Message);
-        Assert.DoesNotContain("0 characters", ex.Message);
-        Assert.Empty(screen.Written);
-        var steps = string.Join("\n", trail.Steps);
-        Assert.Contains($"cursorRow={position.CursorRow}, cursorCol={position.CursorCol}, promptRow={position.PromptRow}", steps);
+        Assert.Equal(["   " + Prompt], screen.Submitted);
+        Assert.Contains("TypeOntoExistingText: the composer holds only whitespace", string.Join("\n", trail.Steps));
     }
 
     [Fact]

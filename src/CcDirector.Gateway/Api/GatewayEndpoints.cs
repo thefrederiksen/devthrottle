@@ -4435,19 +4435,14 @@ internal static partial class GatewayEndpoints
                 : TunnelFailure(streamResult);
         });
 
-        app.MapPost("/sessions/{sid}/escape", async (HttpContext ctx, string sid) =>
-        {
-            var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
-            if (session is null || director is null)
-                return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+        // ONE KEY PRESSED IN A SESSION: Escape, and Enter with nothing typed before it (the owner's ruling, 21 October
+        // 2026). The owner's screens and the Fleet Manager press them in any session of the account; every other session
+        // only in a session it owns. See PressSessionKeyAsync.
+        app.MapPost("/sessions/{sid}/escape", (HttpContext ctx, string sid) =>
+            PressSessionKeyAsync(ctx, sid, EscapeCommand, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
 
-            // Post-cut: tunnel-only. A null result (Director not connected) collapses to 502.
-            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "escape", sid, null, CancellationToken.None, machineName: director.MachineName);
-            var ok = streamResult is not null && streamResult.Ok;
-            return ok
-                ? Results.Json(new { accepted = true })
-                : TunnelFailure(streamResult);
-        });
+        app.MapPost("/sessions/{sid}/enter", (HttpContext ctx, string sid) =>
+            PressSessionKeyAsync(ctx, sid, EnterCommand, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
 
         // THE API-MODE VERBS (issue #4070, phase 2): take the wheel, hand it back, and stop the running turn. Located and
         // tenant-scoped as interrupt is; a session key acts only on a session it controls; the Gateway rules the refusals

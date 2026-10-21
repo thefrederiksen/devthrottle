@@ -49,6 +49,7 @@ from .session_ops import (
     hold_session,
     interrupt_session,
     list_my_workers,
+    press_key,
     list_sessions,
     mark_done,
     prompt_session,
@@ -3268,6 +3269,31 @@ def interrupt(
     Even a session the agent owns: Ctrl+C clears the owner's unsent words from the composer.
     """
     interrupt_session(target)
+
+
+@session_app.command(name="enter")
+def session_enter(
+    target: str = typer.Argument(..., help="Session to press Enter in (id prefix, number, or exact name)."),
+) -> None:
+    """Press Enter in a session you own, sending whatever text sits in its composer.
+
+    The Fleet Manager may press it in any session; every other agent only in a session it owns -
+    one it started with --controlled-by self, or was handed. Refused while Claude Code's
+    usage-limit dialog may be showing, where Enter would confirm a paid option: press Escape instead.
+    """
+    press_key(target, "enter")
+
+
+@session_app.command(name="escape")
+def session_escape(
+    target: str = typer.Argument(..., help="Session to press Escape in (id prefix, number, or exact name)."),
+) -> None:
+    """Press Escape in a session you own, to stop what it is doing or close a dialog.
+
+    The Fleet Manager may press it in any session; every other agent only in a session it owns -
+    one it started with --controlled-by self, or was handed.
+    """
+    press_key(target, "escape")
 
 
 @session_app.command(name="handback")

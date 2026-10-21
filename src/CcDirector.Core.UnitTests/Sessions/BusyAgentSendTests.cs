@@ -117,24 +117,23 @@ public sealed class BusyAgentSendTests : IDisposable
     }
 
     [Fact]
-    public async Task SendTextAsync_ComposerHeldAnOldDraftBeforeThePaste_RefusesAndPastesNothing()
+    public async Task SendTextAsync_ComposerHeldTextBeforeThePaste_EnterWaitsForThePasteToBeDrawn()
     {
-        // Arrange: the composer already holds a draft nobody sent. This test used to paste onto the end of it and check
-        // only the Enter's timing; the owner's ruling of 16 October 2026 (the Prompt Delivery mission: never type unless the
-        // composer is drawn AND empty) makes that the weld it is, so the send is refused before anything is written.
+        // Arrange: the composer already holds text, and the agent draws the paste only after two seconds. The text that
+        // was there before is not the paste, so it must not release the Enter. (From 16 to 21 October 2026 this send
+        // was refused; the owner's ruling of 21 October restored typing onto text already in the composer.)
         var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, composer: "an old draft");
         terminal.PasteDrawDelay = TimeSpan.FromSeconds(2);
         var text = Paragraph("PASTE2");
 
         // Act
-        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
 
-        // Assert: refused with the reason, the draft left exactly as it was, no paste and no Enter.
-        Assert.Contains("never sent", ex.Message);
-        Assert.Equal("an old draft", terminal.Composer);
-        Assert.Null(terminal.PasteDrawnAt);
-        Assert.Null(terminal.FirstEnterAt);
+        // Assert
+        Assert.NotNull(terminal.PasteDrawnAt);
+        Assert.NotNull(terminal.FirstEnterAt);
+        Assert.True(terminal.FirstEnterAt >= terminal.PasteDrawnAt,
+            $"Enter at {terminal.FirstEnterAt:HH:mm:ss.fff} came before the paste was drawn at {terminal.PasteDrawnAt:HH:mm:ss.fff}");
     }
 
     [Fact]
@@ -311,6 +310,51 @@ public sealed class BusyAgentSendTests : IDisposable
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(0, terminal.ClearKeysPressed);
         Assert.Equal(0, terminal.EntersAccepted);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_OwnersDraftInFrontAndTheEchoUnconfirmed_NeverClearsTheDraft()
+    {
+        // Arrange (review of the owner's ruling of 21 October 2026, finding 1): the composer holds the owner's draft, which
+        // the send now types after. The agent is idle and reacts to the typing but never draws it, so the echo is never
+        // confirmed. The one recovery from an unconfirmed echo clears the composer and types again - and the clear keys
+        // would take the owner's draft off with the typed text. With a draft in front, there is no clear and no retype.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, composer: "keep my draft", screenShowsWorking: false);
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        terminal.TypedDrawDelay = TimeSpan.FromMinutes(5);
+        var text = "Token DRAFT1. Reply with exactly: ACK";
+
+        // Act
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+
+        // Assert: typed once after the draft, nothing cleared, never typed again, the draft still in front.
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.StartsWith("keep my draft", terminal.Composer);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_OwnersDraftWhileAnOldMarkStandsAndTheEchoUnconfirmed_NeverClearsTheDraft()
+    {
+        // Arrange (review round 2, finding 1a): a doorbell line was marked as the product's own and the owner has since
+        // deleted it and typed a draft. The mark says nothing about who typed what is in the composer NOW: the send finds
+        // the line gone, types after the draft, and on an unconfirmed echo must still never clear.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, composer: "fix the login bug", screenShowsWorking: false);
+        ComposerRetention.MarkMayHoldText(terminal, AgentKind.ClaudeCode.ToString(),
+            "[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox");
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        terminal.TypedDrawDelay = TimeSpan.FromMinutes(5);
+        var text = "Token DRAFT2. Reply with exactly: ACK";
+
+        // Act
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+
+        // Assert
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.StartsWith("fix the login bug", terminal.Composer);
     }
 
     private static int CountOf(string hay, string needle)

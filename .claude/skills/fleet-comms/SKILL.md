@@ -318,14 +318,24 @@ You may type into a session YOU OWN - one you started with `--controlled-by self
 (including one you took with `session hand-over <session> --to me`, which you do only on the owner's direction) -
 with `cc-devthrottle session prompt <session> "<text>"`, and rescue a stuck one with
 `cc-devthrottle session compact-continue <session> "<text>"`. The Gateway types it only when that
-session is waiting for a prompt, and never over words the owner typed into its composer and did not
-send: then nothing is typed and the answer says why - try again later, or queue a message.
+session is waiting for a prompt, and not while the owner is typing words into its composer that he has
+not sent: then nothing is typed and the answer says why - try again later, or queue a message. Text
+already sitting in a composer that nobody is typing is typed after, and your Enter sends both.
+
+You may also press ONE KEY in a session you own:
+
+- `cc-devthrottle session enter <session>` presses Enter: whatever text sits in its composer is sent.
+  It is refused while Claude Code's usage-limit dialog may be showing (Enter there turns on paid usage)
+  and while a prompt is being typed into that session.
+- `cc-devthrottle session escape <session>` presses Escape: it stops what the session is doing, or
+  closes a dialog - including the usage-limit dialog. Pressed twice on an idle Claude Code session it
+  opens the rewind menu, so press it once and read the buffer.
 
 Every other session is refused: one the owner runs himself, one another session owns, and one owned
-by a session you own (only the direct owner types). To reach those, queue a message. `session
-interrupt` stays the owner's even for a session you own, because Ctrl+C clears his unsent words. The
-owner types into any session from his own screens, and a session he has raised may type into any
-session of his account - each time it does is recorded against it.
+by a session you own (only the direct owner types or presses). To reach those, queue a message.
+`session interrupt` (Ctrl+C) stays the owner's even for a session you own. The owner types into any
+session from his own screens, and a session he has raised - the Fleet Manager - may type into, and
+press Enter and Escape in, any session of his account; each time it does is recorded against it.
 
 ## Health check
 

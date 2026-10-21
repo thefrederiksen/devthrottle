@@ -155,13 +155,13 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
     }
 
     [Fact]
-    public async Task SendTextAsync_RetainedTextOnlyInTheConversationAbove_TheOwnersOwnTextIsNeitherClearedNorTypedOver()
+    public async Task SendTextAsync_RetainedTextOnlyInTheConversationAbove_TheOwnersOwnTextIsNotClearedAndTheSendGoesAfterIt()
     {
         // The retained-text check used to search the WHOLE screen, so the orphan's words merely visible in the
         // conversation above licensed a CLEAR over whatever the composer really held - the owner's own words typed
         // since, on the word of copies that were never in the composer at all. Judged in the composer region, the
-        // orphan is not there, the owner's text is not cleared, and nothing is typed over it (#3290): the send is
-        // refused with what it read, and the owner's words stay theirs.
+        // orphan is not there and the owner's text is not cleared (#3290). Since the owner's ruling of 21 October 2026
+        // the send then types after the owner's words and submits both, where it used to be refused.
         using var machine = PinnedMachineMemory.Healthy();
         var (session, terminal) = NewClaudeSession(120, 30, composer: "keep my draft");
         const string orphan = "yes";
@@ -171,15 +171,11 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         const string next = "Reply with only the word OK. Marker: guarded quokka seventy.";
 
         // Act
-        var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor)));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
-        // Assert: the owner's words are untouched, nothing was typed over them, and the refusal says what it read.
-        Assert.Equal("keep my draft", terminal.Composer);
-        Assert.Equal("", terminal.TypedText);
-        Assert.Empty(terminal.Recorded);
-        Assert.Contains("cannot account for", refused.Message);
-        Assert.Contains("text='keep my draft'", refused.Message);
+        // Assert: the owner's words were not cleared - they went in front of the send, as one prompt.
+        Assert.Equal(new[] { "keep my draft " + next }, terminal.Recorded);
+        Assert.Equal(0, terminal.ClearKeysPressed);
     }
 
     [Fact]
@@ -212,7 +208,7 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
     [Theory]
     [InlineData("Please fix the login", "Please fix the login bug on the settings page and run the tests.")]
     [InlineData("Mark", "Reply with only the word OK. Marker: fresh quokka seventy.")]
-    public async Task SendTextAsync_TheOwnersDraftIsPartOfTheRetainedTextButNotItsTail_IsRefusedWithTheDraftIntact(
+    public async Task SendTextAsync_TheOwnersDraftIsPartOfTheRetainedTextButNotItsTail_IsKeptAndTheSendGoesAfterIt(
         string draft, string orphan)
     {
         // Review round 2, finding 1. The containment rule cleared ANY piece of the retained text, and a prefix is
@@ -221,7 +217,8 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         // ruling: a remnant of a clear that raced characters still arriving is the TAIL of the retained text - the
         // clear took the front and the characters still on their way were left behind it - so region text is
         // accounted for ONLY when the normalized retained text ENDS WITH it. Prefixes and inner pieces are the
-        // owner's own draft again: refused, with the draft intact. What this does not cover - a short draft that
+        // owner's own draft again: never cleared, and - since the owner's ruling of 21 October 2026 - the send types
+        // after them and submits both, where it used to be refused. What this does not cover - a short draft that
         // happens to equal the tail of the failed prompt - is accepted in writing by the Delivery Lead (see
         // proof.md, "What this does not cover").
         using var machine = PinnedMachineMemory.Healthy();
@@ -230,16 +227,11 @@ public sealed class RepeatedPromptWedgeTests : IDisposable
         const string next = "Reply with only the word OK. Marker: onward quokka ninety.";
 
         // Act
-        var refused = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor)));
+        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(next, SessionTestDoors.TestDoor));
 
-        // Assert: the owner's draft is untouched - nothing cleared, nothing typed over it.
-        Assert.Equal(draft, terminal.Composer);
-        Assert.Equal("", terminal.TypedText);
-        Assert.Empty(terminal.Recorded);
+        // Assert: the owner's draft was not cleared - it went in front of the send, as one prompt.
+        Assert.Equal(new[] { draft + " " + next }, terminal.Recorded);
         Assert.Equal(0, terminal.ClearKeysPressed);
-        Assert.Contains("cannot account for", refused.Message);
-        Assert.Contains($"text='{draft}'", refused.Message);
     }
 
     [Fact]

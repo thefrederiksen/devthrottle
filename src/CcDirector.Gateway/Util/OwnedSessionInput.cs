@@ -22,9 +22,12 @@ namespace CcDirector.Gateway.Util;
 /// from that check to the Enter, and refuses otherwise without typing a character. A Director older than that check
 /// would ignore the flag and type anyway, so nothing is sent to one - the send is refused here instead.
 ///
-/// NOT COVERED, DELIBERATELY: interrupt and escape. They are the same guard entry as the prompt, but they press
-/// Ctrl+C and Escape, which in a coding agent clear the composer - exactly the owner's unsent words this protects - and
-/// the Director has no "only when the composer is empty" form of either. They stay the owner's until it does.
+/// NOT COVERED: Enter and Escape, which since the owner's ruling of 21 October 2026 a session presses in a session it
+/// owns through their own route (GatewayEndpoints.PressSessionKeyAsync, on OwnsDirectly) - the owner chose that an
+/// agent may send or clear what sits in a composer. Interrupt stays refused. The text below is the original reasoning
+/// for leaving both keys out, kept as the record of what the owner chose to accept: they press Ctrl+C and Escape, which
+/// in a coding agent clear the composer - exactly the owner's unsent words this protects - and the Director has no "only
+/// when the composer is empty" form of either.
 /// </summary>
 public static class OwnedSessionInput
 {

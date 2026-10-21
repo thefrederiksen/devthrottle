@@ -18,7 +18,6 @@ public sealed class SessionKeyGuardRaisedTests
 
     [Theory]
     [InlineData("POST", "/sessions/" + Sid + "/interrupt")]
-    [InlineData("POST", "/sessions/" + Sid + "/escape")]
     [InlineData("POST", "/fanout")]
     [InlineData("POST", "/sessions/" + Sid + "/turn-verdict/answer")]
     [InlineData("POST", "/Sessions/" + Sid + "/INTERRUPT/")]
@@ -31,6 +30,24 @@ public sealed class SessionKeyGuardRaisedTests
         var unraised = SessionKeyGuard.Check(method, path, raised: false);
         Assert.False(unraised.Allowed);
         Assert.Equal(AgentInputRefusal.Typing, unraised.Reason);
+        Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
+    }
+
+    /// <summary>Enter and Escape (the owner's ruling, 21 October 2026): a raised session - the Fleet Manager - presses
+    /// them in any session, with the grant recorded; an unraised key is let through to the route, which presses them only
+    /// in a session the caller owns.</summary>
+    [Theory]
+    [InlineData("POST", "/sessions/" + Sid + "/enter")]
+    [InlineData("POST", "/sessions/" + Sid + "/escape")]
+    [InlineData("POST", "/Sessions/" + Sid + "/ESCAPE/")]
+    public void Check_EnterAndEscape_RaisedPassesWithTheGrant_UnraisedReachesTheOwnershipRoute(string method, string path)
+    {
+        var raised = SessionKeyGuard.Check(method, path, raised: true);
+        Assert.True(raised.Allowed, $"{method} {path} must pass for a raised key");
+        Assert.Equal(RaisedGrant.AgentInput, raised.RaisedGrant);
+
+        var unraised = SessionKeyGuard.Check(method, path, raised: false);
+        Assert.True(unraised.Allowed, $"{method} {path} must reach the route, which decides ownership");
         Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
     }
 
