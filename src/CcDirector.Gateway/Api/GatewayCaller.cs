@@ -64,7 +64,8 @@ internal static class GatewayCaller
                 }
                 caller = new Identity(FactoryMemoryAuthorKinds.Session, session, lookup.Name,
                     lookup.IsInAFactory ? lookup.Factory!.Trim() : null,
-                    lookup.IsInAFactory ? lookup.Seat?.Trim() : null);
+                    lookup.IsInAFactory ? lookup.Seat?.Trim() : null,
+                    lookup.IsInAFactory && lookup.SeatIsInherited);
                 return true;
             default:
                 caller = new Identity(NeitherPersonNorSession, null);
@@ -73,9 +74,9 @@ internal static class GatewayCaller
     }
 
     /// <summary>A caller: its kind, the identifier a change records, a session's name, the factory a session is in, and
-    /// the seat of that factory it was started as or inherited (null when it is no seat).</summary>
+    /// the seat of that factory it was started as or inherited (null when it is no seat), and whether it inherited it.</summary>
     public readonly record struct Identity(string Kind, string? Id, string? Name = null, string? Factory = null,
-        string? Seat = null)
+        string? Seat = null, bool SeatIsInherited = false)
     {
         /// <summary>A person, or a session's key: someone a change can record as its author.</summary>
         public bool IsAnAuthor => Kind is FactoryMemoryAuthorKinds.Person or FactoryMemoryAuthorKinds.Session;

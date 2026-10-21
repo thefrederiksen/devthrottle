@@ -385,18 +385,18 @@ def restore(factory: str, version: int, expected_version: int, json_output: bool
                                        _with_replaces({"version": version, "expectedVersion": expected_version}, replaces),
                                        owner_approved))
     except gateway.GatewayError as exc:
-        _fail_gateway(exc, _after_refusal(exc, factory))
+        _fail_gateway(exc, _after_refusal(exc, factory, "restore"))
         return
     _published(answer, factory, json_output, f"Restored: version {version}")
 
 
-def _after_refusal(exc: gateway.GatewayError, factory: str) -> List[str]:
+def _after_refusal(exc: gateway.GatewayError, factory: str, verb: str = "publish") -> List[str]:
     """What to run after a refused publish or restore. A factory's session that is not its Boss is told to save a draft,
     because that is the one thing it may do; the Boss refused for its own seat is shown the diff to take to the owner;
     everything else starts from the history."""
     if _outcome(exc) == "BossSeatNeedsOwnerApproval":
         return [f"{_TOOL} diff {_f(factory)}",
-                f"{_TOOL} publish {_f(factory)} --version <n> --owner-approved \"<the owner's words, verbatim>\""]
+                f"{_TOOL} {verb} {_f(factory)} --version <n> --owner-approved \"<the owner's words, verbatim>\""]
     if _outcome(exc) == "FactorySessionMayNotPublish":
         return [f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version <newest version>",
                 f"{_TOOL} history {_f(factory)}"]

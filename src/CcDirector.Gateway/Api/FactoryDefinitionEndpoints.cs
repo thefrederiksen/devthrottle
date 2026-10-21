@@ -928,8 +928,9 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>Who is asking: a person, a session, or neither, with the identifier a version records. A session also
     /// carries its name, <paramref name="Factory"/> - the factory it is a session OF, or null when it is in none - and
-    /// <paramref name="Seat"/>, the seat of that factory it was started as or inherited.</summary>
-    internal readonly record struct Caller(string Kind, string? Id, string? Name = null, string? Factory = null, string? Seat = null)
+    /// <paramref name="Seat"/>, the seat of that factory it was started as or inherited (<paramref name="SeatIsInherited"/>).</summary>
+    internal readonly record struct Caller(string Kind, string? Id, string? Name = null, string? Factory = null, string? Seat = null,
+        bool SeatIsInherited = false)
     {
         /// <summary>Who a publish by this caller records.</summary>
         public FactoryPublisher Publisher => new(Kind, Id, Name);
@@ -940,8 +941,9 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>
     /// THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026). May this session of the factory
-    /// publish or restore <paramref name="version"/>? Only when its seat is the boss seat of the PUBLISHED definition -
-    /// the definition that is live decides who the Boss is, never a draft. And when the version changes the Boss's own
+    /// publish or restore <paramref name="version"/>? Only when it was STARTED AS the boss seat of the PUBLISHED
+    /// definition - the definition that is live decides who the Boss is, never a draft, and a session the Boss spawned
+    /// inherits the seat without becoming the Boss ("the Boss session"; review finding 2). And when the version changes the Boss's own
     /// seat - its seats/&lt;seat&gt;.yaml, or which seat factory.yaml names as the boss - only with the owner's words.
     /// A version that does not exist is left to the store's own ruling, which names it. The Boss's publish is held to
     /// the published version it was judged against (<paramref name="replaces"/>, when the caller stated none), so a
@@ -955,11 +957,22 @@ internal static class FactoryDefinitionEndpoints
         var published = store.Standing(tenant, folded).Published;
         var publishedFiles = published is null ? null : store.Find(tenant, folded, published.Version)?.Files;
         var bossSeat = publishedFiles is null ? null : BossSeatOf(publishedFiles);
-        if (bossSeat is null || !string.Equals(caller.Seat, bossSeat, StringComparison.OrdinalIgnoreCase))
+        if (bossSeat is null || !string.Equals(caller.Seat, bossSeat, StringComparison.OrdinalIgnoreCase) || caller.SeatIsInherited)
         {
             error = FactorySessionRefused(route, restore
-                ? FactoryDefinitionStore.FactorySessionMayNotRestore(own, caller.Seat, bossSeat)
-                : FactoryDefinitionStore.FactorySessionMayNotPublish(own, caller.Seat, bossSeat));
+                ? FactoryDefinitionStore.FactorySessionMayNotRestore(own, caller.Seat, bossSeat, caller.SeatIsInherited)
+                : FactoryDefinitionStore.FactorySessionMayNotPublish(own, caller.Seat, bossSeat, caller.SeatIsInherited));
+            return false;
+        }
+
+        // A STATED published version must be the one this was judged against (review finding 3): otherwise a publish
+        // landing in between could make the transaction's own check pass while the seat comparison was made against an
+        // older version.
+        if (replaces is { } stated && stated != published!.Version)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - the Boss stated published version {stated}, the published version is {published.Version}");
+            error = Answer(FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
+                FactoryPublishApply.NotReplacing(restore, published.Version, stated), published), store, tenant, folded, null);
             return false;
         }
 
@@ -981,14 +994,26 @@ internal static class FactoryDefinitionEndpoints
         return true;
     }
 
-    /// <summary>The boss seat a definition's factory.yaml names, or null when it names none or does not parse.</summary>
+    /// <summary>
+    /// The boss seat a definition's factory.yaml names, read from factory.yaml ALONE (review finding 1): a format error
+    /// in any other file must neither take the Boss's authority away nor read as a change to its seat - the check names
+    /// that error itself. Null when factory.yaml is missing, does not parse, or names no boss.
+    /// </summary>
     private static string? BossSeatOf(IReadOnlyDictionary<string, string> files)
-        => FactoryDefinitionCheck.Read(files).Definition?.BossSeat is { } boss && !string.IsNullOrWhiteSpace(boss) ? boss.Trim() : null;
+    {
+        if (!files.TryGetValue(FactoryDefinitionCheck.FactoryFile, out var text)) return null;
+        var (root, _) = DefinitionDocument.ParseYaml(FactoryDefinitionCheck.FactoryFile, text);
+        return root is DefinitionMap map && map.Find("bossSeat")?.Value is DefinitionScalar { Kind: DefinitionScalarKind.Text } boss
+               && !string.IsNullOrWhiteSpace(boss.Value)
+            ? boss.Value.Trim()
+            : null;
+    }
 
     /// <summary>
     /// Does <paramref name="wanted"/> change the Boss's own seat against <paramref name="published"/>: its seat file's
     /// text differs (added, removed or edited), or factory.yaml names another seat as the boss. A version whose
-    /// factory.yaml does not parse names no boss, so it counts as a change - and the check refuses it anyway.
+    /// factory.yaml does not parse names no boss, so it counts as a change - and the check refuses it anyway. A format
+    /// error in any other file is not a change to the Boss's seat.
     /// </summary>
     internal static bool ChangesBossSeat(IReadOnlyDictionary<string, string> published, IReadOnlyDictionary<string, string> wanted,
         string bossSeat)
@@ -1047,7 +1072,7 @@ internal static class FactoryDefinitionEndpoints
                 var asked = factory.Trim();
                 if (string.Equals(own, asked, StringComparison.OrdinalIgnoreCase))
                 {
-                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name, own, who.Seat);
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name, own, who.Seat, who.SeatIsInherited);
                     return true;
                 }
                 if (isNew is not null && FactoryNames.TryFactory(asked, out var folded, out _) && isNew(folded))

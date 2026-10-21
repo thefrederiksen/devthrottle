@@ -35,6 +35,14 @@ public readonly record struct SessionFactoryLookup
     /// mission, phase 6c): what a publish by a session records beside its id, so the history says which session it was.</summary>
     public string? Name { get; init; }
 
+    /// <summary>The kind of kit the session was given with its seat: <c>seat</c> for a session started AS the seat,
+    /// <c>rules-only</c> for a child that inherited it from the session that spawned it (SpawnFactory), or null.</summary>
+    public string? Kit { get; init; }
+
+    /// <summary>True when the session's seat was INHERITED from the session that spawned it, not started as it - the
+    /// one marker of a child: every inheritance writes the rules-only kit, and nothing else does.</summary>
+    public bool SeatIsInherited => string.Equals(Kit?.Trim(), CcDirector.Gateway.Contracts.FactoryKits.RulesOnly, StringComparison.Ordinal);
+
     /// <summary>True when the session is in a factory AND carries a seat and its version: what a child inherits.</summary>
     public bool HasASeat => IsInAFactory && !string.IsNullOrWhiteSpace(Seat) && DefinitionVersion is not null;
 

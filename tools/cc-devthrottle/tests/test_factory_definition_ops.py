@@ -450,6 +450,15 @@ def test_publish_BySessionOfTheBoss_WithoutTheOwnersWords_PrintsTheGatewaysSente
     assert "Published" not in result.stdout
 
 
+def test_restore_BySessionOfTheBoss_WithoutTheOwnersWords_PointsAtRestoreWithTheFlag(gateway):
+    gateway((403, {"error": BOSS_SEAT_REFUSED, "outcome": "BossSeatNeedsOwnerApproval"}))
+
+    result = run("restore", FACTORY, "--version", "1")
+
+    assert result.exit_code == 1
+    assert "factory definition restore warmforward --version <n> --owner-approved" in result.stderr
+
+
 def test_restore_OwnerApproved_IsSentVerbatim(gateway):
     gw = gateway((200, version(6, state="published", published=6, files=FILES)))
 

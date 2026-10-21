@@ -5110,7 +5110,7 @@ def factory_definition_publish(
     owner_approved: Optional[str] = typer.Option(
         None, "--owner-approved",
         help="The owner's words approving this publish, verbatim. The factory's Boss needs them when the version changes "
-             "its own seat; they are recorded with the version.",
+             "its own seat; they are recorded with the version. Passing them is not asking: ask the owner first.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
@@ -5140,7 +5140,7 @@ def factory_definition_restore(
     owner_approved: Optional[str] = typer.Option(
         None, "--owner-approved",
         help="The owner's words approving this restore, verbatim. The factory's Boss needs them when the version changes "
-             "its own seat; they are recorded with the version.",
+             "its own seat; they are recorded with the version. Passing them is not asking: ask the owner first.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
 ) -> None:

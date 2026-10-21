@@ -38,6 +38,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     private const string BossSession = "74000000-0000-4000-8000-000000000007";
     private const string BossSessionName = "devthrottle - Boss - talk with the owner";
     private const string WriterSession = "74000000-0000-4000-8000-000000000008";
+    /// <summary>A session the Boss spawned: it inherits the boss seat with a rules-only kit, and is not the Boss.</summary>
+    private const string BossChildSession = "74000000-0000-4000-8000-000000000009";
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
     private static readonly TenantId B = new("acct-b");
@@ -97,7 +99,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         OtherFactorySession => SessionFactoryLookup.In("invoice-factory"),
         NoFactorySession => SessionFactoryLookup.InNoFactory,
         NamedNoFactorySession => SessionFactoryLookup.InNoFactory with { Name = NamedNoFactorySessionName },
-        BossSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Name = BossSessionName },
+        BossSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Name = BossSessionName, Kit = FactoryKits.Seat },
+        BossChildSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Kit = FactoryKits.RulesOnly },
         WriterSession => SessionFactoryLookup.In(TheFactory, "writer", 1),
         _ => SessionFactoryLookup.NotKnown,
     };
@@ -118,9 +121,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
             },
             _store, tenant ?? InA, FactoryOf, _account, () => Now);
 
-    private IResult Publish(HttpContext ctx, int version, string? ownerApproved = null) =>
+    private IResult Publish(HttpContext ctx, int version, string? ownerApproved = null, int? replaces = null) =>
         FactoryDefinitionEndpoints.Publish(ctx, TheFactory,
-            new PublishFactoryDefinitionRequest { Version = version, OwnerApproved = ownerApproved },
+            new PublishFactoryDefinitionRequest { Version = version, OwnerApproved = ownerApproved, Replaces = replaces },
             _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(5)).GetAwaiter().GetResult();
 
     private IResult Restore(HttpContext ctx, int version, int expect = 0, string? ownerApproved = null) =>
@@ -484,6 +487,49 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(3, copy.Version);
         Assert.Equal(BossSession, copy.PublishedBy);
         Assert.Equal("Go back to version 1.", copy.OwnerApproval);
+    }
+
+    [Fact]
+    public void A_SESSION_THE_BOSS_SPAWNED_INHERITS_THE_SEAT_BUT_IS_NOT_THE_BOSS_and_may_not_publish()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var refused = Publish(Session(BossChildSession), 2, "Yes.");
+
+        Assert.Equal(403, Status(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, "boss", "boss", inherited: true), ErrorOf(refused));
+        Assert.Contains("inherited the seat 'boss' from the session that started it", ErrorOf(refused));
+        Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
+        Assert.Equal(403, Status(Restore(Session(BossChildSession), 1, expect: 2)));
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void THE_BOSS_STATING_A_PUBLISHED_VERSION_OTHER_THAN_THE_ONE_JUDGED_IS_REFUSED_as_stale()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var refused = Publish(Session(BossSession), 2, replaces: 2);
+
+        Assert.Equal("Stale", Field(refused, "outcome"));
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void A_FORMAT_ERROR_IN_ANOTHER_SEAT_IS_NOT_A_CHANGE_TO_THE_BOSS_SEAT_and_the_check_names_it()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        var broken = DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2");
+        broken["seats/writer.yaml"] += "\ncolour: red\n";
+
+        // The whole definition no longer reads, which is exactly when a whole-definition read would lose the boss seat.
+        Assert.Null(FactoryDefinitionCheck.Read(broken).Definition);
+        Assert.False(FactoryDefinitionEndpoints.ChangesBossSeat(DefinitionFixture.Publishable(), broken, "boss"));
     }
 
     [Fact]

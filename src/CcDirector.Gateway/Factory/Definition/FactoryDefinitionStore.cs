@@ -85,7 +85,8 @@ public sealed class FactoryDefinitionStore
     // the session the owner tells what to make; his word in that session is the approval.
     //
     // THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): a factory's Boss session - a session
-    // of the factory whose seat is the bossSeat of the published definition - publishes and restores any change to its
+    // of the factory STARTED AS the bossSeat of the published definition, never a child that inherited that seat -
+    // publishes and restores any change to its
     // own factory's definition on its own authority. A version that changes the Boss's OWN seat (its seats/<seat>.yaml,
     // or which seat factory.yaml names as the boss) needs the owner's approval, passed verbatim and recorded with the
     // version. Every other session of a factory saves drafts only, and no factory's session creates a factory. Which
@@ -100,9 +101,12 @@ public sealed class FactoryDefinitionStore
     public const string OwnerApprovedFlag = "--owner-approved \"<the owner's words, verbatim>\"";
 
     /// <summary>Who this session is, against the boss seat, in words: why it is not the Boss.</summary>
-    private static string NotTheBoss(string sessionFactory, string? sessionSeat, string? bossSeat)
+    private static string NotTheBoss(string sessionFactory, string? sessionSeat, string? bossSeat, bool inherited)
     {
         var who = string.IsNullOrWhiteSpace(sessionSeat) ? "this session is no seat" : $"this session is the seat '{sessionSeat}'";
+        if (inherited && !string.IsNullOrWhiteSpace(bossSeat))
+            return $"only its Boss publishes, and this session inherited the seat '{sessionSeat}' from the session that " +
+                   $"started it, so it is not the Boss. Ask the Boss session to publish. {InsteadOfPublishing}";
         return string.IsNullOrWhiteSpace(bossSeat)
             ? $"factory '{sessionFactory}' has no published definition naming a boss seat, so it has no Boss yet. The owner " +
               "publishes its first version, in the Cockpit or by telling a session that is in no factory to publish."
@@ -111,13 +115,15 @@ public sealed class FactoryDefinitionStore
 
     /// <summary>The sentence a factory's session that is not its Boss is refused a publish with. Held here so the routes
     /// and the tests say the same words.</summary>
-    public static string FactorySessionMayNotPublish(string sessionFactory, string? sessionSeat, string? bossSeat) =>
-        $"A session of factory '{sessionFactory}' may not publish its definition: {NotTheBoss(sessionFactory, sessionSeat, bossSeat)}";
+    public static string FactorySessionMayNotPublish(string sessionFactory, string? sessionSeat, string? bossSeat,
+        bool inherited = false) =>
+        $"A session of factory '{sessionFactory}' may not publish its definition: {NotTheBoss(sessionFactory, sessionSeat, bossSeat, inherited)}";
 
     /// <summary>The sentence a factory's session that is not its Boss is refused a restore with.</summary>
-    public static string FactorySessionMayNotRestore(string sessionFactory, string? sessionSeat, string? bossSeat) =>
+    public static string FactorySessionMayNotRestore(string sessionFactory, string? sessionSeat, string? bossSeat,
+        bool inherited = false) =>
         $"A session of factory '{sessionFactory}' may not restore a version of its definition, because a restore publishes " +
-        $"a copy of it: {NotTheBoss(sessionFactory, sessionSeat, bossSeat)}";
+        $"a copy of it: {NotTheBoss(sessionFactory, sessionSeat, bossSeat, inherited)}";
 
     /// <summary>
     /// The sentence a factory's Boss is refused with when the version it would publish or restore changes the Boss's
