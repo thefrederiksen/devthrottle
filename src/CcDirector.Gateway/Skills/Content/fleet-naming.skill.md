@@ -1,9 +1,10 @@
 # Name a session, and put it in a Mission
 
-Two rules. They take ten seconds each at spawn time and cannot be recovered cheaply afterwards.
+Three rules. They take ten seconds each at spawn time and cannot be recovered cheaply afterwards.
 
 1. **Every session belongs to a Mission.**
 2. **Every session is named `<Mission short name> - <Role> - <what this seat does>`.**
+3. **A name is at most five words and forty characters.** It is a name, not a description.
 
 ## Why this is not tidiness
 
@@ -35,12 +36,30 @@ Architect 1). A name that has to be investigated is not a name.
 A Mission with ONE seat drops the role, because there is nothing to distinguish it from:
 `Billing - prove the paid checkout`.
 
+## The cap: five words, forty characters
+
+Both limits, not either. The Role counts as a word; the ` - ` separators do not.
+
+A name is read at a glance - in `session list`, in a message, and on the fleet map, where a
+long one is cut off mid-word and the part that would have told you something is the part that
+got cut. The long version helps nobody. On 10 October 2026, 41 of 48 session names and 79 of
+124 Mission names were over this cap, and the longest Mission name was 128 characters.
+
+If it does not fit, the Mission short name is too long or the seat description has become a
+sentence. Shorten the words - never drop the Mission to make room.
+
+Measure it before you set it:
+
+```bash
+printf '%s' "<the name>" | awk '{o=$0; gsub(/ - /," "); print NF" words, "length(o)" chars"}'
+```
+
 Good:
 
 ```
 Restart Director - Architect
 Restart Director - Manager
-Restart Director - Worker - phase 3 workspace object
+Restart Director - Worker - workspace
 Linux Support - Worker - packaging
 New Studio Cube - Manager - R-D
 ```
@@ -54,14 +73,22 @@ Wrong, and why:
 | `Restart epic - Phase 2 - restart only if empty` | a different prefix from its own siblings, and the role is missing |
 | `customer acquisition` | true when it was created, false two hours later |
 | `Worker` | no mission, no subject |
+| `Mac Mini Security - screen lock needs the owner password` | nine words, 56 characters - a description wearing a name's clothes; `Mac Mini - screen lock` says it |
 
 ## Name the Mission so a stranger understands it
 
-The Mission name says what is being achieved, not which component is being edited:
+The Mission name says what is being achieved, not which component is being edited - and it
+obeys the same cap: **five words, forty characters.**
 
-- `Restart a Director without losing the fleet`
-- `Linux support - DevThrottle runs on Linux`
-- `Billing - prove a real customer can buy Pro`
+- `Restart Director - keep the fleet`
+- `Linux support - DevThrottle on Linux`
+- `Billing - a customer can buy`
+
+The sentence you wanted to write goes in the `why`, which is the field built to hold it. The
+fleet's longest Mission name - "Fleet Manager Improvement - let the Fleet Manager reach its
+sessions without limits, and put it on the phone as its own screen" - is a `why` that was
+pasted into the name. It should be `Fleet Manager - reach and phone`, with the rest in the
+`why` below.
 
 **Set the `why` in the same breath as creating it.** `cc-devthrottle mission create` takes only a
 name, which is why nearly every Mission in `mission list` reads "no why set". There is no command for
