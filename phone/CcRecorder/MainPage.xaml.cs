@@ -222,6 +222,7 @@ public partial class MainPage : ContentPage
         var isPlaying = _recorder.PlayingRecordingId == row.RecordingId;
         var options = new List<string> { isPlaying ? "Stop playing" : "Play recording" };
         if (!string.IsNullOrWhiteSpace(row.Transcript)) options.Add("Read transcript");
+        if (row.State != RecordingUploadGate.NoAudio && row.State != RecordingUploadGate.Recording) options.Add("Share audio");
         if (row.State is "Queued" or "Retry") options.Add("Upload now");
         if (row.State == RecordingUploadGate.NoAudio) options.Add("Why is it empty?");
         else if (row.Interrupted) options.Add("Why was it interrupted?");
@@ -246,6 +247,51 @@ public partial class MainPage : ContentPage
                 break;
             case "Why did upload fail?": await DisplayAlert("Upload error", row.UploadError ?? "", "OK"); break;
             case "Why did transcription fail?": await DisplayAlert("Transcription error", row.TranscriptError ?? "", "OK"); break;
+            case "Share audio": await ShareAudioAsync(row); break;
+        }
+    }
+
+    // Hands the recording's audio to the system share sheet (OneDrive, email, ...). The
+    // segments are copied into the app's cache under readable names first: the cache is the
+    // folder the share provider is allowed to hand out, and the copies keep the originals
+    // untouched while the receiving app reads them.
+    private async Task ShareAudioAsync(LibraryRow row)
+    {
+        try
+        {
+            var manifest = _recorder.LoadManifest(row.RecordingId)
+                ?? throw new InvalidOperationException("This recording's details are missing from the phone.");
+            var plan = RecordingShare.Plan(manifest, _recorder.RecordingFolder(row.RecordingId), File.Exists);
+
+            // Off the UI thread: a long car recording is tens of MB and would freeze the app.
+            var files = await Task.Run(() =>
+            {
+                // Copies from earlier shares go first. They cannot be removed right after the share
+                // call, which returns as soon as the chooser opens, before the other app has read them.
+                var shareRoot = System.IO.Path.Combine(FileSystem.CacheDirectory, "share");
+                if (Directory.Exists(shareRoot)) Directory.Delete(shareRoot, recursive: true);
+                var shareDir = System.IO.Path.Combine(shareRoot, row.RecordingId);
+                Directory.CreateDirectory(shareDir);
+                var copies = new List<ShareFile>();
+                foreach (var f in plan)
+                {
+                    var copy = System.IO.Path.Combine(shareDir, f.ShareName);
+                    File.Copy(f.SourcePath, copy);
+                    copies.Add(new ShareFile(copy));
+                }
+                return copies;
+            });
+            RecorderLog.Write($"[MainPage] ShareAudio: {row.RecordingId} {files.Count} file(s)");
+            await Share.Default.RequestAsync(new ShareMultipleFilesRequest
+            {
+                Title = $"Share audio: {row.Title}",
+                Files = files,
+            });
+        }
+        catch (Exception ex)
+        {
+            RecorderLog.Write($"[MainPage] ShareAudio FAILED: {row.RecordingId}: {ex.Message}");
+            await DisplayAlert("Could not share the audio", ex.Message, "OK");
         }
     }
 

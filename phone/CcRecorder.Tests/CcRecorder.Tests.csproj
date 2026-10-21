@@ -25,6 +25,8 @@
     <Compile Include="..\CcRecorder\Account\AppForeground.cs" Link="Account\AppForeground.cs" />
     <Compile Include="..\CcRecorder\Recording\SegmentTiming.cs" Link="Recording\SegmentTiming.cs" />
     <Compile Include="..\CcRecorder\Recording\RecordingUploadGate.cs" Link="Recording\RecordingUploadGate.cs" />
+    <Compile Include="..\CcRecorder\Recording\LocalManifest.cs" Link="Recording\LocalManifest.cs" />
+    <Compile Include="..\CcRecorder\Recording\RecordingShare.cs" Link="Recording\RecordingShare.cs" />
   </ItemGroup>
 
 </Project>
