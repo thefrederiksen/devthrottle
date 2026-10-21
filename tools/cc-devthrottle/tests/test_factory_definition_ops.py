@@ -30,8 +30,8 @@ FACTORY = "warmforward"
 FACTORY_SESSION_REFUSED = ("A session of factory 'warmforward' may not publish its definition: only its Boss publishes, "
                            "and this session is the seat 'writer', not the boss seat 'boss'. Save a draft; the factory's "
                            "Boss publishes it, and a change to the Boss's own seat needs the owner's approval.")
-BOSS_SEAT_REFUSED = ("Version 4 of the definition of warmforward changes the Boss's own seat (seats/boss.yaml, or which seat "
-                     "factory.yaml names as the boss), and a change to the Boss's own seat needs the owner's approval. "
+BOSS_SEAT_REFUSED = ("Version 4 of the definition of warmforward changes the Boss's own seat 'boss' or its authority "
+                     "(seats/boss.yaml, rules/base.json), and that needs the owner's approval. "
                      "Nothing was published. Ask the owner, then publish again with --owner-approved \"<the owner's words, "
                      "verbatim>\" (the request field ownerApproved); his words are recorded with the version.")
 

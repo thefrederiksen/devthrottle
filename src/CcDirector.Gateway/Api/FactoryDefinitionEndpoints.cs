@@ -45,8 +45,9 @@ namespace CcDirector.Gateway.Api;
 /// SESSION may read and save drafts of its own factory only, and is refused creating a factory in words; a session of
 /// another factory is refused in <see cref="FactoryNaming"/>'s own words. THE BOSS IS THE BOSS OF ITS FACTORY (the
 /// owner's ruling of 21 October 2026): the factory's Boss session - its seat is the bossSeat of the published
-/// definition - also publishes and restores its own factory, and a version that changes the Boss's own seat needs the
-/// owner's approval, passed verbatim (<c>ownerApproved</c>) and recorded with the version. Every other session of the
+/// definition - also publishes and restores its own factory, and a version that changes the Boss's own seat or its
+/// authority (its seat file, the boss pointer, a grant that includes it, a rule set it names) needs the owner's
+/// approval, passed verbatim (<c>ownerApproved</c>) and recorded with the version. Every other session of the
 /// factory is refused publish and restore in words. A caller that is
 /// neither - the account's shared machine token, or a Director - may read and may not write, because every version
 /// records who wrote it, and every publish who published it (<see cref="FactoryPublisher"/>).
@@ -944,7 +945,7 @@ internal static class FactoryDefinitionEndpoints
     /// publish or restore <paramref name="version"/>? Only when it was STARTED AS the boss seat of the PUBLISHED
     /// definition - the definition that is live decides who the Boss is, never a draft, and a session the Boss spawned
     /// inherits the seat without becoming the Boss ("the Boss session"; review finding 2). And when the version changes the Boss's own
-    /// seat - its seats/&lt;seat&gt;.yaml, or which seat factory.yaml names as the boss - only with the owner's words.
+    /// seat or its authority (<see cref="BossSeatChanges"/>) - only with the owner's words.
     /// A version that does not exist is left to the store's own ruling, which names it. The Boss's publish is held to
     /// the published version it was judged against (<paramref name="replaces"/>: set to it when the caller stated none,
     /// refused as stale when the caller stated another), so a publish that lands in between is refused rather than
@@ -977,10 +978,10 @@ internal static class FactoryDefinitionEndpoints
             return false;
         }
 
-        if (store.Find(tenant, folded, version) is { } wanted && ChangesBossSeat(publishedFiles!, wanted.Files, bossSeat)
-            && approval is null)
+        if (store.Find(tenant, folded, version) is { } wanted && approval is null
+            && BossSeatChanges(publishedFiles!, wanted.Files, bossSeat) is { Count: > 0 } changed)
         {
-            var sentence = FactoryDefinitionStore.BossSeatNeedsOwnerApproval(folded, version, bossSeat, restore);
+            var sentence = FactoryDefinitionStore.BossSeatNeedsOwnerApproval(folded, version, bossSeat, restore, changed);
             FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (403, {FactoryDefinitionOutcome.BossSeatNeedsOwnerApproval}) - the Boss's own seat changes and no owner's approval was passed");
             error = Results.Json(new
             {
@@ -1011,20 +1012,109 @@ internal static class FactoryDefinitionEndpoints
     }
 
     /// <summary>
-    /// Does <paramref name="wanted"/> change the Boss's own seat against <paramref name="published"/>: its seat file's
-    /// text differs (added, removed or edited), or factory.yaml names another seat as the boss. A version whose
-    /// factory.yaml does not parse names no boss, so it counts as a change - and the check refuses it anyway. A format
-    /// error in any other file is not a change to the Boss's seat.
+    /// Does <paramref name="wanted"/> change the Boss's own seat or its authority against <paramref name="published"/>
+    /// (<see cref="BossSeatChanges"/>). A version whose factory.yaml does not parse names no boss, so it counts as a
+    /// change - and the check refuses it anyway. A format error in any other file is not a change to the Boss's seat.
     /// </summary>
     internal static bool ChangesBossSeat(IReadOnlyDictionary<string, string> published, IReadOnlyDictionary<string, string> wanted,
         string bossSeat)
+        => BossSeatChanges(published, wanted, bossSeat).Count > 0;
+
+    /// <summary>
+    /// WHAT IN <paramref name="wanted"/> CHANGES THE BOSS'S OWN SEAT OR ITS AUTHORITY against <paramref name="published"/>,
+    /// one entry per part, empty when nothing does (the owner's rulings of 21 October 2026, the second widening the first):
+    /// <list type="bullet">
+    /// <item>its seat file, <c>seats/&lt;bossSeat&gt;.yaml</c> - added, removed or edited;</item>
+    /// <item>which seat factory.yaml names as the boss;</item>
+    /// <item>a grant in grants.yaml whose seats include the Boss seat that is new for the Boss (a new grant, or the Boss
+    /// newly added to its seats) or whose allows or limits text changed. Both are free text, so whether a change widens
+    /// or narrows cannot be told mechanically, and any change to them counts; a grant removed, or the Boss taken off its
+    /// seats, only narrows and is free;</item>
+    /// <item>a rule set the Boss seat names (<c>rules/&lt;name&gt;.json</c>) whose text changed.</item>
+    /// </list>
+    /// Every other seat's grants and rules, and the factory defaults, stay free. Each file is read on its own, never
+    /// through the whole-definition read, so a format error elsewhere changes nothing here (review finding 1); a
+    /// grants.yaml that does not parse counts as a change when its text changed, and the check names the error.
+    /// </summary>
+    internal static IReadOnlyList<string> BossSeatChanges(IReadOnlyDictionary<string, string> published,
+        IReadOnlyDictionary<string, string> wanted, string bossSeat)
     {
-        var path = FactoryDefinitionCheck.SeatsPlace + bossSeat + ".yaml";
-        published.TryGetValue(path, out var before);
-        wanted.TryGetValue(path, out var after);
-        if (!string.Equals(before, after, StringComparison.Ordinal)) return true;
-        return !string.Equals(BossSeatOf(wanted), bossSeat, StringComparison.OrdinalIgnoreCase);
+        var changes = new List<string>();
+        var seatPath = FactoryDefinitionCheck.SeatsPlace + bossSeat + ".yaml";
+        if (!SameText(published, wanted, seatPath)) changes.Add(seatPath);
+        if (!string.Equals(BossSeatOf(wanted), bossSeat, StringComparison.OrdinalIgnoreCase))
+            changes.Add("the boss seat factory.yaml names");
+
+        var grantsBefore = BossGrantsOf(published, bossSeat);
+        var grantsAfter = BossGrantsOf(wanted, bossSeat);
+        if (grantsAfter is null)
+        {
+            if (!SameText(published, wanted, GrantsFile)) changes.Add(GrantsFile);
+        }
+        else
+        {
+            foreach (var (id, after) in grantsAfter.OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                if (grantsBefore is not null && grantsBefore.TryGetValue(id, out var before)
+                    && string.Equals(before.Allows, after.Allows, StringComparison.Ordinal)
+                    && string.Equals(before.Limits, after.Limits, StringComparison.Ordinal))
+                    continue;
+                changes.Add($"the grant '{id}' in {GrantsFile}");
+            }
+        }
+
+        foreach (var rules in RuleSetsNamedBy(wanted, seatPath))
+        {
+            var rulesPath = $"rules/{rules}.json";
+            if (!SameText(published, wanted, rulesPath)) changes.Add(rulesPath);
+        }
+        return changes;
     }
+
+    private const string GrantsFile = "grants.yaml";
+
+    private static bool SameText(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b, string path)
+    {
+        a.TryGetValue(path, out var left);
+        b.TryGetValue(path, out var right);
+        return string.Equals(left, right, StringComparison.Ordinal);
+    }
+
+    /// <summary>The grants in grants.yaml whose seats include <paramref name="bossSeat"/>, by id, with their allows and
+    /// limits text; empty when there is no grants.yaml, null when it does not parse as a list of grants.</summary>
+    private static Dictionary<string, (string? Allows, string? Limits)>? BossGrantsOf(IReadOnlyDictionary<string, string> files,
+        string bossSeat)
+    {
+        var grants = new Dictionary<string, (string? Allows, string? Limits)>(StringComparer.Ordinal);
+        if (!files.TryGetValue(GrantsFile, out var text)) return grants;
+        var (root, _) = DefinitionDocument.ParseYaml(GrantsFile, text);
+        if (root is not DefinitionMap map || map.Find("grants")?.Value is not DefinitionList list) return null;
+        foreach (var item in list.Items)
+        {
+            if (item is not DefinitionMap grant || ScalarText(grant, "id") is not { } id) return null;
+            if (!TextItems(grant, "seats").Contains(bossSeat, StringComparer.OrdinalIgnoreCase)) continue;
+            grants[id] = (ScalarText(grant, "allows"), ScalarText(grant, "limits"));
+        }
+        return grants;
+    }
+
+    /// <summary>The rule set names a seat file lists under <c>rules</c>; empty when it lists none or does not parse.</summary>
+    private static IReadOnlyList<string> RuleSetsNamedBy(IReadOnlyDictionary<string, string> files, string seatPath)
+    {
+        if (!files.TryGetValue(seatPath, out var text)) return Array.Empty<string>();
+        var (root, _) = DefinitionDocument.ParseYaml(seatPath, text);
+        return root is DefinitionMap map ? TextItems(map, "rules") : Array.Empty<string>();
+    }
+
+    private static string? ScalarText(DefinitionMap map, string key)
+        => map.Find(key)?.Value is DefinitionScalar { Kind: DefinitionScalarKind.Text } s && !string.IsNullOrWhiteSpace(s.Value)
+            ? s.Value.Trim()
+            : null;
+
+    private static IReadOnlyList<string> TextItems(DefinitionMap map, string key)
+        => map.Find(key)?.Value is DefinitionList list
+            ? list.Items.OfType<DefinitionScalar>().Select(s => s.Value.Trim()).Where(v => v.Length > 0).ToList()
+            : Array.Empty<string>();
 
     /// <summary>The owner's words as passed: null when absent or blank, trimmed otherwise; refused (400) when longer
     /// than <see cref="FactoryPublisher.MaxOwnerApprovalLength"/>, because his words are never cut short.</summary>

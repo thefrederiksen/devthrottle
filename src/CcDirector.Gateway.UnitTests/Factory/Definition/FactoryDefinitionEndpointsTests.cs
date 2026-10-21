@@ -427,7 +427,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
             var refused = Publish(Session(BossSession), 2, blank);
 
             Assert.Equal(403, Status(refused));
-            Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 2, "boss", restore: false), ErrorOf(refused));
+            Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 2, "boss", restore: false,
+                new[] { "seats/boss.yaml" }), ErrorOf(refused));
             Assert.Contains("--owner-approved \"<the owner's words, verbatim>\"", ErrorOf(refused));
             Assert.Contains("seats/boss.yaml", ErrorOf(refused));
             Assert.Equal("BossSeatNeedsOwnerApproval", Field(refused, "outcome"));
@@ -478,7 +479,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
         var refused = Restore(Session(BossSession), 1, expect: 2);
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 1, "boss", restore: true), ErrorOf(refused));
+        Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 1, "boss", restore: true,
+            new[] { "seats/boss.yaml" }), ErrorOf(refused));
         Assert.Equal(2, VersionsKept());
 
         var restored = Restore(Session(BossSession), 1, expect: 2, ownerApproved: "Go back to version 1.");
@@ -530,6 +532,94 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         // The whole definition no longer reads, which is exactly when a whole-definition read would lose the boss seat.
         Assert.Null(FactoryDefinitionCheck.Read(broken).Definition);
         Assert.False(FactoryDefinitionEndpoints.ChangesBossSeat(DefinitionFixture.Publishable(), broken, "boss"));
+    }
+
+    // ---------- the Boss's authority: its grants and the rule sets it names (the owner's second ruling of 21 October 2026) ----------
+
+    private const string TwoGrants = """
+        grants:
+          - id: send-outreach-email
+            allows: Send email to prospects
+            limits: At most 20 a day
+            seats: [outreach]
+          - id: approve-spend
+            allows: Approve spend
+            limits: At most 100 dollars
+            seats: [boss]
+        """;
+
+    private static Dictionary<string, string> WithGrants(string grants)
+    {
+        var content = DefinitionFixture.Publishable();
+        content["grants.yaml"] = grants.ReplaceLineEndings("\n");
+        return content;
+    }
+
+    [Fact]
+    public void A_RULE_SET_THE_BOSS_NAMES_IS_ITS_AUTHORITY_and_another_seats_rule_set_is_free()
+    {
+        var published = DefinitionFixture.Publishable();
+
+        Assert.Equal(new[] { "rules/base.json" }, FactoryDefinitionEndpoints.BossSeatChanges(published,
+            DefinitionFixture.PublishableEdit("rules/base.json", "Bash(git status)", "Bash(git status:*)"), "boss"));
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
+            DefinitionFixture.PublishableEdit("rules/outreach.json", "Bash(rm:*)", "Bash(rm -rf:*)"), "boss"));
+    }
+
+    [Fact]
+    public void A_GRANT_THAT_INCLUDES_THE_BOSS_IS_ITS_AUTHORITY_when_new_or_its_allows_or_limits_change_and_removing_one_is_free()
+    {
+        var published = WithGrants(TwoGrants);
+
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published, WithGrants(TwoGrants), "boss"));
+        // Its limits changed.
+        Assert.Equal(new[] { "the grant 'approve-spend' in grants.yaml" }, FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants(TwoGrants.Replace("At most 100 dollars", "At most 1000 dollars", StringComparison.Ordinal)), "boss"));
+        // Its allows changed.
+        Assert.Equal(new[] { "the grant 'approve-spend' in grants.yaml" }, FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants(TwoGrants.Replace("allows: Approve spend", "allows: Approve any spend", StringComparison.Ordinal)), "boss"));
+        // The Boss added to another seat's grant.
+        Assert.Equal(new[] { "the grant 'send-outreach-email' in grants.yaml" }, FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants(TwoGrants.Replace("seats: [outreach]", "seats: [outreach, boss]", StringComparison.Ordinal)), "boss"));
+        // A new grant for the Boss, from a factory that had none for it.
+        Assert.Equal(new[] { "the grant 'approve-spend' in grants.yaml" }, FactoryDefinitionEndpoints.BossSeatChanges(
+            DefinitionFixture.Publishable(), published, "boss"));
+        // Another seat's grant widened: free.
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants(TwoGrants.Replace("At most 20 a day", "At most 200 a day", StringComparison.Ordinal)), "boss"));
+        // The Boss's grant removed, and the Boss taken off a grant: both only narrow, so both are free.
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published, DefinitionFixture.Publishable(), "boss"));
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants(TwoGrants.Replace("seats: [boss]", "seats: [outreach]", StringComparison.Ordinal)), "boss"));
+    }
+
+    [Fact]
+    public void THE_FACTORY_DEFAULTS_STAY_FREE_and_a_grants_file_that_does_not_parse_counts_only_when_its_text_changed()
+    {
+        var published = DefinitionFixture.Publishable();
+
+        Assert.Empty(FactoryDefinitionEndpoints.BossSeatChanges(published,
+            DefinitionFixture.PublishableEdit("factory.yaml", "model: claude-opus-5-5", "model: claude-fable-5-1"), "boss"));
+        Assert.Equal(new[] { "grants.yaml" }, FactoryDefinitionEndpoints.BossSeatChanges(published,
+            WithGrants("grants: not a list\n"), "boss"));
+    }
+
+    [Fact]
+    public void THE_BOSSS_PUBLISH_OF_A_RULE_SET_IT_NAMES_NEEDS_THE_OWNERS_WORDS_and_the_refusal_names_the_file()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("rules/base.json", "Bash(git status)", "Bash(git status:*)"), expect: 1);
+
+        var refused = Publish(Session(BossSession), 2);
+        Assert.Equal(403, Status(refused));
+        Assert.Equal("BossSeatNeedsOwnerApproval", Field(refused, "outcome"));
+        Assert.Contains("(rules/base.json)", ErrorOf(refused));
+        Assert.Contains("--owner-approved", ErrorOf(refused));
+
+        var published = Publish(Session(BossSession), 2, "Yes, widen the base rules.");
+        Assert.Equal(200, Status(published));
+        Assert.Equal("Yes, widen the base rules.", Version(published).OwnerApproval);
     }
 
     [Fact]

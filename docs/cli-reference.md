@@ -2136,11 +2136,14 @@ copied, and the versions in between stay in the history.
 **The Boss is the boss of its factory** (the owner's ruling of 21 October 2026). The factory's Boss session - a
 session of the factory STARTED AS the `bossSeat` of the published definition, never a session that inherited that
 seat from the session that spawned it - publishes and restores any
-change on its own authority. A version that changes the Boss's own seat (its `seats/<bossSeat>.yaml`, or which
-seat `factory.yaml` names as the boss) needs the owner's approval, passed verbatim:
+change on its own authority. A version that changes the Boss's own seat or its authority needs the owner's
+approval: its `seats/<bossSeat>.yaml`, which seat `factory.yaml` names as the boss, any grant in `grants.yaml` whose
+`seats` include the Boss seat (a new one, or a change to its `allows` or `limits`; removing one is free), or any
+`rules/<name>.json` the Boss seat names. Other seats' grants and rules, and the factory defaults, stay free; so does
+factory memory (`factory memory set`), which is not part of the definition. The words are passed verbatim:
 `publish <factory> --version N --owner-approved "<the owner's words, verbatim>"` (the same flag on `restore`).
-Without it the Gateway refuses with "Version N of the definition of ... changes the Boss's own seat ..." and the
-command exits 1, naming the flag. The words are recorded with the version (`ownerApproval` in `--json`). Any
+Without it the Gateway refuses with "Version N of the definition of ... changes the Boss's own seat 'boss' or its
+authority (...)", naming each changed part, and the command exits 1, naming the flag. The words are recorded with the version (`ownerApproval` in `--json`). Any
 other session of the factory is refused `publish` and `restore` with "A session of factory '...' may not publish
 its definition: only its Boss publishes ..." and exits 1; it saves a draft and the Boss publishes it. A session is
 refused another draft while 20 wait above the published version.

@@ -1425,7 +1425,7 @@ _ACTIONS = [
     },
     {
         "id": "factory-definition-publish",
-        "description": "Publish one version of a factory's definition and see what changes. A person, a session in no factory, or the factory's Boss publishes; the Boss passes --owner-approved \"<the owner's words>\" when the version changes its own seat; any other session of the factory is refused and told to save a draft.",
+        "description": "Publish one version of a factory's definition and see what changes. A person, a session in no factory, or the factory's Boss publishes; the Boss passes --owner-approved \"<the owner's words>\" when the version changes its own seat, a grant that includes it or a rule set it names; any other session of the factory is refused and told to save a draft.",
         "command": "cc-devthrottle factory definition publish <factory> --version <n>",
         "mutatesState": True,
         "args": [{"name": "factory", "required": True}, {"name": "version", "required": True}],
@@ -5122,15 +5122,15 @@ def factory_definition_publish(
     owner_approved: Optional[str] = typer.Option(
         None, "--owner-approved",
         help="The owner's words approving this publish, verbatim. The factory's Boss needs them when the version changes "
-             "its own seat; they are recorded with the version. Passing them is not asking: ask the owner first.",
+             "its own seat, a grant that includes it or a rule set it names; they are recorded with the version. Passing them is not asking: ask the owner first.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
     """Publish one version, printing what changes and what it applied to the factory.
 
     A person, or a session in no factory, publishes - the owner tells the session to, and that is the approval. The
-    factory's Boss publishes its own factory on its own authority; a version that changes the Boss's own seat needs the
-    owner's approval, passed verbatim with --owner-approved. The publish drives the factory - its registry row,
+    factory's Boss publishes its own factory on its own authority; a version that changes the Boss's own seat, a grant
+    that includes it or a rule set it names needs the owner's approval, passed verbatim with --owner-approved. The publish drives the factory - its registry row,
     schedules and triggers - in one transaction, and prints each step it took. Any other session of the factory that
     runs this is refused by the Gateway with the sentence that says so, and exits non-zero.
     """
@@ -5152,14 +5152,15 @@ def factory_definition_restore(
     owner_approved: Optional[str] = typer.Option(
         None, "--owner-approved",
         help="The owner's words approving this restore, verbatim. The factory's Boss needs them when the version changes "
-             "its own seat; they are recorded with the version. Passing them is not asking: ask the owner first.",
+             "its own seat, a grant that includes it or a rule set it names; they are recorded with the version. Passing them is not asking: ask the owner first.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
 ) -> None:
     """Publish a copy of an older version as the newest, and drive the factory to it.
 
     A person, a session in no factory, or the factory's Boss restores - the Boss needing --owner-approved when the
-    version changes its own seat. The versions in between stay in the history. Any other session of the factory that
+    version changes its own seat, a grant that includes it or a rule set it names. The versions in between stay in the
+    history. Any other session of the factory that
     runs this is refused by the Gateway.
     """
     factory_definition_ops.restore(factory, version, expected_version, json_output, replaces, owner_approved)
