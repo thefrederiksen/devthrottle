@@ -24,13 +24,15 @@ namespace CcDirector.Gateway.UnitTests;
 /// no network service. The other half of the chain - that a stamped address plus a credential source puts
 /// both variables into a session's environment - is already held by ApiModeSessionCreationTests.
 ///
-/// The address used is the discard port on loopback, so the host's dial fails at once without a name lookup
-/// and without leaving the machine. Nothing here asserts on whether that dial succeeded.
+/// The address used is port 0 on loopback, so the host's dial fails at once without a name lookup and
+/// without leaving the machine. Nothing here asserts on whether that dial succeeded - the value is only
+/// ever compared as a string. Port 0 rather than the discard port because a fixed non-zero port in a gate
+/// test makes the test depend on the machine, which GateTestsDoNotDependOnTheMachineTests refuses.
 /// </summary>
 [Collection(CcDirector.Gateway.UnitTests.Restart.DirectorGatesCollection.Name)]
 public sealed class SessionCredentialAfterLateEnrollTests
 {
-    private const string GatewayAddress = "http://127.0.0.1:9";
+    private const string GatewayAddress = "http://127.0.0.1:0";
 
     [Fact]
     public async Task ReapplyGateway_AfterStartingWithNoGateway_StampsTheAddressOnTheSessionManager()
