@@ -190,21 +190,21 @@ public class HostedTeamEnrollRunnerTests
     }
 
     [Fact]
-    public async Task SignInChooseTeamAndEnrollHosted_TeamsListed_OffersTheGatewayListPlusPersonalAndSendsTheChosenId()
+    public async Task SignInChooseTeamAndEnrollHosted_TeamsListed_OffersPersonalFirstThenTheGatewayListAndSendsTheChosenId()
     {
         var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "owner", 5), ("t-acme", "Acme", "developer", 3)))));
         TeamQuestion? asked = null;
 
         var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
-            (q, _) => { asked = q; return Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[1], "SOREN_NORTH - Acme")); },
+            (q, _) => { asked = q; return Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[2], "SOREN_NORTH - Acme")); },
             CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotNull(asked);
-        Assert.Equal(new string?[] { "t-dev", "t-acme", null }, asked!.Choices.Select(c => c.TeamId));
-        Assert.Equal(new[] { "DevThrottle", "Acme", "Personal" }, asked.Choices.Select(c => c.Name));
-        Assert.Equal("You are the Owner, 5 people, you pay", asked.Choices[0].Detail);
-        Assert.Equal("Just you", asked.Choices[2].Detail);
+        Assert.Equal(new string?[] { null, "t-dev", "t-acme" }, asked!.Choices.Select(c => c.TeamId));
+        Assert.Equal(new[] { "Personal", "DevThrottle", "Acme" }, asked.Choices.Select(c => c.Name));
+        Assert.Equal("Just you", asked.Choices[0].Detail);
+        Assert.Equal("You are the Owner, 5 people, you pay", asked.Choices[1].Detail);
 
         Assert.Equal(AccountToken, Assert.Single(h.Requests, r => r.Path == "/devices/enroll-hosted/teams").Bearer);
 
@@ -219,13 +219,36 @@ public class HostedTeamEnrollRunnerTests
         Assert.Equal(new DirectorTeam("t-acme", "Acme"), result.Value.Team);
     }
 
-    // A person with one team is never asked to choose (devthrottle_internal#2311, Phases 2-3 review finding 1).
+    // A person with ONE team IS asked, and the personal account is the option in front of them. This reverses
+    // devthrottle_internal#2311 Phases 2-3 review finding 1: taking the lone team silently is what put a whole
+    // machine's Director and sessions into a tenant nobody picked.
     [Fact]
-    public async Task SignInChooseTeamAndEnrollHosted_OneTeamListed_NotAskedThatTeamsIdSentAndNamedForIt()
+    public async Task SignInChooseTeamAndEnrollHosted_OneTeamListed_AskedWithPersonalFirst()
+    {
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5)))));
+        TeamQuestion? asked = null;
+
+        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
+            (q, _) => { asked = q; return Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[0], "SOREN_NORTH - Personal")); },
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(asked);
+        Assert.Equal(new string?[] { null, "t-dev" }, asked!.Choices.Select(c => c.TeamId));
+        Assert.Equal(TodaysEnrollBody, Assert.Single(h.Requests, r => r.Path == "/devices/enroll-hosted").Body);
+        Assert.True(Assert.Single(h.Teams)!.IsPersonal);
+        Assert.Equal("SOREN_NORTH - Personal", result.Value!.DirectorName);
+    }
+
+    // The lone team is still joinable - asking took the silence away, not the team.
+    [Fact]
+    public async Task SignInChooseTeamAndEnrollHosted_OneTeamListedAndPicked_ThatTeamsIdSentAndNamedForIt()
     {
         var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5)))));
 
-        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName, NeverAsked, CancellationToken.None);
+        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
+            (q, _) => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[1], "SOREN_NORTH - DevThrottle")),
+            CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
         var body = JsonNode.Parse(Assert.Single(h.Requests, r => r.Path == "/devices/enroll-hosted").Body)!.AsObject();
@@ -272,7 +295,9 @@ public class HostedTeamEnrollRunnerTests
             teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5))),
             enroll: () => Json(HttpStatusCode.Forbidden, JsonSerializer.Serialize(new { error = refusal }))));
 
-        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName, NeverAsked, CancellationToken.None);
+        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
+            (q, _) => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[1], "SOREN_NORTH - DevThrottle")),
+            CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(refusal, result.ErrorMessage);

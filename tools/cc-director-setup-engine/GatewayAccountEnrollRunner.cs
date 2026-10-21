@@ -596,19 +596,12 @@ public sealed class GatewayAccountEnrollRunner
                 return OperationResult<HostedTeamEnrollment>.Fail(listed.ErrorMessage!);
 
             var choices = TeamChoices.Build(listed.Value!);
+            // The only choice taken without asking is the personal account, and only when the person is in no team
+            // at all. Any team on the list - even one - means D1 is shown, with the personal account selected.
             if (TeamChoices.TakenWithoutAsking(choices) is { } taken)
             {
                 team = taken.ToTeam();
-                if (taken.IsPersonal)
-                {
-                    EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team to choose; the personal account, not asked");
-                }
-                else
-                {
-                    // D1 is not shown, so the Director gets the name D1 would have started with: "<computer> - <team>".
-                    directorName = TeamChoices.SuggestDirectorName(machineName, taken);
-                    EngineLog.Write($"[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: one team, not asked; team {team.TeamId}");
-                }
+                EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team to choose; the personal account, not asked");
             }
             else
             {

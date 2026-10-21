@@ -60,6 +60,7 @@ public sealed class HostedTeamSetupTests
     private static string KeyNamed(string fingerprint) =>
         fingerprint == DeviceKeyFingerprint.Of("team-key") ? "team-key" : "another key";
 
+    // The choices are Personal first, then the Gateway's teams: 0 is Personal, 1 is DevThrottle, 2 is Acme.
     private static Func<TeamQuestion, Task<TeamAnswer?>> Choose(int index, string name) =>
         q => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[index], name));
 
@@ -68,7 +69,7 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "SOREN_NORTH - DevThrottle"),
             name => log.Add("rename:" + name), Suggest(log), (team, key) => log.Add("team:" + team?.TeamId + " for " + key), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -84,7 +85,7 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "Build box"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(2, "Build box"),
             name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -97,7 +98,7 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(2, "SOREN_NORTH - Personal"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - Personal"),
             name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + (team is { IsPersonal: true } ? "personal" : team?.TeamId)),
             "dir-1", "SOREN_NORTH", CancellationToken.None);
 
@@ -111,22 +112,43 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "SOREN_NORTH - Acme"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(2, "SOREN_NORTH - Acme"),
             name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Contains("suggestion:t-acme|team-key|SOREN_NORTH|SOREN_NORTH - Acme", log);
     }
 
-    // A person with one team is never asked (devthrottle_internal#2311): D1 is not shown, and the Director takes
-    // the name D1 would have started with, "<computer> - <team>"; the chip and the title show the recorded team.
+    // A person with ONE team is asked, and the question offers the personal account first. This used to be taken
+    // without asking; it is what put a whole machine into a team nobody chose, so a lone team now reaches D1 like
+    // any other.
     [AvaloniaFact]
-    public async Task RunAsync_OneTeam_NotAskedNamedForTheTeamAndTeamRecorded()
+    public async Task RunAsync_OneTeam_IsAskedWithPersonalOffered()
+    {
+        var log = new List<string>();
+        var offered = new List<string?>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log, OneTeam),
+            q =>
+            {
+                offered.AddRange(q.Choices.Select(c => c.TeamId));
+                return Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[0], "SOREN_NORTH - Personal"));
+            },
+            name => log.Add("rename:" + name), Suggest(log),
+            (team, _) => log.Add("team:" + (team is { IsPersonal: true } ? "personal" : team?.TeamId)), "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(new string?[] { null, "t-dev" }, offered);
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - Personal", "suggestion:none", "team:personal" }, log);
+    }
+
+    // The one team is still THERE to be picked - asking must not take the choice away.
+    [AvaloniaFact]
+    public async Task RunAsync_OneTeam_PickedOnPurpose_IsJoinedAndRecorded()
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log, OneTeam),
-            _ => throw new InvalidOperationException("must not ask"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log, OneTeam), Choose(1, "SOREN_NORTH - DevThrottle"),
             name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -153,7 +175,7 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "SOREN_NORTH - DevThrottle"),
             _ => throw new InvalidOperationException("the instance registry is unreadable"), Suggest(log),
             (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
@@ -168,7 +190,7 @@ public sealed class HostedTeamSetupTests
     {
         var log = new List<string>();
 
-        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "SOREN_NORTH - DevThrottle"),
             name => log.Add("rename:" + name), Suggest(log), (_, _) => throw new IOException("disk full"),
             "dir-1", "SOREN_NORTH", CancellationToken.None);
 
