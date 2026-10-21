@@ -52,6 +52,9 @@ public sealed partial class FactoryRegistryStore
                 ctx.FactoryRegistry.Where(f => f.Factory == id)
                     .ExecuteUpdate(set => set.SetProperty(f => f.RegisteredAtUtc, f => f.RegisteredAtUtc));
                 ctx.Entry(row).Reload();
+                // A delete on another replica that committed while this one waited on the lock leaves no row to reload.
+                if (ctx.Entry(row).State == EntityState.Detached)
+                    throw new FactoryNotRegisteredException($"No factory '{factory}' is registered in this account.");
                 if (row.ArchivedAtUtc is null)
                     throw Refuse($"{row.Title} is not archived. Archive it first: only an archived factory can be deleted.");
 
