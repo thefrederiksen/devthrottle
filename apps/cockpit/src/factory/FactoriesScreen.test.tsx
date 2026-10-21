@@ -828,6 +828,42 @@ describe("The owner's actions (round 2)", () => {
     expect(screen.queryByRole("button", { name: "Archive factory (fixture)" })).toBeNull();
   });
 
+  it("an archived factory's page offers Delete beside Restore, and a delete opens the list with the Gateway's sentence", async () => {
+    const del = {
+      ...FACTORY_LIST.archivedRows[0].restore,
+      action: "delete" as const,
+      factoryId: "warmforward",
+      label: "Delete (fixture)",
+      busyLabel: "Deleting WarmForward... (fixture)",
+      confirmTitle: "Delete WarmForward for good? (fixture)",
+      confirmLines: ["WarmForward is deleted for good. (fixture)", "Kept as history: its activity record. (fixture)"],
+      confirmLabel: "Delete WarmForward (fixture)",
+      danger: true,
+      schedules: ["cj_a"],
+    };
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      archive: null,
+      archivedText: "Archived 6 Oct 23:50 by the owner. It is not on the Factories list. (fixture)",
+      restore: FACTORY_LIST.archivedRows[0].restore,
+      delete: del,
+    });
+    screenClient.runFactoryOwnerAction.mockResolvedValue({ text: "WarmForward is deleted. Its history is kept. (fixture)", marked: 0, schedulesSwitched: ["cj_a"] });
+    renderAt("/factories/warmforward");
+
+    const banner = await screen.findByTestId("fa-archived");
+    expect(within(banner).getByRole("button", { name: "Restore (fixture)" })).toBeTruthy();
+    fireEvent.click(within(banner).getByRole("button", { name: "Delete (fixture)" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete WarmForward for good? (fixture)" });
+    expect(Array.from(within(dialog).getByTestId("fa-confirm-lines").querySelectorAll("p")).map((p) => p.textContent)).toEqual(del.confirmLines);
+    expect(within(dialog).getByRole("button", { name: "Delete WarmForward (fixture)" }).className).toContain("ui-btn-danger");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete WarmForward (fixture)" }));
+
+    expect((await screen.findByTestId("fa-notice")).textContent).toBe("WarmForward is deleted. Its history is kept. (fixture)");
+    expect(await screen.findByTestId("fa-factories-list")).toBeTruthy();
+    expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(del);
+  });
+
   it("Show archived opens the archived factories, and Restore confirms in the Gateway's words", async () => {
     screenClient.runFactoryOwnerAction.mockResolvedValue({ text: "Tallyhand is back on the Factories list. (fixture)", marked: 0, schedulesSwitched: [] });
     renderAt("/factories");

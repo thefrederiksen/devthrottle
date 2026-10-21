@@ -618,3 +618,119 @@ def test_list_ShowsThePurposeWhenAsked(gateway_answering):
 
     assert result.exit_code == 0, result.output
     assert "A line" in result.stdout
+
+
+# ---------- delete (issue #4324) ----------
+
+
+class _PageAndDelete:
+    """A local Gateway answering GET with the factory's page and POST with the delete's status and body."""
+
+    def __init__(self, page, post_status, post_body):
+        self.calls = []
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _send(self, status, body):
+                payload = json.dumps(body).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_GET(self):
+                owner.calls.append({"method": "GET", "path": self.path, "body": None})
+                self._send(200, page)
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                owner.calls.append({"method": "POST", "path": self.path, "body": json.loads(raw) if raw else None})
+                self._send(post_status, post_body)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+_DELETE_ACTION = {
+    "action": "delete", "factoryId": "eric", "label": "Delete", "confirmTitle": "Delete Eric for good?",
+    "confirmLines": ["Eric is deleted for good. It leaves Show archived and cannot be restored.",
+                     "Kept as history: its activity record, journals, memory, records and goal numbers, and the runs of its schedules and triggers."],
+    "confirmLabel": "Delete Eric", "danger": True, "schedules": ["cj_eric"],
+}
+
+
+@pytest.fixture
+def page_and_delete(monkeypatch):
+    servers = []
+
+    def start(page, post_status=200, post_body=None):
+        server = _PageAndDelete(page, post_status, post_body)
+        servers.append(server)
+        monkeypatch.setenv("CC_GATEWAY_URL", server.url)
+        monkeypatch.setenv("CC_GATEWAY_SESSION_KEY", "test-session-key")
+        return server
+
+    yield start
+    for server in servers:
+        server.close()
+
+
+def test_delete_WithoutYes_PrintsTheGatewaysConfirm_AndSendsNothing(page_and_delete):
+    gw = page_and_delete({"id": "eric", "title": "Eric", "delete": _DELETE_ACTION})
+
+    result = runner.invoke(app, ["factory", "delete", "eric"])
+
+    assert result.exit_code == 0, result.output
+    assert [c["method"] for c in gw.calls] == ["GET"]
+    assert gw.calls[0]["path"] == "/gateway/factories/eric"
+    assert "confirm: Delete Eric for good?" in result.stdout
+    assert "Kept as history: its activity record" in result.stdout
+    assert "deleted: no (nothing is sent without --yes)" in result.stdout
+    assert "cc-devthrottle factory delete eric --yes" in result.stdout
+
+
+def test_delete_WithYes_SendsBackTheSchedulesTheConfirmNamed_AndPrintsWhatWasDeleted(page_and_delete):
+    gw = page_and_delete({"id": "eric", "title": "Eric", "delete": _DELETE_ACTION}, 200,
+                         {"text": "Eric is deleted. Schedules deleted: cj_eric. No trigger was deleted. Its history is kept.",
+                          "marked": 0, "schedulesSwitched": ["cj_eric"]})
+
+    result = runner.invoke(app, ["factory", "delete", "eric", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    post = gw.calls[1]
+    assert (post["method"], post["path"], post["body"]) == ("POST", "/gateway/factories/eric/delete", {"schedules": ["cj_eric"]})
+    assert "deleted: Eric is deleted. Schedules deleted: cj_eric." in result.stdout
+
+
+def test_delete_ASessionKey_GetsTheGatewaysRefusal_AndExitsNonZero(page_and_delete):
+    page_and_delete({"id": "eric", "title": "Eric", "delete": _DELETE_ACTION}, 403,
+                    {"code": "owner_only", "error": "a session may not delete a factory; that is the owner's act, from the owner's own phone or browser"})
+
+    result = runner.invoke(app, ["factory", "delete", "eric", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Not deleted:" in result.stderr
+    assert "owner's own phone or browser" in result.stderr
+
+
+def test_delete_OfAFactoryThatIsNotArchived_IsRefusedBeforeAnythingIsSent(page_and_delete):
+    gw = page_and_delete({"id": "eric", "title": "Eric", "delete": None})
+
+    result = runner.invoke(app, ["factory", "delete", "eric", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Eric is not archived" in result.stderr
+    assert [c["method"] for c in gw.calls] == ["GET"]

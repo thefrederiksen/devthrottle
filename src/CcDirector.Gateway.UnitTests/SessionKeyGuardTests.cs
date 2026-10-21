@@ -329,7 +329,7 @@ public sealed class SessionKeyGuardTests
 
     [Theory]
     // The Factories screen (issue #3685): a session reads the list and a factory's page, and nothing else on it.
-    // The Seats tab, Handled, the bulk handled, archive, restore and Talk are the owner's; a boss marks its own rows
+    // The Seats tab, Handled, the bulk handled, archive, restore, delete and Talk are the owner's; a boss marks its own rows
     // handled through the activity record, which the guard already allows.
     [InlineData("GET", "/gateway/factories/website-business/seats")]
     [InlineData("POST", "/gateway/factories")]
@@ -340,6 +340,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/factories/website-business/waiting/handled-older")]
     [InlineData("POST", "/gateway/factories/website-business/archive")]
     [InlineData("POST", "/gateway/factories/website-business/restore")]
+    [InlineData("POST", "/gateway/factories/website-business/delete")]
     [InlineData("POST", "/gateway/factories/website-business/seats/ceo/talk")]
     public void Factories_screen_shapes_beyond_the_two_reads_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,

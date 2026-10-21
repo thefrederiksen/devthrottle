@@ -17,6 +17,7 @@ namespace CcDirector.Gateway.Api;
 ///   POST /gateway/factories/{factory}/waiting/handled-older  body { cutoffUtc, expectedCount } -> 201 | 400 | 403 | 404 | 409
 ///   POST /gateway/factories/{factory}/archive                body { schedules }                -> 200 | 400 | 403 | 404 | 409
 ///   POST /gateway/factories/{factory}/restore                body { schedules }                -> 200 | 400 | 403 | 404 | 409
+///   POST /gateway/factories/{factory}/delete                 body { schedules }                -> 200 | 400 | 403 | 404 | 409
 ///
 /// ONLY THE OWNER'S OWN BROWSER OR PHONE, as Talk (<see cref="FleetManagerOwnerDevice.Require"/>): a session key, a
 /// Director's device key and the shared machine token are refused before anything is read. Each body is what the
@@ -118,7 +119,41 @@ internal static class FactoryOwnerActionEndpoints
                 });
             }));
 
-        FileLog.Write($"[FactoryOwnerActionEndpoints] mapped {Prefix}/waiting/handled-older, /archive and /restore");
+        app.MapPost(Prefix + "/delete", (HttpContext ctx, string factory) =>
+            Handle(ctx, factory, "delete a factory", factorySwitch, resolveTenant, sources, (tenant, f, body, actor) =>
+            {
+                if (f.ArchivedAtUtc is null)
+                    throw new FactoryViewValidationException($"{f.Title} is not archived. Archive it first: only an archived factory can be deleted.");
+                if (body?.Schedules is not { } sent)
+                    throw new FactoryViewValidationException("The schedules the confirm named are missing. Open the factory again and use its Delete button.");
+                var now = sources.Activity.NowUtc();
+                // The items still waiting on the owner are marked handled in the same write: the factory is gone, so
+                // nothing it asked can be answered any more, and none may stay on Waiting on you.
+                var input = FactoriesScreenEndpoints.Inputs(sources, tenant, FactoryAgentsFold.WindowLast24h, f.Factory);
+                var a = input.Activity;
+                if (a.WaitingTruncated)
+                    throw new FactoryViewValidationException("The record holds more correcting rows than one read returns, so it cannot be told which items waiting on you are already handled. Nothing was deleted.");
+                var corrections = FactoryAgentsFold.AllCorrections(a);
+                var open = FactoryAgentsFold.OpenWaiting(a.WaitingCandidates, corrections)
+                    .Where(r => string.Equals(r.Factory, f.Factory, StringComparison.OrdinalIgnoreCase)).ToList();
+                var deleted = sources.Registry.Delete(tenant, f.Factory, actor, sent, result =>
+                    open.Select(r => FactoryAgentsFold.HandledRow(r, corrections, correctionsTruncated: false, actor, now, "because the owner deleted the factory"))
+                        .Append(FactoryOwnerActions.DeleteRow(result.Factory, result.Title,
+                            result.Schedules.Select(j => string.IsNullOrWhiteSpace(j.Name) ? j.Id : $"\"{j.Name}\" ({j.Id})").ToList(),
+                            result.Triggers.Select(t => t.Name).ToList(), result.DefinitionVersions, result.BriefVersions, open.Count, actor, now))
+                        .ToList());
+                FileLog.Write($"[FactoryOwnerActionEndpoints] delete: {f.Factory} schedules={string.Join(",", deleted.Schedules.Select(j => j.Id))}, triggers={deleted.Triggers.Count}, handled={open.Count}, actor={actor}");
+                return Results.Json(new FactoryOwnerActionResultDto
+                {
+                    Text = $"{f.Title} is deleted. " + (deleted.Schedules.Count == 0 ? "No schedule was deleted. " : $"Schedules deleted: {string.Join(", ", deleted.Schedules.Select(j => j.Id))}. ")
+                        + (deleted.Triggers.Count == 0 ? "No trigger was deleted. " : $"Triggers deleted: {string.Join(", ", deleted.Triggers.Select(t => t.Name))}. ")
+                        + "Its history is kept.",
+                    Marked = open.Count,
+                    SchedulesSwitched = deleted.Schedules.Select(j => j.Id).ToList(),
+                });
+            }));
+
+        FileLog.Write($"[FactoryOwnerActionEndpoints] mapped {Prefix}/waiting/handled-older, /archive, /restore and /delete");
     }
 
     // Switch each planned schedule; one that vanished since the plan was read is not claimed as switched.

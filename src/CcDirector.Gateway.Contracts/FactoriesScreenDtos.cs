@@ -163,7 +163,7 @@ public sealed class FactoryArchivedRowDto
 /// </summary>
 public sealed class FactoryOwnerActionDto
 {
-    /// <summary>"handled-older", "archive" or "restore".</summary>
+    /// <summary>"handled-older", "archive", "restore" or "delete".</summary>
     public string Action { get; set; } = "";
     public string FactoryId { get; set; } = "";
 
@@ -182,7 +182,7 @@ public sealed class FactoryOwnerActionDto
     /// <summary>The confirm's button: "Mark 61 handled", "Archive Tallyhand".</summary>
     public string ConfirmLabel { get; set; } = "";
 
-    /// <summary>True when the confirm's button is drawn as destructive (red): the bulk clear and Archive. Restore is
+    /// <summary>True when the confirm's button is drawn as destructive (red): the bulk clear, Archive and Delete. Restore is
     /// not. Decided here so the Cockpit never branches on the action's kind (critical rule 7).</summary>
     public bool Danger { get; set; }
 
@@ -192,7 +192,8 @@ public sealed class FactoryOwnerActionDto
     /// <summary>handled-older: how many the confirm said. Sent back unchanged.</summary>
     public int? ExpectedCount { get; set; }
 
-    /// <summary>archive and restore: the schedule ids the confirm said it switches. Sent back unchanged.</summary>
+    /// <summary>archive and restore: the schedule ids the confirm said it switches; delete: the ones it deletes. Sent
+    /// back unchanged.</summary>
     public List<string> Schedules { get; set; } = new();
 }
 
@@ -372,6 +373,10 @@ public sealed class FactoryPageViewDto
 
     /// <summary>"Restore" with its confirm when archived, else null.</summary>
     public FactoryOwnerActionDto? Restore { get; set; }
+
+    /// <summary>"Delete" with its confirm when archived, else null (issue #4324): only an archived factory can be
+    /// deleted.</summary>
+    public FactoryOwnerActionDto? Delete { get; set; }
 }
 
 /// <summary>The goal, as the owner approved it.</summary>

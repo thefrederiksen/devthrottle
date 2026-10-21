@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   getFactoryPage,
   getFactorySeats,
@@ -50,6 +50,9 @@ export function FactoryView() {
     setNotice(text);
     view.reload();
   };
+  // A deleted factory has no page any more: the Factories list opens, carrying the Gateway's sentence.
+  const navigate = useNavigate();
+  const deleted = (text: string) => navigate(view.data?.crumbHref ?? "/factories", { state: { notice: text } });
   // The Seats tab is its own Gateway view; it is read only while that tab is open and has something to show (a factory
   // that is not published yet has no seats to read - its tab carries the Gateway's sentence instead).
   const onSeats =
@@ -116,6 +119,7 @@ export function FactoryView() {
         <div className="fa-archived" data-testid="fa-archived">
           <span>{page.archivedText}</span>
           {page.restore !== null && <OwnerActionButton action={page.restore} onDone={done} variant="primary" />}
+          {page.delete !== null && <OwnerActionButton action={page.delete} onDone={deleted} />}
         </div>
       )}
 

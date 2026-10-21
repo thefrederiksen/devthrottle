@@ -278,6 +278,9 @@ public static class FactoriesScreenFold
                 ? null
                 : $"{FactoryOwnerActions.ArchivedText(factory, zone)}. It is not on the Factories list.",
             Restore = factory.ArchivedAtUtc is null ? null : FactoryOwnerActions.RestoreAction(factory, input.Schedules),
+            Delete = FactoryOwnerActions.DeleteAction(factory, input.Schedules,
+                input.Activity.Triggers.Where(t => SameId(t.Factory, factory.Factory)).Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList(),
+                open.Count),
         };
     }
 

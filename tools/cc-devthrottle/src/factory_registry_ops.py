@@ -1,6 +1,6 @@
 """The factory registry and goal numbers for cc-devthrottle (Factories screen mission, phase A).
 
-Four verbs:
+Five verbs:
 
 - `factory register --manifest <file>` registers a factory on the Gateway from a JSON manifest: its title,
   folder, computer, boss, goal and seats. Registering again replaces the whole registration, seats included.
@@ -9,6 +9,8 @@ Four verbs:
 - `factory list` lists the registered factories.
 - `factory purpose <factory> "<line>"` sets the one line that says what a factory is for, shown under its name
   on the owner's Factories cards, without registering it again; `--clear` removes it.
+- `factory delete <factory> --yes` deletes an ARCHIVED factory for good, after printing the Gateway's own
+  confirm. Owner only: the Gateway refuses a session key, and this prints that refusal.
 - `factory goal-number post` posts the number a factory's goal is measured by. A boss runs it on every run.
 - `factory goal-number show` reads a factory's goal numbers back, newest first.
 
@@ -388,3 +390,56 @@ def show_goal_numbers(factory: str, count: int, json_output: bool, fields: Optio
             f"cc-devthrottle factory goal-number show --factory {shown_id} --fields {','.join(GOAL_FIELDS)}"]
     blocks.append(axi_output.format_help([_POST] if not records else more))
     axi_output.write_blocks(sys.stdout, *blocks)
+
+
+# ---------- delete ----------
+
+#: The Factories screen's page of one factory: its Delete confirm, when it is archived (issue #4324).
+FACTORIES_ROUTE = "gateway/factories"
+
+_DELETE = "cc-devthrottle factory delete <factory> --yes"
+_COCKPIT_DELETE = "the Cockpit: Factories, Show archived, open the factory, Delete"
+
+
+def delete_factory(factory: str, yes: bool, json_output: bool) -> None:
+    """Delete an archived factory for good: the Gateway's own confirm is printed, and only --yes sends it back.
+
+    Owner only. The Gateway refuses a session key, so from inside a session this prints the Gateway's refusal and
+    exits non-zero; nothing is deleted. Exits non-zero whenever the factory was not deleted.
+    """
+    page_path = f"{FACTORIES_ROUTE}/{gateway.path_segment(factory)}"
+    try:
+        page = gateway.get_json(page_path)
+    except gateway.GatewayError as exc:
+        axi_cli.fail(f"Not deleted: {_reason(exc)}", [_LIST])
+    if not isinstance(page, dict) or not page.get("id"):
+        axi_cli.fail("Not deleted: the Gateway answered without the factory's page, so there is no confirm to show. "
+                     "Treat it as not deleted.", [_LIST])
+    action = page.get("delete")
+    if not isinstance(action, dict):
+        axi_cli.fail(f"Not deleted: {axi_cli.ascii_text(str(page.get('title') or factory))} is not archived. "
+                     "Only an archived factory can be deleted; archive it from its page on the Factories screen first.",
+                     [_LIST])
+
+    lines = [axi_cli.ascii_text(str(line)) for line in action.get("confirmLines") or []]
+    if not yes:
+        axi_output.write_blocks(
+            sys.stdout,
+            "\n".join([f"confirm: {axi_cli.ascii_text(str(action.get('confirmTitle') or ''))}"] + [f"  {line}" for line in lines]
+                      + ["deleted: no (nothing is sent without --yes)"]),
+            axi_output.format_help([_DELETE.replace("<factory>", axi_cli.ascii_text(str(page["id"])))]),
+        )
+        return
+
+    path = f"{FACTORIES_ROUTE}/{gateway.path_segment(str(page['id']))}/delete"
+    try:
+        answer = gateway.post_json(path, {"schedules": action.get("schedules") or []})
+    except gateway.GatewayError as exc:
+        axi_cli.fail(f"Not deleted: {_reason(exc)}", [_COCKPIT_DELETE, _LIST])
+    if not isinstance(answer, dict) or not answer.get("text"):
+        axi_cli.fail("Not deleted: the Gateway answered without saying what it deleted, so this command cannot show "
+                     "the factory is gone. Run the list to see.", [_LIST])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    axi_output.write_blocks(sys.stdout, f"deleted: {axi_cli.ascii_text(str(answer['text']))}", axi_output.format_help([_LIST]))

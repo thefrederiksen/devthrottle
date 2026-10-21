@@ -60,6 +60,9 @@
          PostgreSQL here, so the two can never disagree about what "changes nothing" means. -->
     <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Definition\DefinitionFixture.cs" Link="Factory/Definition/DefinitionFixture.cs" />
     <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Definition\FactoryPublishScenario.cs" Link="Factory/Definition/FactoryPublishScenario.cs" />
+    <!-- Deleting an archived factory (issue #4324): the same scenario on SQLite in the unit tests and on PostgreSQL here. -->
+    <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Registry\ScheduleLinkSeed.cs" Link="Factory/Registry/ScheduleLinkSeed.cs" />
+    <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Registry\FactoryDeleteScenario.cs" Link="Factory/Registry/FactoryDeleteScenario.cs" />
   </ItemGroup>
 
 </Project>

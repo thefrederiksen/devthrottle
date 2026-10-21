@@ -1191,6 +1191,13 @@ _ACTIONS = [
         "args": [{"name": "factory", "required": True}, {"name": "line", "required": False}],
     },
     {
+        "id": "factory-delete",
+        "description": "Delete an ARCHIVED factory for good: prints the Gateway's confirm, and only --yes sends it. Owner only: a session key is refused by the Gateway.",
+        "command": "cc-devthrottle factory delete <factory> --yes",
+        "mutatesState": True,
+        "args": [{"name": "factory", "required": True}],
+    },
+    {
         "id": "factory-list",
         "description": "List the registered factories.",
         "command": "cc-devthrottle factory list",
@@ -4641,6 +4648,22 @@ def factory_purpose(
     untouched. The line is trimmed and must fit in 120 characters. Exits non-zero when it was not set.
     """
     factory_registry_ops.set_purpose(factory, line, clear, json_output)
+
+
+@factory_app.command("delete")
+def factory_delete(
+    factory: str = typer.Argument(..., help="The archived factory's id, for example eric."),
+    yes: bool = typer.Option(False, "--yes", help="Send the delete. Without it, only the Gateway's confirm is printed."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Delete an archived factory for good.
+
+    Prints the Gateway's own confirm - what is deleted (the registry entry, the definition and its versions, the
+    schedules and triggers, the seats' briefs) and what is kept as history - and sends it back only with --yes.
+    Only the owner may delete: the Gateway refuses a session key, so from inside a session this prints that
+    refusal and exits non-zero. Exits non-zero whenever the factory was not deleted.
+    """
+    factory_registry_ops.delete_factory(factory, yes, json_output)
 
 
 @factory_app.command("list")

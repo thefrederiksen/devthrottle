@@ -542,15 +542,30 @@ jobs:
           fi
           echo "CI result: passed"
 
-  # A RED NIGHT IS AN ISSUE, NOT A LOG LINE. Nobody watches a nightly run, so a failure has to arrive
-  # somewhere that is read. One open issue carries every red night: the first failure opens it, later
-  # ones comment on it, and whoever fixes main closes it. Runs started by hand report to whoever started
-  # them and never open an issue.
+  # A RED MAIN IS AN ISSUE, NOT A LOG LINE. Nobody watches a run on main, so a failure has to arrive
+  # somewhere that is read. One open issue carries every red run: the first failure opens it, later ones
+  # comment on it, and whoever fixes main closes it.
+  #
+  # EVERY red run on main reports, including one started by hand (#4238). This used to be gated to the
+  # schedule, on the reasoning that "runs started by hand report to whoever started them". That premise
+  # failed on 21 October 2026: a session merged #4323, started a run by hand exactly as this repository's
+  # own instructions say to ("merge without waiting; come back for the answer"), and did not come back
+  # before the run went
+  # red. Nothing was written anywhere. v2.28.0 was then cut from the previous good commit and shipped
+  # without the fix. Whoever starts a run by hand is often an agent that ends its turn, so "it has a
+  # watcher" is not a property of a hand-started run.
+  #
+  # It is still scoped to MAIN. A hand-started run on a feature branch is someone's own work in progress
+  # and does not open an issue - which the schedule gate used to give for free, and now has to be said.
+  #
+  # The comment NAMES WHAT FAILED - the jobs, their failed steps, and the test names scraped from those
+  # jobs' own logs. "What changed: success | CI result: failure" told a reader nothing and made every one
+  # of them open the run log (#4238).
   report:
-    name: Report a red nightly
+    name: Report a red run on main
     needs: [changes, result]
     if: >-
-      always() && github.event_name == 'schedule' &&
+      always() && github.ref == 'refs/heads/main' &&
       (needs.changes.result == 'failure' || needs.result.result == 'failure')
     runs-on: ubuntu-latest
     permissions:
@@ -559,15 +574,75 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RESULT_RESULT: ${{ needs.result.result }}
         run: |
           set -euo pipefail
+          # DO NOT RETITLE THIS. The title is the lookup key: the job finds the one open issue by
+          # searching for it, so changing the words orphans the issue that already carries the history
+          # (#3505) and opens a second one beside it. The job's own name says "run", not "nightly"; the
+          # issue keeps the older wording on purpose.
           title="Nightly CI is red on main"
           url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          body="The nightly CI run failed on main at ${GITHUB_SHA}.
 
-          What changed: ${{ needs.changes.result }} | CI result: ${{ needs.result.result }}
+          # The failed jobs, and the step inside each that failed. From the run's own job list, which is
+          # already final for a job that has finished - this job only runs once they have.
+          jobs_file="$(mktemp)"
+          gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/jobs" --paginate \
+            --jq '.jobs[] | select(.conclusion=="failure") | [.id, .name, ([.steps[]? | select(.conclusion=="failure") | .name] | join("; "))] | @tsv' \
+            > "$jobs_file" || true
 
-          Run: ${url}"
+          # The test names, scraped from each failed job's log. No .trx is produced anywhere in this
+          # workflow, so the log IS the run's own result - there is nothing more structured to read.
+          tests_file="$(mktemp)"
+          while IFS=$'\t' read -r jid jname jsteps; do
+            [ -n "${jid:-}" ] || continue
+            log="$(mktemp)"
+            gh api "repos/${GH_REPO}/actions/jobs/${jid}/logs" > "$log" 2>/dev/null || true
+            # xUnit and VSTest both name the test; take either shape and keep it to one line each.
+            grep -ohE '[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+(\([^)]*\))? \[FAIL\]' "$log" 2>/dev/null \
+              | sed -E 's/ \[FAIL\]$//' >> "$tests_file" || true
+            # A real compiler or restore error, from the BUILD step. The filter matters: a passing test's
+            # own parameters can contain the text "error CS1002" (LinkDetectorExactTextTests feeds compiler
+            # error lines in as test data), and reporting that as a build failure would mislead exactly the
+            # reader this comment exists for. Any line carrying a test-result marker is not a build error.
+            # The WHOLE LINE is filtered first and only then trimmed. Matching with -o up front threw the
+            # context away: a passing test's parameters can contain the text "error CS1002"
+            # (LinkDetectorExactTextTests feeds compiler error lines in AS test data), and once -o had cut
+            # the fragment out, no filter could still see the "Passed" that proved it was not a build error.
+            grep -hE '\): error (CS|MSB|NU)[0-9]+: ' "$log" 2>/dev/null \
+              | grep -vE 'Passed |Failed |Skipped |\[FAIL\]|\[SKIP\]' \
+              | sed -E 's/^.*[0-9]Z //; s/^[[:space:]]+//' \
+              | cut -c1-200 >> "$tests_file" || true
+            rm -f "$log"
+          done < "$jobs_file"
+
+          failed_jobs="$(awk -F'\t' '{ printf "- **%s**%s\n", $2, ($3 == "" ? "" : " - failed step: " $3) }' "$jobs_file")"
+          [ -n "$failed_jobs" ] || failed_jobs="- (the job list named no failed job; see the run)"
+
+          named="$(sort -u "$tests_file" | head -25 | sed 's/^/- `/; s/$/`/')"
+          total="$(sort -u "$tests_file" | wc -l | tr -d ' ')"
+          if [ -z "$named" ]; then
+            named="- (no test name or compiler error found in the logs of the failed jobs; see the run)"
+          elif [ "$total" -gt 25 ]; then
+            named="${named}"$'\n'"- ... and $((total - 25)) more"
+          fi
+
+          body="$(printf '%s\n' \
+            "CI failed on main at \`${GITHUB_SHA}\` (started by \`${GITHUB_EVENT_NAME}\`)." \
+            "" \
+            "Gate results: what changed = ${CHANGES_RESULT}, CI result = ${RESULT_RESULT}" \
+            "" \
+            "**Jobs that failed**" \
+            "${failed_jobs}" \
+            "" \
+            "**What failed in them (${total} distinct)**" \
+            "${named}" \
+            "" \
+            "Run: ${url}")"
+
+          rm -f "$jobs_file" "$tests_file"
+
           open=$(gh issue list --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$open" ]; then
             gh issue comment "$open" --body "$body"

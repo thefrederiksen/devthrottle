@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   getFactoriesList,
   type FactoriesListView,
@@ -118,7 +118,9 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
   const navigate = useNavigate();
   // Showing the archived factories is a layout choice; which are archived, and every word, are the Gateway's.
   const [showArchived, setShowArchived] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // A factory deleted on its own page arrives here with the Gateway's sentence saying what was deleted.
+  const arrived = (useLocation().state as { notice?: string } | null)?.notice ?? null;
+  const [notice, setNotice] = useState<string | null>(arrived);
   const [order, setOrder] = useState<FactorySortOrder>(loadFactorySort);
   const pick = (next: FactorySortOrder) => {
     setOrder(next);
