@@ -71,8 +71,9 @@ public static class LicenseLogKinds
     public const string CanSwitchAgain = "can-switch-again";
 
     /// <summary>A threshold switch moved machines off an account and this machine, also on it, was not sent one - with
-    /// the reason (issue #4327). Written once for each machine left behind, on the minute check that writes the switch,
-    /// so the switch never reads as done while a machine is still on the tired account. Final when written.</summary>
+    /// the reason (issue #4327). Written for each machine left behind on a minute check that writes a new threshold
+    /// switch (never every minute), so the switch never reads as done while a machine is still on the tired account.
+    /// Final when written.</summary>
     public const string LeftBehind = "left-behind";
 }
 

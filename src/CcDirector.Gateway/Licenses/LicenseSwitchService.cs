@@ -454,6 +454,9 @@ public sealed class LicenseSwitchService
         // 4. Switches: the same decision as a waiting row is that row sent again; any other is a new row.
         var machines = MachinesByName(overview);
         var newThresholdSources = new HashSet<string>(StringComparer.Ordinal);
+        // Taken before the loop below sends some of them: every machine with a switch row open, sent or waiting for
+        // its Director, is taking part in a switch and is never named as left behind.
+        var withOpenSwitch = new HashSet<Guid>(open.Blocked.Concat(open.NeverSent.Keys));
         foreach (var decision in decisions.Switches)
         {
             var machine = machines[MachineKey(decision.MachineName, decision.OsUser)];
@@ -475,7 +478,7 @@ public sealed class LicenseSwitchService
                     newThresholdSources.Add(LicenseStore.NormalizeEmail(decision.FromAccountEmail));
             }
         }
-        written += RecordLeftBehind(tenant, decisions, newThresholdSources, machines, open.Blocked, now);
+        written += RecordLeftBehind(tenant, decisions, newThresholdSources, machines, withOpenSwitch, now);
         // A waiting Switch now has no minute check to decide it again: it is sent again while the engine would still
         // accept the same Switch now for that machine. A waiting threshold switch the engine no longer decides is
         // simply not sent; it ends at its NotAfterUtc.
@@ -515,12 +518,13 @@ public sealed class LicenseSwitchService
     /// <summary>
     /// A THRESHOLD SWITCH NAMES THE MACHINES IT LEAVES BEHIND (issue #4327). On the check that writes a new threshold
     /// switch off an account, every other machine on that account that was not sent one gets a row saying why - switching
-    /// turned off on it, its reports too old, a hold, no target ready for it. A machine with a switch already open is in
-    /// the middle of taking part and is not named. Written only with a NEW switch, so a tired account does not repeat
-    /// the rows every minute. Returns how many rows it wrote.
+    /// turned off on it, its reports too old, a hold, no target ready for it. A machine with a switch row already open -
+    /// sent and unanswered, or waiting for its Director to connect - is taking part and is not named. Written only on a
+    /// check that writes a NEW threshold switch, so a tired account does not repeat the rows every minute; a later
+    /// machine switched off the same account writes them again. Returns how many rows it wrote.
     /// </summary>
     private int RecordLeftBehind(TenantId tenant, LicenseDecisions decisions, HashSet<string> newThresholdSources,
-        IReadOnlyDictionary<string, LicenseMachineView> machines, HashSet<Guid> blocked, DateTime now)
+        IReadOnlyDictionary<string, LicenseMachineView> machines, HashSet<Guid> withOpenSwitch, DateTime now)
     {
         if (newThresholdSources.Count == 0) return 0;
         var written = 0;
@@ -528,7 +532,7 @@ public sealed class LicenseSwitchService
         {
             if (!newThresholdSources.Contains(LicenseStore.NormalizeEmail(left.AccountEmail)))
                 continue;
-            if (!machines.TryGetValue(MachineKey(left.MachineName, left.OsUser), out var machine) || blocked.Contains(machine.MachineId))
+            if (!machines.TryGetValue(MachineKey(left.MachineName, left.OsUser), out var machine) || withOpenSwitch.Contains(machine.MachineId))
                 continue;
             _store.RecordLeftBehind(tenant, machine.MachineId, left.AccountEmail, left.Why, now);
             written++;

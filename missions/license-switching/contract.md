@@ -1379,5 +1379,6 @@ command that turns it on.
 **A threshold switch names who it left behind.** On the minute check that writes a new threshold switch off an
 account, every other machine on that account that was not sent one - for any reason the engine skipped it -
 gets one `left-behind` row in the Licenses log ("Not switched", "Left behind"), with the reason. A machine
-with a switch already open is taking part and is not named. Rows are written only with a new switch, never
-once a minute.
+with a switch row already open - sent and unanswered, or waiting for its Director - is taking part and is not
+named. Rows are written only on a check that writes a new threshold switch, never once a minute; a later machine
+switched off the same account writes them again.

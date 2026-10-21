@@ -5,8 +5,12 @@ was to edit config.json by hand, and a fresh Director data folder silently turne
 value through `LicenseSwitchingSetting` (C#, `src/CcDirector.Core/Configuration/LicenseSwitchingSetting.cs`), and every
 rule here is that class's rule, copied deliberately:
 
-  * THE PLACE. `licenseSwitching.enabled` in the same `config.json` (`CcStorage.config_json()`), written as a deep
-    merge so every other section of the file - and `licenseSwitching.offerApprovers` beside it - is kept.
+  * THE PLACE. `licenseSwitching.enabled` in each Director's OWN config.json,
+    `<user base>/instances/<name>/config/config.json`. A Director reads only its own home (the trap of issue #3506),
+    so a value written to the machine root's config.json - where `CcStorage.config_json()` points from a plain
+    terminal - would be read by no Director at all. Every Director on the machine is written unless `--instance`
+    names one, because the key store and its lock belong to the machine. The write is a deep merge, so every other
+    section of each file - and `licenseSwitching.offerApprovers` beside it - is kept.
   * THE VALUE WHEN NOTHING IS WRITTEN. An explicit true is on and an explicit false is off; anything else (no file, no
     section, no key, a value that is not a boolean) is ON when this machine's license store holds a spare and off when
     it holds none. `off` therefore writes an explicit false - it is how the owner opts a machine out - and is never
@@ -46,18 +50,42 @@ TAKES_EFFECT = "The Director reads this when it starts: restart the Director for
 
 
 class SettingsError(Exception):
-    """config.json cannot be read, so the setting is neither reported nor changed."""
+    """The setting cannot be read or written; carries the next steps to print."""
+
+    def __init__(self, message: str, next_steps: List[str]):
+        super().__init__(message)
+        self.next_steps = next_steps
 
 
-def config_path() -> Path:
-    """The shared settings file, resolved the way every other cc-* tool and the Director resolve it."""
-    return CcStorage.config_json()
+def instance_homes() -> List[Path]:
+    """Every Director instance home of this operating-system user, whatever CC_DIRECTOR_ROOT says."""
+    return CcStorage.instance_homes()
 
 
-def read_document() -> Dict[str, Any]:
-    """The whole of config.json. Missing or empty is an empty document; a file that cannot be parsed RAISES - it is
-    never silently replaced, because writing over a document nobody could read destroys the owner's settings."""
-    path = config_path()
+def config_path(home: Path) -> Path:
+    """The config.json the Director whose home is `home` reads."""
+    return home / "config" / "config.json"
+
+
+def chosen_homes(instance: Optional[str]) -> List[Path]:
+    """The Director homes a command acts on: all of them, or the one `--instance` names. None found is an error, never
+    a silent no-op, because a setting written nowhere reads exactly like one that worked."""
+    homes = instance_homes()
+    if not homes:
+        raise SettingsError("no Director instance home was found on this machine, so there is no Director to set",
+                            ["Start the Director once, then run: " + STATUS])
+    if instance is None:
+        return homes
+    matching = [h for h in homes if h.name.lower() == instance.strip().lower()]
+    if not matching:
+        names = ", ".join(h.name for h in homes)
+        raise SettingsError(f"no Director instance is named '{instance}'; the instances here are: {names}", [STATUS])
+    return matching
+
+
+def read_document(path: Path) -> Dict[str, Any]:
+    """The whole of one config.json. Missing or empty is an empty document; a file that cannot be parsed RAISES - it
+    is never silently replaced, because writing over a document nobody could read destroys the owner's settings."""
     if not path.exists():
         return {}
     text = path.read_text(encoding="utf-8")
@@ -66,9 +94,9 @@ def read_document() -> Dict[str, Any]:
     try:
         document = json.loads(text)
     except json.JSONDecodeError as error:
-        raise SettingsError(f"{path} is not readable JSON: {error}") from error
+        raise SettingsError(f"{path} is not readable JSON: {error}", [f"Repair or remove {path}"]) from error
     if not isinstance(document, dict):
-        raise SettingsError(f"{path} does not hold a JSON object")
+        raise SettingsError(f"{path} does not hold a JSON object", [f"Repair or remove {path}"])
     return document
 
 
@@ -106,70 +134,83 @@ def spare_emails(store_dir: str) -> List[str]:
     return sorted(emails)
 
 
-def save(enabled: bool) -> None:
-    """Write `licenseSwitching.enabled` (LicenseSwitchingSetting.Set): a deep merge into config.json, then an atomic
-    replace, so a crash part way through never leaves a half-written file."""
-    document = read_document()
+def save(path: Path, enabled: bool) -> None:
+    """Write `licenseSwitching.enabled` into one config.json (LicenseSwitchingSetting.Set): a deep merge, then an
+    atomic replace, so a crash part way through never leaves a half-written file."""
+    document = read_document(path)
     section = document.get(SECTION)
     if not isinstance(section, dict):
         section = {}
         document[SECTION] = section
     section[ENABLED] = bool(enabled)
-    path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.parent / f".config.{uuid.uuid4().hex}.tmp"
     temporary.write_text(json.dumps(document, indent=2), encoding="utf-8")
     os.replace(temporary, path)
 
 
-def _report(store_dir: str, json_output: bool, changed: Optional[bool]) -> None:
-    try:
-        explicit = read_explicit(read_document())
-    except SettingsError as error:
-        axi_cli.fail(f"{error}, so license switching was not read", [f"Repair or remove {config_path()}"])
-    spares = spare_emails(store_dir)
-    effective = resolve(explicit, bool(spares))
-    configured = "true" if explicit is True else "false" if explicit is False else "not set"
+def _why(explicit: Optional[bool], effective: bool) -> str:
     if explicit is None:
-        why = ("on because this machine holds spares and config.json does not say" if effective
-               else "off because this machine holds no spare and config.json does not say")
-    else:
-        why = f"{'on' if effective else 'off'} because config.json says so"
-    following = [OFF if effective else ON, STATUS + " --json"]
-    if json_output:
-        print(json.dumps({
+        return ("on because this machine holds spares and its config.json does not say" if effective
+                else "off because this machine holds no spare and its config.json does not say")
+    return f"{'on' if effective else 'off'} because its config.json says so"
+
+
+def _report(homes: List[Path], store_dir: str, json_output: bool, changed: Optional[Dict[Path, bool]]) -> None:
+    spares = spare_emails(store_dir)
+    rows = []
+    for home in homes:
+        explicit = read_explicit(read_document(config_path(home)))
+        effective = resolve(explicit, bool(spares))
+        rows.append({
+            "instance": home.name,
             "enabled": effective,
             "configured": explicit,
+            "why": _why(explicit, effective),
+            "changed": None if changed is None else changed[home],
+            "configFile": str(config_path(home)),
+        })
+    if json_output:
+        print(json.dumps({
+            "count": len(rows),
             "sparesHeld": len(spares),
-            "why": why,
-            "changed": changed,
-            "configFile": str(config_path()),
             "storeDir": store_dir,
             "note": TAKES_EFFECT,
+            "instances": rows,
         }, indent=2))
         return
-    record = {
-        "enabled": effective,
-        "configured": configured,
-        "spares_held": len(spares),
-        "why": why,
-        "note": TAKES_EFFECT,
-    }
-    body = "\n".join(f"{key}: {axi_output.format_value(value)}" for key, value in record.items())
-    axi_output.write_blocks(sys.stdout, body)
-    axi_cli.print_next(following)
+    fields = ["instance", "enabled", "configured", "why"]
+    table = [{
+        "instance": r["instance"],
+        "enabled": r["enabled"],
+        "configured": "true" if r["configured"] is True else "false" if r["configured"] is False else "not set",
+        "why": r["why"],
+    } for r in rows]
+    axi_output.write_blocks(
+        sys.stdout,
+        f"spares_held: {len(spares)}",
+        axi_output.render_list("instances", fields, table),
+        f"note: {axi_output.format_value(TAKES_EFFECT)}",
+    )
+    axi_cli.print_next([OFF if any(r["enabled"] for r in rows) else ON, STATUS + " --json"])
 
 
-def status(store_dir: str, json_output: bool) -> None:
-    """Say whether license switching is on for this machine's Director, and why."""
-    _report(store_dir, json_output, None)
-
-
-def turn(enabled: bool, store_dir: str, json_output: bool) -> None:
-    """Write the setting, then report it as the Director will read it - read back, not what was asked for."""
+def status(store_dir: str, instance: Optional[str], json_output: bool) -> None:
+    """Say, for each Director on this machine, whether license switching is on and why."""
     try:
-        before = read_explicit(read_document())
-        save(enabled)
+        _report(chosen_homes(instance), store_dir, json_output, None)
     except SettingsError as error:
-        axi_cli.fail(f"{error}, so license switching was not changed", [f"Repair or remove {config_path()}"])
-    _report(store_dir, json_output, before != enabled)
+        axi_cli.fail(f"{error}; license switching was not read", error.next_steps)
+
+
+def turn(enabled: bool, store_dir: str, instance: Optional[str], json_output: bool) -> None:
+    """Write the setting into each chosen Director's own config.json, then report it as each Director will read it -
+    read back, not what was asked for. Every file is read before any is written, so one unreadable file changes none."""
+    try:
+        homes = chosen_homes(instance)
+        before = {home: read_explicit(read_document(config_path(home))) for home in homes}
+        for home in homes:
+            save(config_path(home), enabled)
+        _report(homes, store_dir, json_output, {home: before[home] != enabled for home in homes})
+    except SettingsError as error:
+        axi_cli.fail(f"{error}; license switching was not changed", error.next_steps)

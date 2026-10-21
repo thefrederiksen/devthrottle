@@ -2207,42 +2207,46 @@ _LICENSE_STORE_DIR_HELP = "The folder holding the spares. Default: CC_LICENSE_ST
 
 
 _LICENSE_SWITCHING_JSON_HELP = (
-    "Output as JSON: {enabled, configured, sparesHeld, why, changed, configFile, storeDir, note}. configured is null "
-    "when config.json says nothing; changed is null for status."
+    "Output as JSON: {count, sparesHeld, storeDir, note, instances: [{instance, enabled, configured, why, changed, "
+    "configFile}]}. configured is null when config.json says nothing; changed is null for status."
 )
+_LICENSE_SWITCHING_INSTANCE_HELP = "One Director instance by name (its folder under instances). Default: every Director here."
 
 
 @license_switching_app.command("status")
 def license_switching_status(
     store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    instance: str = typer.Option(None, "--instance", help=_LICENSE_SWITCHING_INSTANCE_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help=_LICENSE_SWITCHING_JSON_HELP),
 ) -> None:
-    """Is license switching on for this machine's Director, and why."""
+    """Is license switching on for each Director on this machine, and why."""
     from . import license_switching_setting
 
-    license_switching_setting.status(license_ops.resolve_store_dir(store_dir), json_output)
+    license_switching_setting.status(license_ops.resolve_store_dir(store_dir), instance, json_output)
 
 
 @license_switching_app.command("on")
 def license_switching_on(
     store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    instance: str = typer.Option(None, "--instance", help=_LICENSE_SWITCHING_INSTANCE_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help=_LICENSE_SWITCHING_JSON_HELP),
 ) -> None:
-    """Turn license switching on for this machine's Director (needs a restart)."""
+    """Turn license switching on for this machine's Directors (needs a restart)."""
     from . import license_switching_setting
 
-    license_switching_setting.turn(True, license_ops.resolve_store_dir(store_dir), json_output)
+    license_switching_setting.turn(True, license_ops.resolve_store_dir(store_dir), instance, json_output)
 
 
 @license_switching_app.command("off")
 def license_switching_off(
     store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    instance: str = typer.Option(None, "--instance", help=_LICENSE_SWITCHING_INSTANCE_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help=_LICENSE_SWITCHING_JSON_HELP),
 ) -> None:
-    """Keep this machine's Director out of license switching (needs a restart)."""
+    """Keep this machine's Directors out of license switching (needs a restart)."""
     from . import license_switching_setting
 
-    license_switching_setting.turn(False, license_ops.resolve_store_dir(store_dir), json_output)
+    license_switching_setting.turn(False, license_ops.resolve_store_dir(store_dir), instance, json_output)
 
 
 @license_app.command("list")

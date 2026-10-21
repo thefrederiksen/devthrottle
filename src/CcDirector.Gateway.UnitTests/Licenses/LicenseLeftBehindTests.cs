@@ -26,11 +26,13 @@ public sealed class LicenseLeftBehindTests : IDisposable
 
     private const string Windows = "the-windows-machine";
     private const string Mac = "the-mac";
+    private const string Linux = "the-linux-machine";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseStore _store;
     private readonly LicenseSwitchService _service;
     private readonly List<LicenseSwitchRequest> _sent = new();
+    private readonly HashSet<string> _offline = new(StringComparer.Ordinal);
     private DateTime _now = T0;
     private long _sequence;
 
@@ -47,6 +49,8 @@ public sealed class LicenseLeftBehindTests : IDisposable
     {
         var request = JsonSerializer.Deserialize<LicenseSwitchRequest>(command.PayloadJson, Web)
             ?? throw new InvalidOperationException("The command carried no switch request.");
+        if (_offline.Contains(directorId))
+            return Task.FromResult<DirectorCommandResult?>(null);   // the Director is not connected: nothing came back
         lock (_sent) _sent.Add(request);
         return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(JsonSerializer.Serialize(new LicenseSwitchResult
         {
@@ -62,9 +66,11 @@ public sealed class LicenseLeftBehindTests : IDisposable
     }
 
     /// <summary>The Windows machine reports with switching on: on A, whose weekly limit is at 98%, holding B with room.</summary>
-    private void WindowsReports(string active)
-        => _store.ApplyReport(Tenant, "dir-" + Windows, ++_sequence,
-            Report(Windows, _now, Holding(A, active == A, 20, 98, _now), Holding(B, active == B, 10, 30, _now)), _now, TimeSpan.Zero);
+    private void WindowsReports(string active) => Reports(Windows, active);
+
+    private void Reports(string machine, string active)
+        => _store.ApplyReport(Tenant, "dir-" + machine, ++_sequence,
+            Report(machine, _now, Holding(A, active == A, 20, 98, _now), Holding(B, active == B, 10, 30, _now)), _now, TimeSpan.Zero);
 
     /// <summary>The Mac reports with switching off: what it holds, read from its account files, with no numbers.</summary>
     private void MacReportsSwitchingOff()
@@ -138,6 +144,30 @@ public sealed class LicenseLeftBehindTests : IDisposable
         Assert.Equal("Left behind", entry.StateText);
         Assert.Equal(LicenseTones.Warning, entry.StateTone);
         Assert.Contains(Mac, entry.Summary);
+    }
+
+    [Fact]
+    public async Task TickAsync_AMachineWhoseSwitchIsWaitingForItsDirector_IsNeverNamedAsLeftBehind()
+    {
+        // The review's case: the Mac is sent a threshold switch while its Director is offline, so the switch waits. Its
+        // report then grows old, and a third machine reaching the account later gets a new threshold switch. The Mac is
+        // still taking part - its switch is sent when it connects - so it must not be written up as left behind.
+        _offline.Add("dir-" + Mac);
+        _now = T0.AddMinutes(-7);
+        Reports(Linux, A);                       // stale by T0, so not switched then
+        _now = T0;
+        WindowsReports(A);
+        Reports(Mac, A);
+        await _service.TickAsync(Tenant, CancellationToken.None);
+        Assert.Single(_sent);                    // Windows; the Mac's switch waits for its Director
+
+        _now = T0.AddMinutes(7);                 // the Mac's report is now too old; its waiting switch has not expired
+        WindowsReports(B);
+        Reports(Linux, A);
+        await _service.TickAsync(Tenant, CancellationToken.None);
+
+        Assert.Equal(2, _sent.Count);            // Linux was switched now
+        Assert.DoesNotContain(Rows(LicenseLogKinds.LeftBehind), r => r.MachineName == Mac);
     }
 
     [Fact]
