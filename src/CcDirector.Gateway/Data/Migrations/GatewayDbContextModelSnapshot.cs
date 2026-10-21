@@ -2742,6 +2742,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("ReadErrorSinceUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RenewalError")
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");

@@ -177,6 +177,11 @@ public static partial class LicenseDisplayFold
             Status(dto, LicenseAccountStatuses.NotHeld, "Not on any machine", LicenseTones.Neutral,
                 "No machine holds a sign-in for this account any more.");
         }
+        // Before a refused sign-in: a lapsed plan is refused exactly like a dead sign-in, and a new sign-in cannot help it.
+        else if (reading.NoPaidPlanSinceUtc is { } lapsed)
+        {
+            Status(dto, LicenseAccountStatuses.NoPaidPlan, "No paid plan", LicenseTones.Bad, NoPaidPlanText(lapsed) + ".");
+        }
         else if (expired.Count > 0 || refused.Count > 0)
         {
             var machines = Names(expired.Concat(refused).Select(h => names.Label(h.Machine)).Distinct(StringComparer.Ordinal).ToList());
@@ -775,6 +780,7 @@ public static partial class LicenseDisplayFold
         };
         dto.ExpectedText = account switch
         {
+            _ when reading.NoPaidPlanSinceUtc is { } lapsed => NoPaidPlanText(lapsed) + ".",
             { IsStale: true } => "No forecast: the latest reading is too old.",
             { ExpectedTiredAtUtc: { } expected, ExpectedTiredWindow: { } window } when expected <= now
                 => $"Has reached {Threshold} of its {WindowLabel(window)}.",
@@ -782,6 +788,9 @@ public static partial class LicenseDisplayFold
                 => $"Expected to reach {Threshold} of its {WindowLabel(window)} in about {Span(expected - now)}.",
             _ => "Not expected to reach its limit.",
         };
+        // The window lines say why there is no forecast in the same words as the account line above them.
+        if (reading.NoPaidPlanSinceUtc is { } noPlan)
+            dto.FiveHour.ExpectedText = dto.SevenDay.ExpectedText = NoPaidPlanText(noPlan) + ".";
 
         if (move is null)
         {
@@ -1108,6 +1117,9 @@ public static partial class LicenseDisplayFold
 
     // ----- words -----
 
+    /// <summary>The one sentence for an account with no paid plan, on the card, the forecast and the timeline alike.</summary>
+    internal static string NoPaidPlanText(DateTime since) => $"No paid plan since {Clock(since)} - renew it on claude.ai";
+
     /// <summary>The sentence for a failed read; the Director's own sentence, or the word, when this build does not know it.</summary>
     public static string? ReadErrorText(string? readError, string? detail, bool accountWasEverRead)
     {
@@ -1122,6 +1134,7 @@ public static partial class LicenseDisplayFold
             LicenseReadErrors.Network => $"The machine could not reach the provider. {numbers}",
             LicenseReadErrors.UnexpectedAnswer => $"The provider's answer could not be understood. {numbers}",
             LicenseReadErrors.StoreUnreadable => "The machine could not read its stored sign-in.",
+            LicenseReadErrors.NoPaidPlan => "The account has no paid plan. Renew it on claude.ai; a new sign-in does not help.",
             _ => string.IsNullOrWhiteSpace(detail) ? $"The last read failed ({readError})." : detail,
         };
     }

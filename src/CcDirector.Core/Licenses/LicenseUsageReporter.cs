@@ -466,6 +466,7 @@ public sealed class LicenseUsageReporter
         LicenseReadErrors.Network => "The provider could not be reached; the numbers shown are the last ones read.",
         LicenseReadErrors.UnexpectedAnswer => "The provider's answer could not be read; the numbers shown are the last ones read.",
         LicenseReadErrors.StoreUnreadable => "This machine could not read the sign-in for this account.",
+        LicenseReadErrors.NoPaidPlan => "The account has no paid plan; renew it on claude.ai.",
         _ => "The usage read failed for a reason this Director does not recognise.",
     };
 

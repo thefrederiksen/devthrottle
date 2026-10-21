@@ -29,7 +29,8 @@ public sealed record LicenseAccountView(
     bool IsStale,
     IReadOnlyList<string> ActiveOnMachines,
     IReadOnlyList<string> SpareOnMachines,
-    DateOnly? RenewsOn = null);
+    DateOnly? RenewsOn = null,
+    DateTime? NoPaidPlanSinceUtc = null);
 
 /// <summary>One sign-in a machine holds, with its sign-in expiry and the verdict the Cockpit shows as given.</summary>
 public sealed record LicenseHoldingView(
@@ -42,7 +43,8 @@ public sealed record LicenseHoldingView(
     string? ReadError,
     DateTime? RenewalFailedAtUtc = null,
     string? RenewalError = null,
-    string? RenewalErrorDetail = null);
+    string? RenewalErrorDetail = null,
+    DateTime? ReadErrorSinceUtc = null);
 
 /// <summary>One machine as the engine and the Licenses page read it.</summary>
 public sealed record LicenseMachineView(
@@ -152,7 +154,8 @@ public sealed class LicenseReadModel
                 return new LicenseAccountView(a.AccountEmail, a.Plan, a.RateLimitTier, reading, stale,
                     MachineNames(mine.Where(h => h.IsActive), machineById),
                     MachineNames(mine.Where(h => !h.IsActive), machineById),
-                    a.RenewsOn);
+                    a.RenewsOn,
+                    NoPaidPlanSince(mine));
             })
             .ToList();
 
@@ -165,13 +168,27 @@ public sealed class LicenseReadModel
                     .Select(h => new LicenseHoldingView(h.AccountEmail, h.IsActive, h.SignedInAtUtc, h.SignInExpiresAtUtc,
                         LicenseSignInExpiry.Verdict(h.SignInExpiresAtUtc, nowUtc),
                         LicenseStaleness.IsHoldingStale(h.IsActive, h.JudgedReadAtUtc, nowUtc), h.ReadError,
-                        h.RenewalFailedAtUtc, h.RenewalError, h.RenewalErrorDetail))
+                        h.RenewalFailedAtUtc, h.RenewalError, h.RenewalErrorDetail, h.ReadErrorSinceUtc))
                     .ToList(),
                 m.LastReportAtUtc, LicenseStaleness.IsMachineStale(m.LastReportAtUtc, nowUtc), m.SwitchInProgressId, m.ClockSkewSeconds,
                 m.CannotSwitchReason))
             .ToList();
 
         return new LicenseOverview(accountViews, machineViews);
+    }
+
+    /// <summary>
+    /// Since when the account has had no paid plan - the earliest time any machine said so - or null. A plan is an
+    /// account's fact, not a machine's, so one machine saying it is enough; but a good reading anywhere after that time
+    /// says the plan is back, and the machine still saying otherwise has simply not read again yet.
+    /// </summary>
+    internal static DateTime? NoPaidPlanSince(IReadOnlyList<LicenseHoldingEntity> holdings)
+    {
+        var lapsed = holdings.Where(h => h.ReadError == LicenseReadErrors.NoPaidPlan && h.ReadErrorSinceUtc is not null).ToList();
+        if (lapsed.Count == 0)
+            return null;
+        var since = lapsed.Min(h => h.ReadErrorSinceUtc!.Value);
+        return holdings.Any(h => h.ReadError is null && h.JudgedReadAtUtc > since) ? null : since;
     }
 
     private static LicenseReadingView ToView(LicenseHoldingEntity h, LicenseMachineEntity m)

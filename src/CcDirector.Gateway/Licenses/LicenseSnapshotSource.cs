@@ -101,7 +101,8 @@ public sealed class LicenseSnapshotSource
                 Window(a.Freshest?.FiveHourUtilization, a.Freshest?.FiveHourResetsAtUtc),
                 Window(a.Freshest?.SevenDayUtilization, a.Freshest?.SevenDayResetsAtUtc),
                 a.Freshest?.JudgedReadAtUtc,
-                a.Freshest?.FromActiveHolding ?? false))
+                a.Freshest?.FromActiveHolding ?? false,
+                a.NoPaidPlanSinceUtc))
             .ToList();
 
         var machinesMidSwitch = openSwitches

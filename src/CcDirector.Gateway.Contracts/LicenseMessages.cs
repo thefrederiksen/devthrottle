@@ -424,6 +424,10 @@ public static class LicenseReadErrors
     public const string Network = "network";
     public const string UnexpectedAnswer = "unexpected-answer";
     public const string StoreUnreadable = "store-unreadable";
+
+    /// <summary>The usage read was refused or limited and the account's own profile says it has no paid plan. Neither a
+    /// new sign-in nor waiting helps it; only renewing the plan does.</summary>
+    public const string NoPaidPlan = "no-paid-plan";
 }
 
 /// <summary>Why the Gateway asked for a switch (contract section 3.2).</summary>

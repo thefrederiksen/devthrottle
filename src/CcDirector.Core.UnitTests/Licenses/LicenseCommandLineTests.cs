@@ -52,6 +52,18 @@ public sealed class LicenseCommandLineTests
         Assert.DoesNotContain(marker, LicenseUsageReporter.ReadErrorSentence(marker));
     }
 
+    [Fact]
+    public void ReadUsageRows_NoPaidPlan_IsCarriedAsTheContractsCode()
+    {
+        var json = "{\"accounts\": [{\"accountEmail\": \"account-a@example.com\", \"isActive\": false, " +
+                   "\"readError\": \"no-paid-plan\"}]}";
+
+        var row = CcDevthrottleLicenseCommandLine.ReadUsageRows(json).Single();
+
+        Assert.Equal(LicenseReadErrors.NoPaidPlan, row.ReadError);
+        Assert.Equal("The account has no paid plan; renew it on claude.ai.", LicenseUsageReporter.ReadErrorSentence(row.ReadError));
+    }
+
     [Theory]
     [InlineData("switched")]
     [InlineData("failed")]

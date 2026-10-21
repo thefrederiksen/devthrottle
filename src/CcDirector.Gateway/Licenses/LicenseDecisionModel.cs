@@ -31,12 +31,15 @@ public sealed record LicenseWindowReading(double Utilization, DateTime? ResetsAt
 /// <param name="ReadAtUtc">When these numbers were read, already corrected for clock skew by the store; null when never read.</param>
 /// <param name="ReadWhileActive">The reading came from a machine on which this account was the ACTIVE holding.
 /// It picks the staleness limit: an active reading is stale after 6 minutes, a spare's after 30.</param>
+/// <param name="NoPaidPlanSinceUtc">Since when the account has had no paid plan (<see cref="LicenseAccountView.NoPaidPlanSinceUtc"/>);
+/// null while it has one or it is not known.</param>
 public sealed record LicenseAccountReading(
     string AccountEmail,
     LicenseWindowReading? FiveHour,
     LicenseWindowReading? SevenDay,
     DateTime? ReadAtUtc,
-    bool ReadWhileActive);
+    bool ReadWhileActive,
+    DateTime? NoPaidPlanSinceUtc = null);
 
 /// <summary>A spare a machine holds, as its latest accepted report showed it.</summary>
 /// <param name="AccountEmail">The spare's account, lower-cased.</param>
@@ -244,6 +247,9 @@ public static class LicenseManualRefusals
 
     /// <summary>The target's freshest reading is stale, so it cannot be shown to have room.</summary>
     public const string TargetStale = "target-stale";
+
+    /// <summary>The target has no paid plan: a switch to it would leave the machine on a free account.</summary>
+    public const string TargetNoPaidPlan = "target-no-paid-plan";
 
     /// <summary>The target is at or over the threshold on a window, or a window is unknown.</summary>
     public const string TargetFull = "target-full";

@@ -496,6 +496,82 @@ public sealed class LicenseDisplayFoldTests : IDisposable
             Assert.Equal("The sign-in on m1 was refused by the provider. This account needs a new sign-in there.", account.StatusDetail);
     }
 
+    // ---- an account with no paid plan ----
+
+    private static string Clock(DateTime utc) => utc.ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string NoPaidPlan(DateTime since) => $"No paid plan since {Clock(since)} - renew it on claude.ai";
+
+    // A lapsed plan answers a usage read exactly like a dead sign-in, so it is told apart before a sign-in is asked for:
+    // one machine saying "no paid plan" outranks another still saying "refused", and the card offers no sign-in.
+    [Fact]
+    public void Account_NoPaidPlan_OutranksSignInNeeded_AndSaysSinceWhenAndWhereToRenewIt()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.Unauthorized)));
+        Apply(Report("m2", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.Unauthorized)), seq: 2);
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), seq: 3, at: T0.AddMinutes(10));
+
+        var account = Account(B, T0.AddMinutes(12));
+
+        Assert.Equal(LicenseAccountStatuses.NoPaidPlan, account.Status);
+        Assert.Equal(("No paid plan", LicenseTones.Bad), (account.StatusText, account.StatusTone));
+        Assert.Equal(NoPaidPlan(T0.AddMinutes(10)) + ".", account.StatusDetail);
+        Assert.DoesNotContain("sign-in", account.StatusDetail);
+    }
+
+    [Fact]
+    public void Account_NoPaidPlan_ARepeatedReportKeepsTheFirstTime()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), at: T0);
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), seq: 2, at: T0.AddMinutes(10));
+
+        Assert.Equal(NoPaidPlan(T0) + ".", Account(B, T0.AddMinutes(11)).StatusDetail);
+    }
+
+    [Fact]
+    public void Account_NoPaidPlan_AGoodReadingAfterItAnywhere_SaysThePlanIsBack()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), at: T0);
+        Apply(Report("m2", Holding(A, true), Holding(B, false, readAt: T0.AddMinutes(5))), seq: 2, at: T0.AddMinutes(5));
+
+        Assert.Equal(LicenseAccountStatuses.HasRoom, Account(B, T0.AddMinutes(6)).Status);
+    }
+
+    [Fact]
+    public void Account_NoPaidPlan_ClearedByTheSameMachine_StartsAFreshTimeWhenItLapsesAgain()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), at: T0);
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readAt: T0.AddMinutes(5))), seq: 2, at: T0.AddMinutes(5));
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), seq: 3, at: T0.AddMinutes(20));
+
+        Assert.Equal(NoPaidPlan(T0.AddMinutes(20)) + ".", Account(B, T0.AddMinutes(21)).StatusDetail);
+    }
+
+    [Fact]
+    public void Account_NoPaidPlan_IsNeverASwitchTarget_AndSwitchNowSaysWhy()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), at: T0);
+
+        var target = Account(A, T0).SwitchTargets.Single(t => t.AccountEmail == B);
+
+        Assert.False(target.CanChoose);
+        Assert.Contains("has had no paid plan since", target.UnavailableText);
+    }
+
+    [Fact]
+    public void Forecast_NoPaidPlan_TheTimelineRowAndTheForecastSayItInsteadOfTooOld()
+    {
+        Apply(Report("m1", Holding(A, true), Holding(B, false, readError: LicenseReadErrors.NoPaidPlan)), at: T0);
+
+        var forecast = Forecast(T0.AddHours(2), new LicenseUsageHistory());
+
+        var row = forecast.Outlook.Rows.Single(r => r.AccountEmail == B);
+        Assert.Equal(NoPaidPlan(T0), Assert.Single(row.Spans).Text);
+        var account = forecast.Accounts.Single(a => a.AccountEmail == B);
+        Assert.Equal(NoPaidPlan(T0) + ".", account.ExpectedText);
+        Assert.Equal(NoPaidPlan(T0) + ".", account.SevenDay.ExpectedText);
+    }
+
     [Fact]
     public void Account_SignInNeeded_OutranksStaleAndAtLimit_BecauseOnlyTheOwnerCanFixIt()
     {

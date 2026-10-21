@@ -193,6 +193,9 @@ public sealed class LicenseSwitchCoordinator
         if (spareError is LicenseReadErrors.Unauthorized or LicenseReadErrors.RefreshFailed)
             return Failed(request, started, LicenseSwitchReasonCodes.SpareNotUsable, active, active,
                 $"The spare for {target} needs a new sign-in ({spareError}).");
+        if (spareError is LicenseReadErrors.NoPaidPlan)
+            return Failed(request, started, LicenseSwitchReasonCodes.SpareNotUsable, active, active,
+                $"{target} has no paid plan; it has to be renewed on claude.ai first.");
         var spareExpiry = _reporter.SignInExpiryFor(target);
         if (spareExpiry is { } expires && expires <= _utcNow())
             return Failed(request, started, LicenseSwitchReasonCodes.SpareNotUsable, active, active,

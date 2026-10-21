@@ -157,6 +157,63 @@ def test_read_usage_429_IsRateLimited(machine):
     assert reading.read_error == "rate-limited"
 
 
+class RoutedGet:
+    """A usage answer and a profile answer, told apart by the address asked."""
+
+    def __init__(self, usage, profile):
+        self.usage, self.profile, self.calls = usage, profile, []
+
+    def __call__(self, url, headers, timeout):
+        self.calls.append((url, dict(headers)))
+        answer = self.profile if url == license_usage.PROFILE_URL else self.usage
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def _profile(organization_type, status="canceled"):
+    return HttpAnswer(200, json.dumps({"account": {"has_claude_max": False, "has_claude_pro": False},
+                                       "organization": {"organization_type": organization_type,
+                                                        "subscription_status": status}}).encode())
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_read_usage_RefusedAndTheProfileIsFree_IsNoPaidPlan(machine, status):
+    get = RoutedGet(HttpAnswer(status, b""), _profile("claude_free"))
+    reading = license_usage.read_usage(_key(machine, "account-a@example.com"), get, now=lambda: NOW)
+    assert reading.read_error == "no-paid-plan"
+    assert reading.read_error_detail == "The account has no paid plan (its subscription is canceled); renew it on claude.ai."
+    assert reading.five_hour is None and reading.read_at_utc is None
+    url, headers = get.calls[1]
+    assert url == "https://api.anthropic.com/api/oauth/profile"
+    assert headers["Authorization"] == f"Bearer {ACCESS_A}"
+
+
+@pytest.mark.parametrize("profile, expected", [
+    (_profile("claude_max", "active"), "unauthorized"),
+    (HttpAnswer(401, b"{}"), "unauthorized"),
+    (HttpAnswer(200, b"not json"), "unauthorized"),
+    (HttpAnswer(200, b'{"organization": "free"}'), "unauthorized"),
+    (license_usage.NetworkFailure("ConnectionError"), "unauthorized"),
+])
+def test_read_usage_RefusedAndTheProfileDoesNotSayFree_KeepsTheUsageReadsCode(machine, profile, expected):
+    reading = license_usage.read_usage(_key(machine, "account-a@example.com"), RoutedGet(HttpAnswer(401, b""), profile),
+                                       now=lambda: NOW)
+    assert reading.read_error == expected
+
+
+def test_read_usage_FreeWithAnOddStatusWord_DoesNotRepeatIt(machine):
+    get = RoutedGet(HttpAnswer(429, b""), _profile("claude_free", "<b>gone</b>"))
+    reading = license_usage.read_usage(_key(machine, "account-a@example.com"), get, now=lambda: NOW)
+    assert reading.read_error_detail == "The account has no paid plan; renew it on claude.ai."
+
+
+def test_read_usage_GoodAnswer_NeverAsksTheProfile(machine):
+    get = RoutedGet(HttpAnswer(200, GOOD_BODY), _profile("claude_free"))
+    license_usage.read_usage(_key(machine, "account-a@example.com"), get, now=lambda: NOW)
+    assert [url for url, _ in get.calls] == ["https://api.anthropic.com/api/oauth/usage"]
+
+
 def test_read_usage_NetworkFailure_IsNetwork(machine):
     reading = license_usage.read_usage(_key(machine, "account-a@example.com"),
                                        FakeGet(error=NetworkFailure("ConnectTimeout")), now=lambda: NOW)
@@ -698,7 +755,7 @@ def test_license_usage_Command_OneRowPerAccountWithCount(machine, monkeypatch):
 
 
 def test_license_usage_Command_MixedStates_AreCountedSeparately(machine, capsys):
-    answers = iter([HttpAnswer(200, GOOD_BODY), HttpAnswer(401, b"")])
+    answers = iter([HttpAnswer(200, GOOD_BODY), HttpAnswer(401, b""), HttpAnswer(401, b"")])  # usage, usage, profile
     license_usage_ops.usage(False, "account,state,detail", *_dirs(machine), http_get=lambda u, h, t: next(answers))
     text = capsys.readouterr().out
     assert "count: 2 (ok 1, unauthorized 1)" in text

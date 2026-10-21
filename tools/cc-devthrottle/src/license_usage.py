@@ -20,6 +20,9 @@ needs a different fix:
                        otherwise it was signed out or revoked, and only a new sign-in fixes it
     refresh-failed     the key was due for renewal and the renewal failed (see SPARE REFRESH)
     rate-limited       the server answered 429
+    no-paid-plan       the usage read was refused or limited (401, 403 or 429) and the account's own profile says it
+                       has no paid plan. A lapsed plan answers the usage read exactly like a dead sign-in or a busy
+                       server, and neither a new sign-in nor waiting helps it - only renewing the plan does
     network            the server was not reached at all (no connection, a timeout)
     unexpected-answer  the server answered, but not with a reading this code understands
     store-unreadable   the stored sign-in could not be read
@@ -89,6 +92,11 @@ from .license_store import ROLE_ACTIVE as STORE_ROLE_ACTIVE
 log = logging.getLogger("cc_devthrottle.license_usage")
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+#: The account's own profile, asked with the same key only after a usage read was refused or limited.
+PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
+#: The profile's organization type for an account with no paid plan. Read from the answer on 20 October 2026: a
+#: lapsed Max account answered "claude_free" (subscription_status "canceled"), a paying one "claude_max" ("active").
+FREE_ORGANIZATION_TYPE = "claude_free"
 #: The beta header the usage endpoint requires.
 OAUTH_BETA = "oauth-2025-04-20"
 #: Claude Code's token endpoint and public client id (read from Claude Code 2.1.296).
@@ -108,7 +116,8 @@ RATE_LIMITED = "rate-limited"
 NETWORK = "network"
 UNEXPECTED_ANSWER = "unexpected-answer"
 STORE_UNREADABLE = "store-unreadable"
-READ_ERRORS = (UNAUTHORIZED, REFRESH_FAILED, RATE_LIMITED, NETWORK, UNEXPECTED_ANSWER, STORE_UNREADABLE)
+NO_PAID_PLAN = "no-paid-plan"
+READ_ERRORS = (UNAUTHORIZED, REFRESH_FAILED, RATE_LIMITED, NETWORK, UNEXPECTED_ANSWER, STORE_UNREADABLE, NO_PAID_PLAN)
 
 #: Why a refresh did not happen, beyond the read-error codes.
 REFUSED_ACTIVE = "active"
@@ -624,6 +633,8 @@ def read_usage(key: KeyHandle, http_get: HttpGet = _requests_get, now: Callable[
     except NetworkFailure as ex:
         return _failed(reading, NETWORK, f"api.anthropic.com was not reached ({_network_kind(ex)}).")
 
+    if answer.status in (401, 403, 429) and (lapsed := _no_paid_plan(reading.account_email, headers, http_get)):
+        return _failed(reading, NO_PAID_PLAN, lapsed)
     if answer.status in (401, 403):
         if expires is not None and expires <= asked_at:
             return _failed(reading, UNAUTHORIZED,
@@ -651,6 +662,35 @@ def read_usage(key: KeyHandle, http_get: HttpGet = _requests_get, now: Callable[
     reading.read_at_utc = iso_utc(asked_at)
     log.info("usage %s: read", reading.account_email)
     return reading
+
+
+def _no_paid_plan(account: str, headers: Dict[str, str], http_get: HttpGet) -> Optional[str]:
+    """The detail sentence when the account's own profile says it has no paid plan, else None.
+
+    Asked only after the usage read was refused or limited. Only a clear "free" answer counts: an error, a body this
+    code cannot read, or any other organization type is None, and the usage read's own code stands as it was."""
+    try:
+        answer = http_get(PROFILE_URL, headers, HTTP_TIMEOUT_SECONDS)
+    except NetworkFailure as ex:
+        log.info("profile %s: not reached (%s)", account, _network_kind(ex))
+        return None
+    if answer.status != 200:
+        log.info("profile %s: HTTP %s", account, answer.status)
+        return None
+    try:
+        body = json.loads(answer.body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        log.info("profile %s: the answer is not JSON", account)
+        return None
+    organization = body.get("organization") if isinstance(body, dict) else None
+    if not isinstance(organization, dict) or organization.get("organization_type") != FREE_ORGANIZATION_TYPE:
+        log.info("profile %s: not a free account", account)
+        return None
+    status = organization.get("subscription_status")
+    # Repeated only when it looks like the provider's own word, never free text from the answer.
+    said = f" (its subscription is {status})" if isinstance(status, str) and status.isidentifier() and len(status) <= 40 else ""
+    log.info("profile %s: no paid plan", account)
+    return f"The account has no paid plan{said}; renew it on claude.ai."
 
 
 def read_with_refresh(key: KeyHandle, http_get: HttpGet = _requests_get,

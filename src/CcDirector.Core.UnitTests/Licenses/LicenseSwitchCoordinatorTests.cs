@@ -215,6 +215,19 @@ public sealed class LicenseSwitchCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task SwitchAsync_SpareHasNoPaidPlan_RefusesSpareNotUsableSayingRenewIt()
+    {
+        _tool.ReadErrors[AccountB] = LicenseReadErrors.NoPaidPlan;
+        await _reporter.TickAsync(CancellationToken.None);
+
+        var result = await NewCoordinator().SwitchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(LicenseSwitchReasonCodes.SpareNotUsable, result.ReasonCode);
+        Assert.Contains("no paid plan", result.Message);
+        Assert.Empty(_tool.SwitchCalls);
+    }
+
+    [Fact]
     public async Task SwitchAsync_SpareSignInExpired_RefusesSpareNotUsable()
     {
         // Review of 3868, contract 3.3 step 9: a spare whose sign-in expires at or before now is not switched to.

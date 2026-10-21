@@ -196,6 +196,9 @@ public static class LicenseDecisionEngine
         {
             if (SameAccount(target, source))
                 return Refuse(skipped, LicenseManualRefusals.TargetIsSource, $"The machines are already on {target}.");
+            if (readings.TryGetValue(target, out var lapsedReading) && lapsedReading.NoPaidPlanSinceUtc is { } lapsed)
+                return Refuse(skipped, LicenseManualRefusals.TargetNoPaidPlan,
+                    $"{target} has had no paid plan since {Time(lapsed)}; renew it on claude.ai first.");
             if (!readings.TryGetValue(target, out var targetReading) || IsReadingStale(targetReading, snapshot.NowUtc))
                 return Refuse(skipped, LicenseManualRefusals.TargetStale,
                     $"The latest reading of {target} is too old to show it has room.");
@@ -541,6 +544,8 @@ public static class LicenseDecisionEngine
         var now = snapshot.NowUtc;
         if (SameAccount(candidate.AccountEmail, source))
             return "it is the account in use";
+        if (candidate.NoPaidPlanSinceUtc is { } lapsed)
+            return $"it has had no paid plan since {Time(lapsed)}";
         if (IsReadingStale(candidate, now))
             return "its latest reading is too old to show it has room";
         if (!HasRoom(candidate))
