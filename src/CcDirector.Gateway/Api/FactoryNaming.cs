@@ -207,6 +207,66 @@ internal static class FactoryNaming
         return true;
     }
 
+    /// <summary>
+    /// ONLY THE BOSS MANAGES ITS FACTORY'S STARTS (issue #4351; the owner, 21 October 2026). Asked AFTER
+    /// <see cref="TryAct"/> or <see cref="TrySettle"/> has let the caller in, on the routes that change a factory's
+    /// triggers and schedules: a session of the factory that carries a SEAT may change them only when that seat is the
+    /// factory's Boss (<paramref name="bossSeatOf"/>, the registration's Boss seat, null when it names none). A Finder
+    /// or a Writer runs its part; it does not rearrange when the others start.
+    ///
+    /// What it does not narrow, deliberately: a person, the account's machine token, a session of another factory or of
+    /// none (the gates before this one rule on those), and a session of the factory with NO seat recorded - every session
+    /// of a factory with no published definition, and every run of a plain schedule. Such a session cannot be told from
+    /// the Boss, so it keeps the rule it had. A null <paramref name="bossSeatOf"/> FAILS CLOSED for a seated session:
+    /// a Boss that cannot be read is not confirmed.
+    /// </summary>
+    internal static bool TryActAsTheBoss(
+        HttpContext ctx,
+        Func<string, SessionFactoryLookup>? factoryOf,
+        string? factory,
+        Func<string, string?>? bossSeatOf,
+        string what,
+        string route,
+        out IResult? error)
+    {
+        error = null;
+        var owner = string.IsNullOrWhiteSpace(factory) ? null : factory.Trim();
+        if (owner is null) return true;
+
+        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
+        if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown) return true;
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedSessionItemKey, out var si)
+            || si is not Pairing.SessionCredentialIdentity caller)
+            return true;
+
+        var lookup = factoryOf is null ? SessionFactoryLookup.NotKnown : factoryOf(caller.SessionId.ToString());
+        if (!lookup.IsInAFactory || !string.Equals(lookup.Factory, owner, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.IsNullOrWhiteSpace(lookup.Seat)) return true;
+
+        var seat = lookup.Seat.Trim();
+        var boss = bossSeatOf?.Invoke(owner);
+        if (boss is not null && string.Equals(seat, boss.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[FactoryNaming] {route}: session {caller.SessionId} is the Boss ('{seat}') of '{owner}' - may change its {what}s");
+            return true;
+        }
+
+        FileLog.Write($"[FactoryNaming] {route}: REFUSED - session {caller.SessionId} is the seat '{seat}' of '{owner}', whose Boss is '{boss ?? "(unread)"}'");
+        error = Results.Json(new
+        {
+            error = NotTheBoss(what, owner, seat, boss),
+            detail = $"A factory's starts - its schedules and triggers - are its Boss's to change. A seat that needs one " +
+                     $"changed writes it in its journal or its problems file, and the Boss (or the owner) changes it.",
+        }, statusCode: StatusCodes.Status403Forbidden);
+        return false;
+    }
+
+    /// <summary>The sentence a seat that is not the Boss is refused with. Held here so tests can pin it.</summary>
+    internal static string NotTheBoss(string what, string factory, string seat, string? boss) =>
+        boss is null
+            ? $"the seat '{seat}' of '{factory}' may not change its {what}s, and the Boss of '{factory}' cannot be read"
+            : $"the seat '{seat}' of '{factory}' may not change its {what}s; only its Boss (the seat '{boss}') or the owner may";
+
     private static IResult Refuse(string what, string owner) => Results.Json(new
     {
         error = ActRefusal(what, owner),

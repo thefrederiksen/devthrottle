@@ -478,3 +478,47 @@ def test_a_person_spawning_standalone_is_never_asked_for_a_reason(monkeypatch, c
     """
     _spawn(monkeypatch, cc_session=None, standalone=True)
     assert "controllerSessionId" not in captured
+
+
+# ---------- a factory's Boss, started for the owner (issue #4351) ----------
+
+
+def test_a_factory_and_its_boss_seat_are_sent_to_the_gateway(monkeypatch, captured):
+    """The Gateway settles whether the seat is the Boss; the command sends both, as asked, and nothing else."""
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    session_ops.spawn_session(
+        repo="C:/repo", agent="ClaudeCode", prompt=None, name="n", purpose=None,
+        command=None, command_args=None, factory=" dev-sales ", seat=" boss ",
+    )
+    assert captured["factory"] == "dev-sales"
+    assert captured["factorySeat"] == "boss"
+    # The version and the kit are the Gateway's to record, never the caller's.
+    assert "factoryDefinitionVersion" not in captured
+    assert "factoryKit" not in captured
+
+
+def test_a_spawn_with_no_factory_sends_none(monkeypatch, captured):
+    _spawn(monkeypatch, cc_session=None)
+    assert "factory" not in captured
+    assert "factorySeat" not in captured
+
+
+@pytest.mark.parametrize("factory,seat", [("dev-sales", None), (None, "boss")])
+def test_a_factory_without_a_seat_or_a_seat_without_a_factory_is_refused(monkeypatch, captured, factory, seat):
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    with pytest.raises(usage_errors.CommandUsageError, match="--factory and --seat go together"):
+        session_ops.spawn_session(
+            repo="C:/repo", agent="ClaudeCode", prompt=None, name="n", purpose=None,
+            command=None, command_args=None, factory=factory, seat=seat,
+        )
+    assert "_path" not in captured  # nothing was started anywhere
+
+
+def test_the_factory_and_seat_flags_reach_spawn_session(monkeypatch):
+    # The wiring itself, typer option -> spawn_session, which every direct call above skips.
+    seen = {}
+    monkeypatch.setattr("src.cli.spawn_session", lambda *a, **kw: seen.update(kw))
+    result = runner.invoke(app, ["session", "spawn", "C:/repo", "--factory", "dev-sales", "--seat", "boss"])
+    assert result.exit_code == 0, result.output
+    assert seen["factory"] == "dev-sales"
+    assert seen["seat"] == "boss"

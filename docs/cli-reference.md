@@ -1262,7 +1262,22 @@ OPTIONS:
   --controlled-by TEXT  WHO OWNS IT: 'self' or 'none'. Required from a session
   --standalone          The USER owns it: no controller (same as --controlled-by none)
   --connection TEXT     How the agent is driven: terminal or api (API mode); left out, the Gateway's default
+  --factory TEXT        With --seat: start the factory's BOSS, seated in that factory
+  --seat TEXT           With --factory: the factory's Boss seat ('cc-devthrottle factory list' shows it)
 ```
+
+**`--factory <id> --seat <boss>` starts a factory's Boss for the owner** (issue #4351). The new session is
+the Boss exactly as its night start is: in the factory (its memory, journals, triggers and schedules) and,
+for a factory with a published definition, recorded as the Boss seat of that version, held by the Boss's
+rules. Only a session in no factory may do it, and only for the Boss seat: any other seat is refused with
+the Boss's name, a session of another factory is refused, and a person uses the Factories screen's Talk
+button instead. The two flags go together; one without the other exits 2 before anything is sent.
+
+Among a factory's seats, **only the Boss changes the factory's starts**: adding, editing, pausing,
+resuming and deleting its triggers, and creating, editing (switching on or off included), deleting and
+unlinking its schedules. A Finder or a Writer is refused with "only its Boss ... or the owner may". A
+session of the factory with no seat recorded (a factory with no published definition, or a run of a plain
+schedule) keeps the rule it had.
 
 **`--connection api` starts the agent in API mode** (API mode mission #4070): the Director speaks the
 agent's own protocol instead of typing into its terminal - Pi today. `--connection terminal` starts it in

@@ -60,6 +60,10 @@ internal static class SpawnFactory
     /// <paramref name="seatRules"/> reads whether a seat carries rules in a definition version, bound to the caller's
     /// account by the door. It is read only for a session key's child on an agent that cannot take rules, and a null
     /// reader there FAILS CLOSED: the child is refused, because a limit that cannot be checked is not a limit.
+    ///
+    /// <paramref name="bossStart"/> reads a factory's Boss seat and published version, bound to the caller's account by
+    /// the door (issue #4351). It is read only when a session in no factory names a factory and a seat, and a null reader
+    /// there FAILS CLOSED: the Boss is not started, because a Boss that cannot be confirmed is not one.
     /// </summary>
     internal static bool TryEstablish(
         NewSessionRequest req,
@@ -67,7 +71,8 @@ internal static class SpawnFactory
         string route,
         Func<string, SessionFactoryLookup>? factoryOf,
         out IResult? error,
-        SeatRulesReader? seatRules = null)
+        SeatRulesReader? seatRules = null,
+        BossStartReader? bossStart = null)
     {
         error = null;
         if (req is null) return true;
@@ -180,6 +185,12 @@ internal static class SpawnFactory
 
         if (!lookup.IsInAFactory)
         {
+            // THE OWNER'S BOSS (issue #4351). A session in no factory is the owner's own agent - the one the definition
+            // routes already let publish any factory - and it may start exactly one seat: the factory's Boss, named
+            // with both the factory and the Boss seat. Every other seat stays the definition's and its schedules'.
+            if (req.Factory is not null && req.FactorySeat is not null)
+                return TryStartTheBoss(req, route, caller.SessionId, bossStart, seatRules, out error);
+
             // A settled answer: the caller belongs to no factory, so it has none to give.
             if (req.Factory is not null || namesASeat)
             {
@@ -279,6 +290,114 @@ internal static class SpawnFactory
         FileLog.Write($"[SpawnFactory] {route}: seat inherited from the verified session key: {seat} v{version} ({FactoryKits.RulesOnly}, agent {req.Agent})");
         return true;
     }
+
+    /// <summary>
+    /// THE OWNER'S BOSS (issue #4351; the owner, 21 October 2026: "The boss should be allowed to do that ... the idea of
+    /// having a boss is that it can do things like this"). A session in no factory names a factory and a seat; it starts
+    /// a session in that factory only when the seat is the factory's Boss. The new session is the Boss exactly as its
+    /// night start is: in the factory (its memory, journals and starts), and - for a factory with a published definition
+    /// - recorded as the Boss seat of that version with a rules-only kit, so it is held by the Boss's own rules and its
+    /// children inherit them. A factory with no published definition has no kit to build, so its Boss is started in the
+    /// factory with no seat recorded, as every session of such a factory is.
+    ///
+    /// Every other seat is refused: a Finder or a Writer is started by its schedule, its trigger or the owner's Talk
+    /// button, never by an agent outside the factory naming it.
+    /// </summary>
+    private static bool TryStartTheBoss(NewSessionRequest req, string route, Guid caller, BossStartReader? bossStart,
+        SeatRulesReader? seatRules, out IResult? error)
+    {
+        error = null;
+        if (!Factory.FactoryNames.TryFactory(req.Factory, out var folded, out var badName))
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} named '{req.Factory}': {badName}");
+            error = Results.BadRequest(new { error = badName, detail = OneSpelling });
+            return false;
+        }
+
+        if (bossStart is null)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - this Gateway cannot read the Boss of '{folded}'");
+            error = Results.Json(new { error = $"this Gateway cannot read which seat is the Boss of '{folded}', so it cannot start one" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+            return false;
+        }
+
+        if (bossStart(folded) is not { } boss)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} named '{folded}', which is not registered");
+            error = Results.Json(new { error = $"'{folded}' is not a factory of this account, so no Boss was started" },
+                statusCode: StatusCodes.Status404NotFound);
+            return false;
+        }
+
+        if (boss.Archived)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - '{boss.Factory}' is archived");
+            error = Results.Json(new { error = $"'{boss.Factory}' is archived, so no Boss was started. Restore it from the Factories screen first." },
+                statusCode: StatusCodes.Status409Conflict);
+            return false;
+        }
+
+        if (boss.BossSeat is null)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - '{boss.Factory}' names no Boss seat");
+            error = Results.Json(new { error = $"'{boss.Factory}' names no Boss seat, so no Boss was started" },
+                statusCode: StatusCodes.Status409Conflict);
+            return false;
+        }
+
+        if (!string.Equals(req.FactorySeat, boss.BossSeat, StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} in no factory named the seat '{req.FactorySeat}' of '{boss.Factory}', whose Boss is '{boss.BossSeat}'");
+            error = Results.Json(new
+            {
+                error = $"a session in no factory may start only the Boss of '{boss.Factory}' (the seat '{boss.BossSeat}'), " +
+                        $"not the seat '{req.FactorySeat}'",
+                detail = OnlyTheBoss,
+            }, statusCode: StatusCodes.Status403Forbidden);
+            return false;
+        }
+
+        if ((req.FactoryKit is not null && !string.Equals(req.FactoryKit, FactoryKits.RulesOnly, StringComparison.Ordinal))
+            || (req.FactoryDefinitionVersion is not null && req.FactoryDefinitionVersion != boss.PublishedVersion))
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} named the Boss of '{boss.Factory}' with v{req.FactoryDefinitionVersion} ({req.FactoryKit})");
+            error = Results.Json(new
+            {
+                error = $"the Boss of '{boss.Factory}' is started from its published definition with a rules-only kit; " +
+                        "leave the version and the kit out",
+                detail = OnlyTheBoss,
+            }, statusCode: StatusCodes.Status403Forbidden);
+            return false;
+        }
+
+        req.Factory = boss.Factory;
+        if (boss.PublishedVersion is not { } version)
+        {
+            ClearSeat(req);
+            FileLog.Write($"[SpawnFactory] {route}: session {caller} started the Boss of '{boss.Factory}' (no published definition - in the factory, no seat recorded)");
+            return true;
+        }
+
+        req.FactorySeat = boss.BossSeat;
+        req.FactoryDefinitionVersion = version;
+        req.FactoryKit = FactoryKits.RulesOnly;
+        if (ChildCannotTakeRules(req, boss.BossSeat, version, seatRules) is { } refusal)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - the Boss of '{boss.Factory}' on {req.Agent}: {refusal}");
+            error = Results.Json(new { error = refusal }, statusCode: StatusCodes.Status409Conflict);
+            return false;
+        }
+
+        FileLog.Write($"[SpawnFactory] {route}: session {caller} started the Boss of '{boss.Factory}': seat {boss.BossSeat} v{version} ({FactoryKits.RulesOnly}, agent {req.Agent})");
+        return true;
+    }
+
+    /// <summary>Why a session in no factory may start a factory's Boss and no other seat (issue #4351).</summary>
+    internal const string OnlyTheBoss =
+        "The owner improves a factory by talking to its Boss, so a session in no factory - the owner's own agent - may " +
+        "start that factory's Boss, seated as it is at night. Every other seat is started by its schedule, its trigger " +
+        "or the owner's Talk button. Name the factory and its Boss seat, and leave the version and the kit out.";
 
     /// <summary>The refusal for a child whose rules-only kit carries rules its agent cannot take, or null when it may
     /// start. The definition is read only when the agent cannot take rules, and read once.</summary>
@@ -558,7 +677,8 @@ internal static class SpawnFactory
     internal const string OutsideNamedAFactory =
         "A factory's memory may be changed only by that factory's own sessions, so joining a factory is not " +
         "something a caller can ask for. A session belongs to a factory because a factory's trigger or " +
-        "schedule started it, or because a person put it there. If this session should be in a factory, the " +
+        "schedule started it, because a person put it there, or because a session in no factory started it as " +
+        "that factory's Boss (name the factory and its Boss seat). If this session should be in a factory, the " +
         "trigger, the schedule or the person that starts it names the factory - it is never claimed in a " +
         "spawn.";
 

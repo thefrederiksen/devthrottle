@@ -194,7 +194,10 @@ internal static class MachineEndpoints
         NewestReleaseWatch? newestRelease = null,
         // Factory Definition mission, phase 5: whether a seat carries rules in a definition version, for one account -
         // read when a seat's child runs an agent that cannot take rules. Null refuses such a child; it never lets one by.
-        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null)
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null,
+        // Issue #4351: a factory's Boss seat and published version, for one account - read when a session in no factory
+        // starts a factory's Boss. Null refuses that start; it never lets one by.
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -203,7 +206,7 @@ internal static class MachineEndpoints
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
-            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor);
+            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -292,7 +295,8 @@ internal static class MachineEndpoints
         Streaming.PushedSessionStore? pushedSessions,
         NewestReleaseWatch? newestRelease,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
-        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor)
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor,
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
@@ -479,7 +483,8 @@ internal static class MachineEndpoints
             // WHICH FACTORY the new session belongs to, settled from the same credential in the same one place
             // (Factory Memory mission, phase 1). It sits beside the origin stamp because it is the same rule
             // about the same thing: a fact that decides access may not be chosen by the caller.
-            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out var factoryError, seatRulesFor?.Invoke(tenant)))
+            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out var factoryError, seatRulesFor?.Invoke(tenant),
+                    bossStartFor?.Invoke(tenant)))
                 return factoryError!;
 
             // The mission NAME and the workflow SEAT, resolved in the ONE place both spawn doors share

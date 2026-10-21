@@ -2116,6 +2116,8 @@ def spawn_session(
     director_target: Optional[str] = None,
     connection: Optional[str] = None,
     next_steps: bool = True,
+    factory: Optional[str] = None,
+    seat: Optional[str] = None,
 ) -> str:
     """Open a new session here, on another computer (--machine), or on one named Director (--director).
 
@@ -2124,6 +2126,15 @@ def spawn_session(
     """
     # Checked first, like every other usage error: an unknown word is the caller's to fix before anything starts.
     connection_mode = parse_connection(connection, "--connection")
+    # A FACTORY'S BOSS, STARTED FOR THE OWNER (issue #4351). Both are named or neither: the Gateway starts a session in a
+    # factory from outside it only as that factory's Boss seat, and it decides whether the seat is the Boss.
+    factory = (factory or "").strip() or None
+    seat = (seat or "").strip() or None
+    if (factory is None) != (seat is None):
+        axi_cli.usage_error(
+            "--factory and --seat go together: name a factory and its Boss seat to start that factory's Boss "
+            "(for example --factory dev-sales --seat boss). 'cc-devthrottle factory list' shows each factory's Boss."
+        )
     if prompt:
         # Checked before anything is read or started: a first prompt is a message to the new session.
         secret_guard.refuse_if_it_carries_a_secret(prompt, "first prompt")
@@ -2279,6 +2290,11 @@ def spawn_session(
     # fetch its conduct at exactly that version. A mission spawn auto-seats without this flag.
     if workflow_run:
         body["workflowRunId"] = workflow_run
+    # The Boss of a factory (issue #4351). Sent as asked; the Gateway checks the seat against the factory's registration,
+    # records the published definition version and the rules-only kit itself, and refuses any other seat in words.
+    if factory:
+        body["factory"] = factory
+        body["factorySeat"] = seat
     # How the agent is driven (API mode mission, #4070). Whether API mode is offered, and whether this agent has it, is
     # the Gateway's and the Director's to answer - each refuses in words, and that sentence is what the caller sees.
     #
