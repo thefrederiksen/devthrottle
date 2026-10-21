@@ -23,6 +23,13 @@ export interface FactoryAgentsSwitch {
   /** While the area is off: the Gateway's own sentence saying so and how to switch it on on this kind of Gateway. Null
    *  when it is on. Rendered verbatim (rule 7). */
   howToStart: string | null;
+  /** Why the area is off, so the page can show the right one: null exactly when it is on. "plan_required" (hosted, the
+   *  account's plan does not include Factories) shows the upgrade page; any other reason shows the howToStart page. */
+  reason: "plan_required" | "not_switched_on" | "plan_unknown" | null;
+  /** The upgrade page's heading, in the Gateway's words. Non-null only for "plan_required". */
+  title: string | null;
+  /** Where "See Pro" goes: the Gateway's pricing address. Non-null only for "plan_required". */
+  subscribeUrl: string | null;
 }
 
 export interface FactoryTab {
