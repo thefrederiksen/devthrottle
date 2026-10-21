@@ -30,7 +30,7 @@ namespace CcDirector.Gateway.Api;
 /// THE CLIENT IS DUMB (CLAUDE.md rule 7): every verdict in these answers is folded by
 /// <see cref="LicenseDisplayFold"/>. No route here takes or returns a sign-in key - the Gateway holds none.
 /// </summary>
-public static class LicenseEndpoints
+public static partial class LicenseEndpoints
 {
     /// <summary>How many log rows a page holds when the caller does not say.</summary>
     public const int DefaultLogPageSize = 50;

@@ -2567,6 +2567,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("LastSeenAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("MonthlyPriceCents")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Plan")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
@@ -2965,6 +2968,48 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("license_switch_log", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseUsageReadingEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FiveHourResetsAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("FiveHourUtilization")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("SevenDayResetsAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("SevenDayUtilization")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AtUtc");
+
+                    b.HasIndex("TenantId", "AccountEmail", "AtUtc")
+                        .IsUnique();
+
+                    b.ToTable("license_usage_readings", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
@@ -4371,6 +4416,167 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "UpdatedAtUtc");
 
                     b.ToTable("session_turn_heads", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionUsageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentConversationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ControllerSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("HasBaseline")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LastCacheCreationTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LastCacheReadTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LastInputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("LastOutputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("MissionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MissionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Number")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("WeightedByAccountJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("WeightedTotal")
+                        .HasColumnType("REAL");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "LastSeenAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId")
+                        .IsUnique();
+
+                    b.ToTable("session_usage", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionUsageSampleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CacheCreationTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CacheReadTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<double>("Weighted")
+                        .HasColumnType("REAL");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "AtUtc");
+
+                    b.ToTable("session_usage_samples", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SkillEntity", b =>

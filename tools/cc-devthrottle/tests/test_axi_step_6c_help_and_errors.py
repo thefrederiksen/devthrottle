@@ -391,6 +391,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "schedule-load",
     # Factory Definition phase 6c (the owner, 2026-10-16): a session in no factory creates a factory from a folder.
     "factory-definition-create",
+    # License Switching, the usage-by-session mandate (the owner, 2026-10-20): what is using a Claude account.
+    "license-sessions",
 }
 
 

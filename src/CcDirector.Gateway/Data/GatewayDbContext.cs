@@ -493,6 +493,12 @@ public sealed class GatewayDbContext : DbContext
     /// open), each with what became of its one owner email.</summary>
     public DbSet<LicenseAlarmEntity> LicenseAlarms => Set<LicenseAlarmEntity>();
 
+    /// <summary>What is using the license (the usage-by-session mandate): each session's running usage, the changes it
+    /// is read from, and the accounts' usage readings over the week.</summary>
+    public DbSet<SessionUsageEntity> SessionUsage => Set<SessionUsageEntity>();
+    public DbSet<SessionUsageSampleEntity> SessionUsageSamples => Set<SessionUsageSampleEntity>();
+    public DbSet<LicenseUsageReadingEntity> LicenseUsageReadings => Set<LicenseUsageReadingEntity>();
+
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
     public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
@@ -1616,6 +1622,47 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.ClosedAtUtc });
         });
 
+        // What is using the license: token counts, names, times and account emails - never a sign-in key.
+        modelBuilder.Entity<SessionUsageEntity>(b =>
+        {
+            b.ToTable("session_usage");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(128);
+            b.Property(e => e.AgentKind).HasMaxLength(32);
+            b.Property(e => e.Name).HasMaxLength(200);
+            b.Property(e => e.MissionName).HasMaxLength(200);
+            b.Property(e => e.ControllerSessionId).HasMaxLength(64);
+            b.Property(e => e.MachineName).HasMaxLength(128);
+            b.Property(e => e.Model).HasMaxLength(128);
+            b.Property(e => e.State).HasMaxLength(32);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.Property(e => e.AgentConversationId).HasMaxLength(128);
+            b.Property(e => e.WeightedByAccountJson).HasMaxLength(4000);
+            b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.LastSeenAtUtc });
+        });
+
+        modelBuilder.Entity<SessionUsageSampleEntity>(b =>
+        {
+            b.ToTable("session_usage_samples");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Model).HasMaxLength(128);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.HasIndex(e => new { e.TenantId, e.AtUtc });
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.AtUtc });
+        });
+
+        modelBuilder.Entity<LicenseUsageReadingEntity>(b =>
+        {
+            b.ToTable("license_usage_readings");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.HasIndex(e => new { e.TenantId, e.AccountEmail, e.AtUtc }).IsUnique();
+            b.HasIndex(e => new { e.TenantId, e.AtUtc });
+        });
+
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
         {
             b.ToTable("fleet_manager_events");
@@ -2546,6 +2593,9 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<LicenseSwitchLogEntity>(modelBuilder);
         ApplyTenantScope<LicenseBarEntity>(modelBuilder);
         ApplyTenantScope<LicenseAlarmEntity>(modelBuilder);
+        ApplyTenantScope<SessionUsageEntity>(modelBuilder);
+        ApplyTenantScope<SessionUsageSampleEntity>(modelBuilder);
+        ApplyTenantScope<LicenseUsageReadingEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FactoryEmailReportEntity>(modelBuilder);
@@ -2713,6 +2763,11 @@ public sealed class GatewayDbContext : DbContext
             // An alarm is found again by its identity - its kind and its account - so both are exact keys.
             modelBuilder.Entity<LicenseAlarmEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<LicenseAlarmEntity>().Property(e => e.AccountEmail).UseCollation("C");
+            // session_usage and its samples: a session id and an account email are exact keys.
+            modelBuilder.Entity<SessionUsageEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<SessionUsageSampleEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<SessionUsageSampleEntity>().Property(e => e.AccountEmail).UseCollation("C");
+            modelBuilder.Entity<LicenseUsageReadingEntity>().Property(e => e.AccountEmail).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");
