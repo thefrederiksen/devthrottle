@@ -21,3 +21,21 @@ public sealed class WindowsOnlyTheoryAttribute : TheoryAttribute
             Skip = "Windows-only: " + because;
     }
 }
+
+/// <summary>
+/// A fact that needs a real zsh to run, which SKIPS - visibly, with a stated reason - where there is
+/// none, rather than reporting a pass for a test that never exercised a shell. The same discipline as
+/// <see cref="WindowsOnlyTheoryAttribute"/>.
+///
+/// It exists because the defect in #4292 was ENTIRELY about which start-up file zsh reads for which
+/// kind of shell. No assertion about the list of file names can catch that; only running zsh can. So
+/// where zsh is absent this must say it did not run, and never quietly agree.
+/// </summary>
+public sealed class ZshOnlyFactAttribute : FactAttribute
+{
+    public ZshOnlyFactAttribute(string because)
+    {
+        if (!File.Exists("/bin/zsh"))
+            Skip = "needs /bin/zsh: " + because;
+    }
+}
