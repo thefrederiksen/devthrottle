@@ -87,9 +87,9 @@ public sealed class FactoryDefinitionStore
     // THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): a factory's Boss session - a session
     // of the factory STARTED AS the bossSeat of the published definition, never a child that inherited that seat -
     // publishes and restores any change to its
-    // own factory's definition on its own authority. A version that changes the Boss's OWN seat (its seats/<seat>.yaml,
-    // or which seat factory.yaml names as the boss) needs the owner's approval, passed verbatim and recorded with the
-    // version. Every other session of a factory saves drafts only, and no factory's session creates a factory. Which
+    // own factory's definition on its own authority. A version that changes the Boss's OWN seat or its authority (its
+    // seats/<seat>.yaml, which seat factory.yaml names as the boss, a grant that includes the boss seat, a rule set the
+    // boss seat names) needs the owner's approval, passed verbatim and recorded with the version. Every other session of a factory saves drafts only, and no factory's session creates a factory. Which
     // factory and seat a session is in is the route's to know, so the route refuses with these sentences; the store
     // records whoever it is told published.
 
@@ -127,11 +127,13 @@ public sealed class FactoryDefinitionStore
 
     /// <summary>
     /// The sentence a factory's Boss is refused with when the version it would publish or restore changes the Boss's
-    /// own seat and it passed no owner's approval. It names the flag that carries the owner's words.
+    /// own seat or its authority - its seat file, the boss pointer, a grant that includes it, a rule set it names - and
+    /// it passed no owner's approval. It names each changed part and the flag that carries the owner's words.
     /// </summary>
-    public static string BossSeatNeedsOwnerApproval(string factory, int version, string bossSeat, bool restore) =>
-        $"Version {version} of the definition of {factory} changes the Boss's own seat (seats/{bossSeat}.yaml, or which seat " +
-        $"factory.yaml names as the boss), and a change to the Boss's own seat needs the owner's approval. Nothing was " +
+    public static string BossSeatNeedsOwnerApproval(string factory, int version, string bossSeat, bool restore,
+        IReadOnlyList<string> changed) =>
+        $"Version {version} of the definition of {factory} changes the Boss's own seat '{bossSeat}' or its authority " +
+        $"({string.Join(", ", changed)}), and that needs the owner's approval. Nothing was " +
         $"{(restore ? "restored" : "published")}. Ask the owner, then {(restore ? "restore" : "publish")} again with " +
         $"{OwnerApprovedFlag} (the request field ownerApproved); his words are recorded with the version.";
 

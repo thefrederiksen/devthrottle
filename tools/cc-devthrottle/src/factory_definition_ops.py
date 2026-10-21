@@ -15,8 +15,9 @@ the factory:
 WHO MAY PUBLISH (the owner's ruling of 16 October 2026): "Factories are created by agents as long as they have user
 approval." A person, or a session in no factory that the owner told what to make, creates, publishes and restores. THE
 BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): the factory's Boss session publishes and
-restores its own factory too, and a version that changes the Boss's own seat needs the owner's approval, passed
-verbatim with --owner-approved. Every other session of a factory saves drafts only; the Gateway refuses the rest in
+restores its own factory too, and a version that changes the Boss's own seat or its authority (its seat file, the
+boss pointer, a grant that includes it, a rule set it names) needs the owner's approval, passed verbatim with
+--owner-approved. Every other session of a factory saves drafts only; the Gateway refuses the rest in
 words, and this module prints them.
 - `factory definition diff`     what changes from one version to another, as the Gateway words it
 - `factory definition schemas`  the JSON Schemas the Gateway's check enforces, to check a folder without saving it
