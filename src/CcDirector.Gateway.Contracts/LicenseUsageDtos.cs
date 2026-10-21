@@ -205,3 +205,159 @@ public sealed class LicensePriceResponse
     public string AccountEmail { get; set; } = "";
     public double? MonthlyPriceUsd { get; set; }
 }
+
+// ---- GET /gateway/licenses/plan: make it last ----
+
+/// <summary>The "make it last" planner's route.</summary>
+public static class LicensePlanRoutes
+{
+    /// <summary>GET: will the account's weekly limit last until a time, and what to stop if not
+    /// (<see cref="LicensePlanResponse"/>). Query: <c>account</c> (default: the one in use), <c>until</c> (a target id
+    /// from <see cref="LicensePlanResponse.Targets"/>, or a time in ISO 8601; default: the first target), and the
+    /// what-if: <c>stop</c> (session ids) and <c>stopGroup</c> (top-level session ids, each standing for every live
+    /// session under it), each comma separated. A read: nothing here stops a session.</summary>
+    public const string Plan = "/gateway/licenses/plan";
+}
+
+/// <summary>
+/// Will one account's weekly limit last until a time, and if not, what to stop. SUGGESTIONS ONLY: nothing here stops a
+/// session; stopping stays with the session commands and the owner.
+/// </summary>
+public sealed class LicensePlanResponse
+{
+    public DateTime AsOfUtc { get; set; }
+    public string? AccountEmail { get; set; }
+    public bool AccountInUse { get; set; }
+
+    /// <summary>The sentence shown in place of the plan when there is none; null otherwise.</summary>
+    public string? EmptyText { get; set; }
+
+    /// <summary>The times it can be asked to last until: each other account's next "has room" time, then this account's
+    /// own weekly reset.</summary>
+    public List<LicensePlanTargetDto> Targets { get; set; } = new();
+
+    /// <summary>The target the answer is for: one of <see cref="Targets"/>' ids, or "time" for a time given.</summary>
+    public string TargetId { get; set; } = "";
+    public DateTime? TargetAtUtc { get; set; }
+
+    /// <summary>"until account-b@example.com has room again", "until the time you picked", ...</summary>
+    public string TargetText { get; set; } = "";
+
+    /// <summary>How much of the weekly limit is used now.</summary>
+    public double? WeekUsedPercent { get; set; }
+
+    /// <summary>What is left before 97%.</summary>
+    public double? LeftPercent { get; set; }
+
+    /// <summary>Hours from now to the target (to the weekly reset when that comes first).</summary>
+    public double? HoursToGo { get; set; }
+
+    /// <summary><see cref="LeftPercent"/> over <see cref="HoursToGo"/>: what can be used an hour and still last.</summary>
+    public double? AllowedPercentPerHour { get; set; }
+
+    /// <summary>What the account is burning now, in percent an hour - the forecast's own pace (the faster of this
+    /// week's average and the last 6 hours).</summary>
+    public double? BurnPercentPerHour { get; set; }
+
+    /// <summary>Which pace <see cref="BurnPercentPerHour"/> is, in words.</summary>
+    public string BurnText { get; set; } = "";
+
+    /// <summary>How much faster than <see cref="AllowedPercentPerHour"/> it is burning; 0 when it lasts.</summary>
+    public double? ShortfallPercentPerHour { get; set; }
+
+    /// <summary>When it reaches 97% at <see cref="BurnPercentPerHour"/>; null when it does not before the target.</summary>
+    public DateTime? RunsOutAtUtc { get; set; }
+
+    /// <summary>It lasts to the target at the burn; null when that is not known.</summary>
+    public bool? Lasts { get; set; }
+
+    /// <summary>The verdict, as one or two sentences.</summary>
+    public string Verdict { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/>.</summary>
+    public string VerdictTone { get; set; } = "";
+
+    /// <summary>What to stop to make it last: waiting sessions before working ones, biggest first.</summary>
+    public LicensePlanSuggestionDto Suggestion { get; set; } = new();
+
+    /// <summary>Each top-level session with the live sessions under it: one choice that stops them all.</summary>
+    public List<LicensePlanChoiceDto> Choices { get; set; } = new();
+
+    /// <summary>Every live session using the account, by rate now.</summary>
+    public List<LicensePlanSessionDto> Sessions { get; set; } = new();
+
+    /// <summary>The what-if, when sessions to stop were given; null otherwise.</summary>
+    public LicensePlanWhatIfDto? WhatIf { get; set; }
+}
+
+/// <summary>One time the plan can be asked to last until.</summary>
+public sealed class LicensePlanTargetDto
+{
+    /// <summary>"room:account-b@example.com" or "reset": what to pass as <c>until</c>.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>"account-b@example.com has room again", "this account's own weekly reset".</summary>
+    public string Label { get; set; } = "";
+
+    public DateTime AtUtc { get; set; }
+}
+
+/// <summary>What the planner suggests stopping.</summary>
+public sealed class LicensePlanSuggestionDto
+{
+    public List<string> SessionIds { get; set; } = new();
+
+    /// <summary>What stopping them saves, in percent an hour; null when the sessions' rates are not measured.</summary>
+    public double? SavesPercentPerHour { get; set; }
+
+    public string Text { get; set; } = "";
+}
+
+/// <summary>A top-level session with every live session under it.</summary>
+public sealed class LicensePlanChoiceDto
+{
+    public string TopLevelSessionId { get; set; } = "";
+    public int? Number { get; set; }
+    public string Label { get; set; } = "";
+
+    /// <summary>The live sessions in the group, the top-level one first when it is live.</summary>
+    public List<string> SessionIds { get; set; } = new();
+
+    public double? RateNowPercentPerHour { get; set; }
+    public int Working { get; set; }
+    public int Waiting { get; set; }
+}
+
+/// <summary>One live session as the planner weighs it.</summary>
+public sealed class LicensePlanSessionDto
+{
+    public string SessionId { get; set; } = "";
+    public int? Number { get; set; }
+    public string Name { get; set; } = "";
+    public string TopLevelSessionId { get; set; } = "";
+
+    /// <summary>"working" or "waiting".</summary>
+    public string State { get; set; } = "";
+    public string StateText { get; set; } = "";
+    public double? RateNowPercentPerHour { get; set; }
+
+    /// <summary>The suggestion stops it.</summary>
+    public bool Suggested { get; set; }
+}
+
+/// <summary>What stopping the given sessions would do.</summary>
+public sealed class LicensePlanWhatIfDto
+{
+    /// <summary>Every live session it would stop: the ones given, and every live one under each group given.</summary>
+    public List<string> StoppedSessionIds { get; set; } = new();
+
+    /// <summary>Ids given that are not a live session or a top-level session using the account.</summary>
+    public List<string> NotFound { get; set; } = new();
+
+    public double? SavesPercentPerHour { get; set; }
+    public double? BurnPercentPerHour { get; set; }
+    public DateTime? RunsOutAtUtc { get; set; }
+    public bool? Lasts { get; set; }
+    public string Verdict { get; set; } = "";
+    public string VerdictTone { get; set; } = "";
+}

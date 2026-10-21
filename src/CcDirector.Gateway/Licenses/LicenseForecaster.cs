@@ -3,8 +3,9 @@ using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Licenses;
 
-/// <summary>One past reading of one window: when, and how much was used.</summary>
-public sealed record LicenseUsagePoint(DateTime AtUtc, double Utilization);
+/// <summary>One past reading of one window: when, how much was used, and when that window resets (null when not
+/// known). The reset time is what says two readings are of the same week.</summary>
+public sealed record LicenseUsagePoint(DateTime AtUtc, double Utilization, DateTime? ResetsAtUtc = null);
 
 /// <summary>Recent readings of one account, per window, in any order. The store keeps a short series per account.</summary>
 public sealed record LicenseAccountHistory(
@@ -17,14 +18,23 @@ public sealed record LicenseAccountHistory(
 /// <param name="Utilization">The freshest reading, or null when the window is unknown.</param>
 /// <param name="ResetsAtUtc">When the window resets, or null when not known.</param>
 /// <param name="PercentPerHour">The current rate of use, or null when the history cannot show one.</param>
-/// <param name="ExpectedAtThresholdUtc">When the window is expected to reach the threshold at that rate; null
-/// when it is not expected to before it resets, or when there is no rate.</param>
+/// <param name="ExpectedAtThresholdUtc">When the window is expected to reach the threshold - the EARLY end of the
+/// forecast; null when it is not expected to before it resets, or when there is no rate.</param>
+/// <param name="AveragePercentPerHour">The weekly window only: its use so far over the hours since the week began - the
+/// primary pace. Null for the 5-hour window and when it cannot be told.</param>
+/// <param name="RecentPercentPerHour">The weekly window only: its pace over at least the last
+/// <see cref="LicenseForecaster.RecentPaceSpan"/> of kept readings of this week. Null when there are not that many.</param>
+/// <param name="AverageAtThresholdUtc">The weekly window only: when it reaches the threshold at its average pace - the
+/// LATE end of the forecast when the recent pace is faster. Null when the average pace does not reach it before the reset.</param>
 public sealed record LicenseWindowForecast(
     string Window,
     double? Utilization,
     DateTime? ResetsAtUtc,
     double? PercentPerHour,
-    DateTime? ExpectedAtThresholdUtc);
+    DateTime? ExpectedAtThresholdUtc,
+    double? AveragePercentPerHour = null,
+    double? RecentPercentPerHour = null,
+    DateTime? AverageAtThresholdUtc = null);
 
 /// <summary>The forecast for one account.</summary>
 /// <param name="IsStale">The freshest reading is stale, so no time to the threshold is forecast.</param>
@@ -54,11 +64,20 @@ public sealed record LicenseForecast(IReadOnlyList<LicenseAccountForecast> Accou
 /// The forecast, as pure code: per account, its reset times and the expected time to the threshold at the
 /// current rate; from those, the next switch and its target.
 ///
-/// The rate is the change from the first to the last point of the window's history SINCE ITS LAST DROP: a
-/// drop in use means the window reset (or the rolling 5-hour window let old use go), and use from before it
-/// says nothing about the rate now. Fewer than two points after the drop, or no time between them, means no
-/// rate. A rate of zero or less means the window is not expected to reach the threshold. A window expected to
-/// reset before it reaches the threshold is not expected to reach it.
+/// THE 5-HOUR WINDOW'S rate is the change from the first to the last point of its history SINCE ITS LAST DROP: the
+/// rolling window lets old use go, and use from before a drop says nothing about the rate now. Fewer than two points
+/// after the drop, or no time between them, means no rate.
+///
+/// THE WEEKLY WINDOW'S PRIMARY PACE IS ITS AVERAGE THIS WEEK (the usage-by-session mandate, 2026-10-20): its use so far
+/// over the hours since the week began (its reset time less seven days). A two-hour rate in memory, reset by any one
+/// point of drop, made the forecast jump from "17 hours" to "does not run out"; the average cannot. Its RECENT pace,
+/// over at least <see cref="RecentPaceSpan"/> of kept readings of the same week, is the early end of a range: when it is
+/// faster, the window is expected at the threshold at the recent pace, and at the average pace at the latest. A week is
+/// over only when its reset time changes - never because a number fell. So the forecast never says the weekly window does
+/// not run out while its average says it will.
+///
+/// A rate of zero or less means the window is not expected to reach the threshold. A window expected to reset before it
+/// reaches the threshold is not expected to reach it.
 ///
 /// The next switch's target is the engine's own choice (<see cref="LicenseDecisionEngine.NextTarget"/>), chosen on
 /// the account's merits and named whenever an account has room, on TODAY'S numbers - the forecast does not project the other accounts forward, so the page labels it as the
@@ -66,6 +85,11 @@ public sealed record LicenseForecast(IReadOnlyList<LicenseAccountForecast> Accou
 /// </summary>
 public static class LicenseForecaster
 {
+    /// <summary>The shortest span the weekly window's recent pace is measured over.</summary>
+    public static readonly TimeSpan RecentPaceSpan = TimeSpan.FromHours(6);
+
+    /// <summary>Two readings whose reset times are within this of each other are of the same week.</summary>
+    public static readonly TimeSpan SameWeekTolerance = TimeSpan.FromHours(1);
 
     /// <summary>Forecast every account in <paramref name="snapshot"/>, using <paramref name="histories"/> for the rates.</summary>
     public static LicenseForecast Forecast(LicenseSnapshot snapshot, IReadOnlyList<LicenseAccountHistory> histories)
@@ -130,7 +154,7 @@ public static class LicenseForecaster
     {
         var stale = LicenseDecisionEngine.IsReadingStale(reading, now);
         var five = ForecastWindow(LicenseWindowNames.FiveHour, reading.FiveHour, history?.FiveHour, reading.ReadAtUtc, now, stale);
-        var week = ForecastWindow(LicenseWindowNames.SevenDay, reading.SevenDay, history?.SevenDay, reading.ReadAtUtc, now, stale);
+        var week = ForecastWeek(reading.SevenDay, history?.SevenDay, reading.ReadAtUtc, now, stale);
 
         var first = new[] { five, week }
             .Where(w => w.ExpectedAtThresholdUtc is not null)
@@ -139,6 +163,100 @@ public static class LicenseForecaster
         return new LicenseAccountForecast(Normalize(reading.AccountEmail), stale, five, week,
             first?.ExpectedAtThresholdUtc, first?.Window);
     }
+
+    /// <summary>
+    /// The weekly window's average pace this week: its use so far over the hours since the week began. Null when there is
+    /// no reset time, it is under an hour into the week, or nothing is used yet.
+    /// </summary>
+    public static double? AveragePacePerHour(LicenseWindowReading week, DateTime readAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(week);
+        if (week.ResetsAtUtc is not { } reset || week.Utilization <= 0)
+            return null;
+        var hoursIn = (readAtUtc - (AsUtc(reset) - LicenseDecisionEngine.SevenDayWindowLength)).TotalHours;
+        return hoursIn < 1 ? null : week.Utilization / hoursIn;
+    }
+
+    /// <summary>
+    /// The weekly window's recent pace, from kept readings in any order: from the latest reading of the week
+    /// <paramref name="resetsAtUtc"/> ends, back to the latest reading of the same week at least
+    /// <see cref="RecentPaceSpan"/> before it. Null when the week has no reading that old.
+    /// </summary>
+    public static double? RecentPacePerHour(IReadOnlyList<LicenseUsagePoint> points, DateTime? resetsAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (resetsAtUtc is not { } reset)
+            return null;
+        var week = points
+            .Where(p => p.ResetsAtUtc is { } r && (AsUtc(r) - AsUtc(reset)).Duration() <= SameWeekTolerance)
+            .OrderBy(p => p.AtUtc)
+            .ToList();
+        if (week.Count < 2)
+            return null;
+        var latest = week[^1];
+        var from = week.LastOrDefault(p => latest.AtUtc - p.AtUtc >= RecentPaceSpan);
+        if (from is null)
+            return null;
+        return Math.Max(0, (latest.Utilization - from.Utilization) / (latest.AtUtc - from.AtUtc).TotalHours);
+    }
+
+    private static LicenseWindowForecast ForecastWeek(LicenseWindowReading? reading, IReadOnlyList<LicenseUsagePoint>? history,
+        DateTime? readAt, DateTime now, bool stale)
+    {
+        if (reading is null)
+            return new LicenseWindowForecast(LicenseWindowNames.SevenDay, null, null, null, null);
+
+        var average = readAt is { } read ? AveragePacePerHour(reading, AsUtc(read)) : null;
+        var recent = history is null ? null : RecentPacePerHour(history, reading.ResetsAtUtc);
+        // The pace that sets the expected time: the faster of the two, so the rate shown and the time shown agree.
+        double? primary = (average, recent) switch
+        {
+            ({ } a, { } r) => Math.Max(a, r),
+            _ => average ?? recent,
+        };
+        if (stale || readAt is not { } readTime)
+            return new LicenseWindowForecast(LicenseWindowNames.SevenDay, reading.Utilization, reading.ResetsAtUtc, primary, null, average, recent);
+
+        // Read before the reset: it says nothing about the window now.
+        if (reading.ResetsAtUtc is { } passed && passed <= now)
+            return new LicenseWindowForecast(LicenseWindowNames.SevenDay, reading.Utilization, reading.ResetsAtUtc, primary, null, average, recent);
+        if (LicenseDecisionEngine.IsTired(reading, now))
+            return new LicenseWindowForecast(LicenseWindowNames.SevenDay, reading.Utilization, reading.ResetsAtUtc, primary, now, average, recent, now);
+
+        var atAverage = TimeAtThreshold(reading, average, readTime, now);
+        var atRecent = TimeAtThreshold(reading, recent, readTime, now);
+        DateTime? expected = (atAverage, atRecent) switch
+        {
+            ({ } a, { } r) => a < r ? a : r,
+            ({ } a, null) => a,
+            (null, { } r) => r,
+            _ => null,
+        };
+        return new LicenseWindowForecast(LicenseWindowNames.SevenDay, reading.Utilization, reading.ResetsAtUtc, primary, expected,
+            average, recent, atAverage);
+    }
+
+    // When the window reaches the threshold at the given pace; null for no pace, a pace of nothing, longer than a week
+    // (no window lasts longer, and it keeps the date inside the calendar), or a reset that comes first.
+    private static DateTime? TimeAtThreshold(LicenseWindowReading reading, double? perHour, DateTime readTime, DateTime now)
+    {
+        if (perHour is not { } rate || rate <= 0)
+            return null;
+        var hours = (LicenseDecisionEngine.ThresholdPercent - reading.Utilization) / rate;
+        if (double.IsNaN(hours) || hours > LicenseDecisionEngine.SevenDayWindowLength.TotalHours)
+            return null;
+        var at = readTime.AddHours(hours);
+        if (at < now)
+            at = now;
+        return reading.ResetsAtUtc is { } reset && reset <= at ? null : at;
+    }
+
+    private static DateTime AsUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 
     private static LicenseWindowForecast ForecastWindow(string name, LicenseWindowReading? reading,
         IReadOnlyList<LicenseUsagePoint>? history, DateTime? readAt, DateTime now, bool stale)

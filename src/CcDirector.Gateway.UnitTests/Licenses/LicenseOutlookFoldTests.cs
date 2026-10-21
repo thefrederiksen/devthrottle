@@ -13,8 +13,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// in production - usage reports applied to the real store on a throwaway SQLite file and the usage history fed the
 /// same reports - and the answer is the forecast route's own fold.
 ///
-/// The main picture, at T0: account A in use at 45% of its weekly limit, rising 15% an hour (40% twenty minutes ago),
-/// 72 hours into a week that resets at T0 + 4 days; account B a spare at 98% of its weekly limit until T0 + 2 days;
+/// The main picture, at T0: account A in use at 45% of its weekly limit, rising 6% an hour over the last 6 hours (9% six
+/// hours ago, in the kept readings the weekly pace is measured from), 72 hours into a week that resets at T0 + 4 days; account B a spare at 98% of its weekly limit until T0 + 2 days;
 /// account C a spare whose reading is 31 minutes old, too old to trust.
 /// </summary>
 public sealed class LicenseOutlookFoldTests : IDisposable
@@ -22,12 +22,13 @@ public sealed class LicenseOutlookFoldTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseStore _store;
     private readonly LicenseSnapshotSource _source;
-    private readonly LicenseUsageHistory _history = new();
+    private readonly List<LicenseUsageReadingRecord> _kept = new();
+    private readonly LicenseUsageHistory _history;
 
     private static readonly TenantId Tenant = new("acct-a");
 
-    // A reaches 97% at its current pace: 52 points to go at 15 an hour.
-    private static readonly DateTime RunsOut = T0.AddHours(52.0 / 15);
+    // A reaches 97% at its pace over the last 6 hours: 52 points to go at 6 an hour.
+    private static readonly DateTime RunsOut = T0.AddHours(52.0 / 6);
 
     // At its weekly average pace - 45% over the 72 hours since the week began - it reaches 97% 83.2 hours from now.
     private static readonly DateTime RunsOutSlowly = T0.AddHours(52 / (45.0 / 72));
@@ -36,6 +37,15 @@ public sealed class LicenseOutlookFoldTests : IDisposable
     {
         _store = new LicenseStore(_harness.Open());
         _source = new LicenseSnapshotSource(_store, new LicenseReadModel(_store));
+        _history = new LicenseUsageHistory((tenant, since) => _kept.Where(r => r.AtUtc >= since).ToList());
+    }
+
+    /// <summary>A's weekly readings as the Gateway keeps them: 9% six hours ago and 45% now, of the week that resets at
+    /// <paramref name="resetsAt"/>.</summary>
+    private void KeepRising(DateTime resetsAt)
+    {
+        _kept.Add(new LicenseUsageReadingRecord(A, T0.AddHours(-6), 9, resetsAt, 10, T0.AddHours(2)));
+        _kept.Add(new LicenseUsageReadingRecord(A, T0, 45, resetsAt, 10, T0.AddHours(2)));
     }
 
     public void Dispose() => _harness.Dispose();
@@ -49,8 +59,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
     /// <summary>A in use and rising, plus the spares given, on one machine; A's rate in the history.</summary>
     private void ApplyRising(params LicenseHolding[] spares)
     {
-        _history.Record(Tenant, Report("m1", Holding(A, true, 10, 40, readAt: T0.AddMinutes(-20))), TimeSpan.Zero, T0);
-        _history.Record(Tenant, Report("m1", Holding(A, true, 10, 45)), TimeSpan.Zero, T0);
+        KeepRising(T0.AddDays(4));
         _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", new[] { Holding(A, true, 10, 45) }.Concat(spares).ToArray()), T0, TimeSpan.Zero);
     }
 
@@ -98,26 +107,26 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         var gap = Assert.Single(outlook.Gaps);
         Close(RunsOut, gap.StartUtc);
         Assert.Equal(T0.AddDays(2), gap.EndUtc);
-        Assert.Equal("No account has room for about 1 day 20 hours.", gap.Text);
+        Assert.Equal("No account has room for about 1 day 15 hours.", gap.Text);
 
         Assert.True(outlook.Headline.IsAlert);
         Assert.Equal(LicenseTones.Bad, outlook.Headline.Tone);
-        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and no other account has room for about 1 day 20 hours after that.", outlook.Headline.Text);
+        Assert.Equal($"{A} runs out in about 8 hours 39 minutes, and no other account has room for about 1 day 15 hours after that.", outlook.Headline.Text);
         Assert.Equal("At its slower weekly average pace it runs out in about 3 days 11 hours, and another account has room by then.", outlook.Headline.Detail);
 
         // The tiles.
-        Assert.Equal(("Active account runs out", "In about 3 hours 28 minutes", LicenseTones.Warning), (outlook.RunsOut.Label, outlook.RunsOut.ValueText, outlook.RunsOut.Tone));
+        Assert.Equal(("Active account runs out", "In about 8 hours 39 minutes", LicenseTones.Warning), (outlook.RunsOut.Label, outlook.RunsOut.ValueText, outlook.RunsOut.Tone));
         Close(RunsOut, outlook.RunsOut.AtUtc!.Value);
-        Assert.Equal($"{A}: 45% of its weekly limit now, rising 15% an hour.", outlook.RunsOut.DetailText);
+        Assert.Equal($"{A}: 45% of its weekly limit now, rising 6% an hour.", outlook.RunsOut.DetailText);
         Assert.Equal(("Next account with room", "In about 2 days", T0.AddDays(2), $"{B}, when its weekly limit resets.", LicenseTones.Neutral),
             (outlook.NextRoom.Label, outlook.NextRoom.ValueText, outlook.NextRoom.AtUtc, outlook.NextRoom.DetailText, outlook.NextRoom.Tone));
 
         // The cards' Forecast boxes.
         Assert.Equal(new[]
         {
-            ("Pace", "15% an hour on its weekly limit", LicenseTones.Neutral),
-            ("Reaches 97%", "In about 3 hours 28 minutes", LicenseTones.Warning),
-            ("Then switches to", "Nobody has room for about 1 day 20 hours", LicenseTones.Bad),
+            ("Pace", "6% an hour on its weekly limit", LicenseTones.Neutral),
+            ("Reaches 97%", "In about 8 hours 39 minutes", LicenseTones.Warning),
+            ("Then switches to", "Nobody has room for about 1 day 15 hours", LicenseTones.Bad),
         }, Rows(forecast, A));
         Assert.Equal(97, forecast.Accounts.Single(x => x.AccountEmail == A).ProjectedWeekPercent);
         Assert.Equal(new[]
@@ -140,7 +149,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         Assert.Empty(outlook.Gaps);
         Assert.False(outlook.Headline.IsAlert);
         Assert.Equal(LicenseTones.Good, outlook.Headline.Tone);
-        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and {B} has room then.", outlook.Headline.Text);
+        Assert.Equal($"{A} runs out in about 8 hours 39 minutes, and {B} has room then.", outlook.Headline.Text);
         Assert.Null(outlook.Headline.Detail);
         Assert.Equal(new[] { (LicenseOutlookSpanKinds.Room, T0, T0.AddDays(7)) }, Spans(outlook, B));
         Assert.Equal(("Now", (DateTime?)null, $"{B} has room.", LicenseTones.Good),
@@ -152,7 +161,8 @@ public sealed class LicenseOutlookFoldTests : IDisposable
     [Fact]
     public void Outlook_NoAccountInUseRising_ExpectsNoRunOut_AndDrawsNoProjectedPart()
     {
-        _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Holding(A, true, 10, 45), Holding(B, false, 4, 22)), T0, TimeSpan.Zero);
+        // 20% over the 72 hours since its week began would take 277 more hours to reach 97%: past the reset.
+        _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Holding(A, true, 10, 20), Holding(B, false, 4, 22)), T0, TimeSpan.Zero);
 
         var forecast = Forecast(T0);
 
@@ -241,7 +251,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
 
         Assert.Empty(forecast.Outlook.Gaps);
         Assert.False(forecast.Outlook.Headline.IsAlert);
-        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and {B} has room then.", forecast.Outlook.Headline.Text);
+        Assert.Equal($"{A} runs out in about 8 hours 39 minutes, and {B} has room then.", forecast.Outlook.Headline.Text);
         Assert.Equal(("Then switches to", B, LicenseTones.Good), Rows(forecast, A)[2]);
     }
 
@@ -264,7 +274,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         Assert.Equal(T0.AddDays(1), gap.EndUtc);
         Assert.True(outlook.Headline.IsAlert);
         Assert.Equal(("In about 1 day", $"{B}, when its weekly limit resets."), (outlook.NextRoom.ValueText, outlook.NextRoom.DetailText));
-        Assert.Equal(("Then switches to", "Nobody has room for about 20 hours 32 minutes", LicenseTones.Bad), Rows(forecast, A)[2]);
+        Assert.Equal(("Then switches to", "Nobody has room for about 15 hours 20 minutes", LicenseTones.Bad), Rows(forecast, A)[2]);
     }
 
     [Fact]
@@ -298,8 +308,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
     public void Outlook_WhenTheSlowerPaceWouldNotReach97BeforeTheReset_TheForecastSpanRunsToTheReset_AndNoAtLimitSpanFollows()
     {
         // A's week resets at T0 + 30 hours, so it began 138 hours ago: 45% over 138 hours would need 159 more hours.
-        _history.Record(Tenant, Report("m1", Week(Holding(A, true, 10, 40, readAt: T0.AddMinutes(-20)), T0.AddHours(30))), TimeSpan.Zero, T0);
-        _history.Record(Tenant, Report("m1", Week(Holding(A, true, 10, 45), T0.AddHours(30))), TimeSpan.Zero, T0);
+        KeepRising(T0.AddHours(30));
         _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Week(Holding(A, true, 10, 45), T0.AddHours(30)), Week(Holding(B, false, 10, 98), T0.AddDays(2))), T0, TimeSpan.Zero);
 
         var outlook = Forecast(T0).Outlook;
@@ -321,7 +330,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
 
         Assert.Equal(new[] { (LicenseOutlookSpanKinds.Room, T0, T0.AddDays(7)) }, Spans(outlook, C));
         Assert.Empty(outlook.Gaps);
-        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and {C} has room then.", outlook.Headline.Text);
+        Assert.Equal($"{A} runs out in about 8 hours 39 minutes, and {C} has room then.", outlook.Headline.Text);
         // The next account with room is one not in use: B, when its week resets - not C.
         Assert.Equal(("In about 2 days", $"{B}, when its weekly limit resets."), (outlook.NextRoom.ValueText, outlook.NextRoom.DetailText));
     }
@@ -338,7 +347,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         var forecast = Forecast(T0);
 
         Assert.Equal(new[] { (LicenseOutlookSpanKinds.Room, T0, T0.AddDays(7)) }, Spans(forecast.Outlook, C));
-        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and no other account can take its machines then: the one with room is left out of the automatic choice.",
+        Assert.Equal($"{A} runs out in about 8 hours 39 minutes, and no other account can take its machines then: the one with room is left out of the automatic choice.",
             forecast.Outlook.Headline.Text);
         Assert.Equal(LicenseTones.Warning, forecast.Outlook.Headline.Tone);
         Assert.Equal(("Then switches to", "No account can be chosen", LicenseTones.Bad), Rows(forecast, A)[2]);

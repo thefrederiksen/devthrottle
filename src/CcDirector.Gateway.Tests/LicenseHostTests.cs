@@ -53,6 +53,8 @@ public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
             new StringContent("{\"machineId\":\"94ebcb15a4bf40438dca738dd31189d9\"}", System.Text.Encoding.UTF8, "application/json"));
         // What is using the license: the read is mapped and answers; the price is the owner's alone.
         using var usage = await _sharedToken.GetAsync("gateway/licenses/usage");
+        // Make it last: the plan is a read too, and with no account it says so.
+        using var plan = await _sharedToken.GetAsync("gateway/licenses/plan");
         using var price = await _sharedToken.PutAsync("gateway/licenses/accounts/price",
             new StringContent("{\"accountEmail\":\"account-a@example.com\",\"monthlyPriceUsd\":200}", System.Text.Encoding.UTF8, "application/json"));
 
@@ -60,6 +62,9 @@ public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, usage.StatusCode);
         Assert.Equal("No machine has reported a Claude account yet, so there is nothing to measure.",
             JsonDocument.Parse(await usage.Content.ReadAsStringAsync()).RootElement.GetProperty("emptyText").GetString());
+        Assert.Equal(HttpStatusCode.OK, plan.StatusCode);
+        Assert.Equal("No machine has reported a Claude account yet, so there is nothing to measure.",
+            JsonDocument.Parse(await plan.Content.ReadAsStringAsync()).RootElement.GetProperty("emptyText").GetString());
         foreach (var refused in new[] { renewal, switchNow, forget, price })
         {
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);

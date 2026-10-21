@@ -55,6 +55,9 @@ public sealed class LicenseGuardTests
     [InlineData("HEAD", "/gateway/licenses/usage", true)]
     [InlineData("POST", "/gateway/licenses/usage", false)]
     [InlineData("GET", "/gateway/licenses/usage/x", false)]
+    [InlineData("GET", "/gateway/licenses/plan", true)]
+    [InlineData("POST", "/gateway/licenses/plan", false)]
+    [InlineData("GET", "/gateway/licenses/plan/x", false)]
     [InlineData("PUT", "/gateway/licenses/accounts/price", false)]
     [InlineData("GET", "/gateway/licenses/accounts/price", false)]
     public void TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(string method, string path, bool allowed)
@@ -86,6 +89,13 @@ public sealed class LicenseGuardTests
         Assert.True(SessionKeyGuard.Check("GET", LicenseUsageRoutes.Usage).Allowed);
         Assert.False(SessionKeyGuard.Check("PUT", LicenseUsageRoutes.AccountPrice).Allowed);
         Assert.False(SessionKeyGuard.Check("PUT", LicenseUsageRoutes.AccountPrice, raised: true).Allowed);
+    }
+
+    [Fact]
+    public void TheGuard_AllowsThePlanRead_ByTheSameConstantTheEndpointMapsItWith()
+    {
+        Assert.True(SessionKeyGuard.Check("GET", LicensePlanRoutes.Plan).Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", LicensePlanRoutes.Plan).Allowed);
     }
 
     [Fact]

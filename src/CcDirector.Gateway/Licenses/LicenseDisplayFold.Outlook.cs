@@ -188,7 +188,12 @@ public static partial class LicenseDisplayFold
         var fast = Utc(expected);
         var limit = window == LicenseWindowNames.FiveHour ? five : week;
         var resetAt = limit.ResetsAtUtc is { } resets ? Utc(resets) : end;
-        var slow = window == LicenseWindowNames.SevenDay ? AveragePaceReachesThresholdAt(week, Utc(reading.ReadAtUtc.Value)) : null;
+        // The late end of the weekly forecast is the forecaster's own: the time at this week's average pace. A rising
+        // average that does not reach the threshold before the reset runs the band to the reset.
+        DateTime? slow = window != LicenseWindowNames.SevenDay ? null
+            : forecast.SevenDay.AverageAtThresholdUtc is { } late ? Utc(late)
+            : forecast.SevenDay.AveragePercentPerHour is > 0 ? resetAt
+            : null;
         Add(now, fast, LicenseOutlookSpanKinds.Room, "Has room");
         if (slow is { } slowAt && slowAt > fast)
         {
@@ -233,24 +238,6 @@ public static partial class LicenseDisplayFold
         }
         var movedRoom = row.FirstRoom is { } first && first < until;
         return row with { Spans = spans, LimitWindow = movedRoom ? bar.Window : row.LimitWindow };
-    }
-
-    /// <summary>
-    /// When the weekly window reaches the threshold at its average pace so far this week: its use over the hours since
-    /// the week began (its reset time less seven days). Null when that cannot be told - no reset time, under an hour
-    /// into the week, no use yet - or when it would take longer than a week.
-    /// </summary>
-    private static DateTime? AveragePaceReachesThresholdAt(LicenseWindowReading week, DateTime readAt)
-    {
-        if (week.ResetsAtUtc is not { } reset || week.Utilization <= 0)
-            return null;
-        var hoursIn = (readAt - (Utc(reset) - LicenseDecisionEngine.SevenDayWindowLength)).TotalHours;
-        if (hoursIn < 1)
-            return null;
-        var hoursLeft = (LicenseDecisionEngine.ThresholdPercent - week.Utilization) / (week.Utilization / hoursIn);
-        if (double.IsNaN(hoursLeft) || hoursLeft > LicenseDecisionEngine.SevenDayWindowLength.TotalHours)
-            return null;
-        return readAt.AddHours(hoursLeft);
     }
 
     // ----- the gaps -----

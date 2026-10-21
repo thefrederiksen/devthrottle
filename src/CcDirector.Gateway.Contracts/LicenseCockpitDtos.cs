@@ -812,6 +812,18 @@ public sealed class LicenseWindowForecastDto
 
     /// <summary>The sentence for this window's forecast.</summary>
     public string ExpectedText { get; set; } = "";
+
+    /// <summary>The weekly window only: its use so far over the hours since the week began - the primary pace. Null for
+    /// the 5-hour window and when it cannot be told.</summary>
+    public double? AveragePercentPerHour { get; set; }
+
+    /// <summary>The weekly window only: its pace over at least the last 6 hours of kept readings; null until there are
+    /// that many.</summary>
+    public double? RecentPercentPerHour { get; set; }
+
+    /// <summary>The weekly window only: when it reaches the threshold at its average pace - the late end of the forecast;
+    /// null when the average pace does not reach it before the reset.</summary>
+    public DateTime? AverageAtLimitUtc { get; set; }
 }
 
 /// <summary>Which account one machine moves to next.</summary>
