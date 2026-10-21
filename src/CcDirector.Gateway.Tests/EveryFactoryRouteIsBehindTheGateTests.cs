@@ -28,6 +28,7 @@ public sealed class EveryFactoryRouteIsBehindTheGateTests
         // first (FactoryAgentsGate.AnswerFor) - proven in FactoryTalkEndpointTests and FactoryOwnerActionEndpointTests.
         ["POST /gateway/factories/{factory}/archive"] = "an owner action that asks the decision itself",
         ["POST /gateway/factories/{factory}/restore"] = "an owner action that asks the decision itself",
+        ["POST /gateway/factories/{factory}/delete"] = "an owner action that asks the decision itself",
         ["POST /gateway/factories/{factory}/waiting/handled-older"] = "an owner action that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/problems/{runId}/handle"] = "a talk that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk"] = "a talk that asks the decision itself",
