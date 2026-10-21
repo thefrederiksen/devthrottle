@@ -175,7 +175,12 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
         registry.Register(A, new RegisterFactoryRequest
         {
             Factory = "warmforward", Title = "WarmForward", Folder = "/home/soren/factories/warmforward", Computer = "devlinux",
-            Seats = { new FactorySeatManifest { Id = "scout", Name = "Scout", Role = "Scout", BriefFile = "agents/scout.yaml" } },
+            BossSeat = "boss",
+            Seats =
+            {
+                new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml" },
+                new FactorySeatManifest { Id = "scout", Name = "Scout", Role = "Scout", BriefFile = "agents/scout.yaml" },
+            },
         }, "the owner (test)", Now);
         var store = new FactoryBriefStore(db, registry);
 
@@ -376,7 +381,12 @@ public sealed class FactoryBriefPanelFoldTests : IDisposable
         registry.Register(A, new RegisterFactoryRequest
         {
             Factory = "warmforward", Title = "WarmForward", Folder = "/home/soren/factories/warmforward", Computer = "devlinux",
-            Seats = { new FactorySeatManifest { Id = "scout", Name = "Scout", Role = "Scout", BriefFile = "agents/scout.yaml" } },
+            BossSeat = "boss",
+            Seats =
+            {
+                new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml" },
+                new FactorySeatManifest { Id = "scout", Name = "Scout", Role = "Scout", BriefFile = "agents/scout.yaml" },
+            },
         }, "the owner (test)", Now);
         var store = new FactoryBriefStore(db, registry);
         // Version 1 published, 2 a draft, 3 published, 4 and 5 drafts: the shape Mixed() describes.

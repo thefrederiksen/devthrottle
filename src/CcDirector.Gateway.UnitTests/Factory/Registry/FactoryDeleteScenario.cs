@@ -31,6 +31,7 @@ internal static class FactoryDeleteScenario
             Title = "Eric",
             Folder = @"D:\eric",
             Computer = "SOREN_NORTH",
+            BossSeat = "boss",
             Seats = { new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml", Schedules = { "cj_eric" } } },
         }, "the owner", Now.AddDays(-30));
         using (var ctx = db.CreateContext(tenant))

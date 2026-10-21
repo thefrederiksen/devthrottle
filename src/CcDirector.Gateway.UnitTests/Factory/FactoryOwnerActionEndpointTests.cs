@@ -230,6 +230,7 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
             Title = "Machine Care",
             Folder = @"D:\ReposFred\machine-care",
             Computer = "SOREN_NORTH",
+            BossSeat = "caretaker",
             Seats = { new FactorySeatManifest { Id = "caretaker", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml" } },
         }, "the owner (test)", Now.AddDays(-20));
         var ours = Waiting("malik", "escalated", "Old website decision", Now.AddDays(-13));

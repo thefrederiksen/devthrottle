@@ -87,7 +87,7 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             nowUtc: () => Now,
             defined: new FactoryBriefEndpoints.Defined(defined,
-                new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody),
+                new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived),
                 new FactoryPublishApply(_db)));
 
         var schedules = new CronJobStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json"));

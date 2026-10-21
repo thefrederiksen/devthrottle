@@ -22,6 +22,9 @@ internal static class DefinitionFixture
     public static readonly FactoryDefinitionEndpoints.AskMachinesAsync AskNobody =
         (_, questions, _) => Task.FromResult(NotConnected(questions));
 
+    /// <summary>No factory is archived: the archive state a check meets in every test that is not about it (issue #4343).</summary>
+    public static readonly Func<Core.Tenancy.TenantId, string, bool> NoneArchived = (_, _) => false;
+
     /// <summary>One "no Director is connected" reply for each machine asked.</summary>
     public static IReadOnlyDictionary<string, MachineReply> NotConnected(IReadOnlyList<MachineQuestion> questions)
         => questions.ToDictionary(q => q.Machine, q => MachineReply.CouldNotAsk($"no Director on {q.Machine} is connected now."),

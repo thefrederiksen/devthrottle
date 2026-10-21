@@ -85,6 +85,11 @@ public sealed partial class FactoryRegistryStore
             using var ctx = _db.CreateContext(tenant);
             var linked = LinkedSchedules(ctx, entity.Factory);
             var existing = ctx.FactoryRegistry.FirstOrDefault(f => f.Factory == entity.Factory);
+            // EVERY FACTORY HAS A BOSS (issue #4343). Asked here, not in Validate, because only the stored row says
+            // whether the factory is archived, and an archived factory is left alone until it is restored: a scheduled
+            // re-registration from its own computer is never refused for a boss it never had.
+            if (entity.BossSeat is null && existing?.ArchivedAtUtc is null)
+                throw Refuse(NoBossSeat);
             CheckAgainstSchedules(entity, request!, linked, ArchivedScheduleIds(existing));
             if (existing is null)
             {
@@ -308,6 +313,11 @@ public sealed partial class FactoryRegistryStore
         if (line.Contains('\r') || line.Contains('\n')) throw Refuse($"Seat '{seatId}' names a line with a line break in it.");
         return line;
     }
+
+    /// <summary>The refusal of a manifest that names no boss seat (issue #4343): every factory has a Boss.</summary>
+    internal const string NoBossSeat =
+        "Every factory has a Boss, and the manifest names no boss seat. Add \"bossSeat\": \"boss\" and a seat with the id " +
+        "boss, the name Boss and the role Boss, then register again.";
 
     /// <summary>The keys a manifest may carry, as the refusal names them (the same list the command line enforces).</summary>
     private const string KnownManifestKeys = "factory, title, folder, computer, bossSeat, goalText, goalFile, goalApprovedOn and seats";

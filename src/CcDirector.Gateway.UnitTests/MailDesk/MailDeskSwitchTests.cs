@@ -642,7 +642,7 @@ public sealed class MailDeskSwitchTests : IDisposable
     {
         var files = new Dictionary<string, string>(MailDeskTemplate.Files, StringComparer.Ordinal);
         return new MailDeskTemplateOffer(new FactoryDefinitionStore(Db),
-            new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "devlinux" }, DefinitionFixture.AskNobody),
+            new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "devlinux" }, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived),
             sw.IsOn, () => _now, files);
     }
 

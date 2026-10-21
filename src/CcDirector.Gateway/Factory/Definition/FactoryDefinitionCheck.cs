@@ -40,6 +40,15 @@ public static class FactoryDefinitionCheck
     /// <summary>The role word a boss seat has.</summary>
     public const string BossRole = "Boss";
 
+    /// <summary>
+    /// The error on a factory.yaml that names no boss seat (issue #4343, the owner's ruling of 21 October 2026: "it
+    /// should always be mandatory that there's a boss"). The Boss holds what the factory is about - its goal, its memory
+    /// and the job of improving it - so a factory without one has nobody responsible for getting better. It says the fix.
+    /// </summary>
+    public const string NoBossSeat =
+        "Every factory has a Boss, and this factory.yaml names no boss seat. Add the line 'bossSeat: boss' here, and a " +
+        "seats/boss.yaml with seat: boss, name: Boss and role: Boss.";
+
     /// <summary>The path of the factory file.</summary>
     public const string FactoryFile = "factory.yaml";
 
@@ -73,6 +82,8 @@ public static class FactoryDefinitionCheck
     /// <paramref name="machineReplies"/> - what each seat's machine answered when the publish asked it (phase 5,
     /// <see cref="FactoryMachineQuestionAsker"/>), keyed by machine name. The check never asks a machine itself: the
     /// caller asks first, then checks. A publish must pass the replies; a save ignores them.
+    /// <paramref name="archived"/> says the factory is archived: an archived factory is left alone (issue #4343), so it
+    /// is not refused for having no boss seat until it is restored. Every other rule still applies to it.
     /// </summary>
     public static FactoryDefinitionCheckResult Check(
         IReadOnlyDictionary<string, string> content,
@@ -80,7 +91,8 @@ public static class FactoryDefinitionCheck
         IReadOnlyCollection<string> fleetSkillIds,
         IReadOnlyCollection<string> connectedMachines,
         DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save,
-        IReadOnlyDictionary<string, MachineReply>? machineReplies = null)
+        IReadOnlyDictionary<string, MachineReply>? machineReplies = null,
+        bool archived = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(factoryId);
@@ -89,14 +101,14 @@ public static class FactoryDefinitionCheck
         if (purpose == DefinitionCheckPurpose.Publish && machineReplies is null)
             throw new ArgumentNullException(nameof(machineReplies),
                 "A publish check needs what the seats' machines answered: ask them first (FactoryMachineQuestionAsker), then check.");
-        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, purpose={purpose}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}, replies={machineReplies?.Count ?? 0}");
+        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, purpose={purpose}, archived={archived}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}, replies={machineReplies?.Count ?? 0}");
 
         var findings = new List<DefinitionFinding>();
         var parsed = ReadFormat(content, findings);
         FactoryDefinition? definition = null;
         if (parsed is not null)
         {
-            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, purpose, machineReplies, findings).Run();
+            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, purpose, machineReplies, archived, findings).Run();
             if (!findings.Any(f => f.IsError)) definition = Build(parsed);
         }
 
@@ -414,16 +426,18 @@ public static class FactoryDefinitionCheck
         private readonly List<DefinitionFinding> _findings;
         private readonly DefinitionCheckPurpose _purpose;
         private readonly IReadOnlyDictionary<string, MachineReply>? _replies;
+        private readonly bool _archived;
         private readonly HashSet<string> _repositories = new(StringComparer.Ordinal);
         private string _defaultMachine = "";
         private string _defaultAgent = "";
 
         public ReferenceCheck(Parsed parsed, string factoryId, IReadOnlyCollection<string> fleetSkills,
             IReadOnlyCollection<string> machines, DefinitionCheckPurpose purpose,
-            IReadOnlyDictionary<string, MachineReply>? replies, List<DefinitionFinding> findings)
+            IReadOnlyDictionary<string, MachineReply>? replies, bool archived, List<DefinitionFinding> findings)
         {
             _p = parsed;
             _purpose = purpose;
+            _archived = archived;
             _replies = replies is null ? null : new Dictionary<string, MachineReply>(replies, StringComparer.OrdinalIgnoreCase);
             _factoryId = factoryId;
             _fleetSkills = new HashSet<string>(fleetSkills, StringComparer.Ordinal);
@@ -493,7 +507,10 @@ public static class FactoryDefinitionCheck
                     Error(_findings, path, approvedOn.KeyLine, $"goalApprovedOn is '{Text(approvedOn)}', which is not a real date. Write it YYYY-MM-DD.");
             }
 
-            if (map.Find("bossSeat") is { } boss)
+            var boss = map.Find("bossSeat");
+            if (boss is null && !_archived)
+                Error(_findings, path, factory.KeyLine, NoBossSeat);
+            if (boss is not null)
             {
                 var bossId = Text(boss);
                 if (!_p.Seats.TryGetValue(bossId, out var bossSeat))

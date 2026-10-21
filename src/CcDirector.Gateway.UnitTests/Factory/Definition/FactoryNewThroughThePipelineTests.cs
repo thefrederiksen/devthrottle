@@ -57,10 +57,10 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
         var apply = new FactoryPublishApply(_db);
         var record = new FactoryActivityRecord(_db);
         var settings = new TenantSettingsStore(_db);
-        var account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody);
+        var account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived);
         var triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(_db);
         FactoryDefinitionEndpoints.Map(_routes, _ => T, _store, _ => SessionFactoryLookup.NotKnown,
-            account.FleetSkillsOf, account.ConnectedMachinesOf, (_, _) => null, apply, () => Now, DefinitionFixture.AskNobody,
+            account.FleetSkillsOf, account.ConnectedMachinesOf, (_, _) => null, apply, () => Now, DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived,
             new FactoryDefinitionEndpoints.CheckStateParts(triggers.CheckStates, triggers.List, _ => Array.Empty<CronJobDto>()));
         var sources = new FactoriesScreenSources(
             new FactoryAgentsSources(

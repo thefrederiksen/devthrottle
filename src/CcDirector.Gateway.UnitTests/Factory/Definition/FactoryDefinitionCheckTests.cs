@@ -749,6 +749,55 @@ public sealed class FactoryDefinitionCheckTests
         AssertOneError(result, "factory.yaml", 7, "The boss seat 'boss' has the role 'Manager'; a boss seat's role must be Boss.");
     }
 
+    // ---------- every factory has a Boss (issue #4343) ----------
+
+    [Theory]
+    [InlineData(DefinitionCheckPurpose.Save)]
+    [InlineData(DefinitionCheckPurpose.Publish)]
+    public void Check_NoBossSeat_IsRefusedOnTheFactoryLine_WithTheFix(DefinitionCheckPurpose purpose)
+    {
+        var content = Edit("factory.yaml", "bossSeat: boss", "");
+
+        var result = FactoryDefinitionCheck.Check(content, FactoryId, FleetSkills, Machines, purpose,
+            purpose == DefinitionCheckPurpose.Save ? null : NotConnected(content));
+
+        var error = AssertOneError(result, "factory.yaml", 1, "Every factory has a Boss");
+        Assert.Equal(FactoryDefinitionCheck.NoBossSeat, error.Message);
+        Assert.Contains("bossSeat: boss", error.Message);
+        Assert.Contains("seats/boss.yaml", error.Message);
+        Assert.Null(result.Definition);
+    }
+
+    [Fact]
+    public void Check_NoBossSeat_OfAnArchivedFactory_IsNotRefused()
+    {
+        var result = FactoryDefinitionCheck.Check(Edit("factory.yaml", "bossSeat: boss", ""), FactoryId, FleetSkills, Machines,
+            archived: true);
+
+        Assert.DoesNotContain(result.Findings, f => f.IsError);
+        Assert.Null(result.Definition!.BossSeat);
+    }
+
+    [Fact]
+    public void Check_WithABossSeat_IsAccepted()
+    {
+        var result = Check(Valid());
+
+        Assert.DoesNotContain(result.Findings, f => f.IsError);
+        Assert.Equal("boss", result.Definition!.BossSeat);
+    }
+
+    [Fact]
+    public void Read_NoBossSeat_StillParses_SoAStoredVersionFromBeforeTheRuleStaysReadable()
+    {
+        // The rule refuses a write, never a read: a seat start, a diff or an export of a version stored before
+        // 21 October 2026 reads it exactly as before.
+        var result = FactoryDefinitionCheck.Read(Edit("factory.yaml", "bossSeat: boss", ""));
+
+        Assert.Empty(result.Findings);
+        Assert.NotNull(result.Definition);
+    }
+
     [Fact]
     public void Check_SeatRepositoryNotTheFactorys_IsAnErrorOnTheRepositoryLine()
     {

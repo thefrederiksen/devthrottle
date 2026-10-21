@@ -383,7 +383,7 @@ internal static class FactoryBriefEndpoints
         else
         {
             check = FactoryDefinitionCheck.Check(draft.Content!, factoryId, defined.Account.FleetSkillsOf(tenant),
-                defined.Account.ConnectedMachinesOf(tenant));
+                defined.Account.ConnectedMachinesOf(tenant), archived: defined.Account.IsArchived(tenant, factoryId));
             if (check.HasErrors)
                 return FactoryDefinitionEndpoints.CheckRefused(factoryId, check, $"The brief of '{seatId}' was not saved");
 

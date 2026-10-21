@@ -80,6 +80,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             apply: apply,
             nowUtc: () => Now,
             askMachines: askMachines ?? DefinitionFixture.AskNobody,
+            isArchived: DefinitionFixture.NoneArchived,
             checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List,
                 _ => Array.Empty<CronJobDto>()));
         FactoryDefinitionEndpoints.MapCreate(routes,
@@ -87,7 +88,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             store: new FactoryDefinitionStore(_db),
             sessionFactoryOf: FactoryOf,
             account: new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines,
-                DefinitionFixture.AskNobody),
+                DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived),
             nowUtc: () => Now,
             whyNotNew: (_, _) => _taken);
         return routes;

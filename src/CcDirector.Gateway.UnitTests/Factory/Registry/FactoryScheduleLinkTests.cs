@@ -61,13 +61,17 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         _h.Dispose();
     }
 
+    /// <summary>The DevThrottle factory with these seats, and its Boss: every factory has one (issue #4343).</summary>
     private static RegisterFactoryRequest Devthrottle(params string[] seats) => new()
     {
         Factory = "devthrottle",
         Title = "DevThrottle",
         Folder = @"D:\ReposFred\devthrottle-factory\factory",
         Computer = "SOREN_NORTH",
-        Seats = seats.Select(s => new FactorySeatManifest { Id = s, Name = s, Role = s, BriefFile = $"agents/{s}.yaml" }).ToList(),
+        BossSeat = "boss",
+        Seats = seats.Select(s => new FactorySeatManifest { Id = s, Name = s, Role = s, BriefFile = $"agents/{s}.yaml" })
+            .Append(new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml" })
+            .ToList(),
     };
 
     private static CronJobDto Schedule(string? factory, string? seat, string name = "Mail Desk - morning") => new()
@@ -143,7 +147,7 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         var (status, error, _) = await Post(Schedule("devthrottle", "mail-desk"));
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Contains("'mail-desk' is not a seat of DevThrottle (devthrottle); its seats are: ceo, onboarding", error);
+        Assert.Contains("'mail-desk' is not a seat of DevThrottle (devthrottle); its seats are: ceo, onboarding, boss", error);
         Assert.Contains("Add the seat to the factory's manifest and register it", error);
         Assert.Empty(_schedules.ListAll());
     }
@@ -345,7 +349,7 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
 
         var registered = _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now.AddMinutes(1));
 
-        Assert.Equal(new[] { "ceo" }, registered.Seats.Select(s => s.Id));
+        Assert.Equal(new[] { "ceo", "boss" }, registered.Seats.Select(s => s.Id));
     }
 
     // ---------- point 4: the seat's list is derived, and a manifest cannot claim a schedule ----------

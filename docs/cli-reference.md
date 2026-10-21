@@ -1870,7 +1870,7 @@ registers a factory with a field silently missing):
   "title": "WarmForward",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",   absolute, on its computer
   "computer": "SOREN_NORTH",
-  "bossSeat": "boss",                               optional; one of the seats - the boss has no name: its name is Boss
+  "bossSeat": "boss",                               required; one of the seats - the boss has no name: its name is Boss
   "goalFile": "GOAL.md",                            optional; relative to the folder
   "goalApprovedOn": "2026-10-04",                   optional; YYYY-MM-DD
   "purpose": "Heating monitoring for homeowners",    optional; one line, at most 120 characters

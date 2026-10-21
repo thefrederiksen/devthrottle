@@ -38,7 +38,7 @@ public sealed class MailDeskTemplateTests : IDisposable
     {
         _store = new FactoryDefinitionStore(_h.Open());
         _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "devlinux" },
-            DefinitionFixture.AskNobody);
+            DefinitionFixture.AskNobody, DefinitionFixture.NoneArchived);
     }
 
     public void Dispose() => _h.Dispose();
@@ -105,18 +105,18 @@ public sealed class MailDeskTemplateTests : IDisposable
         var withAddress = definitionFiles.Where(f => address.IsMatch(f.Value)).Select(f => f.Key).ToList();
 
         // Assert
-        Assert.Equal(2, definitionFiles.Count);
+        Assert.Equal(3, definitionFiles.Count);
         Assert.Empty(withAddress);
     }
 
     [Fact]
-    public void Read_Template_IsTheMailDeskFactoryWithOneSeatAndOneCheckedStart()
+    public void Read_Template_IsTheMailDeskFactoryWithItsSeatAndOneCheckedStart()
     {
         // Arrange
         var definition = Parsed();
 
         // Act
-        var seat = Assert.Single(definition.Seats);
+        var seat = Assert.Single(definition.Seats, s => s.Seat == MailDeskTemplate.Seat);
         var start = Assert.Single(seat.Starts);
 
         // Assert
@@ -138,7 +138,7 @@ public sealed class MailDeskTemplateTests : IDisposable
     public void Read_SeatBrief_TeachesTheCommandsAndTheLimits()
     {
         // Arrange
-        var brief = Assert.Single(Parsed().Seats).Brief;
+        var brief = Assert.Single(Parsed().Seats, s => s.Seat == MailDeskTemplate.Seat).Brief;
 
         // Act + Assert: what it receives, the commands it uses, and what it never does.
         Assert.Contains("not for me", brief, StringComparison.OrdinalIgnoreCase);
@@ -159,6 +159,23 @@ public sealed class MailDeskTemplateTests : IDisposable
         Assert.Contains("Never send a message", brief);
         Assert.Contains("Never delete a message", brief);
         Assert.Contains("Archive or Junk only", brief);
+    }
+
+    [Fact]
+    public void Read_Template_HasABossSeat_NamedAndRoledBoss_WithNoStart()
+    {
+        // Arrange: every factory has a Boss (issue #4343), the template's included.
+        var definition = Parsed();
+
+        // Act
+        var boss = Assert.Single(definition.Seats, s => s.Seat == MailDeskTemplate.BossSeat);
+
+        // Assert: talk-only, as the owner's own Mail Desk was given one by hand on 21 October 2026.
+        Assert.Equal(MailDeskTemplate.BossSeat, definition.BossSeat);
+        Assert.Equal(FactoryDefinitionCheck.BossRole, boss.Name);
+        Assert.Equal(FactoryDefinitionCheck.BossRole, boss.Role);
+        Assert.Empty(boss.Starts);
+        Assert.Equal(2, definition.Seats.Count);
     }
 
     // ---------- the template version ----------

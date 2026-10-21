@@ -21,7 +21,7 @@ THE MANIFEST is JSON (no extra dependency, and the Gateway's own shape), with ex
       "title": "WarmForward",                         its name as the owner reads it
       "folder": "D:\\ReposFred\\cc-consult\\...",      absolute path on its computer
       "computer": "SOREN_NORTH",                      the machine it runs on
-      "bossSeat": "boss",                             optional: the seat that is the boss
+      "bossSeat": "boss",                             required: the seat that is the boss; every factory has one
       "goalFile": "GOAL.md",                          optional: relative to the folder; its text is sent
       "goalApprovedOn": "2026-10-04",                 optional: the day the owner approved the goal
       "purpose": "Heating monitoring for homeowners",  optional: one line on what it is for (max 120 chars);

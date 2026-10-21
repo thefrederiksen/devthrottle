@@ -93,6 +93,8 @@ internal static class FactoryDefinitionEndpoints
         FactoryPublishApply apply,
         Func<DateTime> nowUtc,
         AskMachinesAsync askMachines,
+        // Issue #4343: whether a factory is archived, so an archived one is not refused for having no boss seat.
+        Func<TenantId, string, bool> isArchived,
         // Phase 5b: the state each check keeps, and the account's triggers the checked starts are run by. REQUIRED:
         // a wiring line that forgot it must not compile.
         CheckStateParts checkStates)
@@ -107,8 +109,9 @@ internal static class FactoryDefinitionEndpoints
         ArgumentNullException.ThrowIfNull(liveOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
         ArgumentNullException.ThrowIfNull(askMachines);
+        ArgumentNullException.ThrowIfNull(isArchived);
 
-        var account = new Account(fleetSkillsOf, connectedMachinesOf, askMachines);
+        var account = new Account(fleetSkillsOf, connectedMachinesOf, askMachines, isArchived);
         const string factoryRoute = Prefix + "/{factory}";
         app.MapGet(factoryRoute, (HttpContext ctx, string factory) =>
             ReadPublished(ctx, factory, store, resolveTenant, sessionFactoryOf));
@@ -231,11 +234,13 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>What the whole-definition check needs to know about the account: its fleet skill ids, the machines its
     /// Directors report now, and - for a publish or a restore - what each seat's machine answers when it is asked
-    /// (<see cref="FactoryMachineQuestionAsker"/>). All are read at the moment of the write, never cached.</summary>
+    /// (<see cref="FactoryMachineQuestionAsker"/>), and whether a factory is archived: an archived factory is not refused
+    /// for having no boss seat (issue #4343). All are read at the moment of the write, never cached.</summary>
     internal sealed record Account(
         Func<TenantId, IReadOnlyCollection<string>> FleetSkillsOf,
         Func<TenantId, IReadOnlyCollection<string>> ConnectedMachinesOf,
-        AskMachinesAsync AskMachines);
+        AskMachinesAsync AskMachines,
+        Func<TenantId, string, bool> IsArchived);
 
     /// <summary>GET the published definition, with its content.</summary>
     internal static IResult ReadPublished(HttpContext ctx, string factory, FactoryDefinitionStore store,
@@ -864,7 +869,8 @@ internal static class FactoryDefinitionEndpoints
 
     private static FactoryDefinitionCheckResult Check(IReadOnlyDictionary<string, string> content, string factory,
         TenantId tenant, Account account, DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)
-        => FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant), purpose);
+        => FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant), purpose,
+            archived: account.IsArchived(tenant, factory));
 
     /// <summary>
     /// THE CHECK A PUBLISH OR A RESTORE RUNS (phase 5, design section 6): ask first, then check. The definition is read
@@ -878,7 +884,7 @@ internal static class FactoryDefinitionEndpoints
         var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content);
         var replies = await account.AskMachines(tenant, questions, ct);
         return FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant),
-            DefinitionCheckPurpose.Publish, replies);
+            DefinitionCheckPurpose.Publish, replies, account.IsArchived(tenant, factory));
     }
 
     /// <summary>
