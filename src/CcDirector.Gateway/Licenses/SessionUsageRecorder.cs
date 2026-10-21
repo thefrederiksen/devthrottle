@@ -88,14 +88,17 @@ public sealed class SessionUsageRecorder
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(overview);
-        var accountByDirector = overview.Machines
+        var machineByDirector = overview.Machines
             .Where(m => !string.IsNullOrWhiteSpace(m.DirectorId))
             .GroupBy(m => m.DirectorId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.LastReportAtUtc).First().ActiveAccountEmail, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.LastReportAtUtc).First(), StringComparer.OrdinalIgnoreCase);
+        var accountByDirector = machineByDirector.ToDictionary(p => p.Key, p => p.Value.ActiveAccountEmail, StringComparer.OrdinalIgnoreCase);
         return live
             .Where(l => !string.IsNullOrEmpty(l.Session.SessionId))
             .GroupBy(l => l.Session.SessionId, StringComparer.Ordinal)
-            .Select(g => g.First())
+            // A session two Directors push (one moved it, the old one is not forgotten yet): the copy on the machine that
+            // reported last, so the account tag is the machine it runs on now.
+            .Select(g => g.OrderByDescending(l => machineByDirector.TryGetValue(l.DirectorId, out var m) ? m.LastReportAtUtc : DateTime.MinValue).First())
             .Select(l =>
             {
                 var s = l.Session;

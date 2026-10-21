@@ -40,11 +40,16 @@ public static class SessionUsageMath
     /// <summary>
     /// The use between the report <paramref name="previous"/> (null when there was none) and <paramref name="next"/>.
     /// <paramref name="sameConversation"/> is false when the two were counted from different agent conversations.
+    /// An identical report is no use, whichever conversation it names: after a clear the Director names the new
+    /// conversation at once but re-reads the counts only at its first turn end, so for a while it sends the OLD
+    /// conversation's counts under the NEW name - counting those again would double the session's whole life.
     /// </summary>
     public static RawTokens Change(RawTokens? previous, RawTokens next, bool sameConversation)
     {
         if (previous is not { } before)
             return next;
+        if (next == before)
+            return default;
         var restarted = !sameConversation
             || next.Input < before.Input
             || next.Output < before.Output

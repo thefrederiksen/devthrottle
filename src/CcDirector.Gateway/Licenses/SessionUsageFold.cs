@@ -100,7 +100,7 @@ public static class SessionUsageFold
                 "but no session in the record used it then - the use came from somewhere DevThrottle does not see.");
         var perWeighted = span.RisePercent / weightedInSpan;
         return new SessionUsageCalibration(perWeighted, span.FromUtc, span.ToUtc, span.RisePercent, weightedInSpan,
-            $"Measured over the last {Hours(span.ToUtc - span.FromUtc)}: the weekly use rose {Points(span.RisePercent)} while the sessions " +
+            $"Measured between this week's first kept reading and its latest, {Hours(span.ToUtc - span.FromUtc)} apart: the weekly use rose {Points(span.RisePercent)} while the sessions " +
             $"used {Millions(weightedInSpan)} weighted units, so a million weighted units is about {Pct(perWeighted * 1_000_000)} of the week.");
     }
 
@@ -152,12 +152,12 @@ public static class SessionUsageFold
         var hour = SumFor(input.LastHour, account);
         var four = SumFor(input.Last4Hours, account);
 
-        var shown = new List<LicenseUsageSessionDto>();
+        // Every session that used the account, gone ones included: the burn and the groups are measured over all of
+        // them, so the answer does not depend on whether gone sessions are listed.
+        var all = new List<LicenseUsageSessionDto>();
         foreach (var row in input.Rows)
         {
             var live = input.Live.Contains(row.SessionId);
-            if (!live && !input.IncludeGone)
-                continue;
             var soFarWeighted = SessionUsageStore.WeightedByAccount(row).TryGetValue(account, out var w) ? w : 0;
             var onAccountNow = live && string.Equals(row.AccountEmail, account, StringComparison.Ordinal);
             if (soFarWeighted <= 0 && !onAccountNow)
@@ -165,7 +165,7 @@ public static class SessionUsageFold
             var end = live ? now : row.LastSeenAtUtc;
             var runningHours = Math.Max(0, (end - row.StartedAtUtc).TotalHours);
             var soFar = f * soFarWeighted;
-            shown.Add(new LicenseUsageSessionDto
+            all.Add(new LicenseUsageSessionDto
             {
                 SessionId = row.SessionId,
                 Number = row.Number,
@@ -193,19 +193,20 @@ public static class SessionUsageFold
             });
         }
 
-        response.Sessions = shown
+        response.Sessions = all
+            .Where(s => s.IsLive || input.IncludeGone)
             .OrderByDescending(s => s.WeightedLastHour)
             .ThenByDescending(s => s.WeightedSoFar)
             .ThenBy(s => s.Number ?? int.MaxValue)
             .ThenBy(s => s.SessionId, StringComparer.Ordinal)
             .ToList();
-        response.BurnPercentPerHour = f is null ? null : response.Sessions.Sum(s => s.RateNowPercentPerHour ?? 0);
+        response.BurnPercentPerHour = f is null ? null : all.Sum(s => s.RateNowPercentPerHour ?? 0);
         response.BurnText = response.BurnPercentPerHour is { } burn
             ? $"All sessions together are using about {Pct(burn)} of the weekly limit an hour, measured over the last hour."
             : "Not known until the account's calibration is measured.";
         response.UnitText = UnitText(account, response.BurnPercentPerHour, response.Sessions.FirstOrDefault(), input.MonthlyPriceCents, dollarsPerPercent);
-        response.TopLevel = Groups(response.Sessions, s => s.TopLevelSessionId, id => TopLabel(id, byId), id => byId.TryGetValue(id!, out var r) ? r.Number : null, dollarsPerPercent, topFirst: true);
-        response.Missions = Groups(response.Sessions, s => s.MissionId?.ToString(), id => MissionLabel(id, response.Sessions), _ => null, dollarsPerPercent, topFirst: false);
+        response.TopLevel = Listed(Groups(all, s => s.TopLevelSessionId, id => TopLabel(id, byId), id => byId.TryGetValue(id!, out var r) ? r.Number : null, dollarsPerPercent, topFirst: true), input.IncludeGone);
+        response.Missions = Listed(Groups(all, s => s.MissionId?.ToString(), id => MissionLabel(id, all), _ => null, dollarsPerPercent, topFirst: false), input.IncludeGone);
         if (response.Sessions.Count == 0)
             response.EmptyText = input.IncludeGone
                 ? $"No session in the record has used {account}."
@@ -231,6 +232,11 @@ public static class SessionUsageFold
         => uses.Where(u => u.AccountEmail == account)
             .GroupBy(u => u.SessionId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Sum(u => u.Weighted), StringComparer.Ordinal);
+
+    // Without gone sessions, a group none of whose sessions is live is not listed; the ones listed keep the use of all
+    // their sessions.
+    private static List<LicenseUsageGroupDto> Listed(List<LicenseUsageGroupDto> groups, bool includeGone)
+        => includeGone ? groups : groups.Where(g => g.LiveSessionIds.Count > 0).ToList();
 
     private static List<LicenseUsageGroupDto> Groups(IReadOnlyList<LicenseUsageSessionDto> sessions,
         Func<LicenseUsageSessionDto, string?> keyOf, Func<string?, string> labelOf, Func<string?, int?> numberOf,

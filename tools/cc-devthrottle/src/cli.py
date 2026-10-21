@@ -2267,7 +2267,7 @@ def license_usage(
 def license_sessions(
     account: Optional[str] = typer.Option(None, "--account", help="The Claude account to ask about. Default: the one in use."),
     by: str = typer.Option("session", "--by", help="One row per: session (default), top (each top-level session with "
-                           "every session under it), mission."),
+                           "every session under it), mission. A table layout: --json always holds all three."),
     closed: bool = typer.Option(False, "--closed", help="Also list sessions that have gone in the last 7 days, with their totals."),
     fields: Optional[str] = typer.Option(
         None, "--fields",

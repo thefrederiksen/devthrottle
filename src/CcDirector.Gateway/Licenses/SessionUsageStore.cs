@@ -101,10 +101,15 @@ public sealed class SessionUsageStore
                     continue;
 
                 var next = RawTokens.Of(totals);
-                var sameConversation = string.Equals(row.AgentConversationId, s.AgentConversationId, StringComparison.Ordinal);
+                var conversation = Cap(s.AgentConversationId, 128);
+                var sameConversation = string.Equals(row.AgentConversationId, conversation, StringComparison.Ordinal);
                 RawTokens? previous = row.HasBaseline
                     ? new RawTokens(row.LastInputTokens, row.LastOutputTokens, row.LastCacheReadTokens, row.LastCacheCreationTokens)
                     : null;
+                // The old conversation's counts sent under a new conversation's name (SessionUsageMath.Change): nothing
+                // was used, and the conversation is not taken as changed until counts of its own arrive with it.
+                if (previous == next)
+                    continue;
                 var change = SessionUsageMath.Change(previous, next, sameConversation);
                 var weighted = SessionUsageMath.Weighted(change);
                 if (weighted > 0)
@@ -130,7 +135,7 @@ public sealed class SessionUsageStore
                     }
                 }
                 row.HasBaseline = true;
-                row.AgentConversationId = Cap(s.AgentConversationId, 128);
+                row.AgentConversationId = conversation;
                 row.LastInputTokens = next.Input;
                 row.LastOutputTokens = next.Output;
                 row.LastCacheReadTokens = next.CacheRead;
@@ -216,11 +221,22 @@ public sealed class SessionUsageStore
     /// <summary>Every session row last seen at or after <paramref name="sinceUtc"/>.</summary>
     public IReadOnlyList<SessionUsageEntity> ReadSessions(TenantId tenant, DateTime sinceUtc)
     {
-        var since = Utc(sinceUtc);
-        lock (_gate)
+        FileLog.Write($"[SessionUsageStore] ReadSessions: tenant={tenant.ToLogString()}, since={sinceUtc:O}");
+        try
         {
-            using var ctx = _db.CreateContext(tenant);
-            return ctx.SessionUsage.AsNoTracking().Where(r => r.LastSeenAtUtc >= since).ToList();
+            var since = Utc(sinceUtc);
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var rows = ctx.SessionUsage.AsNoTracking().Where(r => r.LastSeenAtUtc >= since).ToList();
+                FileLog.Write($"[SessionUsageStore] ReadSessions: rows={rows.Count}");
+                return rows;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionUsageStore] ReadSessions FAILED: {ex.Message}");
+            throw;
         }
     }
 
@@ -228,17 +244,28 @@ public sealed class SessionUsageStore
     /// summed in the database.</summary>
     public IReadOnlyList<SessionAccountUse> UseSince(TenantId tenant, DateTime fromUtc)
     {
-        var from = Utc(fromUtc);
-        lock (_gate)
+        FileLog.Write($"[SessionUsageStore] UseSince: tenant={tenant.ToLogString()}, from={fromUtc:O}");
+        try
         {
-            using var ctx = _db.CreateContext(tenant);
-            return ctx.SessionUsageSamples.AsNoTracking()
-                .Where(s => s.AtUtc > from)
-                .GroupBy(s => new { s.SessionId, s.AccountEmail })
-                .Select(g => new { g.Key.SessionId, g.Key.AccountEmail, Weighted = g.Sum(s => s.Weighted) })
-                .ToList()
-                .Select(g => new SessionAccountUse(g.SessionId, g.AccountEmail ?? "", g.Weighted))
-                .ToList();
+            var from = Utc(fromUtc);
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var uses = ctx.SessionUsageSamples.AsNoTracking()
+                    .Where(s => s.AtUtc > from)
+                    .GroupBy(s => new { s.SessionId, s.AccountEmail })
+                    .Select(g => new { g.Key.SessionId, g.Key.AccountEmail, Weighted = g.Sum(s => s.Weighted) })
+                    .ToList()
+                    .Select(g => new SessionAccountUse(g.SessionId, g.AccountEmail ?? "", g.Weighted))
+                    .ToList();
+                FileLog.Write($"[SessionUsageStore] UseSince: uses={uses.Count}");
+                return uses;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionUsageStore] UseSince FAILED: {ex.Message}");
+            throw;
         }
     }
 
@@ -246,31 +273,57 @@ public sealed class SessionUsageStore
     /// <paramref name="fromUtc"/> and up to and including <paramref name="toUtc"/>.</summary>
     public double AccountUseBetween(TenantId tenant, string accountEmail, DateTime fromUtc, DateTime toUtc)
     {
-        var email = LicenseStore.NormalizeEmail(accountEmail);
-        var (from, to) = (Utc(fromUtc), Utc(toUtc));
-        lock (_gate)
+        FileLog.Write($"[SessionUsageStore] AccountUseBetween: tenant={tenant.ToLogString()}, from={fromUtc:O}, to={toUtc:O}");
+        try
         {
-            using var ctx = _db.CreateContext(tenant);
-            return ctx.SessionUsageSamples.AsNoTracking()
-                .Where(s => s.AccountEmail == email && s.AtUtc > from && s.AtUtc <= to)
-                .Sum(s => (double?)s.Weighted) ?? 0;
+            var email = LicenseStore.NormalizeEmail(accountEmail);
+            var (from, to) = (Utc(fromUtc), Utc(toUtc));
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var weighted = ctx.SessionUsageSamples.AsNoTracking()
+                    .Where(s => s.AccountEmail == email && s.AtUtc > from && s.AtUtc <= to)
+                    .Sum(s => (double?)s.Weighted) ?? 0;
+                FileLog.Write($"[SessionUsageStore] AccountUseBetween: weighted={weighted:0}");
+                return weighted;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionUsageStore] AccountUseBetween FAILED: {ex.Message}");
+            throw;
         }
     }
 
-    /// <summary>Every kept reading at or after <paramref name="sinceUtc"/>, oldest first.</summary>
-    public IReadOnlyList<LicenseUsageReadingRecord> ReadReadings(TenantId tenant, DateTime sinceUtc)
+    /// <summary>Every kept reading at or after <paramref name="sinceUtc"/>, oldest first; of one account only when
+    /// <paramref name="accountEmail"/> is given, filtered in the database.</summary>
+    public IReadOnlyList<LicenseUsageReadingRecord> ReadReadings(TenantId tenant, DateTime sinceUtc, string? accountEmail = null)
     {
-        var since = Utc(sinceUtc);
-        lock (_gate)
+        FileLog.Write($"[SessionUsageStore] ReadReadings: tenant={tenant.ToLogString()}, since={sinceUtc:O}, oneAccount={accountEmail is not null}");
+        try
         {
-            using var ctx = _db.CreateContext(tenant);
-            return ctx.LicenseUsageReadings.AsNoTracking()
-                .Where(r => r.AtUtc >= since)
-                .OrderBy(r => r.AtUtc)
-                .ToList()
-                .Select(r => new LicenseUsageReadingRecord(r.AccountEmail, Utc(r.AtUtc), r.SevenDayUtilization,
-                    NullableUtc(r.SevenDayResetsAtUtc), r.FiveHourUtilization, NullableUtc(r.FiveHourResetsAtUtc)))
-                .ToList();
+            var since = Utc(sinceUtc);
+            var email = accountEmail is null ? null : LicenseStore.NormalizeEmail(accountEmail);
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var query = ctx.LicenseUsageReadings.AsNoTracking().Where(r => r.AtUtc >= since);
+                if (email is not null)
+                    query = query.Where(r => r.AccountEmail == email);
+                var readings = query
+                    .OrderBy(r => r.AtUtc)
+                    .ToList()
+                    .Select(r => new LicenseUsageReadingRecord(r.AccountEmail, Utc(r.AtUtc), r.SevenDayUtilization,
+                        NullableUtc(r.SevenDayResetsAtUtc), r.FiveHourUtilization, NullableUtc(r.FiveHourResetsAtUtc)))
+                    .ToList();
+                FileLog.Write($"[SessionUsageStore] ReadReadings: readings={readings.Count}");
+                return readings;
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionUsageStore] ReadReadings FAILED: {ex.Message}");
+            throw;
         }
     }
 

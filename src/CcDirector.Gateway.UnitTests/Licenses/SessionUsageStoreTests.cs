@@ -70,6 +70,34 @@ public sealed class SessionUsageStoreTests : IDisposable
     }
 
     [Fact]
+    public void Observe_CountsNothing_WhenANewConversationIsNamedWithTheOldConversationsCounts()
+    {
+        // After a clear the Director names the new conversation at once but re-reads the counts only at its first turn
+        // end: until then the old counts arrive under the new name, and they are not new use.
+        _usage.Observe(TenantOne, new[] { Seen("s1", 1000, 100) }, T0);
+        var samples = _usage.Observe(TenantOne, new[] { Seen("s1", 1000, 100, conversation: "conv-2") }, T0.AddMinutes(1));
+        // Then the new conversation's own first counts, smaller: all of them are new use.
+        _usage.Observe(TenantOne, new[] { Seen("s1", 10, 2, conversation: "conv-2") }, T0.AddMinutes(2));
+
+        Assert.Equal(0, samples);
+        var row = Assert.Single(_usage.ReadSessions(TenantOne, T0.AddDays(-1)));
+        Assert.Equal(1500 + 20, row.WeightedTotal);
+        var use = Assert.Single(_usage.UseSince(TenantOne, T0));
+        Assert.Equal(20.0, use.Weighted);
+    }
+
+    [Fact]
+    public void Observe_CountsANewConversationsOwnCounts_WholeEvenWhenLarger_AfterTheOldCountsCameUnderItsName()
+    {
+        _usage.Observe(TenantOne, new[] { Seen("s1", 1000, 100) }, T0);
+        _usage.Observe(TenantOne, new[] { Seen("s1", 1000, 100, conversation: "conv-2") }, T0.AddMinutes(1));
+        _usage.Observe(TenantOne, new[] { Seen("s1", 2000, 200, conversation: "conv-2") }, T0.AddMinutes(2));
+
+        var row = Assert.Single(_usage.ReadSessions(TenantOne, T0.AddDays(-1)));
+        Assert.Equal(1500 + 3000, row.WeightedTotal);
+    }
+
+    [Fact]
     public void Observe_TagsEachSampleWithTheAccountItsMachineWasOn_AtTheTime()
     {
         _usage.Observe(TenantOne, new[] { Seen("s1", 0, 0) }, T0);

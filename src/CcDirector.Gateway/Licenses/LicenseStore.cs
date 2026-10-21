@@ -368,12 +368,23 @@ public sealed class LicenseStore
     /// <summary>Every account's monthly price in cents, for the accounts that have one set.</summary>
     public IReadOnlyDictionary<string, long> ReadMonthlyPrices(TenantId tenant)
     {
-        using var ctx = _db.CreateContext(tenant);
-        return ctx.LicenseAccounts.AsNoTracking()
-            .Where(a => a.MonthlyPriceCents != null)
-            .Select(a => new { a.AccountEmail, a.MonthlyPriceCents })
-            .ToList()
-            .ToDictionary(a => a.AccountEmail, a => a.MonthlyPriceCents!.Value, StringComparer.Ordinal);
+        FileLog.Write($"[LicenseStore] ReadMonthlyPrices: tenant={tenant.ToLogString()}");
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var prices = ctx.LicenseAccounts.AsNoTracking()
+                .Where(a => a.MonthlyPriceCents != null)
+                .Select(a => new { a.AccountEmail, a.MonthlyPriceCents })
+                .ToList()
+                .ToDictionary(a => a.AccountEmail, a => a.MonthlyPriceCents!.Value, StringComparer.Ordinal);
+            FileLog.Write($"[LicenseStore] ReadMonthlyPrices: priced={prices.Count}");
+            return prices;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] ReadMonthlyPrices FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     private static void UpsertAccounts(GatewayDbContext ctx, IEnumerable<LicenseHolding> holdings, DateTime now)

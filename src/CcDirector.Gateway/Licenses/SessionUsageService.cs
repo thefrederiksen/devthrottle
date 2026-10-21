@@ -58,6 +58,8 @@ public sealed class SessionUsageService
     /// <summary>The fold's input; null when <paramref name="accountEmail"/> names no account this tenant knows.</summary>
     public SessionUsageFoldInput? Input(TenantId tenant, string? accountEmail, bool includeGone, DateTime nowUtc)
     {
+        // Its failures are logged by Read, the one caller that is not a test.
+        FileLog.Write($"[SessionUsageService] Input: tenant={tenant.ToLogString()}, account={(accountEmail is null ? "(default)" : "given")}, includeGone={includeGone}");
         var overview = _reads.Read(tenant, nowUtc);
         var inUse = overview.Machines
             .Where(m => !m.IsStale && m.ActiveAccountEmail is not null)
@@ -98,12 +100,21 @@ public sealed class SessionUsageService
     /// <summary>The account's calibration, measured over the week its kept readings show.</summary>
     public SessionUsageCalibration Calibration(TenantId tenant, string accountEmail, DateTime nowUtc)
     {
-        var email = LicenseStore.NormalizeEmail(accountEmail);
-        var readings = _usage.ReadReadings(tenant, nowUtc - SessionUsageStore.ReadingRetention)
-            .Where(r => r.AccountEmail == email)
-            .ToList();
-        var (span, whyNot) = SessionUsageFold.CalibrationSpan(readings);
-        var weighted = span is null ? 0 : _usage.AccountUseBetween(tenant, email, span.FromUtc, span.ToUtc);
-        return SessionUsageFold.Calibrate(span, whyNot, weighted);
+        FileLog.Write($"[SessionUsageService] Calibration: tenant={tenant.ToLogString()}");
+        try
+        {
+            var email = LicenseStore.NormalizeEmail(accountEmail);
+            var readings = _usage.ReadReadings(tenant, nowUtc - SessionUsageStore.ReadingRetention, email);
+            var (span, whyNot) = SessionUsageFold.CalibrationSpan(readings);
+            var weighted = span is null ? 0 : _usage.AccountUseBetween(tenant, email, span.FromUtc, span.ToUtc);
+            var calibration = SessionUsageFold.Calibrate(span, whyNot, weighted);
+            FileLog.Write($"[SessionUsageService] Calibration: measured={calibration.IsMeasured}");
+            return calibration;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionUsageService] Calibration FAILED: {ex.Message}");
+            throw;
+        }
     }
 }

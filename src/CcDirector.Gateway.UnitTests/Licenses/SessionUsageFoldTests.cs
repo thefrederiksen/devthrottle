@@ -37,6 +37,13 @@ public sealed class SessionUsageFoldTests
     }
 
     [Fact]
+    public void Change_IsNothing_WhenTheReportIsUnchanged_WhicheverConversationItNames()
+    {
+        Assert.Equal(default, SessionUsageMath.Change(new RawTokens(1, 2, 3, 4), new RawTokens(1, 2, 3, 4), sameConversation: false));
+        Assert.Equal(default, SessionUsageMath.Change(new RawTokens(1, 2, 3, 4), new RawTokens(1, 2, 3, 4), sameConversation: true));
+    }
+
+    [Fact]
     public void Change_IsTheWholeReport_FromAnotherConversation_EvenWhenEveryCountIsLarger()
     {
         var change = SessionUsageMath.Change(new RawTokens(1, 1, 1, 1), new RawTokens(9, 9, 9, 9), sameConversation: false);
@@ -222,6 +229,36 @@ public sealed class SessionUsageFoldTests
         Assert.Equal(new[] { "live" }, liveOnly.Sessions.Select(s => s.SessionId));
         var gone = withGone.Sessions.Single(s => s.SessionId == "gone");
         Assert.Equal(("gone", "Gone", false, 2.0), (gone.State, gone.StateText, gone.IsLive, gone.SoFarPercent));
+    }
+
+    [Fact]
+    public void Fold_MeasuresTheBurnAndTheGroups_OverGoneSessionsToo_WhetherOrNotTheyAreListed()
+    {
+        // A session that went away within the last hour still used the account in that hour.
+        var rows = new[] { Row("gone", 101, "Finished", soFarOnA: 2_000_000), Row("live", 102, "Running", soFarOnA: 1_000_000, controller: "gone") };
+        var hour = new[] { new SessionAccountUse("gone", A, 300_000), new SessionAccountUse("live", A, 100_000) };
+
+        var liveOnly = SessionUsageFold.Fold(Input(rows, new HashSet<string> { "live" }, hour: hour));
+        var withGone = SessionUsageFold.Fold(Input(rows, new HashSet<string> { "live" }, hour: hour, includeGone: true));
+
+        Assert.Equal(0.4, liveOnly.BurnPercentPerHour!.Value, 6);
+        Assert.Equal(liveOnly.BurnPercentPerHour, withGone.BurnPercentPerHour);
+        var group = Assert.Single(liveOnly.TopLevel);
+        Assert.Equal("gone", group.Id);
+        Assert.Equal(new[] { "live" }, group.LiveSessionIds);
+        Assert.Equal(0.4, group.RateNowPercentPerHour!.Value, 6);
+    }
+
+    [Fact]
+    public void Fold_DoesNotListAGroupWithNoLiveSession_UnlessClosedOnesAreAskedFor()
+    {
+        var rows = new[] { Row("gone", 101, "Finished", soFarOnA: 2_000_000), Row("live", 102, "Running", soFarOnA: 1_000_000) };
+
+        var liveOnly = SessionUsageFold.Fold(Input(rows, new HashSet<string> { "live" }));
+        var withGone = SessionUsageFold.Fold(Input(rows, new HashSet<string> { "live" }, includeGone: true));
+
+        Assert.Equal(new[] { "live" }, liveOnly.TopLevel.Select(g => g.Id));
+        Assert.Equal(new[] { "gone", "live" }, withGone.TopLevel.Select(g => g.Id).Order());
     }
 
     [Fact]
