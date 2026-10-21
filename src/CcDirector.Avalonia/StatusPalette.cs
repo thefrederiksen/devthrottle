@@ -229,9 +229,22 @@ public static class StatusPalette
     /// the caller, once per change, so a per-frame binding getter does not flood the log.
     /// </summary>
     public static void ReportMissingStamp(string sessionId)
-        => FileLog.Write($"[StatusPalette] NO GATEWAY DISPLAY-STATE STAMP for session {sessionId} while the " +
-                         "tunnel is connected and settled - the set-display-state push is not delivering the " +
-                         "Gateway's verdict. Rendering the BROKEN magenta sentinel (never grey). Likely a " +
-                         "Gateway/Director version or tenancy mismatch; redeploy the Gateway and Director " +
-                         "together. See docs/new_architecture/sessions.html.");
+        => FileLog.Write(MissingStampMessage(sessionId));
+
+    /// <summary>
+    /// The words <see cref="ReportMissingStamp"/> writes, so a test can read the ADVICE rather than only the
+    /// fact that something was logged. The order matters and is asserted: this line used to open with
+    /// "redeploy the Gateway and Director together", and on 20 October 2026 it sent a session to the deploy
+    /// while the real cause was a Director enrolled in the wrong team. The cheap check goes first.
+    /// </summary>
+    internal static string MissingStampMessage(string sessionId)
+        => $"[StatusPalette] NO GATEWAY DISPLAY-STATE STAMP for session {sessionId} while the " +
+           "tunnel is connected and settled - the set-display-state push is not delivering the " +
+           "Gateway's verdict. Rendering the BROKEN magenta sentinel (never grey). CHECK THE " +
+           "TENANCY FIRST: a Director enrolled in a different account or team from the rest of " +
+           "the fleet is connected and healthy and still stamped by nobody, and that is the " +
+           "common cause. Settings, Team says which account or team this Director works for - " +
+           "compare it with the other Directors on the account. Only when the tenancy agrees is " +
+           "this a Gateway/Director version mismatch, which redeploying the two together fixes. " +
+           "See docs/new_architecture/sessions.html.";
 }

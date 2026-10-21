@@ -130,6 +130,11 @@ public sealed class SessionManager : IDisposable
     /// <see cref="GatewaySessionCredentialSource"/>. Null/empty when no Gateway is configured, in which case
     /// neither variable is stamped - an address with no credential, or a credential with no address, is a
     /// half-configured session that fails in a confusing way rather than an obvious one.
+    ///
+    /// Set by ControlApiHost in BOTH places it learns the Gateway configuration: StartAsync, and
+    /// ReapplyGatewayAsync when a Director is connected after it started. Setting it in only the first was
+    /// issue #3377 - every first run signs in after start-up, so every first run left this null and minted no
+    /// session keys at all.
     /// </summary>
     public string? GatewayUrl { get; set; }
 
