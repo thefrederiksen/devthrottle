@@ -142,6 +142,7 @@ public sealed class FactoryPublishApply
                             out var copy) is { } notAppended)
                         return Refuse(tx, factory, act, notAppended);
                     attemptedVersion = copy!.Version;
+                    copy.PublishedOwnerApproval = by.OwnerApproval;
                     step = $"writing version {copy.Version}, the restored copy of version {version}";
                     ctx.FactoryDefinitions.Add(copy);
                     ctx.SaveChanges();
@@ -351,7 +352,7 @@ public sealed class FactoryPublishApply
         => string.IsNullOrEmpty(entity.ClaimedByMachine) ? entity.Machine : entity.ClaimedByMachine;
 
     /// <summary>The 409 when the caller states a published version that is no longer the one (design section 5).</summary>
-    private static string NotReplacing(bool restore, int? current, int stated)
+    internal static string NotReplacing(bool restore, int? current, int stated)
         => (restore ? "Not restored: " : "Not published: ")
            + (current is { } c
                ? $"version {c} is the published definition now, not {stated}."

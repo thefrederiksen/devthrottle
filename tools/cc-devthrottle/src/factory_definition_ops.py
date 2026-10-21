@@ -13,8 +13,11 @@ the factory:
 - `factory definition restore`  publish a copy of an older version as the newest
 
 WHO MAY PUBLISH (the owner's ruling of 16 October 2026): "Factories are created by agents as long as they have user
-approval." A person, or a session in no factory that the owner told what to make, creates, publishes and restores. A
-factory's own session saves drafts only; the Gateway refuses the rest in words, and this module prints them.
+approval." A person, or a session in no factory that the owner told what to make, creates, publishes and restores. THE
+BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): the factory's Boss session publishes and
+restores its own factory too, and a version that changes the Boss's own seat needs the owner's approval, passed
+verbatim with --owner-approved. Every other session of a factory saves drafts only; the Gateway refuses the rest in
+words, and this module prints them.
 - `factory definition diff`     what changes from one version to another, as the Gateway words it
 - `factory definition schemas`  the JSON Schemas the Gateway's check enforces, to check a folder without saving it
 
@@ -340,7 +343,7 @@ def save(factory: str, folder: str, expected_version: int, note: Optional[str], 
         f"Saved: version {saved['version']} of the definition of {saved.get('factory')} is a draft "
         f"({saved.get('fileCount')} files, {saved.get('contentBytes')} bytes).",
         ("No version is published yet." if published is None else f"Version {published} stays the published definition")
-        + (" until a person publishes this draft." if published is not None else ""),
+        + (" until this draft is published." if published is not None else ""),
         *_findings_lines(saved.get("findings")),
     )
     axi_cli.print_next([f"{_TOOL} diff {_f(factory)} --to {saved['version']}",
@@ -354,30 +357,46 @@ def _with_replaces(body: Dict[str, Any], replaces: Optional[int]) -> Dict[str, A
     return body
 
 
-def publish(factory: str, version: int, json_output: bool, replaces: Optional[int] = None) -> None:
-    """Publish one version. A factory's own session is refused by the Gateway, which says so."""
+def _with_owner_approval(body: Dict[str, Any], owner_approved: Optional[str]) -> Dict[str, Any]:
+    """The body, with the owner's words when they were given. The Gateway decides whether they are needed."""
+    if owner_approved is not None:
+        body["ownerApproved"] = owner_approved
+    return body
+
+
+def publish(factory: str, version: int, json_output: bool, replaces: Optional[int] = None,
+            owner_approved: Optional[str] = None) -> None:
+    """Publish one version. A factory's session that is not its Boss is refused by the Gateway, which says so."""
     try:
-        answer = gateway.post_json(_route(factory) + "/publish", _with_replaces({"version": version}, replaces))
+        answer = gateway.post_json(_route(factory) + "/publish",
+                                   _with_owner_approval(_with_replaces({"version": version}, replaces), owner_approved))
     except gateway.GatewayError as exc:
         _fail_gateway(exc, _after_refusal(exc, factory))
         return
     _published(answer, factory, json_output, f"Published: version {version}")
 
 
-def restore(factory: str, version: int, expected_version: int, json_output: bool, replaces: Optional[int] = None) -> None:
-    """Publish a copy of an older version as the newest. A factory's own session is refused by the Gateway."""
+def restore(factory: str, version: int, expected_version: int, json_output: bool, replaces: Optional[int] = None,
+            owner_approved: Optional[str] = None) -> None:
+    """Publish a copy of an older version as the newest. A factory's session that is not its Boss is refused."""
     try:
         answer = gateway.post_json(_route(factory) + "/restore",
-                                   _with_replaces({"version": version, "expectedVersion": expected_version}, replaces))
+                                   _with_owner_approval(
+                                       _with_replaces({"version": version, "expectedVersion": expected_version}, replaces),
+                                       owner_approved))
     except gateway.GatewayError as exc:
-        _fail_gateway(exc, _after_refusal(exc, factory))
+        _fail_gateway(exc, _after_refusal(exc, factory, "restore"))
         return
     _published(answer, factory, json_output, f"Restored: version {version}")
 
 
-def _after_refusal(exc: gateway.GatewayError, factory: str) -> List[str]:
-    """What to run after a refused publish or restore. A factory's own session is told to save a draft, because that
-    is the one thing it may do; everything else starts from the history."""
+def _after_refusal(exc: gateway.GatewayError, factory: str, verb: str = "publish") -> List[str]:
+    """What to run after a refused publish or restore. A factory's session that is not its Boss is told to save a draft,
+    because that is the one thing it may do; the Boss refused for its own seat is shown the diff to take to the owner;
+    everything else starts from the history."""
+    if _outcome(exc) == "BossSeatNeedsOwnerApproval":
+        return [f"{_TOOL} diff {_f(factory)}",
+                f"{_TOOL} {verb} {_f(factory)} --version <n> --owner-approved \"<the owner's words, verbatim>\""]
     if _outcome(exc) == "FactorySessionMayNotPublish":
         return [f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version <newest version>",
                 f"{_TOOL} history {_f(factory)}"]

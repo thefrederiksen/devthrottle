@@ -79,6 +79,11 @@ public sealed class FactoryDefinitionVersionEntity : TenantScopedEntity
     /// <summary>The publishing session's name as it was at the moment of the publish, so the history says which session
     /// it was in words. Null for a person, for a draft, and for a session that had no name.</summary>
     public string? PublishedByName { get; set; }
+
+    /// <summary>The owner's approval of the publish, verbatim, when the publisher passed it (the owner's ruling of 21
+    /// October 2026: a factory's Boss publishes on its own authority, and a change to its own seat needs the owner's
+    /// words). Null for a draft and for a publish that passed none.</summary>
+    public string? PublishedOwnerApproval { get; set; }
 }
 
 /// <summary>The two states a version of a definition can be in.</summary>

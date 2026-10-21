@@ -47,6 +47,10 @@ public sealed class FactoryDefinitionDto
     /// it is a draft.</summary>
     public string? PublishedByText { get; set; }
 
+    /// <summary>The owner's approval, verbatim, that the publishing session passed (the owner's ruling of 21 October
+    /// 2026: a Boss's publish that changes its own seat needs it). Null when none was given.</summary>
+    public string? OwnerApproval { get; set; }
+
     /// <summary>How many bytes the version's files take together, as UTF-8.</summary>
     public int ContentBytes { get; set; }
 
@@ -172,6 +176,10 @@ public sealed class FactoryDefinitionVersionSummaryDto
     /// <summary>Who published it, in words, composed by the Gateway; null while it is a draft.</summary>
     public string? PublishedByText { get; set; }
 
+    /// <summary>The owner's approval, verbatim, that the publishing session passed (the owner's ruling of 21 October
+    /// 2026: a Boss's publish that changes its own seat needs it). Null when none was given.</summary>
+    public string? OwnerApproval { get; set; }
+
     public int ContentBytes { get; set; }
 
     public int FileCount { get; set; }
@@ -253,6 +261,13 @@ public sealed class PublishFactoryDefinitionRequest
     /// check, as before.
     /// </summary>
     public int? Replaces { get; set; }
+
+    /// <summary>
+    /// The owner's words approving this publish, verbatim (the owner's ruling of 21 October 2026). A factory's Boss
+    /// session must pass them when the version changes the Boss's own seat; whoever passes them, they are recorded with
+    /// the version. Null (absent) or blank: none given.
+    /// </summary>
+    public string? OwnerApproved { get; set; }
 }
 
 /// <summary>Body of a person's restore: which older version to publish a copy of as the newest version.</summary>
@@ -269,6 +284,9 @@ public sealed class RestoreFactoryDefinitionRequest
 
     /// <summary>The published version the person saw, as for a publish (phase 4). Null (absent): no such check.</summary>
     public int? Replaces { get; set; }
+
+    /// <summary>The owner's words approving this restore, verbatim, on the same terms as a publish.</summary>
+    public string? OwnerApproved { get; set; }
 }
 
 /// <summary>

@@ -27,9 +27,13 @@ from src.cli import app  # noqa: E402
 runner = CliRunner()
 
 FACTORY = "warmforward"
-FACTORY_SESSION_REFUSED = ("A session of factory 'warmforward' may not publish a factory's definition. A factory's own "
-                           "sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that "
-                           "is in no factory to publish.")
+FACTORY_SESSION_REFUSED = ("A session of factory 'warmforward' may not publish its definition: only its Boss publishes, "
+                           "and this session is the seat 'writer', not the boss seat 'boss'. Save a draft; the factory's "
+                           "Boss publishes it, and a change to the Boss's own seat needs the owner's approval.")
+BOSS_SEAT_REFUSED = ("Version 4 of the definition of warmforward changes the Boss's own seat (seats/boss.yaml, or which seat "
+                     "factory.yaml names as the boss), and a change to the Boss's own seat needs the owner's approval. "
+                     "Nothing was published. Ask the owner, then publish again with --owner-approved \"<the owner's words, "
+                     "verbatim>\" (the request field ownerApproved); his words are recorded with the version.")
 
 FILES = {
     "factory.yaml": "factory: warmforward\ntitle: WarmForward\ndefaults:\n  machine: SOREN_NORTH\n  agent: ClaudeCode\n",
@@ -410,7 +414,7 @@ def test_save_AFileThatIsNotText_IsNamed_AndNothingIsSent(gateway, folder):
 
 
 # ---------------------------------------------------------------------------------------------------
-# publish and restore: a person's, or a session's in no factory; never a factory's own session's
+# publish and restore: a person's, a session's in no factory, or the factory's Boss's; never another factory session's
 # ---------------------------------------------------------------------------------------------------
 
 def test_publish_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence_AndIsToldToSaveADraft(gateway):
@@ -424,6 +428,44 @@ def test_publish_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence_AndIsT
     assert FACTORY_SESSION_REFUSED in result.stderr
     assert "factory definition save warmforward --dir <folder>" in result.stderr
     assert "Published" not in result.stdout
+
+
+def test_publish_OwnerApproved_IsSentVerbatim_AsOwnerApproved(gateway):
+    gw = gateway((200, version(4, state="published", published=4, files=FILES)))
+
+    result = run("publish", FACTORY, "--version", "4", "--owner-approved", "Yes - publish v4, boss brief included.")
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 4, "ownerApproved": "Yes - publish v4, boss brief included."}
+
+
+def test_publish_BySessionOfTheBoss_WithoutTheOwnersWords_PrintsTheGatewaysSentence_AndTheFlag(gateway):
+    gateway((403, {"error": BOSS_SEAT_REFUSED, "outcome": "BossSeatNeedsOwnerApproval"}))
+
+    result = run("publish", FACTORY, "--version", "4")
+
+    assert result.exit_code == 1
+    assert BOSS_SEAT_REFUSED in result.stderr
+    assert "factory definition publish warmforward --version <n> --owner-approved" in result.stderr
+    assert "Published" not in result.stdout
+
+
+def test_restore_BySessionOfTheBoss_WithoutTheOwnersWords_PointsAtRestoreWithTheFlag(gateway):
+    gateway((403, {"error": BOSS_SEAT_REFUSED, "outcome": "BossSeatNeedsOwnerApproval"}))
+
+    result = run("restore", FACTORY, "--version", "1")
+
+    assert result.exit_code == 1
+    assert "factory definition restore warmforward --version <n> --owner-approved" in result.stderr
+
+
+def test_restore_OwnerApproved_IsSentVerbatim(gateway):
+    gw = gateway((200, version(6, state="published", published=6, files=FILES)))
+
+    result = run("restore", FACTORY, "--version", "1", "--expected-version", "5", "--owner-approved", "Go back.")
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 1, "expectedVersion": 5, "ownerApproved": "Go back."}
 
 
 def test_publish_BySessionInNoFactory_PrintsWhoPublishedIt_InTheGatewaysWords(gateway):
@@ -483,9 +525,10 @@ def test_restore_SendsTheVersionAndTheVersionTheCallerRead(gateway):
 
 
 def test_restore_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence(gateway):
-    sentence = ("A session of factory 'warmforward' may not restore a version of a factory's definition, because a "
-                "restore publishes a copy of it. Save the content you want as a new draft. A factory's own sessions save "
-                "drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.")
+    sentence = ("A session of factory 'warmforward' may not restore a version of its definition, because a restore "
+                "publishes a copy of it: only its Boss publishes, and this session is no seat, not the boss seat 'boss'. "
+                "Save a draft; the factory's Boss publishes it, and a change to the Boss's own seat needs the owner's "
+                "approval.")
     gateway((403, {"error": sentence, "outcome": "FactorySessionMayNotPublish", "current": None}))
 
     result = run("restore", FACTORY, "--version", "1")

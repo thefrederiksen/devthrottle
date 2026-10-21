@@ -42,9 +42,12 @@ namespace CcDirector.Gateway.Api;
 /// are created by agents as long as they have user approval." The owner creates a factory by telling a session what to
 /// make, and his word in that session is the approval; the Gateway asks for nothing more. So a PERSON, and a SESSION IN
 /// NO FACTORY, may read and write any factory's definition: save, import, create, publish and restore. A FACTORY'S OWN
-/// SESSION may read and save drafts of its own factory only, and is refused publish, restore and creating a factory in
-/// words (the teams-and-agents design, R7: "Factory agents can be written by large language models, but it's the user
-/// driving it"); a session of another factory is refused in <see cref="FactoryNaming"/>'s own words. A caller that is
+/// SESSION may read and save drafts of its own factory only, and is refused creating a factory in words; a session of
+/// another factory is refused in <see cref="FactoryNaming"/>'s own words. THE BOSS IS THE BOSS OF ITS FACTORY (the
+/// owner's ruling of 21 October 2026): the factory's Boss session - its seat is the bossSeat of the published
+/// definition - also publishes and restores its own factory, and a version that changes the Boss's own seat needs the
+/// owner's approval, passed verbatim (<c>ownerApproved</c>) and recorded with the version. Every other session of the
+/// factory is refused publish and restore in words. A caller that is
 /// neither - the account's shared machine token, or a Director - may read and may not write, because every version
 /// records who wrote it, and every publish who published it (<see cref="FactoryPublisher"/>).
 ///
@@ -54,9 +57,10 @@ namespace CcDirector.Gateway.Api;
 /// again even though the version was checked when it was saved, because the account's skills and machines may have
 /// changed since.
 ///
-/// A FACTORY'S OWN SESSION NEVER PUBLISHES OR RESTORES. The two routes are reachable by every session key on purpose,
-/// and a factory's own session is refused here in words before the check runs: an agent told "save a draft; the owner
-/// publishes it" knows what to do next, rather than what the check thinks of a version it may not publish anyway.
+/// ONLY THE BOSS OF A FACTORY'S OWN SESSIONS PUBLISHES OR RESTORES. The two routes are reachable by every session key on
+/// purpose, and any other session of the factory is refused here in words before the check runs: an agent told "save a
+/// draft; the Boss publishes it" knows what to do next, rather than what the check thinks of a version it may not
+/// publish anyway. The Boss is refused the same way for its own seat without the owner's words.
 ///
 /// A PUBLISH AND A RESTORE DRIVE THE FACTORY (phase 4): a publish or restore goes through
 /// <see cref="FactoryPublishApply"/>, which writes the publish mark, the registry row, the schedules and the triggers in
@@ -341,6 +345,7 @@ internal static class FactoryDefinitionEndpoints
                 PublishedByKind = v.PublishedByKind,
                 PublishedByName = v.PublishedByName,
                 PublishedByText = v.PublishedByText,
+                OwnerApproval = v.PublishedOwnerApproval,
                 ContentBytes = v.ContentBytes,
                 FileCount = v.FileCount,
             }).ToList(),
@@ -753,8 +758,9 @@ internal static class FactoryDefinitionEndpoints
         });
     }
 
-    /// <summary>POST a publish: a person, or a session in no factory, makes one version the factory's definition - once
-    /// the check finds no error in it. A factory's own session is refused in words.</summary>
+    /// <summary>POST a publish: a person, a session in no factory, or the factory's Boss makes one version the factory's
+    /// definition - once the check finds no error in it. Any other session of the factory is refused in words, and so is
+    /// the Boss for a change to its own seat without the owner's approval.</summary>
     internal static async Task<IResult> Publish(HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
@@ -766,12 +772,16 @@ internal static class FactoryDefinitionEndpoints
         if (body is null) return NoBody();
         if (!TryFold(factory, out var folded, out error)) return error!;
 
-        // A FACTORY'S OWN SESSION is told what to do instead, before the check says anything about a version it may not
-        // publish anyway.
-        if (caller.Factory is { } own)
-            return FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotPublish(own));
+        if (!TryOwnerApproval(body.OwnerApproved, route, out var approval, out error)) return error!;
 
-        return await PublishAs(tenant, folded, body.Version, body.Replaces, caller.Publisher, store, apply, account, nowUtc(),
+        // A FACTORY'S OWN SESSION that is not its Boss is told what to do instead, before the check says anything about a
+        // version it may not publish anyway; so is the Boss, for its own seat without the owner's words.
+        var replaces = body.Replaces;
+        if (caller.Factory is not null
+            && !TryBossMayPublish(caller, tenant, folded, body.Version, approval, restore: false, store, route, ref replaces, out error))
+            return error!;
+
+        return await PublishAs(tenant, folded, body.Version, replaces, caller.PublisherWith(approval), store, apply, account, nowUtc(),
             ct: ctx.RequestAborted);
     }
 
@@ -808,8 +818,9 @@ internal static class FactoryDefinitionEndpoints
     private static DefinitionFinding? FirstFormatError(IReadOnlyDictionary<string, string> content)
         => FactoryPublishApply.FirstFormatError(content);
 
-    /// <summary>POST a restore: a person, or a session in no factory, publishes a copy of an older version as the newest
-    /// version - once the check finds no error in it. A factory's own session is refused in words.</summary>
+    /// <summary>POST a restore: a person, a session in no factory, or the factory's Boss publishes a copy of an older
+    /// version as the newest version - once the check finds no error in it. Any other session of the factory is refused
+    /// in words, and so is the Boss for a change to its own seat without the owner's approval.</summary>
     internal static async Task<IResult> Restore(HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
@@ -821,11 +832,15 @@ internal static class FactoryDefinitionEndpoints
         if (body is null) return NoBody();
         if (!TryFold(factory, out var folded, out error)) return error!;
 
-        if (caller.Factory is { } own)
-            return FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotRestore(own));
+        if (!TryOwnerApproval(body.OwnerApproved, route, out var approval, out error)) return error!;
 
-        return await RestoreAs(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Publisher, store, apply,
-            account, nowUtc(), ct: ctx.RequestAborted);
+        var replaces = body.Replaces;
+        if (caller.Factory is not null
+            && !TryBossMayPublish(caller, tenant, folded, body.Version, approval, restore: true, store, route, ref replaces, out error))
+            return error!;
+
+        return await RestoreAs(tenant, folded, body.Version, body.ExpectedVersion, replaces, caller.PublisherWith(approval), store,
+            apply, account, nowUtc(), ct: ctx.RequestAborted);
     }
 
     /// <summary>
@@ -912,11 +927,120 @@ internal static class FactoryDefinitionEndpoints
     private const string NeitherPersonNorSession = GatewayCaller.NeitherPersonNorSession;
 
     /// <summary>Who is asking: a person, a session, or neither, with the identifier a version records. A session also
-    /// carries its name, and <paramref name="Factory"/> - the factory it is a session OF, or null when it is in none.</summary>
-    internal readonly record struct Caller(string Kind, string? Id, string? Name = null, string? Factory = null)
+    /// carries its name, <paramref name="Factory"/> - the factory it is a session OF, or null when it is in none - and
+    /// <paramref name="Seat"/>, the seat of that factory it was started as or inherited (<paramref name="SeatIsInherited"/>).</summary>
+    internal readonly record struct Caller(string Kind, string? Id, string? Name = null, string? Factory = null, string? Seat = null,
+        bool SeatIsInherited = false)
     {
         /// <summary>Who a publish by this caller records.</summary>
         public FactoryPublisher Publisher => new(Kind, Id, Name);
+
+        /// <summary>Who a publish by this caller records, with the owner's words it passed (null when none).</summary>
+        public FactoryPublisher PublisherWith(string? ownerApproval) => new(Kind, Id, Name, ownerApproval);
+    }
+
+    /// <summary>
+    /// THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026). May this session of the factory
+    /// publish or restore <paramref name="version"/>? Only when it was STARTED AS the boss seat of the PUBLISHED
+    /// definition - the definition that is live decides who the Boss is, never a draft, and a session the Boss spawned
+    /// inherits the seat without becoming the Boss ("the Boss session"; review finding 2). And when the version changes the Boss's own
+    /// seat - its seats/&lt;seat&gt;.yaml, or which seat factory.yaml names as the boss - only with the owner's words.
+    /// A version that does not exist is left to the store's own ruling, which names it. The Boss's publish is held to
+    /// the published version it was judged against (<paramref name="replaces"/>: set to it when the caller stated none,
+    /// refused as stale when the caller stated another), so a publish that lands in between is refused rather than
+    /// skipping this comparison.
+    /// </summary>
+    private static bool TryBossMayPublish(Caller caller, TenantId tenant, string folded, int version, string? approval,
+        bool restore, FactoryDefinitionStore store, string route, ref int? replaces, out IResult? error)
+    {
+        error = null;
+        var own = caller.Factory!;
+        var published = store.Standing(tenant, folded).Published;
+        var publishedFiles = published is null ? null : store.Find(tenant, folded, published.Version)?.Files;
+        var bossSeat = publishedFiles is null ? null : BossSeatOf(publishedFiles);
+        if (bossSeat is null || !string.Equals(caller.Seat, bossSeat, StringComparison.OrdinalIgnoreCase) || caller.SeatIsInherited)
+        {
+            error = FactorySessionRefused(route, restore
+                ? FactoryDefinitionStore.FactorySessionMayNotRestore(own, caller.Seat, bossSeat, caller.SeatIsInherited)
+                : FactoryDefinitionStore.FactorySessionMayNotPublish(own, caller.Seat, bossSeat, caller.SeatIsInherited));
+            return false;
+        }
+
+        // A STATED published version must be the one this was judged against (review finding 3): otherwise a publish
+        // landing in between could make the transaction's own check pass while the seat comparison was made against an
+        // older version.
+        if (replaces is { } stated && stated != published!.Version)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - the Boss stated published version {stated}, the published version is {published.Version}");
+            error = Answer(FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
+                FactoryPublishApply.NotReplacing(restore, published.Version, stated), published), store, tenant, folded, null);
+            return false;
+        }
+
+        if (store.Find(tenant, folded, version) is { } wanted && ChangesBossSeat(publishedFiles!, wanted.Files, bossSeat)
+            && approval is null)
+        {
+            var sentence = FactoryDefinitionStore.BossSeatNeedsOwnerApproval(folded, version, bossSeat, restore);
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (403, {FactoryDefinitionOutcome.BossSeatNeedsOwnerApproval}) - the Boss's own seat changes and no owner's approval was passed");
+            error = Results.Json(new
+            {
+                error = sentence,
+                outcome = FactoryDefinitionOutcome.BossSeatNeedsOwnerApproval.ToString(),
+            }, statusCode: StatusCodes.Status403Forbidden);
+            return false;
+        }
+
+        replaces ??= published!.Version;
+        FileLog.Write($"[FactoryDefinitionEndpoints] {route}: the Boss (seat {bossSeat}) of {folded} may {(restore ? "restore" : "publish")} version {version}, against published version {replaces}, ownerApproval={(approval is null ? "none" : "passed")}");
+        return true;
+    }
+
+    /// <summary>
+    /// The boss seat a definition's factory.yaml names, read from factory.yaml ALONE (review finding 1): a format error
+    /// in any other file must neither take the Boss's authority away nor read as a change to its seat - the check names
+    /// that error itself. Null when factory.yaml is missing, does not parse, or names no boss.
+    /// </summary>
+    private static string? BossSeatOf(IReadOnlyDictionary<string, string> files)
+    {
+        if (!files.TryGetValue(FactoryDefinitionCheck.FactoryFile, out var text)) return null;
+        var (root, _) = DefinitionDocument.ParseYaml(FactoryDefinitionCheck.FactoryFile, text);
+        return root is DefinitionMap map && map.Find("bossSeat")?.Value is DefinitionScalar { Kind: DefinitionScalarKind.Text } boss
+               && !string.IsNullOrWhiteSpace(boss.Value)
+            ? boss.Value.Trim()
+            : null;
+    }
+
+    /// <summary>
+    /// Does <paramref name="wanted"/> change the Boss's own seat against <paramref name="published"/>: its seat file's
+    /// text differs (added, removed or edited), or factory.yaml names another seat as the boss. A version whose
+    /// factory.yaml does not parse names no boss, so it counts as a change - and the check refuses it anyway. A format
+    /// error in any other file is not a change to the Boss's seat.
+    /// </summary>
+    internal static bool ChangesBossSeat(IReadOnlyDictionary<string, string> published, IReadOnlyDictionary<string, string> wanted,
+        string bossSeat)
+    {
+        var path = FactoryDefinitionCheck.SeatsPlace + bossSeat + ".yaml";
+        published.TryGetValue(path, out var before);
+        wanted.TryGetValue(path, out var after);
+        if (!string.Equals(before, after, StringComparison.Ordinal)) return true;
+        return !string.Equals(BossSeatOf(wanted), bossSeat, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The owner's words as passed: null when absent or blank, trimmed otherwise; refused (400) when longer
+    /// than <see cref="FactoryPublisher.MaxOwnerApprovalLength"/>, because his words are never cut short.</summary>
+    private static bool TryOwnerApproval(string? sent, string route, out string? approval, out IResult? error)
+    {
+        error = null;
+        approval = string.IsNullOrWhiteSpace(sent) ? null : sent.Trim();
+        if (approval is null || approval.Length <= FactoryPublisher.MaxOwnerApprovalLength) return true;
+        FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (400) - the owner's approval is {approval.Length} characters");
+        error = Results.BadRequest(new
+        {
+            error = $"the owner's approval is {approval.Length} characters, and it may be at most " +
+                    $"{FactoryPublisher.MaxOwnerApprovalLength}. Pass his words verbatim, without anything around them.",
+        });
+        approval = null;
+        return false;
     }
 
     /// <summary>
@@ -949,7 +1073,7 @@ internal static class FactoryDefinitionEndpoints
                 var asked = factory.Trim();
                 if (string.Equals(own, asked, StringComparison.OrdinalIgnoreCase))
                 {
-                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name, own);
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name, own, who.Seat, who.SeatIsInherited);
                     return true;
                 }
                 if (isNew is not null && FactoryNames.TryFactory(asked, out var folded, out _) && isNew(folded))
@@ -1100,6 +1224,7 @@ internal static class FactoryDefinitionEndpoints
         PublishedByKind = v.PublishedByKind,
         PublishedByName = v.PublishedByName,
         PublishedByText = v.PublishedByText,
+        OwnerApproval = v.PublishedOwnerApproval,
         ContentBytes = v.ContentBytes,
         FileCount = v.FileCount,
         NewestVersion = standing.Newest?.Version ?? v.Version,

@@ -471,7 +471,7 @@ public sealed class SessionHistoryStore
             using var ctx = _db.CreateContext();
             var row = ctx.SessionHistory.AsNoTracking()
                 .Where(e => e.SessionId == sessionId)
-                .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion, e.SessionName })
+                .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion, e.FactoryKit, e.SessionName })
                 .FirstOrDefault();
             if (row is null) return SessionFactoryLookup.NotKnown;
             // The seat and its version come with the factory (Factory Definition mission, phase 5): read in the
@@ -479,7 +479,13 @@ public sealed class SessionHistoryStore
             // The name rides along (phase 6c): a publish by a session records it beside the session's id.
             return (string.IsNullOrWhiteSpace(row.Factory)
                 ? SessionFactoryLookup.InNoFactory
-                : SessionFactoryLookup.In(row.Factory!, row.FactorySeat, row.FactoryDefinitionVersion)) with { Name = row.SessionName };
+                : SessionFactoryLookup.In(row.Factory!, row.FactorySeat, row.FactoryDefinitionVersion)) with
+                {
+                    Name = row.SessionName,
+                    // The kit says whether the seat was started or inherited: only the session started as a factory's
+                    // boss seat is its Boss (the owner's ruling of 21 October 2026).
+                    Kit = row.FactoryKit,
+                };
         }
     }
 

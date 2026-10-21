@@ -30,9 +30,11 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// copied.
 ///
 /// WHO PUBLISHES IS THE ROUTE'S TO DECIDE, AND THE STORE RECORDS IT (phase 6c, the owner's ruling of 16 October 2026,
-/// which replaced "only a person publishes"): a person, or a session in no factory, publishes and restores; a factory's
-/// own session saves drafts. Only the route knows which factory a session is in, so the route refuses, in the sentences
-/// below; every publish records who did it (<see cref="FactoryPublisher"/>).
+/// which replaced "only a person publishes", and his ruling of 21 October 2026 that the Boss is the boss of its
+/// factory): a person, a session in no factory, and the factory's own Boss session publish and restore - the Boss
+/// needing the owner's approval for a change to its own seat; every other session of a factory saves drafts. Only the
+/// route knows which factory and seat a session is in, so the route refuses, in the sentences below; every publish
+/// records who did it and the owner's words when they were passed (<see cref="FactoryPublisher"/>).
 ///
 /// NO REGISTRATION IS REQUIRED. Unlike a brief, a definition may exist for a factory the registry does not hold:
 /// importing a definition is how a factory comes to exist (phase 3). The factory id is only folded to its one
@@ -80,25 +82,69 @@ public sealed class FactoryDefinitionStore
 
     // WHO PUBLISHES (the owner's ruling of 16 October 2026, which replaced "only a person publishes"): "Factories are
     // created by agents as long as they have user approval." A person publishes, and so does a session in no factory -
-    // the session the owner tells what to make; his word in that session is the approval. A FACTORY'S OWN SESSION never
-    // publishes, restores or creates a factory (the teams-and-agents design, R7: "Factory agents can be written by large
-    // language models, but it's the user driving it"). Which factory a session is in is the route's to know, so the
-    // route refuses with these sentences; the store records whoever it is told published.
+    // the session the owner tells what to make; his word in that session is the approval.
+    //
+    // THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): a factory's Boss session - a session
+    // of the factory STARTED AS the bossSeat of the published definition, never a child that inherited that seat -
+    // publishes and restores any change to its
+    // own factory's definition on its own authority. A version that changes the Boss's OWN seat (its seats/<seat>.yaml,
+    // or which seat factory.yaml names as the boss) needs the owner's approval, passed verbatim and recorded with the
+    // version. Every other session of a factory saves drafts only, and no factory's session creates a factory. Which
+    // factory and seat a session is in is the route's to know, so the route refuses with these sentences; the store
+    // records whoever it is told published.
 
-    /// <summary>What a factory's own session is told to do instead, the same in every refusal below.</summary>
+    /// <summary>What a factory's session that is not its Boss is told to do instead, the same in every refusal below.</summary>
     private const string InsteadOfPublishing =
-        "A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is " +
-        "in no factory to publish.";
+        "Save a draft; the factory's Boss publishes it, and a change to the Boss's own seat needs the owner's approval.";
 
-    /// <summary>The sentence a factory's own session's publish is refused with. Held here so the routes and the tests
-    /// say the same words.</summary>
-    public static string FactorySessionMayNotPublish(string sessionFactory) =>
-        $"A session of factory '{sessionFactory}' may not publish a factory's definition. {InsteadOfPublishing}";
+    /// <summary>The flag the command line passes the owner's words with, named in every refusal that needs them.</summary>
+    public const string OwnerApprovedFlag = "--owner-approved \"<the owner's words, verbatim>\"";
 
-    /// <summary>The sentence a factory's own session's restore is refused with.</summary>
-    public static string FactorySessionMayNotRestore(string sessionFactory) =>
-        $"A session of factory '{sessionFactory}' may not restore a version of a factory's definition, because a restore " +
-        $"publishes a copy of it. Save the content you want as a new draft. {InsteadOfPublishing}";
+    /// <summary>Who this session is, against the boss seat, in words: why it is not the Boss.</summary>
+    private static string NotTheBoss(string sessionFactory, string? sessionSeat, string? bossSeat, bool inherited)
+    {
+        var who = string.IsNullOrWhiteSpace(sessionSeat) ? "this session is no seat" : $"this session is the seat '{sessionSeat}'";
+        if (inherited && !string.IsNullOrWhiteSpace(bossSeat))
+            return $"only its Boss publishes, and this session inherited the seat '{sessionSeat}' from the session that " +
+                   $"started it, so it is not the Boss. Ask the Boss session to publish. {InsteadOfPublishing}";
+        return string.IsNullOrWhiteSpace(bossSeat)
+            ? $"factory '{sessionFactory}' has no published definition naming a boss seat, so it has no Boss yet. The owner " +
+              "publishes its first version, in the Cockpit or by telling a session that is in no factory to publish."
+            : $"only its Boss publishes, and {who}, not the boss seat '{bossSeat}'. {InsteadOfPublishing}";
+    }
+
+    /// <summary>The sentence a factory's session that is not its Boss is refused a publish with. Held here so the routes
+    /// and the tests say the same words.</summary>
+    public static string FactorySessionMayNotPublish(string sessionFactory, string? sessionSeat, string? bossSeat,
+        bool inherited = false) =>
+        $"A session of factory '{sessionFactory}' may not publish its definition: {NotTheBoss(sessionFactory, sessionSeat, bossSeat, inherited)}";
+
+    /// <summary>The sentence a factory's session that is not its Boss is refused a restore with.</summary>
+    public static string FactorySessionMayNotRestore(string sessionFactory, string? sessionSeat, string? bossSeat,
+        bool inherited = false) =>
+        $"A session of factory '{sessionFactory}' may not restore a version of its definition, because a restore publishes " +
+        $"a copy of it: {NotTheBoss(sessionFactory, sessionSeat, bossSeat, inherited)}";
+
+    /// <summary>
+    /// The sentence a factory's Boss is refused with when the version it would publish or restore changes the Boss's
+    /// own seat and it passed no owner's approval. It names the flag that carries the owner's words.
+    /// </summary>
+    public static string BossSeatNeedsOwnerApproval(string factory, int version, string bossSeat, bool restore) =>
+        $"Version {version} of the definition of {factory} changes the Boss's own seat (seats/{bossSeat}.yaml, or which seat " +
+        $"factory.yaml names as the boss), and a change to the Boss's own seat needs the owner's approval. Nothing was " +
+        $"{(restore ? "restored" : "published")}. Ask the owner, then {(restore ? "restore" : "publish")} again with " +
+        $"{OwnerApprovedFlag} (the request field ownerApproved); his words are recorded with the version.";
+
+    /// <summary>
+    /// The sentence a factory's session is refused with when it would publish or restore a defined factory's brief: a
+    /// brief of a defined factory is published with the whole definition, by a person, or by the factory's Boss through
+    /// the definition's own publish.
+    /// </summary>
+    public static string FactorySessionPublishesTheDefinition(string factory, bool restore) =>
+        $"A session of factory '{factory}' does not {(restore ? "restore" : "publish")} a brief: a brief of a defined " +
+        $"factory is {(restore ? "restored" : "published")} with its whole definition. The factory's Boss runs " +
+        $"'cc-devthrottle factory definition {(restore ? "restore" : "publish")} {factory} --version <n>'; a change to the " +
+        "Boss's own seat needs the owner's approval. Any other seat saves a draft.";
 
     /// <summary>The sentence a factory's own session is refused with when it would start a new factory's definition.</summary>
     public static string FactorySessionMayNotCreate(string sessionFactory, string newFactory) =>
@@ -665,7 +711,8 @@ public sealed class FactoryDefinitionStore
                 .SetProperty(v => v.PublishedAtUtc, (DateTime?)nowUtc)
                 .SetProperty(v => v.PublishedBy, by.Id)
                 .SetProperty(v => v.PublishedByKind, by.Kind)
-                .SetProperty(v => v.PublishedByName, by.RecordedName));
+                .SetProperty(v => v.PublishedByName, by.RecordedName)
+                .SetProperty(v => v.PublishedOwnerApproval, by.OwnerApproval));
 
     /// <summary>
     /// Did a second writer really take this version? The head decides: an insert can fail for reasons that have no
@@ -705,11 +752,12 @@ public sealed class FactoryDefinitionStore
     private static IQueryable<FactoryDefinitionVersionSummary> Summaries(IQueryable<FactoryDefinitionVersionEntity> rows)
         => rows.Select(v => new FactoryDefinitionVersionSummary(v.Factory, v.Version, v.State, v.AuthorKind, v.AuthorId,
             v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc, v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount,
-            v.PublishedByKind, v.PublishedByName));
+            v.PublishedByKind, v.PublishedByName, v.PublishedOwnerApproval));
 
     private static FactoryDefinitionVersionSummary Summary(FactoryDefinitionVersionEntity v)
         => new(v.Factory, v.Version, v.State, v.AuthorKind, v.AuthorId, v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc,
-            v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount, v.PublishedByKind, v.PublishedByName);
+            v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount, v.PublishedByKind, v.PublishedByName,
+            v.PublishedOwnerApproval);
 
     internal static FactoryDefinitionVersionSummary? SummaryOf(GatewayDbContext ctx, string factory, int version)
         => Summaries(Versions(ctx, factory).Where(v => v.Version == version)).FirstOrDefault();
@@ -741,7 +789,8 @@ public sealed record FactoryDefinitionStanding(FactoryDefinitionVersionSummary? 
 /// </summary>
 public sealed record FactoryDefinitionVersionSummary(string Factory, int Version, string State, string AuthorKind,
     string? AuthorId, string? ChangeNote, int? RestoredFrom, DateTime WrittenAtUtc, DateTime? PublishedAtUtc,
-    string? PublishedBy, int ContentBytes, int FileCount, string? PublishedByKind = null, string? PublishedByName = null)
+    string? PublishedBy, int ContentBytes, int FileCount, string? PublishedByKind = null, string? PublishedByName = null,
+    string? PublishedOwnerApproval = null)
 {
     /// <summary>Who published this version, in words (phase 6c), or null while it is a draft.</summary>
     public string? PublishedByText => PublishedAtUtc is null ? null : FactoryPublisher.Words(PublishedByKind, PublishedBy, PublishedByName);
@@ -795,9 +844,13 @@ public enum FactoryDefinitionOutcome
     AlreadyPublished,
     /// <summary>The version is older than the published one; publishing never goes backwards.</summary>
     OlderThanPublished,
-    /// <summary>A factory's own session asked to publish, to restore, or to create a new factory (phase 6c). A person
-    /// and a session in no factory may do all three.</summary>
+    /// <summary>A factory's own session that is not its Boss asked to publish or to restore, or any factory's session
+    /// asked to create a new factory (phase 6c; the owner's ruling of 21 October 2026). A person and a session in no
+    /// factory may do all three, and the factory's Boss may publish and restore its own factory.</summary>
     FactorySessionMayNotPublish,
+    /// <summary>A factory's Boss session asked to publish or restore a version that changes the Boss's own seat without
+    /// passing the owner's approval (the owner's ruling of 21 October 2026).</summary>
+    BossSeatNeedsOwnerApproval,
     /// <summary>The write failed for its own reason, and no second writer holds the version it wanted. For a publish
     /// or a restore that drives the factory (phase 4): the transaction failed and changed nothing.</summary>
     WriteFailed,

@@ -3,8 +3,13 @@ using CcDirector.Gateway.Data.Entities;
 namespace CcDirector.Gateway.Factory.Definition;
 
 /// <summary>
-/// WHO PUBLISHED A VERSION OF A FACTORY'S DEFINITION (Factory Definition mission, phase 6c): a person, or a session in
-/// no factory, with the session's name as it was at the moment it published.
+/// WHO PUBLISHED A VERSION OF A FACTORY'S DEFINITION (Factory Definition mission, phase 6c): a person, a session in
+/// no factory, or the factory's own Boss session, with the session's name as it was at the moment it published, and the
+/// owner's approval in his own words when the publisher passed it.
+///
+/// THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026, which narrowed the one below): the Boss
+/// session publishes any change to its factory's definition on its own authority; a change to the Boss's OWN seat needs
+/// the owner's approval, passed verbatim and recorded here (<see cref="OwnerApproval"/>).
 ///
 /// The owner's ruling of 16 October 2026: "Factories are created by agents as long as they have user approval." The
 /// owner creates and publishes a factory by telling a session what to make; the approval is his word in that session.
@@ -15,8 +20,12 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// <param name="Kind"><see cref="FactoryMemoryAuthorKinds.Person"/> or <see cref="FactoryMemoryAuthorKinds.Session"/>.</param>
 /// <param name="Id">The person's identifier, or the session's id. Null when it is not known.</param>
 /// <param name="Name">The session's name; null for a person and for a session with no name.</param>
-public sealed record FactoryPublisher(string Kind, string? Id, string? Name = null)
+/// <param name="OwnerApproval">The owner's words approving the publish, verbatim, or null when none were passed.</param>
+public sealed record FactoryPublisher(string Kind, string? Id, string? Name = null, string? OwnerApproval = null)
 {
+    /// <summary>The longest the owner's words may be, in characters. Longer words are refused, never cut short.</summary>
+    public const int MaxOwnerApprovalLength = 2000;
+
     /// <summary>A person, by the identifier their device carries.</summary>
     public static FactoryPublisher Person(string? id) => new(FactoryMemoryAuthorKinds.Person, id);
 

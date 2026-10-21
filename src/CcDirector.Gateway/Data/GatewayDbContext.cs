@@ -1762,6 +1762,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.PublishedByKind).HasMaxLength(20);
             // As long as a session's name may be (session_history.SessionName), so a name is never cut short.
             b.Property(e => e.PublishedByName).HasMaxLength(320);
+            // FactoryPublisher.MaxOwnerApprovalLength: the owner's words are refused longer than this, never cut short.
+            b.Property(e => e.PublishedOwnerApproval).HasMaxLength(2000);
         });
 
         modelBuilder.Entity<FactoryCheckStateEntity>(b =>
