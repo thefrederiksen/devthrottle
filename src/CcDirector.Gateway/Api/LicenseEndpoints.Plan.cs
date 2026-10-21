@@ -51,7 +51,7 @@ public static partial class LicenseEndpoints
                 return Refuse(StatusCodes.Status404NotFound, "unknown_account", "No machine of this DevThrottle account holds that Claude account.");
             if (answer.UnknownTarget)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_until",
-                    "until is a target id from targets (\"reset\", or \"room:\" and an account email), or a time in ISO 8601.");
+                    "until is a target id from targets (\"reset\", or \"room:\" and an account email), or a time in ISO 8601 such as 2026-10-21T18:00, in UTC unless it names a zone.");
             FileLog.Write($"[LicenseEndpoints] GET plan: tenant={tenant.ToLogString()}, target={answer.Plan!.TargetId ?? "(none)"}");
             return Results.Json(answer.Plan);
         }

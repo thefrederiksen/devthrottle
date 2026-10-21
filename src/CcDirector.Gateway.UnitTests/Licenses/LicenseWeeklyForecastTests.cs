@@ -115,9 +115,9 @@ public sealed class LicenseWeeklyForecastTests
         var tenant = new TenantId("acct-a");
         var kept = new List<LicenseUsageReadingRecord>
         {
-            new(B, Now.AddHours(-30), 70, Reset, 10, Now.AddHours(1)),
+            new(B, Now.AddHours(-11), 70, Reset, 10, Now.AddHours(1)),
             new(B, Now.AddHours(-9), 80, Reset, 12, Now.AddHours(1)),
-            new(B, Now.AddDays(-9), 5, Reset.AddDays(-7), 1, Now.AddDays(-9)),
+            new(B, Now.AddHours(-13), 5, Reset, 1, Now.AddHours(-13)),
         };
         DateTime? askedSince = null;
         var history = new LicenseUsageHistory((t, since) =>
@@ -128,10 +128,10 @@ public sealed class LicenseWeeklyForecastTests
 
         var read = history.Read(tenant, Now);
 
-        Assert.Equal(Now.AddDays(-8), askedSince);
+        Assert.Equal(Now - LicenseUsageHistory.WeeklyWindow, askedSince);
         var b = Assert.Single(read);
         Assert.Equal(B, b.AccountEmail);
         Assert.Empty(b.FiveHour);
-        Assert.Equal(new[] { new LicenseUsagePoint(Now.AddHours(-30), 70, Reset), new LicenseUsagePoint(Now.AddHours(-9), 80, Reset) }, b.SevenDay);
+        Assert.Equal(new[] { new LicenseUsagePoint(Now.AddHours(-11), 70, Reset), new LicenseUsagePoint(Now.AddHours(-9), 80, Reset) }, b.SevenDay);
     }
 }

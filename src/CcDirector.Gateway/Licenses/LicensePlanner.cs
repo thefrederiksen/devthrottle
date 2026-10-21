@@ -26,7 +26,8 @@ public sealed record LicensePlanInput(
 /// THE QUESTION: from now to the target, can the account use what is left before 97% of its weekly limit without
 /// running out? What is left over the hours to go is what can be used an hour. The BURN it is compared with is the
 /// FORECAST'S OWN PACE - the faster of this week's average and the last 6 hours (<see cref="LicenseForecaster"/>) - so the
-/// planner and the forecast never disagree about whether it runs out. A target after the account's own weekly reset only
+/// two use one pace. They can still differ by minutes near the threshold: the forecast projects from the reading's time
+/// and the planner from now, and a reading can be a few minutes old. A target after the account's own weekly reset only
 /// has to be reached at the reset: the week starts again there.
 ///
 /// THE SUGGESTION stops waiting sessions before working ones, biggest rate now first, until what it saves covers the
@@ -41,6 +42,9 @@ public static class LicensePlanFold
     public const string ResetTarget = "reset";
     public const string RoomTargetPrefix = "room:";
     public const string TimeTarget = "time";
+
+    private static readonly System.Text.RegularExpressions.Regex IsoTime =
+        new(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>The plan, or null when <see cref="LicensePlanInput.Until"/> names no target and is no time.</summary>
     public static LicensePlanResponse? Plan(LicensePlanInput input)
@@ -106,6 +110,14 @@ public static class LicensePlanFold
             response.Verdict = "Not known: there is no fresh reading of this account's weekly limit.";
             response.VerdictTone = LicenseTones.Neutral;
             response.Suggestion.Text = "Nothing can be suggested until the account is read.";
+            return response;
+        }
+        // Read before its week reset: the number says nothing about the week now (as in LicenseForecaster).
+        if (reset is { } passed && passed <= now)
+        {
+            response.Verdict = "Not known: this account's weekly limit has reset since its last reading. The next reading answers it.";
+            response.VerdictTone = LicenseTones.Neutral;
+            response.Suggestion.Text = "Nothing can be suggested until the account is read again.";
             return response;
         }
         if (end <= now)
@@ -263,8 +275,11 @@ public static class LicensePlanFold
         }
         if (targets.FirstOrDefault(t => string.Equals(t.Id, until.Trim(), StringComparison.OrdinalIgnoreCase)) is { } named)
             return (named.Id, named.AtUtc, "until " + named.Label);
-        if (DateTime.TryParse(until, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var at))
-            return (TimeTarget, DateTime.SpecifyKind(at, DateTimeKind.Utc), "until the time you picked");
+        // A time is ISO 8601 with a date and a time of day (2026-10-21T18:00, seconds and a zone optional), UTC unless it
+        // names a zone. Anything looser - "18:00", "next tuesday" - is not understood rather than guessed at.
+        if (IsoTime.IsMatch(until.Trim())
+            && DateTimeOffset.TryParse(until.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at))
+            return (TimeTarget, at.UtcDateTime, "until the time you picked");
         return null;
     }
 

@@ -204,6 +204,39 @@ public sealed class LicensePlanFoldTests
     }
 
     [Fact]
+    public void Plan_ReadBeforeItsWeekReset_SaysNotKnown_EvenForATimeAhead()
+    {
+        var usage = Usage();
+        usage.WeekResetsAtUtc = Now.AddMinutes(-3);
+
+        var plan = Plan(usage: usage, until: Now.AddHours(10).ToString("O"));
+
+        Assert.Null(plan.Lasts);
+        Assert.Equal(LicenseTones.Neutral, plan.VerdictTone);
+        Assert.StartsWith("Not known: this account's weekly limit has reset since its last reading.", plan.Verdict);
+    }
+
+    [Fact]
+    public void Plan_BurnsAtThePaceTheForecasterProduces()
+    {
+        // The week as LicenseForecaster makes it, not as a test would build it: 80% now, 62% six hours ago (3% an hour),
+        // 96 hours into a week that resets in 3 days (0.83% an hour on average).
+        var reset = Now.AddDays(3);
+        var snapshot = new LicenseSnapshot(Now, new List<LicenseAccountReading>
+        {
+            new(A, new LicenseWindowReading(10, Now.AddHours(4)), new LicenseWindowReading(80, reset), Now, true),
+        }, new List<LicenseMachineState> { new("windows", "owner", A, new List<LicenseSpare>(), Now, false, null) }, [], []);
+        var history = new LicenseAccountHistory(A, [],
+            [new LicenseUsagePoint(Now.AddHours(-6), 62, reset), new LicenseUsagePoint(Now, 80, reset)]);
+        var week = Assert.Single(LicenseForecaster.Forecast(snapshot, [history]).Accounts).SevenDay;
+
+        var plan = Plan(week: week);
+
+        Assert.Equal(3.0, plan.BurnPercentPerHour!.Value, 6);
+        Assert.Contains("faster than this week's average of 0.83%", plan.BurnText);
+    }
+
+    [Fact]
     public void Plan_AtTheLimitNow_SaysSo()
     {
         var plan = Plan(usage: Usage(used: 98));

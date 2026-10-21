@@ -253,7 +253,7 @@ def plan(account: Optional[str], until: Optional[str], stop: Optional[str], stop
             break
     if choice_rows:
         help_lines.append(f"{_PLAN} --stop-group {choice_rows[0]['id']}")
-    help_lines.append(f"{_PLAN} --until 2026-12-31T18:00:00Z")
+    help_lines.append(f"{_PLAN} --until <ISO time, UTC unless it names a zone>")
     help_lines.append(f"{_PLAN} --json")
     blocks.append(axi_output.format_help(help_lines))
     axi_output.write_blocks(sys.stdout, *blocks)

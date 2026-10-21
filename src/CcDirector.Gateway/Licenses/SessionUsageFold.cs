@@ -61,8 +61,8 @@ public static class SessionUsageFold
     /// provider reports whole points, and one point over a large use is already a fair measure.</summary>
     public const double MinimumRisePercent = 1.0;
 
-    /// <summary>Two readings whose reset times are within this of each other are of the same week.</summary>
-    public static readonly TimeSpan SameWeekTolerance = TimeSpan.FromHours(1);
+    /// <summary>Two readings whose reset times are within this of each other are of the same week: the forecaster's.</summary>
+    public static readonly TimeSpan SameWeekTolerance = LicenseForecaster.SameWeekTolerance;
 
     private static readonly TimeSpan ShortestCalibration = TimeSpan.FromHours(1);
 

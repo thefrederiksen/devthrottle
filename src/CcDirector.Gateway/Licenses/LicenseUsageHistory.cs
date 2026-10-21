@@ -33,8 +33,8 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// THE WEEKLY SERIES IS NOT THIS ONE when the history is built over the kept readings (the usage-by-session mandate): a
 /// weekly pace needs at least six hours of one week, which two hours in memory cannot hold and a restart would erase. The
-/// Gateway then answers the weekly series from <c>license_usage_readings</c> (SessionUsageStore), eight days of them, each
-/// with its reset time.
+/// Gateway then answers the weekly series from <c>license_usage_readings</c> (SessionUsageStore), the last
+/// <see cref="WeeklyWindow"/> of them, each with its reset time.
 /// </summary>
 public sealed class LicenseUsageHistory
 {
@@ -64,6 +64,12 @@ public sealed class LicenseUsageHistory
     private readonly object _gate = new();
     private readonly Dictionary<TenantId, Dictionary<string, Series>> _byTenant = new();
     private readonly Func<TenantId, DateTime, IReadOnlyList<LicenseUsageReadingRecord>>? _weekly;
+
+    /// <summary>How far back the weekly series is read from the kept readings. The weekly pace needs only the latest
+    /// reading and one at least <see cref="LicenseForecaster.RecentPaceSpan"/> before it (the average comes from the
+    /// reading itself), and a reading is kept at least every ten minutes while a machine reports, so twelve hours is
+    /// ample - and a page that polls every 30 seconds never reads a week of rows.</summary>
+    public static readonly TimeSpan WeeklyWindow = TimeSpan.FromHours(12);
 
     /// <summary>Both series in memory, two hours of each.</summary>
     public LicenseUsageHistory() { }
@@ -120,7 +126,7 @@ public sealed class LicenseUsageHistory
         var histories = ReadInMemory(tenant, nowUtc);
         if (_weekly is null)
             return histories;
-        var weekly = _weekly(tenant, nowUtc - TimeSpan.FromDays(8))
+        var weekly = _weekly(tenant, nowUtc - WeeklyWindow)
             .Where(r => r.SevenDayUtilization is not null)
             .GroupBy(r => LicenseStore.NormalizeEmail(r.AccountEmail), StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<LicenseUsagePoint>)g

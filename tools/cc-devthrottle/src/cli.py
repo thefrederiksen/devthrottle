@@ -2303,7 +2303,7 @@ def license_plan(
     until: Optional[str] = typer.Option(
         None, "--until",
         help="Make it last until: a target id (reset, or room:<email> - when that account has room again) or a time "
-        "in ISO 8601. Default: the first target.",
+        "in ISO 8601 such as 2026-10-21T18:00, UTC unless it names a zone. Default: the first target.",
     ),
     stop: Optional[str] = typer.Option(None, "--stop", help="What if these sessions stopped: session ids, comma separated."),
     stop_group: Optional[str] = typer.Option(
