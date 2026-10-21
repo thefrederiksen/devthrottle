@@ -49,6 +49,9 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
+    /// <summary>A fixed time: nothing here is decided by the clock, and a gate test never reads the real one.</summary>
+    private static readonly DateTime Now = new(2026, 10, 21, 12, 0, 0, DateTimeKind.Utc);
+
     private readonly GatewayDbTestHarness _db = new();
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-boss-wiring-" + Guid.NewGuid().ToString("N"));
     private readonly SessionHistoryStore _history;
@@ -98,7 +101,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         });
 
         _registry = new DirectorRegistry(Path.Combine(_dir, "instances"));
-        _registry.RegisterFromStream(DirectorId, Machine, "test", "2.24.0-test", pid: 1, startedAt: DateTime.UtcNow, tenant: TenantId.Local);
+        _registry.RegisterFromStream(DirectorId, Machine, "test", "2.24.0-test", pid: 1, startedAt: Now, tenant: TenantId.Local);
         var kits = new Streaming.FactoryKitCapabilityRegistry();
         kits.Record(TenantId.Local, DirectorId, buildsFactoryKit: true);
 
@@ -130,10 +133,10 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
-            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => DateTime.UtcNow, startLifetime: CancellationToken.None,
+            timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, mailDeskOn: _ => false);
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
-            directorMachine: (_, _) => Machine, nowUtc: () => DateTime.UtcNow, sessionFactoryOf: _history.FactoryOf,
+            directorMachine: (_, _) => Machine, nowUtc: () => Now, sessionFactoryOf: _history.FactoryOf,
             isDefined: (_, _) => false,
             dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")),
             bossSeatOf: (_, id) => id == TheFactory ? TheBoss : null);
@@ -154,15 +157,15 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             RepoPath = Path.GetTempPath(),
             Agent = "ClaudeCode",
             MachineName = Machine,
-            CreatedAt = DateTime.UtcNow.AddMinutes(-1),
-            LastActivityAt = DateTime.UtcNow,
+            CreatedAt = Now.AddMinutes(-1),
+            LastActivityAt = Now,
             ActivityState = "Working",
             Status = "Running",
             Factory = factory,
             FactorySeat = seat,
             FactoryDefinitionVersion = seat is null ? null : ThePublished,
             FactoryKit = seat is null ? null : FactoryKits.RulesOnly,
-        }, DateTime.UtcNow);
+        }, Now);
         return id;
     }
 
