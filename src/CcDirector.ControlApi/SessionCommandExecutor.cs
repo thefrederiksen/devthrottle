@@ -1031,6 +1031,80 @@ internal static class SessionCommandExecutor
         return DirectorCommandResult.Success();
     }
 
+    /// <summary>The sentence an <c>enter</c> sender reads while Claude Code's usage-limit dialog may be showing.</summary>
+    internal const string EnterRefusedOnUsageLimitDialog =
+        "Nothing was pressed: the session is showing Claude Code's usage-limit dialog, where Enter would confirm the " +
+        "highlighted option - one of them turns on paid extra usage. Press Escape to close it instead " +
+        "(cc-devthrottle session escape).";
+
+    /// <summary>The sentence an <c>enter</c> sender reads while another send is being typed into the session.</summary>
+    internal const string EnterRefusedWhileSending =
+        "Nothing was pressed: a prompt is being sent to that session right now - still being typed, or its delivery still " +
+        "being confirmed - and an Enter would land in the middle of it. Read the session (cc-devthrottle session buffer) " +
+        "and press Enter again once that send has finished.";
+
+    /// <summary>
+    /// The <c>enter</c> verb: press one Enter in a session, with nothing typed before it - the phone's Enter key, for an
+    /// agent (the owner's ruling, 21 October 2026: the Fleet Manager may press it in any session, every other session in
+    /// the sessions it owns; the Gateway rules who). Whatever text sits in the composer is submitted. On an EMPTY composer
+    /// the agent does nothing with it, but the Director counts it as a submit, as it always has for the phone's Enter: the
+    /// session can show working until its screen says otherwise. The Enter also answers a dialog that asks for one.
+    ///
+    /// NEVER ON THE USAGE-LIMIT DIALOG (the owner agreed the same day). Enter there confirms the highlighted option, and
+    /// one of them spends money. The session's input guard would drop the keystroke anyway; this answers the sender a
+    /// refusal that says so, instead of a success that pressed nothing.
+    /// </summary>
+    internal static Task<DirectorCommandResult> EnterAsync(SessionManager sessionManager, DirectorCommand command)
+    {
+        if (!Guid.TryParse(command.SessionId, out var guid))
+            return Task.FromResult(DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format"));
+
+        var session = sessionManager.GetSession(guid);
+        if (session is null)
+            return Task.FromResult(DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found"));
+
+        return Task.FromResult(EnterCore(session));
+    }
+
+    /// <summary>The enter core, past the guards.</summary>
+    internal static DirectorCommandResult EnterCore(Session session)
+    {
+        if (session is null) throw new ArgumentNullException(nameof(session));
+        if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, $"the session has {session.Status.ToString().ToLowerInvariant()}; nothing was pressed");
+        if (session.BackendType is not SessionBackendType.ConPty)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "this session has no terminal to press Enter in; nothing was pressed");
+        // NOT INSIDE ANOTHER SEND (review of the owner's ruling, finding 3): the Enter would submit half of that send's text,
+        // or be held and written after it, with this answer already saying "pressed".
+        if (session.SendInProgress)
+        {
+            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: a send is being typed into it");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedWhileSending);
+        }
+        if (session.UsageLimitDialogMayShow())
+        {
+            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: the usage-limit dialog may be showing");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedOnUsageLimitDialog);
+        }
+
+        // Written as the phone's Enter key is - a raw keystroke through the session's input - so the session reads it as
+        // the submit it is: a draft it was tracking is now sent. A send that started after the check above is caught
+        // again under the input lock, so the Enter is never held while this answers "pressed".
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+        if (!session.SendKeystrokeUnlessSending([0x0D], SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt)))
+        {
+            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: a send began before the Enter was written");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedWhileSending);
+        }
+        if (refusals.Refused)
+        {
+            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: the input guard dropped the Enter (usage-limit dialog)");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedOnUsageLimitDialog);
+        }
+        FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} pressed Enter");
+        return DirectorCommandResult.Success();
+    }
+
     /// <summary>
     /// The <c>hold</c> verb: write down the hold the GATEWAY has decided, so the desktop can render it.
     ///

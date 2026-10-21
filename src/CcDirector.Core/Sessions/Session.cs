@@ -2742,8 +2742,9 @@ public sealed class Session : IDisposable
         // A DOORBELL LINE LEFT IN THE COMPOSER IS THIS PRODUCT'S OWN TEXT (the Prompt Delivery mission, 16 October 2026).
         // On 15 October a line whose submit could not be verified stayed in the composer, and the owner's next prompt was
         // typed onto its end: the agent received "...run: cc-devthrottle message inbox@.temp/input_...txt" as one prompt.
-        // Marked, the next send clears the line as the product's own leftover before it types, instead of welding onto it
-        // or - now that a send refuses a composer holding text it cannot account for - being refused by it.
+        // Marked, the next send clears the line as the product's own leftover before it types, instead of welding onto it.
+        // An UNMARKED line is still welded onto: since the owner's ruling of 21 October 2026 a send types after any text
+        // in the composer it cannot account for, so this mark is what keeps a doorbell line out of the next prompt.
         if (outcome == Drivers.DoorbellSubmitOutcome.NotVerified && composerShowsLine())
             Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), line);
         if (outcome == Drivers.DoorbellSubmitOutcome.Verified)
@@ -2978,6 +2979,16 @@ public sealed class Session : IDisposable
     /// <summary>Held for the whole of one terminal send, from the first keystroke to the end of its proof.</summary>
     private readonly SemaphoreSlim _submitGate = new(1, 1);
     private readonly ComposerInputReader _composerInput = new();
+
+    /// <summary>
+    /// True while a send is being typed into this session: an ordinary send holds the one-at-a-time gate from its first
+    /// keystroke to the end of its proof, and a guarded send holds the input itself. A single key pressed from outside
+    /// now would land inside that send - an Enter would submit half of it - or be held until it ends.
+    /// </summary>
+    internal bool SendInProgress
+    {
+        get { lock (_inputLock) return _guardedSection is not null || _submitGate.CurrentCount == 0; }
+    }
 
     /// <summary>True while the owner has typed text into the composer that the Director has not seen submitted.</summary>
     public bool HasUnsentOwnerDraft
@@ -3303,21 +3314,39 @@ public sealed class Session : IDisposable
     private int _pendingOriginChars;
 
     public void SendInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
+        => SendInputCore(data, origin, provenance, refuseWhileSending: false);
+
+    /// <summary>
+    /// One keystroke pressed from outside - an agent's Enter (the owner's ruling, 21 October 2026) - written exactly as
+    /// <see cref="SendInput"/> writes it, unless a send is being typed into the session (<see cref="SendInProgress"/>):
+    /// then nothing is written or held, and it answers false. Decided under the input lock, where a guarded send takes
+    /// the input, so a keystroke is never held while its sender is told it was pressed.
+    /// </summary>
+    internal bool SendKeystrokeUnlessSending(byte[] data, SubmissionProvenance provenance)
+        => SendInputCore(data, origin: null, provenance, refuseWhileSending: true);
+
+    private bool SendInputCore(byte[] data, InputOrigin? origin, SubmissionProvenance provenance, bool refuseWhileSending)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return false;
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
         // Under the input lock, and counted as input. While a guarded send holds the input, the keystroke is held and
         // written after that send, in order; otherwise it is written now and is in flight until its meaning is applied.
         bool submits;
         lock (_inputLock)
         {
+            if (refuseWhileSending && (_guardedSection is not null || _submitGate.CurrentCount == 0))
+            {
+                FileLog.Write($"[Session] SendInput: session={Id}: a send is being typed into this session; the keystroke is " +
+                              "refused, not held");
+                return false;
+            }
             if (_guardedSection is not null)
             {
                 _heldKeystrokes.Add(new HeldKeystrokes(data.ToArray(), origin, provenance));
                 FileLog.Write($"[Session] SendInput: session={Id}: a guarded send holds the input; keystroke held until it finishes " +
                               $"({_heldKeystrokes.Count} held)");
-                return;
+                return true;
             }
             _inputGeneration++;
             _inputInFlight++;
@@ -3333,6 +3362,7 @@ public sealed class Session : IDisposable
         }
         try { AfterRawInput(data, origin, provenance, submits); }
         finally { EndInput(); }
+        return true;
     }
 
     /// <summary>
@@ -4614,8 +4644,11 @@ public sealed class Session : IDisposable
                 }
                 catch (Drivers.ComposerNotAcceptingInputException ex)
                     when (proof is not null && ex.TerminalReacted && Drivers.ComposerClearKeys.For(AgentKind) is not null
-                          && !AgentShowsWorking())
+                          && !AgentShowsWorking() && !ex.TypedAfterExistingText)
                 {
+                    // NEVER AFTER A SEND THAT TYPED AFTER THE OWNER'S DRAFT (the owner's ruling, 21 October 2026: a send
+                    // types after text already in the composer). The clear keys empty the whole composer, the owner's words
+                    // with it; such a send is reported not delivered, with the text left where it is.
                     // NEVER WHILE THE AGENT SHOWS WORKING - its state or its screen (Voice Delivery mission, phase 3; the
                     // state added by the round-2 review, minor note 1, so a screen read that misses the marker - as the old fixed grid did, issue #3406 -
                     // cannot fire the clear keys into a working agent). A working agent can

@@ -71,6 +71,9 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         // API mode, phase 4: take the wheel and hand it back, sent by the Gateway's POST /sessions/{id}/wheel/take and
         // /wheel/hand-back under these names (GatewayEndpoints.WheelTakeCommand and WheelHandBackCommand).
         "wheel-take", "wheel-hand-back",
+        // One Enter with nothing typed before it, sent by the Gateway's POST /sessions/{id}/enter (the owner's ruling,
+        // 21 October 2026: agents may press Enter in sessions they own, the Fleet Manager in any).
+        "enter",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
@@ -84,6 +87,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
             "wheel-take" => await SessionCommandExecutor.WheelAsync(sessionManager, context.DirectorId, command, context.Services, take: true),
             "wheel-hand-back" => await SessionCommandExecutor.WheelAsync(sessionManager, context.DirectorId, command, context.Services, take: false),
             "escape" => await SessionCommandExecutor.EscapeAsync(sessionManager, command),
+            "enter" => await SessionCommandExecutor.EnterAsync(sessionManager, command),
             "hold" => SessionCommandExecutor.Hold(sessionManager, command),
             "kill" => await SessionCommandExecutor.KillAsync(sessionManager, command),
             "patch" => SessionCommandExecutor.Patch(sessionManager, context.DirectorId, command),

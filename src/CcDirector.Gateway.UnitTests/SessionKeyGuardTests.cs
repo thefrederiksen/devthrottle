@@ -126,7 +126,6 @@ public sealed class SessionKeyGuardTests
 
     [Theory]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
     [InlineData("POST", "/fanout")]
     // Answering a judged stop types the verdict's option into the session (inspection 1, ruling 1). It was on
     // the allowed list above until the slice 1 fix round.
@@ -156,6 +155,37 @@ public sealed class SessionKeyGuardTests
         var verdict = SessionKeyGuard.Check(method, path);
         Assert.True(verdict.Allowed, $"{method} {path} should reach its route, which decides ownership");
         Assert.Equal(RaisedGrant.None, verdict.RaisedGrant);
+    }
+
+    // ---------- A session may press Enter or Escape in a session it owns (the owner's ruling, 21 October 2026) ----------
+    //
+    // Escape was refused to every session key from 16 September 2026. The same split as the prompt: the guard lets the
+    // two exact shapes through, and the route presses the key only in a session the caller owns.
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/enter")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/ENTER/")]
+    public void Enter_and_escape_are_let_through_for_their_route_to_decide_ownership(string method, string path)
+    {
+        var verdict = SessionKeyGuard.Check(method, path);
+        Assert.True(verdict.Allowed, $"{method} {path} should reach its route, which decides ownership");
+        Assert.Equal(RaisedGrant.None, verdict.RaisedGrant);
+    }
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/enter/extra")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
+    [InlineData("POST", "/sessions/enter")]
+    public void Only_the_exact_enter_and_escape_shapes_are_let_through(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must stay refused");
+
+    [Fact]
+    public void The_typing_refusal_names_the_keys_a_session_may_press()
+    {
+        Assert.Contains("cc-devthrottle session enter", AgentInputRefusal.Typing);
+        Assert.Contains("cc-devthrottle session escape", AgentInputRefusal.Typing);
+        Assert.DoesNotContain("interrupt or escape", AgentInputRefusal.Typing);
     }
 
     [Theory]

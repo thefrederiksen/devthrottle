@@ -20,4 +20,12 @@ public sealed class ComposerNotAcceptingInputException : InvalidOperationExcepti
     /// paste with the control bytes removed - both copies welded into one prompt.
     /// </summary>
     public bool TerminalReacted { get; init; }
+
+    /// <summary>
+    /// True when the send typed after text that was already in the composer and was not this product's own - the owner's
+    /// draft (the owner's ruling, 21 October 2026). The clear-and-retype recovery must never follow such a send: its
+    /// clear keys empty the whole composer, the owner's words with it. Set by <see cref="TerminalSubmit.SharedSubmitAsync"/>
+    /// from what the send itself read, after it waited for a drawn composer.
+    /// </summary>
+    public bool TypedAfterExistingText { get; internal set; }
 }

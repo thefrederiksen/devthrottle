@@ -263,29 +263,25 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     }
 
     /// <summary>
-    /// LOOK BEFORE TYPING (the Prompt Delivery mission, 16 October 2026): text in the composer on the screen that the
-    /// Director's keystroke tracking never saw is still text, and typing after it would send both as one prompt. The
-    /// send reads the composer before it types, refuses saying how much it found there, writes nothing, and leaves
-    /// the text as it was.
+    /// TEXT ALREADY IN THE COMPOSER IS TYPED ONTO (the owner's ruling, 21 October 2026, reversing the Prompt Delivery
+    /// mission's refusal of 16 October): text in the composer on the screen that the Director's keystroke tracking never
+    /// saw is typed after, and the Enter submits both as one prompt.
     /// </summary>
     [Fact]
-    public async Task SendPromptAsync_TextOnTheScreenTheDirectorNeverTracked_RefusedBeforeTyping_AndLeft()
+    public async Task SendPromptAsync_TextOnTheScreenTheDirectorNeverTracked_IsTypedAfterAndSubmittedWithIt()
     {
         var (session, terminal) = NewTerminalSession();
         TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
 
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
 
-        Assert.False(response.Accepted);
-        Assert.True(response.RefusedBusy);
-        // The look's own words, not the owner-draft check's: that check saw no draft (asserted above).
-        Assert.Null(response.RefusedFor);
-        Assert.Contains("already holds", response.Error);
-        Assert.Contains("never sent", response.Error);
-        Assert.Empty(terminal.Writes);
-        Assert.Equal("my draft ", terminal.Composer.ToString());
-        Assert.Empty(terminal.Submitted);
-        Assert.Equal(0, session.InputStats.Snapshot().AgentDrivenTurns);
+        Assert.True(response.Accepted, response.Error);
+        Assert.False(response.RefusedBusy);
+        // A screen cannot show a trailing space - a blank cell reads the same - so the send writes its own space after
+        // the draft, and a draft that already ended in one gets two. Two spaces read the same to an agent; one word run
+        // into the next would not.
+        Assert.Equal(new[] { "my draft  " + EventText }, terminal.Submitted);
+        Assert.Equal(1, session.InputStats.Snapshot().AgentDrivenTurns);
     }
 
     // ===== The owner's unsent draft (inspection round 2, finding 1) =====

@@ -787,6 +787,34 @@ def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
     return resp if isinstance(resp, dict) else {}
 
 
+def press_key(target: str, key: str) -> Dict[str, Any]:
+    """Press one key - Enter or Escape - in another session. Calls POST /sessions/{sid}/enter or /escape.
+
+    The owner's ruling, 21 October 2026: the Fleet Manager presses them in any session, every other
+    session only in a session it owns (one it started with --controlled-by self, or was handed). The
+    Gateway decides; a refusal is printed as the Gateway wrote it. Enter submits whatever text sits in
+    that session's composer. It is refused while Claude Code's usage-limit dialog may be showing,
+    because Enter there confirms a paid option; Escape closes that dialog.
+    """
+    if key not in ("enter", "escape"):
+        raise ValueError(f"press_key: key must be 'enter' or 'escape', not {key!r}")
+    sid = resolve_target_or_current(target, f"cc-devthrottle session {key}")
+    name = "Enter" if key == "enter" else "Escape"
+    try:
+        resp = gateway.post_json(f"sessions/{sid}/{key}")
+    except gateway.GatewayError as err:
+        axi_cli.fail(
+            f"could not press {name} in session {sid}: {err}",
+            [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION],
+        )
+    _accepted_or_fail(resp, f"pressing {name} in session {sid}", [
+        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
+    ])
+    console.print(f"[green]Pressed {name}[/green] in {sid}.")
+    axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
+    return resp if isinstance(resp, dict) else {}
+
+
 def hold_session(target: Optional[str], release: bool = False, minutes: Optional[int] = None) -> Dict[str, Any]:
     """Park a session, or release it. Restores the old POST /sessions/{sid}/hold.
 

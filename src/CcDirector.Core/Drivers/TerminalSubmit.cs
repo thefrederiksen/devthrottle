@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Runtime.CompilerServices;
+using System.Text;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
 using CcDirector.Core.Machine;
@@ -140,11 +141,18 @@ public static class TerminalSubmit
         var clockBefore = SendClock.Value;
         TextWaitsInComposer.Value = nudgeOnlyWhen;
         SendClock.Value = clock;
+        var typedAfterExistingText = new StrongBox<bool>();
         try
         {
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
                 pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
-                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen, composerRegion);
+                composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen, composerRegion,
+                typedAfterExistingText);
+        }
+        catch (ComposerNotAcceptingInputException ex) when (typedAfterExistingText.Value)
+        {
+            ex.TypedAfterExistingText = true;
+            throw;
         }
         finally
         {
@@ -178,7 +186,7 @@ public static class TerminalSubmit
         TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
         TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
         bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText, Func<string>? composerSeen,
-        Func<(ComposerReading Reading, string Text)>? composerRegion)
+        Func<(ComposerReading Reading, string Text)>? composerRegion, StrongBox<bool> typedAfterExistingText)
     {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
@@ -203,12 +211,15 @@ public static class TerminalSubmit
         if (composerRegion is not null)
             await RefuseUnlessComposerDrawnAsync(driverTag, composerRegion, composerSeen, screenSnapshot);
         await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen, composerRegion);
-        // ...and then that it is EMPTY. Text the retained-text step could account for - this product's own earlier, unsent
-        // text - has been cleared by now. Anything still there is someone else's: the owner's unsent draft, which the
-        // send used to type onto the end of and submit as one prompt (measured in the delivery rig on 16 October: the
-        // agent received draft and prompt as one turn, and the Director reported it delivered).
+        // TEXT ALREADY IN THE COMPOSER IS TYPED ONTO, NEVER REFUSED (the owner's ruling, 21 October 2026: "If there are
+        // texts already entered in the text box, we should be allowed to add more to it and then hit enter"). Text the
+        // retained-text step could account for - this product's own earlier, unsent text - has been cleared by now.
+        // Anything still there is someone else's - the owner's own draft, or a leftover of this product's that carried no
+        // mark (an unmarked doorbell line is welded onto, with a space, as on 15 October): the send types after it, with
+        // a space between, and the Enter submits both as one prompt. From 16 October (pull request #4072) until this
+        // ruling such a send was refused.
         if (composerRegion is not null)
-            await RefuseUnlessComposerEmptyAsync(driverTag, composerRegion, composerSeen, screenSnapshot);
+            typedAfterExistingText.Value = TypeASpaceAfterExistingText(backend, driverTag, composerRegion);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -756,7 +767,9 @@ public static class TerminalSubmit
 
         // UNCONDITIONALLY only for the retry inside the same held-input send (issue #3290): nothing in the composer can
         // be the owner's then, and a partly echoed text does not read as "present", so the evidence rule would leave it
-        // there and the retry would be appended to it.
+        // there and the retry would be appended to it. Since the owner's ruling of 21 October 2026 a send can start with
+        // the owner's draft in front of it; such a send fails with TypedAfterExistingText set and the Session never makes
+        // this retry after it, so the clear keys never take a draft off.
         // THE MARKED TEXT AND MORE IS NOT OURS ALONE (review of pull request 4072, risk B). A parked doorbell line, or a
         // failed send's text, can have the owner's own words typed after it; the measured clear keys - End and a
         // Backspace for every character and more - take those words off first. So where the region shows the marked
@@ -847,15 +860,13 @@ public static class TerminalSubmit
             }
             else if (regionNow is not null && regionNow.Length > 0)
             {
-                var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
+                // The previous send's text is gone and what the composer holds is someone else's - the owner's own
+                // draft. It is not cleared, and the send types after it (the owner's ruling, 21 October 2026); until
+                // that ruling this refused the send.
                 SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is not in the composer, " +
-                                          "but the composer holds other text this send cannot account for - nothing is typed and " +
-                                          $"nothing is cleared. What it read: {RegionForTrail(composerRegion)}");
-                ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
-                throw new ComposerNotAcceptingInputException(
-                    $"[{driverTag}] ResolveRetainedComposer: the composer holds text this send cannot account for, so " +
-                    "nothing is typed - typing now would run the new text together with what is there. The previous " +
-                    $"send's {retained.Length} characters are not it; what it read: {seen}. The next send looks again.");
+                                          "but the composer holds other text - not clearing it, and typing after it. " +
+                                          $"What it read: {RegionForTrail(composerRegion)}");
+                return;
             }
             SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is provably gone from " +
                                       "this composer - not clearing, so nothing typed since is disturbed.");
@@ -920,33 +931,34 @@ public static class TerminalSubmit
     }
 
     /// <summary>
-    /// Refuse the send, typing nothing, while the composer holds text that is not this product's own: typing would send
-    /// the new text and that text as one prompt. The text is left exactly as it is.
+    /// The composer holds text this send did not type - the owner's own draft. The send goes on and types after it (the
+    /// owner's ruling, 21 October 2026); this writes one space first when the draft does not already end in one, so the
+    /// two do not run together into one word. A screen cannot show a TRAILING space - a blank cell reads the same - so a
+    /// draft that already ends in one gets a second; two spaces read the same to an agent, one word run into the next
+    /// would not. One reading is enough: a frame caught mid-repaint costs at most a missing space, never a refusal. The arrival proof and the echo check both look for the sent text INSIDE what arrives, so
+    /// the draft in front of it does not fail them. Returns whether the composer held such text, so a failed send can
+    /// say it typed after the owner's words (<see cref="ComposerNotAcceptingInputException.TypedAfterExistingText"/>).
     /// </summary>
-    private static async Task RefuseUnlessComposerEmptyAsync(
-        string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion, Func<string>? composerSeen,
-        Func<string[]>? screenSnapshot)
+    private static bool TypeASpaceAfterExistingText(
+        ISessionBackend backend, string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion)
     {
-        var look = await LookAtComposerAsync(composerRegion, PromptArrival.ComposerHoldsNothing);
-        if (look.Ready || NothingRendered(look.Reading, driverTag, screenSnapshot)) return;
-        SendTrail.Step(driverTag, $"LookBeforeTyping: the composer holds text this send did not type ({look.Reading}) after " +
-                                  $"{LookBeforeTypingLooks} looks - nothing is typed and nothing is cleared. " +
-                                  $"{RegionForTrail(composerRegion)}; {ComposerSeenForTrail(composerSeen)}");
-        if (look.Reading is not (ComposerReading.Empty or ComposerReading.HoldsText))
-            throw new ComposerNotAcceptingInputException(
-                $"[{driverTag}] LookBeforeTyping: nothing was typed: the agent's composer stopped being readable ({look.Reading}). " +
-                "Look at the session's screen, then send again.")
-            { TerminalReacted = false };
-        if (look.Text.Trim().Length == 0)
-            throw new ComposerNotAcceptingInputException(
-                $"[{driverTag}] LookBeforeTyping: nothing was typed: the composer holds unsent whitespace, and typing now " +
-                "would send it and this prompt as one. Send or clear that whitespace on the session's screen, then send again.")
-            { TerminalReacted = false };
-        throw new ComposerNotAcceptingInputException(
-            $"[{driverTag}] LookBeforeTyping: nothing was typed: the composer already holds {look.Text.Trim().Length} characters " +
-            "that were never sent, and typing now would send them and this prompt as one. Send or clear that text on the " +
-            "session's screen, then send again.")
-        { TerminalReacted = false };
+        var (reading, text) = composerRegion();
+        if (reading != ComposerReading.HoldsText || PromptArrival.ComposerHoldsNothing(reading, text)) return false;
+        var draft = text.TrimEnd('\r', '\n');
+        if (draft.Trim().Length == 0)
+        {
+            SendTrail.Step(driverTag, "TypeOntoExistingText: the composer holds only whitespace - typing after it");
+            return true;
+        }
+        if (char.IsWhiteSpace(draft[^1]))
+        {
+            SendTrail.Step(driverTag, $"TypeOntoExistingText: the composer holds {draft.Trim().Length} characters of the owner's - typing after them");
+            return true;
+        }
+        SendTrail.Step(driverTag, $"TypeOntoExistingText: the composer holds {draft.Trim().Length} characters of the owner's - " +
+                                  "typing a space and then this send after them");
+        backend.Write(new byte[] { 0x20 });
+        return true;
     }
 
     /// <summary>
