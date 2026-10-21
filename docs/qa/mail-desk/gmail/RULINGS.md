@@ -105,7 +105,7 @@ Example domains only in test data (`example.com`, `example.org`, `example.net`).
 ## R7. Working rules
 
 - Your own worktree, your own branch; never the shared checkout; never `git pull` it.
-- Commit with `git -c user.name="thefrederiksen" -c user.email="soren@duksrevo.com"`, check it landed, push, open a
+- Commit with the identity your brief gives (devlinux has none configured), check it landed, push, open a
   pull request INTO `mail-desk-gmail` (not main). No assistant name, no Co-Authored-By, no "Generated with", anywhere.
   Plain English, no abbreviations.
 - Never send an email, never change the real mailbox (no modify on the real mailbox, ever, even in G0), never touch
