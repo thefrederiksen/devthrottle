@@ -20,19 +20,31 @@ public static class MailDeskWords
         public static readonly IReadOnlyList<string> All = new[] { Email };
     }
 
-    /// <summary>The providers a channel accepts. Outlook only; Gmail is one added constant in the next mission (D20).</summary>
+    /// <summary>The providers a channel accepts: Outlook and Gmail (D20).</summary>
     public static class Providers
     {
         public const string Outlook = "outlook";
-        public static readonly IReadOnlyList<string> All = new[] { Outlook };
+        public const string Gmail = "gmail";
+        public static readonly IReadOnlyList<string> All = new[] { Outlook, Gmail };
 
         /// <summary>Each provider's name as a reader sees it (phase 7). Every provider in <see cref="All"/> has one;
         /// the channel fold refuses a provider without one rather than show the raw word.</summary>
         public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [Outlook] = "Outlook",
+            [Gmail] = "Gmail",
         };
+
+        /// <summary>The providers as the <c>--provider</c> placeholder of a command shows them: <c>outlook|gmail</c>.</summary>
+        public static string Placeholder => string.Join("|", All);
     }
+
+    /// <summary>
+    /// The command that adds a mailbox, as every sentence that tells a reader to add one shows it - the page's empty
+    /// state, the channel list's next step and the failed check's fix - so each names every provider the Gateway accepts.
+    /// </summary>
+    public static string ChannelAddCommand(string machine)
+        => $"cc-devthrottle maildesk channel add <address> --provider {Providers.Placeholder} --machine {machine} --why \"<text>\"";
 
     /// <summary>A channel's mode: observe decides and records and changes nothing; live acts.</summary>
     public static class Modes

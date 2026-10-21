@@ -48,10 +48,13 @@ public sealed class MailDeskMemoryTests : IAsyncLifetime
         return run;
     }
 
-    private async Task AddThroughTheRoute(string address, params string[] machines)
+    private Task AddThroughTheRoute(string address, params string[] machines)
+        => AddThroughTheRoute(address, MailDeskWords.Providers.Outlook, machines);
+
+    private async Task AddThroughTheRoute(string address, string provider, string[] machines)
     {
         var (status, body) = await _rig.PersonPostAsync(P + "/channels",
-            new { address, provider = "outlook", machines = machines.Length == 0 ? new[] { MachineA } : machines, why = "a mailbox for the test" });
+            new { address, provider, machines = machines.Length == 0 ? new[] { MachineA } : machines, why = "a mailbox for the test" });
         Assert.True(status == 201, $"expected 201, got {status}: {body}");
     }
 
@@ -75,6 +78,21 @@ public sealed class MailDeskMemoryTests : IAsyncLifetime
         Assert.Equal(BoxA, entry["address"]!.GetValue<string>());
         Assert.Equal("outlook", entry["provider"]!.GetValue<string>());
         Assert.Equal(MailDeskWords.Modes.Observe, entry["mode"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Assignment_AGmailChannel_IsHandedWithItsProviderAsGiven()
+    {
+        // Arrange
+        _rig.AddMailDeskTrigger();
+        await AddThroughTheRoute(BoxA, MailDeskWords.Providers.Gmail, Array.Empty<string>());
+
+        // Act
+        var handed = await _rig.PullAsync();
+
+        // Assert
+        var entry = Assert.Single(HandedChannels(handed))!.AsObject();
+        Assert.Equal("gmail", entry["provider"]!.GetValue<string>());
     }
 
     [Fact]
@@ -198,7 +216,7 @@ public sealed class MailDeskMemoryTests : IAsyncLifetime
         Assert.Empty(HandedChannels(handed));
         var run = Assert.Single(_rig.Runs());
         Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
-        var sentence = $"the Mail Desk start runs on {MachineA}, but no channel names it: add it with maildesk channel add <address> --provider outlook --machine {MachineA} --why \"<text>\"";
+        var sentence = $"the Mail Desk start runs on {MachineA}, but no channel names it: add it with cc-devthrottle maildesk channel add <address> --provider outlook|gmail --machine {MachineA} --why \"<text>\"";
         Assert.Equal(sentence, run.Reason);
         var problem = Assert.Single(_rig.OpenProblems());
         Assert.Equal(CronRunProblems.CheckFailed, problem.Kind);
