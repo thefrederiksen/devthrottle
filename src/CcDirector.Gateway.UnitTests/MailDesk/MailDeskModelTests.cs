@@ -324,6 +324,29 @@ public sealed class MailDeskModelTests
     }
 
     [Fact]
+    public async Task AskPersonOrSpamAsync_DeepInfraReplyWithLogprobsNull_IsTheLabelWithNoConfidence()
+    {
+        // Arrange: the shape DeepInfra really returns for the included fast model when log probabilities are asked
+        // for - its own fields, the answer cut at two tokens, and logprobs null. Every value is made up.
+        const string body = """
+            {"service_tier":"default","id":"chatcmpl-made-up","object":"chat.completion","created":1700000000,
+             "model":"Qwen/Qwen2.5-72B-Instruct",
+             "choices":[{"index":0,"message":{"role":"assistant","content":"B","reasoning_content":null,"name":null,"tool_calls":[]},
+                         "finish_reason":"length","logprobs":null}],
+             "usage":{"prompt_tokens":150,"total_tokens":152,"completion_tokens":2,"estimated_cost":0.0000548,
+                      "prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":null}}}
+            """;
+        var model = Model(FakeHandler.Answering(body));
+
+        // Act
+        var result = await model.AskPersonOrSpamAsync(Email);
+
+        // Assert
+        Assert.Equal((MailDeskAnswerKind.Label, "spam", (double?)null, 150, 2),
+            (result.Kind, result.Label, result.Confidence, result.InputTokens, result.OutputTokens));
+    }
+
+    [Fact]
     public async Task AskPersonOrSpamAsync_FirstTokenIsNotTheAnsweredLetter_ConfidenceIsNull()
     {
         // Arrange
