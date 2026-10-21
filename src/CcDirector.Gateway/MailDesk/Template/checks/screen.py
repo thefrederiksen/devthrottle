@@ -606,6 +606,10 @@ GMAIL_LIST_MAX_PAGES = 20       # 10,000 new ids at most; past that the oldest c
 # cursor (R4); those still in the key table are skipped unread, the rest cost one read each.
 GMAIL_METADATA_PER_RUN = 60
 GMAIL_REFRESH_MARGIN = timedelta(minutes=5)
+# A sender address the Sent search may take (the Tech Lead's ruling on G0 review finding 1): the From address is the
+# sender's to write, and a known sender skips the spam screen, so only a plain address ever goes into a Gmail query.
+# Local part: letters, digits and . _ + - ; domain: labels of letters, digits and -, with dots between.
+GMAIL_PLAIN_ADDRESS = re.compile(r"[a-z0-9_+][a-z0-9._+-]*@[a-z0-9-]+(\.[a-z0-9-]+)+")
 # google-auth's Credentials.from_authorized_user_info needs these three; a refresh also needs token_uri (R2).
 GMAIL_TOKEN_KEYS = ("refresh_token", "client_id", "client_secret", "token_uri")
 
@@ -1040,13 +1044,25 @@ class GmailReader:
     def known_hashes(self, found):
         """"We have written to this sender" (R5, settled by G0): for each distinct sender found, one search of the SENT
         label for a message to, cc or bcc that address, at most one result. It covers the whole Sent history. Returns
-        the hashes of those written to; nothing of it is kept."""
+        the hashes of those written to; nothing of it is kept.
+
+        Two guards (the Tech Lead's ruling on G0 review finding 1), because the address is the sender's to write and a
+        known sender skips the spam screen: only a plain address (GMAIL_PLAIN_ADDRESS) is searched for, anything else
+        is not known and costs no call; and a hit counts only when the found message's own To, Cc or Bcc holds exactly
+        that address."""
         known = set()
         for sender in sorted({m["from"] for m in found if m["from"]}):
-            if not re.fullmatch(r"[^\s\"(){}<>]+@[^\s\"(){}<>]+", sender):
-                continue   # not an address Gmail's search can take as one word, so it is not searched for
+            if not GMAIL_PLAIN_ADDRESS.fullmatch(sender):
+                continue
             ids, _ = self.message_ids("SENT", f"to:{sender} OR cc:{sender} OR bcc:{sender}", 1, "reading the Sent mail")
-            if ids:
+            if not ids:
+                continue
+            raw = self.metadata(ids[0], ("To", "Cc", "Bcc"), "reading the Sent mail")
+            headers = (raw.get("payload") or {}).get("headers") if isinstance(raw, dict) else None
+            # Only headers that are there: getaddresses in strict mode answers nothing at all for a list holding "".
+            values = [v for v in (gmail_header(headers if isinstance(headers, list) else [], f)
+                                  for f in ("To", "Cc", "Bcc")) if v]
+            if sender in {a.lower() for _, a in email.utils.getaddresses(values) if a}:
                 known.add(address_hash(sender))
         return known
 

@@ -143,7 +143,8 @@ fake Gmail API's log is empty for each; they send the allowed shapes too, to sho
 - **The short keys, the key table, the filing queue, the stops and `more`** are phase 2's, unchanged.
 
 A realistic run of 10 new messages from 10 senders is 22 Gmail calls (G0 measured 5.2 seconds): one list, 10 metadata
-reads, one attachment search, and one Sent search per distinct sender. A test counts them.
+reads, one attachment search, and one Sent search per distinct sender. A test counts them. Each sender the search
+finds costs one more read, to confirm it (section 5).
 
 ## 5. The fields (R5)
 
@@ -153,7 +154,7 @@ reads, one attachment search, and one Sent search per distinct sender. A test co
 | `subject` | the `Subject` header with RFC 2047 encoded words decoded (decoding is not rewording; a character set Python does not know is kept as it came), then cleaned as phase 2's 4.3. G0 saw 0 of 20 subjects still encoded: the decoding is kept for mail that arrives otherwise. |
 | `preview` | Gmail's `snippet`, HTML entities unescaped (G0: 10 of 20 snippets hold one), then cleaned as 4.3, **then** cut to 200 characters. An entity that stands for an invisible character is unescaped first, so it is stripped too. |
 | `hasAttachments` | whether the id is in **one** list a run of the same window with `has:attachment` added (G0: `format=metadata` carries no parts, and the MIME type disagreed with this search on 6 of 36 messages). It is Gmail's own definition of an attachment, which may differ from Outlook's at the edges (an inline picture). No new mail, no search. |
-| `knownSender` | "we have written to this sender": one search per distinct new sender, `labelIds=SENT`, `q=to:<a> OR cc:<a> OR bcc:<a>`, `maxResults=1` (G0: 2.4 seconds for 10 senders, against 123 seconds to build a 500-message cache). It covers the whole Sent history. Nothing is kept. **A Gmail channel has no `sentCache`**: one there is a field this check did not write, and fails that channel. A sender that is not one plain word of an address is not searched for, and is not known. |
+| `knownSender` | "we have written to this sender": one search per distinct new sender, `labelIds=SENT`, `q=to:<a> OR cc:<a> OR bcc:<a>`, `maxResults=1` (G0: 2.4 seconds for 10 senders, against 123 seconds to build a 500-message cache). It covers the whole Sent history. Nothing is kept. **A Gmail channel has no `sentCache`**: one there is a field this check did not write, and fails that channel. Two guards, because the `From` address is the sender's to write and a known sender skips phase 3's spam screen (the Tech Lead's ruling on G0 review finding 1): **(1)** only an address that, once `email.utils` has taken it out of the header and put it in lower case, is plain - a local part of letters, digits and `.` `_` `+` `-`, then `@`, then labels of letters, digits and `-` with dots between (`GMAIL_PLAIN_ADDRESS`) - is searched for; anything else is not known and costs no call; **(2)** a hit counts only when a read of the found message (`format=metadata`, `To`, `Cc`, `Bcc`) shows exactly that address among its parsed recipients, so a look-alike hit (a longer address holding it) is not known. The G0 probe's pattern also allows `%` in the local part; this check follows the ruling's words and does not. |
 
 ## 6. The failures
 
@@ -188,16 +189,17 @@ that one name when they run together, so the fixtures are in `gmail_rig.py`.
 | `test_gmail_filing.py` | Observe mode with a queue sends no modify and keeps the queue; live mode sends exactly the two bodies; 404 is `already-gone`; a retried archive keeps the id; a failing modify fails the channel with its queue whole; a decision other than the two is refused. |
 | `test_gmail_cursor_and_batches.py` | The first run (30 days or 200); milliseconds kept in the cursor and not in the output; a cut inside one millisecond; the query one second early and filtered in code; catching up over many runs; a burst of 100 inside two seconds; each cursor refused on the other provider's channel; Gmail and Outlook sharing the 10-message stop oldest first; the byte budget; two Gmail channels; one section shape. |
 | `test_gmail_sign_in.py` | Where it looks (not `HOME`, not `LOCALAPPDATA` on Linux, not `instances/*`); case; the nickname premise read from cc-gmail; none, two, app password, no token, each missing key, a refused refresh, each missing scope, another `token_uri`, an unreadable or foreign token file, unreadable settings, the sign-in service failing four ways and the Gmail API failing five: each one channel only, the Outlook channel read and its cursor moved, nothing secret on standard error; every sentence within 165 characters; no refresh while valid, a refresh within 5 minutes with exactly the four fields; the write-back (keys and order, 0600, read by google-auth, a new refresh token kept, a folder that cannot be written). |
-| `test_gmail_fields.py` | Sender parsing; encoded subjects decoded and cleaned; entities unescaped; padding stripped before the 200 cut; `hasAttachments` from one search a run, and none with no new mail; a realistic run is 22 calls; `knownSender` by one search per sender; a `sentCache` on a Gmail channel fails it; standard error holds no token, sender, subject, snippet or id. |
+| `test_gmail_fields.py` | Sender parsing; encoded subjects decoded and cleaned; entities unescaped; padding stripped before the 200 cut; `hasAttachments` from one search a run, and none with no new mail; a realistic run is 22 calls; `knownSender` by one search per sender; every hostile `From` of the G0 review (spaces, `OR`, a quoted local part, `*`, angle brackets, a tab, a comment in the domain) not known and never searched; a `From` that parses to a plain address searched for that address only; a look-alike hit not known; a `sentCache` on a Gmail channel fails it; standard error holds no token, sender, subject, snippet or id. |
 
 Phase 2's tests stay as they were, except where Gmail now exists: the unknown-provider tests name `imap` instead of
 `gmail` and their sentence lists `outlook, gmail`; the source test counts three guards calling `transport()` (Graph's,
 the Gmail API's, the Google sign-in service's) instead of one; and the test that keeps Outlook inside its reader expects
 `READERS` to hold both readers and the run to name neither.
 
-**The tests can fail.** The check was broken on purpose ten ways, each put back after, and each turned the suite red:
+**The tests can fail.** The check was broken on purpose twelve ways, each put back after, and each turned the suite red
+(the first ten against the suite of 597, the last two against the suite of 614):
 
-| Break | Red (of 597) | A test that turned red |
+| Break | Red | A test that turned red |
 |---|---|---|
 | The guard lets a modify through in observe mode | 2 | `test_GmailRequest_ObserveMode_RefusesEvenTheTwoFilings` |
 | The guard lets trash through (its path accepted beside modify) | 1 | `test_GmailRequest_RefusedShape_RaisesAndNothingReachesTheNetwork` (trash carrying a filing body, live) |
@@ -209,6 +211,8 @@ the Gmail API's, the Google sign-in service's) instead of one; and the test that
 | The guard lets a control character through in a query value | 6 | `test_GmailRequest_RefusedShape_RaisesAndNothingReachesTheNetwork` |
 | `hasAttachments` is never set from the search | 1 | `test_HasAttachments_IsGmailsOwnAttachmentSearch_OneListARun` |
 | A `sentCache` on a Gmail channel is accepted | 1 | `test_KnownSender_ASentCacheOnAGmailChannel_IsAFieldThisCheckDidNotWrite` |
+| Any sender address is searched for (no plain-address guard) | 8 (of 614) | `test_KnownSender_AnAddressThatIsNotPlain_IsNotKnownAndNeverSearched` (the other 3 hostile senders parse to no address at all) |
+| A search hit is taken without confirming the recipients | 1 (of 614) | `test_KnownSender_ALookAlikeHit_IsNotKnown` |
 
 The trash break first stayed green: every trash call the tests sent had no body, so the body rule refused it even with
 the path rule broken. Trash, untrash, delete, send, batchModify, a thread's modify and a draft, each carrying a valid

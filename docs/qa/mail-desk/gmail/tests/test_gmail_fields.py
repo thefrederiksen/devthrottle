@@ -127,6 +127,62 @@ def test_KnownSender_ByOneSearchPerDistinctSender(gw):
     assert "sentCache" not in gw.read_memory()["channels"][0]
 
 
+HOSTILE = ['"a b"@example.com', "x@example.com OR in:anywhere", "x OR y@example.com", '"quoted"@example.com',
+           "*@example.com", "x*@example.com", "x@example.com>", "x%y@example.com", "x@example",
+           "x@-example.com,y@example.com", "x@example.com\tOR\tcc:y@example.com", "x@(a).example.com"]
+
+
+@pytest.mark.parametrize("sender", HOSTILE)
+def test_KnownSender_AnAddressThatIsNotPlain_IsNotKnownAndNeverSearched(gw, sender):
+    """G0 review finding 1: the From address is the sender's to write, so only a plain address goes into a query."""
+    gw.plant_gmail()
+    message = gmsg("a1", "2026-10-18T08:00:00Z")
+    message["payload"]["headers"][0]["value"] = sender
+    gw.gmail.box(GMAIL_BOX).extend([gsent("s1", sender), message])
+    gw.memory(channel(GMAIL_BOX, provider="gmail", cursor=CURSOR))
+    _, _, context, _ = gw.run()
+    assert [m["knownSender"] for m in all_messages(context)] == [False]
+    assert not any("labelIds=SENT" in u for _, u, _, _ in gw.gmail.log)
+
+
+@pytest.mark.parametrize("header", ["<x@example.com", "Some One <x@example.com> (a comment)", "x@exam ple.com"])
+def test_KnownSender_AFromThatParsesToAPlainAddress_SearchesForThatAddressOnly(gw, header):
+    """email.utils takes the address out of the header first; it is that plain address, and only it, that is searched."""
+    gw.plant_gmail()
+    message = gmsg("a1", "2026-10-18T08:00:00Z")
+    message["payload"]["headers"][0]["value"] = header
+    gw.gmail.box(GMAIL_BOX).extend([gsent("s1", "x@example.com"), message])
+    gw.memory(channel(GMAIL_BOX, provider="gmail", cursor=CURSOR))
+    _, _, context, _ = gw.run()
+    assert [m["knownSender"] for m in all_messages(context)] == [True]
+    (search,) = [u for _, u, _, _ in gw.gmail.log if "labelIds=SENT" in u]
+    assert "q=to%3Ax%40example.com+OR+cc%3Ax%40example.com+OR+bcc%3Ax%40example.com&" in search
+
+
+def test_KnownSender_PlainAddressesWithDotsPlusAndHyphens_AreSearched(gw):
+    gw.plant_gmail()
+    box = gw.gmail.box(GMAIL_BOX)
+    box += [gsent("s1", "first.last+tag@mail-host.example.org")]
+    box += [gmsg("a1", "2026-10-18T08:00:00Z", sender="First.Last+Tag@Mail-Host.Example.org")]
+    gw.memory(channel(GMAIL_BOX, provider="gmail", cursor=CURSOR))
+    _, _, context, _ = gw.run()
+    assert [m["knownSender"] for m in all_messages(context)] == [True]
+
+
+def test_KnownSender_ALookAlikeHit_IsNotKnown(gw):
+    """The search found a message, but its recipients hold only a longer address: the hit is not confirmed."""
+    gw.plant_gmail()
+    box = gw.gmail.box(GMAIL_BOX)
+    box += [gsent("s1", "boss@example.org.evil.example.net", cc="other@example.com")]
+    box += [gmsg("a1", "2026-10-18T08:00:00Z", sender="boss@example.org")]
+    gw.memory(channel(GMAIL_BOX, provider="gmail", cursor=CURSOR))
+    _, _, context, _ = gw.run()
+    assert [m["knownSender"] for m in all_messages(context)] == [False]
+    searches = [u for _, u, _, _ in gw.gmail.log if "labelIds=SENT" in u]
+    confirms = [u for _, u, _, _ in gw.gmail.log if "/messages/s1?" in u]
+    assert len(searches) == 1 and len(confirms) == 1 and "metadataHeaders=Bcc" in confirms[0]
+
+
 def test_KnownSender_ASentCacheOnAGmailChannel_IsAFieldThisCheckDidNotWrite(gw):
     """G0 settled knownSender as one search per sender, so a Gmail channel never has a sentCache. One there fails
     that channel, naming the field, before any network call."""
