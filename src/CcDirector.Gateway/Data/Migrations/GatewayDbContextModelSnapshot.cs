@@ -1469,6 +1469,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PublishedOwnerApproval")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("RestoredFrom")
                         .HasColumnType("INTEGER");
 

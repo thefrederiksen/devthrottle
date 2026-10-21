@@ -35,6 +35,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     private const string UnknownSession = "74000000-0000-4000-8000-000000000005";
     private const string NamedNoFactorySession = "74000000-0000-4000-8000-000000000006";
     private const string NamedNoFactorySessionName = "Factory Definition - Developer - make Eric's factory";
+    private const string BossSession = "74000000-0000-4000-8000-000000000007";
+    private const string BossSessionName = "devthrottle - Boss - talk with the owner";
+    private const string WriterSession = "74000000-0000-4000-8000-000000000008";
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
     private static readonly TenantId B = new("acct-b");
@@ -94,6 +97,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         OtherFactorySession => SessionFactoryLookup.In("invoice-factory"),
         NoFactorySession => SessionFactoryLookup.InNoFactory,
         NamedNoFactorySession => SessionFactoryLookup.InNoFactory with { Name = NamedNoFactorySessionName },
+        BossSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Name = BossSessionName },
+        WriterSession => SessionFactoryLookup.In(TheFactory, "writer", 1),
         _ => SessionFactoryLookup.NotKnown,
     };
 
@@ -113,12 +118,14 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
             },
             _store, tenant ?? InA, FactoryOf, _account, () => Now);
 
-    private IResult Publish(HttpContext ctx, int version) =>
-        FactoryDefinitionEndpoints.Publish(ctx, TheFactory, new PublishFactoryDefinitionRequest { Version = version },
+    private IResult Publish(HttpContext ctx, int version, string? ownerApproved = null) =>
+        FactoryDefinitionEndpoints.Publish(ctx, TheFactory,
+            new PublishFactoryDefinitionRequest { Version = version, OwnerApproved = ownerApproved },
             _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(5)).GetAwaiter().GetResult();
 
-    private IResult Restore(HttpContext ctx, int version, int expect = 0) =>
-        FactoryDefinitionEndpoints.Restore(ctx, TheFactory, new RestoreFactoryDefinitionRequest { Version = version, ExpectedVersion = expect },
+    private IResult Restore(HttpContext ctx, int version, int expect = 0, string? ownerApproved = null) =>
+        FactoryDefinitionEndpoints.Restore(ctx, TheFactory,
+            new RestoreFactoryDefinitionRequest { Version = version, ExpectedVersion = expect, OwnerApproved = ownerApproved },
             _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(10)).GetAwaiter().GetResult();
 
     private IResult Published(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null) =>
@@ -339,23 +346,161 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal("a version to compare to is a whole number from 1, not 'newest'", ErrorOf(notANumber));
     }
 
-    // ---------- a factory's own session never publishes (phase 6c) ----------
+    // ---------- only the Boss of a factory's own sessions publishes (phase 6c; the owner's ruling of 21 October 2026) ----------
 
     [Fact]
-    public void A_FACTORYS_OWN_SESSIONS_PUBLISH_IS_REFUSED_WITH_ITS_SENTENCE()
+    public void A_FACTORYS_OWN_SESSIONS_PUBLISH_WITH_NOTHING_PUBLISHED_IS_REFUSED_because_the_factory_has_no_Boss_yet()
     {
         Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0);
 
-        var refused = Publish(Session(FactorySession), 1);
+        foreach (var session in new[] { FactorySession, BossSession })
+        {
+            var refused = Publish(Session(session), 1);
 
-        Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), ErrorOf(refused));
-        Assert.Equal(
-            $"A session of factory '{TheFactory}' may not publish a factory's definition. A factory's own sessions save " +
-            "drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.",
-            ErrorOf(refused));
-        Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
+            Assert.Equal(403, Status(refused));
+            Assert.Equal(
+                $"A session of factory '{TheFactory}' may not publish its definition: factory '{TheFactory}' has no published " +
+                "definition naming a boss seat, so it has no Boss yet. The owner publishes its first version, in the Cockpit " +
+                "or by telling a session that is in no factory to publish.",
+                ErrorOf(refused));
+            Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
+        }
         Assert.Equal(404, Status(Published(Person())));
+    }
+
+    [Fact]
+    public void A_FACTORY_SESSION_THAT_IS_NOT_THE_BOSS_IS_REFUSED_and_told_the_Boss_publishes()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var writer = Publish(Session(WriterSession), 2);
+        Assert.Equal(403, Status(writer));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, "writer", "boss"), ErrorOf(writer));
+        Assert.Equal(
+            $"A session of factory '{TheFactory}' may not publish its definition: only its Boss publishes, and this session is " +
+            "the seat 'writer', not the boss seat 'boss'. Save a draft; the factory's Boss publishes it, and a change to the " +
+            "Boss's own seat needs the owner's approval.",
+            ErrorOf(writer));
+        Assert.Equal("FactorySessionMayNotPublish", Field(writer, "outcome"));
+
+        var noSeat = Publish(Session(FactorySession), 2);
+        Assert.Equal(403, Status(noSeat));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, null, "boss"), ErrorOf(noSeat));
+        Assert.Contains("this session is no seat, not the boss seat 'boss'", ErrorOf(noSeat));
+
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void THE_BOSS_PUBLISHES_ANY_OTHER_SEATS_CHANGE_ON_ITS_OWN_AUTHORITY_and_the_publish_records_the_Boss_session()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var published = Publish(Session(BossSession), 2);
+
+        Assert.Equal(200, Status(published));
+        var version = Version(published);
+        Assert.Equal(2, version.PublishedVersion);
+        Assert.Equal("session", version.PublishedByKind);
+        Assert.Equal(BossSession, version.PublishedBy);
+        Assert.Equal(BossSessionName, version.PublishedByName);
+        Assert.Null(version.OwnerApproval);
+        Assert.NotEmpty(version.Applied!);
+    }
+
+    [Fact]
+    public void THE_BOSSS_PUBLISH_OF_ITS_OWN_SEAT_NEEDS_THE_OWNERS_APPROVAL_and_the_refusal_names_the_flag()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+
+        foreach (var blank in new string?[] { null, "   " })
+        {
+            var refused = Publish(Session(BossSession), 2, blank);
+
+            Assert.Equal(403, Status(refused));
+            Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 2, "boss", restore: false), ErrorOf(refused));
+            Assert.Contains("--owner-approved \"<the owner's words, verbatim>\"", ErrorOf(refused));
+            Assert.Contains("seats/boss.yaml", ErrorOf(refused));
+            Assert.Equal("BossSeatNeedsOwnerApproval", Field(refused, "outcome"));
+        }
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void THE_BOSSS_PUBLISH_OF_ITS_OWN_SEAT_WITH_THE_OWNERS_WORDS_GOES_THROUGH_and_records_them_verbatim()
+    {
+        const string words = "Yes, publish v2 with the new boss brief.";
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+
+        var published = Publish(Session(BossSession), 2, words);
+
+        Assert.Equal(200, Status(published));
+        var version = Version(published);
+        Assert.Equal(2, version.PublishedVersion);
+        Assert.Equal(BossSession, version.PublishedBy);
+        Assert.Equal(words, version.OwnerApproval);
+        Assert.Equal(words, Version(Published(Person())).OwnerApproval);
+        Assert.Equal(new string?[] { words, null }, Page(History(Person())).Versions.Select(v => v.OwnerApproval).ToArray());
+    }
+
+    [Fact]
+    public void THE_OWNERS_WORDS_ARE_REFUSED_WHEN_TOO_LONG_rather_than_cut_short()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(BossSession), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+
+        var refused = Publish(Session(BossSession), 2, new string('y', FactoryPublisher.MaxOwnerApprovalLength + 1));
+
+        Assert.Equal(400, Status(refused));
+        Assert.Contains($"may be at most {FactoryPublisher.MaxOwnerApprovalLength}", ErrorOf(refused));
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void THE_BOSSS_RESTORE_OF_A_VERSION_WITH_ANOTHER_BOSS_SEAT_NEEDS_THE_OWNERS_WORDS_too()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+        Publish(Person(), 2);
+
+        var refused = Restore(Session(BossSession), 1, expect: 2);
+        Assert.Equal(403, Status(refused));
+        Assert.Equal(FactoryDefinitionStore.BossSeatNeedsOwnerApproval(TheFactory, 1, "boss", restore: true), ErrorOf(refused));
+        Assert.Equal(2, VersionsKept());
+
+        var restored = Restore(Session(BossSession), 1, expect: 2, ownerApproved: "Go back to version 1.");
+        Assert.Equal(200, Status(restored));
+        var copy = Version(restored);
+        Assert.Equal(3, copy.Version);
+        Assert.Equal(BossSession, copy.PublishedBy);
+        Assert.Equal("Go back to version 1.", copy.OwnerApproval);
+    }
+
+    [Fact]
+    public void A_CHANGE_TO_THE_BOSS_SEAT_IS_ITS_FILE_OR_WHICH_SEAT_FACTORY_YAML_NAMES_and_nothing_else()
+    {
+        var published = DefinitionFixture.Publishable();
+
+        Assert.False(FactoryDefinitionEndpoints.ChangesBossSeat(published, DefinitionFixture.Publishable(), "boss"));
+        Assert.False(FactoryDefinitionEndpoints.ChangesBossSeat(published,
+            DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), "boss"));
+        Assert.True(FactoryDefinitionEndpoints.ChangesBossSeat(published,
+            DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run it."), "boss"));
+        Assert.True(FactoryDefinitionEndpoints.ChangesBossSeat(published,
+            DefinitionFixture.PublishableEdit("factory.yaml", "bossSeat: boss", "bossSeat: writer"), "boss"));
+        var removed = DefinitionFixture.Publishable();
+        removed.Remove("seats/boss.yaml");
+        Assert.True(FactoryDefinitionEndpoints.ChangesBossSeat(published, removed, "boss"));
     }
 
     [Fact]
@@ -368,7 +513,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
         // What the check thinks of a version a session may not publish anyway is not the answer it needs.
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), ErrorOf(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, null, null), ErrorOf(refused));
     }
 
     [Fact]
@@ -382,7 +527,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         var refused = Restore(Session(FactorySession), 1, expect: 2);
 
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory), ErrorOf(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory, null, "boss"), ErrorOf(refused));
         Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
         Assert.Equal(2, VersionsKept());
         Assert.Equal(2, Version(Published(Person())).Version);

@@ -1337,11 +1337,12 @@ public static class SessionKeyGuard
     /// because the route itself decides who may act (phase 6c, the owner's ruling of 16 October 2026: "Factories are
     /// created by agents as long as they have user approval"): a session in no factory may read, save, import, create,
     /// publish and restore any factory's definition; a factory's own session may read and save drafts of its own
-    /// factory only, and nothing of another's.
+    /// factory only, and nothing of another's - and its Boss may also publish and restore it (the owner's ruling of 21
+    /// October 2026; a change to the Boss's own seat needs the owner's approval).
     ///
-    /// PUBLISH, RESTORE and CREATE are allowed THROUGH THIS GUARD and refused BY THE ROUTE for a factory's own session,
-    /// deliberately: the guard can only say "not for a session key", and the route says "a factory's own sessions save
-    /// drafts; the owner publishes them", which tells an agent what to do next.
+    /// PUBLISH, RESTORE and CREATE are allowed THROUGH THIS GUARD and ruled on BY THE ROUTE for a factory's own session,
+    /// deliberately: the guard can only say "not for a session key", the route knows which seat the session is, and it
+    /// says "save a draft; the factory's Boss publishes it", which tells an agent what to do next.
     /// </summary>
     private static bool IsFactoryDefinitionRoute(string verb, string[] s)
     {

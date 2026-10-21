@@ -428,7 +428,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
         var prompt = Assert.Single(_sent).Request.PrePrompt!;
         Assert.Contains("- " + FactorySeatOpening.KitSentence, prompt);
-        Assert.Contains("- save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.", prompt);
+        Assert.Contains("- save a draft of the definition with the new goal (cc-devthrottle factory definition save); the Boss publishes it, and a change to the Boss's own seat needs the owner's approval.", prompt);
         Assert.Contains("--- your brief, definition version 1 ---", prompt);
         // Never a goal file, never a registration, never a folder.
         Assert.DoesNotContain("GOAL.md", prompt);

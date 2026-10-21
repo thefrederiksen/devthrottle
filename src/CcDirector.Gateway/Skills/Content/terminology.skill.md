@@ -66,10 +66,12 @@ recorded on every session and every run participant.
   have user approval" (the owner, 16 October 2026). A session in no factory that the owner tells what to
   make may create the factory from a folder (`cc-devthrottle factory definition create <folder>`), save
   drafts of it, see what changes (`factory definition diff`), publish and restore it; the owner's word in
-  that session is the approval, and the Gateway asks for nothing more. A factory's OWN session never
-  publishes, restores or creates a factory: it saves drafts of its own factory, and the owner publishes
-  them - "Factory agents can be written by large language models, but it's the user driving it." Every
-  publish records who did it: the person, or the session's id and name.
+  that session is the approval, and the Gateway asks for nothing more. THE BOSS IS THE BOSS OF ITS
+  FACTORY (the owner, 21 October 2026): a factory's Boss session publishes and restores any change to its
+  own factory on its own authority, and a change to the Boss's OWN seat needs the owner's approval, passed
+  verbatim (`factory definition publish <factory> --version N --owner-approved "<the owner's words>"`).
+  Every other session of a factory saves drafts only, and no factory's session creates a factory. Every
+  publish records who did it - the person, or the session's id and name - and the owner's words when given.
 
 ## How sessions relate
 

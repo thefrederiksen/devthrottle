@@ -1507,6 +1507,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
+                    b.Property<string>("PublishedOwnerApproval")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<int?>("RestoredFrom")
                         .HasColumnType("integer");
 

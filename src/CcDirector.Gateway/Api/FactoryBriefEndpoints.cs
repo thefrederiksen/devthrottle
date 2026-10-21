@@ -436,14 +436,15 @@ internal static class FactoryBriefEndpoints
             return Results.BadRequest(new { error = seatRefusal, outcome = FactoryBriefOutcome.BadSeat.ToString() });
         var standing = defined.Briefs.Definitions.Standing(tenant, factory);
         var factoryId = standing.Newest!.Factory;
-        // A session that reaches a brief route is a session OF this factory (the brief gate lets no other session in),
-        // and a factory's own session never publishes its definition (phase 6c).
+        // A session that reaches a brief route is a session OF this factory (the brief gate lets no other session in). A
+        // brief of a defined factory is published with the whole definition: by a person here, or by the factory's Boss
+        // through the definition's own publish (the owner's ruling of 21 October 2026), where its seat is judged.
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
         {
             FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} by a session of the factory REFUSED");
             return Results.Json(new
             {
-                error = restore ? FactoryDefinitionStore.FactorySessionMayNotRestore(factoryId) : FactoryDefinitionStore.FactorySessionMayNotPublish(factoryId),
+                error = FactoryDefinitionStore.FactorySessionPublishesTheDefinition(factoryId, restore),
                 outcome = FactoryBriefOutcome.OnlyAPersonPublishes.ToString(),
                 definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
             }, statusCode: StatusCodes.Status403Forbidden);

@@ -216,7 +216,7 @@ public sealed class FactorySeatPromptsTests
         Open by telling the owner, briefly, what has happened since the owner last talked with you (the newest activity line with the outcome talked, if there is one) and what you need from the owner.
 
         In a talk the owner and you may change anything about the factory, the goal included - the owner is here to approve it. If the goal changes:
-        - save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+        - save a draft of the definition with the new goal (cc-devthrottle factory definition save); the Boss publishes it, and a change to the Boss's own seat needs the owner's approval.
 
         Before the talk ends you MUST do all three of these:
         1. Record one activity line: cc-devthrottle factory record --factory warmforward --agent nora-hale --version "definition v3" --outcome talked --what "<one line of what was decided>"
@@ -239,7 +239,7 @@ public sealed class FactorySeatPromptsTests
 
         Your kit is in the folder the environment variable CC_FACTORY_KIT_DIR names: brief.md in it holds this same brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.
 
-        The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+        The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the Boss publishes it, and a change to the Boss's own seat needs the owner's approval.
 
         Do the morning run. When done, run cc-devthrottle session done.
 

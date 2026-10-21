@@ -45,7 +45,7 @@ public static class FactoryTalkSeed
     /// none is told the path of its brief file, in exactly the words it always was: that is the state every seat
     /// whose brief is still a file in a repository is in, not a failure. A brief from a definition version is a DEFINED
     /// factory's talk (Factory Definition mission, phase 5): it is also told where its kit is and given the goal as the
-    /// definition holds it, and a goal change is a draft of the definition the owner publishes.</param>
+    /// definition holds it, and a goal change is a draft of the definition the Boss publishes.</param>
     public static string Compose(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat, string? scheduleId, string? scheduleSeed,
         FactoryGivenBrief? brief = null)
     {

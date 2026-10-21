@@ -74,11 +74,12 @@ public static class FactorySeatOpening
 
     /// <summary>
     /// How a seat of a DEFINED factory changes the factory's goal (Factory Definition mission, phase 5): the goal is part
-    /// of the definition, so a goal change is a definition change the owner publishes - never a goal file, never a
+    /// of the definition, so a goal change is a definition change the Boss publishes - never a goal file, never a
     /// registration (a defined factory's registration is written by a publish, and any other is refused).
     /// </summary>
     public const string GoalChange =
-        "save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.";
+        "save a draft of the definition with the new goal (cc-devthrottle factory definition save); the Boss publishes it, " +
+        "and a change to the Boss's own seat needs the owner's approval.";
 
     /// <summary>
     /// The brief as the session reads it: its text between two lines that say which version it is. The text is given

@@ -41,6 +41,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     /// <summary>A session in no factory, with a name: the session the owner tells to make a factory (phase 6c).</summary>
     private const string BuilderSession = "75000000-0000-4000-8000-000000000002";
     private const string BuilderName = "Factory Definition - Developer - make Eric's factory";
+    /// <summary>The factory's Boss: a session of the factory started as its boss seat (the owner's ruling of 21 October 2026).</summary>
+    private const string BossSession = "75000000-0000-4000-8000-000000000003";
 
     /// <summary>What the create route is told about the id the folder names: null when it is free (phase 6c).</summary>
     private string? _taken;
@@ -94,9 +96,12 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         return routes;
     }
 
-    private static SessionFactoryLookup FactoryOf(string session) => session == BuilderSession
-        ? SessionFactoryLookup.InNoFactory with { Name = BuilderName }
-        : SessionFactoryLookup.In(TheFactory);
+    private static SessionFactoryLookup FactoryOf(string session) => session switch
+    {
+        BuilderSession => SessionFactoryLookup.InNoFactory with { Name = BuilderName },
+        BossSession => SessionFactoryLookup.In(TheFactory, "boss", 1),
+        _ => SessionFactoryLookup.In(TheFactory),
+    };
 
     public void Dispose()
     {
@@ -122,6 +127,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 
     private static void AsASessionOfTheFactory(HttpContext ctx) =>
         ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(FactorySession), A, "dir-a");
+
+    private static void AsTheBoss(HttpContext ctx) =>
+        ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(BossSession), A, "dir-a");
 
     private static void AsASessionInNoFactory(HttpContext ctx) =>
         ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(BuilderSession), A, "dir-a");
@@ -284,12 +292,31 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 
         var refused = await Send("POST", FactoryPath + "/publish", AsASessionOfTheFactory, """{"version":1}""");
         Assert.Equal(403, refused.Status);
-        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), refused.Body.GetProperty("error").GetString());
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, null, null), refused.Body.GetProperty("error").GetString());
         Assert.Equal("FactorySessionMayNotPublish", refused.Body.GetProperty("outcome").GetString());
 
         var restore = await Send("POST", FactoryPath + "/restore", AsASessionOfTheFactory, """{"version":1,"expectedVersion":1}""");
         Assert.Equal(403, restore.Status);
-        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory), restore.Body.GetProperty("error").GetString());
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory, null, null), restore.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task THE_BOSS_PUBLISHES_ITS_OWN_SEAT_ONLY_WITH_ownerApproved_IN_THE_BODY_and_the_words_come_back_on_the_version()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+        Assert.Equal(200, (await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""")).Status);
+        await Send("PUT", FactoryPath + "/draft", AsTheBoss,
+            SaveBody(DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), 1));
+
+        var refused = await Send("POST", FactoryPath + "/publish", AsTheBoss, """{"version":2}""");
+        Assert.Equal(403, refused.Status);
+        Assert.Equal("BossSeatNeedsOwnerApproval", refused.Body.GetProperty("outcome").GetString());
+
+        var published = await Send("POST", FactoryPath + "/publish", AsTheBoss, """{"version":2,"ownerApproved":"Yes, publish it."}""");
+        Assert.Equal(200, published.Status);
+        Assert.Equal(2, published.Body.GetProperty("publishedVersion").GetInt32());
+        Assert.Equal(BossSession, published.Body.GetProperty("publishedBy").GetString());
+        Assert.Equal("Yes, publish it.", published.Body.GetProperty("ownerApproval").GetString());
     }
 
     // ---------- a session in no factory creates and publishes (phase 6c, the owner's ruling of 16 October 2026) ----------

@@ -198,7 +198,7 @@ public sealed class FactorySeatStartOnTheCronStarterTests
         var given = Assert.Single(_sent).PrePrompt!;
         Assert.Contains(FactorySeatOpening.KitSentence, given);
         Assert.Contains("CC_FACTORY_KIT_DIR", given);
-        Assert.Contains("save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.", given);
+        Assert.Contains("save a draft of the definition with the new goal (cc-devthrottle factory definition save); the Boss publishes it, and a change to the Boss's own seat needs the owner's approval.", given);
         Assert.DoesNotContain("GOAL.md", given);
         Assert.DoesNotContain("factory register", given);
         Assert.DoesNotContain(OwnFolder, given);

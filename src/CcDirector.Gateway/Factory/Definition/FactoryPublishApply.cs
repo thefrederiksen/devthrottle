@@ -142,6 +142,7 @@ public sealed class FactoryPublishApply
                             out var copy) is { } notAppended)
                         return Refuse(tx, factory, act, notAppended);
                     attemptedVersion = copy!.Version;
+                    copy.PublishedOwnerApproval = by.OwnerApproval;
                     step = $"writing version {copy.Version}, the restored copy of version {version}";
                     ctx.FactoryDefinitions.Add(copy);
                     ctx.SaveChanges();

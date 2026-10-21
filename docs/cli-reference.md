@@ -2110,12 +2110,21 @@ write and nothing is stored: the command prints the Gateway's sentence and every
 never refuse; they are printed under `notices[N]:` with the success. A `publish` and a `restore` check again
 even though the version was checked when it was saved, because the account's skills and machines can change.
 
-**Draft, then published.** `save` adds a draft version. A person publishes one version, and the published
-definition is the highest version that is published. Publishing does not go backwards: `restore` publishes a
-copy of an older version as the newest, recording which version it copied, and the versions in between stay
-in the history. With a factory's own session's key, `publish` and `restore` are refused by the Gateway with "A
-session of factory '...' may not publish a factory's definition..." and exit 1; that session saves a draft and the
-owner publishes it. A session is refused another draft while 20 wait above the published version.
+**Draft, then published.** `save` adds a draft version. A person, a session in no factory, or the factory's
+Boss publishes one version, and the published definition is the highest version that is published. Publishing
+does not go backwards: `restore` publishes a copy of an older version as the newest, recording which version it
+copied, and the versions in between stay in the history.
+
+**The Boss is the boss of its factory** (the owner's ruling of 21 October 2026). The factory's Boss session - a
+session of the factory whose seat is the `bossSeat` of the published definition - publishes and restores any
+change on its own authority. A version that changes the Boss's own seat (its `seats/<bossSeat>.yaml`, or which
+seat `factory.yaml` names as the boss) needs the owner's approval, passed verbatim:
+`publish <factory> --version N --owner-approved "<the owner's words, verbatim>"` (the same flag on `restore`).
+Without it the Gateway refuses with "Version N of the definition of ... changes the Boss's own seat ..." and the
+command exits 1, naming the flag. The words are recorded with the version (`ownerApproval` in `--json`). Any
+other session of the factory is refused `publish` and `restore` with "A session of factory '...' may not publish
+its definition: only its Boss publishes ..." and exits 1; it saves a draft and the Boss publishes it. A session is
+refused another draft while 20 wait above the published version.
 
 **What changes.** `publish` and `restore` print what changes against the version that was published before,
 and `diff` prints it between any two versions. Every sentence, detail and line difference is composed on the
