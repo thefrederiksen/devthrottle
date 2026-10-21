@@ -33,10 +33,18 @@ internal static class FactoryAgentsGate
         ArgumentNullException.ThrowIfNull(resolveTenant);
 
         var group = app.MapGroup(string.Empty);
+        // Every endpoint in the group carries the marker, so a test can read the FINAL route table of a real host and
+        // prove which factory routes are behind this gate - rather than trusting the Map calls were given the group.
+        group.WithMetadata(GatedMarker.Instance);
         group.AddEndpointFilter(async (invocation, next) =>
         {
             var ctx = invocation.HttpContext;
-            var answer = AnswerFor(ctx, factorySwitch, resolveTenant);
+            // A Director's own pulls (its triggers every 30 seconds, a check download, a seat's kit) ask the same
+            // decision without its log line: the same timer asking the same question is not a new decision. A route a
+            // person opens is logged.
+            var answer = IsDirectorHalf(ctx)
+                ? factorySwitch.AnswerQuietly(resolveTenant(ctx))
+                : AnswerFor(ctx, factorySwitch, resolveTenant);
             if (answer.State == FactoryAgentsState.Unknown)
             {
                 FileLog.Write($"[FactoryAgentsGate] UNKNOWN {ctx.Request.Method} {ctx.Request.Path}: {answer.Why} - answering 503");
@@ -51,6 +59,19 @@ internal static class FactoryAgentsGate
         });
         return group;
     }
+
+    /// <summary>The metadata every endpoint behind this gate carries.</summary>
+    internal sealed class GatedMarker
+    {
+        public static readonly GatedMarker Instance = new();
+        private GatedMarker() { }
+    }
+
+    /// <summary>Whether this request is a Director's own machine pull rather than a person's: every
+    /// <c>/directors/{id}/...</c> route (the trigger pull, the check report, the check download) and a seat's kit.</summary>
+    internal static bool IsDirectorHalf(HttpContext ctx)
+        => ctx.Request.Path.StartsWithSegments("/directors", StringComparison.OrdinalIgnoreCase)
+           || (ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText == FactoryKitEndpoints.Route;
 
     /// <summary>The switch's one decision for the account this request is bound to. Internal so it is tested directly,
     /// and so the routes mapped outside the group (talk, the owner's actions) ask exactly what the group asks.</summary>

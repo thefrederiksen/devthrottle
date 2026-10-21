@@ -4,12 +4,16 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Memory;
+using CcDirector.Gateway.History;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Teams;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -437,6 +441,85 @@ public sealed class FactoriesNeedProTests : IDisposable
             FactoryAgentsGate.OffSentence(switchedOff, "no talk was started"));
     }
 
+    // ================================================================= a session's own key, through the gate (review finding 1)
+
+    /// <summary>
+    /// A factory session's request as the hosted Gateway sees it once AuthMiddleware has verified its session key: the
+    /// REAL hosted tenant boundary and <see cref="GatewayEndpoints.ResolveReadTenant"/> (the resolver GatewayHost hands
+    /// the gate and the route alike), and the memory route mapped INTO the gate as GatewayHost now maps it. The identity
+    /// item stands in for the verified key, exactly as FactoryMemoryRouteTests does.
+    /// </summary>
+    private async Task<Reply> SessionReadsItsFactoryMemory(FactoryAgentsSwitch sw, TenantId account)
+    {
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), new DeviceRegistry(), hosted: true);
+        Func<HttpContext, TenantId?> resolve = ctx => GatewayEndpoints.ResolveReadTenant(ctx, boundary);
+        var app = WebApplication.CreateBuilder().Build();
+        FactoryMemoryEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, new FactoryMemoryStore(_db),
+            sessionFactoryOf: _ => SessionFactoryLookup.In("mail"), nowUtc: () => Now);
+
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+            .Single(e => e.RoutePattern.RawText == FactoryMemoryEndpoints.Prefix + "/notes"
+                         && e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("GET") == true);
+        var ctx = new DefaultHttpContext { RequestServices = app.Services };
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = FactoryMemoryEndpoints.Prefix + "/notes";
+        ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.NewGuid(), account, "director-1");
+        var body = new MemoryStream();
+        ctx.Response.Body = body;
+        await endpoint.RequestDelegate!(ctx);
+        return new Reply(ctx.Response.StatusCode, System.Text.Encoding.UTF8.GetString(body.ToArray()), null);
+    }
+
+    [Fact]
+    public async Task MemoryRoute_ASessionKeyOfASwitchedOnAccount_ResolvesItsAccountThroughTheGate_AndIsServed()
+    {
+        var sw = HostedSwitch();
+        var free = Account("free");
+        SwitchOn(sw, free);
+
+        var reply = await SessionReadsItsFactoryMemory(sw, free);
+
+        Assert.True(reply.Status == StatusCodes.Status200OK, $"{reply.Status} '{reply.Body}'");
+        Assert.Equal("mail", JsonDocument.Parse(reply.Body).RootElement.GetProperty("factory").GetString());
+    }
+
+    [Fact]
+    public async Task MemoryRoute_ASessionKeyOfAProAccount_IsServedByThePlan()
+        => Assert.Equal(StatusCodes.Status200OK, (await SessionReadsItsFactoryMemory(HostedSwitch(), Account("pro"))).Status);
+
+    [Fact]
+    public async Task MemoryRoute_ASessionKeyOfARemoteAccount_Answers404WithNoBody()
+    {
+        var reply = await SessionReadsItsFactoryMemory(HostedSwitch(), Account("remote"));
+
+        Assert.Equal(StatusCodes.Status404NotFound, reply.Status);
+        Assert.Equal("", reply.Body);
+    }
+
+    // ================================================================= a Director's own pulls are not logged (finding 2)
+
+    [Fact]
+    public async Task Gate_ADirectorsPull_AsksQuietly_WhileARouteAPersonOpensIsLogged()
+    {
+        var sw = HostedSwitch();
+        var pro = Account("pro");
+        Func<HttpContext, TenantId?> resolve = ctx => new TenantId(ctx.Request.Headers[TenantHeader].ToString());
+        var app = WebApplication.CreateBuilder().Build();
+        var gate = FactoryAgentsGate.Group(app, sw, resolve);
+        gate.MapGet("/directors/{directorId}/triggers", () => "checks");
+        gate.MapGet("/triggers", () => "triggers");
+
+        int SwitchLines() => _log.Count(l => l.StartsWith("[FactoryAgentsSwitch]", StringComparison.Ordinal));
+        var before = SwitchLines();
+        var pull = await GetAsync(app, "/directors/{directorId}/triggers", pro);
+        var afterPull = SwitchLines();
+        var owner = await GetAsync(app, "/triggers", pro);
+
+        Assert.Equal((200, 200), (pull.Status, owner.Status));
+        Assert.Equal(before, afterPull);
+        Assert.Equal(afterPull + 1, SwitchLines());
+    }
+
     // ================================================================= the administrator read reports the grant
 
     [Fact]
@@ -555,6 +638,31 @@ public sealed class FactoriesNeedProTests : IDisposable
         await rig.Engine.EvaluateDueAsync(CancellationToken.None);
 
         Assert.Contains(rig.Starter.Started, j => j.Id == rig.FactoryJob.Id);
+    }
+
+    [Fact]
+    public async Task Scheduler_RemoteAccount_ACheckedSchedule_SaysThePlan_NotTheSwitch()
+    {
+        // Review finding 4: one account, one cause, one sentence - the checked schedule names the plan as the seat's does.
+        var store = NewJobStore();
+        var history = NewHistory();
+        var created = store.Create(Hourly("Mail desk check", factorySeat: true));
+        using (var ctx = _db.CreateContext(TenantId.Local))
+        {
+            var row = ctx.CronJobs.Single(j => j.Id == created.Id);
+            CronJobStore.ApplyCheck(row, new CronJobDto { CheckPath = "checks/new_mail.py", CheckSecrets = new List<string>() }, 1);
+            ctx.SaveChanges();
+        }
+        MakeDue(store, created.Id);
+        var sw = HostedSwitch();
+        var remote = Account("remote");
+        var engine = new CronEngine(store, history, new RecordingStarter(), new UnusedWorkListRunner(), new NullCronNotifier(),
+            new FixedClock(Now), resolveTenant: () => remote, factoryAgents: t => sw.Answer(t));
+
+        await engine.EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Equal(CronEngine.CheckDueSwitchedOffStatus, Assert.Single(history.List(created.Id)).InfraStatus);
+        Assert.Equal($"{CronEngine.CheckDueStatus}: {CronEngine.FactoriesNeedAPlanCheckSentence}", store.Get(created.Id)!.LastStatus);
     }
 
     [Fact]

@@ -6316,10 +6316,16 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
+        //
+        // FACTORIES NEED PRO: a factory's memory, briefs, definition (and a new one from a folder), records, a seat's kit
+        // and the factory email are mapped into the factory gate, so an account without factories cannot define, publish
+        // or fill one ("You need pro to set up factories"). The run routes below are NOT: a plain schedule uses them too.
+        var factoryBuildGate = Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
         // A factory's MEMORY (Factory Memory mission, phase 2): the notes its agents read at the start of a run and
         // write when they learn something. The factory is never taken from the caller - it is read from the calling
         // session's own record, which is what phase 1 exists for.
-        Api.FactoryMemoryEndpoints.Map(_app,
+        Api.FactoryMemoryEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryMemory,
             sessionFactoryOf: _sessionHistory.FactoryOf,
@@ -6328,7 +6334,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // A seat's BRIEF, held on the Gateway (Factory Seats mission, phase 2a): what the seat is told to do, saved as
         // a draft by a person or a session of the factory and published by a person. The seat page's brief panel
         // reads it and writes through these routes (phase 2b); opening talks and runs with it is phase 2c.
-        Api.FactoryBriefEndpoints.Map(_app,
+        Api.FactoryBriefEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
@@ -6342,7 +6348,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
         // person or a session of the factory, published and restored by a person, every write checked first against
         // the account's fleet skills and the machines its Directors report now. Nothing else reads it until phase 4.
-        Api.FactoryDefinitionEndpoints.Map(_app,
+        Api.FactoryDefinitionEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: FactoryDefinitions,
             sessionFactoryOf: _sessionHistory.FactoryOf,
@@ -6357,7 +6363,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 _cronJobs.ListAll));
         // A NEW factory from a folder (phase 6c): what an agent runs when the owner tells it to make one. Refused when the
         // id is taken - read from the Factories screen's sources, as its New factory is - then the same checked import.
-        Api.FactoryDefinitionEndpoints.MapCreate(_app,
+        Api.FactoryDefinitionEndpoints.MapCreate(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: FactoryDefinitions,
             sessionFactoryOf: _sessionHistory.FactoryOf,
@@ -6367,7 +6373,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).
-        Api.FactoryRecordEndpoints.Map(_app,
+        Api.FactoryRecordEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             journal: _factoryJournal,
             documents: _factoryDocuments,
@@ -6377,7 +6383,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // A seat's KIT (Factory Definition mission, phase 5): composed here from a published version and the seat's
         // records, downloaded by the Director that starts the seat - with its own credential, before the agent starts.
-        Api.FactoryKitEndpoints.Map(_app,
+        Api.FactoryKitEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             stores: new Api.FactoryKitEndpoints.Stores(FactoryDefinitions, _factoryJournal, _factoryDocuments, _factoryAttachments),
             nowUtc: () => DateTime.UtcNow);
@@ -6405,7 +6411,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
         // reads to show yesterday's report again.
-        Api.FactoryEmailEndpoints.Map(_app,
+        Api.FactoryEmailEndpoints.Map(factoryBuildGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             isEnabled: _tenantSettingsResolver.FactoryEmailEnabled,
             setEnabled: (tenant, on) => _tenantSettingsResolver.SetFactoryEmailEnabled(tenant, on, DateTime.UtcNow),

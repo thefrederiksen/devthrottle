@@ -257,7 +257,7 @@ public sealed class CronEngine
                 return new CronRunNowResult(CronFireOutcome.SkippedFactoriesUnknown, null);
             }
             if (isCheck)
-                return FireCheck(tenant, job, scheduledUtc, isManual, switchedOff: !factories!.IsOn);
+                return FireCheck(tenant, job, scheduledUtc, isManual, factories!);
             if (factories is { IsOn: false })
                 return FireFactoryOff(tenant, job, scheduledUtc, isManual, factories);
 
@@ -406,6 +406,16 @@ public sealed class CronEngine
     public const string FactoryAgentsOffSentence =
         "factory agents are switched off for this account, so no Director is handed the check";
 
+    /// <summary>Why a due check cannot run on an account whose PLAN does not include factories (Factories need Pro).</summary>
+    public const string FactoriesNeedAPlanCheckSentence =
+        "factories come with the Pro and Teams plans and this account's plan does not include them, so no Director is handed the check";
+
+    /// <summary>Why a due check cannot run, in the decision's own terms: the plan when the plan is why, otherwise the
+    /// switch - the same split <see cref="FactoryOffReason"/> makes for a seat's schedule, so one account never reads
+    /// two causes for one.</summary>
+    internal static string CheckOffSentence(Factory.FactoryAgentsAnswer answer)
+        => answer.OffReason == Factory.FactoryAgentsOffReasons.PlanRequired ? FactoriesNeedAPlanCheckSentence : FactoryAgentsOffSentence;
+
     /// <summary>
     /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
     /// Director: it appends the run row with result <c>checking</c> - that row IS the due check, handed to a Director on
@@ -416,14 +426,19 @@ public sealed class CronEngine
     /// before its next time. That row becomes a <c>check-not-run</c> problem first, so a machine that is off for days
     /// shows one problem per missed time, never a pile of rows still waiting.
     /// </summary>
-    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual, bool switchedOff)
+    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual,
+        Factory.FactoryAgentsAnswer factories)
     {
         var firedUtc = _clock.UtcNow;
         // A Director is handed a due check only through the factory routes, which answer nothing while the account's
         // Factory Agents area is off - so then the check cannot run, and the run and the schedule say why.
-        // The reason is the superseded run's own truth: whether the switch was off when IT fired.
+        var switchedOff = !factories.IsOn;
+        var offSentence = switchedOff ? CheckOffSentence(factories) : FactoryAgentsOffSentence;
+        // Whether the area was off when the superseded run fired is that run's own truth (its status); WHY it was off is
+        // not kept on it, so it is told in the terms of this fire's answer when this fire is off too, and otherwise as
+        // the switch it has always been told as.
         var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => infra == CheckDueSwitchedOffStatus
-            ? $"{FactoryAgentsOffSentence}; the check of {job.Name} did not run before its next time"
+            ? $"{offSentence}; the check of {job.Name} did not run before its next time"
             : $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time", firedUtc);
         if (superseded is not null)
         {
@@ -431,7 +446,7 @@ public sealed class CronEngine
             _onResultRecorded?.Invoke(tenant, job, superseded);
         }
         var infraStatus = switchedOff ? CheckDueSwitchedOffStatus : CheckDueStatus;
-        var lastStatus = switchedOff ? $"{CheckDueStatus}: {FactoryAgentsOffSentence}" : CheckDueStatus;
+        var lastStatus = switchedOff ? $"{CheckDueStatus}: {offSentence}" : CheckDueStatus;
 
         var record = new CronRunRecord
         {
