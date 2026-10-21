@@ -108,7 +108,7 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
 | A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
 | An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook, gmail` |
-| Gmail: no cc-gmail account holds the address | `<address> is not signed in on <machine>: run cc-gmail accounts add <the address before the @> and give it this address` (line 2: where it looked) |
+| Gmail: no cc-gmail account holds the address | `<address> is not signed in on <machine>: run cc-gmail accounts add <a free name> and give it this address`, the name being the part before the @, else that and the domain's first label, else that with a number - one no account has (line 2: where it looked) |
 | Gmail: more than one cc-gmail account holds it | `<address> is in more than one cc-gmail account on <machine>: keep one and remove the others with cc-gmail accounts remove <name>` (line 2: every account directory) |
 | Gmail: the account signs in with an app password | `<address> signs in to cc-gmail on <machine> without OAuth: run cc-gmail -a <nickname> auth --method oauth` |
 | Gmail: no token.json | `<address> is not signed in on <machine>: run cc-gmail -a <nickname> auth` |
@@ -120,9 +120,10 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | Gmail: Google's sign-in service cannot be reached | `could not reach the Google sign-in service from <machine> for <address>: <error, cut to 50 characters>` |
 | Gmail: Google's sign-in service fails | `the Google sign-in service failed on <machine> for <address>: HTTP <status>` (or `: it answered something that is not JSON`, or `: its answer held no access token`) |
 | Gmail: the Gmail API answers an HTTP error | `the Gmail API answered HTTP <status> for <address> while <step>` |
-| Gmail: the Gmail API cannot be reached | `the Gmail API could not be reached from <machine> for <address> while <step>: <error, cut to 50 characters>` |
+| Gmail: the Gmail API cannot be reached | `the Gmail API could not be reached from <machine> for <address> while <step>: <error, cut to 41 characters>` |
 | Gmail: the Gmail API answers something that is not JSON | `the Gmail API answered something that is not JSON for <address> while <step>` |
 | Gmail: a list without usable message ids | `the Gmail API answered a list without usable message ids for <address> while <step>` |
+| Gmail: a Sent message without usable headers | `the Gmail API answered a Sent message without usable headers for <address> while reading the Sent mail` |
 | Gmail: a message without a usable id or receive time | `the Gmail API answered a message without a usable id or receive time for <address> while reading the Inbox` |
 | Gmail: more new mail than one run can list | `<address> has more than 10000 new Inbox messages, more than screen.py lists in one run: archive the oldest of them in Gmail` |
 | More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes failed on <machine>, too many to name in the context; first: <address>`, leaving out `; first: <address>` when the address would take the sentence past 165 characters (the first one's own sentence, which names it, on line 2) |

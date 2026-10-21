@@ -155,11 +155,11 @@ def machine():
     return socket.gethostname().split(".")[0]
 
 
-def short_error(text):
-    """An error message on one line, cut to SHORT_ERROR_CHARS, for a failure sentence. The whole message goes on the
-    detail line."""
+def short_error(text, limit=SHORT_ERROR_CHARS):
+    """An error message on one line, cut to `limit` (SHORT_ERROR_CHARS unless a sentence needs it shorter), for a
+    failure sentence. The whole message goes on the detail line."""
     flat = " ".join(str(text).split())
-    return flat if len(flat) <= SHORT_ERROR_CHARS else flat[:SHORT_ERROR_CHARS - 3] + "..."
+    return flat if len(flat) <= limit else flat[:limit - 3] + "..."
 
 
 def utc_now():
@@ -606,6 +606,10 @@ GMAIL_LIST_MAX_PAGES = 20       # 10,000 new ids at most; past that the oldest c
 # cursor (R4); those still in the key table are skipped unread, the rest cost one read each.
 GMAIL_METADATA_PER_RUN = 60
 GMAIL_REFRESH_MARGIN = timedelta(minutes=5)
+# "the Gmail API could not be reached ... while moving a message to Spam: <error>" is the longest Gmail sentence; with
+# its error cut to 41 characters it is 165 with a 31-character address and a 15-character computer name (review
+# observation 3, taken as a finding).
+GMAIL_UNREACHABLE_ERROR_CHARS = 41
 # A sender address the Sent search may take (the Tech Lead's ruling on G0 review finding 1): the From address is the
 # sender's to write, and a known sender skips the spam screen, so only a plain address ever goes into a Gmail query.
 # Local part: letters, digits and . _ + - ; domain: labels of letters, digits and -, with dots between.
@@ -758,7 +762,10 @@ def read_gmail_message(raw):
         ms = int(internal)
         received = iso(datetime.fromtimestamp(ms / 1000, timezone.utc))
         name, address = email.utils.parseaddr(gmail_header(headers, "From"))
-        return {"id": mid, "ms": ms, "received": received, "from": address.lower(), "name": name,
+        # fromAscii: the address as written was ASCII. Only then is it searched for in the Sent mail, because the Kelvin
+        # sign (U+212A) is the one character outside ASCII whose lower case is ASCII (review observation 4).
+        return {"id": mid, "ms": ms, "received": received, "from": address.lower(), "fromAscii": address.isascii(),
+                "name": name,
                 "subject": decoded_subject(gmail_header(headers, "Subject")), "hasAttachments": False,
                 "preview": html.unescape(snippet)}
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError):
@@ -822,13 +829,25 @@ class GmailReader:
                 found.append((config.parent, settings))
         if not found:
             raise CheckFailed(f"{self.address} is not signed in on {machine()}: run cc-gmail accounts add "
-                              f"{self.address.split('@')[0]} and give it this address",
+                              f"{self.free_name(store)} and give it this address",
                               f"no account under {store}/accounts holds {self.address} in its config.json")
         if len(found) > 1:
             raise CheckFailed(f"{self.address} is in more than one cc-gmail account on {machine()}: keep one and remove "
                               f"the others with cc-gmail accounts remove <name>",
                               "the accounts found: " + ", ".join(folder.name for folder, _ in found))
         return found[0]
+
+    def free_name(self, store):
+        """A name for `cc-gmail accounts add` that no account has yet, because cc-gmail's accounts_add does nothing for
+        a name that exists (review finding 1): the part before the @, else that and the domain's first label, else
+        that with a number. Compared without regard to case, so it is free on Windows and macOS too."""
+        taken = {folder.name.lower() for folder in Path(store).glob("accounts/*")}
+        local, domain = self.address.split("@", 1)
+        base = f"{local}-{domain.split('.')[0]}"
+        for name in [local, base] + [f"{base}-{n}" for n in range(2, 100)]:
+            if name.lower() not in taken:
+                return name
+        return "<a new name>"
 
     def sign_in(self):
         store = gmail_store(account_record_home())
@@ -900,7 +919,10 @@ class GmailReader:
         except GraphNotJson as e:
             raise CheckFailed(f"the Google sign-in service failed on {machine()} for {self.address}: it answered "
                               f"something that is not JSON", str(e)) from None
-        token, lifetime = (answer or {}).get("access_token"), (answer or {}).get("expires_in")
+        # Checked as an object first: a JSON list or text from the service is this channel's failure, never the run's
+        # (review finding 2).
+        token = answer.get("access_token") if isinstance(answer, dict) else None
+        lifetime = answer.get("expires_in") if isinstance(answer, dict) else None
         if not (isinstance(answer, dict) and isinstance(token, str) and token and isinstance(lifetime, int)
                 and not isinstance(lifetime, bool) and lifetime > 0):
             raise CheckFailed(f"the Google sign-in service failed on {machine()} for {self.address}: its answer held "
@@ -949,7 +971,7 @@ class GmailReader:
             raise CheckFailed(f"the Gmail API answered HTTP {e.status} for {self.address} while {what}", str(e)) from None
         except GraphUnreachable as e:
             raise CheckFailed(f"the Gmail API could not be reached from {machine()} for {self.address} while {what}: "
-                              f"{short_error(e.reason)}", str(e)) from None
+                              f"{short_error(e.reason, GMAIL_UNREACHABLE_ERROR_CHARS)}", str(e)) from None
         except GraphNotJson as e:
             raise CheckFailed(f"the Gmail API answered something that is not JSON for {self.address} while {what}",
                               str(e)) from None
@@ -968,7 +990,8 @@ class GmailReader:
             token = page.get("nextPageToken") if isinstance(page, dict) else None
             if not isinstance(listed, list) or not all(isinstance(m, dict) and isinstance(m.get("id"), str)
                                                        and GMAIL_ID.fullmatch(m["id"]) for m in listed) \
-                    or (token is not None and not (isinstance(token, str) and token)):
+                    or (token is not None and not (isinstance(token, str) and token and token.isascii()
+                                                   and token.isprintable() and " " not in token)):
                 raise CheckFailed(f"the Gmail API answered a list without usable message ids for {self.address} "
                                   f"while {what}", f"GET {shown_url(url)}")
             ids.extend(m["id"] for m in listed if m["id"] not in ids)
@@ -1051,17 +1074,21 @@ class GmailReader:
         is not known and costs no call; and a hit counts only when the found message's own To, Cc or Bcc holds exactly
         that address."""
         known = set()
-        for sender in sorted({m["from"] for m in found if m["from"]}):
+        for sender in sorted({m["from"] for m in found if m["from"] and m["fromAscii"]}):
             if not GMAIL_PLAIN_ADDRESS.fullmatch(sender):
                 continue
             ids, _ = self.message_ids("SENT", f"to:{sender} OR cc:{sender} OR bcc:{sender}", 1, "reading the Sent mail")
             if not ids:
                 continue
             raw = self.metadata(ids[0], ("To", "Cc", "Bcc"), "reading the Sent mail")
-            headers = (raw.get("payload") or {}).get("headers") if isinstance(raw, dict) else None
+            payload = raw.get("payload") if isinstance(raw, dict) else None
+            headers = payload.get("headers") if isinstance(payload, dict) else None
+            if not isinstance(headers, list):
+                # This channel's failure, never the run's (review finding 2).
+                raise CheckFailed(f"the Gmail API answered a Sent message without usable headers for {self.address} "
+                                  f"while reading the Sent mail", f"GET {shown_url(f'{GMAIL}/messages/{ids[0]}')}")
             # Only headers that are there: getaddresses in strict mode answers nothing at all for a list holding "".
-            values = [v for v in (gmail_header(headers if isinstance(headers, list) else [], f)
-                                  for f in ("To", "Cc", "Bcc")) if v]
+            values = [v for v in (gmail_header(headers, f) for f in ("To", "Cc", "Bcc")) if v]
             if sender in {a.lower() for _, a in email.utils.getaddresses(values) if a}:
                 known.add(address_hash(sender))
         return known

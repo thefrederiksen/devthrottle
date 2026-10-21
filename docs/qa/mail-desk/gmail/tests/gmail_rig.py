@@ -94,7 +94,9 @@ class FakeGmail:
     def __init__(self):
         self.mailboxes = {}
         self.log = []          # (method, url, body text or None, headers) for EVERY request that reached the network
-        self.fail_for = {}     # address -> an HTTP status, "unreachable", "not-json", "bad-list" or "bad-message"
+        self.fail_for = {}     # address -> an HTTP status, "unreachable", "not-json", "bad-list", "bad-message",
+        #                         "bad-page-token" or "bad-sent-payload"
+        self.unreachable_reason = "connection refused"
         self.refresh_answer = {}   # address -> "refused", an HTTP status, "unreachable", "not-json", or extra answer keys
         self.issued = 0
 
@@ -123,7 +125,7 @@ class FakeGmail:
         address = token.removeprefix("gtoken-for-").split("#")[0]
         failure = self.fail_for.get(address)
         if failure == "unreachable":
-            raise urllib.error.URLError("connection refused")
+            raise urllib.error.URLError(self.unreachable_reason)
         if isinstance(failure, int):
             raise urllib.error.HTTPError(url, failure, "error", {}, io.BytesIO(b'{"error": {"code": 500}}'))
         if failure == "not-json":
@@ -133,6 +135,10 @@ class FakeGmail:
             answer["messages"] = [{"threadId": "t1"}]
         if failure == "bad-message" and "internalDate" in answer:
             answer["internalDate"] = "yesterday"
+        if failure == "bad-page-token" and "messages" in answer:
+            answer["nextPageToken"] = "12\n34"
+        if failure == "bad-sent-payload" and "SENT" in answer.get("labelIds", []):
+            answer["payload"] = "unexpected"
         if status >= 400:
             raise urllib.error.HTTPError(url, status, "error", {}, io.BytesIO(json.dumps(answer).encode("utf-8")))
         return Response(json.dumps(answer).encode("utf-8"))
@@ -153,6 +159,8 @@ class FakeGmail:
             raise urllib.error.HTTPError(TOKEN_URI, behaviour, "error", {}, io.BytesIO(b"{}"))
         if behaviour == "not-json":
             return Response(b"<html>a captive portal</html>")
+        if behaviour == "a-list":
+            return Response(b'["access_token"]')
         self.issued += 1
         answer = {"access_token": f"gtoken-for-{address}#{self.issued}", "expires_in": 3599, "token_type": "Bearer",
                   "scope": " ".join(CC_GMAIL_SCOPES)}

@@ -45,7 +45,10 @@ a Director's `instances/*`. `CC_DIRECTOR_ROOT` does not move the store (issue 30
 - **The nickname is the directory's name.** cc-gmail's `-a` takes exactly that: `resolve_account` returns an explicit
   account unchanged and `get_account_dir` joins it under `accounts/` (`tools/cc-gmail/src/auth.py`). A test reads this
   premise from cc-gmail's source.
-- None found: the channel fails, naming `cc-gmail accounts add` (which asks for the address). More than one: the channel
+- None found: the channel fails, naming `cc-gmail accounts add <name>` (which asks for the address) with a name no
+  account has yet, compared without regard to case: the part before the `@`, else that and the domain's first label
+  (`desk-example`), else that with a number (`desk-example-2`). cc-gmail's `accounts add` does nothing for a name that
+  exists, so a taken name would be a fix that cannot work (review finding 1). More than one: the channel
   fails, naming every directory on the detail line. The check never picks one.
 - An account whose `auth_method` is not `oauth` (an app password reads mail over IMAP, never the Gmail API) fails,
   naming `cc-gmail -a <nickname> auth --method oauth`.
@@ -78,7 +81,9 @@ a Director's `instances/*`. `CC_DIRECTOR_ROOT` does not move the store (issue 30
 - **The write-back** is exactly as cc-gmail would leave the file: the same keys in the same order; `token` and `expiry`
   replaced (`expiry` as google-auth writes it: UTC in `isoformat()`, then `Z`); `refresh_token` replaced only when Google
   sent a new one; every other key unchanged. It is written to a temporary file in the same folder, made owner-only
-  (0600) on Linux and macOS, then moved over token.json with `os.replace`. google-auth's own
+  (0600) on Linux and macOS, then moved over token.json with `os.replace` - one move, so a reader of token.json sees
+  the old file or the new one, never half of it. A test watches the move: one `os.replace`, from a file in the same
+  folder onto token.json. google-auth's own
   `Credentials.from_authorized_user_file` reads the written file (a test proves it; google-auth is used by the tests
   only).
 - A write-back that fails (the folder cannot be written, the disk is full) fails the channel and leaves token.json as
@@ -130,7 +135,12 @@ fake Gmail API's log is empty for each; they send the allowed shapes too, to sho
 - **Later runs:** `labelIds=INBOX`, `q=after:<the cursor's second less one>`, every page; then, in code, only messages
   at or after the cursor's millisecond and not among `idsAtNewest`. So a batch cut inside one millisecond loses nothing
   and repeats nothing.
-- **Reading the oldest first.** The list comes newest first (Gmail lists by internalDate). The check reads metadata
+- **Reading the oldest first.** The list comes newest first. **This is a premise, not a measurement:** Gmail's API
+  reference describes `internalDate` as the field that determines ordering in the Inbox, and G0 measured that two lists
+  give the same ids in the same order, but not that the order follows `internalDate`. Everything "nothing skipped"
+  promises rests on it: were a message listed out of order, newer than ones read after it, a cursor past it would leave
+  it out on every later run (review observation 1). Phase 6, on the real mailbox, checks the order of one list against
+  `internalDate` once. The check reads metadata
   from the oldest end until it has one more new message than a run can report, at most 60 reads a run. An id already
   in the key table was reported, so it is skipped unread: that is how a burst of mail inside the cursor's last second
   never stalls the cursor (a test sends 100 messages inside two seconds). More than 40 already-reported messages in that
@@ -150,7 +160,7 @@ finds costs one more read, to confirm it (section 5).
 
 | Field | From |
 |---|---|
-| `sender`, `senderName` | the `From` header, parsed with `email.utils.parseaddr`; the address in lower case. No `From`: both empty, and `knownSender` false. |
+| `sender`, `senderName` | the `From` header, parsed with `email.utils.parseaddr`; the address in lower case. No `From`: both empty, and `knownSender` false. An address not written in ASCII is never searched for in the Sent mail, so it is never known: the Kelvin sign (U+212A) is the one character outside ASCII whose lower case is ASCII (review observation 4). |
 | `subject` | the `Subject` header with RFC 2047 encoded words decoded (decoding is not rewording; a character set Python does not know is kept as it came), then cleaned as phase 2's 4.3. G0 saw 0 of 20 subjects still encoded: the decoding is kept for mail that arrives otherwise. |
 | `preview` | Gmail's `snippet`, HTML entities unescaped (G0: 10 of 20 snippets hold one), then cleaned as 4.3, **then** cut to 200 characters. An entity that stands for an invisible character is unescaped first, so it is stripped too. |
 | `hasAttachments` | whether the id is in **one** list a run of the same window with `has:attachment` added (G0: `format=metadata` carries no parts, and the MIME type disagreed with this search on 6 of 36 messages). It is Gmail's own definition of an attachment, which may differ from Outlook's at the edges (an inline picture). No new mail, no search. |
@@ -160,8 +170,14 @@ finds costs one more read, to confirm it (section 5).
 
 Every Gmail failure belongs to its channel: the channel's section carries `"failure": {"sentence", "detail"}`, its
 entry in the memory comes back exactly as it was, and every other channel is read. Every sentence is in phase 2's
-failure table (`docs/qa/mail-desk/phase-2/CONTRACT.md` 1.2, the rows marked Gmail) and is at most 165 characters; a test
-measures each sign-in sentence with a 31-character address, a 15-character computer name and a 20-character nickname.
+failure table (`docs/qa/mail-desk/phase-2/CONTRACT.md` 1.2, the rows marked Gmail) and is at most 165 characters with
+a 31-character address, a 15-character computer name, a 20-character nickname and an error of more than 50 characters:
+tests measure every sign-in sentence, and every Gmail API sentence at each of the four steps. For that, the error in
+"the Gmail API could not be reached" is cut to 41 characters, not 50 (review observation 3).
+
+**Every unexpected answer from Google fails its channel only.** A token-service answer that is not a JSON object, a page
+token holding a control character, a space or anything outside printable ASCII, and a Sent message whose payload or
+headers are not an object and a list, are each that channel's failure sentence, never the run's (review finding 2).
 Each names cc-gmail's real command: `cc-gmail accounts add <name>`, `cc-gmail -a <nickname> auth`, `... auth --force`,
 `... auth --method oauth`, `cc-gmail accounts remove <name>`. A detail line names the store, the file or the Gmail API
 address with any message id replaced by `{id}`; never a token, a sender, a subject or a snippet.
@@ -188,8 +204,8 @@ that one name when they run together, so the fixtures are in `gmail_rig.py`.
 | `test_gmail_request_guard.py` | Every refused shape of section 3, in observe and in live mode, raises before the network and leaves the log empty; observe mode refuses even the two filing bodies; the reads and the two filings reach the network; spaces inside query values pass and control characters and spaces in names do not; the refresh guard refuses any other address or form; nothing in the Gmail reader goes round the guards; a bad id in the key table is refused per item and the rest filed. |
 | `test_gmail_filing.py` | Observe mode with a queue sends no modify and keeps the queue; live mode sends exactly the two bodies; 404 is `already-gone`; a retried archive keeps the id; a failing modify fails the channel with its queue whole; a decision other than the two is refused. |
 | `test_gmail_cursor_and_batches.py` | The first run (30 days or 200); milliseconds kept in the cursor and not in the output; a cut inside one millisecond; the query one second early and filtered in code; catching up over many runs; a burst of 100 inside two seconds; each cursor refused on the other provider's channel; Gmail and Outlook sharing the 10-message stop oldest first; the byte budget; two Gmail channels; one section shape. |
-| `test_gmail_sign_in.py` | Where it looks (not `HOME`, not `LOCALAPPDATA` on Linux, not `instances/*`); case; the nickname premise read from cc-gmail; none, two, app password, no token, each missing key, a refused refresh, each missing scope, another `token_uri`, an unreadable or foreign token file, unreadable settings, the sign-in service failing four ways and the Gmail API failing five: each one channel only, the Outlook channel read and its cursor moved, nothing secret on standard error; every sentence within 165 characters; no refresh while valid, a refresh within 5 minutes with exactly the four fields; the write-back (keys and order, 0600, read by google-auth, a new refresh token kept, a folder that cannot be written). |
-| `test_gmail_fields.py` | Sender parsing; encoded subjects decoded and cleaned; entities unescaped; padding stripped before the 200 cut; `hasAttachments` from one search a run, and none with no new mail; a realistic run is 22 calls; `knownSender` by one search per sender; every hostile `From` of the G0 review (spaces, `OR`, a quoted local part, `*`, angle brackets, a tab, a comment in the domain) not known and never searched; a `From` that parses to a plain address searched for that address only; a look-alike hit not known; a `sentCache` on a Gmail channel fails it; standard error holds no token, sender, subject, snippet or id. |
+| `test_gmail_sign_in.py` | Where it looks (not `HOME`, not `LOCALAPPDATA` on Linux, not `instances/*`); case; the nickname premise read from cc-gmail; none, two, app password, no token, each missing key, a refused refresh, each missing scope, another `token_uri`, an unreadable or foreign token file, unreadable settings, the sign-in service failing four ways and the Gmail API failing five: each one channel only, the Outlook channel read and its cursor moved, nothing secret on standard error; every sentence within 165 characters, and every Gmail API sentence at every step; unexpected answers from Google (a JSON list for a token, a bad page token, a Sent message without headers) each one channel only; a free name in `accounts add`; no refresh while valid, a refresh within 5 minutes with exactly the four fields; the write-back (keys and order, 0600, read by google-auth, one `os.replace` from the same folder, a new refresh token kept, a folder that cannot be written). |
+| `test_gmail_fields.py` | Sender parsing; encoded subjects decoded and cleaned; entities unescaped; padding stripped before the 200 cut; `hasAttachments` from one search a run, and none with no new mail; a realistic run is 22 calls; `knownSender` by one search per sender; every hostile `From` of the G0 review (spaces, `OR`, a quoted local part, `*`, angle brackets, a tab, a comment in the domain) not known and never searched; a `From` that parses to a plain address searched for that address only; a look-alike hit not known; a Kelvin-sign address never searched; a `sentCache` on a Gmail channel fails it; standard error holds no token, sender, subject, snippet or id. |
 
 Phase 2's tests stay as they were, except where Gmail now exists: the unknown-provider tests name `imap` instead of
 `gmail` and their sentence lists `outlook, gmail`; the source test counts three guards calling `transport()` (Graph's,
@@ -213,6 +229,20 @@ the Gmail API's, the Google sign-in service's) instead of one; and the test that
 | A `sentCache` on a Gmail channel is accepted | 1 | `test_KnownSender_ASentCacheOnAGmailChannel_IsAFieldThisCheckDidNotWrite` |
 | Any sender address is searched for (no plain-address guard) | 8 (of 614) | `test_KnownSender_AnAddressThatIsNotPlain_IsNotKnownAndNeverSearched` (the other 3 hostile senders parse to no address at all) |
 | A search hit is taken without confirming the recipients | 1 (of 614) | `test_KnownSender_ALookAlikeHit_IsNotKnown` |
+
+The review (`docs/qa/mail-desk/gmail/reviews/reader-review.md`) broke it sixteen more ways; fifteen turned it red. The
+one that did not - token.json written in place instead of by `os.replace` - now does, through the test that watches
+the move. Each fix made for the review was then undone on its own against the suite of 633, and each turned it red:
+
+| Fix undone | Red (of 633) | A test that turned red |
+|---|---|---|
+| Finding 1: the part before the `@` named even when it is taken | 2 | `test_NoAccount_TheNameToAddIsTakenAlready_AFreeOneIsNamed` |
+| Finding 2: the token service's answer read before it is checked | 1 | `test_TheSignInServiceFailing_FailsThatChannelSayingSo[a-json-list]` |
+| Finding 2: any page token accepted | 1 | `test_TheGmailApiFailing_FailsThatChannelAndTheSameMailIsReadNextRun[bad-page-token]` |
+| Finding 2: a Sent message's payload not checked | 1 | `test_ASentMessageWithoutUsableHeaders_FailsThatChannelOnly` |
+| Observation 3: the error cut to 50 again | 4 | `test_EveryGmailApiSentence_FitsTheLimitWithLongNamesAndALongError` |
+| Observation 2: token.json written in place | 1 | `test_WriteBack_IsOneOsReplaceOfATemporaryFileInTheSameFolder` |
+| Observation 4: a Kelvin-sign address searched | 1 | `test_KnownSender_AnAddressWrittenWithTheKelvinSign_IsNeverSearched` |
 
 The trash break first stayed green: every trash call the tests sent had no body, so the body rule refused it even with
 the path rule broken. Trash, untrash, delete, send, batchModify, a thread's modify and a draft, each carrying a valid

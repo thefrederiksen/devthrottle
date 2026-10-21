@@ -169,6 +169,18 @@ def test_KnownSender_PlainAddressesWithDotsPlusAndHyphens_AreSearched(gw):
     assert [m["knownSender"] for m in all_messages(context)] == [True]
 
 
+def test_KnownSender_AnAddressWrittenWithTheKelvinSign_IsNeverSearched(gw):
+    """Review observation 4: U+212A lower-cases to an ASCII k, so only an address written in ASCII is searched for."""
+    gw.plant_gmail()
+    box = gw.gmail.box(GMAIL_BOX)
+    box += [gsent("s1", "kate@example.com")]
+    box += [gmsg("a1", "2026-10-18T08:00:00Z", sender="\u212aate@example.com")]
+    gw.memory(channel(GMAIL_BOX, provider="gmail", cursor=CURSOR))
+    _, _, context, _ = gw.run()
+    assert [m["knownSender"] for m in all_messages(context)] == [False]
+    assert not any("labelIds=SENT" in u for _, u, _, _ in gw.gmail.log)
+
+
 def test_KnownSender_ALookAlikeHit_IsNotKnown(gw):
     """The search found a message, but its recipients hold only a longer address: the hit is not confirmed."""
     gw.plant_gmail()

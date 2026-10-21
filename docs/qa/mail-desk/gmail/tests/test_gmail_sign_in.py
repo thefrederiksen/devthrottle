@@ -102,6 +102,22 @@ def test_Premise_CcGmailsDashATakesTheDirectoryNameAsGiven():
 # ---------------------------------------------------------------------------------------------------- the failures
 
 
+def test_NoAccount_TheNameToAddIsTakenAlready_AFreeOneIsNamed(gw):
+    """Review finding 1: cc-gmail's accounts add does nothing for a name that exists, so the fix names a free one."""
+    gw.plant_gmail("desk@example.org", nickname="desk")
+    two_channels(gw)
+    sentence, _ = gmail_failed(gw)
+    assert sentence == f"{GMAIL_BOX} is not signed in on {MACHINE}: run cc-gmail accounts add desk-example and give it this address"
+
+
+def test_NoAccount_ThoseNamesTakenToo_ANumberedOneIsNamed_WithoutRegardToCase(gw):
+    gw.plant_gmail("desk@example.org", nickname="Desk")
+    gw.plant_gmail("desk@example.net", nickname="DESK-example")
+    two_channels(gw)
+    sentence, _ = gmail_failed(gw)
+    assert sentence.endswith(": run cc-gmail accounts add desk-example-2 and give it this address")
+
+
 def test_NoAccount_FailsThatChannelNamingAccountsAdd(gw):
     two_channels(gw)
     sentence, _ = gmail_failed(gw)
@@ -220,7 +236,8 @@ def test_AnAccountsSettingsThatCannotBeRead_FailsThatChannelSayingSo(gw):
     ({"access_token": ""}, "the Google sign-in service failed on testmachine for desk@example.com: its answer held no access token"),
     ("not-json", "the Google sign-in service failed on testmachine for desk@example.com: it answered something that is "
                  "not JSON"),
-], ids=["unreachable", "http-500", "no-access-token", "not-json"])
+    ("a-list", "the Google sign-in service failed on testmachine for desk@example.com: its answer held no access token"),
+], ids=["unreachable", "http-500", "no-access-token", "not-json", "a-json-list"])
 def test_TheSignInServiceFailing_FailsThatChannelSayingSo(gw, behaviour, expected):
     gw.plant_gmail(token=token_json(GMAIL_BOX, expiry=EXPIRED))
     gw.gmail.refresh_answer[GMAIL_BOX] = behaviour
@@ -236,7 +253,9 @@ def test_TheSignInServiceFailing_FailsThatChannelSayingSo(gw, behaviour, expecte
     ("bad-list", "the Gmail API answered a list without usable message ids for desk@example.com while reading the Inbox"),
     ("bad-message", "the Gmail API answered a message without a usable id or receive time for desk@example.com while "
                     "reading the Inbox"),
-], ids=["http-503", "unreachable", "not-json", "bad-list", "bad-message"])
+    ("bad-page-token", "the Gmail API answered a list without usable message ids for desk@example.com while reading the "
+                       "Inbox"),
+], ids=["http-503", "unreachable", "not-json", "bad-list", "bad-message", "bad-page-token"])
 def test_TheGmailApiFailing_FailsThatChannelAndTheSameMailIsReadNextRun(gw, failure, expected):
     gw.plant_gmail()
     two_channels(gw)
@@ -336,6 +355,19 @@ def test_WriteBack_SameKeysInOrder_TokenAndExpiryReplaced_Mode0600_ReadByGoogleA
     assert "the renewed sign-in was written back to its file" in err and "gtoken" not in err
 
 
+def test_WriteBack_IsOneOsReplaceOfATemporaryFileInTheSameFolder(gw, monkeypatch):
+    """Review observation 2: atomic, never written in place. The move is watched, so a write-back that wrote token.json
+    in place, or moved a file from another folder, fails here."""
+    folder = gw.plant_gmail(token=token_json(GMAIL_BOX, expiry=EXPIRED))
+    moves, real = [], os.replace
+    monkeypatch.setattr(gw.screen.os, "replace", lambda a, b: (moves.append((str(a), str(b))), real(a, b))[1])
+    two_channels(gw)
+    gw.run()
+    (source, target), = moves
+    assert target == str(folder / "token.json")
+    assert os.path.dirname(source) == str(folder) and source != target
+
+
 def test_WriteBack_ANewRefreshTokenFromGoogle_IsKept(gw):
     folder = gw.plant_gmail(token=token_json(GMAIL_BOX, expiry=EXPIRED))
     gw.gmail.refresh_answer[GMAIL_BOX] = {"refresh_token": "refresh-for-desk@example.com-rotated"}
@@ -370,3 +402,33 @@ def test_MoreNewMailThanOneRunCanList_FailsThatChannelSayingSo(gw, monkeypatch):
     sentence, _ = gmail_failed(gw)
     assert sentence == (f"{GMAIL_BOX} has more than 6 new Inbox messages, more than screen.py lists in one run: archive "
                         f"the oldest of them in Gmail")
+
+
+def test_ASentMessageWithoutUsableHeaders_FailsThatChannelOnly(gw):
+    """Review finding 2: the confirming read of a Sent message answering a payload that is not an object."""
+    gw.plant_gmail()
+    two_channels(gw)
+    box = gw.gmail.box(GMAIL_BOX)
+    box[0]["payload"]["headers"][0]["value"] = "customer@example.org"
+    box.append(gmsg("s1", "2026-10-10T08:00:00Z", labels=("SENT",), to="customer@example.org"))
+    gw.gmail.fail_for[GMAIL_BOX] = "bad-sent-payload"
+    sentence, _ = gmail_failed(gw)
+    assert sentence == (f"the Gmail API answered a Sent message without usable headers for {GMAIL_BOX} while reading "
+                        f"the Sent mail")
+
+
+@pytest.mark.parametrize("step", ["reading the Inbox", "reading the Sent mail", "archiving a message",
+                                  "moving a message to Spam"])
+@pytest.mark.parametrize("failure", ["unreachable", 503, "not-json"])
+def test_EveryGmailApiSentence_FitsTheLimitWithLongNamesAndALongError(gw, monkeypatch, step, failure):
+    """Review observation 3, taken as a finding: with a 31-character address, a 15-character computer name and an error
+    of more than 50 characters, every Gmail API sentence, at every step, is at most 165 characters."""
+    monkeypatch.setattr(gw.screen.socket, "gethostname", lambda: "DESKTOP-ABCD123.corp.example.com")
+    address = "second.mailbox.desk@example.org"
+    gw.gmail.fail_for[address] = failure
+    gw.gmail.unreachable_reason = "[Errno 101] Network is unreachable while connecting to the proxy"
+    reader = gw.screen.GmailReader({"address": address, "mode": "live", "provider": "gmail"})
+    reader.token = f"gtoken-for-{address}"
+    with pytest.raises(gw.screen.CheckFailed) as caught:
+        reader.gmail("GET", "https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX", step)
+    assert step in str(caught.value) and len(str(caught.value)) <= 165, (len(str(caught.value)), str(caught.value))
