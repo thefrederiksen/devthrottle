@@ -1,29 +1,47 @@
 name: CI
 
-# ON DEMAND AND NIGHTLY, NOT ON EVERY PUSH (owner's ruling, 30 September 2026). Until then this ran on
-# every pull request AND again on every push to main: about 70 Windows minutes per pull request and 40
-# per merge, some 80,000 Windows minutes in September 2026, and every commit and merge waited behind it.
-# The owner's words: "turn off automatic CI and run it when we want to instead so we can do lots of
-# commits and merges ... we're not using the server for a testbed", and for this repository: "it seems
-# to take too long whenever we commit anything and merge."
+# ON EVERY MERGE TO MAIN, ON DEMAND, AND NIGHTLY - BUT NEVER ON A PULL REQUEST.
 #
-# So it runs in exactly two ways:
+# NO PULL-REQUEST RUNS (owner's ruling, 30 September 2026, unchanged). Before it, this ran on every pull
+# request AND again on every push to main: about 70 Windows minutes per pull request and 40 per merge,
+# some 80,000 Windows minutes in September 2026, and every commit and merge waited behind it. The owner's
+# words: "turn off automatic CI and run it when we want to instead so we can do lots of commits and
+# merges ... we're not using the server for a testbed", and for this repository: "it seems to take too
+# long whenever we commit anything and merge." The expensive half was the per-pull-request run. It stays
+# off, and the classification for it below is kept so that putting `pull_request:` back is one line.
+#
+# PUSH TO MAIN IS BACK (owner's ruling, 21 October 2026, #4238). The schedule alone was not catching a
+# red main: on 18 October the scheduled runs landed at 04:34, 11:05 and 15:52 UTC - gaps of six and a
+# half and nearly five hours - while main moved many times, because GitHub delays and drops scheduled
+# runs under load. A cron is a request, not a promise. On 21 October v2.28.0 was cut while main was red
+# and shipped without the #3377 fix. Main takes about 8 merges a day at 40 Windows minutes each, roughly
+# an eighth of what September's pull-request runs cost, and that is the price of a verdict per merge.
+#
+# So it runs in three ways:
+#   - on every push to MAIN, which in practice is every squash-merge
 #   - by hand:  gh workflow run CI --ref <branch>   (or "Run workflow" on the Actions page)
 #   - every two hours on main, and ONLY when main's commit has not been tested yet (the owner, 17
-#     October 2026: "On GitHub, every two hours, but only when main has moved"). A red run opens an
-#     issue (the "Report a red nightly" job at the bottom), so a failing guard is loud within two hours.
-#     Every commit this passes is a LAST GOOD COMMIT, and a release is a tag on the newest of them
-#     (scripts/new-release.ps1 -Release); the release itself runs no tests. Main tested only once a day
-#     meant a break sat unseen until the release found it - v2.23.0 lost fifteen hours that way.
-# Neither is a pull request, so the "What changed" job below runs EVERY job, every Python leg included.
-# Its pull-request classification is no longer reached by any trigger; it is kept, unchanged, so that
-# putting `pull_request:` back is a one-line decision rather than a rewrite.
+#     October 2026: "On GitHub, every two hours, but only when main has moved"). With the push trigger
+#     this is now a SAFETY NET rather than the main path: when the push run already finished, the
+#     scheduled run finds that answer and skips, costing nothing. It still earns its keep when a push
+#     run was cancelled, or never started.
 #
-# What this gives up: a red can reach main and sit there until the nightly. Local verification is the
-# pre-merge gate, which is what the deploy's check gate already assumes (deploy-hosted-gateway.yml, "a
-# commit with no check runs at all is not refused"). A FAILED run still blocks a deploy of that commit.
+# Any red run on main opens or comments on an issue and names the failing tests (the report job at the
+# bottom, #4238). Every commit a run passes is a LAST GOOD COMMIT, and a release is a tag on the newest
+# of them (scripts\new-release.ps1 -Release); the release itself runs no tests. Main tested only once a
+# day meant a break sat unseen until the release found it - v2.23.0 lost fifteen hours that way.
+#
+# None of the three is a pull request, so the "What changed" job below runs EVERY job, every Python leg
+# included.
+#
+# What this still gives up: a red can reach main and sit there for the length of one run, because the
+# run starts only after the merge. Local verification is the pre-merge gate, which is what the deploy's
+# check gate already assumes (deploy-hosted-gateway.yml, "a commit with no check runs at all is not
+# refused"). A FAILED run still blocks a deploy of that commit.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]         # every merge to main gets its own verdict (#4238). NOT pull requests - see above.
   schedule:
     - cron: "17 */2 * * *"   # every two hours at :17 UTC; an odd minute, since :00 is when GitHub's scheduler is most delayed
 
@@ -140,7 +158,9 @@ jobs:
           # skipped, and "CI result" is skipped too, so no green verdict is minted for a commit this run
           # did not test. A red commit is not retested every two hours - the same code gives the same
           # answer, and its issue is already open; the next commit on main is tested. A cancelled or
-          # timed-out run is not an answer, so it does not count. A run started by hand always tests.
+          # timed-out run is not an answer, so it does not count. A run from a PUSH or started by hand
+          # always tests - this skip is the schedule's alone, which is what makes the schedule free once
+          # the push trigger has already answered for that commit.
           if [ "$EVENT_NAME" = "schedule" ]; then
             seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and (.conclusion == \"success\" or (.conclusion == \"failure\" and .event == \"schedule\")))] | length")
             if [ "$seen" -gt 0 ]; then
