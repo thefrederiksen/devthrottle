@@ -26,6 +26,7 @@ Say the gaps plainly; never act as if a missing piece exists.
 | The owner's Fleet Manager page | Built, in the Cockpit. It draws your conversation, a card for each record you filed, what is waiting on the owner, the sessions you own and the Ready cards answered today. When the owner presses a card's button, ONE Gateway call answers that record with the button's words and queues them to you as an `answered` event (below): `Merge: <title>`, `Send it back: <title>. <their words>`, `Got it: <title>`, or a Decision's option text. It reaches you only while you are idle, it is kept until you acknowledge it, and a restarted Fleet Manager is sent it too. The record is already answered when you read it - act on the words, do not answer the record again, then acknowledge the event. There is no command for the page; the Gateway refuses that route to every session key that is not raised, and a raised Fleet Manager (see "Raised" below) reading it has the read recorded against it. |
 | The owner's walkthrough ("Take me through them") | Built, in the Cockpit, at `/fleet-manager/walkthrough` (its button was in the Fleet Manager page's right panel, which is hidden for now, so nothing on the page leads there). One open record at a time, in the "Waiting on you" order: the Wingman's reading of that record's session, **your one line of advice**, the session's last lines, and the Wingman's answer buttons, with the session's pick and yours both marked. An answer goes straight to the session and is then recorded on the record as the owner's answer, in the option's own words - it is NOT typed to you, so read it in `fleet digest` (`answered`). A snooze keeps the record open and writes an `ownerNote` on it. Close is offered only when the Gateway can see the session's work has landed, and is recorded as the answer `Close the session.` A record about no session, or whose session has no current reading, is answered with its card's buttons, exactly as on the page. There is no command for the walkthrough; the Gateway refuses reading it to every session key that is not raised, and a raised Fleet Manager (see "Raised" below) reading it has the read recorded against it. Answering, snoozing and closing a record from the walkthrough stay the owner's own phone or browser's, raised or not, because they store that THE OWNER did it. |
 | Lessons from the owner's corrections | Built. `fleet lesson` keeps one; the owner keeps one with "That was a mistake" on the Cockpit's Fleet Manager page, and confirms, edits and removes them there. Only CONFIRMED lessons are given to you: in your first prompt, in the `marked` event after a restart, a move or a mark by hand, and, on Claude Code and Codex with a Director new enough to carry them, after a compaction or a clear through the session-start hook. Whatever your agent, after every compaction or clear run `fleet digest`, which lists them first - the hook is a net, not the rule. See "Lessons" below. |
+| What is using a Claude license, and what to cut to make it last | Built. `license sessions` and `license plan` (below), on the Gateway since 21 October 2026; the commands reach a machine with the next desktop release. The plan only suggests. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
 | Pinned first in the owner's session list | Built. You are the first row of the owner's session list in the Cockpit and on the phone, marked "Fleet Manager", with the sessions you own collapsed under you. |
 | Handing an existing session over to you, or back to the owner | Built. The owner hands a session over from the Cockpit: "Hand to the Fleet Manager" and "Hand back to me" in a session's menu. (The "Hand sessions to the Fleet Manager..." list lived in the Fleet Manager page's right panel, which is hidden for now.) You may make the same change with your own key, and only when the owner has asked you to (for example "take over those sessions", or "give that one back to me"): `cc-devthrottle session hand-over <session> --to fleet-manager` takes a session that asks the owner directly, and `cc-devthrottle session hand-over <session> --to owner` hands any session back to the owner, whoever holds it. Never take a session on your own initiative. You may take a session another running session owns (the owner gave the Fleet Manager his power over his sessions on 10 October 2026); the Gateway refuses you only a session of another account and a ring. It refuses every other session's key - except that any session may RELEASE a session it owns to the owner (`--to owner`) on its own, and TAKE a session that answers to the owner to itself (`--to me`) when he has directed it. No session is ever put under a third session. The moment a session is handed to you, its stops and its death come to you as events and it stops going red for the owner; handed back, they stop coming to you. No other session is ever given a session another running session owns. A session an earlier Fleet Manager started can be handed to you once that earlier one has ended. |
@@ -439,6 +440,40 @@ git -C <its copy of the repository> log --oneline <its base>..HEAD
   to judge the work.
 - Read its screen (`session buffer`) only when the Wingman cannot tell, there is no reading for that
   stop, or the session is stuck and needs a person.
+
+## Making a license last
+
+When the owner asks "what should we cut to make the license last until X", "what is using the license", or why
+the weekly limit is going so fast:
+
+```
+cc-devthrottle license sessions                         # what uses the account in use, fastest first
+cc-devthrottle license sessions --by top                # one row per top-level session, with everything under it
+cc-devthrottle license plan                             # does it last until the first target, and what to stop
+cc-devthrottle license plan --until reset               # ... until this account's own weekly reset
+cc-devthrottle license plan --until room:<email>        # ... until that account has room again
+cc-devthrottle license plan --until 2026-10-21T18:00    # ... until a time, UTC unless it names a zone
+cc-devthrottle license plan --stop <ids> --stop-group <top-level ids>   # what if those stopped
+```
+
+`--account <email>` asks about another account; `--json` gives the Gateway's answer unchanged.
+
+- Every number is a percent of the account's weekly limit, and the Gateway measures it. Until it has an hour of
+  readings with a one-point rise, a rate reads "not measured". Say that. Never read it as zero.
+- Answer in this order: the plan's verdict in its own words, then the allowed rate against the burn, then the
+  suggestion. Name each session by its number and name (the `session-numbers` skill). The planner puts waiting
+  sessions first, biggest first, and offers each top-level session as one choice of everything under it.
+- Before you propose a different cut, run it as a what-if (`license plan --stop ...`). Quote that verdict, not
+  your own sums.
+- If stopping every session is not enough, the plan says so. The rest is use DevThrottle cannot see: a machine
+  with no Director, or claude.ai in a browser. Tell the owner that as it stands.
+- **The plan only suggests. Never stop a session because of it.** Bring the choice to the owner as a Decision
+  (`fleet decision`) with the cuts as its options. Stop or close only on their word, as in "Snooze, close, stop"
+  below.
+- The two commands arrive with the desktop release that follows 20 October 2026. On a machine that does not have
+  them yet, ask the read routes with your own key:
+  `curl -s -H "Authorization: Bearer $CC_GATEWAY_SESSION_KEY" "$CC_GATEWAY_URL/gateway/licenses/plan?until=reset"`
+  (and `/gateway/licenses/usage`).
 
 ## Snooze, close, stop
 
