@@ -233,7 +233,8 @@ internal static class FactoryMemoryEndpoints
                     detail =
                         "A factory's memory belongs to the factory, and a session belongs to one because a " +
                         "factory's trigger or schedule started it, or because a person put it there. A session " +
-                        "outside every factory has nothing to read here and nothing it may write.",
+                        "outside every factory has nothing to read here and nothing it may write. To work as a " +
+                        "factory's Boss, start one: cc-devthrottle session spawn <repo> --factory <id> --seat <boss>.",
                 }, statusCode: StatusCodes.Status403Forbidden);
                 return false;
             }

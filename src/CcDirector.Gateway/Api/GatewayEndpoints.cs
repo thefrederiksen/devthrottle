@@ -370,7 +370,10 @@ internal static partial class GatewayEndpoints
         Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null,
         // The clock the Director door judges a refused reopen's claim by (API mode, the #4257 review): the real one in
         // production; a test injects its own so the ten-minute window needs no real time.
-        TimeProvider? spawnDoorClock = null)
+        TimeProvider? spawnDoorClock = null,
+        // Issue #4351: a factory's Boss seat and published version, for one account - read when a session in no factory
+        // starts a factory's Boss. Null (tests, older callers) refuses that start; it never lets one by.
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -4849,7 +4852,7 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock);
+            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);

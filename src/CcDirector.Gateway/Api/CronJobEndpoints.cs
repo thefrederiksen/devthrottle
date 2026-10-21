@@ -61,6 +61,10 @@ internal static class CronJobEndpoints
         ArgumentNullException.ThrowIfNull(runRecords);
         ArgumentNullException.ThrowIfNull(accountZoneOf);
         ArgumentNullException.ThrowIfNull(isDefined);
+        // Issue #4351: the Boss seat of one of the calling account's factories, read from the same registration a
+        // schedule's seat is checked against.
+        Func<string, string?> BossOf(HttpContext ctx) => factory => findFactory(ctx, factory)?.BossSeat;
+
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;
@@ -91,6 +95,9 @@ internal static class CronJobEndpoints
                     "POST /cron/jobs", out var factoryError, out var settledFactory))
                 return factoryError!;
             job.Factory = settledFactory;
+            if (!Api.FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, job.Factory, BossOf(ctx), "schedule",
+                    "POST /cron/jobs", out var bossError))
+                return bossError!;
 
             // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory's schedules come from its definition.
             if (isDefined(ctx, job.Factory))
@@ -388,6 +395,13 @@ internal static class CronJobEndpoints
                     $"PUT /cron/jobs/{id}", out var factoryError, out var settledFactory))
                 return factoryError!;
             incoming.Factory = settledFactory;
+            // Only the Boss among the factory's seats changes a schedule, a switch on or off included (issue #4351) - the
+            // factory it is in now, and the one it would be in.
+            if (!Api.FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, storedFactory, BossOf(ctx), "schedule",
+                    $"PUT /cron/jobs/{id}", out var bossError)
+                || !Api.FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, incoming.Factory, BossOf(ctx), "schedule",
+                    $"PUT /cron/jobs/{id}", out bossError))
+                return bossError!;
 
             // ONE SOURCE OF TRUTH (Factory Definition, phase 4). A schedule of a defined factory, or a body that would
             // put one on a defined factory (linking), is the definition's to write - except a switch on or off, which
@@ -432,6 +446,9 @@ internal static class CronJobEndpoints
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Get(id)?.Factory, "schedule",
                     $"DELETE /cron/jobs/{id}", out var actError))
                 return actError!;
+            if (!Api.FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, store.Get(id)?.Factory, BossOf(ctx), "schedule",
+                    $"DELETE /cron/jobs/{id}", out var bossError))
+                return bossError!;
             // A defined factory's schedule is deleted by publishing a definition without its start (phase 4).
             if (store.Get(id)?.Factory is { } storedFactory && isDefined(ctx, storedFactory))
                 return Factory.Definition.DefinedByDefinition.Refusal($"DELETE /cron/jobs/{id}", storedFactory);
@@ -465,6 +482,8 @@ internal static class CronJobEndpoints
                 return Results.NotFound(new { error = "no such cron job", id });
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, job.Factory, "schedule", route, out var actError))
                 return actError!;
+            if (!Api.FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, job.Factory, BossOf(ctx), "schedule", route, out var bossError))
+                return bossError!;
             // Taking a schedule off a seat of a defined factory is the definition's to do (phase 4).
             if (isDefined(ctx, job.Factory))
                 return Factory.Definition.DefinedByDefinition.Refusal(route, job.Factory!);

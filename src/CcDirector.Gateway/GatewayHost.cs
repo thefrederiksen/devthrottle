@@ -1399,6 +1399,11 @@ public sealed class GatewayHost : IAsyncDisposable
     private Factory.Definition.SeatRulesReader SeatRulesFor(TenantId tenant)
         => (factory, version, seat) => Factory.Definition.FactorySeatRules.Read(FactoryDefinitions, tenant, factory, version, seat);
 
+    /// <summary>A factory's Boss seat and published version, for one account (issue #4351): read when a session in no
+    /// factory starts a factory's Boss. Handed to both spawn doors a session key reaches.</summary>
+    private Factory.Definition.BossStartReader BossStartFor(TenantId tenant)
+        => factory => Factory.Definition.FactoryBossStarts.Read(FactoryRegistry, FactoryDefinitions, tenant, factory);
+
     /// <summary>Which Directors run checks from a factory's definition (Factory Definition, phase 5b) - recorded at
     /// Hello, read when a Director asks for its triggers and when a trigger's status is decided.</summary>
     private readonly Streaming.DefinitionCheckCapabilityRegistry _definitionCheckCapabilities = new();
@@ -5132,6 +5137,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // seat's child on an agent that cannot take rules is refused when the seat carries them.
             factoryKitCapabilities: _factoryKitCapabilities,
             seatRulesFor: SeatRulesFor,
+            // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
+            bossStartFor: BossStartFor,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -6441,7 +6448,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Definition, phase 4: a defined factory's triggers are its definition's to write.
             isDefined: FactoryDefinitions.IsDefined,
             // Phase 5b: a timed start's due checks, handed out and reported on the same Director routes.
-            dueChecks: DueChecks);
+            dueChecks: DueChecks,
+            // Issue #4351: among a factory's seats, only its Boss changes its triggers.
+            bossSeatOf: (tenant, factory) => FactoryRegistry.Find(tenant, factory)?.BossSeat);
 
         // Factory Definition, phase 5b: a Director downloads the checks of a PUBLISHED version of a factory whose seat
         // runs on its machine. Behind the same switch as the triggers that name them.
@@ -6494,7 +6503,9 @@ public sealed class GatewayHost : IAsyncDisposable
             newestRelease: _newestRelease,
             // Factory Definition mission, phase 5: a seat's child on an agent that cannot take rules is refused when the
             // seat carries them, read from the definition version the seat was started from.
-            seatRulesFor: SeatRulesFor);
+            seatRulesFor: SeatRulesFor,
+            // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
+            bossStartFor: BossStartFor);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

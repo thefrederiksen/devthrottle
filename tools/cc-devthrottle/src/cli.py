@@ -3670,6 +3670,18 @@ def spawn(
         "Pi included. API mode is refused, with the reason, for an agent "
         "whose wrapper has none.",
     ),
+    factory: Optional[str] = typer.Option(
+        None,
+        "--factory",
+        help="Start the new session as a factory's BOSS, seated in that factory as its night start is: its memory, "
+        "journals, triggers and schedules. Give with --seat naming the factory's Boss seat. Only the Boss can be "
+        "started this way, and only from a session in no factory; any other seat is refused.",
+    ),
+    seat: Optional[str] = typer.Option(
+        None,
+        "--seat",
+        help="With --factory: the factory's Boss seat ('cc-devthrottle factory list' shows it).",
+    ),
 ) -> None:
     """Open a new session here, on another machine, or on one named Director.
 
@@ -3677,7 +3689,7 @@ def spawn(
     """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
-        machine, mission, workflow_run, director, connection,
+        machine, mission, workflow_run, director, connection, factory=factory, seat=seat,
     )
 
 

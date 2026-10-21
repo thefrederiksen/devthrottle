@@ -25,7 +25,10 @@ internal sealed record DirectorSpawnDoor(
     Streaming.FactoryKitCapabilityRegistry? KitCapabilities = null,
     Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null,
     // The clock a refused reopen's claim is judged by (the #4257 review): the real one when null; a test injects its own.
-    TimeProvider? Clock = null);
+    TimeProvider? Clock = null,
+    // Issue #4351: a factory's Boss seat and published version, for the account the request is bound to - read when a
+    // session in no factory starts a factory's Boss. A door without it refuses that start; it never lets one by.
+    Func<Core.Tenancy.TenantId, Factory.Definition.BossStartReader>? BossStartFor = null);
 
 /// <summary>The answer of one create: the session the Director started, or the refusal to hand the caller.</summary>
 internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusal)
@@ -143,7 +146,7 @@ internal static partial class GatewayEndpoints
         // credential, in the same one place, for the same reason: this door is the one an unqualified
         // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
         if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError,
-                door.SeatRulesFor?.Invoke(spawnTenant.Value)))
+                door.SeatRulesFor?.Invoke(spawnTenant.Value), door.BossStartFor?.Invoke(spawnTenant.Value)))
             return DirectorSpawnOutcome.Refused(factoryError!);
 
         // AND THE DIRECTOR MUST BE ABLE TO CARRY IT. A Director older than the factory field drops it silently, so the

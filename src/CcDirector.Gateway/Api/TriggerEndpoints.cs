@@ -76,7 +76,10 @@ internal static class TriggerEndpoints
         Func<TenantId, string?, bool> isDefined,
         // Factory Definition, phase 5b: a timed start's due checks ride the same pull and the same report as a
         // trigger's (design 3.3). REQUIRED for the same reason as the two above.
-        DueCheckService dueChecks)
+        DueCheckService dueChecks,
+        // Issue #4351: the Boss seat of one of the account's factories, or null when it names none. Only the Boss, among
+        // a factory's seats, changes its triggers (FactoryNaming.TryActAsTheBoss). Null (a harness) refuses every seat.
+        Func<TenantId, string, string?>? bossSeatOf = null)
     {
         ArgumentNullException.ThrowIfNull(dueChecks);
         ArgumentNullException.ThrowIfNull(resolveTenant);
@@ -103,6 +106,9 @@ internal static class TriggerEndpoints
                     "POST /triggers", out var factoryError, out var settledFactory))
                 return factoryError!;
             req!.Factory = settledFactory;
+            if (!FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, req.Factory, BossOf(tenant), "trigger",
+                    "POST /triggers", out var bossError))
+                return bossError!;
 
             // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory's triggers come from its definition.
             if (isDefined(tenant, req.Factory))
@@ -154,6 +160,12 @@ internal static class TriggerEndpoints
                     $"PUT /triggers/{id}", out var factoryError, out var settledFactory))
                 return factoryError!;
             req!.Factory = settledFactory;
+            // Only the Boss among the factory's seats changes a trigger - the one it is on now, and the one it would be on.
+            if (!FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, storedFactory, BossOf(tenant), "trigger",
+                    $"PUT /triggers/{id}", out var bossError)
+                || !FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, req.Factory, BossOf(tenant), "trigger",
+                    $"PUT /triggers/{id}", out bossError))
+                return bossError!;
 
             // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a trigger of a defined factory, or a body that would
             // move one onto a defined factory, is the definition's to write.
@@ -177,6 +189,9 @@ internal static class TriggerEndpoints
             if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
                     $"DELETE /triggers/{id}", out var actError))
                 return actError!;
+            if (!FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, BossOf(tenant), "trigger",
+                    $"DELETE /triggers/{id}", out var bossError))
+                return bossError!;
             // A defined factory's trigger is removed by publishing its definition (phase 4).
             if (store.Find(tenant, id)?.Factory is { } storedFactory && isDefined(tenant, storedFactory))
                 return Factory.Definition.DefinedByDefinition.Refusal($"DELETE /triggers/{id}", storedFactory);
@@ -192,10 +207,15 @@ internal static class TriggerEndpoints
             if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
                     $"POST /triggers/{id}/resume", out var actError))
                 return actError!;
+            if (!FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, BossOf(tenant), "trigger",
+                    $"POST /triggers/{id}/resume", out var bossError))
+                return bossError!;
             return await service.ResumeAsync(tenant, id, CallerOf(ctx), ctx.RequestAborted) is { } t
                 ? Results.Json(service.ToDto(t))
                 : NoSuchTrigger(id);
         });
+
+        Func<string, string?>? BossOf(TenantId tenant) => bossSeatOf is null ? null : factory => bossSeatOf(tenant, factory);
 
         IResult SetPaused(HttpContext ctx, string id, bool paused)
         {
@@ -206,6 +226,9 @@ internal static class TriggerEndpoints
             if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
                     $"POST /triggers/{id}/{(paused ? "pause" : "resume")}", out var actError))
                 return actError!;
+            if (!FactoryNaming.TryActAsTheBoss(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, BossOf(tenant), "trigger",
+                    $"POST /triggers/{id}/{(paused ? "pause" : "resume")}", out var bossError))
+                return bossError!;
             return store.SetPaused(tenant, id, paused) is { } t ? Results.Json(service.ToDto(t)) : NoSuchTrigger(id);
         }
 
