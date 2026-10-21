@@ -50,12 +50,17 @@
          references this package and the Gateway references Core, so this reference is not what makes the
          type resolve - it is here because the Gateway now uses SQLite DIRECTLY, and a project that depends
          on a package states so rather than leaning on a transitive reference that Core is free to drop.
-         Version-matched to Core's (9.0.2) so there is no package downgrade under TreatWarningsAsErrors. -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.2" />
+         Version-matched to Core's (10.0.13) so there is no package downgrade under TreatWarningsAsErrors.
+         10.0.13 is a floor, not a preference: every earlier release, the whole 9.0 line included, can hand
+         one pooled SQLite handle to two connections opened at once (dotnet/efcore#39008, issue #4352). It
+         is AHEAD of the EF Core packages below on purpose - EF's Sqlite provider asks for 9.0.2 or later,
+         so this one version is still the only Microsoft.Data.Sqlite in the process.
+         SqlitePoolGivesEachOpenerItsOwnHandleTests fails if it is pinned back. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <!-- Hosted Gateway mission, Step 1b: the EF Core data-access backbone. One data model runs on
          SQLite locally and (later) Postgres in the cloud, with real migrations, instead of hand-rolled
-         JSON stores. Pinned to 9.0.2 so the Microsoft.Data.Sqlite the EF Sqlite provider brings matches
-         the 9.0.2 already referenced above - one Microsoft.Data.Sqlite in the process, no version skew.
+         JSON stores. Pinned to 9.0.2; the Microsoft.Data.Sqlite it brings is lifted to the 10.0.13 referenced
+         above, so there is one Microsoft.Data.Sqlite in the process, no version skew.
          The .Design package is the migration tooling. SQLitePCLRaw stays pinned to the patched 3.0.3 via
          Core (advisory GHSA-2m69-gcr7-jv3q), which wins transitively over EF's 2.1.11. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.2" />
