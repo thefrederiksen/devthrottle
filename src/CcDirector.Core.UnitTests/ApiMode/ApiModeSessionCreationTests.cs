@@ -222,6 +222,44 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task TakeWheelAsync_ATurnEndTheSessionHasNotHeardYet_IsHeardBeforeTheTakeReturns()
+    {
+        // Arrange: the session's observer is held on the batch that starts a turn, so the batch that ends it is published -
+        // the stream has it - but the session has not applied it. Under load that lag is real: the stream is fed under the
+        // host's lock, the session from the observer loop afterwards (issue #4353).
+        var pi = new ScriptedPi("plain");
+        var (_, session, sink) = CreateApiModeSession(pi, configure: m => m.ApiModeTerminalFactory = () => new FakeTerminalBackend());
+        await sink.WaitForAsync<ConnectionReady>();
+        using var observerHeld = new ManualResetEventSlim(false);
+        var guard = Assert.IsType<UsageLimitInputGuard>(session.Backend);
+        Assert.IsType<ApiModeSessionBackend>(guard.Inner).EventsPublished += events =>
+        {
+            if (events.Any(e => e is TurnStarted))
+                observerHeld.Wait(ScriptedPi.HangGuard);
+        };
+        Assert.True((await session.SendTextAsync("Reply with exactly the word PONG", Door)).Confirmed);
+        await sink.WaitForAsync<TurnEnded>();
+        Assert.Equal(ActivityState.Working, session.ActivityState);
+
+        // Act: take the wheel while the turn's end is still on its way to the session. The observer is let go only once a
+        // take that does not wait for it would have returned (it takes milliseconds); a take that waits returns after.
+        ActivityState? whenTaken = null;
+        var take = session.TakeWheelAsync().ContinueWith(t =>
+        {
+            whenTaken = session.ActivityState;
+            return t.GetAwaiter().GetResult();
+        }, TaskContinuationOptions.ExecuteSynchronously);
+        await Task.WhenAny(take, Task.Delay(TimeSpan.FromSeconds(1)));
+        observerHeld.Set();
+        var taken = await ScriptedPi.WithinHangGuard(take, "the take");
+
+        // Assert: the take returned only once the session had applied the turn's end. Otherwise that stale "waiting for a
+        // prompt" lands after the take, over whatever the terminal's detector reads - and a hand back reads it as not mid-turn.
+        Assert.True(taken.Done);
+        Assert.Equal(ActivityState.WaitingForInput, whenTaken);
+    }
+
+    [Fact]
     public async Task TakeWheelAsync_ThenHandBack_EverySessionMachineryCopesAcrossTheSwitch()
     {
         // Arrange: a real create with every per-session component running - the recorder, the session log and the
