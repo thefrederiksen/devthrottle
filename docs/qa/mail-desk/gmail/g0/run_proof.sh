@@ -36,6 +36,13 @@ section() { printf '\n=== %s ===\n' "$1"; }
 {
     echo "G0 transcript, $(date -u +%Y-%m-%dT%H:%M:%SZ), machine $(hostname), commit $(git -C "$HERE" rev-parse --short HEAD)"
     echo "The address is passed as --address \"\$ADDRESS\", read from accounts/$NICKNAME/config.json; it is never printed."
+    PROBE_REL="docs/qa/mail-desk/gmail/g0/gmail_probe.py"
+    echo "gmail_probe.py SHA-256: $(sha256sum "$HERE/gmail_probe.py" | cut -d' ' -f1)"
+    if [ "$(git -C "$HERE" hash-object "$HERE/gmail_probe.py")" = "$(git -C "$HERE" rev-parse "HEAD:$PROBE_REL" 2>/dev/null)" ]; then
+        echo "gmail_probe.py is byte-for-byte the version committed at $(git -C "$HERE" rev-parse --short HEAD)"
+    else
+        echo "gmail_probe.py DIFFERS from the version committed at $(git -C "$HERE" rev-parse --short HEAD): this transcript is not from a committed probe"
+    fi
 
     section "token.json before"
     token_facts

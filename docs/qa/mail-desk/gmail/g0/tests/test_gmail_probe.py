@@ -164,6 +164,29 @@ def test_load_token_missing_token_file_fails_naming_auth(tmp_path):
         probe.load_token(probe.find_account(tmp_path, ADDRESS))
 
 
+@pytest.mark.parametrize("content", ['{"token": "a", "refresh_tok', "", "[1, 2]"])
+def test_load_token_unreadable_token_fails_the_channel_naming_auth_force(tmp_path, content):
+    directory = make_account(tmp_path, "personal", ADDRESS)
+    (directory / "token.json").write_text(content)
+    with pytest.raises(probe.ChannelFailed, match=r"token.json .*: run cc-gmail -a personal auth --force$"):
+        probe.load_token(probe.find_account(tmp_path, ADDRESS))
+
+
+def test_main_unreadable_token_reports_failed_without_network(tmp_path, monkeypatch, capsys):
+    if sys.platform != "linux":
+        pytest.skip("Linux branch")
+    directory = make_account(tmp_path / ".cc-director" / "config" / "gmail", "personal", ADDRESS)
+    (directory / "token.json").write_text('{"token": "a", "refresh_tok')
+    monkeypatch.setattr(probe, "account_record_home", lambda: tmp_path)
+    transport = FakeTransport()
+
+    code = probe.main(["--address", ADDRESS], transport=transport)
+
+    assert code == 1
+    assert "cc-gmail -a personal auth --force" in json.loads(capsys.readouterr().out)["failed"]
+    assert transport.log == []
+
+
 def test_load_token_without_refresh_token_fails(tmp_path):
     make_account(tmp_path, "personal", ADDRESS, token=token_json(refresh_token=None))
     with pytest.raises(probe.ChannelFailed, match="no refresh token"):
@@ -282,7 +305,7 @@ def test_refused_refresh_fails_naming_auth_force_and_leaves_file_unchanged(tmp_p
     token_path, data = probe.load_token(probe.find_account(tmp_path, ADDRESS))
     before = token_path.read_bytes()
     transport = FakeTransport(token_status=400, token_answer={"error": "invalid_grant"})
-    with pytest.raises(probe.ChannelFailed, match=r"invalid_grant.*auth --force"):
+    with pytest.raises(probe.ChannelFailed, match=r"invalid_grant.*: run cc-gmail -a personal auth --force$"):
         probe.ensure_fresh_token(token_path, data, transport, force=True)
     assert token_path.read_bytes() == before
     assert not (token_path.parent / "token-refresh-error.json").exists()
@@ -331,7 +354,7 @@ def test_guard_allows_the_two_gets():
 def test_refresh_refuses_another_token_address():
     transport = FakeTransport()
     with pytest.raises(probe.GuardRefused):
-        probe.post_token_refresh(token_json(token_uri="https://evil.example.net/token"), transport)
+        probe.post_token_refresh(token_json(token_uri="https://evil.example.net/token"), transport, "personal")
     assert transport.log == []
 
 
@@ -374,3 +397,54 @@ def test_main_two_accounts_exits_1_without_network(tmp_path, monkeypatch, capsys
     assert code == 1
     assert "more than one" in json.loads(capsys.readouterr().out)["failed"]
     assert transport.log == []
+
+
+# --- knownSender way (b) under the Tech Lead's condition -----------------------------------------------------------
+
+class SentTransport:
+    """A fake Gmail: the SENT search finds one message whose recipients are the given header values."""
+
+    def __init__(self, hit: bool, to_value: str = ""):
+        self.log: list[str] = []
+        self.hit = hit
+        self.to_value = to_value
+
+    def __call__(self, method, url, headers, body):
+        self.log.append(url)
+        if "/messages?" in url:
+            return 200, json.dumps({"messages": [{"id": "abc123", "threadId": "abc123"}]} if self.hit else {}).encode()
+        return 200, json.dumps({"payload": {"headers": [{"name": "To", "value": self.to_value}]}}).encode()
+
+
+@pytest.mark.parametrize("address", [
+    "a b@example.com",
+    "gmail.com or x@example.org",
+    '"x or label:sent"@example.com',
+    "*@example.com",
+    "-x@example.com",
+    "x@example.com}",
+    "x(y)@example.com",
+    "x@localhost",
+    "",
+])
+def test_known_by_search_never_searches_for_an_address_that_is_not_plain(address):
+    transport = SentTransport(hit=True, to_value=address)
+    assert probe.known_by_search(probe.Gmail("access", transport), address, "s") == "not-plain"
+    assert transport.log == []
+
+
+def test_known_by_search_confirms_a_hit_against_the_recipients():
+    transport = SentTransport(hit=True, to_value="Someone <someone@example.com>, other@example.org")
+    assert probe.known_by_search(probe.Gmail("access", transport), ADDRESS, "s") == "confirmed"
+    assert len(transport.log) == 2 and "format=metadata" in transport.log[1]
+
+
+def test_known_by_search_a_look_alike_hit_is_not_known():
+    transport = SentTransport(hit=True, to_value="xsomeone@example.com.example.net")
+    assert probe.known_by_search(probe.Gmail("access", transport), ADDRESS, "s") == "hit-not-confirmed"
+
+
+def test_known_by_search_no_hit_makes_no_second_call():
+    transport = SentTransport(hit=False)
+    assert probe.known_by_search(probe.Gmail("access", transport), ADDRESS, "s") == "no-hit"
+    assert len(transport.log) == 1

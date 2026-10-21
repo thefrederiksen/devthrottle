@@ -57,6 +57,10 @@ LIST_QUERY_NAMES = {"labelIds", "q", "maxResults", "pageToken"}
 GET_QUERY_NAMES = {"format", "metadataHeaders"}
 ALLOWED_FORMATS = {"metadata", "minimal"}
 MESSAGE_ID = re.compile(r"[A-Za-z0-9]+")
+# A sender address goes into a Gmail search only when it is a plain address: no spaces, quotes, parentheses, braces,
+# brackets, asterisks, colons or other search characters, and no leading hyphen (a negation). Anything else is
+# treated as not known, without a search (Tech Lead's ruling on review finding 1).
+PLAIN_ADDRESS = re.compile(r"[a-z0-9_%+][a-z0-9._%+-]*@[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
 class ChannelFailed(Exception):
@@ -152,7 +156,15 @@ def load_token(account: Account, mode: str = "observe") -> tuple[Path, dict]:
     token_path = account.directory / "token.json"
     if not token_path.is_file():
         raise ChannelFailed(f"account {nick} has no token.json: run cc-gmail -a {nick} auth")
-    data = json.loads(token_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(token_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        # cc-gmail's own save_credentials writes in place, so a read during its refresh can see a partial file.
+        raise ChannelFailed(
+            f"account {nick}'s token.json cannot be read ({error.__class__.__name__}): run cc-gmail -a {nick} auth --force"
+        )
+    if not isinstance(data, dict):
+        raise ChannelFailed(f"account {nick}'s token.json is not a JSON object: run cc-gmail -a {nick} auth --force")
     if not data.get("refresh_token"):
         raise ChannelFailed(f"account {nick}'s token.json has no refresh token: run cc-gmail -a {nick} auth --force")
     missing = [key for key in REQUIRED_TOKEN_KEYS if not data.get(key)]
@@ -197,7 +209,7 @@ def needs_refresh(data: dict, now: datetime) -> bool:
     return not data.get("token") or expiry is None or expiry - now < REFRESH_WINDOW
 
 
-def post_token_refresh(data: dict, transport: Transport) -> dict:
+def post_token_refresh(data: dict, transport: Transport, nickname: str) -> dict:
     """The one POST this script can make: the standard OAuth refresh, to the one token address."""
     if data.get("token_uri") != TOKEN_URI:
         raise GuardRefused("the refresh goes only to " + TOKEN_URI)
@@ -214,7 +226,7 @@ def post_token_refresh(data: dict, transport: Transport) -> dict:
         answer = {}
     if status != 200 or "access_token" not in answer:
         error = answer.get("error", f"HTTP {status}")
-        raise ChannelFailed(f"Google refused the refresh ({error}): run cc-gmail -a <nickname> auth --force")
+        raise ChannelFailed(f"Google refused the refresh of account {nickname} ({error}): run cc-gmail -a {nickname} auth --force")
     return answer
 
 
@@ -253,7 +265,8 @@ def ensure_fresh_token(token_path: Path, data: dict, transport: Transport, force
     now = now or utcnow()
     if not force and not needs_refresh(data, now):
         return data, False
-    answer = post_token_refresh(data, transport)
+    # The nickname is the account's directory name, which is what cc-gmail's -a takes.
+    answer = post_token_refresh(data, transport, token_path.parent.name)
     renewed = renewed_token(data, answer, now)
     write_token_atomically(token_path, renewed)
     return renewed, True
@@ -383,6 +396,24 @@ def part_has_filename(part: dict) -> bool:
     return any(part_has_filename(p) for p in part.get("parts", []) or [])
 
 
+def known_by_search(gmail: Gmail, address: str, kind: str) -> str:
+    """knownSender way (b) under the Tech Lead's condition. Returns one of: not-plain (no search made), no-hit,
+    confirmed (the found Sent message's To, Cc or Bcc holds exactly this address), hit-not-confirmed."""
+    from email.utils import getaddresses
+
+    if not PLAIN_ADDRESS.fullmatch(address):
+        return "not-plain"
+    page = gmail.gmail_get(kind, MESSAGES_PATH, [
+        ("labelIds", "SENT"), ("q", f"to:{address} OR cc:{address} OR bcc:{address}"), ("maxResults", "1")])
+    found = page.get("messages") or []
+    if not found:
+        return "no-hit"
+    got = gmail.metadata(kind + "-confirm", found[0]["id"], ["To", "Cc", "Bcc"])
+    values = [h.get("value", "") for h in got.get("payload", {}).get("headers", [])]
+    written = {a.lower() for _, a in getaddresses(values) if a}
+    return "confirmed" if address in written else "hit-not-confirmed"
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # The measurements (brief points c to h)
 # ---------------------------------------------------------------------------------------------------------------
@@ -504,12 +535,9 @@ def measure(gmail: Gmail, token_data: dict) -> dict:
         written_to.update(a.lower() for _, a in getaddresses(values) if a)
     cache_ms = (time.perf_counter() - started) * 1000
     ten = senders[:10]
-    per_sender_known: list[bool] = []
     search_records_before = len(gmail.calls)
-    for address in ten:
-        page = gmail.gmail_get("sent-search", MESSAGES_PATH, [
-            ("labelIds", "SENT"), ("q", f"to:{address} OR cc:{address} OR bcc:{address}"), ("maxResults", "1")])
-        per_sender_known.append(bool(page.get("messages")))
+    outcomes = [known_by_search(gmail, address, "sent-search") for address in ten]
+    per_sender_known = [o == "confirmed" for o in outcomes]
     report["f_knownSender"] = {
         "a_sentCache": {
             "sentMessages": len(sent),
@@ -520,7 +548,10 @@ def measure(gmail: Gmail, token_data: dict) -> dict:
         },
         "b_searchPerSender": {
             "senders": len(ten),
-            "searchTimes": timing_summary(gmail.calls[search_records_before:]),
+            "searchTimes": timing_summary([c for c in gmail.calls[search_records_before:] if c.kind == "sent-search"]),
+            "confirmGetTimes": timing_summary([c for c in gmail.calls[search_records_before:] if c.kind == "sent-search-confirm"]),
+            "wholeMs": round(sum(c.milliseconds for c in gmail.calls[search_records_before:])),
+            "outcomes": {o: outcomes.count(o) for o in ("not-plain", "no-hit", "confirmed", "hit-not-confirmed")},
             "knownBySearch": sum(per_sender_known),
         },
         "agreement": {
@@ -554,12 +585,12 @@ def measure(gmail: Gmail, token_data: dict) -> dict:
                 run_senders.add(parseaddr(header.get("value", ""))[1].lower())
     gmail.list_ids("run-attachment-list", "INBOX", f"after:{after} has:attachment", 500, 500)
     run_senders.discard("")
+    run_calls_before = len(gmail.calls)
     for address in run_senders:
-        gmail.gmail_get("run-sent-search", MESSAGES_PATH, [
-            ("labelIds", "SENT"), ("q", f"to:{address} OR cc:{address} OR bcc:{address}"), ("maxResults", "1")])
+        known_by_search(gmail, address, "run-sent-search")
     report["h_rate"] = {
         "realisticRunOf10Ms": round((time.perf_counter() - started) * 1000),
-        "realisticRunCalls": 1 + len(ten_messages) + 1 + len(run_senders),
+        "realisticRunCalls": 1 + len(ten_messages) + 1 + (len(gmail.calls) - run_calls_before),
         "allCalls": timing_summary(gmail.calls),
         "statusCounts": {str(s): sum(1 for c in gmail.calls if c.status == s) for s in sorted({c.status for c in gmail.calls})},
     }
