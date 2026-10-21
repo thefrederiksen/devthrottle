@@ -29,6 +29,7 @@ import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarm
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
+import { LicenseUsageTab } from "./LicenseUsageTab";
 import { LicenseOutlookChart, LicenseOutlookHeadline, LicenseOutlookTiles } from "./LicenseOutlook";
 import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
 import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./licenseParts";
@@ -131,7 +132,11 @@ export function foldNewestLogPage(current: LogView | null, page: LicenseLogPage)
   };
 }
 
-export function LicensesView() {
+/** The page's two tabs: the accounts (the default), and what is using them. */
+export type LicensesTab = "accounts" | "usage";
+
+export function LicensesView({ initialTab = "accounts" }: { initialTab?: LicensesTab } = {}) {
+  const [tab, setTab] = useState<LicensesTab>(initialTab);
   const alarms = useLicenseAlarms(true);
   const overview = usePolled<LicenseOverview, LicenseOverview>(readOverview, "read the licenses", newest);
   const forecast = usePolled<LicenseForecast, LicenseForecast>(readForecast, "read the license forecast", newest);
@@ -318,10 +323,27 @@ export function LicensesView() {
         </section>
       )}
 
-      {/* error-reported-by: usePolled */}
-      {overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}
+      <div className="thr-tabs" role="tablist" aria-label="Licenses view">
+        {(["accounts", "usage"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            className={`thr-tab${tab === t ? " active" : ""}`}
+            onClick={() => setTab(t)}
+          >
+            {t === "accounts" ? "Accounts" : "What is using it"}
+          </button>
+        ))}
+      </div>
 
-      {data === null ? (
+      {tab === "usage" && <LicenseUsageTab />}
+
+      {/* error-reported-by: usePolled */}
+      {tab === "accounts" && overview.error !== null && <ErrorBanner message={overview.error} onRetry={() => void overview.refresh()} />}
+
+      {tab !== "accounts" ? null : data === null ? (
         overview.error === null && <LoadingState />
       ) : data.isEmpty ? (
         // No machine has reported yet: the Gateway's own sentence, in place of every list.

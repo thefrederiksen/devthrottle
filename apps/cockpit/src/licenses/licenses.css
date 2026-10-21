@@ -630,3 +630,210 @@
 .lic-bar-projected + .lic-bar-fill {
   position: relative;
 }
+
+/* ---- What is using it ---- */
+.lic-usage-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-bottom: 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.lic-usage-filters select,
+.lic-usage-price input,
+.lic-usage-targets input[type="datetime-local"] {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  font: inherit;
+  max-width: 100%;
+}
+.lic-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.lic-panel-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.lic-panel p {
+  margin: 4px 0;
+}
+.lic-usage-unit {
+  border-left: 4px solid var(--accent);
+}
+.lic-usage-plan {
+  border-left: 4px solid var(--ok);
+}
+.lic-usage-price {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.lic-usage-price input {
+  width: 8em;
+}
+.lic-usage-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.lic-usage-targets label {
+  flex: 1 1 180px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.lic-usage-targets label.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.lic-usage-targets small {
+  display: block;
+  color: var(--text-dim);
+  margin-left: 22px;
+}
+.lic-usage-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0 6px;
+}
+.lic-usage-tile {
+  flex: 1 1 160px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+.lic-usage-tile-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lic-usage-tile-value {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.lic-usage-meter {
+  position: relative;
+  height: 22px;
+  background: var(--surface-2);
+  border-radius: 5px;
+  margin: 14px 0 26px;
+}
+.lic-usage-meter-fill {
+  display: block;
+  height: 22px;
+  border-radius: 5px;
+  background: currentColor;
+  transition: width 0.2s;
+}
+.lic-usage-meter-limit {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 3px;
+  background: var(--text);
+}
+.lic-usage-meter-label {
+  position: absolute;
+  top: 30px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lic-usage-pending {
+  opacity: 0.5;
+}
+.lic-usage-verdict {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 6px 0 8px;
+}
+.lic-usage-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.lic-usage-group {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(60px, 1fr) 100px;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+}
+.lic-usage-group label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lic-usage-bar {
+  display: inline-block;
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.lic-usage-group .lic-usage-bar {
+  display: block;
+}
+.lic-usage-bar i {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+}
+.lic-usage-bar-small {
+  width: 70px;
+  height: 8px;
+  margin-left: 8px;
+}
+.lic-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lic-usage-table td.lic-usage-name {
+  white-space: normal;
+  min-width: 200px;
+}
+.lic-usage-name small {
+  display: block;
+  color: var(--text-dim);
+}
+.lic-usage-table tr.lic-usage-off td:not(:first-child) {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+@media (max-width: 640px) {
+  .lic-usage-group {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+  .lic-usage-group .lic-usage-bar {
+    display: none;
+  }
+  .lic-usage-tile-value {
+    font-size: 17px;
+  }
+}
