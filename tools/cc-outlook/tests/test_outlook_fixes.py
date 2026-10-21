@@ -325,3 +325,46 @@ class TestListAttachments:
         _, kwargs = mailbox.get_message.call_args
         assert kwargs.get("download_attachments") is True
         att.save.assert_called_once_with("C:/tmp/invite.ics")
+
+
+class TestSingleEventLookupMatchesO365:
+    """get/update/delete/respond looked the event up with calendar.get_event(object_id=...),
+    a keyword O365 2.1.10 no longer accepts, so all four crashed with a TypeError (#3265).
+    The calendar here is autospecced from the real O365 Calendar, so a call the installed
+    library would reject fails here too."""
+
+    def _client_with_calendar(self):
+        from O365.calendar import Calendar
+        from unittest.mock import create_autospec
+
+        account = MagicMock()
+        calendar = create_autospec(Calendar, instance=True)
+        account.schedule.return_value.get_default_calendar.return_value = calendar
+        client = OutlookClient(account=account)
+        client._format_event = MagicMock(return_value={"id": "evt-1"})
+        return client, calendar
+
+    def test_get_event_passes_id_positionally(self):
+        client, calendar = self._client_with_calendar()
+        assert client.get_event("evt-1") == {"id": "evt-1"}
+        calendar.get_event.assert_called_once_with("evt-1")
+
+    def test_delete_event_looks_up_and_deletes(self):
+        client, calendar = self._client_with_calendar()
+        assert client.delete_event("evt-1") is True
+        calendar.get_event.assert_called_once_with("evt-1")
+        calendar.get_event.return_value.delete.assert_called_once_with()
+
+    def test_update_event_looks_up_and_saves(self):
+        client, calendar = self._client_with_calendar()
+        client.update_event("evt-1", subject="New", body="Body")
+        calendar.get_event.assert_called_once_with("evt-1")
+        event = calendar.get_event.return_value
+        assert event.subject == "New"
+        assert event.body == "Body"
+        event.save.assert_called_once_with()
+
+    def test_respond_to_event_looks_up_by_id(self):
+        client, calendar = self._client_with_calendar()
+        client.respond_to_event("evt-1", "accept")
+        calendar.get_event.assert_called_once_with("evt-1")

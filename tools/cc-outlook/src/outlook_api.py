@@ -986,7 +986,7 @@ class OutlookClient:
         schedule = self.account.schedule()
         calendar = schedule.get_default_calendar()
 
-        event = calendar.get_event(object_id=event_id)
+        event = calendar.get_event(event_id)
         if event:
             return self._format_event(event)
         return None
@@ -1004,7 +1004,7 @@ class OutlookClient:
         schedule = self.account.schedule()
         calendar = schedule.get_default_calendar()
 
-        event = calendar.get_event(object_id=event_id)
+        event = calendar.get_event(event_id)
         if not event:
             raise ValueError(f"Event not found: {event_id}")
 
@@ -1031,7 +1031,7 @@ class OutlookClient:
         schedule = self.account.schedule()
         calendar = schedule.get_default_calendar()
 
-        event = calendar.get_event(object_id=event_id)
+        event = calendar.get_event(event_id)
         if not event:
             raise ValueError(f"Event not found: {event_id}")
 
@@ -1066,7 +1066,7 @@ class OutlookClient:
         schedule = self.account.schedule()
         calendar = schedule.get_default_calendar()
 
-        event = calendar.get_event(object_id=event_id)
+        event = calendar.get_event(event_id)
         if not event:
             raise ValueError(f"Event not found: {event_id}")
 
