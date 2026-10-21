@@ -69,7 +69,7 @@ address, and a hit counts only when the found message's To, Cc or Bcc holds that
 
 ## The reviews
 
-Every piece was reviewed by Claude Code on Opus (handover ruling 9), and every finding was answered by the Developer who
+Every piece was reviewed by a separate reviewing session on the agent handover ruling 9 names, and every finding was answered by the Developer who
 built it, accepted or declined with a reason, in the file beside the review.
 
 | Review | Verdict | Findings | Answers |
