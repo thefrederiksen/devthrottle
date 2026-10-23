@@ -155,10 +155,10 @@ public sealed class LicenseMessagesCarryNoKeyTests
     }
 
     [Fact]
-    public void RenewalErrors_AreTheContractsNineWords()
+    public void RenewalErrors_AreTheContractsEightWords()
     {
         Assert.Equal(
-            new[] { "approval-failed", "approver-offline", "browser-not-signed-in", "expired", "login-failed", "needs-fresh-sign-in", "no-approver", "store-refused", "wrong-account" },
+            new[] { "approval-failed", "approver-offline", "browser-not-signed-in", "expired", "login-failed", "no-approver", "store-refused", "wrong-account" },
             LicenseRenewalErrors.All.Order(StringComparer.Ordinal));
     }
 

@@ -27,15 +27,7 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
     Promise.resolve([{ name: "Site", path: "/repositories/site", lastUsed: "2026-09-19T09:00:00Z", neverOpened: false }]),
   getRepos: () => Promise.resolve([]),
   getAgents: () =>
-    Promise.resolve([
-      {
-        type: "ClaudeCode",
-        displayName: "Claude Code",
-        defaultModel: "",
-        modelLabel: "Opus",
-        connections: [{ mode: "terminal", label: "Terminal" }],
-      },
-    ]),
+    Promise.resolve([{ type: "ClaudeCode", displayName: "Claude Code", defaultModel: "", modelLabel: "Opus" }]),
   createSession: (...args: unknown[]) => createSessionMock(...args),
   addRepo: () => Promise.resolve({ added: true, name: "", path: "" }),
   gatewayErrorMessage: (err: unknown) => String(err),

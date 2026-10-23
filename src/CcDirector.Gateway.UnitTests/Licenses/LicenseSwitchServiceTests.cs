@@ -1139,8 +1139,7 @@ public sealed class LicenseSwitchServiceTests : IDisposable
         var result = await _service.SwitchNowAsync(Tenant, A, C, CancellationToken.None);
 
         Assert.False(result.Accepted);
-        // No machine reports C, so no reading shows it has room: the account is judged before any machine's sign-ins.
-        Assert.Equal(LicenseManualRefusals.TargetStale, result.RefusalCode);
+        Assert.Equal(LicenseManualRefusals.TargetNotHeld, result.RefusalCode);
         Assert.Contains(C, result.RefusalMessage);
         Assert.Null(result.TargetAccountEmail);
         Assert.Empty(result.Switches);

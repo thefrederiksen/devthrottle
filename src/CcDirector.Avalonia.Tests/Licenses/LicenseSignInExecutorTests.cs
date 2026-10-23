@@ -237,8 +237,6 @@ public sealed class LicenseSignInExecutorTests : IDisposable
             return Task.FromResult(new LicenseSignInStart { Finished = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added, SignedInAtUtc = Now } });
         }
 
-        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => Array.Empty<LicenseHandSwitch>();
-
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)
         {
             Approvals.Add((authorizeUrl, accountEmail, browserProfile));

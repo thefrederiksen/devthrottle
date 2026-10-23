@@ -4624,10 +4624,7 @@ internal static partial class GatewayEndpoints
             if (sr is not null)
             {
                 if (!sr.Ok) return TunnelFailure(sr);
-                // Which connections each agent OFFERS is ruled here, not on the client (issue #4070, phase 5).
-                return Results.Json(ConnectionChoiceFold.Offer(
-                    DirectorCommandRouter.ReadBody<List<AgentChoiceDto>>(sr) ?? new List<AgentChoiceDto>(),
-                    ConnectionModes.ApiModeOffered));
+                return Results.Json(DirectorCommandRouter.ReadBody<List<AgentChoiceDto>>(sr) ?? new List<AgentChoiceDto>());
             }
 
             return TunnelFailure(null, d.MachineName);
@@ -6663,8 +6660,6 @@ internal static partial class GatewayEndpoints
                               "docs/new_architecture/sessions.html.");
             s.EffectiveColorHex = SessionColorPalette.HexFor(effectiveColor);
             s.StateLabel = SessionOrdering.StateLabel(s);
-            // The roster's "API mode" tag (issue #4070, phase 5), folded beside the label so no client reads the mode word.
-            s.ConnectionTag = ConnectionModes.TagOf(s.ConnectionMode);
             // Which model this session is running, folded to finished words (issue internal#1340). The raw
             // CurrentModel keeps riding beside it for the statistics dimension; this is the DISPLAY, and it
             // is folded here so no client has to work out for itself whether a missing model means "the

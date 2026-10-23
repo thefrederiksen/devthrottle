@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -24,67 +23,7 @@ public partial class CreateInstanceDialog : Window
         {
             if (e.Property == TextBox.TextProperty) UpdateSlugPreview();
         };
-        Loaded += async (_, _) =>
-        {
-            Dispatcher.UIThread.Post(() => DisplayNameInput.Focus());
-            try
-            {
-                var instances = await Task.Run(NamedInstanceRegistry.List);
-                FillCopyFrom(instances);
-            }
-            catch (Exception ex)
-            {
-                // The list is only an offer; without it the dialog still creates a fresh instance.
-                CopyFromInput.ItemsSource = new[] { new CopyFromChoice(null, FreshLabel) };
-                CopyFromInput.SelectedIndex = 0;
-                CreateButton.IsEnabled = true;
-                ShowError(ShownError.Report("create instance", "list the instances to copy from",
-                    $"Could not list the instances to copy settings from: {ex.Message}", ex));
-            }
-        };
-    }
-
-    private const string FreshLabel = "Nothing - start fresh";
-
-    /// <summary>One entry of the "Copy settings from" list: an instance, or none.</summary>
-    private sealed record CopyFromChoice(string? Slug, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    /// <summary>
-    /// Offer every instance to copy from, the one this window belongs to first and preselected: a test
-    /// Director is almost always a copy of the one being looked at (owner, 2026-10-17).
-    /// </summary>
-    private void FillCopyFrom(IReadOnlyList<NamedInstance> instances)
-    {
-        var choices = new List<CopyFromChoice>();
-        foreach (var i in instances.OrderBy(i => string.Equals(i.Name, InstanceContext.Slug, StringComparison.OrdinalIgnoreCase) ? 0 : 1))
-        {
-            var label = string.IsNullOrWhiteSpace(i.DisplayName) || string.Equals(i.DisplayName, i.Name, StringComparison.Ordinal)
-                ? i.Name
-                : $"{i.DisplayName} ({i.Name})";
-            choices.Add(new CopyFromChoice(i.Name, label));
-        }
-        choices.Add(new CopyFromChoice(null, FreshLabel));
-        CopyFromInput.ItemsSource = choices;
-        CopyFromInput.SelectedIndex = 0;
-        // Only now: until the list is in, Create would make a fresh instance though a copy is about to be chosen.
-        CreateButton.IsEnabled = true;
-        FileLog.Write($"[CreateInstanceDialog] FillCopyFrom: {choices.Count - 1} instance(s) offered");
-    }
-
-    private void CopyFromInput_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        var source = (CopyFromInput.SelectedItem as CopyFromChoice)?.Slug;
-        // A clone takes the Gateway connection from its source, so the two Gateway boxes only apply to a fresh one.
-        GatewayInputs.IsVisible = source is null;
-        CopyFromNote.FontStyle = global::Avalonia.Media.FontStyle.Normal;
-        CopyFromNote.Text = source is null
-            ? "A new Director with its own data folder. Nothing is copied."
-            : "Copies the Gateway address, agent settings and templates, repositories, screenshots folder, "
-              + "microphone timings and dictation corrections. You sign the new Director in once when it starts. "
-              + "Not copied: sessions, history, the Director's identity, Outlook and browser sign-ins, the voice key.";
+        Loaded += (_, _) => Dispatcher.UIThread.Post(() => DisplayNameInput.Focus());
     }
 
     private void UpdateSlugPreview()
@@ -107,9 +46,6 @@ public partial class CreateInstanceDialog : Window
 
     private void Create()
     {
-        // Enter can arrive before the list of instances does; wait for it rather than guess.
-        if (!CreateButton.IsEnabled)
-            return;
         var displayName = (DisplayNameInput.Text ?? "").Trim();
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -120,14 +56,10 @@ public partial class CreateInstanceDialog : Window
 
         try
         {
-            var source = (CopyFromInput.SelectedItem as CopyFromChoice)?.Slug;
-            CreatedInstance = source is null
-                ? NamedInstanceRegistry.Create(
-                    displayName,
-                    (GatewayUrlInput.Text ?? "").Trim(),
-                    (GatewayTokenInput.Text ?? "").Trim())
-                : NamedInstanceRegistry.Clone(source, displayName);
-            FileLog.Write($"[CreateInstanceDialog] Create: {CreatedInstance.Name}, copiedFrom={source ?? "(nothing)"}");
+            CreatedInstance = NamedInstanceRegistry.Create(
+                displayName,
+                (GatewayUrlInput.Text ?? "").Trim(),
+                (GatewayTokenInput.Text ?? "").Trim());
             LaunchAfter = LaunchAfterCheck.IsChecked == true;
             Close(true);
         }

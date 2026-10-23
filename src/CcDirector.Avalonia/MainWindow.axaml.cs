@@ -2376,10 +2376,9 @@ public partial class MainWindow : Window
 
     /// <summary>Create a session using a pre-built <see cref="IAgent"/> (e.g. a
     /// <see cref="RawCliAgent"/> constructed by the dialog).</summary>
-    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, Guid? groupId = null, string? groupRole = null, string? groupName = null,
-        CcDirector.Core.ApiMode.SessionConnectionMode connectionMode = CcDirector.Core.ApiMode.SessionConnectionMode.Terminal)
+    private SessionViewModel? CreateSession(string repoPath, string? resumeSessionId, string? userArgs, IAgent agent, Guid? groupId = null, string? groupRole = null, string? groupName = null)
     {
-        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agent.Kind}, exe={agent.ExecutablePath}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}, connection={connectionMode}");
+        FileLog.Write($"[MainWindow] CreateSession: repoPath={repoPath}, agent={agent.Kind}, exe={agent.ExecutablePath}, group={groupId?.ToString() ?? "none"}, resume={resumeSessionId ?? "null"}");
         _lastSessionCreateError = null;
         try
         {
@@ -2388,7 +2387,7 @@ public partial class MainWindow : Window
             // UI. Stamped pre-launch, because the session's first roster push (which is what creates
             // the durable history row) can leave before create even returns.
             var session = _sessionManager.CreateSession(repoPath, agent, userArgs, SessionBackendType.ConPty, resumeSessionId, groupId, groupRole, groupName,
-                beforeLaunch: s => s.StampOrigin(SessionOrigin.DesktopHuman), connectionMode: connectionMode);
+                beforeLaunch: s => s.StampOrigin(SessionOrigin.DesktopHuman));
             FileLog.Write($"[MainWindow] CreateSession: session created, id={session.Id}, pid={session.ProcessId}");
 
             var vm = new SessionViewModel(session);
@@ -4720,8 +4719,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // How it is connected (API mode mission #4070): terminal unless the Connection row offered API mode and it was chosen.
-        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent, connectionMode: dialog.SelectedConnectionMode);
+        var vm = CreateSession(dialog.SelectedPath, resumeSessionId, agentArgs, agent);
         if (vm == null)
         {
             await ShownErrorBox.ShowAsync(this, "main window", "start the session",
@@ -6439,7 +6437,6 @@ public partial class MainWindow : Window
             UpdateIndicatorSub.Text = status.Detail;
 
             var action = status.CanInstallNow ? status.InstallNowLabel
-                       : status.CanSmartRestartToInstall ? status.SmartRestartToInstallLabel
                        : status.CanCheckNow ? status.CheckNowLabel
                        : null;
             UpdateIndicatorAction.Text = action ?? "";
@@ -6539,15 +6536,6 @@ public partial class MainWindow : Window
                         RefreshUpdateStatus();
                     });
                 });
-                return;
-            }
-
-            if (status.CanSmartRestartToInstall)
-            {
-                // The same dialog as File, Smart Restart: every session is handed over before the Director
-                // restarts, and a Director applies the staged build when it starts.
-                FileLog.Write("[MainWindow] update panel clicked - opening Smart Restart to install the update");
-                _ = SmartShutdown.OpenFromFileMenuAsync();
                 return;
             }
 

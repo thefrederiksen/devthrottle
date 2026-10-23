@@ -92,10 +92,7 @@ function LiveStatus({ display }: { display: ApiModeSessionDisplay }) {
       {display.activityLabel && <span className={`live-chat-pill live-chat-activity ${toneClass(display.tone)}`}>{display.activityLabel}</span>}
       {display.connectionLabel && <span className="live-chat-pill live-chat-connection">{display.connectionLabel}</span>}
       {display.queueLabel && <span className="live-chat-status-part">{display.queueLabel}</span>}
-      {/* The ending takes the row's tone as the Gateway folded it: red for a failed last turn, neutral for a stopped
-          one. The verdict carries no tone of its own for the ending, so the view never picks one (phase 3 review,
-          finding 1). */}
-      {display.lastTurnEnding && <span className={`live-chat-status-part ${toneClass(display.tone)}`}>{display.lastTurnEnding}</span>}
+      {display.lastTurnEnding && <span className="live-chat-status-part live-tone-red">{display.lastTurnEnding}</span>}
       {display.agentLabel && <span className="live-chat-status-part live-chat-agent">{display.agentLabel}</span>}
     </div>
   );

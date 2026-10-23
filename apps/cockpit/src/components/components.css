@@ -577,48 +577,20 @@
   flex: 0 0 auto;
 }
 
-/* Issue #4078 / #4084: a folder opened in the viewer - the shared client-core FolderListing, one row per
-   entry, folders first, each opening in place. The phone styles the same classes in its own stylesheet. */
-.folder-listing-scroll {
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-}
-
-.folder-listing-loading,
-.folder-listing-error {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  text-align: center;
-  font-size: 13px;
-}
-
-.folder-listing-loading {
-  color: var(--text-dim);
-}
-
-.folder-listing-error {
-  color: var(--attention);
-  line-height: 1.5;
-}
-
-.folder-listing-note {
+/* Issue #4078: a folder opened in the viewer - one row per entry, folders first, each opening in place. */
+.file-viewer-folder-note {
   color: var(--text-dim);
   font-size: 13px;
   padding: 12px 20px 4px;
 }
 
-.folder-listing {
+.file-viewer-folder {
   list-style: none;
   margin: 0;
   padding: 4px 12px 16px;
 }
 
-.folder-listing-entry {
+.file-viewer-folder-entry {
   display: block;
   width: 100%;
   text-align: left;
@@ -633,10 +605,10 @@
   word-break: break-all;
 }
 
-.folder-listing-entry:hover {
+.file-viewer-folder-entry:hover {
   background: var(--surface-2);
 }
 
-.folder-listing-entry.folder {
+.file-viewer-folder-entry.folder {
   color: var(--text);
 }
