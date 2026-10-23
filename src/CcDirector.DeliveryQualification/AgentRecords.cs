@@ -138,13 +138,53 @@ public static class AgentRecords
         var type = Str(root, "type");
         return agent switch
         {
-            "claude" => type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True),
+            // A prompt sent while Claude Code works is recorded as a queued_command attachment, not a user line, when it is
+            // delivered inside the running turn (issue #4378, the mid-turn cells); it is the person's prompt all the same.
+            "claude" => (type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True))
+                        || IsQueuedPrompt(root),
             // Older Codex wrote the prompt as an event_msg user_message; Codex 0.16x writes it as a response_item message
             // with role user (and no user_message event), measured 23 October 2026. Either is a user turn.
             "codex" => root.TryGetProperty("payload", out var p)
                        && ((type == "event_msg" && Str(p, "type") == "user_message")
                            || (type == "response_item" && Str(p, "type") == "message" && Str(p, "role") == "user")),
             "pi" => type == "message" && root.TryGetProperty("message", out var msg) && Str(msg, "role") == "user",
+            _ => false,
+        };
+    }
+
+    /// <summary>Claude Code's record of a prompt typed while it worked: an attachment of type queued_command in prompt mode.</summary>
+    private static bool IsQueuedPrompt(JsonElement root) =>
+        root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "attachment"
+        && root.TryGetProperty("attachment", out var a) && a.ValueKind == JsonValueKind.Object
+        && a.TryGetProperty("type", out var at) && at.ValueKind == JsonValueKind.String && at.GetString() == "queued_command"
+        && !(a.TryGetProperty("commandMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() != "prompt");
+
+    /// <summary>
+    /// Whether <paramref name="root"/> is the agent's own TOOL CALL - the record of it asking to run a tool, written before
+    /// the tool runs and so before any approval is asked (issue #4378: the Codex approval ask read from its records):
+    ///  - Claude Code: an assistant line with a tool_use part;
+    ///  - Codex: a response_item of type function_call, custom_tool_call or local_shell_call, or an event naming an
+    ///    approval request;
+    ///  - Pi: an assistant message with a toolCall part.
+    /// The prompt that asked for the tool also holds its words (Codex echoes it in an item_completed event), so a reader
+    /// that only skipped user turns took the prompt for the ask.
+    /// </summary>
+    internal static bool IsToolCall(string agent, JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        static string? Str(JsonElement e, string name) =>
+            e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static bool HasPart(JsonElement message, string partType) =>
+            message.ValueKind == JsonValueKind.Object && message.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.Array
+            && c.EnumerateArray().Any(p => Str(p, "type") == partType);
+        var type = Str(root, "type");
+        return agent switch
+        {
+            "claude" => type == "assistant" && root.TryGetProperty("message", out var m) && HasPart(m, "tool_use"),
+            "codex" => root.TryGetProperty("payload", out var p)
+                       && ((type == "response_item" && Str(p, "type") is "function_call" or "custom_tool_call" or "local_shell_call")
+                           || (type == "event_msg" && Str(p, "type") is { } e && e.EndsWith("approval_request", StringComparison.Ordinal))),
+            "pi" => type == "message" && root.TryGetProperty("message", out var pm) && Str(pm, "role") == "assistant" && HasPart(pm, "toolCall"),
             _ => false,
         };
     }
@@ -178,6 +218,33 @@ public static class AgentRecords
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// How many user turns hold <paramref name="token"/> (issue #4378, the owner-draft cell, whose turn holds the draft as
+    /// well as the text, so the folding witness reads it as merged). Codex writes one prompt in two record kinds in some
+    /// versions (an event and a response item), so for Codex the larger of the two counts is taken; for the others every
+    /// kind adds up, so a prompt written once as Claude Code's queued attachment and again as a user line is two.
+    /// </summary>
+    public static int UserTurnsHolding(string agent, DateTime sinceUtc, string token) => CountUserTurns(agent, RecentLines(agent, sinceUtc), token);
+
+    internal static int CountUserTurns(string agent, IEnumerable<string> lines, string token)
+    {
+        var byKind = new Dictionary<string, int>();
+        foreach (var line in lines)
+        {
+            if (!line.Contains(token, StringComparison.Ordinal)) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!IsUserTurn(agent, root) || TurnText(agent, root) is not { } text || !text.Contains(token, StringComparison.Ordinal)) continue;
+                var kind = root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "";
+                byKind[kind] = byKind.GetValueOrDefault(kind) + 1;
+            }
+            catch (JsonException) { }
+        }
+        return agent == "codex" ? byKind.Values.DefaultIfEmpty().Max() : byKind.Values.Sum();
     }
 
     /// <summary>Every JSON-lines record of <paramref name="agent"/> that may have been written since
@@ -214,7 +281,8 @@ public static class AgentRecords
         };
         return agent switch
         {
-            "claude" => root.TryGetProperty("message", out var m) && m.TryGetProperty("content", out var c) ? FromContent(c) : null,
+            "claude" => IsQueuedPrompt(root) ? root.GetProperty("attachment").TryGetProperty("prompt", out var qp) && qp.ValueKind == JsonValueKind.String ? qp.GetString() : null
+                : root.TryGetProperty("message", out var m) && m.TryGetProperty("content", out var c) ? FromContent(c) : null,
             "codex" => !root.TryGetProperty("payload", out var p) ? null
                 : p.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String ? msg.GetString()
                 : p.TryGetProperty("content", out var pc0) ? FromContent(pc0) : null,
