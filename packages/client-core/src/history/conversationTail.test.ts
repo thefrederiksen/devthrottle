@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHistoryPage, type HeldConversation, type SessionHistoryPage } from "./conversationTail";
+import { applyHistoryPage, applyOlderPage, type HeldConversation, type SessionHistoryPage } from "./conversationTail";
 import { renderChatHistory } from "./chatView";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { HistoryMessageDto, SessionHistoryDto } from "./types";
@@ -116,5 +116,68 @@ describe("applyHistoryPage", () => {
     const before = JSON.stringify(held);
     applyHistoryPage(held, "s", held.cursor, page(6, 3));
     expect(JSON.stringify(held)).toBe(before);
+  });
+});
+
+// Issue #4372: the window. A Chat holds the end of the conversation from `windowFrom`, is sent tails exactly as before,
+// and puts older pages in front. Revert-proof: compare a tail's start against the held LENGTH instead of
+// windowFrom + length and the window-plus-tails case goes red (every tail is refused); accept an older page that does
+// not end where the window starts and the gap case goes red.
+
+// A whole answer cut to the window from `from`.
+function windowPage(count: number, from: number): SessionHistoryPage {
+  const f = full(count);
+  return { ...f, messages: f.messages.slice(from), tailFrom: 0, cursor: `c${count}`, windowFrom: from };
+}
+
+// The older page for the messages [from, before).
+function olderPage(count: number, from: number, before: number): SessionHistoryPage {
+  const f = full(count);
+  return { ...f, messages: f.messages.slice(from, before), olderFrom: from };
+}
+
+describe("the window (issue #4372)", () => {
+  it("a window plus every tail after it holds exactly the end of the conversation", () => {
+    let held = applyHistoryPage(null, "s", "", windowPage(30, 18))!;
+    expect(held.windowFrom).toBe(18);
+    for (const count of [31, 31, 35, 50]) {
+      held = applyHistoryPage(held, "s", held.cursor, page(count, held.windowFrom + held.history.messages.length))!;
+      expect(held).not.toBeNull();
+      expect(held.windowFrom).toBe(18);
+    }
+    expect(JSON.stringify(held.history.messages)).toBe(JSON.stringify(full(50).messages.slice(18)));
+  });
+
+  it("older pages put in front, one by one, end up holding the whole conversation - and render as a full read does", () => {
+    let held = applyHistoryPage(null, "s", "", windowPage(30, 18))!;
+    for (const [from, before] of [[9, 18], [2, 9], [0, 2]]) {
+      held = applyOlderPage(held, "s", before, olderPage(30, from, before))!;
+      expect(held.windowFrom).toBe(from);
+    }
+    expect(JSON.stringify(held.history)).toBe(JSON.stringify(full(30)));
+    for (const filter of FILTERS)
+      expect(JSON.stringify(renderChatHistory(held.history, filter))).toBe(JSON.stringify(renderChatHistory(full(30), filter)));
+  });
+
+  it("refuses an older page that does not end exactly where the window starts", () => {
+    const held = applyHistoryPage(null, "s", "", windowPage(30, 18))!;
+    expect(applyOlderPage(held, "s", 18, olderPage(30, 9, 17))).toBeNull(); // would leave a gap
+    expect(applyOlderPage(held, "s", 18, olderPage(30, 9, 19))).toBeNull(); // would duplicate message 18
+    expect(applyOlderPage(held, "s", 17, olderPage(30, 9, 17))).toBeNull(); // asked for a window that is not held
+    expect(applyOlderPage(held, "other", 18, olderPage(30, 9, 18))).toBeNull();
+  });
+
+  it("a fresh window answered instead of an older page replaces what is held", () => {
+    const held = applyHistoryPage(null, "s", "", windowPage(30, 18))!;
+    const next = applyOlderPage(held, "s", 18, windowPage(5, 0))!;
+    expect(next.windowFrom).toBe(0);
+    expect(JSON.stringify(next.history.messages)).toBe(JSON.stringify(full(5).messages));
+    expect(next.cursor).toBe("c5");
+  });
+
+  it("an answer from a Gateway that knows no window is the whole conversation, from message 0", () => {
+    const held = applyHistoryPage(null, "s", "", page(12, 0))!;
+    expect(held.windowFrom).toBe(0);
+    expect(held.history.messages.length).toBe(12);
   });
 });
