@@ -39,7 +39,8 @@ public static class FleetMessageLinkRequestEndpoints
 
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
         FleetMessageLinkRequestStore requests, FleetMessageLinkStore links, FleetMessageLinkRecord record,
-        Func<TenantId, string, SessionDto?> findSession, Action<TenantId, SessionDto, string> notify, Func<DateTime> nowUtc)
+        Func<TenantId, string, SessionDto?> findSession, Action<TenantId, SessionDto, string> notify,
+        Action<TenantId, FleetMessageLinkRequest> announceRequested, Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(requests);
@@ -47,12 +48,13 @@ public static class FleetMessageLinkRequestEndpoints
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(findSession);
         ArgumentNullException.ThrowIfNull(notify);
+        ArgumentNullException.ThrowIfNull(announceRequested);
         ArgumentNullException.ThrowIfNull(nowUtc);
 
         // The return types are stated on purpose: an async lambda whose only parameter is HttpContext also fits
         // RequestDelegate, which would throw the IResult away and answer an empty 200 (found in #3549).
         app.MapPost(Route, async Task<IResult> (HttpContext ctx) =>
-            await AskAsync(ctx, resolveTenant, requests, links, record, findSession, nowUtc));
+            await AskAsync(ctx, resolveTenant, requests, links, record, findSession, announceRequested, nowUtc));
         app.MapGet(Route, (HttpContext ctx) => List(ctx, resolveTenant, requests, record, findSession, notify, nowUtc));
         app.MapPost(AnswerRoute, async Task<IResult> (HttpContext ctx, string id) =>
             await AnswerAsync(ctx, id, resolveTenant, requests, links, record, findSession, notify, nowUtc));
@@ -61,7 +63,8 @@ public static class FleetMessageLinkRequestEndpoints
 
     internal static async Task<IResult> AskAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         FleetMessageLinkRequestStore requests, FleetMessageLinkStore links, FleetMessageLinkRecord record,
-        Func<TenantId, string, SessionDto?> findSession, Func<DateTime> nowUtc)
+        Func<TenantId, string, SessionDto?> findSession, Action<TenantId, FleetMessageLinkRequest> announceRequested,
+        Func<DateTime> nowUtc)
     {
         FileLog.Write("[FleetMessageLinkRequestEndpoints] POST request");
         try
@@ -124,7 +127,13 @@ public static class FleetMessageLinkRequestEndpoints
                     "The user said no to this less than an hour ago. Nothing was asked. Do not ask again; put what you "
                     + "needed in your report instead.");
             var request = asked.Request!;
-            if (asked.Created) record.Requested(tenant, request);
+            if (asked.Created)
+            {
+                record.Requested(tenant, request);
+                // The owner hears of a NEW request on his phone (issue #4373). A request already waiting was announced
+                // when it was first asked, so asking again does not buzz him twice.
+                announceRequested(tenant, request);
+            }
 
             FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST request: request={request.RequestId}, from={requesterId}, to={targetId}, created={asked.Created}");
             return Results.Json(new FleetMessageLinkRequestAskResponse
@@ -165,12 +174,7 @@ public static class FleetMessageLinkRequestEndpoints
             var rows = requests.List(tenant, now - TimeSpan.FromDays(AnsweredWithinDays));
             return Results.Json(new FleetMessageLinkRequestListResponse
             {
-                Requests = rows.Select(r =>
-                {
-                    var dto = ToDto(r);
-                    dto.TargetSessionName = findSession(tenant, r.TargetSessionId)?.Name;
-                    return dto;
-                }).ToList(),
+                Requests = rows.Select(r => Labelled(tenant, r, findSession)).ToList(),
                 AnsweredWithinDays = AnsweredWithinDays,
             });
         }
@@ -233,8 +237,10 @@ public static class FleetMessageLinkRequestEndpoints
                 if (!requests.TryAnswer(tenant, request.RequestId, FleetMessageLinkRequestStatuses.Declined, caller.Actor, now))
                     return AlreadyAnswered(requests.Find(tenant, request.RequestId)!);
                 record.RequestAnswered(tenant, request, caller.Actor, "declined");
+                var told = false;
                 if (findSession(tenant, request.RequesterSessionId) is { } requester && !FleetManagerSessions.IsGone(requester))
                 {
+                    told = true;
                     var target = findSession(tenant, request.TargetSessionId);
                     var who = target is null ? $"session {request.TargetSessionId}"
                         : FleetMessageLinkEndpoints.Describe(request.TargetSessionId, target);
@@ -243,9 +249,11 @@ public static class FleetMessageLinkRequestEndpoints
                         + "needed in your report instead.");
                 }
                 FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer: request={request.RequestId} declined by {caller.Actor}");
+                var declined = Labelled(tenant, requests.Find(tenant, request.RequestId)!, findSession);
                 return Results.Json(new FleetMessageLinkRequestAnswerResponse
                 {
-                    Request = ToDto(requests.Find(tenant, request.RequestId)!),
+                    Request = declined,
+                    Note = DeniedNote(declined.RequesterLabel!, told),
                 });
             }
 
@@ -279,10 +287,12 @@ public static class FleetMessageLinkRequestEndpoints
             record.RequestAnswered(tenant, request, caller.Actor, $"allowed, {amount}, as message link {setUp.Link.LinkId}");
 
             FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer: request={request.RequestId} allowed ({amount}) as link {setUp.Link.LinkId} by {caller.Actor}");
+            var allowed = Labelled(tenant, requests.Find(tenant, request.RequestId)!, findSession);
             return Results.Json(new FleetMessageLinkRequestAnswerResponse
             {
-                Request = ToDto(requests.Find(tenant, request.RequestId)!),
+                Request = allowed,
                 Link = FleetMessageLinkEndpoints.ToDto(setUp.Link),
+                Note = ApprovedNote(allowed.RequesterLabel!, allowed.TargetLabel!),
             });
         }
         catch (Exception ex)
@@ -331,6 +341,42 @@ public static class FleetMessageLinkRequestEndpoints
             FleetMessageLinkRequestStatuses.Declined => "This request was already declined. Nothing changed.",
             _ => "This request ended because a session ended. Nothing changed.",
         });
+
+    /// <summary>
+    /// How the owner reads a session on a request (issue #4373): its three-digit number and its name, never its id. The
+    /// phone renders this verbatim, so the words are decided here once.
+    /// </summary>
+    internal static string SessionLabel(SessionDto? session)
+    {
+        var name = session?.Name?.Trim();
+        var number = session?.Number;
+        if (number is { } n && !string.IsNullOrEmpty(name)) return $"{n} {name}";
+        if (number is { } only) return $"Session {only}";
+        if (!string.IsNullOrEmpty(name)) return name;
+        return "A session this Gateway no longer knows";
+    }
+
+    /// <summary>What an approval did, in the sentence the owner reads on the phone (issue #4373).</summary>
+    internal static string ApprovedNote(string requesterLabel, string targetLabel)
+        => $"Approved. {requesterLabel} may now message {targetLabel}, and has been told in its inbox.";
+
+    /// <summary>What a denial did. A session that has ended cannot be told, and the sentence says so.</summary>
+    internal static string DeniedNote(string requesterLabel, bool told)
+        => told
+            ? $"Denied. {requesterLabel} has been told in its inbox."
+            : $"Denied. {requesterLabel} has ended, so nobody was told.";
+
+    /// <summary>A request as the owner reads it: the DTO with the asked-for session's name and both sessions' labels.</summary>
+    internal static FleetMessageLinkRequestDto Labelled(TenantId tenant, FleetMessageLinkRequest r,
+        Func<TenantId, string, SessionDto?> findSession)
+    {
+        var dto = ToDto(r);
+        var target = findSession(tenant, r.TargetSessionId);
+        dto.TargetSessionName = target?.Name;
+        dto.RequesterLabel = SessionLabel(findSession(tenant, r.RequesterSessionId));
+        dto.TargetLabel = SessionLabel(target);
+        return dto;
+    }
 
     internal static FleetMessageLinkRequestDto ToDto(FleetMessageLinkRequest r) => new()
     {

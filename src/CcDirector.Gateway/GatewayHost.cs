@@ -1854,6 +1854,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Push.PushSubscriptionStore _pushSubscriptions;
     private Push.WebPushNeedsYouNotifier? _pushNotifier;
     private readonly Push.SecretTransferPushNotifier _secretTransferPush;
+    private readonly Push.MessageLinkRequestPushNotifier _linkRequestPush;
     private readonly Push.LicenseAlarmPushNotifier _licenseAlarmPush;
     private readonly Push.VapidWebPushSender _licenseAlarmPushSender;
     // The per-tenant driver for the app-icon dot, and the timer that fires it. The notifier holds no timer of
@@ -3091,6 +3092,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Secret Handoff push (issue #2943, phase 5): a transfer waiting for the owner is pushed to the same phones, over
         // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
         _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
+            new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
+        // The message link request push (issue #4373): a session asking to message another is pushed to the same phones, so
+        // the owner can answer away from the desk. Its own sender, for the same reason as the secret handoff push.
+        _linkRequestPush = new Push.MessageLinkRequestPushNotifier(_pushSubscriptions,
             new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
         // The license alarm push (License Switching phase 6): an alarm that opens is pushed to the same phones, each
         // tenant's to its own, over its own sender for the same reason as the secret handoff push.
@@ -6123,6 +6128,13 @@ public sealed class GatewayHost : IAsyncDisposable
             record: MessageLinkRecord,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
             notify: notifyOfLink,
+            // A new request is pushed to the owner's phones (issue #4373) with the two session numbers. The subscriptions
+            // are read inside the request, so only this account's phones hear it; the sends are not awaited, so a slow
+            // push service never holds up the session that asked.
+            announceRequested: (tenant, request) => { _ = _linkRequestPush.NotifyRequestedAsync(request.RequestId,
+                GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, request.RequesterSessionId)?.Number,
+                GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, request.TargetSessionId)?.Number,
+                CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
@@ -7903,6 +7915,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _pushNotifierTimer = null;
         try { _pushNotifier?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push notifier dispose error: {ex.Message}"); }
         try { _secretTransferPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] secret transfer push dispose error: {ex.Message}"); }
+        try { _linkRequestPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] link request push dispose error: {ex.Message}"); }
         try { _licenseAlarmPushSender.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license alarm push dispose error: {ex.Message}"); }
         try { _netDiagMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] netdiag monitor dispose error: {ex.Message}"); }
         try { _hostedAiSpendSweep?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] hosted-ai spend sweep dispose error: {ex.Message}"); }

@@ -4878,6 +4878,19 @@ a.banner-btn {
   min-height: 44px; border-radius: 10px; padding: 0 18px; font-size: 15px; font-weight: 600;
 }
 
+/* ---- A session asking to message another (issue #4373) - the shared client-core card
+   (packages/client-core/src/fleet/linkRequests.css), re-tuned for touch under .screen exactly as the secret transfer
+   card is. ---- */
+.screen .link-requests { gap: 10px; margin-top: 14px; }
+.screen .link-request { border-radius: 10px; padding: 12px 14px; gap: 8px; }
+.screen .link-request-summary { font-size: 15px; }
+.screen .link-request-line { font-size: 14px; line-height: 1.45; }
+.screen .link-request-error, .screen .link-request-empty { font-size: 14px; }
+.screen .link-request-actions { gap: 10px; }
+.screen .link-request-btn {
+  min-height: 44px; border-radius: 10px; padding: 0 18px; font-size: 15px; font-weight: 600;
+}
+
 /* ---- The ownership tree on the phone (owner ruling, 2026-09-14). A parent card carries a band along
    its bottom: the chevron, one dot per session under it, the counts, the age. Tapping the band expands
    the children IN PLACE as one-line rows at touch height. No indentation - a second level would steal
