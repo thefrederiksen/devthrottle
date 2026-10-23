@@ -289,26 +289,19 @@ public sealed class ProcessHost : IDisposable
     /// </summary>
     public void Write(byte[] data)
     {
+        // Every way the bytes can fail to leave is logged AND reaches the caller (issue #4380): a write that only logged
+        // let the sender report input delivered that never left the Director.
         if (_disposed || _inputStream == null)
-        {
-            FileLog.Write($"[ProcessHost] Write SKIPPED: pid={ProcessId}, bytes={data.Length}, " +
-                          $"disposed={_disposed}, streamNull={_inputStream == null} - the bytes never left the Director");
-            return;
-        }
+            throw Backends.TerminalWriteFailedException.Logged("ProcessHost", $"write {data.Length} byte(s)",
+                $"pid={ProcessId}, disposed={_disposed}, streamNull={_inputStream == null}");
         try
         {
             _inputStream.Write(data, 0, data.Length);
             _inputStream.Flush();
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            FileLog.Write($"[ProcessHost] Write FAILED: pid={ProcessId}, bytes={data.Length}: " +
-                          $"{ex.GetType().Name}: {ex.Message} - the bytes never left the Director");
-        }
-        catch (ObjectDisposedException ex)
-        {
-            FileLog.Write($"[ProcessHost] Write FAILED: pid={ProcessId}, bytes={data.Length}: " +
-                          $"{ex.GetType().Name}: {ex.Message} - the bytes never left the Director");
+            throw Backends.TerminalWriteFailedException.Logged("ProcessHost", $"write {data.Length} byte(s)", $"the write failed (pid={ProcessId})", ex);
         }
     }
 

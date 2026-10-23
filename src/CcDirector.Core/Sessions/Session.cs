@@ -3292,6 +3292,9 @@ public sealed class Session : IDisposable
     /// </summary>
     internal bool EscapeUsageLimitDialogIfShowing()
     {
+        // An ended session has no terminal to write to; a write there now throws (issue #4380), and this runs on the
+        // detector's settle timer.
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return false;
         if (!ReadUsageLimitDialog().Showing)
         {
             _usageLimitEscapeSent = false;
