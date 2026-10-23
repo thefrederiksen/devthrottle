@@ -77,6 +77,11 @@ export interface MessageLinkRequest {
   requestId: string;
   requesterSessionId: string;
   targetSessionId: string;
+  /** The asking session as the owner reads it - number and name, never an id - written by the Gateway, on the list
+   *  only (issue #4373). */
+  requesterLabel?: string | null;
+  /** The asked-for session, the same way. */
+  targetLabel?: string | null;
   /** Why the session asked, in its own words. */
   reason: string;
   /** How much talking the session asked for (issue #3631) - what the owner approves or denies. Null on a request

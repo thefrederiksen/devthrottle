@@ -99,6 +99,15 @@ public sealed class FleetMessageLinkRequestDto
     /// </summary>
     public string? TargetSessionName { get; set; }
 
+    /// <summary>
+    /// The asking session as the owner reads it - its number and its name, never its id - on the LIST only (issue
+    /// #4373). Written by the Gateway so the phone renders it verbatim. Null on every other answer.
+    /// </summary>
+    public string? RequesterLabel { get; set; }
+
+    /// <summary>The asked-for session as the owner reads it, the same way as <see cref="RequesterLabel"/>.</summary>
+    public string? TargetLabel { get; set; }
+
     public string Reason { get; set; } = "";
 
     /// <summary>How much talking the session asked for: <c>once</c>, <c>once-with-reply</c> or <c>ongoing</c>. Null on a

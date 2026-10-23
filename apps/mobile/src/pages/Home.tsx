@@ -36,6 +36,8 @@ import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 import { SecretTransfersPanel, SecretTransfersProvider } from "@devthrottle/client-core/secrets/SecretTransfers";
+import { LinkRequestsPanel, LinkRequestsPanelProvider } from "@devthrottle/client-core/fleet/LinkRequestsPanel";
+import { CloseAnsweredLinkRequestNotifications } from "../components/LinkRequestNotifications";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
 import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useSessionFilter } from "../hooks/useSessionFilter";
@@ -538,6 +540,15 @@ export function Home() {
         <SecretTransfersProvider>
           <SecretTransfersPanel where="phone" />
         </SecretTransfersProvider>
+      )}
+
+      {/* A session asking to message another it may not reach (issue #4373): the owner approves or refuses here, through
+          the same Gateway call as the Director and the Cockpit. Renders nothing while none waits. */}
+      {tab === "all" && (
+        <LinkRequestsPanelProvider>
+          <CloseAnsweredLinkRequestNotifications />
+          <LinkRequestsPanel />
+        </LinkRequestsPanelProvider>
       )}
 
       {tab === "all" && tree !== null && split !== null && split.pinned.length > 0 && (
