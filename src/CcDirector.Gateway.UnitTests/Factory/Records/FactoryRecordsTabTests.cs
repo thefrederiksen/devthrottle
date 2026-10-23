@@ -192,7 +192,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         for (var i = 0; i < 7; i++)
             all.Add(_attachments.Add(T, F, null, $"same/f{i}.txt", "text/plain", new byte[] { 1 }, "upload", "SOREN_NORTH", Now, $"a:{i}").Attachment!.Id);
         for (var i = 0; i < 5; i++)
-            all.Add(_attachments.Add(T, F, "writer", $"later/g{i}.txt", "text/plain", new byte[] { 2 }, "session", Session, Now.AddMinutes(i)).Attachment!.Id);
+            all.Add(_attachments.Add(T, F, "writer", $"later/g{i}.txt", "text/plain", new byte[] { 2, (byte)i }, "session", Session, Now.AddMinutes(i)).Attachment!.Id);
 
         var seen = new List<Guid>();
         Guid? before = null;
@@ -232,7 +232,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
     public async Task THE_TAB_lists_the_first_page_of_files_and_the_attachments_route_the_next()
     {
         for (var i = 0; i < FactoryRecordsTabFold.AttachmentPage + 3; i++)
-            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1 }, "session", Session, Now.AddSeconds(i));
+            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1, (byte)i }, "session", Session, Now.AddSeconds(i));
 
         var tab = await Get($"/gateway/factories/{F}/records");
         Assert.EndsWith(" Files 1 to 100 are listed, newest first.", tab.Body.GetProperty("attachments").GetProperty("summaryText").GetString());
@@ -254,7 +254,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         for (var i = 0; i < FactoryRecordsTabFold.JournalPage + 1; i++)
             _journal.Append(T, F, "writer", "2026-10-10", $"entry {i}", null, "session", Session, Now.AddMinutes(i));
         for (var i = 0; i < FactoryRecordsTabFold.AttachmentPage + 1; i++)
-            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1 }, "session", Session, Now.AddSeconds(i));
+            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1, (byte)i }, "session", Session, Now.AddSeconds(i));
 
         var first = await Get($"/gateway/factories/{F}/records/journal?seat=writer");
         var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={first.Body.GetProperty("nextBefore").GetGuid()}");
@@ -296,6 +296,26 @@ public sealed class FactoryRecordsTabTests : IDisposable
 
         Assert.Equal(status, answer.Status);
         Assert.Equal(sentence, answer.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_REMOVED_FILE_stays_in_the_journal_that_named_it_said_as_removed_with_nothing_to_download()
+    {
+        var form = _attachments.Add(T, F, "writer", "applications/2026-07-01/acme/form.html", "text/html", new byte[] { 9, 9 }, "session", Session, Now.AddDays(-100)).Attachment!;
+        Assert.True(_journal.Append(T, F, "writer", "2026-07-01", "Applied to Acme.", new[] { form.Id }, "session", Session, Now.AddDays(-100)).Ok);
+        Assert.True(_attachments.Remove(T, F, form.Id, "session", Session, Now.AddDays(-2)).Ok);
+
+        var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer");
+        Assert.Equal(200, journal.Status);
+        var named = journal.Body.GetProperty("entries")[0].GetProperty("attachments")[0];
+        Assert.Equal("applications/2026-07-01/acme/form.html", named.GetProperty("name").GetString());
+        Assert.Equal("", named.GetProperty("downloadHref").GetString());
+        Assert.StartsWith("Removed ", named.GetProperty("downloadLabel").GetString());
+
+        var tab = await Get($"/gateway/factories/{F}/records");
+        Assert.Equal(0, tab.Body.GetProperty("attachmentRows").GetArrayLength());
+        var file = await Send($"/gateway/factories/{F}/records/attachments/{form.Id}");
+        Assert.Equal(404, file.Status);
     }
 
     [Fact]

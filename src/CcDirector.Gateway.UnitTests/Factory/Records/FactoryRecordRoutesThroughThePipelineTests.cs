@@ -192,6 +192,41 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_SESSION_OF_THE_FACTORY_REMOVES_A_FILE_AND_IT_IS_GONE_BUT_SAID_TO_BE_GONE()
+    {
+        var kept = await Send("POST", Root + "/attachments", AsASessionOfTheFactory,
+            """{"seat":"applicant","name":"applications/2026-07-01/acme/form.html","contentType":"text/html","contentBase64":"PHA+"}""");
+        var id = kept.Body.GetProperty("attachment").GetProperty("id").GetString();
+
+        var removed = await Send("DELETE", $"{Root}/attachments/{id}", AsASessionOfTheFactory);
+
+        Assert.Equal(200, removed.Status);
+        Assert.Equal("Removed", removed.Body.GetProperty("outcome").GetString());
+        Assert.Equal(JsonValueKind.String, removed.Body.GetProperty("attachment").GetProperty("removedAtUtc").ValueKind);
+        var read = await Send("GET", $"{Root}/attachments/{id}", AsAPerson);
+        Assert.Equal(410, read.Status);
+        Assert.StartsWith("'devthrottle' removed attachment", read.Body.GetProperty("error").GetString());
+        var again = await Send("DELETE", $"{Root}/attachments/{id}", AsASessionOfTheFactory);
+        Assert.Equal(200, again.Status);
+        var unknown = await Send("DELETE", $"{Root}/attachments/{Guid.NewGuid()}", AsAPerson);
+        Assert.Equal(404, unknown.Status);
+    }
+
+    [Fact]
+    public async Task THE_UPLOAD_MAY_NEVER_REMOVE_A_FILE()
+    {
+        var kept = await Send("POST", Root + "/attachments", AsASessionOfTheFactory,
+            """{"name":"x.png","contentType":"image/png","contentBase64":"AQID"}""");
+        var id = kept.Body.GetProperty("attachment").GetProperty("id").GetString();
+
+        var refused = await Send("DELETE", $"{Root}/attachments/{id}", AsTheMachineToken);
+
+        Assert.NotEqual(200, refused.Status);
+        var still = await Send("GET", $"{Root}/attachments/{id}", AsAPerson);
+        Assert.Equal("AQID", still.Body.GetProperty("contentBase64").GetString());
+    }
+
+    [Fact]
     public async Task A_JOURNAL_ENTRY_SENT_AS_JSON_IS_ADDED_AND_THE_UPLOAD_SENDING_IT_AGAIN_IS_ALREADY_STORED()
     {
         const string body = """{"seat":"outreach","date":"2026-10-07","text":"the day","importKey":"devthrottle/outreach/journal/2026-10-07.md"}""";
@@ -219,7 +254,8 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
     [InlineData("GET", "/factory-records/devthrottle/attachments")]
     [InlineData("POST", "/factory-records/devthrottle/attachments")]
     [InlineData("GET", "/factory-records/devthrottle/attachments/0b2d7c1e-0000-4000-8000-000000000001")]
-    public void EACH_OF_THE_TEN_ROUTES_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
+    [InlineData("DELETE", "/factory-records/devthrottle/attachments/0b2d7c1e-0000-4000-8000-000000000001")]
+    public void EACH_OF_THE_ELEVEN_ROUTES_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
     {
         Assert.NotNull(Match(method, path));
         // The two lists must agree: a route the guard does not know is one no session can reach in production.
@@ -231,7 +267,7 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
     [InlineData("PUT", "/factory-records/devthrottle/journal/0b2d7c1e-0000-4000-8000-000000000001")]
     [InlineData("DELETE", "/factory-records/devthrottle/documents")]
     [InlineData("POST", "/factory-records/devthrottle/documents")]
-    [InlineData("DELETE", "/factory-records/devthrottle/attachments/0b2d7c1e-0000-4000-8000-000000000001")]
+    [InlineData("DELETE", "/factory-records/devthrottle/attachments")]
     [InlineData("PUT", "/factory-records/devthrottle/attachments")]
     [InlineData("GET", "/factory-records/devthrottle")]
     [InlineData("GET", "/factory-records")]

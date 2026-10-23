@@ -63,10 +63,11 @@ public sealed class FactoryRecordsAttachmentRowDto
 
     public string WhenText { get; set; } = "";
 
-    /// <summary>"Download".</summary>
+    /// <summary>"Download", or "Removed 3 days ago" for a file the factory removed.</summary>
     public string DownloadLabel { get; set; } = "";
 
-    /// <summary>Where the file is read: <c>/gateway/factories/{factory}/records/attachments/{id}</c>.</summary>
+    /// <summary>Where the file is read: <c>/gateway/factories/{factory}/records/attachments/{id}</c>; empty for a file the
+    /// factory removed.</summary>
     public string DownloadHref { get; set; } = "";
 }
 

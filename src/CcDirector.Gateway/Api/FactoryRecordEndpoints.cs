@@ -91,6 +91,8 @@ internal static class FactoryRecordEndpoints
             ReadAttachment(ctx, factory, id, attachments, resolveTenant, sessionFactoryOf));
         app.MapPost(root + "/attachments", (HttpContext ctx, string factory, AddFactoryAttachmentRequest? body) =>
             AddAttachment(ctx, factory, body, attachments, resolveTenant, sessionFactoryOf, nowUtc));
+        app.MapDelete(root + "/attachments/{id}", (HttpContext ctx, string factory, string id) =>
+            RemoveAttachment(ctx, factory, id, attachments, resolveTenant, sessionFactoryOf, nowUtc));
 
         FileLog.Write($"[FactoryRecordEndpoints] mapped {root}/journal, /documents and /attachments");
     }
@@ -298,6 +300,12 @@ internal static class FactoryRecordEndpoints
             return Results.BadRequest(new { error = $"an attachment's id is the id the Gateway gave it, and '{id}' is not one" });
         if (store.Get(tenant, folded, wanted) is not { } attachment)
             return Results.NotFound(new { error = $"'{folded}' holds no attachment {wanted}" });
+        if (attachment.RemovedAtUtc is { } removed)
+            return Results.Json(new
+            {
+                error = $"'{folded}' removed attachment {wanted} ('{attachment.Name}') on {removed:yyyy-MM-dd HH:mm} UTC; its bytes are gone",
+                attachment = ToDto(attachment, content: null),
+            }, statusCode: StatusCodes.Status410Gone);
         return Results.Json(ToDto(attachment, store.Content(tenant, folded, wanted)));
     }
 
@@ -326,6 +334,20 @@ internal static class FactoryRecordEndpoints
         if (write.Ok) return Written(write.Outcome, attachment: ToDto(write.Attachment!, content: null));
         return Refused(route, writer, write.Outcome, write.Refusal!,
             current: write.Attachment is null ? null : ToDto(write.Attachment, content: null));
+    }
+
+    internal static IResult RemoveAttachment(HttpContext ctx, string factory, string id, FactoryAttachmentStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        var route = $"DELETE {Prefix}/{factory}/attachments/{id}";
+        // A person or a session of the factory; never the one-time upload, which only ever adds.
+        if (!TryWriter(ctx, sessionFactoryOf, factory, route, importKey: null, out var writer, out var error)) return error!;
+        if (!Guid.TryParse(id, out var wanted))
+            return Results.BadRequest(new { error = $"an attachment's id is the id the Gateway gave it, and '{id}' is not one" });
+        var write = store.Remove(tenant, writer.Factory, wanted, writer.Kind, writer.Id, nowUtc());
+        if (write.Ok) return Written(write.Outcome, attachment: ToDto(write.Attachment!, content: null));
+        return Refused(route, writer, write.Outcome, write.Refusal!, current: null);
     }
 
     // ---------- who is asking ----------
@@ -476,7 +498,7 @@ internal static class FactoryRecordEndpoints
                 or FactoryRecordOutcome.Empty => StatusCodes.Status400BadRequest,
             // An over-cap file is a request too large for this route, whatever the factory holds.
             FactoryRecordOutcome.TooLarge => StatusCodes.Status413PayloadTooLarge,
-            FactoryRecordOutcome.NoSuchAttachment => StatusCodes.Status404NotFound,
+            FactoryRecordOutcome.NoSuchAttachment or FactoryRecordOutcome.NotFound => StatusCodes.Status404NotFound,
             // Stale, a full factory, too many attachments, an upload whose file changed: "not as things stand".
             _ => StatusCodes.Status409Conflict,
         };
@@ -562,6 +584,7 @@ internal static class FactoryRecordEndpoints
         AuthorId = a.AuthorId,
         WrittenAtUtc = a.WrittenAtUtc,
         ContentBase64 = content is null ? null : Convert.ToBase64String(content),
+        RemovedAtUtc = a.RemovedAtUtc,
     };
 
     private static IResult NoBody() => Results.BadRequest(new { error = "a body is required" });

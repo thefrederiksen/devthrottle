@@ -2005,6 +2005,11 @@ a:focus .ff-bay rect {
   margin-left: 6px;
 }
 
+/* A file the factory removed: its row stays, with when, in place of a download. */
+.fa-rec-removed {
+  color: var(--text-dim);
+}
+
 .fa-rec-entries {
   list-style: none;
   margin: 0;

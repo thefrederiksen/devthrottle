@@ -5440,6 +5440,18 @@ def factory_attach_add(
     factory_record_ops.attach_add(factory, seat, file, name, content_type, json_output)
 
 
+@factory_attach_app.command("remove")
+def factory_attach_remove(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    attachment_id: str = typer.Option(..., "--id", help="The attachment's id, as list shows it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the removed attachment as JSON."),
+) -> None:
+    """Remove one file the factory no longer needs. Its bytes are deleted and stop counting against the cap; its record
+    stays, marked removed, so a journal entry that named it still says what it was.
+    """
+    factory_record_ops.attach_remove(factory, attachment_id, json_output)
+
+
 @factory_records_app.command("upload")
 def factory_records_upload(
     root: Optional[str] = typer.Option(None, "--root", help="The folder that holds the records folders. This machine's LOCALAPPDATA when left out."),

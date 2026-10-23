@@ -326,6 +326,101 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_same_bytes_are_kept_once_and_the_file_already_held_is_the_answer()
+    {
+        var store = Attachments();
+        var resume = Png(2048);
+        var first = AddBySession(store, "applications/2026-10-24/acme/resume.pdf", resume, seat: "applicant");
+
+        var again = AddBySession(store, "applications/2026-10-25/beta/resume.pdf", resume, seat: "applicant");
+
+        Assert.Equal(FactoryRecordOutcome.AlreadyStored, again.Outcome);
+        Assert.Equal(first.Attachment!.Id, again.Attachment!.Id);
+        Assert.Equal(1, store.List(A, TheFactory).Total);
+        Assert.Equal(2048, store.List(A, TheFactory).FactoryBytes);
+        using var ctx = _h.Open().CreateContext(A);
+        Assert.Single(ctx.FactoryAttachmentContents.ToList());
+    }
+
+    [Fact]
+    public void The_same_bytes_in_another_factory_or_account_are_kept_there_too()
+    {
+        var store = Attachments();
+        var bytes = Png(512);
+        AddBySession(store, "a.png", bytes);
+
+        Assert.Equal(FactoryRecordOutcome.Written, AddBySession(store, "a.png", bytes, factory: Other).Outcome);
+        Assert.Equal(FactoryRecordOutcome.Written,
+            store.Add(B, TheFactory, null, "a.png", "image/png", bytes, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+    }
+
+    [Fact]
+    public void A_removed_file_loses_its_bytes_keeps_its_row_and_no_longer_counts()
+    {
+        var store = Attachments();
+        var kept = AddBySession(store, "applications/2026-07-01/acme/form.html", Png(1000)).Attachment!;
+        var later = Now.AddDays(100);
+
+        var removal = store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Session, RunTwo, later);
+
+        Assert.Equal(FactoryRecordOutcome.Removed, removal.Outcome);
+        var row = store.Get(A, TheFactory, kept.Id)!;
+        Assert.Equal(later, row.RemovedAtUtc);
+        Assert.Equal($"session:{RunTwo}", row.RemovedBy);
+        Assert.Null(store.Content(A, TheFactory, kept.Id));
+        Assert.Equal(0, store.List(A, TheFactory).Total);
+        Assert.Equal(0, store.List(A, TheFactory).FactoryBytes);
+        Assert.Equal(new[] { kept.Id }, store.Missing(A, TheFactory, new[] { kept.Id }));
+        Assert.Single(store.Find(A, TheFactory, new[] { kept.Id }));   // a journal entry that named it still finds it
+        using var ctx = _h.Open().CreateContext(A);
+        Assert.Empty(ctx.FactoryAttachmentContents.ToList());
+    }
+
+    [Fact]
+    public void Removing_twice_is_answered_removed_again_and_changes_nothing()
+    {
+        var store = Attachments();
+        var kept = AddBySession(store, "x.png", Png(10)).Attachment!;
+        store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+
+        var again = store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Person, "owner", Now.AddDays(1));
+
+        Assert.Equal(FactoryRecordOutcome.Removed, again.Outcome);
+        Assert.Equal(Now, store.Get(A, TheFactory, kept.Id)!.RemovedAtUtc);
+        Assert.Equal($"session:{RunOne}", store.Get(A, TheFactory, kept.Id)!.RemovedBy);
+    }
+
+    [Fact]
+    public void A_file_never_held_or_held_by_another_factory_or_account_is_not_found_and_stays()
+    {
+        var store = Attachments();
+        var theirs = AddBySession(store, "x.png", Png(10), factory: Other).Attachment!;
+
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(A, TheFactory, theirs.Id, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(B, Other, theirs.Id, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(A, TheFactory, Guid.NewGuid(), FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.NotNull(store.Content(A, Other, theirs.Id));
+    }
+
+    [Fact]
+    public void After_a_removal_the_same_bytes_are_kept_again_as_a_new_file()
+    {
+        var store = Attachments();
+        var bytes = Png(64);
+        var first = AddBySession(store, "a.png", bytes).Attachment!;
+        store.Remove(A, TheFactory, first.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+
+        var again = AddBySession(store, "a.png", bytes);
+
+        Assert.Equal(FactoryRecordOutcome.Written, again.Outcome);
+        Assert.NotEqual(first.Id, again.Attachment!.Id);
+        Assert.Equal(bytes, store.Content(A, TheFactory, again.Attachment.Id));
+    }
+
+    [Fact]
     public void An_attachment_over_its_cap_is_refused_in_words_and_nothing_is_stored()
     {
         var store = Attachments();

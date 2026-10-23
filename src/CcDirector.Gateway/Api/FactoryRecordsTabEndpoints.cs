@@ -72,8 +72,8 @@ internal static class FactoryRecordsTabEndpoints
                         statusCode: StatusCodes.Status404NotFound);
                 var entries = page.Entries;
                 // Every file the page's entries name, read at once (review of #4032, finding 5). An entry can name only
-                // a file its factory holds (the journal checks at write) and a file is never removed, so a missing one
-                // is a broken store, said as such - never quietly left out.
+                // a file its factory holds (the journal checks at write), and a removed file keeps its row marked removed,
+                // so a missing one is a broken store, said as such - never quietly left out.
                 var named = entries.ToDictionary(e => e.Id, e => AttachmentIdsOf(e));
                 var files = attachments.Find(tenant, registered.Factory, named.Values.SelectMany(ids => ids).Distinct().ToList());
                 var dto = FactoryRecordsTabFold.Journal(registered, seat, page,

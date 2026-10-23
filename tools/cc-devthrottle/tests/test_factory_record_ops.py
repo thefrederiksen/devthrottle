@@ -63,6 +63,7 @@ class _Gateway:
             do_GET = _answer
             do_PUT = _answer
             do_POST = _answer
+            do_DELETE = _answer
 
             def log_message(self, *args):
                 pass
@@ -193,6 +194,23 @@ def test_a_fetched_attachment_is_written_only_when_its_bytes_match_the_stored_ha
     assert (tmp_path / "w.json").read_bytes() == data
     assert refused.exit_code != 0
     assert not (tmp_path / "x.json").exists()
+
+
+def test_a_removed_attachment_is_said_removed_and_one_never_held_fails(gateway):
+    removed = {"id": "a1", "name": "applications/2026-07-01/acme/form.html", "bytes": 12,
+               "removedAtUtc": "2026-10-24T06:40:00Z"}
+    server = gateway((200, {"outcome": "Removed", "attachment": removed}),
+                     (404, {"error": "'devthrottle' holds no attachment a2", "outcome": "NotFound", "current": None}))
+
+    ok = runner.invoke(app, ["factory", "attach", "remove", "--factory", FACTORY, "--id", "a1"])
+    missing = runner.invoke(app, ["factory", "attach", "remove", "--factory", FACTORY, "--id", "a2"])
+
+    assert ok.exit_code == 0, ok.output
+    assert "Removed: attachment a1" in ok.output
+    assert server.calls[0]["method"] == "DELETE"
+    assert server.calls[0]["path"].endswith("/attachments/a1")
+    assert missing.exit_code != 0
+    assert "holds no attachment a2" in missing.output
 
 
 def test_a_journal_entry_names_its_seat_day_and_attachments(gateway, tmp_path):

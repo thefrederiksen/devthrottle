@@ -1824,6 +1824,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorKind).HasMaxLength(20);
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ImportKey).HasMaxLength(400);
+            b.Property(e => e.RemovedBy).HasMaxLength(230);
             // The reads: one factory's files (and their total, which the cap counts), or one seat's.
             b.HasIndex(e => new { e.TenantId, e.Factory, e.Seat });
             b.HasIndex(e => new { e.TenantId, e.Factory, e.ImportKey }).IsUnique();

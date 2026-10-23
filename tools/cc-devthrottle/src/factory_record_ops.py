@@ -94,7 +94,7 @@ def _read_text_file(path: str, what: str, usage: str) -> str:
 
 def _written(answer: Any, key: str) -> Optional[Dict[str, Any]]:
     """The record a write answered with, or None when the answer carried none."""
-    if isinstance(answer, dict) and answer.get("outcome") in ("Written", "AlreadyStored") and isinstance(answer.get(key), dict):
+    if isinstance(answer, dict) and answer.get("outcome") in ("Written", "AlreadyStored", "Removed") and isinstance(answer.get(key), dict):
         return answer[key]
     return None
 
@@ -419,6 +419,26 @@ def attach_add(factory: str, seat: Optional[str], file: str, name: Optional[str]
     axi_cli.write_lines(f"Kept: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes). Name this id in a "
                         "journal entry with --attachment.")
     axi_cli.print_next([f"{_JOURNAL} add {_f(factory)} --file <path> --attachment {a.get('id')}"])
+
+
+def attach_remove(factory: str, attachment_id: str, json_output: bool) -> None:
+    """Remove one file the factory no longer needs: its bytes go, its record stays marked removed, so a journal entry
+    that named it still says what it was. Removing it again changes nothing."""
+    try:
+        answer = gateway.delete(f"{_root(factory)}/attachments/{gateway.path_segment(attachment_id)}")
+    except gateway.GatewayError as exc:
+        _fail_gateway(exc, [f"{_ATTACH} list {_f(factory)}"] if exc.status in (400, 404) else None)
+        return
+    a = _written(answer, "attachment")
+    if a is None:
+        axi_cli.fail("the Gateway answered without the attachment it removed, so this command cannot show it was removed.",
+                     [f"{_ATTACH} list {_f(factory)}"])
+        return
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    axi_cli.write_lines(f"Removed: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes) on "
+                        f"{a.get('removedAtUtc')}. Its bytes are gone; its record stays.")
 
 
 # ---------------------------------------------------------------------------------------------------

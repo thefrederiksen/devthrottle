@@ -144,8 +144,9 @@ public static class FactoryRecordsTabFold
         SizeText = Size(a.Bytes),
         WhoText = Who(a.AuthorKind, a.AuthorId),
         WhenText = When(a.WrittenAtUtc, zone, nowUtc),
-        DownloadLabel = "Download",
-        DownloadHref = AttachmentHref(factory.Factory, a.Id),
+        // A removed file keeps its row so the journal still says what it was; there is nothing left to download.
+        DownloadLabel = a.RemovedAtUtc is { } removed ? $"Removed {When(removed, zone, nowUtc)}" : "Download",
+        DownloadHref = a.RemovedAtUtc is null ? AttachmentHref(factory.Factory, a.Id) : "",
     };
 
     // ---------- one journal ----------

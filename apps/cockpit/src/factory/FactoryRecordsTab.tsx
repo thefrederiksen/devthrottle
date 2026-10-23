@@ -235,6 +235,10 @@ function AttachmentsSection({ factory, view }: { factory: string; view: FactoryR
 function DownloadButton({ attachment }: { attachment: FactoryRecordsAttachmentRow }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A file the factory removed has no bytes to download: the Gateway sends no address, and its label says so.
+  if (attachment.downloadHref === "") {
+    return <span className="fa-rec-removed">{attachment.downloadLabel}</span>;
+  }
   return (
     <>
       <Button
