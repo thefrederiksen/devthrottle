@@ -28,6 +28,14 @@ const SURFACE = "cockpit-chat";
 
 const BOTTOM_THRESHOLD_PX = 40;
 
+// THE CHAT OPENS ON THE LAST TEN TURNS (issue #4372). It used to download and draw the whole conversation - up to two
+// thousand messages - every time a session was selected, which is what made selecting a session slow. Ten turns is
+// what the reader looks at; scrolling to the top fetches the ten before, and so on (owner direction, 2026-10-23).
+const CHAT_TURNS = 10;
+// How near the top a scroll has to come before the turns above are fetched: early enough that they are usually there
+// before the reader reaches the top.
+const EARLIER_THRESHOLD_PX = 200;
+
 /**
  * A stable handle for one turn, used to find it again after the filter changes and the list is rebuilt.
  * The index cannot serve: it is an index into the FILTERED list, and the whole point of the jump is that
@@ -51,7 +59,8 @@ function turnClock(r: RenderedBubble): string {
 const SURFACE_PATHS = "cockpit-chat-paths";
 
 export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
-  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(sessionId);
+  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter, hasEarlier, loadingEarlier, earlierPages, earlierError, loadEarlier } =
+    useSessionChat(sessionId, { turns: CHAT_TURNS });
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
   const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [copied, setCopied] = useState<string | null>(null);
@@ -68,6 +77,20 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
+  // EARLIER TURNS WERE PUT IN FRONT: hold the reader exactly where they were. The list's height is recorded after every
+  // render; the render in which `earlierPages` went up is the one that grew at the top, and by exactly the difference.
+  // Measured per render rather than remembered from when the fetch started, because a new turn can land at the BOTTOM
+  // while the page is in flight, and a distance taken from the bottom then moved the reader twice (found in review).
+  const lastHeightRef = useRef(0);
+  const seenEarlierPagesRef = useRef(earlierPages);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    if (earlierPages > seenEarlierPagesRef.current && lastHeightRef.current > 0)
+      el.scrollTop += el.scrollHeight - lastHeightRef.current;
+    seenEarlierPagesRef.current = earlierPages;
+    lastHeightRef.current = el.scrollHeight;
+  });
 
   // Sticky-bottom: stick to the bottom after the list changes ONLY if the reader is already there - and
   // never while a jump is outstanding, which is the one case where the reader has said exactly where
@@ -77,6 +100,11 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
     const el = scrollRef.current;
     if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [bubbles, pendingJump]);
+
+  const fetchEarlier = useCallback(() => {
+    if (!hasEarlier || loadingEarlier) return;
+    loadEarlier();
+  }, [hasEarlier, loadingEarlier, loadEarlier]);
 
   // Honour an outstanding jump once the unfiltered list has rendered. Runs after the list changes, finds
   // the turn by its handle and brings it to the middle of the view - the middle rather than the top,
@@ -133,7 +161,8 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
-  }, []);
+    if (el.scrollTop < EARLIER_THRESHOLD_PX) fetchEarlier();
+  }, [fetchEarlier]);
 
   const copyLink = useCallback(async (text: string) => {
     try {
@@ -213,10 +242,23 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
           <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
             {filter.myPromptsOnly && (
               <p className="chat-index-lead" role="status">
-                {promptCount === 1
-                  ? "1 prompt of yours in this conversation. Click it to go back to it."
-                  : `${promptCount} prompts of yours in this conversation. Click one to go back to it.`}
+                {hasEarlier
+                  ? `${promptCount === 1 ? "1 prompt" : `${promptCount} prompts`} of yours in the part of this conversation loaded so far. Load earlier messages above for more.`
+                  : promptCount === 1
+                    ? "1 prompt of yours in this conversation. Click it to go back to it."
+                    : `${promptCount} prompts of yours in this conversation. Click one to go back to it.`}
               </p>
+            )}
+            {/* There is more above. Said in words, and a button, because a list that simply ends at the top reads as
+                the whole conversation - and the scroll that fetches more on its own needs something to scroll. */}
+            {hasEarlier && (
+              <div className="chat-earlier">
+                <button type="button" className="chat-earlier-btn" disabled={loadingEarlier} onClick={fetchEarlier}>
+                  {loadingEarlier ? "Loading earlier messages..." : "Load earlier messages"}
+                </button>
+                {/* error-reported-by: useSessionChat */}
+                {earlierError !== null && <span className="chat-earlier-error" role="alert">{earlierError}</span>}
+              </div>
             )}
             {/* One centred column holds every turn, and it is the column - not the bubble - that sets the
                 reading measure. The turns then take their own side of it: the owner's to the right edge,
