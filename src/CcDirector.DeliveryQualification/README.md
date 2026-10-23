@@ -118,6 +118,15 @@ memory.
     #    a question menu, the model picker. The session's state is sampled every 250 ms against the agent's records.
     $B --state-matrix --agents claude,codex,pi
 
+The echo layer runs the desktop routes once as a plain program (`as desktop`) and once standing in for each agent in
+`--agents` (`as claude`, `as codex`, `as pi`): the session is of that agent's kind, so the desktop sends what it sends that
+agent - Shift+Enter, for one, is each agent's measured newline key (issue #4379).
+
+    # 4. WHICH KEY MAKES A NEW LINE (issue #4379): types a line, presses each candidate key (Ctrl+J, Alt+Enter, kitty and
+    #    xterm Shift+Enter, backslash then Enter), types a second line, presses Enter, and reads the agent's records. Also
+    #    prints the keyboard modes the agent asked the terminal for. At most one one-word turn per key.
+    $B --newline-keys claude [--newline-candidates ctrl-j,alt-enter]
+
 **Echo verdicts.** `EXACT`; `SPLIT` (an Enter arrived before the text ended, so the agent submits it in pieces);
 `ALTERED` (characters changed or lost - the first difference is shown); `VIA-FILE` (a file reference or file
 instruction was typed instead of the text, with whether the payload file is exact); `NOT-SUBMITTED`; `NOTHING`.

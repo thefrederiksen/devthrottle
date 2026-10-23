@@ -96,13 +96,19 @@ public static class EchoLayer
                               $"enters={v.Enters} reads={v.Reads} {v.Ms / 1000:F1}s director={r.Director} {Short(v.Detail)} {Short(r.DirectorDetail)}");
         }
 
-        // THE DESKTOP ROUTES: one echo agent in a real Director session, the shipped terminal control attached to it.
+        // THE DESKTOP ROUTES: one echo agent in a real Director session, the shipped terminal control attached to it - once
+        // as a plain program ("desktop"), and once standing in for each agent, because what a key sends depends on the
+        // agent the session runs (Shift+Enter sends each agent's measured newline key, issue #4379).
         var desktopRoutes = routes.Where(r => r.StartsWith("desktop-", StringComparison.Ordinal)).ToList();
-        if (desktopRoutes.Count > 0)
+        var desktopAs = new List<(string As, AgentKind? Kind)> { ("desktop", null) };
+        desktopAs.AddRange(new[] { ("claude", AgentKind.ClaudeCode), ("codex", AgentKind.Codex), ("pi", AgentKind.Pi) }
+            .Where(a => opts.Agents.Contains(a.Item1)).Select(a => (a.Item1, (AgentKind?)a.Item2)));
+        foreach (var (desktopName, desktopKind) in desktopRoutes.Count > 0 ? desktopAs : [])
         {
-            var log = Path.Combine(opts.Out, "echo-desktop.jsonl");
+            var log = Path.Combine(opts.Out, $"echo-desktop-{desktopName}.jsonl");
             var (exe, args) = EchoCommand(log);
-            var session = manager.CreateSession(repo, new RawCliAgent(exe, args), null, SessionBackendType.ConPty, null);
+            IAgent echoAgent = desktopKind is { } kind ? new EchoStandIn(kind, exe, args) : new RawCliAgent(exe, args);
+            var session = manager.CreateSession(repo, echoAgent, null, SessionBackendType.ConPty, null);
             using var desktop = new DesktopHost();
             try
             {
@@ -120,7 +126,7 @@ public static class EchoLayer
                     try { await Routes.DesktopAsync(desktop, route, body); }
                     catch (Exception ex) { director = "FAILED"; detail = $"{ex.GetType().Name}: {ex.Message}"; }
                     var reads = await QuietReadsAsync(log, before);
-                    Record(new EchoResult(route, "desktop", text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body), run));
+                    Record(new EchoResult(route, desktopName, text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body), run));
                 }
             }
             finally

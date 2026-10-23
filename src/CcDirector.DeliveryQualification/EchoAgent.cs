@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using CcDirector.Core.Agents;
 using Microsoft.Win32.SafeHandles;
 
 namespace CcDirector.DeliveryQualification;
@@ -138,12 +139,10 @@ internal sealed class EchoScreen(Action<string> write, Action? afterSubmit = nul
                         {
                             _inPaste = false;
                             // A real agent repaints its composer once a paste is in, and the send path waits for that
-                            // repaint before it presses Enter; so this one does too - a quarter of a second later, as an
-                            // agent takes a moment. Repainting at once races the send path: it counts the terminal's bytes
-                            // only AFTER writing the paste's end, so a repaint that lands first is never seen and the send
-                            // waits out its two-minute limit (found by this harness, 23 October 2026; see issue #4379).
+                            // repaint before it presses Enter; so this one does too, at once. (It used to wait a quarter of a
+                            // second, to step round the send path counting bytes only after it wrote the paste's end - a
+                            // repaint that landed first was never seen. Fixed in issue #4379; repainting at once is the test.)
                             Flush();
-                            Thread.Sleep(250);
                             write("\r\n[paste taken in]\r\n");
                         }
                         _mode = Mode.Text;
@@ -179,4 +178,19 @@ internal sealed class EchoScreen(Action<string> write, Action? afterSubmit = nul
         write(Encoding.UTF8.GetString(_pending.ToArray()));
         _pending.Clear();
     }
+}
+
+/// <summary>
+/// The echo agent standing in for a real agent (issue #4379): the session it runs in is of that agent's kind, so the
+/// desktop terminal sends what it sends to that agent - Shift+Enter, for one, is each agent's measured newline key - while
+/// the program behind it is still the free byte-echo agent.
+/// </summary>
+internal sealed class EchoStandIn(AgentKind kind, string executable, string args) : IAgent
+{
+    public AgentKind Kind => kind;
+    public string ExecutablePath => executable;
+    public bool SupportsPreassignedSessionId => false;
+    public bool SupportsStudioMode => false;
+    public AgentLaunchSpec BuildLaunchSpec(string? userArgs, string? resumeSessionId, bool studioMode) =>
+        new RawCliAgent(executable, args).BuildLaunchSpec(userArgs, null, studioMode: false);
 }

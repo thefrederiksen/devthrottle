@@ -44,8 +44,6 @@ public enum DoorbellSubmitOutcome
 public static class TerminalSubmit
 {
     private static readonly byte[] EscapeByte = [0x1B];
-    private static readonly byte[] BracketedPasteStart = Encoding.UTF8.GetBytes("\x1b[200~");
-    private static readonly byte[] BracketedPasteEnd = Encoding.UTF8.GetBytes("\x1b[201~");
 
     /// <summary>
     /// THE one place an Enter is pressed to submit a prompt. Settle, press, then watch the TUI until
@@ -262,7 +260,38 @@ public static class TerminalSubmit
             typedAfterExistingText.Value = TypeASpaceAfterExistingText(backend, driverTag, composerRegion);
 
         var textForCheck = text.TrimEnd('\r', '\n');
-        if (ShouldUseInstructionFile(driverTag, textForCheck)
+
+        // A PASTE IS A PASTE, AS AT THE KEYBOARD (issue #4379). For the agents the parity harness measures, once the agent
+        // has asked for bracketed paste: a text holding a line break or a tab, or longer than a person would type, goes as
+        // ONE bracketed paste, its line breaks normalised. Typed, a line break is Enter and a tab is the Tab key - the
+        // baseline (23 October 2026) saw tabs lost on every agent, and Codex was sent every multi-line or 300-plus
+        // character text as a file to read instead of the text. The file route is now a recorded fallback, used only
+        // above the size the harness proved each agent takes as a paste.
+        if (bracketedPasteEnabled && PastesLikeAPerson(driverTag))
+        {
+            var pasted = TerminalInputEncoder.NormalizeLineBreaks(textForCheck);
+            if (pasted.Length > PasteLimitFor(driverTag) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
+            {
+                SendTrail.Step(driverTag, $"SharedSubmit: FILE ROUTE (recorded fallback): {pasted.Length} characters is over the " +
+                                          $"{PasteLimitFor(driverTag)} this agent was measured to take as one paste");
+                FileLog.Write($"[TerminalSubmit] FileRoute: driver={driverTag}, session={sessionId}, length={pasted.Length}, " +
+                              $"limit={PasteLimitFor(driverTag)}");
+                // The file holds the text exactly as it was given; only a paste's line breaks are normalised.
+                var viaFile = driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
+                    ? await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion)
+                    : await SubmitViaInstructionFileAsync(backend, textForCheck, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout, pollInterval,
+                        enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
+                ComposerRetention.Clear(backend);
+                return viaFile;
+            }
+            if (pasted.Length > ClaudeTypingLimit || TerminalInputEncoder.HoldsControlCharacters(pasted))
+            {
+                await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
+                ComposerRetention.Clear(backend);
+                return pasted;
+            }
+        }
+        else if (ShouldUseInstructionFile(driverTag, textForCheck)
             && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
         {
             var instruction = await SubmitViaInstructionFileAsync(
@@ -661,12 +690,24 @@ public static class TerminalSubmit
         SendTrail.Step(driverTag, $"SharedSubmit: bracketed paste submit len={text.Length}");
         // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
         var composerBefore = ReadComposerText(composerText);
-        backend.Write(BracketedPasteStart);
-        await WriteTextAsync(backend, text);
-        backend.Write(BracketedPasteEnd);
+        // ONE ENCODER FOR EVERY PASTE (issue #4379): the same writes the desktop's Ctrl+V makes - the brackets, every
+        // line break as one LF (Codex doubled each CR LF), a tab as a tab, and non-ASCII as key events on Windows.
+        var writes = TerminalInputEncoder.Paste(text, bracketed: true, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(backend),
+            TerminalInputEncoder.PasteChunkBytes).ToList();
+        for (var i = 0; i < writes.Count - 1; i++)
+        {
+            backend.Write(writes[i]);
+            if (i > 0) await Task.Delay(TerminalInputEncoder.PasteChunkPause, Clock);
+        }
+        // THE REPAINT IS COUNTED FROM BEFORE THE END MARKER IS WRITTEN (issue #4379). It was counted from after it, and an
+        // agent that repainted at once - before the next line here ran - repainted into bytes already counted, so the
+        // wait never saw a repaint and held the Enter for its full two minutes. Nothing can answer the end marker before
+        // it is written, so counting from just before it cannot miss the repaint and cannot take an older one for it.
+        var beforeEnd = backend.Buffer?.TotalBytesWritten ?? 0;
+        backend.Write(writes[^1]);
         // THE PASTE IS TAKEN IN BEFORE THE ENTER (issue #3290). An agent still reading a large paste can take the Enter
         // as part of it. The agent repaints its composer once the paste is in; the Enter waits for that repaint to end.
-        await WaitForPasteTakenInAsync(backend, driverTag, text.Length, composerText, composerBefore);
+        await WaitForPasteTakenInAsync(backend, driverTag, text.Length, beforeEnd, composerText, composerBefore);
         await PressEnterAndVerifyAsync(
             backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
     }
@@ -1107,15 +1148,17 @@ public static class TerminalSubmit
     /// An agent that shows neither has not read the paste yet (measured on Pi under full load: thirty seconds without a
     /// byte), so it is waited for, up to <see cref="PasteTakenInLimit"/>, and the wait says so in the log.
     /// </summary>
+    /// <param name="beforeEnd">The terminal's byte count taken just before the paste's end marker was written: any output
+    /// past it is the agent answering the paste.</param>
     private static async Task WaitForPasteTakenInAsync(
-        ISessionBackend backend, string driverTag, int length, Func<string?>? composerText = null, string? composerBefore = null)
+        ISessionBackend backend, string driverTag, int length, long beforeEnd, Func<string?>? composerText = null, string? composerBefore = null)
     {
         if (backend.Buffer is not { } buffer) return;
         var notice = new SendWaitNotice(driverTag, $"the agent to take in a {length}-character paste " +
             (composerText is null ? "(a repaint followed by a quiet terminal)" : "(the composer showing it, or a quiet terminal)"),
             $"{PasteTakenInLimit.TotalSeconds:F0}s", Clock);
         var started = Now;
-        var startTotal = buffer.TotalBytesWritten;
+        var startTotal = beforeEnd;
         var lastTotal = startTotal;
         var lastChange = started;
         var lastLook = DateTime.MinValue;
@@ -1462,6 +1505,27 @@ public static class TerminalSubmit
     /// </summary>
     internal const int PasteLimit = 2000;
 
+    /// <summary>
+    /// The agents whose paste the parity harness measures (issue #4379): for them a paste is the first choice and the file
+    /// route the recorded fallback. Every other agent keeps its routes until it is measured.
+    /// </summary>
+    internal static bool PastesLikeAPerson(string driverTag) =>
+        driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
+        || driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
+        || driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The longest text pasted into each measured agent; a longer one goes through a file (issue #4379). It is the
+    /// largest text the parity harness PROVED arrives as one paste, character for character in the agent's own records:
+    /// on 23 October 2026 Claude Code 2.1.309, Codex 0.163.0 and Pi 1.2.0 each took 2,001, 8,192 and 51,200 characters
+    /// and a 50-line text exactly, through this send and through the desktop paste, idle and with all 32 cores busy.
+    /// (The old 2,000 limit came from a busy machine on 24 September, when the send's paste-wait race - fixed with this
+    /// limit - could hold an Enter for two minutes.) Nothing longer was measured, so nothing longer is pasted.
+    /// </summary>
+    internal const int MeasuredPasteLimit = 51_200;
+
+    internal static int PasteLimitFor(string driverTag) => MeasuredPasteLimit;
+
     private static bool ShouldReferenceRatherThanPaste(string driverTag, string text) =>
         text.Length > PasteLimit && driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase);
 
@@ -1661,73 +1725,19 @@ public static class TerminalSubmit
 
     private static async Task WriteTextAsync(ISessionBackend backend, string text)
     {
-        var asKeyEvents = backend is ConPtyBackend;
+        var asKeyEvents = TerminalInputEncoder.SendsNonAsciiAsKeyEvents(backend);
         const int bulkThreshold = 48;
         if (Encoding.UTF8.GetByteCount(text) <= bulkThreshold)
         {
-            backend.Write(Encode(text, asKeyEvents));
+            backend.Write(TerminalInputEncoder.Encode(text, asKeyEvents));
             return;
         }
 
-        foreach (var chunk in Chunks(text, asKeyEvents))
+        foreach (var chunk in TerminalInputEncoder.Chunks(text, asKeyEvents))
         {
             backend.Write(chunk);
             await Task.Delay(TimeSpan.FromMilliseconds(10), Clock);
         }
-    }
-
-    /// <summary>
-    /// The bytes that put <paramref name="text"/> into an agent's composer. With <paramref name="nonAsciiAsKeyEvents"/>
-    /// (a Windows pseudo console) every character outside ASCII is written as a win32-input-mode key press - the form
-    /// Windows Terminal itself uses to hand the pseudo console a keystroke - and ASCII is written as it is.
-    ///
-    /// WHY (issue #3290), measured on 24 September 2026 with the qualification rig (`--chars`): written as UTF-8, the
-    /// text "e\u00e9 d\u2013 q\u201cx\u201d p\u00a3 u\u20ac" reached Codex and Grok as "e\u00e9 d qx p u" - the pseudo
-    /// console hands those two agents each UTF-8 byte as a character of its own, so Codex RECORDED "Caf\u00e9" as
-    /// "Caf\u00c3\u00a9" and the dashes, curly quotes, pound and euro vanished. One write, a write per character and a
-    /// bracketed paste all lost them the same way. As key presses the text reached Claude Code, Codex, Pi, OpenCode and
-    /// Grok intact, and inside a bracketed paste Claude Code still received it as one two-line paste. Dictation
-    /// produces curly quotes and dashes all the time, so this is not an edge case.
-    /// </summary>
-    internal static byte[] Encode(string text, bool nonAsciiAsKeyEvents)
-    {
-        if (!nonAsciiAsKeyEvents || text.All(c => c < 0x80))
-            return Encoding.UTF8.GetBytes(text);
-        var sb = new StringBuilder(text.Length + 64);
-        foreach (var c in text)
-        {
-            if (c < 0x80)
-            {
-                sb.Append(c);
-                continue;
-            }
-            // CSI Vk;Sc;Uc;Kd;Cs;Rc _ : no virtual key, no scan code, the UTF-16 unit, key down then key up, once.
-            // A character outside the basic plane is sent as its two surrogate units, as Windows Terminal sends it.
-            sb.Append("\u001b[0;0;").Append((int)c).Append(";1;0;1_");
-            sb.Append("\u001b[0;0;").Append((int)c).Append(";0;0;1_");
-        }
-        return Encoding.ASCII.GetBytes(sb.ToString());
-    }
-
-    /// <summary>
-    /// The text as chunks of about sixteen characters' bytes that NEVER split a character - a character, and a
-    /// character sent as key presses, always travels in one write.
-    /// </summary>
-    internal static IEnumerable<byte[]> Chunks(string text, bool nonAsciiAsKeyEvents = false, int chunkSize = 16)
-    {
-        var pending = new List<byte>(chunkSize + 64);
-        var e = System.Globalization.StringInfo.GetTextElementEnumerator(text);
-        while (e.MoveNext())
-        {
-            var element = Encode((string)e.Current, nonAsciiAsKeyEvents);
-            if (pending.Count > 0 && pending.Count + element.Length > chunkSize)
-            {
-                yield return pending.ToArray();
-                pending.Clear();
-            }
-            pending.AddRange(element);
-        }
-        if (pending.Count > 0) yield return pending.ToArray();
     }
 
     /// <summary>
