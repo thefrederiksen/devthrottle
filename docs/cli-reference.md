@@ -2278,6 +2278,26 @@ check download is, and more narrowly: only the factory's CURRENT published versi
 machine has a seat of the factory in it. A machine that had a seat in an older version and was moved out is given
 nothing (`version_not_current`).
 
+
+### Factory attachments: kept once, removed when no longer needed
+
+A factory keeps files on the Gateway (`factory attach add`), each at most 4 MB and all of one factory's together at
+most 1 GB.
+
+- **Kept once.** A file whose exact bytes the factory already holds is not stored again: the answer is the file it
+  holds (outcome `AlreadyStored`, with that file's id). A seat that attaches the same resume to every application
+  keeps it once.
+- **Removed when no longer needed.** A person or a session of the factory removes a file it no longer needs:
+
+```
+cc-devthrottle factory attach remove --factory private --id <id>
+```
+
+  Its bytes are deleted and stop counting against the 1 GB; its record stays, marked removed, so a journal entry that
+  named it still says what it was ("Removed 3 days ago" on the Records tab, with nothing to download). Reading a
+  removed file answers 410 with when it was removed. Removing it again changes nothing. The one-time upload can never
+  remove a file. The route is `DELETE /factory-records/{factory}/attachments/{id}`.
+
 ### Run
 
 How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with

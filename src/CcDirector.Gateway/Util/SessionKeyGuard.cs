@@ -791,6 +791,8 @@ public static class SessionKeyGuard
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
+            // Remove one of a factory's own files; the route admits only a session of that factory.
+            if (IsFactoryRecordRoute(verb, s)) return true;
 
             // Delete a handover. Beyond the literal words of the owner's ruling, which named handovers as
             // content an agent produces without saying who may remove one - and recorded as a judgement call
@@ -1295,7 +1297,8 @@ public static class SessionKeyGuard
     /// every session key, and safe to be: the route itself lets through only a session of the factory named in the
     /// path (<c>FactoryNaming.TryAct</c>, the gate a factory's briefs, schedules and triggers already pass), so a
     /// session key cannot reach another factory's records here. Nothing here deletes: a journal is append-only, a
-    /// document is written as a new version, an attachment is kept once.
+    /// document is written as a new version, an attachment is kept once. The one removal is a factory's own file,
+    /// DELETE /factory-records/{factory}/attachments/{id} (owner, 2026-10-23): its bytes go, its row stays marked removed.
     ///
     /// Verb by verb, because this guard is split by verb: the reads fall in the GET arm, adding an entry or a file in
     /// POST, and writing a document in PUT.
@@ -1315,7 +1318,8 @@ public static class SessionKeyGuard
         // /journal/{id} and /attachments/{id} - one record. /documents/read and /documents/history - one document.
         if (s.Length == 4)
         {
-            if (s[2] is "journal" or "attachments") return verb is "GET" or "HEAD";
+            if (s[2] == "journal") return verb is "GET" or "HEAD";
+            if (s[2] == "attachments") return verb is "GET" or "HEAD" or "DELETE";
             if (s[2] == "documents" && s[3] is "read" or "history") return verb is "GET" or "HEAD";
         }
 

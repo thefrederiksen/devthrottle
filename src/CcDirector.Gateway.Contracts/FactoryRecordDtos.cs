@@ -166,6 +166,10 @@ public sealed class FactoryAttachmentDto
 
     /// <summary>The file's bytes, base64, when one attachment is read; null in a listing.</summary>
     public string? ContentBase64 { get; set; }
+
+    /// <summary>When the factory removed the file (UTC), or null while it holds it. A removed file keeps this record;
+    /// its bytes are gone.</summary>
+    public DateTime? RemovedAtUtc { get; set; }
 }
 
 /// <summary>A factory's attachments, newest first, without their bytes.</summary>

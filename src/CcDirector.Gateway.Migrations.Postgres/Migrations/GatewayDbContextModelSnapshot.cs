@@ -1322,6 +1322,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<DateTime?>("RemovedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RemovedBy")
+                        .HasMaxLength(230)
+                        .HasColumnType("character varying(230)");
+
                     b.Property<string>("Seat")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")

@@ -1291,6 +1291,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("RemovedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RemovedBy")
+                        .HasMaxLength(230)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Seat")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");

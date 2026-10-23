@@ -213,6 +213,18 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
     expect(client.downloadFactoryAttachment).toHaveBeenCalledWith(ATTACHMENT.downloadHref);
   });
 
+  it("says a file the factory removed is removed, with nothing to download", async () => {
+    client.getFactoryRecordsTab.mockResolvedValue({
+      ...TAB,
+      attachmentRows: [{ ...ATTACHMENT, downloadLabel: "Removed 2 days ago", downloadHref: "" }],
+    });
+    renderRecords();
+
+    const row = await screen.findByTestId("fa-rec-attachment-shots/home.png");
+    expect(within(row).getByText("Removed 2 days ago")).toBeTruthy();
+    expect(within(row).queryByRole("button")).toBeNull();
+  });
+
   it("steps a journal to its older entries with the Gateway's cursor, and back to the newest", async () => {
     const page = (n: number, nextBefore: string | null, newestLabel: string | null) => ({
       heading: "The journal of Writer (writer)",
