@@ -4811,15 +4811,59 @@ public sealed class Session : IDisposable
             ? AgentPlugins.AgentPluginRegistry.Get(AgentKind).Driver
             : Drivers.AgentDrivers.For(AgentKind));
 
-    /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
-    public async Task CancelTurnAsync()
+    /// <summary>Soft-stop the current turn (Esc for Claude and pi). Answers written, or refused with the reason.</summary>
+    public async Task<InputAnswer> CancelTurnAsync()
     {
         // API mode (issue #4070): Stop is the agent's own abort, confirmed by the agent ending the turn cancelled.
-        if (_apiMode is not null) { await StopApiModeTurnAsync(); return; }
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_apiMode is not null)
+            return await StopApiModeTurnAsync() is { } refusal ? InputAnswer.Refused(refusal) : InputAnswer.Written;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("cancel");
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.CancelAsync(_backend);
+            return await TypeDriverInputAsync(Driver.Cancel(), "cancel");
+    }
+
+    /// <summary>
+    /// THE ONE PLACE A DRIVER'S INPUT IS TYPED (issue #4380). The driver said what; this types it. A command goes through
+    /// <see cref="SubmitTextAsync"/> - the one-send-at-a-time gate, the look before typing and the check after the Enter
+    /// that every prompt gets - so it cannot be typed into an open menu or a dialog: it is refused there, with nothing
+    /// typed, by <see cref="Drivers.ComposerNotAcceptingInputException"/>. Keys are written through the session's own
+    /// terminal, in order, each after its pause, and answered refused when the usage-limit guard dropped one. Called with
+    /// the session's input begun.
+    /// </summary>
+    private async Task<InputAnswer> TypeDriverInputAsync(Drivers.DriverInput input, string verb)
+    {
+        FileLog.Write($"[Session] TypeDriverInputAsync: session={Id}, verb={verb}, driver={Driver.Kind}, input={input}");
+        if (input.Command is { } command)
+        {
+            // Framework, not Agent or UserInput: the product's own command for a verb somebody asked for. It must not clear
+            // the owner's hold and is nobody's turn in the statistics.
+            var outcome = await SubmitTextAsync(_backend, command, SubmissionProvenance.FrameworkText(), SendSource.Framework,
+                origin: null, allowBracketedPaste: false, sentAtUtc: null);
+            var answer = outcome.NothingTyped ? InputAnswer.Refused(outcome.Reason!) : InputAnswer.Written;
+            FileLog.Write($"[Session] TypeDriverInputAsync done: session={Id}, verb={verb}, {answer}" +
+                          (outcome.Confirmed || outcome.NothingTyped ? "" : $" - still delivering: {outcome.Reason}"));
+            return answer;
+        }
+
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+        foreach (var key in input.Keys)
+        {
+            if (key.PauseBefore > TimeSpan.Zero) await Task.Delay(key.PauseBefore, Clock);
+            _backend.Write(key.Bytes);
+        }
+        var keysAnswer = refusals.Refused
+            ? InputAnswer.Refused($"the usage-limit dialog is showing, and only Escape reaches it; {input} did not all reach the terminal")
+            : InputAnswer.Written;
+        FileLog.Write($"[Session] TypeDriverInputAsync done: session={Id}, verb={verb}, {keysAnswer}");
+        return keysAnswer;
+    }
+
+    /// <summary>The answer for input to a session that has ended.</summary>
+    private InputAnswer NotRunningAnswer(string verb)
+    {
+        FileLog.Write($"[Session] {verb}: session={Id} is {Status}; nothing was typed");
+        return InputAnswer.Refused($"the session has {Status.ToString().ToLowerInvariant()}; nothing was typed");
     }
 
     /// <summary>
@@ -4994,21 +5038,21 @@ public sealed class Session : IDisposable
 
     /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
     /// its driver throws because Ctrl+C twice quits pi).</summary>
-    public async Task InterruptAsync()
+    public async Task<InputAnswer> InterruptAsync()
     {
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("interrupt");
         FileLog.Write($"[Session] InterruptAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.InterruptAsync(_backend);
+            return await TypeDriverInputAsync(Driver.Interrupt(), "interrupt");
     }
 
     /// <summary>Open the tool's in-terminal history picker (Claude's double-Esc).</summary>
-    public async Task ShowHistoryAsync()
+    public async Task<InputAnswer> ShowHistoryAsync()
     {
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("history");
         FileLog.Write($"[Session] ShowHistoryAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.ShowHistoryAsync(_backend);
+            return await TypeDriverInputAsync(Driver.ShowHistory(), "history");
     }
 
     /// <summary>
@@ -5018,6 +5062,10 @@ public sealed class Session : IDisposable
     /// then re-link via SessionManager.RelinkClaudeSession so the manager's id map and
     /// metadata follow; this closes the stale-relink gap found in the issue #172 spike.
     /// Returns the new id, or null when the tool has no readable transcripts.
+    ///
+    /// The command is typed by <see cref="TypeDriverInputAsync"/>, through the same send path as a prompt (issue #4380):
+    /// with a menu or a dialog on the screen it throws <see cref="Drivers.ComposerNotAcceptingInputException"/> and types
+    /// nothing.
     /// </summary>
     public async Task<string?> ClearContextAsync(CancellationToken ct = default)
     {
@@ -5031,7 +5079,9 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] ClearContextAsync: session={Id}, driver={driver.Kind}, oldAgentSessionId={oldId ?? "(none)"}");
         var t0 = DateTime.UtcNow;
         using (await BeginInputAsync())
-            await driver.ClearContextAsync(_backend);
+            if (await TypeDriverInputAsync(driver.ClearContext(), "clear") is { Kind: InputAnswerKind.Refused } refused)
+                throw new Drivers.ComposerNotAcceptingInputException($"[Session] ClearContextAsync: nothing was typed: {refused.Reason}")
+                { TerminalReacted = false };
 
         if (!driver.Capabilities.HasFlag(Drivers.DriverCapabilities.TranscriptRead) || oldId is null)
         {
@@ -5131,7 +5181,9 @@ public sealed class Session : IDisposable
 
         var t0 = DateTime.UtcNow;
         using (await BeginInputAsync())
-            await driver.CompactContextAsync(_backend);
+            if (await TypeDriverInputAsync(driver.CompactContext(), "compact") is { Kind: InputAnswerKind.Refused } refused)
+                throw new Drivers.ComposerNotAcceptingInputException($"[Session] CompactContextAsync: nothing was typed: {refused.Reason}")
+                { TerminalReacted = false };
         SetActivityState(ActivityState.Working);
 
         if (!canObserve)

@@ -60,7 +60,7 @@ public sealed class SessionCompactContextTests
         Assert.True(outcome.Submitted);
         Assert.True(outcome.CompactionObserved);
         Assert.True(outcome.Continued);
-        Assert.Equal("continue", Assert.Single(BackendOf(session).SentTexts));
+        Assert.Equal(["/compact", "continue"], BackendOf(session).SentTexts);
         Assert.True(driver.Probes >= 3, $"expected the wait to poll for the finish; probes={driver.Probes}");
     }
 
@@ -74,11 +74,11 @@ public sealed class SessionCompactContextTests
         var driver = new StubDriver { CompletesAfterProbes = 4 };
         using var session = NewSession(driver);
         var backend = BackendOf(session);
-        driver.OnProbe = () => Assert.Empty(backend.SentTexts);
+        driver.OnProbe = () => Assert.Equal(["/compact"], backend.SentTexts);
 
         await session.CompactContextAsync("continue", default, ShortWait, FastPoll);
 
-        Assert.Equal("continue", Assert.Single(backend.SentTexts));
+        Assert.Equal(["/compact", "continue"], backend.SentTexts);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class SessionCompactContextTests
 
         Assert.True(outcome.CompactionObserved);
         Assert.False(outcome.Continued);
-        Assert.Empty(BackendOf(session).SentTexts);
+        Assert.Equal(["/compact"], BackendOf(session).SentTexts);
     }
 
     /// <summary>Blank is not a follow-up. A caller passing whitespace gets a compaction, not an empty turn.</summary>
@@ -106,7 +106,7 @@ public sealed class SessionCompactContextTests
         var outcome = await session.CompactContextAsync(blank, default, ShortWait, FastPoll);
 
         Assert.False(outcome.Continued);
-        Assert.Empty(BackendOf(session).SentTexts);
+        Assert.Equal(["/compact"], BackendOf(session).SentTexts);
     }
 
     /// <summary>
@@ -123,7 +123,7 @@ public sealed class SessionCompactContextTests
             () => session.CompactContextAsync("continue", default, ShortWait, FastPoll));
 
         Assert.Contains("did not report a finished compaction", ex.Message);
-        Assert.Empty(BackendOf(session).SentTexts);
+        Assert.Equal(["/compact"], BackendOf(session).SentTexts);
     }
 
     /// <summary>
@@ -276,22 +276,22 @@ public sealed class SessionCompactContextTests
         public string ResolveExecutable(string? configuredPath) => throw new NotSupportedException();
         public AgentLaunchSpec BuildLaunchSpec(string? baseArgs, string? resumeSessionId) => throw new NotSupportedException();
         public Task SubmitAsync(ISessionBackend backend, string text) => backend.SendTextAsync(text);
-        public Task CancelAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task InterruptAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task ShowHistoryAsync(ISessionBackend backend) => Task.CompletedTask;
+        public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+        public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
+        public DriverInput ShowHistory() => DriverInput.PressKeys(DriverKey.Escape);
 
-        public Task ClearContextAsync(ISessionBackend backend)
+        public DriverInput ClearContext()
         {
             ClearCalls++;
-            return Task.CompletedTask;
+            return DriverInput.TypeCommand("/clear");
         }
 
-        public Task CompactContextAsync(ISessionBackend backend)
+        public DriverInput CompactContext()
         {
             if (!CanCompact)
                 throw new NotSupportedException("stub declares no compaction");
             CompactCalls++;
-            return Task.CompletedTask;
+            return DriverInput.TypeCommand("/compact");
         }
 
         public bool HasCompactedSince(string agentSessionId, string workingDirectory, DateTime sinceUtc)

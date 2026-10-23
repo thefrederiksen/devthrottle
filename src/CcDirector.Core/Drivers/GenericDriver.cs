@@ -18,8 +18,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class GenericDriver : IAgentDriver
 {
-    private static readonly byte[] EscapeByte = [0x1B];
-    private static readonly byte[] CtrlC = [0x03];
 
     private readonly IReadOnlyList<AgentSlashCommand> _slashCommands;
     private readonly Func<string, string?>? _currentModelReader;
@@ -83,40 +81,23 @@ public sealed class GenericDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.SharedSubmitAsync(backend, text, $"GenericDriver:{Kind}");
 
-    public Task CancelAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write($"[GenericDriver:{Kind}] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
-    }
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
-    public Task InterruptAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write($"[GenericDriver:{Kind}] InterruptAsync: sending Ctrl+C");
-        backend.Write(CtrlC);
-        return Task.CompletedTask;
-    }
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException($"[GenericDriver] {Kind} has no verified history picker.");
 
-    public Task ClearContextAsync(ISessionBackend backend) =>
+    public DriverInput ClearContext() =>
         throw new NotSupportedException($"[GenericDriver] {Kind} has no verified context-clear command.");
 
     /// <summary>
-    /// Submit the compaction command this tool was constructed with. A tool constructed WITHOUT one has
-    /// no compaction we have read, and says so rather than typing a plausible guess at its composer.
+    /// The compaction command this tool was constructed with. A tool constructed WITHOUT one has
+    /// no compaction we have read, and says so rather than asking for a plausible guess at its composer.
     /// </summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        if (_compactCommand is null)
-            throw new NotSupportedException($"[GenericDriver] {Kind} has no known compaction command.");
-        FileLog.Write($"[GenericDriver:{Kind}] CompactContextAsync: submitting {_compactCommand}");
-        return backend.SendTextAsync(_compactCommand);
-    }
+    public DriverInput CompactContext() => _compactCommand is null
+        ? throw new NotSupportedException($"[GenericDriver] {Kind} has no known compaction command.")
+        : DriverInput.TypeCommand(_compactCommand);
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException($"[GenericDriver] {Kind} has no verified transcript format.");

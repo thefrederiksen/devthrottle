@@ -12,8 +12,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class CodexDriver : IAgentDriver
 {
-    private static readonly byte[] EscapeByte = [0x1B];
-    private static readonly byte[] CtrlC = [0x03];
 
     public AgentKind Kind => AgentKind.Codex;
 
@@ -92,41 +90,19 @@ public sealed class CodexDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.SharedSubmitAsync(backend, text, "CodexDriver");
 
-    public Task CancelAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CodexDriver] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
-    }
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
-    public Task InterruptAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CodexDriver] InterruptAsync: sending Ctrl+C");
-        backend.Write(CtrlC);
-        return Task.CompletedTask;
-    }
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[CodexDriver] Codex history is surfaced through the Director history tab from rollout files, " +
             "not through a verified in-terminal history picker.");
 
-    public Task ClearContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CodexDriver] ClearContextAsync: submitting /clear");
-        return backend.SendTextAsync("/clear");
-    }
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/clear");
 
     /// <summary>Codex's in-place summarize: the /compact command its own catalog documents.</summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CodexDriver] CompactContextAsync: submitting /compact");
-        return backend.SendTextAsync("/compact");
-    }
+    public DriverInput CompactContext() => DriverInput.TypeCommand("/compact");
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException(

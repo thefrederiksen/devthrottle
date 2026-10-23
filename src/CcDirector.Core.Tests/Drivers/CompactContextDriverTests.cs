@@ -20,13 +20,11 @@ public sealed class CompactContextDriverTests
         new(transcripts ?? new EmptyTranscriptReader(), TimeSpan.Zero, TimeSpan.Zero);
 
     [Fact]
-    public async Task ClaudeDriver_CompactContextAsync_SubmitsSlashCompact()
+    public void ClaudeDriver_CompactContext_AsksForSlashCompact()
     {
-        var backend = new RecordingSessionBackend();
+        var input = NewClaudeDriver().CompactContext();
 
-        await NewClaudeDriver().CompactContextAsync(backend);
-
-        Assert.Equal("/compact", Assert.Single(backend.SentTexts));
+        Assert.Equal("/compact", input.Command);
     }
 
     /// <summary>
@@ -34,57 +32,47 @@ public sealed class CompactContextDriverTests
     /// matters: one summarizes the conversation, the other throws it away.
     /// </summary>
     [Fact]
-    public async Task ClaudeDriver_CompactContextAsync_DoesNotClear()
+    public void ClaudeDriver_CompactContext_DoesNotClear()
     {
-        var backend = new RecordingSessionBackend();
+        var input = NewClaudeDriver().CompactContext();
 
-        await NewClaudeDriver().CompactContextAsync(backend);
-
-        Assert.DoesNotContain("/clear", backend.SentTexts);
+        Assert.NotEqual("/clear", input.Command);
     }
 
     [Fact]
-    public async Task CodexDriver_CompactContextAsync_SubmitsSlashCompact()
+    public void CodexDriver_CompactContext_AsksForSlashCompact()
     {
-        var backend = new RecordingSessionBackend();
+        var input = new CodexDriver().CompactContext();
 
-        await new CodexDriver().CompactContextAsync(backend);
-
-        Assert.Equal("/compact", Assert.Single(backend.SentTexts));
+        Assert.Equal("/compact", input.Command);
     }
 
     [Fact]
-    public async Task PiDriver_CompactContextAsync_SubmitsSlashCompact()
+    public void PiDriver_CompactContext_AsksForSlashCompact()
     {
-        var backend = new RecordingSessionBackend();
+        var input = new PiDriver().CompactContext();
 
-        await new PiDriver().CompactContextAsync(backend);
-
-        Assert.Equal("/compact", Assert.Single(backend.SentTexts));
+        Assert.Equal("/compact", input.Command);
     }
 
     /// <summary>Gemini's own catalog spells compaction /compress. This is the whole reason the command
     /// belongs to the driver rather than to one shared string at the call site.</summary>
     [Fact]
-    public async Task GeminiDriver_CompactContextAsync_SubmitsSlashCompress()
+    public void GeminiDriver_CompactContext_AsksForSlashCompress()
     {
-        var backend = new RecordingSessionBackend();
+        var input = AgentDrivers.For(AgentKind.Gemini).CompactContext();
 
-        await AgentDrivers.For(AgentKind.Gemini).CompactContextAsync(backend);
-
-        Assert.Equal("/compress", Assert.Single(backend.SentTexts));
+        Assert.Equal("/compress", input.Command);
     }
 
     [Theory]
     [InlineData(AgentKind.Grok, "/compact")]
     [InlineData(AgentKind.OpenCode, "/compact")]
-    public async Task RegisteredGenericDrivers_CompactContextAsync_SubmitTheirOwnCommand(AgentKind kind, string expected)
+    public void RegisteredGenericDrivers_CompactContext_AskForTheirOwnCommand(AgentKind kind, string expected)
     {
-        var backend = new RecordingSessionBackend();
+        var input = AgentDrivers.For(kind).CompactContext();
 
-        await AgentDrivers.For(kind).CompactContextAsync(backend);
-
-        Assert.Equal(expected, Assert.Single(backend.SentTexts));
+        Assert.Equal(expected, input.Command);
     }
 
     [Theory]
@@ -105,38 +93,38 @@ public sealed class CompactContextDriverTests
     /// conversation the caller was trying to preserve.
     /// </summary>
     [Fact]
-    public async Task CopilotDriver_DeclaresNoCompaction_AndThrows()
+    public void CopilotDriver_DeclaresNoCompaction_AndThrows()
     {
         IAgentDriver driver = new CopilotDriver();
         var backend = new RecordingSessionBackend();
 
         Assert.False(driver.Capabilities.HasFlag(DriverCapabilities.CompactContext));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.CompactContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.CompactContext());
         Assert.Empty(backend.SentTexts);
     }
 
     /// <summary>Cursor's compaction is not live-verified, exactly as its context clear is not. An
     /// unverified verb stays absent rather than being typed hopefully at a real session.</summary>
     [Fact]
-    public async Task CursorDriver_DeclaresNoCompaction_AndThrows()
+    public void CursorDriver_DeclaresNoCompaction_AndThrows()
     {
         IAgentDriver driver = new CursorDriver();
         var backend = new RecordingSessionBackend();
 
         Assert.False(driver.Capabilities.HasFlag(DriverCapabilities.CompactContext));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.CompactContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.CompactContext());
         Assert.Empty(backend.SentTexts);
     }
 
     /// <summary>A generic driver built with no compaction command has none, and says so.</summary>
     [Fact]
-    public async Task GenericDriver_WithoutACompactCommand_DeclaresNothingAndThrows()
+    public void GenericDriver_WithoutACompactCommand_DeclaresNothingAndThrows()
     {
         var driver = new GenericDriver(AgentKind.RawCli);
         var backend = new RecordingSessionBackend();
 
         Assert.False(driver.Capabilities.HasFlag(DriverCapabilities.CompactContext));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.CompactContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.CompactContext());
         Assert.Empty(backend.SentTexts);
     }
 

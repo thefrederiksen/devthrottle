@@ -57,6 +57,17 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     /// the composer's text still underneath it.</summary>
     public bool MenuAfterEnter { get; set; }
 
+    /// <summary>Draw a menu where the composer is now, before any Enter: its hint in the footer, as a question menu or a
+    /// dialog that is already open when a command arrives (issue #4380).</summary>
+    public bool MenuOpen { get; set; }
+
+    /// <summary>Every byte written to this terminal, counted - zero means nothing reached it.</summary>
+    public long BytesWritten { get { lock (_lock) return _bytesWritten; } }
+    private long _bytesWritten;
+
+    /// <summary>Text handed to <see cref="SendTextAsync"/> - the one-call submit a driver used to type its commands with.</summary>
+    public List<string> SentTexts { get; } = new();
+
     /// <summary>For this long after the first Enter, draw frames the composer reader cannot read (review finding 2): the
     /// composer row without its prompt glyph, as a frame caught mid-repaint can look.</summary>
     public TimeSpan UnreadableAfterEnter { get; set; } = TimeSpan.Zero;
@@ -188,6 +199,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         var text = Encoding.UTF8.GetString(data);
         lock (_lock)
         {
+            _bytesWritten += data.Length;
             if (_unread is not null) { text = _unread + text; _unread = null; }
             for (var i = 0; i < text.Length; i++)
             {
@@ -367,7 +379,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             var shown = Now < _drawTypedFrom ? "" : ComposerShown();
             var spinner = Working ? $"* Working... ({_frame})" : "Done.";
             var afterEnter = FirstEnterAt is not null;
-            var footer = afterEnter && MenuAfterEnter ? "  enter to select - esc to go back"
+            var footer = (afterEnter && MenuAfterEnter) || MenuOpen ? "  enter to select - esc to go back"
                 : Working ? "  esc to interrupt" : "  ? for shortcuts";
             // A frame the composer reader cannot read: the composer row without its prompt glyph.
             var glyphless = afterEnter && Now < FirstEnterAt!.Value + UnreadableAfterEnter;
@@ -485,7 +497,11 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         Buffer!.Write(Encoding.UTF8.GetBytes(frame));
     }
 
-    public Task SendTextAsync(string text) => Task.CompletedTask;
+    public Task SendTextAsync(string text)
+    {
+        lock (_lock) SentTexts.Add(text);
+        return Task.CompletedTask;
+    }
     public void Resize(short cols, short rows) { }
     public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
 

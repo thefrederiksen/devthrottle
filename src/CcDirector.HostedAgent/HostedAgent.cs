@@ -197,7 +197,27 @@ public sealed class HostedAgent : IAgentBrain
     {
         var backend = RequireRunning();
         _log("[HostedAgent] CancelAsync");
-        await _driver.CancelAsync(backend);
+        await TypeAsync(backend, _driver.Cancel());
+    }
+
+    /// <summary>
+    /// Type what the driver asked for (issue #4380: the driver says what, the host types it). A command is submitted the
+    /// way this host submits a prompt, through the driver's own echo-verified submit; keys are written in order, each
+    /// after its pause.
+    /// </summary>
+    private async Task TypeAsync(ISessionBackend backend, DriverInput input)
+    {
+        _log($"[HostedAgent] TypeAsync: {input}");
+        if (input.Command is { } command)
+        {
+            await _driver.SubmitAsync(backend, command);
+            return;
+        }
+        foreach (var key in input.Keys)
+        {
+            if (key.PauseBefore > TimeSpan.Zero) await Task.Delay(key.PauseBefore);
+            backend.Write(key.Bytes);
+        }
     }
 
     /// <summary>
@@ -212,7 +232,7 @@ public sealed class HostedAgent : IAgentBrain
         var oldId = RequireSessionId();
         _log($"[HostedAgent] ClearAsync: oldAgentSessionId={oldId}");
         var t0 = DateTime.UtcNow;
-        await _driver.ClearContextAsync(backend);
+        await TypeAsync(backend, _driver.ClearContext());
 
         var deadline = t0.AddSeconds(_options.ClearTimeoutSeconds);
         string? newId = null;

@@ -27,7 +27,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class PiDriver : IAgentDriver
 {
-    private static readonly byte[] EscapeByte = [0x1B];
 
     public AgentKind Kind => AgentKind.Pi;
 
@@ -70,39 +69,23 @@ public sealed class PiDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.EchoVerifiedSubmitAsync(backend, text, "PiDriver");
 
-    public Task CancelAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
-    }
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
-    public Task InterruptAsync(ISessionBackend backend) =>
+    public DriverInput Interrupt() =>
         throw new NotSupportedException(
             "[PiDriver] pi has no safe hard interrupt: Ctrl+C clears the editor and " +
-            "Ctrl+C twice QUITS pi. Use CancelAsync (Esc).");
+            "Ctrl+C twice QUITS pi. Use Cancel (Esc).");
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[PiDriver] pi's double-Esc opens the /tree session navigator, not a history " +
             "rewind; not surfaced as History until live-verified as useful.");
 
     /// <summary>pi's context clear: the /new command starts a fresh session in place.</summary>
-    public Task ClearContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] ClearContextAsync: submitting /new");
-        return backend.SendTextAsync("/new");
-    }
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/new");
 
     /// <summary>pi's in-place summarize: /compact, distinct from /new which starts over.</summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CompactContextAsync: submitting /compact");
-        return backend.SendTextAsync("/compact");
-    }
+    public DriverInput CompactContext() => DriverInput.TypeCommand("/compact");
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException("[PiDriver] pi transcript parsing is not implemented (v1).");

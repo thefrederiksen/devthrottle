@@ -44,27 +44,22 @@ public class DriverRegistryTests : IDisposable
     // ------------------------------------------------------------ Claude
 
     [Fact]
-    public async Task ClaudeDriver_Interrupt_IsCtrlC()
+    public void ClaudeDriver_Interrupt_IsCtrlC()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new ClaudeDriver().Interrupt();
 
-        await new ClaudeDriver().InterruptAsync(backend);
-
-        var write = Assert.Single(backend.RawWrites);
+        var write = Assert.Single(input.Keys).Bytes;
         Assert.Equal(new byte[] { 0x03 }, write);
     }
 
     [Fact]
-    public async Task ClaudeDriver_History_IsDoubleEsc()
+    public void ClaudeDriver_History_IsDoubleEsc()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new ClaudeDriver().ShowHistory();
 
-        await new ClaudeDriver().ShowHistoryAsync(backend);
-
-        Assert.Equal(2, backend.RawWrites.Count);
-        Assert.All(backend.RawWrites, w => Assert.Equal(new byte[] { 0x1B }, w));
+        Assert.Equal(2, input.Keys.Count);
+        Assert.All(input.Keys, k => Assert.Equal(new byte[] { 0x1B }, k.Bytes));
+        Assert.Equal(TimeSpan.FromMilliseconds(350), input.Keys[1].PauseBefore);
     }
 
     [Fact]
@@ -78,38 +73,32 @@ public class DriverRegistryTests : IDisposable
     // ---------------------------------------------------------------- Pi
 
     [Fact]
-    public async Task PiDriver_Cancel_IsEsc()
+    public void PiDriver_Cancel_IsEsc()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new PiDriver().Cancel();
 
-        await new PiDriver().CancelAsync(backend);
-
-        var write = Assert.Single(backend.RawWrites);
+        var write = Assert.Single(input.Keys).Bytes;
         Assert.Equal(new byte[] { 0x1B }, write);
     }
 
     [Fact]
-    public async Task PiDriver_Interrupt_RefusesBecauseCtrlCQuitsPi()
+    public void PiDriver_Interrupt_RefusesBecauseCtrlCQuitsPi()
     {
         var backend = new FakeBackend();
         backend.Start("x", "", ".", 80, 24);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(
-            () => new PiDriver().InterruptAsync(backend));
+        var ex = Assert.Throws<NotSupportedException>(
+            () => new PiDriver().Interrupt());
         Assert.Contains("QUITS pi", ex.Message);
         Assert.Empty(backend.RawWrites);   // nothing must reach the terminal
     }
 
     [Fact]
-    public async Task PiDriver_ClearContext_SubmitsSlashNew()
+    public void PiDriver_ClearContext_AsksForSlashNew()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new PiDriver().ClearContext();
 
-        await new PiDriver().ClearContextAsync(backend);
-
-        Assert.Contains("/new", backend.SentTexts);
+        Assert.Equal("/new", input.Command);
     }
 
     [Fact]
@@ -135,17 +124,14 @@ public class DriverRegistryTests : IDisposable
         backend.OnRawWrite = bytes => backend.EmitOutput(System.Text.Encoding.UTF8.GetString(bytes));
         var driver = new CodexDriver();
 
-        await driver.CancelAsync(backend);
-        await driver.InterruptAsync(backend);
-        await driver.ClearContextAsync(backend);
         await driver.SubmitAsync(backend, "hello");
 
-        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[0]);   // Cancel = Esc
-        Assert.Equal(new byte[] { 0x03 }, backend.RawWrites[1]);   // Interrupt = Ctrl+C
-        Assert.Contains("/clear", backend.SentTexts);              // ClearContext = blind /clear submit
-        // SubmitAsync now types the text then Enter as separate raw writes (not a blind SendText).
-        Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(backend.RawWrites[2]));
-        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[3]);
+        Assert.Equal(new byte[] { 0x1B }, Assert.Single(driver.Cancel().Keys).Bytes);      // Cancel = Esc
+        Assert.Equal(new byte[] { 0x03 }, Assert.Single(driver.Interrupt().Keys).Bytes);   // Interrupt = Ctrl+C
+        Assert.Equal("/clear", driver.ClearContext().Command);                             // ClearContext = the /clear command
+        // SubmitAsync types the text then Enter as separate raw writes (not a blind SendText).
+        Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(backend.RawWrites[0]));
+        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[1]);
     }
 
     [Fact]
@@ -177,25 +163,22 @@ public class DriverRegistryTests : IDisposable
         };
         var driver = new GenericDriver(AgentKind.Gemini);
 
-        await driver.CancelAsync(backend);
-        await driver.InterruptAsync(backend);
         await driver.SubmitAsync(backend, "hello");
 
-        Assert.Equal(new byte[] { 0x1B }, backend.RawWrites[0]);
-        Assert.Equal(new byte[] { 0x03 }, backend.RawWrites[1]);
-        Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(backend.RawWrites[2]));
-        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[3]);
+        Assert.Equal(new byte[] { 0x1B }, Assert.Single(driver.Cancel().Keys).Bytes);
+        Assert.Equal(new byte[] { 0x03 }, Assert.Single(driver.Interrupt().Keys).Bytes);
+        Assert.Equal("hello", System.Text.Encoding.UTF8.GetString(backend.RawWrites[0]));
+        Assert.Equal(new byte[] { 0x0D }, backend.RawWrites[1]);
         Assert.Empty(backend.SentTexts);
     }
 
     [Fact]
-    public async Task GenericDriver_UndeclaredVerbs_FailLoud()
+    public void GenericDriver_UndeclaredVerbs_FailLoud()
     {
         var driver = new GenericDriver(AgentKind.Gemini);
-        var backend = new FakeBackend();
 
         Assert.Equal(DriverCapabilities.Cancel | DriverCapabilities.Interrupt, driver.Capabilities);
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ShowHistoryAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.ShowHistory());
         Assert.Throws<NotSupportedException>(() => driver.ReadWidgets("x", "y"));
         Assert.Throws<NotSupportedException>(() => driver.BuildLaunchSpec(null, null));
     }
@@ -203,14 +186,11 @@ public class DriverRegistryTests : IDisposable
     // ------------------------------------------------------------ Cursor (issue #517)
 
     [Fact]
-    public async Task CursorDriver_Interrupt_IsCtrlC()
+    public void CursorDriver_Interrupt_IsCtrlC()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new CursorDriver().Interrupt();
 
-        await new CursorDriver().InterruptAsync(backend);
-
-        var write = Assert.Single(backend.RawWrites);
+        var write = Assert.Single(input.Keys).Bytes;
         Assert.Equal(new byte[] { 0x03 }, write);
     }
 
@@ -250,15 +230,14 @@ public class DriverRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task CursorDriver_UndeclaredVerbs_ThrowNotSupported()
+    public void CursorDriver_UndeclaredVerbs_ThrowNotSupported()
     {
         // AC11: calling an unsupported verb throws rather than fabricating behavior/data.
         var driver = new CursorDriver();
-        var backend = new FakeBackend();
 
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.CancelAsync(backend));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ShowHistoryAsync(backend));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ClearContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.Cancel());
+        Assert.Throws<NotSupportedException>(() => driver.ShowHistory());
+        Assert.Throws<NotSupportedException>(() => driver.ClearContext());
         Assert.Throws<NotSupportedException>(() => driver.ReadWidgets("sid", "wd"));
         Assert.Throws<NotSupportedException>(() => driver.ReadUsage("sid", "wd"));
         Assert.Throws<NotSupportedException>(() => driver.ListTranscripts("wd"));
