@@ -31,6 +31,9 @@ const gw = vi.hoisted(() => ({
     /** When true, every answer for session "t" is held back until `releaseT` is called. */
     holdT: boolean;
     releaseT: (() => void) | null;
+    /** When true, every poll of session "s" (not an older page) is held back until `releasePolls` answers them. */
+    holdPolls: boolean;
+    heldPolls: Array<() => void>;
   },
 }));
 
@@ -101,6 +104,10 @@ vi.mock("../api/client", async (importOriginal) => ({
         return new Promise((resolve) => {
           gw.state.releaseT = () => resolve(answer);
         });
+      if (sid === "s" && window?.before === undefined && gw.state.holdPolls)
+        return new Promise((resolve) => {
+          gw.state.heldPolls.push(() => resolve(answer));
+        });
       if (window?.before !== undefined && gw.state.holdOlder)
         return new Promise((resolve) => {
           gw.state.release = () => resolve(answer);
@@ -145,7 +152,7 @@ async function poll(): Promise<void> {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  gw.state = { messages: conversation(25), other: conversation(25, "t-"), sent: [], holdOlder: false, release: null, holdT: false, releaseT: null };
+  gw.state = { messages: conversation(25), other: conversation(25, "t-"), sent: [], holdOlder: false, release: null, holdT: false, releaseT: null, holdPolls: false, heldPolls: [] };
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
 });
 
@@ -295,5 +302,46 @@ describe("an older page in flight (issue #4372, review)", () => {
     expect(result.current.earlierError).toBeNull();
     await settle();
     expect(result.current.earlierPages).toBe(1);
+  });
+});
+
+// Issue #4387: the timer fires every 2.5 seconds whether or not the last poll answered. Revert-proof: drop the
+// in-flight check and the first case sends four reads instead of one; key it on anything that outlives a session
+// switch and the second case waits for the old session's poll before reading the new one.
+describe("one poll at a time (issue #4387)", () => {
+  it("a slow answer is not stacked with more reads, and polling goes on once it lands", async () => {
+    renderHook(() => useSessionChat("s", { turns: 10 }));
+    await settle();
+    gw.state.holdPolls = true;
+    const before = gw.state.sent.length;
+
+    await poll();
+    await poll();
+    await poll();
+    expect(gw.state.sent.length).toBe(before + 1);
+
+    gw.state.holdPolls = false;
+    await act(async () => {
+      for (const answer of gw.state.heldPolls.splice(0)) answer();
+    });
+    await settle();
+    await poll();
+    expect(gw.state.sent.length).toBe(before + 2);
+  });
+
+  it("a session switch reads the new session at once, though the previous one's poll is still waiting", async () => {
+    const { result, rerender } = renderHook(({ sid }) => useSessionChat(sid, { turns: 10 }), { initialProps: { sid: "s" } });
+    await settle();
+    gw.state.holdPolls = true;
+    await poll();
+    const before = gw.state.sent.length;
+
+    rerender({ sid: "t" });
+    await settle();
+
+    expect(gw.state.sent.length).toBe(before + 1);
+    expect(gw.state.sent.at(-1)?.cursor).toBe("");
+    expect(result.current.bubbles.length).toBeGreaterThan(0);
+    expect(result.current.bubbles.every((b) => b.bubble.body.startsWith("t-"))).toBe(true);
   });
 });

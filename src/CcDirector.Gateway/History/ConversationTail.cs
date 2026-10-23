@@ -80,8 +80,33 @@ public static class ConversationTail
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(options);
 
-        // One pass over the conversation: the hash is taken at the claimed count on the way past, and the
-        // same running hash carries on to the end for the next cursor.
+        using var index = new ConversationIndex(tenant, sessionId, generation, options);
+        foreach (var message in messages)
+            index.Append(message);
+        var verdict = Decide(cursor, index.Count, index.DigestAt);
+        if (verdict.TailFrom == 0)
+            return new Answer(0, messages, verdict.Cursor, verdict.Reason);
+        return new Answer(verdict.TailFrom, messages.GetRange(verdict.TailFrom, messages.Count - verdict.TailFrom), verdict.Cursor, null);
+    }
+
+    /// <summary>What a cursor request is answered with, before any message is rebuilt (issue #4387).</summary>
+    /// <param name="TailFrom">How many messages the client holds and keeps; 0 means the answer is the whole conversation.</param>
+    /// <param name="Cursor">The cursor for the WHOLE conversation - what the client sends next.</param>
+    /// <param name="Reason">Why the answer is whole, for the log; null when the cursor matched.</param>
+    public readonly record struct Verdict(int TailFrom, string Cursor, string? Reason);
+
+    /// <summary>
+    /// Decide a cursor request against a <see cref="ConversationView"/>: the same decision as the overload over the
+    /// messages, taken from hashes the store already holds, so no message is rebuilt or serialised to make it.
+    /// </summary>
+    public static Verdict Decide(string? cursor, ConversationView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        return Decide(cursor, view.Count, view.DigestAt);
+    }
+
+    private static Verdict Decide(string? cursor, int count, Func<int, byte[]> digestAt)
+    {
         string? reason = null;
         var claimed = -1;
         byte[]? claimedHash = null;
@@ -89,27 +114,13 @@ public static class ConversationTail
             reason = "no cursor";
         else if (!TryParse(cursor, out claimed, out claimedHash))
             reason = "cursor does not parse";
-        else if (claimed > messages.Count)
-            reason = $"cursor holds {claimed} message(s), conversation has {messages.Count}";
+        else if (claimed > count)
+            reason = $"cursor holds {claimed} message(s), conversation has {count}";
+        else if (!CryptographicOperations.FixedTimeEquals(digestAt(claimed), claimedHash))
+            reason = "cursor does not match the conversation held here";
 
-        using var hash = Start(tenant, sessionId, generation);
-        var matched = false;
-        for (var i = 0; i <= messages.Count; i++)
-        {
-            if (reason is null && i == claimed)
-            {
-                matched = CryptographicOperations.FixedTimeEquals(hash.GetCurrentHash(), claimedHash);
-                if (!matched)
-                    reason = "cursor does not match the conversation held here";
-            }
-            if (i < messages.Count)
-                AppendMessage(hash, messages[i], options);
-        }
-        var next = Format(messages.Count, hash.GetCurrentHash());
-
-        if (!matched)
-            return new Answer(0, messages, next, reason);
-        return new Answer(claimed, messages.GetRange(claimed, messages.Count - claimed), next, null);
+        var next = Format(count, digestAt(count));
+        return reason is null ? new Verdict(claimed, next, null) : new Verdict(0, next, reason);
     }
 
     /// <summary>The cursor for the first <paramref name="count"/> of <paramref name="messages"/>. What a client
@@ -126,7 +137,7 @@ public static class ConversationTail
         return Format(count, hash.GetCurrentHash());
     }
 
-    private static IncrementalHash Start(string tenant, string sessionId, string generation)
+    internal static IncrementalHash Start(string tenant, string sessionId, string generation)
     {
         var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendField(hash, Domain);
@@ -136,7 +147,7 @@ public static class ConversationTail
         return hash;
     }
 
-    private static void AppendMessage(IncrementalHash hash, HistoryMessageDto message, JsonSerializerOptions options) =>
+    internal static void AppendMessage(IncrementalHash hash, HistoryMessageDto message, JsonSerializerOptions options) =>
         AppendField(hash, JsonSerializer.SerializeToUtf8Bytes(message, options));
 
     // Length-prefixed, so no two different sequences of fields can produce the same byte stream.

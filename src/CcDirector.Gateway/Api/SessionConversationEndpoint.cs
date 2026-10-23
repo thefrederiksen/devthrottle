@@ -59,31 +59,6 @@ public static class SessionConversationEndpoint
             var located = pushedSessions.TryLocate(tenant.Value, sid, staleAfter);
             var everSeen = located is null ? pushedSessions.TryLocateIgnoringFreshness(tenant.Value, sid) : null;
 
-            // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's
-            // ambient tenant (GatewayDbContext's global query filter), so a read taken outside a scope
-            // answers from whatever tenant happened to be ambient - which on hosted is how one account ends
-            // up served another account's conversation (found in review). Resolving the request's tenant is
-            // authentication; entering it is what makes the read authorised.
-            using var scope = tenantBoundary?.EnterScope(tenant.Value);
-            var stored = turns.ReadCurrent(sid);
-
-            var directorId = located?.DirectorId ?? everSeen?.DirectorId ?? stored?.Head.DirectorId;
-            var dto = SessionConversationFold.Fold(
-                sid,
-                stored?.Head,
-                stored?.Messages ?? new List<Contracts.HistoryMessageDto>(),
-                directorId,
-                sessionKnown: located is not null || everSeen is not null || stored is not null,
-                directorConnected: located is not null,
-                directorPushesTurns: capabilities.PushesTurns(tenant.Value, located?.DirectorId));
-
-            // Logged only when there is nothing to serve. A healthy poll every 2.5 seconds per open screen
-            // must not write a line each time - that is how a log stops being readable.
-            if (dto.Messages.Count == 0)
-                FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: {dto.Status} ({dto.EmptyText})");
-            // Traffic optimization, phase 2: a client that sends the cursor it was handed gets only the messages
-            // after it, when the Gateway can prove it holds exactly that start (ConversationTail). A request with
-            // NO cursor parameter at all is an older Cockpit or phone, and gets exactly the answer it always got.
             // Issue #4372: the window. `turns` cuts a whole-conversation answer to the last few turns; `before` asks for
             // the turns before the window the client holds. Read before anything is decided, so a malformed number - or
             // a window asked for without the cursor it only ever rides with - is refused rather than answered in full.
@@ -99,39 +74,85 @@ public static class SessionConversationEndpoint
                     new { error = $"'{ConversationWindow.TurnsParameter}' needs '{CursorParameter}': a window is only ever sent with the cursor that names it" },
                     statusCode: StatusCodes.Status400BadRequest);
 
-            if (hasCursor)
-            {
-                var options = ConditionalJson.HostOptions(ctx);
-                var answer = ConversationTail.Decide(
-                    cursorValues.ToString(), tenant.Value.Value, sid, stored?.Head.Generation ?? "", dto.Messages, options);
+            // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's
+            // ambient tenant (GatewayDbContext's global query filter), so a read taken outside a scope
+            // answers from whatever tenant happened to be ambient - which on hosted is how one account ends
+            // up served another account's conversation (found in review). Resolving the request's tenant is
+            // authentication; entering it is what makes the read authorised.
+            using var scope = tenantBoundary?.EnterScope(tenant.Value);
+            var directorConnected = located is not null;
+            var directorPushesTurns = capabilities.PushesTurns(tenant.Value, located?.DirectorId);
 
-                // An older page is served only on top of a conversation the cursor PROVES the client holds, and only
-                // for a point inside what it holds. Anything else falls through to a fresh window, which replaces
-                // what the client holds - never a page that might leave a gap or a duplicate.
-                if (windowBefore is { } b && windowTurns is { } pageTurns)
-                {
-                    var held = answer.Reason is null ? answer.TailFrom : -1;
-                    if (held >= b)
-                        return ConditionalJson.Serve(ctx, OlderBody(dto, b, pageTurns, options), options);
-                    FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: older page before {b} refused ({answer.Reason ?? $"the client holds {held} message(s)"}), answered with a fresh window");
-                    // A refused older page is ALWAYS answered whole, even when the cursor itself matched: a tail is an
-                    // answer to "what is new", and this client asked a different question.
-                    answer = new ConversationTail.Answer(0, dto.Messages, answer.Cursor, answer.Reason ?? "older page outside what the client holds");
-                }
-                else if (answer.TailFrom == 0 && !string.IsNullOrEmpty(cursorValues.ToString()))
-                {
-                    // Logged only when a cursor the client DID send could not be honoured - a generation switch, a
-                    // shorter conversation, a changed turn. The first read (no cursor yet) is the normal case.
-                    FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: answered in full ({answer.Reason})");
-                }
-                return ConditionalJson.Serve(ctx, TailBody(dto, answer, options, windowTurns), options);
+            if (!hasCursor)
+            {
+                // A request with NO cursor parameter at all is an older Cockpit or phone, and gets exactly the answer
+                // it always got: the whole conversation.
+                var stored = turns.ReadCurrent(sid);
+                var dto = SessionConversationFold.Fold(
+                    sid,
+                    stored?.Head,
+                    stored?.Messages ?? new List<Contracts.HistoryMessageDto>(),
+                    located?.DirectorId ?? everSeen?.DirectorId ?? stored?.Head.DirectorId,
+                    sessionKnown: located is not null || everSeen is not null || stored is not null,
+                    directorConnected,
+                    directorPushesTurns);
+                LogIfEmpty(sid, tenant.Value, dto, dto.Messages.Count);
+
+                // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag
+                // is computed from the exact bytes, so a new turn, a verdict, the stale notice or the history state
+                // all change it. See ConditionalJson.
+                return ConditionalJson.Serve(ctx, dto);
             }
 
-            // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag
-            // is computed from the exact bytes, so a new turn, a verdict, the stale notice or the history state
-            // all change it. See ConditionalJson.
-            return ConditionalJson.Serve(ctx, dto);
+            // Traffic optimization, phase 2: a client that sends the cursor it was handed gets only the messages
+            // after it, when the Gateway can prove it holds exactly that start (ConversationTail).
+            //
+            // Issue #4387: decided from the store's index of the conversation, not from the conversation. The cursor
+            // is checked against a hash already held and the window is found in the index, so the only messages
+            // rebuilt are the ones this answer sends - none at all for a poll with nothing new. It used to rebuild and
+            // re-serialise every message on every poll, inside the store's one lock.
+            var options = ConditionalJson.HostOptions(ctx);
+            var view = turns.ReadView(sid, tenant.Value.Value, options);
+            var envelope = SessionConversationFold.Fold(
+                sid,
+                view.Head,
+                view.Count,
+                located?.DirectorId ?? everSeen?.DirectorId ?? view.Head?.DirectorId,
+                sessionKnown: located is not null || everSeen is not null || view.Head is not null,
+                directorConnected,
+                directorPushesTurns);
+            LogIfEmpty(sid, tenant.Value, envelope, view.Count);
+            var verdict = ConversationTail.Decide(cursorValues.ToString(), view);
+
+            // An older page is served only on top of a conversation the cursor PROVES the client holds, and only
+            // for a point inside what it holds. Anything else falls through to a fresh window, which replaces
+            // what the client holds - never a page that might leave a gap or a duplicate.
+            if (windowBefore is { } b && windowTurns is { } pageTurns)
+            {
+                var held = verdict.Reason is null ? verdict.TailFrom : -1;
+                if (held >= b)
+                    return ConditionalJson.Serve(ctx, OlderBody(envelope, view, b, pageTurns, options), options);
+                FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: older page before {b} refused ({verdict.Reason ?? $"the client holds {held} message(s)"}), answered with a fresh window");
+                // A refused older page is ALWAYS answered whole, even when the cursor itself matched: a tail is an
+                // answer to "what is new", and this client asked a different question.
+                verdict = verdict with { TailFrom = 0, Reason = verdict.Reason ?? "older page outside what the client holds" };
+            }
+            else if (verdict.TailFrom == 0 && !string.IsNullOrEmpty(cursorValues.ToString()))
+            {
+                // Logged only when a cursor the client DID send could not be honoured - a generation switch, a
+                // shorter conversation, a changed turn. The first read (no cursor yet) is the normal case.
+                FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: answered in full ({verdict.Reason})");
+            }
+            return ConditionalJson.Serve(ctx, TailBody(envelope, view, verdict, options, windowTurns), options);
         });
+    }
+
+    // Logged only when there is nothing to serve. A healthy poll every 2.5 seconds per open screen must not write a
+    // line each time - that is how a log stops being readable.
+    private static void LogIfEmpty(string sid, CcDirector.Core.Tenancy.TenantId tenant, SessionHistoryDto dto, int messageCount)
+    {
+        if (messageCount == 0)
+            FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.ToLogString()}: {dto.Status} ({dto.EmptyText})");
     }
 
     /// <summary>The query parameter a newer client sends: the cursor from its last answer, or empty when it
@@ -150,19 +171,20 @@ public static class SessionConversationEndpoint
     /// it is only what is new - and the cursor is unchanged either way: it names the whole conversation.
     /// </remarks>
     internal static JsonObject TailBody(
-        SessionHistoryDto full, ConversationTail.Answer answer, JsonSerializerOptions options, int? turns = null)
+        SessionHistoryDto envelope, ConversationView view, ConversationTail.Verdict verdict, JsonSerializerOptions options,
+        int? turns = null)
     {
-        var messages = answer.Messages;
+        var from = verdict.TailFrom;
         var windowFrom = 0;
-        if (turns is { } t && answer.TailFrom == 0)
+        if (turns is { } t && verdict.TailFrom == 0)
         {
-            windowFrom = ConversationWindow.StartOfLastTurns(messages, messages.Count, t);
-            messages = messages.GetRange(windowFrom, messages.Count - windowFrom);
+            windowFrom = ConversationWindow.StartOfLastTurns(view, view.Count, t);
+            from = windowFrom;
         }
-        var body = Envelope(full, messages, options);
-        body[Name(options, "TailFrom")] = answer.TailFrom;
-        body[Name(options, "Cursor")] = answer.Cursor;
-        if (turns is not null && answer.TailFrom == 0)
+        var body = Envelope(envelope, view.Messages(from, view.Count), options);
+        body[Name(options, "TailFrom")] = verdict.TailFrom;
+        body[Name(options, "Cursor")] = verdict.Cursor;
+        if (turns is not null && verdict.TailFrom == 0)
             body[Name(options, "WindowFrom")] = windowFrom;
         return body;
     }
@@ -173,11 +195,12 @@ public static class SessionConversationEndpoint
     /// <c>tailFrom</c>, because it changes nothing about how far the client holds the conversation - only how far
     /// back. Every other field is the full answer's, as on every answer.
     /// </summary>
-    internal static JsonObject OlderBody(SessionHistoryDto full, int before, int turns, JsonSerializerOptions options)
+    internal static JsonObject OlderBody(
+        SessionHistoryDto envelope, ConversationView view, int before, int turns, JsonSerializerOptions options)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(before, full.Messages.Count);
-        var from = ConversationWindow.StartOfLastTurns(full.Messages, before, turns);
-        var body = Envelope(full, full.Messages.GetRange(from, before - from), options);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(before, view.Count);
+        var from = ConversationWindow.StartOfLastTurns(view, before, turns);
+        var body = Envelope(envelope, view.Messages(from, before), options);
         body[Name(options, "OlderFrom")] = from;
         return body;
     }
