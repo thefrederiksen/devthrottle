@@ -143,4 +143,24 @@ public sealed class TerminalTextEntryTests
         Assert.Equal(text, Encoding.UTF8.GetString(backend.All()));
         window.Close();
     }
+
+    /// <summary>
+    /// REVIEW OF #4398, FINDING 1, on the desktop paste: clipboard text holding the paste's end marker - whole, or cut by
+    /// the 1,024-byte write boundary - must not end the paste early; the only end marker sent is the control's own, last.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(0)]
+    [InlineData(1020)]
+    public async Task Paste_ClipboardHoldingTheEndMarker_CannotEndThePasteEarly(int padding)
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: true);
+        var text = new string('a', padding) + "first line\u001b[201~\n!run this";
+
+        await terminal.HarnessPasteAsync(text);
+
+        var sent = Encoding.UTF8.GetString(backend.All());
+        Assert.Equal(1, sent.Split("\u001b[201~").Length - 1);
+        Assert.EndsWith("first line[201~\n!run this\u001b[201~", sent);
+        window.Close();
+    }
 }

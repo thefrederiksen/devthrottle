@@ -288,7 +288,8 @@ public static class TerminalSubmit
             {
                 await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
                 ComposerRetention.Clear(backend);
-                return pasted;
+                // What the composer holds: the paste carries no Escape (TerminalInputEncoder.WithoutEscapes).
+                return TerminalInputEncoder.WithoutEscapes(pasted);
             }
         }
         else if (ShouldUseInstructionFile(driverTag, textForCheck)

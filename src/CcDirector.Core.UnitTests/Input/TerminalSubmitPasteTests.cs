@@ -154,4 +154,23 @@ public sealed class TerminalSubmitPasteTests : IDisposable
         Assert.False(terminal.PasteFramed);
         Assert.Equal("please run the checklist", Encoding.UTF8.GetString(terminal.Writes.TakeWhile(w => !(w.Length == 1 && w[0] == 0x0D)).SelectMany(w => w).ToArray()));
     }
+
+    /// <summary>
+    /// REVIEW OF #4398, FINDING 1, on the send path: a prompt holding the paste's end marker must still go as ONE paste -
+    /// exactly one end marker reaches the agent, the encoder's own, right before the one Enter - so a "!" after it stays
+    /// text and is never typed live into the composer.
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_TextHoldingThePasteEndMarker_StaysOnePaste()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+
+        var typed = await SendAsync(terminal, clock, "first line\u001b[201~\n!run this", "ClaudeCode");
+
+        var stream = Encoding.UTF8.GetString(terminal.Writes.SelectMany(w => w).ToArray());
+        Assert.Equal(1, stream.Split("\u001b[201~").Length - 1);
+        Assert.EndsWith("first line[201~\n!run this\u001b[201~\r", stream);
+        Assert.Equal("first line[201~\n!run this", typed);
+    }
 }

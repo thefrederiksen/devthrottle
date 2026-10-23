@@ -128,15 +128,28 @@ public static class TerminalInputEncoder
 
     /// <summary>
     /// The writes of one paste, in order: <see cref="PasteStart"/>, the text with its line breaks normalised
-    /// (<see cref="NormalizeLineBreaks"/>) in chunks that never split a character, then <see cref="PasteEnd"/> - or,
+    /// (<see cref="NormalizeLineBreaks"/>) and its Escapes removed (<see cref="WithoutEscapes"/>) in chunks that never split a character, then <see cref="PasteEnd"/> - or,
     /// when <paramref name="bracketed"/> is false because the program never asked for bracketed paste, the text alone,
     /// as a terminal sends it. The caller writes each chunk and chooses its own pace between them.
     /// </summary>
     public static IEnumerable<byte[]> Paste(string text, bool bracketed, bool nonAsciiAsKeyEvents, int chunkSize)
     {
+        var body = NormalizeLineBreaks(text);
+        if (bracketed) body = WithoutEscapes(body);
         if (bracketed) yield return PasteStart;
-        foreach (var chunk in Chunks(NormalizeLineBreaks(text), nonAsciiAsKeyEvents, chunkSize))
+        foreach (var chunk in Chunks(body, nonAsciiAsKeyEvents, chunkSize))
             yield return chunk;
         if (bracketed) yield return PasteEnd;
     }
+
+    /// <summary>
+    /// A paste's text with every Escape removed, so nothing in it can end the paste (review of pull request #4398,
+    /// finding 1). Text holding <c>ESC [ 201 ~</c> closed the bracketed paste early, and the rest was then typed live: a
+    /// line beginning with "!" put the agent in shell mode and the submit's Enter ran it. With no Escape left the end
+    /// marker cannot form at all - not embedded whole, not split across two writes, and not rebuilt by taking out one
+    /// marker that sat inside another. Terminals such as kitty and WezTerm sanitise a paste the same way, so a person
+    /// pasting the text gets the same. The markers and the Windows key events are written around and after this.
+    /// </summary>
+    internal static string WithoutEscapes(string text) =>
+        text.IndexOf('') < 0 ? text : text.Replace("", "", StringComparison.Ordinal);
 }

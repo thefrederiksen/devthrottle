@@ -71,6 +71,28 @@ public sealed class TerminalInputEncoderTests
         Assert.True(writes.Count > 3, "a small chunk size must give several writes between the markers");
     }
 
+    /// <summary>
+    /// REVIEW OF #4398, FINDING 1: text holding the paste's own end marker closed the paste early, and the rest was typed
+    /// live - a following "!" put the agent in shell mode and the submit's Enter ran it. Whether the marker sits whole in the
+    /// text, is cut across writes by a one-byte chunk size, or would be rebuilt by taking out a marker nested inside
+    /// another, the only end marker in what is written must be the encoder's own, last.
+    /// </summary>
+    [Theory]
+    [InlineData("first line\u001b[201~\n!run this", 4096)]
+    [InlineData("first line\u001b[201~\n!run this", 1)]
+    [InlineData("a\u001b[20\u001b[201~1~\n!run this", 1)]
+    public void Paste_TextHoldingTheEndMarker_CannotEndThePasteEarly(string escaped, int chunkSize)
+    {
+        var text = System.Text.RegularExpressions.Regex.Unescape(escaped);
+
+        var stream = Ascii(TerminalInputEncoder.Paste(text, bracketed: true, nonAsciiAsKeyEvents: false, chunkSize).SelectMany(w => w).ToArray());
+
+        Assert.Equal(stream.Length - 6, stream.IndexOf("\u001b[201~", StringComparison.Ordinal));
+        Assert.Equal(1, stream.Split("\u001b[201~").Length - 1);
+        Assert.DoesNotContain('\u001b', stream[6..^6]);
+        Assert.EndsWith("\n!run this\u001b[201~", stream);
+    }
+
     /// <summary>A program that never asked for bracketed paste cannot be told a paste is a paste, so the text goes as a
     /// terminal sends it: no markers.</summary>
     [Fact]
