@@ -416,8 +416,13 @@ def attach_add(factory: str, seat: Optional[str], file: str, name: Optional[str]
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    axi_cli.write_lines(f"Kept: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes). Name this id in a "
-                        "journal entry with --attachment.")
+    if answer.get("outcome") == "AlreadyStored":
+        axi_cli.write_lines(f"Already held: these exact bytes are kept as attachment {a.get('id')} '{a.get('name')}' "
+                            f"({a.get('bytes')} bytes), so nothing was stored again. Name this id in a journal entry "
+                            "with --attachment.")
+    else:
+        axi_cli.write_lines(f"Kept: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes). Name this id in a "
+                            "journal entry with --attachment.")
     axi_cli.print_next([f"{_JOURNAL} add {_f(factory)} --file <path> --attachment {a.get('id')}"])
 
 

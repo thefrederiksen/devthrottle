@@ -153,6 +153,9 @@ internal static class FactoryRecordsTabEndpoints
             {
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var found = attachments.Get(tenant, registered.Factory, id);
+                if (found?.RemovedAtUtc is { } removed)
+                    return Results.Json(new { error = $"{registered.Factory} removed attachment {id} ('{found.Name}') on {removed:yyyy-MM-dd HH:mm} UTC; its bytes are gone" },
+                        statusCode: StatusCodes.Status410Gone);
                 var bytes = found is null ? null : attachments.Content(tenant, registered.Factory, id);
                 if (found is null || bytes is null)
                     return Results.Json(new { error = $"{registered.Factory} has no attachment {id}" }, statusCode: StatusCodes.Status404NotFound);

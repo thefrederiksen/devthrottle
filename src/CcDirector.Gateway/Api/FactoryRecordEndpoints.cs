@@ -25,8 +25,10 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /factory-records/{factory}/documents/history     one page of its versions, WITHOUT text (?name= ?before= ?limit=)
 ///   PUT  /factory-records/{factory}/documents             write one, stating the version last read
 ///   GET  /factory-records/{factory}/attachments           the files, newest first, WITHOUT bytes (?seat= ?limit=1..1000)
-///   GET  /factory-records/{factory}/attachments/{id}      one file, with its bytes
-///   POST /factory-records/{factory}/attachments           keep one file
+///   GET  /factory-records/{factory}/attachments/{id}      one file, with its bytes (410 once removed)
+///   POST /factory-records/{factory}/attachments           keep one file (the same bytes for the same seat: kept once)
+///   DELETE /factory-records/{factory}/attachments/{id}    remove one file: its bytes go, its row stays marked removed;
+///                                                         a person or a session of the factory, never the upload
 ///
 /// A DOCUMENT'S NAME TRAVELS IN THE QUERY OR THE BODY, NEVER THE PATH: it is itself a path (<c>outreach/ledger.json</c>),
 /// and a route that took it as a segment would split it.

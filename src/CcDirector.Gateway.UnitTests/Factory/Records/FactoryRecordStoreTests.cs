@@ -343,6 +343,52 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_same_bytes_for_another_seat_are_kept_for_that_seat_so_each_seat_lists_its_own()
+    {
+        var store = Attachments();
+        var bytes = Png(300);
+        AddBySession(store, "templates/resume.pdf", bytes, seat: null);
+
+        var mine = AddBySession(store, "applications/2026-10-24/acme/resume.pdf", bytes, seat: "applicant");
+
+        Assert.Equal(FactoryRecordOutcome.Written, mine.Outcome);
+        Assert.Equal(1, store.List(A, TheFactory, "applicant").Total);
+    }
+
+    [Fact]
+    public void A_page_that_ended_on_a_file_removed_since_still_leads_to_the_older_ones()
+    {
+        var store = Attachments();
+        var newest = store.Add(A, TheFactory, null, "c.png", "image/png", Png(3), FactoryRecordAuthorKinds.Session, RunOne, Now).Attachment!;
+        var middle = store.Add(A, TheFactory, null, "b.png", "image/png", Png(4), FactoryRecordAuthorKinds.Session, RunOne, Now.AddMinutes(-1)).Attachment!;
+        var oldest = store.Add(A, TheFactory, null, "a.png", "image/png", Png(5), FactoryRecordAuthorKinds.Session, RunOne, Now.AddMinutes(-2)).Attachment!;
+        var first = store.Page(A, TheFactory, null, 2)!;
+        Assert.Equal(new[] { newest.Id, middle.Id }, first.Attachments.Select(a => a.Id));
+
+        store.Remove(A, TheFactory, middle.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+        var next = store.Page(A, TheFactory, first.NextBefore, 2);
+
+        Assert.NotNull(next);
+        Assert.Equal(new[] { oldest.Id }, next!.Attachments.Select(a => a.Id));
+    }
+
+    [Fact]
+    public void A_removed_cursor_among_files_kept_at_one_instant_starts_the_next_page_right_after_it()
+    {
+        var store = Attachments();
+        var ids = new[] { "a.png", "b.png", "c.png", "d.png" }
+            .Select((n, i) => store.Add(A, TheFactory, null, n, "image/png", Png(10 + i), FactoryRecordAuthorKinds.Session, RunOne, Now).Attachment!.Id)
+            .ToList();
+        var first = store.Page(A, TheFactory, null, 2)!;
+        Assert.Equal(ids.Take(2), first.Attachments.Select(a => a.Id));
+
+        store.Remove(A, TheFactory, ids[1], FactoryRecordAuthorKinds.Session, RunOne, Now);
+        var next = store.Page(A, TheFactory, first.NextBefore, 2)!;
+
+        Assert.Equal(ids.Skip(2), next.Attachments.Select(a => a.Id));
+    }
+
+    [Fact]
     public void The_same_bytes_in_another_factory_or_account_are_kept_there_too()
     {
         var store = Attachments();

@@ -213,6 +213,14 @@ public sealed class FactoryRecordRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_SESSION_OF_ONE_FACTORY_MAY_NEVER_REMOVE_ANOTHER_FACTORYS_FILE()
+    {
+        var refused = await Send("DELETE", $"/factory-records/warmforward/attachments/{Guid.NewGuid()}", AsASessionOfTheFactory);
+
+        Assert.Equal(403, refused.Status);
+    }
+
+    [Fact]
     public async Task THE_UPLOAD_MAY_NEVER_REMOVE_A_FILE()
     {
         var kept = await Send("POST", Root + "/attachments", AsASessionOfTheFactory,

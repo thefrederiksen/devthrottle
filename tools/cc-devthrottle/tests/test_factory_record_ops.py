@@ -196,6 +196,19 @@ def test_a_fetched_attachment_is_written_only_when_its_bytes_match_the_stored_ha
     assert not (tmp_path / "x.json").exists()
 
 
+def test_a_file_whose_bytes_are_held_already_is_said_held_not_kept(gateway, tmp_path):
+    held = {"id": "a7", "name": "applications/2026-10-24/acme/resume.pdf", "bytes": 5}
+    gateway((200, {"outcome": "AlreadyStored", "attachment": held}))
+    file = tmp_path / "resume.pdf"
+    file.write_bytes(b"%PDF1")
+
+    result = runner.invoke(app, ["factory", "attach", "add", "--factory", FACTORY, "--file", str(file)])
+
+    assert result.exit_code == 0, result.output
+    assert "Already held" in result.output
+    assert "attachment a7" in result.output
+
+
 def test_a_removed_attachment_is_said_removed_and_one_never_held_fails(gateway):
     removed = {"id": "a1", "name": "applications/2026-07-01/acme/form.html", "bytes": 12,
                "removedAtUtc": "2026-10-24T06:40:00Z"}

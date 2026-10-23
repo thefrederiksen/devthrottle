@@ -19,7 +19,8 @@ namespace CcDirector.Gateway.Factory.Records;
 /// WRITTEN ONCE. A file is never edited or replaced; a changed file is a new attachment with a new id.
 ///
 /// KEPT ONCE (owner, 2026-10-23: "if there's duplicate, we don't need to save them"). A file whose exact bytes the
-/// factory already holds is not stored again: the attachment it holds is the answer, <see cref="FactoryRecordOutcome.AlreadyStored"/>.
+/// factory already holds for the same seat is not stored again: the attachment it holds is the answer, under the name
+/// it was first kept by, <see cref="FactoryRecordOutcome.AlreadyStored"/>.
 /// A seat that attaches the same resume to every application keeps it once.
 ///
 /// REMOVED WHEN NO LONGER NEEDED (owner, 2026-10-23: "we don't need to save the applications forever"). A person or a
@@ -105,10 +106,16 @@ public sealed class FactoryAttachmentStore
                 return new FactoryAttachmentPage(first, total, 0, first.Count < total ? first[^1].Id : null, factoryBytes);
             }
 
-            if (rows.FirstOrDefault(a => a.Id == cursorId) is not { } cursor) return null;
+            // The cursor is looked up among every file the factory kept, removed ones too: a file removed after a page
+            // ended on it still marks where the next page starts (review of #4404, finding 1).
+            if (ctx.FactoryAttachments.AsNoTracking().FirstOrDefault(a => a.Factory == factory && a.Id == cursorId) is not { } cursor)
+                return null;
             var at = cursor.WrittenAtUtc;
-            // The attachments kept at the cursor's instant, in the page order; those after the cursor come first.
-            var tied = rows.Where(a => a.WrittenAtUtc == at).OrderBy(a => a.Name).ThenBy(a => a.Id).Select(a => a.Id).ToList();
+            // The attachments kept at the cursor's instant, in the page order, with the cursor placed among them even
+            // when it was removed; those after it come first. The database orders them, as it orders the pages.
+            var tied = ctx.FactoryAttachments.AsNoTracking()
+                .Where(a => a.Factory == factory && a.WrittenAtUtc == at && (a.RemovedAtUtc == null || a.Id == cursorId))
+                .OrderBy(a => a.Name).ThenBy(a => a.Id).Select(a => a.Id).ToList();
             var tiedAfter = tied.Skip(tied.IndexOf(cursorId) + 1).ToList();
             var older = ordered.Where(a => a.WrittenAtUtc < at);
             var left = tiedAfter.Count + older.Count();
@@ -240,10 +247,12 @@ public sealed class FactoryAttachmentStore
                 }
             }
 
-            // The same bytes, already held by this factory: kept once. The upload names its files and is answered above.
+            // The same bytes, already held for this seat (or for the factory as a whole, when no seat is named): kept
+            // once, and the file held is the answer. Per seat, so a seat's file is always in that seat's listing
+            // (review of #4404, finding 2). The upload names its files and is answered above.
             if (importKey is null
-                && ctx.FactoryAttachments.AsNoTracking().FirstOrDefault(a => a.Factory == factory && a.Sha256 == sha
-                    && a.Bytes == content.LongLength && a.RemovedAtUtc == null) is { } same)
+                && ctx.FactoryAttachments.AsNoTracking().FirstOrDefault(a => a.Factory == factory && a.Seat == foldedSeat
+                    && a.Sha256 == sha && a.Bytes == content.LongLength && a.RemovedAtUtc == null) is { } same)
             {
                 FileLog.Write($"[FactoryAttachmentStore] {factory}/{foldedName}: the same bytes are held already as {same.Id} ('{same.Name}'); nothing stored");
                 return new FactoryAttachmentWrite(FactoryRecordOutcome.AlreadyStored, null, same);

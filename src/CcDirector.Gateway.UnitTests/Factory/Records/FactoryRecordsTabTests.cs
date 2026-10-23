@@ -315,7 +315,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         var tab = await Get($"/gateway/factories/{F}/records");
         Assert.Equal(0, tab.Body.GetProperty("attachmentRows").GetArrayLength());
         var file = await Send($"/gateway/factories/{F}/records/attachments/{form.Id}");
-        Assert.Equal(404, file.Status);
+        Assert.Equal(410, file.Status);
     }
 
     [Fact]
