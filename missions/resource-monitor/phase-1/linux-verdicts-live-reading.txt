@@ -1,0 +1,170 @@
+Resource Monitor - phase 1 - the verdict functions - live reading on devlinux (Linux), 2026-10-15
+
+WHAT THIS IS, AND WHAT IT IS NOT.
+This task is pure functions (ResourcePressure, SlownessDiagnoser, ProcessTreeUsage,
+SessionProcessMembership). It has no probe, so it cannot print a ResourceSample the machine took by
+itself; that is the Linux probe's proof. Instead, the operating system's own figures were read BY
+HAND at one moment (below, with the commands), typed into ResourceSample values held constant over
+60 seconds (13 samples, 5 seconds apart), and handed to both verdict functions through a throwaway
+test that was deleted after the run and is not committed. The process list was not read by hand, so
+it is given as unreadable and no culprit process is named - which also exercises that path.
+
+The machine was under heavy disk load from this session's own Release build of the solution.
+
+----------------------------------------------------------------------------------------------------
+THE OPERATING SYSTEM'S OWN FIGURES, READ BY HAND
+----------------------------------------------------------------------------------------------------
+$ date -u
+2026-10-15T13:56:16Z
+$ cat /proc/pressure/io
+some avg10=69.03 avg60=73.80 avg300=71.82 total=8437560436
+full avg10=65.29 avg60=66.03 avg300=63.15 total=8016148601
+$ cat /proc/pressure/cpu
+some avg10=0.15 avg60=2.50 avg300=3.06 total=1317820718
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+$ cat /proc/pressure/memory
+some avg10=0.37 avg60=2.81 avg300=4.68 total=144144151
+full avg10=0.33 avg60=2.46 avg300=4.09 total=123215019
+$ cat /proc/loadavg
+46.06 46.98 46.34 1/5789 4163315
+$ nproc
+32
+$ grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree' /proc/meminfo
+MemTotal:       41036396 kB
+MemAvailable:   15759152 kB
+SwapTotal:       8388604 kB
+SwapFree:        1991580 kB
+$ mpstat 5 1 (all cores)
+Average:     all   18.47    0.00    2.55   40.95    0.00    0.19    0.00    0.00    0.00   37.85
+$ iostat -dx sda sdb sdc 5 2 (second report: r_await w_await %util)
+Device r/s=r/s rkB/s=rkB/s r_await=r_await w/s=w/s wkB/s=wkB/s w_await=w_await util=%util
+sda r/s=0.00 rkB/s=0.00 r_await=0.00 w/s=3.40 wkB/s=0.00 w_await=1.35 util=0.42
+sdb r/s=0.00 rkB/s=0.00 r_await=0.00 w/s=3.40 wkB/s=0.00 w_await=1.00 util=0.36
+sdc r/s=118.60 rkB/s=751.20 r_await=141.47 w/s=86.00 wkB/s=24344.00 w_await=66.59 util=78.44
+ r/s= rkB/s= r_await= w/s= wkB/s= w_await= util=
+ r/s= rkB/s= r_await= w/s= wkB/s= w_await= util=
+$ df -B1 / /boot/efi
+Filesystem                            1B-blocks         Used     Available Use% Mounted on
+/dev/mapper/ubuntu--vg-ubuntu--lv 3441928929280 152145297408 3148778184704   5% /
+/dev/sdc1                            1124995072      6438912    1118556160   1% /boot/efi
+$ lsblk -d -o NAME,ROTA /dev/sda /dev/sdb /dev/sdc
+NAME ROTA
+sda     0
+sdb     0
+sdc     1
+$ pvs -o pv_name,vg_name
+sudo: a password is required
+$ lsblk -s -o NAME,ROTA,SIZE /dev/mapper/ubuntu--vg-ubuntu--lv (the disks under the root volume)
+NAME                  ROTA   SIZE
+ubuntu--vg-ubuntu--lv    1   3.2T
+├─sda1                   0 465.8G
+│ └─sda                  0 465.8G
+├─sdb1                   0 931.5G
+│ └─sdb                  0 931.5G
+└─sdc3                   1   1.8T
+  └─sdc                  1   1.8T
+
+How the figures became a sample:
+  processor busy  = 100 - %idle - %iowait from mpstat = 100 - 37.85 - 40.95 = 21.2 (waiting on the
+                    disk is idle processor time, as the Linux probe counts it)
+  memory          = MemTotal and MemAvailable from /proc/meminfo
+  swap used       = SwapTotal - SwapFree
+  disks           = iostat %util as busy, r_await and w_await as milliseconds per read and write,
+                    lsblk ROTA as the kind (1 = Spinning, 0 = SolidState)
+  root volume     = df, on sda, sdb and sdc (lsblk -s); /boot/efi is sdc1
+  stall           = /proc/pressure "some avg10"; run queue = the 1-minute load average
+
+----------------------------------------------------------------------------------------------------
+WHAT THE VERDICT FUNCTIONS SAID - FIRST RUN, AS THE MISSION WORDS THE DISK FREE RULE
+----------------------------------------------------------------------------------------------------
+ResourcePressure.Evaluate:
+  Cpu: Normal - the processor is 21% busy; it has not stayed over 85% for 60 seconds
+  Memory: Normal - 15.0 GB available of 39.1 GB; the machine has memory to spare
+  DiskActivity: Normal - the disk is 78% busy; it has not stayed over 80% for 60 seconds
+  Swap: Critical - swap 6.1 GB used of 8.0 GB, 76% used, over the 75% limit
+  DiskFree: Critical - /boot/efi with 1.0 GB free of 1.0 GB (99%)
+  Worst: Critical
+
+SlownessDiagnoser.Diagnose:
+  CouldDiagnose: True, IsSlow: True, Cause: Disk
+  Culprit: disk sdc (Spinning), process (none named)
+  Summary: Slow because of the disk: the hard drive sdc is 78% busy, 67 ms per write
+  Next step: Move the busy work off the hard drive sdc onto a solid-state drive, or let the heavy disk work finish.
+  Evidence:
+    - programs waited for a processor 0.15% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the processor was 21% busy
+    - programs waited on memory 0.37% of the time (Linux pressure figures, averaged over 60 seconds)
+    - 15.0 GB available of 39.1 GB
+    - programs waited on the disk 69% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the busiest physical disk is the hard drive sdc, 78% busy, 67 ms per write, part of the volumes /, /boot/efi
+
+FOUND: DiskFree is Critical for /boot/efi, a 1 GB partition that is 99% free, because it is under
+the 5 GB red floor. Every machine with a small system partition would be red for ever. Fixed in
+commit "the gigabyte floors on disk free apply only from 20 GB up" and put to the Tech Lead.
+
+----------------------------------------------------------------------------------------------------
+WHAT THE VERDICT FUNCTIONS SAID - AFTER THE FIX, SAME FIGURES
+----------------------------------------------------------------------------------------------------
+ResourcePressure.Evaluate:
+  Cpu: Normal - the processor is 21% busy; it has not stayed over 85% for 60 seconds
+  Memory: Normal - 15.0 GB available of 39.1 GB; the machine has memory to spare
+  DiskActivity: Normal - the disk is 78% busy; it has not stayed over 80% for 60 seconds
+  Swap: Critical - swap 6.1 GB used of 8.0 GB, 76% used, over the 75% limit
+  DiskFree: Normal - the fullest volume is /boot/efi with 1.0 GB free of 1.0 GB (99%)
+  Worst: Critical
+
+SlownessDiagnoser.Diagnose:
+  CouldDiagnose: True, IsSlow: True, Cause: Disk
+  Culprit: disk sdc (Spinning), process (none named)
+  Summary: Slow because of the disk: the hard drive sdc is 78% busy, 67 ms per write
+  Next step: Move the busy work off the hard drive sdc onto a solid-state drive, or let the heavy disk work finish.
+  Evidence:
+    - programs waited for a processor 0.15% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the processor was 21% busy
+    - programs waited on memory 0.37% of the time (Linux pressure figures, averaged over 60 seconds)
+    - 15.0 GB available of 39.1 GB
+    - programs waited on the disk 69% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the busiest physical disk is the hard drive sdc, 78% busy, 67 ms per write, part of the volumes /, /boot/efi
+
+That "fullest volume" line named /boot/efi, the volume with the fewest bytes free, though / is the
+fuller one. It now names the volume with the smallest share free, pinned by
+Evaluate_DiskFreeAllNormal_NamesTheVolumeWithTheSmallestShareFree.
+
+----------------------------------------------------------------------------------------------------
+FINAL RUN - THE PULL REQUEST'S CODE, REBASED ON THE INTERFACE (pull request 4016), SAME FIGURES
+----------------------------------------------------------------------------------------------------
+ResourcePressure.Evaluate:
+  Cpu: Normal - the processor is 21% busy; it has not stayed over 85% for 60 seconds
+  Memory: Normal - 15.0 GB available of 39.1 GB; the machine has memory to spare
+  DiskActivity: Normal - the disk is 78% busy; it has not stayed over 80% for 60 seconds
+  Swap: Critical - swap 6.1 GB used of 8.0 GB, 76% used, over the 75% limit
+  DiskFree: Normal - the fullest volume is / with 2932.5 GB free of 3205.5 GB (91%)
+  Worst: Critical
+
+SlownessDiagnoser.Diagnose:
+  CouldDiagnose: True, IsSlow: True, Cause: Disk
+  Culprit: disk sdc (Spinning), process (none named)
+  Summary: Slow because of the disk: the hard drive sdc is 78% busy, 67 ms per write
+  Next step: Move the busy work off the hard drive sdc onto a solid-state drive, or let the heavy disk work finish.
+  Evidence:
+    - programs waited for a processor 0.15% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the processor was 21% busy
+    - programs waited on memory 0.37% of the time (Linux pressure figures, averaged over 60 seconds)
+    - 15.0 GB available of 39.1 GB
+    - programs waited on the disk 69% of the time (Linux pressure figures, averaged over 60 seconds)
+    - the busiest physical disk is the hard drive sdc, 78% busy, 67 ms per write, part of the volumes /, /boot/efi
+
+----------------------------------------------------------------------------------------------------
+DOES IT AGREE WITH THE MACHINE?
+----------------------------------------------------------------------------------------------------
+- Diagnosis: Disk, the spinning hard drive sdc. The machine's own figures say programs waited on the
+  disk 69% of the time against 0.15% for the processor and 0.37% for memory, sdc 78% busy at 67 ms
+  per write and 141 ms per read, the two solid-state drives under 1% busy. Same cause as the
+  mission's 2026-10-15 morning readings. Agrees.
+- Processor Normal at 21% busy, though the load average is 46 on 32 cores: the load counts the
+  programs waiting on the disk. Agrees with mpstat.
+- Memory Normal, 15.0 GB available of 39.1 GB. Agrees with /proc/meminfo.
+- Disk activity Normal: sdc at 78% is under the 80% amber limit, and the Linux disk stall (69%) is
+  lower than that. The meter's limits are the mission's; the diagnosis is what names this trouble.
+- Swap Critical: 6.1 GB of 8.0 GB used is 76%, over the 75% red limit. Agrees with /proc/meminfo.
+- Disk free Normal after the fix: / is 91% free, /boot/efi 99% free. Agrees with df.
