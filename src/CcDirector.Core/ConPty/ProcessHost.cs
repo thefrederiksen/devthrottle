@@ -305,17 +305,12 @@ public sealed class ProcessHost : IDisposable
         }
     }
 
-    /// <summary>Write raw bytes to the process input (async).</summary>
-    public async Task WriteAsync(byte[] data)
+    /// <summary>Write raw bytes to the process input (async wrapper). A failed write reaches the caller, as
+    /// <see cref="Write"/> does (issue #4380); this used to return quietly, as the Unix host's wrapper never did.</summary>
+    public Task WriteAsync(byte[] data)
     {
-        if (_disposed || _inputStream == null) return;
-        try
-        {
-            await _inputStream.WriteAsync(data);
-            await _inputStream.FlushAsync();
-        }
-        catch (IOException) { }
-        catch (ObjectDisposedException) { }
+        Write(data);
+        return Task.CompletedTask;
     }
 
     /// <summary>
