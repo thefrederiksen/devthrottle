@@ -105,12 +105,15 @@ public sealed class EnterCommandTests
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
         session.AgentKind = Core.Agents.AgentKind.ClaudeCode;
 
-        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "!git status", AppendEnter = false });
+        // A short answer budget: the verb answers "delivering" while the send's check runs on, and the mode rides that
+        // answer too.
+        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "!git status", AppendEnter = true },
+            answerBudget: TimeSpan.FromMilliseconds(1));
 
         Assert.True(sent.Ok, sent.Error);
         var body = JsonSerializer.Deserialize<PromptResponse>(sent.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal("a shell command (Claude Code's bash mode)", body!.LeadingMode);
-        Assert.Equal(new[] { "!git status" }, terminal.Writes);
+        Assert.Equal("!git status", terminal.Writes[0]);
     }
 
     [Fact]
@@ -119,7 +122,21 @@ public sealed class EnterCommandTests
         var (session, _) = ScriptedTerminal.NewWaitingSession();
         session.AgentKind = Core.Agents.AgentKind.ClaudeCode;
 
-        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "git status", AppendEnter = false });
+        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "git status", AppendEnter = true },
+            answerBudget: TimeSpan.FromMilliseconds(1));
+
+        var body = JsonSerializer.Deserialize<PromptResponse>(sent.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Null(body!.LeadingMode);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_KeystrokesWithoutEnter_ReportNoMode()
+    {
+        // The Cockpit's terminal sends each chunk of keys as text with no Enter: a "/" typed there is a key, not a line.
+        var (session, _) = ScriptedTerminal.NewWaitingSession();
+        session.AgentKind = Core.Agents.AgentKind.ClaudeCode;
+
+        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "/", AppendEnter = false });
 
         var body = JsonSerializer.Deserialize<PromptResponse>(sent.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Null(body!.LeadingMode);

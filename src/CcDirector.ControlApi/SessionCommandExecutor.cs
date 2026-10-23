@@ -478,8 +478,9 @@ internal static class SessionCommandExecutor
         using var refusals = UsageLimitInputGuard.WatchRefusals();
 
         // A LEADING "!" OR "/" IS NEVER QUIET (issue #4380): the text is typed exactly as a person would type it, so the
-        // agent does with it what it does for a person - and the answer says what that was.
-        var leadingMode = session.Driver.LeadingCharacterMode(request.Text);
+        // agent does with it what it does for a person - and the answer says what that was. Only for a SUBMITTED prompt:
+        // text sent without an Enter is keystrokes (the Cockpit's terminal sends every chunk that way), not a line.
+        var leadingMode = request.AppendEnter ? session.Driver.LeadingCharacterMode(request.Text) : null;
         if (leadingMode is not null)
             FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the text's first character makes it {leadingMode} in {session.AgentKind}");
 
