@@ -4,6 +4,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
@@ -140,7 +141,15 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
 
-        session.Resize((short)Math.Min(request.Cols, short.MaxValue), (short)Math.Min(request.Rows, short.MaxValue));
+        try
+        {
+            session.Resize((short)Math.Min(request.Cols, short.MaxValue), (short)Math.Min(request.Rows, short.MaxValue));
+        }
+        catch (TerminalWriteFailedException ex)
+        {
+            // The backend logged it; the sender is told (issue #4380) instead of being answered with an unchanged grid.
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
+        }
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new ResizeResponse
         {
             Accepted = true,
@@ -183,8 +192,20 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         // Raw bytes from a browser terminal, relayed by the Gateway, which stamped the credential kind of the
         // person typing when their socket opened (source logging, 2026-09-05). A relay older than that field
         // sends none, and that is recorded as the unknown it is - never guessed here.
-        session.SendInput(bytes, null, SubmissionProvenance.FromWire(request.Provenance, SubmissionRoutes.GatewayTerminal));
-        return DirectorCommandResult.Success();
+        // EVERY INPUT ROUTE ANSWERS (issue #4380): a keystroke the usage-limit guard dropped is answered refused, and the
+        // Gateway puts a refused frame on the browser's terminal socket; until then the sender heard nothing at all.
+        InputAnswer answer;
+        try
+        {
+            answer = session.SendInput(bytes, null, SubmissionProvenance.FromWire(request.Provenance, SubmissionRoutes.GatewayTerminal));
+        }
+        catch (TerminalWriteFailedException ex)
+        {
+            answer = InputAnswer.Refused(ex.Message);
+        }
+        if (answer.Kind == InputAnswerKind.Refused)
+            FileLog.Write($"[SessionWriteExecutor] terminal-input: session={guid}: {answer}");
+        return SessionCommandExecutor.Answer(answer);
     }
 
     /// <summary>
@@ -211,6 +232,11 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         }
         catch (NotSupportedException ex)
         {
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
+        }
+        catch (ComposerNotAcceptingInputException ex)
+        {
+            // Refused before typing (issue #4380): a menu or a dialog is where the composer should be.
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
         }
 
@@ -289,15 +315,18 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
 
+        InputAnswer answer;
         try
         {
-            await session.ShowHistoryAsync();
+            answer = await session.ShowHistoryAsync();
         }
         catch (NotSupportedException ex)
         {
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
         }
-        return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new { accepted = true }));
+        if (answer.Kind == InputAnswerKind.Refused)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, answer.Reason!);
+        return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new { accepted = true, outcome = answer.Word }));
     }
 
     /// <summary>

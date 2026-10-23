@@ -138,15 +138,15 @@ public class ClearContextConfirmationTests
         public string ResolveExecutable(string? configuredPath) => throw new NotSupportedException();
         public AgentLaunchSpec BuildLaunchSpec(string? baseArgs, string? resumeSessionId) => throw new NotSupportedException();
         public Task SubmitAsync(ISessionBackend backend, string text) => Task.CompletedTask;
-        public Task CancelAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task InterruptAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task ShowHistoryAsync(ISessionBackend backend) => Task.CompletedTask;
+        public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+        public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
+        public DriverInput ShowHistory() => DriverInput.PressKeys(DriverKey.Escape);
 
-        public Task ClearContextAsync(ISessionBackend backend)
+        public DriverInput ClearContext()
         {
             ClearCalls++;
             OnClear?.Invoke();
-            return Task.CompletedTask;
+            return DriverInput.TypeCommand("/clear");
         }
 
         public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) => new();

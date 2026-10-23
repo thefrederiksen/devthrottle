@@ -186,29 +186,29 @@ public sealed class FakeDriver : IAgentDriver
         return Task.CompletedTask;
     }
 
-    public Task CancelAsync(ISessionBackend backend)
+    public DriverInput Cancel()
     {
         CancelCount++;
-        return Task.CompletedTask;
+        return DriverInput.PressKeys(DriverKey.Escape);
     }
 
-    public Task InterruptAsync(ISessionBackend backend)
+    public DriverInput Interrupt()
     {
         InterruptCount++;
-        return Task.CompletedTask;
+        return DriverInput.PressKeys(DriverKey.CtrlC);
     }
 
-    public Task ShowHistoryAsync(ISessionBackend backend)
+    public DriverInput ShowHistory()
     {
         HistoryCount++;
-        return Task.CompletedTask;
+        return DriverInput.PressKeys(DriverKey.Escape);
     }
 
-    public Task ClearContextAsync(ISessionBackend backend)
+    public DriverInput ClearContext()
     {
         ClearCount++;
         OnClear?.Invoke();
-        return Task.CompletedTask;
+        return DriverInput.TypeCommand("/clear");
     }
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>

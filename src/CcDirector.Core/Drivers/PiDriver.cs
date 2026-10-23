@@ -27,7 +27,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class PiDriver : IAgentDriver
 {
-    private static readonly byte[] EscapeByte = [0x1B];
 
     public AgentKind Kind => AgentKind.Pi;
 
@@ -70,39 +69,35 @@ public sealed class PiDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.EchoVerifiedSubmitAsync(backend, text, "PiDriver");
 
-    public Task CancelAsync(ISessionBackend backend)
+    /// <summary>Measured on Pi (Terminal Parity baseline, 23 October 2026): a leading "!" runs the line as a shell command
+    /// and never reaches the conversation. A leading "/" is a command only when it names one of Pi's own commands; any
+    /// other line starting with "/" arrived as an ordinary prompt.</summary>
+    public string? LeadingCharacterMode(string text)
     {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
+        if (text.Length == 0) return null;
+        if (text[0] == '!') return "a shell command";
+        if (text[0] != '/') return null;
+        var word = text[1..].Split(' ', 2)[0];
+        return SlashCommands.Any(c => string.Equals(c.NormalizedName, word, StringComparison.Ordinal)) ? "a slash command" : null;
     }
 
-    public Task InterruptAsync(ISessionBackend backend) =>
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+
+    public DriverInput Interrupt() =>
         throw new NotSupportedException(
             "[PiDriver] pi has no safe hard interrupt: Ctrl+C clears the editor and " +
-            "Ctrl+C twice QUITS pi. Use CancelAsync (Esc).");
+            "Ctrl+C twice QUITS pi. Use Cancel (Esc).");
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[PiDriver] pi's double-Esc opens the /tree session navigator, not a history " +
             "rewind; not surfaced as History until live-verified as useful.");
 
     /// <summary>pi's context clear: the /new command starts a fresh session in place.</summary>
-    public Task ClearContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] ClearContextAsync: submitting /new");
-        return backend.SendTextAsync("/new");
-    }
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/new");
 
     /// <summary>pi's in-place summarize: /compact, distinct from /new which starts over.</summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CompactContextAsync: submitting /compact");
-        return backend.SendTextAsync("/compact");
-    }
+    public DriverInput CompactContext() => DriverInput.TypeCommand("/compact");
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
         throw new NotSupportedException("[PiDriver] pi transcript parsing is not implemented (v1).");

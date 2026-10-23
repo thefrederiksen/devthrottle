@@ -28,7 +28,7 @@ public enum DriverCapabilities
     PreassignedSessionId = 8,
 
     /// <summary>The tool survives a hard interrupt keystroke (Ctrl+C) without dying -
-    /// distinct from <see cref="Cancel"/>'s soft turn-abort.</summary>
+    /// distinct from the soft turn-abort of <see cref="Cancel"/>.</summary>
     Interrupt = 16,
 
     /// <summary>The tool has an in-terminal history/rewind picker (claude's double-Esc
@@ -150,6 +150,15 @@ public interface IAgentDriver
     /// </summary>
     IReadOnlyList<ApiMode.SessionConnectionMode> ConnectionModes => ApiMode.SessionConnectionModes.TerminalOnly;
 
+    /// <summary>
+    /// What this agent's composer makes of a line because of its FIRST character - "a shell command", "a slash command" -
+    /// or null when the line goes as an ordinary prompt (issue #4380). A person typing at the terminal gets the agent's own
+    /// behaviour, and so does a prompt; what a prompt must never do is run a command QUIETLY, so the prompt route reports
+    /// this to its sender. Only modes MEASURED on the agent are declared (the Terminal Parity baseline, 23 October 2026);
+    /// the default is none, and that is the honest answer for an agent nobody has measured.
+    /// </summary>
+    string? LeadingCharacterMode(string text) => null;
+
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }
@@ -180,32 +189,38 @@ public interface IAgentDriver
     /// <summary>Submit a prompt with the tool's correct typing semantics.</summary>
     Task SubmitAsync(ISessionBackend backend, string text);
 
+    // WHAT TO TYPE, NEVER THE TYPING (issue #4380). The five verbs below describe the input; the host types it. In the
+    // Director the host is the Session alone, which types a command through the same send path as a prompt - the send
+    // gate, the look before typing, the proof after the Enter - and writes keys through the session's one input door.
+    // A driver that wrote to the backend itself skipped all of that: /clear was typed into an open menu that way.
+    // DriverWritesNothingTests fails when a driver writes to a backend directly.
+
     /// <summary>Abort the current turn (capability <see cref="DriverCapabilities.Cancel"/>).</summary>
-    Task CancelAsync(ISessionBackend backend);
+    DriverInput Cancel();
 
     /// <summary>Hard interrupt (capability <see cref="DriverCapabilities.Interrupt"/>) -
-    /// Ctrl+C for every terminal CLI verified so far. Stronger than CancelAsync.</summary>
-    Task InterruptAsync(ISessionBackend backend);
+    /// Ctrl+C for every terminal CLI verified so far. Stronger than <see cref="Cancel"/>.</summary>
+    DriverInput Interrupt();
 
     /// <summary>Open the tool's in-terminal history/rewind picker (capability
     /// <see cref="DriverCapabilities.History"/>) - claude's double-Esc.</summary>
-    Task ShowHistoryAsync(ISessionBackend backend);
+    DriverInput ShowHistory();
 
     /// <summary>Reset the conversation context in place (capability
     /// <see cref="DriverCapabilities.ClearContext"/>). The host is responsible for
     /// re-discovering the tool's new transcript id afterwards via
     /// <see cref="ListTranscripts"/>.</summary>
-    Task ClearContextAsync(ISessionBackend backend);
+    DriverInput ClearContext();
 
     /// <summary>
     /// Summarize the conversation in place (capability <see cref="DriverCapabilities.CompactContext"/>):
     /// the tool rewrites its own history down to a summary and carries on. Unlike
-    /// <see cref="ClearContextAsync"/> this keeps the tool's conversation identity, so the host must NOT
+    /// <see cref="ClearContext"/> this keeps the tool's conversation identity, so the host must NOT
     /// re-link a transcript afterwards. The default throws <see cref="NotSupportedException"/> so a tool
     /// with no compaction command is honestly absent - never emulated with a clear, which would silently
     /// destroy the very work compaction exists to preserve.
     /// </summary>
-    Task CompactContextAsync(ISessionBackend backend) =>
+    DriverInput CompactContext() =>
         throw new NotSupportedException(
             $"[{GetType().Name}] {Kind} does not declare DriverCapabilities.CompactContext.");
 

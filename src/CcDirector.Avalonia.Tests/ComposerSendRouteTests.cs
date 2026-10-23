@@ -334,7 +334,7 @@ public sealed class ComposerSendRouteTests
     /// <summary>A backend whose every send is refused the way session 121's were (issue 3481).</summary>
     private sealed class RefusingBackend : ISessionBackend
     {
-        public const string Refusal = "[ClaudeCode] ResolveRetainedComposer: the composer cannot be read after it was cleared, so nothing was typed";
+        public const string Refusal = "[ClaudeCode] ResolveRetainedComposer: the composer still holds text after it was cleared, so nothing was typed";
         /// <summary>Model and terminal text, as a real refusal carries it in "Readable buffer tail:".</summary>
         public const string ScreenTail = "the model wrote: the staging database password is in the vault";
         public int ProcessId => 1;

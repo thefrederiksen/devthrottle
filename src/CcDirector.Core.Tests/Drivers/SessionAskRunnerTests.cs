@@ -454,10 +454,10 @@ internal sealed class FixtureAskDriver : IAgentDriver
         return Task.CompletedTask;
     }
 
-    public Task CancelAsync(ISessionBackend backend) => Task.CompletedTask;
-    public Task InterruptAsync(ISessionBackend backend) => Task.CompletedTask;
-    public Task ShowHistoryAsync(ISessionBackend backend) => Task.CompletedTask;
-    public Task ClearContextAsync(ISessionBackend backend) => Task.CompletedTask;
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
+    public DriverInput ShowHistory() => DriverInput.PressKeys(DriverKey.Escape);
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/clear");
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
         _widgets.TryGetValue(agentSessionId, out var w) ? new List<TurnWidgetDto>(w) : new List<TurnWidgetDto>();

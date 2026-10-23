@@ -278,12 +278,12 @@ public class DrainSessionControlSmartShutdownVerbsTests
         public string ResolveExecutable(string? configuredPath) => throw new NotSupportedException();
         public AgentLaunchSpec BuildLaunchSpec(string? baseArgs, string? resumeSessionId) => throw new NotSupportedException();
         public Task SubmitAsync(ISessionBackend backend, string text) => throw new NotSupportedException();
-        public Task CancelAsync(ISessionBackend backend) => throw new NotSupportedException(
+        public DriverInput Cancel() => throw new NotSupportedException(
             "[DeclaresNeitherDriver] this stand-in agent has no soft cancel.");
-        public Task InterruptAsync(ISessionBackend backend) => throw new NotSupportedException(
+        public DriverInput Interrupt() => throw new NotSupportedException(
             "[DeclaresNeitherDriver] this stand-in agent has no hard interrupt.");
-        public Task ShowHistoryAsync(ISessionBackend backend) => throw new NotSupportedException();
-        public Task ClearContextAsync(ISessionBackend backend) => throw new NotSupportedException();
+        public DriverInput ShowHistory() => throw new NotSupportedException();
+        public DriverInput ClearContext() => throw new NotSupportedException();
         public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) => throw new NotSupportedException();
         public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) => throw new NotSupportedException();
         public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) => throw new NotSupportedException();
@@ -303,11 +303,11 @@ public class DrainSessionControlSmartShutdownVerbsTests
         public string ResolveExecutable(string? configuredPath) => throw new NotSupportedException();
         public AgentLaunchSpec BuildLaunchSpec(string? baseArgs, string? resumeSessionId) => throw new NotSupportedException();
         public Task SubmitAsync(ISessionBackend backend, string text) => throw new NotSupportedException();
-        public Task CancelAsync(ISessionBackend backend) => throw new NotSupportedException();
-        public Task InterruptAsync(ISessionBackend backend) => throw new NotSupportedException(
+        public DriverInput Cancel() => throw new NotSupportedException();
+        public DriverInput Interrupt() => throw new NotSupportedException(
             "this stand-in agent refuses the interrupt");
-        public Task ShowHistoryAsync(ISessionBackend backend) => throw new NotSupportedException();
-        public Task ClearContextAsync(ISessionBackend backend) => throw new NotSupportedException();
+        public DriverInput ShowHistory() => throw new NotSupportedException();
+        public DriverInput ClearContext() => throw new NotSupportedException();
         public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) => throw new NotSupportedException();
         public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) => throw new NotSupportedException();
         public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) => throw new NotSupportedException();

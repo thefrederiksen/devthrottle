@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
@@ -353,7 +354,17 @@ public class TerminalControl : Control
         _resizeRequests++;
         _lastResizeRequest = (cols, rows);
         _session.SuppressActivityFor(RepaintSuppressionWindow);
-        _session.Resize(cols, rows);
+        try
+        {
+            _session.Resize(cols, rows);
+        }
+        catch (TerminalWriteFailedException ex)
+        {
+            // THE CONTROL IS WHERE A RESIZE FAILURE LANDS (issue #4380): the backend no longer swallows it, and every
+            // caller of this method is a layout or attach handler on the UI thread. Logged, and the next resize tries
+            // again - the session keeps its old size, so the same size is not skipped as unchanged.
+            FileLog.Write($"[TerminalControl] ResizeSession FAILED: session={_session.Id}, {cols}x{rows}: {ex.Message}");
+        }
     }
 
     // Test hooks only: how many resizes this control has asked its session for, and the last size asked. They count
@@ -2372,7 +2383,9 @@ public class TerminalControl : Control
 
         try
         {
-            await PaceChunksAsync(text, bytes => session.SendInput(bytes, null, DesktopTerminalDoor)).ConfigureAwait(false);
+            // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
+            // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
+            await PaceChunksAsync(text, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
         }
         catch (Exception ex)

@@ -40,24 +40,20 @@ public sealed class CodexDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task CancelAsync_WritesEscapeByte()
+    public void Cancel_AsksForEscapeByte()
     {
-        var backend = new RecordingSessionBackend();
+        var input = new CodexDriver().Cancel();
 
-        await new CodexDriver().CancelAsync(backend);
-
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal([0x1B], bytes);
     }
 
     [Fact]
-    public async Task InterruptAsync_WritesControlCByte()
+    public void Interrupt_AsksForControlCByte()
     {
-        var backend = new RecordingSessionBackend();
+        var input = new CodexDriver().Interrupt();
 
-        await new CodexDriver().InterruptAsync(backend);
-
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal([0x03], bytes);
     }
 
@@ -92,13 +88,11 @@ public sealed class CodexDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task ClearContextAsync_SubmitsSlashClear()
+    public void ClearContext_AsksForSlashClear()
     {
-        var backend = new RecordingSessionBackend();
+        var input = new CodexDriver().ClearContext();
 
-        await new CodexDriver().ClearContextAsync(backend);
-
-        Assert.Equal("/clear", Assert.Single(backend.SentTexts));
+        Assert.Equal("/clear", input.Command);
     }
 
     [Fact]
@@ -111,12 +105,10 @@ public sealed class CodexDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task ShowHistoryAsync_ThrowsBecauseTerminalPickerIsNotVerified()
+    public void ShowHistory_ThrowsBecauseTerminalPickerIsNotVerified()
     {
-        var backend = new RecordingSessionBackend();
-
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(
-            () => new CodexDriver().ShowHistoryAsync(backend));
+        var ex = Assert.Throws<NotSupportedException>(
+            () => new CodexDriver().ShowHistory());
 
         Assert.Contains("history tab", ex.Message);
     }
