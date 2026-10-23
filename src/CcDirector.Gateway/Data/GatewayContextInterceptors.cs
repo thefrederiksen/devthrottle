@@ -18,7 +18,10 @@ internal static class GatewayContextInterceptors
     /// <summary>One instance for the process. The interceptor holds no state of its own.</summary>
     private static readonly RuleTableWriteInterceptor RuleTableWrites = new();
 
+    /// <summary>One instance for the process; it holds no state, the context it is handed does.</summary>
+    private static readonly SettingsTransactionInterceptor SettingsTransactions = new();
+
     /// <summary>Install them. Call this beside every provider configuration.</summary>
     internal static DbContextOptionsBuilder WithGatewayInterceptors(this DbContextOptionsBuilder options) =>
-        options.AddInterceptors(RuleTableWrites);
+        options.AddInterceptors(RuleTableWrites, SettingsTransactions);
 }
