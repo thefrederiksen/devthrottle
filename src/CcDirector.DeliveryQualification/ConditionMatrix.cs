@@ -141,7 +141,8 @@ public static class ConditionMatrix
                                 "the rig failed during the cell", ScreenDump.Save(opts.Out, cell.ScreenName("rig-error"), session));
                         }
                         Record(r, version);
-                        // Leave the session as the next cell needs it: the turn finished, any menu closed, the composer empty.
+                        // Leave the session as the next cell needs it: any menu closed, the turn finished, the composer empty.
+                        CloseMenu(session);
                         await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120));
                         AgentMatrix.EmptyComposer(session, a.Kind, text.Build("Q0000000000") + "\n" + DraftFor("Q0000000000"));
                         await Task.Delay(TimeSpan.FromSeconds(1));
@@ -306,12 +307,17 @@ public static class ConditionMatrix
         var askAt = DateTime.UtcNow;
         await c.Desktop.TypeAsync($"Token {askToken}. Use the AskUserQuestion tool right now to ask me one question: \"Which colour?\" with the two options Red and Blue. Do nothing else.");
         await c.Desktop.EnterAsync();
+        // The menu is judged by the agent's record of the ask and the menu's own hint row on the screen - not by the
+        // composer reader, which on a fresh session reads the prompt row above the menu as a composer holding text.
         var shown = await WaitForAsync(() => StateMatrix.ToolCallRecordedAt(c.Agent, askAt, "AskUserQuestion") is not null
-                                             && DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame()) is ComposerReading.MenuOpen or ComposerReading.NotFound
+                                             && MenuShowing(c.Session.SnapshotScreenRows())
                                              && !DoorbellSafety.ShowsWorking(c.Session.SnapshotScreenRows()), TimeSpan.FromSeconds(90));
         if (!shown)
-            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null, "the agent never showed its question menu",
-                ScreenDump.Save(c.Out, c.ScreenName("setup"), c.Session));
+        {
+            var setupScreen = ScreenDump.Save(c.Out, c.ScreenName("setup"), c.Session);
+            CloseMenu(c.Session);
+            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null, "the agent never showed its question menu", setupScreen);
+        }
         await Task.Delay(TimeSpan.FromSeconds(2));
         var before = DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame());
         var menuScreen = ScreenDump.Save(c.Out, c.ScreenName("menu"), c.Session, $"menu-open {c.Agent} {c.Route} run {c.Run}: the menu before the send ({before})");
@@ -325,9 +331,8 @@ public static class ConditionMatrix
             : AgentRecords.RecentLines(c.Agent, sentAt).Any(l => l.Contains(token, StringComparison.Ordinal) && !IsCopy(l)) ? "ANSWERED-MENU" : "LOST";
 
         // Close the menu if it is still open, as the owner would, and wait for the agent to settle.
-        if (DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame()) is ComposerReading.MenuOpen or ComposerReading.NotFound)
-            c.Session.SendInput([0x1B], null, SubmissionProvenance.Typed("desktop-terminal", "owner"));
-        if (!await WaitForAsync(() => DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame()) is ComposerReading.Empty or ComposerReading.HoldsText
+        CloseMenu(c.Session);
+        if (!await WaitForAsync(() => !MenuShowing(c.Session.SnapshotScreenRows())
                                       && c.Session.ActivityState is ActivityState.WaitingForInput or ActivityState.Idle, TimeSpan.FromSeconds(60)))
             return c.Result(body.Length, director, detail, $"{firstTruth}/MENU-STUCK", false, null, false, seconds, "the menu never closed after Escape",
                 $"menu shown before the send ({before}), screen {menuScreen}", screen ?? ScreenDump.Save(c.Out, c.ScreenName("stuck"), c.Session));
@@ -360,6 +365,20 @@ public static class ConditionMatrix
         var firstPass = firstTruth == "ARRIVED" && firstDirector is "OK" or "DELIVERING";
         var (pass, truth) = PassRules.MenuOpen(firstTruth, firstDirector, firstPass, firstArrivedLate, nextTruth, nextPass);
         return (pass, $"{firstTruth}/{truth}");
+    }
+
+    /// <summary>Whether Claude Code's question menu is drawn: its hint row ("Enter to select ... Esc to cancel") among the
+    /// last rows of the screen. Pure.</summary>
+    internal static bool MenuShowing(IReadOnlyList<string> rows) =>
+        rows.Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(6)
+            .Any(r => r.Contains("Enter to select", StringComparison.Ordinal) && r.Contains("Esc to cancel", StringComparison.Ordinal));
+
+    /// <summary>Press Escape, as the owner would, when a question menu is drawn - so a cell never leaves one open for
+    /// the next cell's keys.</summary>
+    private static void CloseMenu(Session session)
+    {
+        if (MenuShowing(session.SnapshotScreenRows()))
+            session.SendInput([0x1B], null, SubmissionProvenance.Typed("desktop-terminal", "owner"));
     }
 
     /// <summary>A token of letters only (Q and ten of A to P), for text typed into a menu, where a digit picks an option.</summary>

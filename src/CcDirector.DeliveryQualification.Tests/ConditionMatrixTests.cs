@@ -282,6 +282,31 @@ public sealed class ConditionMatrixTests
     }
 
     [Fact]
+    public void MenuShowing_ClaudesQuestionMenuUnderAFramedPromptRow_IsAMenu()
+    {
+        // The screen the first run failed to read (the composer reader saw the prompt row above as a composer with text).
+        string[] rows =
+        [
+            "\u276f Token Q157A0D2CF5. Use the AskUserQuestion tool right now to ask me one question: \"Which colour?\" with the two",
+            "  options Red and Blue. Do nothing else.",
+            "\u2500\u2500\u2500\u2500\u2500\u2500",
+            " \u2610 Colour", "", "Which colour?", "", "\u276f 1. Red", "     The colour red", "  2. Blue", "     The colour blue",
+            "  3. Type something.", "\u2500\u2500\u2500\u2500\u2500\u2500", "  4. Chat about this", "",
+            "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc to cancel", "", "",
+        ];
+
+        Assert.True(ConditionMatrix.MenuShowing(rows));
+    }
+
+    [Fact]
+    public void MenuShowing_AnAnsweredMenuInTheHistory_IsNoMenu()
+    {
+        string[] rows = ["  \u23bf  \u00b7 Which colour? \u2192 Red", "Enter to select \u00b7 Esc to cancel", "a", "b", "c", "d", "e", "f", "\u276f "];
+
+        Assert.False(ConditionMatrix.MenuShowing(rows));
+    }
+
+    [Fact]
     public void LetterToken_HasNoDigitToPickAMenuOption()
     {
         for (var i = 0; i < 50; i++)
