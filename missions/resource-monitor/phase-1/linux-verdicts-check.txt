@@ -1,0 +1,46 @@
+Resource Monitor - phase 1 - the verdict functions - check run 2026-10-15 on devlinux (Linux)
+Branch resource-monitor/verdicts, rebased on the interface branch (pull request 4016) at
+f92603828. .NET software development kit 10.0.301.
+
+$ dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+    0 Error(s)
+    0 Warning(s)
+Build succeeded.
+Time Elapsed 00:04:24.87
+
+Note: on Linux the plain "dotnet build cc-director.sln -c Release" stops with NETSDK1100 on the two
+Windows-only projects (src/CcDirector.Terminal, src/CcClick) before compiling anything. That is the
+operating system, not this change; EnableWindowsTargeting=true lets them build here. The interface
+check records the same.
+
+$ dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+Passed!  - Failed:     0, Passed:   194, Skipped:     0, Total:   194, Duration: 114 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+194 = this change's 158 (ResourcePressureTests, SlownessDiagnoserTests, ProcessTreeUsageTests,
+SessionProcessMembershipTests) + the interface's 36.
+
+$ dotnet test src/CcDirector.Core.Tests --filter "Category=Resources"
+No test matches the given testcase filter `Category=Resources` in /home/soren/ReposFred/devthrottle-verdicts/src/CcDirector.Core.Tests/bin/Debug/net10.0/CcDirector.Core.Tests.dll
+
+NO TESTS RAN. That is not a pass and is not reported as one. This task is pure functions with no
+platform code, so it has no live test; the live tests that read the real operating system belong to
+the probes (the Linux, Windows and macOS probe pull requests). The live evidence for this change is
+the hand-read reading in linux-verdicts-live-reading.txt.
+
+$ dotnet test src/CcDirector.Core.UnitTests   (the whole project, as mission section 7 runs it)
+  Failed CcDirector.TestInfrastructure.RepositorySourceIndexTests.ListFiles_returns_absolute_paths_in_the_platforms_separators [102 ms]
+  Failed CcDirector.Core.UnitTests.Architecture.GateTestsDoNotDependOnTheMachineTests.No_gate_test_adds_a_sleep_a_real_clock_a_real_process_docker_or_a_fixed_port [1 s]
+  Failed CcDirector.Core.Tests.Git.CcWorktreesPoolSlotsTests.HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(path: "D:\\Repos\\devthrottle.worktrees\\wt123", expected: True) [2 ms]
+  Failed CcDirector.Core.Tests.Git.CcWorktreesPoolSlotsTests.HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(path: "D:\\Repos\\devthrottle.worktrees\\wt01", expected: True) [< 1 ms]
+  Failed CcDirector.Core.Tests.Git.CcWorktreesPoolSlotsTests.HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(path: "D:\\Repos\\devthrottle.worktrees\\wt02", expected: True) [< 1 ms]
+  Failed CcDirector.Core.Tests.Git.WorktreePoolSettingsTests.For_IgnoresHowThePathWasTyped [312 ms]
+Failed!  - Failed:     6, Passed:  1851, Skipped:    23, Total:  1880, Duration: 22 s - CcDirector.Core.UnitTests.dll (net10.0)
+
+All 6 failures are outside this change and fail the same way without it:
+- The 5 Windows-path and worktree-pool failures (RepositorySourceIndexTests, CcWorktreesPoolSlotsTests,
+  WorktreePoolSettingsTests) fail identically on a clean origin/main at 6601fcb17 on this machine:
+  "Failed: 5, Passed: 5, Total: 10" for those tests alone. They assume Windows drive paths.
+- GateTestsDoNotDependOnTheMachineTests flags a real clock in
+  src/CcDirector.Gateway.UnitTests/DirectorRegistryOsTests.cs, which arrived in pull request 4015
+  (294b33319) on main. It fails the same way on the interface branch head with none of this change.
+None of these files is touched by this change.
