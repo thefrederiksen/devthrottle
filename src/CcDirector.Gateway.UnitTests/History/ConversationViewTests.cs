@@ -2,6 +2,7 @@ using System.Text.Json;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.History;
@@ -173,9 +174,36 @@ public sealed class ConversationViewTests : IDisposable
         var cursor = CursorOf(store.ReadView(Sid, Tenant, Web));
 
         clock += SessionTurnStore.HeldIdleLimit + TimeSpan.FromMinutes(1);
+        var before = store.RowsRebuilt;
         var view = store.ReadView(Sid, Tenant, Web);
 
+        // All ten rebuilt, so the index really was let go and built again - and to the same hashes.
+        Assert.Equal(before + 10, store.RowsRebuilt);
         Assert.Equal(10, ConversationTail.Decide(cursor, view).TailFrom);
+    }
+
+    [Fact]
+    public void AStoreFault_IsAnsweredFromWhatIsStored_WithAnIndexOfExactlyThat()
+    {
+        // The head counts eight rows; one of the two new ones is missing from the database. The read answers the
+        // seven that are there, as ReadCurrent does, holds nothing, and indexes exactly those seven.
+        var db = _harness.Open();
+        var store = new SessionTurnStore(db);
+        store.Append("d1", Batch(0, 6), Now);
+        var cursor = CursorOf(store.ReadView(Sid, Tenant, Web));
+        store.Append("d1", Batch(6, 2), Now.AddSeconds(3));
+        using (var ctx = db.CreateContext())
+            ctx.SessionTurns.Where(t => t.SessionId == Sid && t.Ordinal == 7).ExecuteDelete();
+
+        var view = store.ReadView(Sid, Tenant, Web);
+        var (head, messages) = store.ReadCurrent(Sid)!.Value;
+
+        Assert.Equal(7, view.Count);
+        Assert.Equal(Json(messages), Json(view.Messages(0, view.Count)));
+        var verdict = ConversationTail.Decide(cursor, view);
+        Assert.Equal(6, verdict.TailFrom);
+        Assert.Equal(ConversationTail.CursorFor(Tenant, Sid, head.Generation, messages, 7, Web), verdict.Cursor);
+        Assert.Equal(0, store.HeldTurnCount);
     }
 
     [Fact]

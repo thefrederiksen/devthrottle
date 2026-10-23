@@ -290,7 +290,8 @@ public sealed class SessionTurnStore
             var key = (ctx.ActiveTenant ?? "", sessionId);
             if (head is null)
             {
-                _held.Remove(key);
+                // Release, not a bare remove: it keeps the held-row count true and disposes the held index.
+                if (_held.TryGetValue(key, out var gone)) Release(key, gone);
                 return null;
             }
 
@@ -342,11 +343,17 @@ public sealed class SessionTurnStore
                 // for this read only, like the rows themselves.
                 if (held is not null) held.Index = index;
             }
-            for (var i = index.Count; i < rows.Count; i++)
-                index.Append(ToMessage(rows[i]));
-            var view = new ConversationView(head, rows.Count, i => ToMessage(rows[i]), index);
-            if (held is null) index.Dispose();
-            return view;
+            try
+            {
+                for (var i = index.Count; i < rows.Count; i++)
+                    index.Append(ToMessage(rows[i]));
+                return new ConversationView(head, rows.Count, i => ToMessage(rows[i]), index);
+            }
+            finally
+            {
+                // An index for this read only is let go however the read ends, a row that does not parse included.
+                if (held is null) index.Dispose();
+            }
         }
     }
 
@@ -442,7 +449,7 @@ public sealed class SessionTurnStore
             // The head says rows [0, Count) are all present and they are not. That is a store fault (the watermark and
             // the rows are written in one transaction), so it is logged and the read answers exactly what the database
             // holds, as it always did - nothing is held on top of a prefix with a hole in it.
-            FileLog.Write($"[SessionTurnStore] ReadCurrent session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
+            FileLog.Write($"[SessionTurnStore] read session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
             if (held is not null) Release(key, held);
             if (from == 0) return (added, null);
             return (ctx.SessionTurns.AsNoTracking()
