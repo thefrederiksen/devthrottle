@@ -2273,8 +2273,10 @@ reason, never an empty folder: a check never decides from nothing. All of a fact
 most 512 KB; above that the Gateway hands none and the check fails with
 `the check inputs of <factory> take <n> bytes together, and a check is handed at most 524288; make the documents under check-inputs/ smaller`.
 
-The Director's route is `GET /directors/{directorId}/factory-check-inputs/{factory}/{version}`, refused exactly as
-the check download is: only a published version, and only to a Director whose machine has a seat of the factory.
+The Director's route is `GET /directors/{directorId}/factory-check-inputs/{factory}/{version}`, refused as the
+check download is, and more narrowly: only the factory's CURRENT published version, and only to a Director whose
+machine has a seat of the factory in it. A machine that had a seat in an older version and was moved out is given
+nothing (`version_not_current`).
 
 ### Run
 

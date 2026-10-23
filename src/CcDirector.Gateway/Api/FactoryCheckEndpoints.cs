@@ -91,6 +91,18 @@ internal static class FactoryCheckEndpoints
         var (_, folded, refusal) = Place(definitions, tenant, directorId, machine, factory, version, out _);
         if (refusal is not null) return refusal;
 
+        // The inputs are the factory's LIVE documents, not part of any version, so the version here only says which
+        // seats stand where. A published version is never demoted, so only the CURRENT one may place a machine: a
+        // machine that had a seat in an older version and was moved out of the factory is given nothing.
+        var current = definitions.Standing(tenant, folded).Published?.Version;
+        if (current != version)
+        {
+            FileLog.Write($"[FactoryCheckEndpoints] REFUSED inputs for a replaced version: factory={folded}, version={version}, current={current}, director={directorId}");
+            return Refuse(StatusCodes.Status404NotFound, "version_not_current",
+                $"version {version} of the definition of {folded} is not the published one (version {current} is), " +
+                "and a check is handed the factory's records only through the published version");
+        }
+
         var held = documents.NewestUnder(tenant, folded, TriggerCheckLimits.CheckInputsPrefix);
         var total = held.Sum(d => (long)d.TextBytes);
         if (total > TriggerCheckLimits.MaxCheckInputsBytes)

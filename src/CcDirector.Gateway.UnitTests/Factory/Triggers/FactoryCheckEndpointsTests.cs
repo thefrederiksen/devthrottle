@@ -347,6 +347,27 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task GetInputs_AnOlderPublishedVersion_WhoseMachineTheCurrentOneLeftOut_IsRefused()
+    {
+        Seed();
+        var moved = DefinitionFixture.Valid();
+        moved["seats/outreach.yaml"] = moved["seats/outreach.yaml"].Replace("SOREN_SOUTH", "SOREN_NORTH");
+        Assert.True(_definitions.SaveDraft(T, Factory, moved, 1, FactoryMemoryAuthorKinds.Person, "owner", "outreach moves north", Now).Ok);
+        Assert.True(_definitions.Publish(T, Factory, 2, FactoryMemoryAuthorKinds.Person, "owner", Now).Ok);
+        Keep("check-inputs/chain.json", "{}");
+
+        var (status, body) = await Send("GET", $"/directors/dir-south/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(404, status);
+        Assert.Equal("version_not_current", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("inputs", out _));
+        var (current, _) = await Send("GET", $"/directors/dir-south/factory-check-inputs/{Factory}/2");
+        Assert.Equal(404, current);
+        var (north, _) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/2");
+        Assert.Equal(200, north);
+    }
+
+    [Fact]
     public async Task GetInputs_ADraftVersion_IsRefused()
     {
         Seed(draftVersion2: true);
