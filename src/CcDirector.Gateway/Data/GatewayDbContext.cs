@@ -69,9 +69,14 @@ public sealed class GatewayDbContext : DbContext
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         GuardRuleWrites();
+        var settingsTenants = SettingsTenantsBeingSaved();
         SavingThroughTheGate = true;
         try { return base.SaveChanges(acceptAllChangesOnSuccess); }
-        finally { SavingThroughTheGate = false; }
+        finally
+        {
+            SavingThroughTheGate = false;
+            SettingsSaved(settingsTenants);
+        }
     }
 
     /// <inheritdoc />
@@ -79,9 +84,55 @@ public sealed class GatewayDbContext : DbContext
         bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         GuardRuleWrites();
+        var settingsTenants = SettingsTenantsBeingSaved();
         SavingThroughTheGate = true;
         try { return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken); }
-        finally { SavingThroughTheGate = false; }
+        finally
+        {
+            SavingThroughTheGate = false;
+            SettingsSaved(settingsTenants);
+        }
+    }
+
+    /// <summary>Accounts whose settings rows this context saved inside a transaction that has not ended yet.</summary>
+    private readonly HashSet<string> _settingsTenantsAwaitingCommit = new(StringComparer.Ordinal);
+
+    /// <summary>The accounts whose <c>tenant_settings</c> rows this save adds, changes or removes.</summary>
+    private List<string>? SettingsTenantsBeingSaved()
+    {
+        List<string>? tenants = null;
+        foreach (var entry in ChangeTracker.Entries<TenantSettingEntity>())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
+            (tenants ??= new List<string>()).Add(entry.Entity.TenantId);
+        }
+        return tenants;
+    }
+
+    /// <summary>
+    /// SETTINGS CHANGED, SO REMEMBERED SETTINGS ARE FORGOTTEN (issue #4405) - see <see cref="Settings.TenantSettingsGenerations"/>.
+    /// Moved whether the save succeeded or not: a failed save changed nothing, and forgetting early only costs a read.
+    /// Inside a transaction the accounts are kept and moved again when it ends (<see cref="SettingsTransactionEnded"/>).
+    /// </summary>
+    private void SettingsSaved(List<string>? tenants)
+    {
+        if (tenants is null) return;
+        var inTransaction = Database.CurrentTransaction is not null;
+        foreach (var tenant in tenants)
+        {
+            Settings.TenantSettingsGenerations.Bump(tenant);
+            if (inTransaction) _settingsTenantsAwaitingCommit.Add(tenant);
+        }
+    }
+
+    /// <summary>The transaction this context saved settings in has committed or rolled back: move those accounts'
+    /// numbers once more, so a value read between the save and the commit is not trusted.</summary>
+    internal void SettingsTransactionEnded()
+    {
+        if (_settingsTenantsAwaitingCommit.Count == 0) return;
+        foreach (var tenant in _settingsTenantsAwaitingCommit)
+            Settings.TenantSettingsGenerations.Bump(tenant);
+        _settingsTenantsAwaitingCommit.Clear();
     }
 
 
