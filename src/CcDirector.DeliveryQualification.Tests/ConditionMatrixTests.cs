@@ -189,6 +189,54 @@ public sealed class ConditionMatrixTests
         Assert.DoesNotContain("sleep 25", StateMatrix.LongTool(25));
     }
 
+    // ===== mid-turn: the tool's own proof that it was running (review of pull request 4395, finding 1) =====
+
+    private static readonly DateTime Sent = new(2026, 10, 23, 19, 0, 10, DateTimeKind.Utc);
+
+    [Fact]
+    public void MidTurnSetup_StartedBeforeAndFinishedAfterTheSend_IsMidTurn()
+    {
+        var (midTurn, why) = ConditionMatrix.MidTurnSetup(Sent.AddSeconds(-3), Sent.AddSeconds(20), Sent);
+
+        Assert.True(midTurn, why);
+        Assert.Contains("started 3.0s before", why);
+    }
+
+    [Fact]
+    public void MidTurnSetup_StartedBeforeAndStillRunning_IsMidTurn()
+    {
+        Assert.True(ConditionMatrix.MidTurnSetup(Sent.AddSeconds(-3), null, Sent).MidTurn);
+    }
+
+    [Fact]
+    public void MidTurnSetup_TheToolStartedOnlyAfterTheSend_IsNotMidTurn()
+    {
+        // The reviewer's case: the call was recorded, but a consent pause or a slow start held the tool until after the send.
+        var (midTurn, why) = ConditionMatrix.MidTurnSetup(Sent.AddSeconds(4), Sent.AddSeconds(29), Sent);
+
+        Assert.False(midTurn);
+        Assert.Contains("after the send", why);
+    }
+
+    [Fact]
+    public void MidTurnSetup_TheToolFinishedBeforeTheSend_IsNotMidTurn()
+    {
+        Assert.False(ConditionMatrix.MidTurnSetup(Sent.AddSeconds(-30), Sent.AddSeconds(-5), Sent).MidTurn);
+    }
+
+    [Fact]
+    public void MidTurnTool_MarksItsStartBeforeTheSleepAndItsEndAfter()
+    {
+        var (command, started, done) = ConditionMatrix.MidTurnTool("/repo", "Q1");
+
+        Assert.Equal(Path.Combine("/repo", ".temp/midturn-Q1.started"), started);
+        Assert.Equal(Path.Combine("/repo", ".temp/midturn-Q1.done"), done);
+        var startAt = command.IndexOf("midturn-Q1.started", StringComparison.Ordinal);
+        var sleepAt = command.IndexOf($"time.sleep({ConditionMatrix.MidTurnToolSeconds})", StringComparison.Ordinal);
+        var doneAt = command.IndexOf("midturn-Q1.done", StringComparison.Ordinal);
+        Assert.True(startAt >= 0 && startAt < sleepAt && sleepAt < doneAt, command);
+    }
+
     // ===== owner-draft =====
 
     private const string Text = "Token Q2. Reply with exactly: ACK Q2";

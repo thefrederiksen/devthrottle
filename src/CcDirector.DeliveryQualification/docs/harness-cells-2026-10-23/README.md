@@ -13,14 +13,18 @@ Fixing the failures below is phase 2's work, not this pull request's.
 | `echo/` | the echo layer in full, every cell twice | `run.sh` |
 | `conditions/` | the condition matrix on claude, codex and pi | `run-conditions.sh` |
 | `menu/` | the menu cells again, after their setup was fixed (supersedes the menu rows in `conditions/`) | `run-menu.sh` |
+| `mid-turn/` | the mid-turn cells again, after the review of pull request 4395: the tool now proves it was running (supersedes the mid-turn rows in `conditions/`) | `run-mid-turn.sh` |
 | `state/` | the approval case on claude and codex, whose Codex ask is now read from its records | `run.sh` |
 
 ## What each new cell proves, and what it cannot
 
 **Mid-turn** (all three agents, every route). The agent is asked, through the desktop as the owner would, to run a
-25-second tool. When its records show the tool call, the text is sent by the route. A pass means the text reached the
-agent once, alone, character for character, while the agent was truly working: the tool call was recorded before the
-send, and the turn's answer was not yet recorded. It cannot show that Codex or Pi took the prompt at once, because they
+25-second tool that writes a start mark before it sleeps and an end mark after. Once the start mark exists, the text is
+sent by the route. A pass means the text reached the agent once, alone, character for character, while the tool was
+running - its own marks say it started before the send and finished after it. (The first run used the tool-call record,
+which shows only that the agent asked to run it; the review of pull request 4395 found that, and `mid-turn/` is the run
+with the marks: in all 24 cells the tool started 2.0 to 2.5 seconds before the send and finished at least 22.5 seconds
+after it, and no verdict moved.) It cannot show that Codex or Pi took the prompt at once, because they
 record a queued prompt only when the turn ends; it shows only that the prompt arrived.
 
 **Owner-draft** (all three agents, every route). The owner types a draft into the composer through the desktop and leaves

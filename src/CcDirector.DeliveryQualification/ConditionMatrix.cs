@@ -208,42 +208,66 @@ public static class ConditionMatrix
     // ===== mid-turn =====
 
     /// <summary>
-    /// The agent is asked, through the desktop as the owner would, to run a 25-second tool; once its records show the tool
-    /// call, the cell's text is sent by the route. The text must reach the agent once, alone, character for character.
-    /// The cell counts only when the tool was truly running at the send: its call recorded, and the turn's answer not yet.
+    /// The agent is asked, through the desktop as the owner would, to run a 25-second tool that marks its own start and
+    /// end (<see cref="MidTurnTool"/>); once the start mark exists, the cell's text is sent by the route. The text must
+    /// reach the agent once, alone, character for character. The cell counts only when the tool was RUNNING at the send:
+    /// started before it and finished after it (<see cref="MidTurnSetup"/>). A tool-call record is not that proof - it
+    /// shows the agent asked to run the command, not that the command ran (review of pull request 4395, finding 1).
     /// </summary>
     private static async Task<ConditionResult> MidTurnAsync(Cell c)
     {
         var busyToken = EchoLayer.Token();
-        var tool = StateMatrix.LongTool(MidTurnToolSeconds);
+        var repo = c.Repos[0];
+        var (tool, startedFile, doneFile) = MidTurnTool(repo, busyToken);
         var busyAt = DateTime.UtcNow;
         await c.Desktop.TypeAsync($"Token {busyToken}. Run exactly this shell command and wait for it to finish: {tool} . Then reply with exactly: ACK {busyToken}");
         await c.Desktop.EnterAsync();
-        DateTime? toolAt = null;
-        var deadline = DateTime.UtcNow.AddSeconds(60);
-        while (toolAt is null && DateTime.UtcNow < deadline)
-        {
-            toolAt = StateMatrix.ToolCallRecordedAt(c.Agent, busyAt, $"time.sleep({MidTurnToolSeconds})");
-            if (toolAt is null) await Task.Delay(500);
-        }
-        if (toolAt is null)
-            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null, "the agent's records never showed the 25-second tool call",
+        if (!await WaitForAsync(() => File.Exists(startedFile), TimeSpan.FromSeconds(60)))
+            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null,
+                $"the 25-second tool never started (no start mark; its call {(StateMatrix.ToolCallRecordedAt(c.Agent, busyAt, busyToken) is null ? "is not" : "is")} in the records)",
                 ScreenDump.Save(c.Out, c.ScreenName("setup"), c.Session));
         await Task.Delay(TimeSpan.FromSeconds(2));
 
         var token = EchoLayer.Token();
         var body = c.Text.Build(token);
+        var doneBeforeSend = File.Exists(doneFile);
         var (director, detail, seconds, screen, sentAt) = await c.SendAsync(body);
-        var into = (sentAt - toolAt.Value).TotalSeconds;
-        var answeredBefore = StateMatrix.AnswerRecordedAt(c.Agent, busyAt, busyToken) is { } done && done < sentAt;
-        var setup = $"the tool call was recorded {into:F1}s before the send";
-        if (answeredBefore || into >= MidTurnToolSeconds)
-            return c.Result(body.Length, "SETUP-FAILED", detail, "-", false, null, false, seconds, null, $"NOT MID-TURN: {setup}, and the turn had ended", screen);
 
         // A queued prompt can be recorded only when the turn ends (Codex, Pi), so the judge waits past the tool's end.
         var (truth, exact, accepted, difference) = await JudgeAloneAsync(c, body, token, sentAt, director, TimeSpan.FromSeconds(MidTurnToolSeconds + 90));
+        await WaitForAsync(() => File.Exists(doneFile), TimeSpan.FromSeconds(MidTurnToolSeconds + 10));
+        var (midTurn, setup) = MidTurnSetup(File.GetLastWriteTimeUtc(startedFile), doneBeforeSend ? sentAt.AddSeconds(-1) : File.Exists(doneFile) ? File.GetLastWriteTimeUtc(doneFile) : null, sentAt);
+        if (!midTurn)
+            return c.Result(body.Length, "SETUP-FAILED", detail, "-", false, null, false, seconds, null, $"NOT MID-TURN: {setup}", screen);
         var pass = director is "OK" or "DELIVERING" && truth == "ARRIVED" && (exact || accepted is not null);
-        return c.Result(body.Length, director, detail, truth, exact, accepted, pass, seconds, difference, setup + "; the turn's answer was not yet recorded", screen);
+        return c.Result(body.Length, director, detail, truth, exact, accepted, pass, seconds, difference, setup, screen);
+    }
+
+    /// <summary>
+    /// The 25-second tool, which writes a start mark before it sleeps and an end mark after, under the repository's
+    /// <c>.temp</c> folder, and the two marks' paths. The marks are the tool's own proof that it ran, and when.
+    /// </summary>
+    internal static (string Command, string StartedFile, string DoneFile) MidTurnTool(string repo, string token)
+    {
+        var started = $".temp/midturn-{token}.started";
+        var done = $".temp/midturn-{token}.done";
+        var command = $"python3 -c \"import os, time; os.makedirs('.temp', exist_ok=True); open('{started}', 'w').close(); " +
+                      $"time.sleep({MidTurnToolSeconds}); open('{done}', 'w').close(); print('slept')\"";
+        return (command, Path.Combine(repo, started), Path.Combine(repo, done));
+    }
+
+    /// <summary>
+    /// Whether the tool was running at the send: its start mark written before the send, and its end mark written after
+    /// it (or not at all - still running). Pure.
+    /// </summary>
+    internal static (bool MidTurn, string Why) MidTurnSetup(DateTime startedAt, DateTime? doneAt, DateTime sentAt)
+    {
+        var into = (sentAt - startedAt).TotalSeconds;
+        if (into < 0) return (false, $"the tool started {-into:F1}s after the send");
+        if (doneAt is { } d && d <= sentAt) return (false, $"the tool had finished {(sentAt - d).TotalSeconds:F1}s before the send");
+        return (true, doneAt is { } e
+            ? $"the tool was running at the send: started {into:F1}s before it, finished {(e - sentAt).TotalSeconds:F1}s after it"
+            : $"the tool was running at the send: started {into:F1}s before it, and had not finished when the cell ended");
     }
 
     // ===== owner-draft =====
