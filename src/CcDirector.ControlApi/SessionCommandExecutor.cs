@@ -442,11 +442,11 @@ internal static class SessionCommandExecutor
             return TooOldAnswer(session, bufferCursor, reason);
         }
 
-        // CLAUDE CODE'S USAGE-LIMIT DIALOG (License Switching mission, trap 4): nothing automatic may type into it, and a
-        // prompt from the phone or the Cockpit is automatic - its sender may not see the dialog. The guard on the session
-        // drops every such write; this answers the sender a refusal it can show, instead of a success that typed nothing
-        // (fix-round review of pull request 3863). Checked before the send, and watched during it, for a dialog drawn
-        // while the send waits.
+        // CLAUDE CODE'S USAGE-LIMIT DIALOG (License Switching mission, trap 4): nothing automatic may type into it. The
+        // guard on the session drops every such write; this answers the sender a refusal it can show, instead of a success
+        // that typed nothing (fix-round review of pull request 3863). Checked before the send, and watched during it, for
+        // a dialog drawn while the send waits. The owner's own prompt from the phone or the Cockpit is not automatic and
+        // goes through (UsageLimitInputGuard.PromptPassesTheDialog).
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
         // dictation delivery (SendSource.Delivery, set from the X-Dictation-Delivery marker) and typed
         // otherwise. Surface comes from the Gateway-authoritative request.Surface. Count when this is an
@@ -471,8 +471,8 @@ internal static class SessionCommandExecutor
                 InputOrigin.RemoteSurfaceFromDeviceType(request.Surface))
             : null;
 
-        // The same switch the session's input guard reads (UsageLimitInputGuard.PhoneAndCockpitPromptsPassTheDialog): off,
-        // and a phone or Cockpit prompt is refused here as it always was; on, it goes through as a person's own keys do.
+        // The same rule the session's input guard follows: a phone or Cockpit prompt goes through as a person's own keys
+        // do (the owner's decision 10); every other prompt is refused here while the dialog may show.
         if (!UsageLimitInputGuard.PromptPassesTheDialog(origin) && session.UsageLimitDialogMayShow())
             return UsageLimitDialogAnswer(session, bufferCursor);
         using var refusals = UsageLimitInputGuard.WatchRefusals();

@@ -3239,13 +3239,14 @@ public sealed class Session : IDisposable
     /// <summary>
     /// Writes raw terminal input. Keys a person types into a terminal they are looking at - the desktop terminal, or a
     /// live browser terminal by the Gateway's terminal route - count as a person at the terminal, and are the kind that
-    /// reaches Claude Code's usage-limit dialog (<see cref="UsageLimitInputGuard.IsAPersonAtTheTerminal"/>). Text from the
-    /// phone or a Cockpit browser sent as a PROMPT may come from someone not looking at the dialog at all - it is refused
-    /// like any other automatic input (review of pull request 3863, finding 1) unless the owner's switch says otherwise.
+    /// reaches Claude Code's usage-limit dialog (<see cref="UsageLimitInputGuard.IsAPersonAtTheTerminal"/>). So does text
+    /// from the phone or the Cockpit sent as a prompt without an Enter - the Cockpit pane's keys travel that way - which is
+    /// the owner's own input (<see cref="UsageLimitInputGuard.PromptPassesTheDialog"/>, the owner's decision 10). Anything
+    /// else is refused like any other automatic input (review of pull request 3863, finding 1).
     /// </summary>
     private void WriteRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
-        if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin, provenance.Route))
+        if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin, provenance.Route) && !UsageLimitInputGuard.PromptPassesTheDialog(origin))
         {
             _backend.Write(data);
             return;
@@ -4654,8 +4655,8 @@ public sealed class Session : IDisposable
         // ruling 15). A send that fails puts the previous value back.
         var priorOrigin = WorkingOrigin;
         WorkingOrigin = OriginFor(source, origin);
-        // THE OWNER'S OPEN QUESTION, AS ONE SWITCH (mission 11.6): whether a prompt from the phone or the Cockpit goes
-        // through Claude Code's usage-limit dialog as a person at the terminal does. Off until the owner answers.
+        // THE OWNER'S OWN PROMPT FROM THE PHONE OR THE COCKPIT goes through Claude Code's usage-limit dialog as a person at
+        // the terminal does (the Terminal Parity mission, the owner's decision 10).
         using var remotePerson = UsageLimitInputGuard.PromptPassesTheDialog(origin) ? UsageLimitInputGuard.PersonAtTheTerminal() : null;
         try
         {

@@ -76,8 +76,9 @@ did on 0.155.1. A two-line text the Director left in a Codex composer would ther
 ## What these cells cannot show
 
 - **Usage-limit.** The cell uses the echo agent drawing the dialog's real words, so it shows what the Director lets
-  through, not what Claude Code does with it. The prompt route is left out: whether phone and Cockpit prompts pass is the
-  owner's open question (mission 11.6), and `UsageLimitInputGuard.PhoneAndCockpitPromptsPassTheDialog` stays false.
+  through, not what Claude Code does with it. The prompt route is left out. Since the owner's decision 10 (mission 11.1,
+  pull request #4401) a phone or Cockpit prompt passes the dialog as the desktop's keys do, and an agent's send is still
+  refused; that is covered by unit tests (`UsageLimitDialogPromptTests`, `UsageLimitDialogTests`), not by a cell.
 - **Live browser terminal keys.** These pass the dialog since the review of #4394. They are covered by unit tests, not
   by a cell, because the rig has no browser terminal route.
 - **`LeadingMode`.** The rig's prompt route calls the Session directly, so the verb's `LeadingMode` field is proven by
