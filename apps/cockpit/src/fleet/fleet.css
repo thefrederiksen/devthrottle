@@ -946,7 +946,7 @@
   vertical-align: top;
 }
 
-.fm-machine td {
+.fm-machine-row td {
   background: var(--surface-2);
   border-top: 1px solid var(--border);
 }

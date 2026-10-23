@@ -69,7 +69,7 @@ export function MachinesPanel({
                 const outcome = outcomes[m.machine];
                 return (
                   <Fragment key={m.machine}>
-                    <tr className="fm-machine">
+                    <tr className="fm-machine-row">
                       <td>
                         <div className="dcell-name">{m.machine}</div>
                         <div className="ddim fm-sub">
