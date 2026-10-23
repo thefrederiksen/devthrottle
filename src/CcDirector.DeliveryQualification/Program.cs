@@ -181,7 +181,7 @@ public static class Program
         {
             var (k, a) = Agents[keysAgent];
             await ClearKeyExperiment.RunAsync(manager, keysAgent, k, opts.ArgsOverride.TryGetValue(keysAgent, out var ka) ? ka : a,
-                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")));
+                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.KeysOnly);
             return 0;
         }
 
@@ -410,6 +410,7 @@ public sealed class Options
     public string LedgerPath => _ledger ?? Path.Combine(RepoRoot, "ledger.jsonl");
     public Dictionary<string, string> ArgsOverride { get; } = new();
     public string? KeysAgent { get; private set; }
+    public List<string>? KeysOnly { get; private set; }
     public string? CharsAgent { get; private set; }
     public bool Busy { get; private set; }
     public bool FailThenSend { get; private set; }
@@ -459,6 +460,7 @@ public sealed class Options
                     break;
                 case "--out": o.Out = Next(); break;
                 case "--keys": o.KeysAgent = Next(); break;
+                case "--keys-only": o.KeysOnly = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--chars": o.CharsAgent = Next(); break;
                 case "--busy": o.Busy = true; break;
                 case "--fail-then-send": o.FailThenSend = true; break;

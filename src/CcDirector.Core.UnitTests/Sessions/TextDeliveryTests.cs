@@ -324,7 +324,8 @@ public sealed class TextDeliveryTests : IDisposable
     [Fact]
     public void Each_agent_gets_the_clear_key_measured_for_it_and_never_a_lone_Escape()
     {
-        Assert.Equal(new byte[] { 0x15 }, ComposerClearKeys.For(AgentKind.Codex));
+        // End, then Ctrl+U: a command Codex refused leaves the cursor at the line's start (issue #4380).
+        Assert.Equal(new byte[] { 0x05, 0x15 }, ComposerClearKeys.For(AgentKind.Codex));
         Assert.Equal(new byte[] { 0x15 }, ComposerClearKeys.For(AgentKind.Pi));
         var claude = ComposerClearKeys.For(AgentKind.ClaudeCode, 100)!;
         Assert.Equal(0x05, claude[0]);
