@@ -34,7 +34,7 @@ public class PiAgentTests
 
         Assert.NotNull(spec.PreassignedSessionId);
         Assert.True(Guid.TryParse(spec.PreassignedSessionId, out _));
-        Assert.Equal($"--session-id {spec.PreassignedSessionId}", spec.Arguments);
+        Assert.Equal($"--approve --session-id {spec.PreassignedSessionId}", spec.Arguments);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class PiAgentTests
         var spec = agent.BuildLaunchSpec(userArgs: "--thinking high", resumeSessionId: id, studioMode: false);
 
         Assert.Equal(id, spec.PreassignedSessionId);
-        Assert.Equal($"--thinking high --session-id {id}", spec.Arguments);
+        Assert.Equal($"--approve --thinking high --session-id {id}", spec.Arguments);
     }
 
     [Fact]
@@ -69,6 +69,49 @@ public class PiAgentTests
 
         var spec = agent.BuildLaunchSpec(userArgs: "  --model gpt-5.5  ", resumeSessionId: null, studioMode: false);
 
-        Assert.StartsWith("--model gpt-5.5 --session-id ", spec.Arguments);
+        Assert.StartsWith("--approve --model gpt-5.5 --session-id ", spec.Arguments);
+    }
+
+    // Issue #4010: pi asks "Trust project folder?" before the composer exists in any folder with project
+    // resources (.agents/skills, .pi/...), so the Director's first prompt never landed. Every launch trusts
+    // the folder the person opened, for this process only.
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("--thinking high", null)]
+    [InlineData(null, "8be79bf8-7db0-46c2-b19e-73857c9a7159")]
+    public void BuildLaunchSpec_EveryLaunch_LeadsWithApprove(string? userArgs, string? resumeId)
+    {
+        var agent = new PiAgent(new AgentOptions());
+
+        var spec = agent.BuildLaunchSpec(userArgs, resumeId, studioMode: false);
+
+        Assert.StartsWith($"{PiAgent.ApproveFlag} ", spec.Arguments);
+    }
+
+    // pi keeps the LAST trust flag it reads (cli/args.js: each one assigns projectTrustOverride), so the
+    // user's own choice must come after ours - in whatever form the launcher's tokeniser accepts it.
+    [Theory]
+    [InlineData("--no-approve")]
+    [InlineData("-na")]
+    [InlineData("\"--no-approve\"")]
+    [InlineData("--model local\t--no-approve")]
+    public void BuildLaunchSpec_UserTrustChoice_ComesAfterApproveSoItWins(string userArgs)
+    {
+        var agent = new PiAgent(new AgentOptions());
+
+        var spec = agent.BuildLaunchSpec(userArgs, resumeSessionId: null, studioMode: false);
+
+        Assert.Equal($"--approve {userArgs} --session-id {spec.PreassignedSessionId}", spec.Arguments);
+    }
+
+    [Fact]
+    public void BuildLaunchSpec_UserArgs_PassThroughUntouched()
+    {
+        // Only trimmed: inner spacing can belong to a quoted value and is not ours to normalise.
+        var agent = new PiAgent(new AgentOptions());
+
+        var spec = agent.BuildLaunchSpec(userArgs: " --append-system-prompt \"a  b\" ", resumeSessionId: null, studioMode: false);
+
+        Assert.Equal($"--approve --append-system-prompt \"a  b\" --session-id {spec.PreassignedSessionId}", spec.Arguments);
     }
 }

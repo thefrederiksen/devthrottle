@@ -205,9 +205,9 @@ public sealed class AgentPluginRegistryTests
         // id for a reopen, which is also how pi resumes it. Studio mode is not a pi feature and is ignored.
         Assert.NotNull(newSession.PreassignedSessionId);
         Assert.True(Guid.TryParse(newSession.PreassignedSessionId, out _));
-        Assert.Equal($"--model local --session-id {newSession.PreassignedSessionId}", newSession.Arguments);
+        Assert.Equal($"--approve --model local --session-id {newSession.PreassignedSessionId}", newSession.Arguments);
         Assert.Equal("8be79bf8-7db0-46c2-b19e-73857c9a7159", resume.PreassignedSessionId);
-        Assert.Equal("--session-id 8be79bf8-7db0-46c2-b19e-73857c9a7159", resume.Arguments);
+        Assert.Equal("--approve --session-id 8be79bf8-7db0-46c2-b19e-73857c9a7159", resume.Arguments);
     }
 
     [Fact]
