@@ -1,0 +1,13 @@
+scripts/test-database.ps1 (Docker, a throwaway PostgreSQL), devlinux, on the phase branch at 8acb0871e, 20 October 2026.
+85 tests: 84 passed, 1 failed, 0 other.
+
+The Mail Desk tests:
+  Passed  TheMailboxChecksTable_AndItsStore_OnPostgres
+  Passed  TheDecisionAttemptColumns_AndTheScreeningsWrite_OnPostgres
+  Passed  TheOutcomeTimeColumn_AndFilingsWritesAndReads_OnPostgres
+  Passed  TheOwnerColumns_ReturnHandResolveAndTheReads_OnPostgres
+  Passed  TheMailDeskTables_AndTheirStores_OnPostgres
+  Passed  TheRoutedColumns_AndEveryRoutedWrite_OnPostgres
+
+Every failure (it fails the same way on main, reported by every Developer of phases 3 and 4):
+  CcDirector.Gateway.Tests.Data.AddLicenseAlarmsPostgresTests.AddLicenseAlarms_AppliesOnPostgres_TheServiceOpensEmailsAndClosesAnAlarm_AndItsDownRemovesIt
