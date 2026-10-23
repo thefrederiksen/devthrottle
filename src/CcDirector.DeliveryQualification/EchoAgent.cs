@@ -19,13 +19,33 @@ namespace CcDirector.DeliveryQualification;
 ///  - Enter outside a paste "submits": it prints a block of a few kilobytes, the output a turn starting produces, so the
 ///    send path's post-Enter check sees the turn begin.
 /// It never exits on its own and ignores Ctrl+C; the rig kills its session.
+///
+/// With <c>--usage-dialog</c> it also draws Claude Code's usage-limit dialog at the bottom of its screen, and draws it again
+/// after every submit, so the Director's usage-limit guard reads the dialog as showing - the words and the shape of the real
+/// captured screens (<see cref="UsageDialogRows"/>). Claude Code shows that dialog only when the owner's allowance has run
+/// out, which no run can bring about on demand, and the guard that drops input is the Director's own code reading the
+/// screen, so this is how the cell measures it (issue #4378, the usage-limit cell).
 /// </summary>
 public static class EchoAgent
 {
     /// <summary>The output printed for a submit: more than the 2048 bytes the send path's verifier counts as a turn.</summary>
     internal const int SubmitPadBytes = 3000;
 
-    public static int Run(string logPath)
+    /// <summary>Claude Code's usage-limit dialog as the captured screens draw it (the product's UsageLimitDialogTests,
+    /// "rows intact"): the question, the three numbered options, and the confirm and cancel hint.</summary>
+    internal static readonly string[] UsageDialogRows =
+    [
+        "  What do you want to do?",
+        "  \u276f 1. Stop and wait for limit to reset",
+        "    2. Add funds to continue with usage credits",
+        "    3. Switch to Team plan",
+        "  Enter to confirm \u00b7 Esc to cancel",
+    ];
+
+    /// <summary>Enough blank lines that the dialog lands in the lower half of a 40-row screen, then the dialog.</summary>
+    internal static string UsageDialog() => new string('\n', 30).Replace("\n", "\r\n") + string.Join("\r\n", UsageDialogRows) + "\r\n";
+
+    public static int Run(string logPath, bool usageDialog = false)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(logPath))!);
         using var log = new StreamWriter(new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
@@ -41,8 +61,9 @@ public static class EchoAgent
 
         Write("\u001b[?2004h");
         Write("echo-agent ready\r\n> ");
+        if (usageDialog) Write(UsageDialog());
         var clock = Stopwatch.StartNew();
-        var screen = new EchoScreen(Write);
+        var screen = new EchoScreen(Write, usageDialog ? () => Write(UsageDialog()) : null);
         var buffer = new byte[65536];
         while (true)
         {
@@ -89,7 +110,7 @@ public sealed record EchoRead(double Ms, string Hex)
 /// What the echo agent draws for the bytes it reads: the typed text echoed, nothing for an escape sequence, a newline for
 /// Enter inside a paste, and the submit block for Enter outside one.
 /// </summary>
-internal sealed class EchoScreen(Action<string> write)
+internal sealed class EchoScreen(Action<string> write, Action? afterSubmit = null)
 {
     private enum Mode { Text, Escape, Csi }
 
@@ -137,7 +158,11 @@ internal sealed class EchoScreen(Action<string> write)
                 case 0x0D:
                     Flush();
                     if (_inPaste) write("\r\n");
-                    else write("\r\n[submitted]\r\n" + new string('.', EchoAgent.SubmitPadBytes) + "\r\n> ");
+                    else
+                    {
+                        write("\r\n[submitted]\r\n" + new string('.', EchoAgent.SubmitPadBytes) + "\r\n> ");
+                        afterSubmit?.Invoke();
+                    }
                     break;
                 case 0x0A: Flush(); write("\r\n"); break;
                 case 0x7F: case 0x08: Flush(); write("\b \b"); break;

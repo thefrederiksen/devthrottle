@@ -1,0 +1,67 @@
+# session 805d0af4-c55a-4f96-8999-cfd60c10a314, state WaitingForInput, saved 2026-10-23 18:15:15Z
+00 | 
+01 | 
+02 | ❯ Line 3: the quick brown fox jumps over the lazy dog.
+03 | 
+04 | ● Received lines 2 and 3. Waiting for line 4.
+05 | 
+06 | ✻ Cogitated for 1s · done 2:12 PM
+07 | 
+08 | ❯ Do not run any tools or read any files. Reply with exactly: ACK QABBELIPFEG
+09 | 
+10 | ● ACK QABBELIPFEG
+11 | 
+12 | ✻ Baked for 1s · done 2:12 PM
+13 | 
+14 | ❯ Token QOPIPKBEODM, line 1 of 4.
+15 | 
+16 | ● Received: "Token QOPIPKBEODM, line 1 of 4." Waiting for lines 2-4.
+17 | 
+18 | ✻ Cooked for 1s · done 2:12 PM
+19 | 
+20 | ❯ Line 2: the quick brown fox jumps over the lazy dog.
+21 | 
+22 | ❯ Line 3: the quick brown fox jumps over the lazy dog.
+23 | 
+24 | ● Received lines 2 and 3. Waiting for line 4.
+25 | 
+26 | ✻ Crunched for 1s · done 2:12 PM
+27 | 
+28 | ❯ Do not run any tools or read any files. Reply with exactly: ACK QOPIPKBEODM
+29 | 
+30 | ● ACK QOPIPKBEODM
+31 | 
+32 | ✻ Sautéed for 1s · done 2:12 PM
+33 | 
+34 | ❯ Token Q90A34E534F. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+35 |   options Red and Blue. Do nothing else.
+36 | 
+37 | ● User answered Claude's questions:
+38 |   ⎿  · Which colour? → Red
+39 | 
+40 | ● Received: Red. What would you like me to do next?
+41 | 
+42 | ✻ Worked for 3s · done 2:13 PM
+43 | 
+44 | ❯ Token QOMEIANLNPF. Do not run any tools or read any files. Reply with exactly: ACK QOMEIANLNPF
+45 | 
+46 | ● ACK QOMEIANLNPF
+47 | 
+48 | ✻ Baked for 1s · done 2:13 PM
+49 | 
+50 | ❯ Token Q079360C9E2. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+51 |   options Red and Blue. Do nothing else.
+52 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+53 |  ☐ Colour
+54 | 
+55 | Which colour?
+56 | 
+57 | ❯ 1. Red
+58 |      The colour red
+59 |   2. Blue
+60 |      The colour blue
+61 |   3. Type something.
+62 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+63 |   4. Chat about this
+64 | 
+65 | Enter to select · ↑/↓ to navigate · Esc to cancel

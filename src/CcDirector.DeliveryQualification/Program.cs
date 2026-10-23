@@ -37,6 +37,8 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --echo [--routes all|r,r] [--texts all|t,t] [--agents claude,codex,pi]   (the parity texts on every route, sent to the free byte-echo agent; issue #4378)
 ///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
 ///   CcDirector.DeliveryQualification --text-matrix [--routes ...] [--texts ...] [--agents claude,codex,pi] [--max-turns 240] [--cpu-load 24]   (the same to real agents, judged character for character)
+///   CcDirector.DeliveryQualification --condition-matrix [--conditions mid-turn,owner-draft,menu-open,usage-limit] [--routes ...] [--agents ...]   (a send into a busy, drafted, menu or dialog state)
+///   Every parity matrix runs each cell twice; --repeat N changes that.
 /// </summary>
 public static class Program
 {
@@ -68,9 +70,10 @@ public static class Program
         if (args.Length == 4 && args[0] == "--replay")
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
-        // --echo-agent <log>: run AS the byte-echo agent inside a terminal the rig started (issue #4378).
-        if (args.Length == 2 && args[0] == "--echo-agent")
-            return EchoAgent.Run(args[1]);
+        // --echo-agent <log> [--usage-dialog]: run AS the byte-echo agent inside a terminal the rig started (issue #4378),
+        // drawing Claude Code's usage-limit dialog when asked.
+        if (args.Length is 2 or 3 && args[0] == "--echo-agent")
+            return EchoAgent.Run(args[1], usageDialog: args.Length == 3 && args[2] == "--usage-dialog");
 
         var opts = Options.Parse(args);
         if (opts.Rates)
@@ -190,6 +193,9 @@ public static class Program
 
         if (opts.StateMatrix)
             return await StateMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.ConditionMatrix)
+            return await ConditionMatrix.RunAsync(manager, agentOptions, opts);
 
         if (opts.ScenarioNames is { } scenarioNames)
             return await RunScenariosAsync(manager, agentOptions, opts, scenarioNames);
@@ -393,7 +399,12 @@ public sealed class Options
     public string RepoRoot { get; private set; } = DefaultRepoRoot;
     public string Out { get; private set; } = Path.Combine(DefaultRepoRoot, "runs", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
     public IReadOnlyList<string>? ScenarioNames { get; private set; }
-    public int Repeat { get; private set; } = 1;
+    private int? _repeat;
+    /// <summary>How many times each delivery scenario runs: once unless --repeat says otherwise.</summary>
+    public int Repeat => _repeat ?? 1;
+    /// <summary>How many times each cell of the parity matrices runs (issue #4378, the mission's 11.5: "run each cell
+    /// twice"): twice unless --repeat says otherwise, so a cell that passes once and fails once shows as unsteady.</summary>
+    public int MatrixRepeat => _repeat ?? 2;
     public bool Rates { get; private set; }
     private string? _ledger;
     public string LedgerPath => _ledger ?? Path.Combine(RepoRoot, "ledger.jsonl");
@@ -413,6 +424,8 @@ public sealed class Options
     public bool Echo { get; private set; }
     public bool TextMatrix { get; private set; }
     public bool StateMatrix { get; private set; }
+    public bool ConditionMatrix { get; private set; }
+    public IReadOnlyList<string>? ConditionNames { get; private set; }
     public IReadOnlyList<string>? StateCaseNames { get; private set; }
     public IReadOnlyList<string>? RouteNames { get; private set; }
     public IReadOnlyList<string>? MatrixTextNames { get; private set; }
@@ -462,11 +475,17 @@ public sealed class Options
                     o.ScenarioNames = sc == "all" ? Scenarios.All.Select(x => x.Name).ToList() : sc.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                     foreach (var n in o.ScenarioNames) Scenarios.AppliesTo(n, "claude");
                     break;
-                case "--repeat": o.Repeat = int.Parse(Next()); break;
+                case "--repeat": o._repeat = int.Parse(Next()); break;
                 case "--rates": o.Rates = true; break;
                 case "--echo": o.Echo = true; break;
                 case "--text-matrix": o.TextMatrix = true; break;
                 case "--state-matrix": o.StateMatrix = true; break;
+                case "--condition-matrix": o.ConditionMatrix = true; break;
+                case "--conditions":
+                    var cs = Next();
+                    o.ConditionNames = cs == "all" ? Conditions.All.Select(c => c.Name).ToList() : cs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var c in o.ConditionNames) Conditions.Named(c);
+                    break;
                 case "--cases": o.StateCaseNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--max-turns": o.MaxTurns = int.Parse(Next()); break;
                 case "--routes":

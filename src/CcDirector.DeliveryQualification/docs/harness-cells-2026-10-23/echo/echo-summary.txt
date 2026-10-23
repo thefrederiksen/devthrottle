@@ -1,0 +1,62 @@
+route           as       sends exact split altered via-file other  framed  unsteady-cells
+desktop-type    desktop     42    42     0       0        0     0  0/42               0
+desktop-paste   desktop     56    52     2       2        0     0  0/56               0
+desktop-newline desktop      8     0     8       0        0     0  0/8               0
+prompt          claude      56    46     0       2        8     0  18/56               0
+prompt          codex       56    34     0       2       20     0  0/56               0
+prompt          pi          56    46     0       2        8     0  18/56               0
+54 of 274 did not:
+  desktop-paste as desktop tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QDE99037EC3.\tcolumn\tcolu", got "QDE99037EC3.columncolumn"
+  desktop-paste as desktop tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q3AE47447FB.\tcolumn\tcolu", got "Q3AE47447FB.columncolumn"
+  desktop-newline as desktop multiline-lf run 1 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-lf run 2 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 1 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 2 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-paste as desktop multiline-crlf run 1 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-paste as desktop multiline-crlf run 2 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 1 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 2 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 1 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 2 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt
+  prompt as claude tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q1B7CB34549.\tcolumn\tcolu", got "Q1B7CB34549.columncolumn"
+  prompt as claude tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q2DFBFE098E.\tcolumn\tcolu", got "Q2DFBFE098E.columncolumn"
+  prompt as claude size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QB0EBBE17A2.\tcolumn\tcolu", got "QB0EBBE17A2.columncolumn"
+  prompt as codex tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q47C32E80CA.\tcolumn\tcolu", got "Q47C32E80CA.columncolumn"
+  prompt as codex multiline-lf run 1 len=213: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-lf run 2 len=213: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-crlf run 1 len=216: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-crlf run 2 len=216: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex blank-lines run 1 len=152: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex blank-lines run 2 len=152: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-301 run 1 len=301: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-301 run 2 len=301: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-1999 run 1 len=1999: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-1999 run 2 len=1999: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2000 run 1 len=2000: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2000 run 2 len=2000: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QB53927BF40.\tcolumn\tcolu", got "QB53927BF40.columncolumn"
+  prompt as pi tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q28FE662AD1.\tcolumn\tcolu", got "Q28FE662AD1.columncolumn"
+  prompt as pi size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact

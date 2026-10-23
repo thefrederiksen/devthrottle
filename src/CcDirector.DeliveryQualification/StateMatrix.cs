@@ -24,9 +24,12 @@ public sealed record StateCase(string Name, string Kind, Func<string, string> Pr
 /// it never did within the watch.</param>
 /// <param name="ShowedApproval">The Director showed WaitingForPerm at any point while an approval was pending.</param>
 /// <param name="Timeline">Every state change, as state@seconds-since-send.</param>
+/// <param name="Run">Which run of the case this is (each case runs twice by default).</param>
+/// <param name="ScreenFile">The screen at the true moment (or at the end of the watch when there was none), relative to the
+/// run folder.</param>
 public sealed record StateResult(
     string Agent, string Case, string Kind, string Truth, double? TrueWaitAt, double? ToWorking, double FalseWaiting, double? ToWaiting,
-    bool ShowedApproval, string Timeline, bool Pass, string Detail);
+    bool ShowedApproval, string Timeline, bool Pass, string Detail, int Run = 1, string? ScreenFile = null);
 
 /// <summary>
 /// THE WORKING-OR-WAITING MATRIX (issue #4378; the owner, 23 October 2026: "a VERY robust way of knowing if the terminal
@@ -49,11 +52,16 @@ public static class StateMatrix
 
     private static string Ask(string t) => $"Reply with exactly: ACK {t}";
 
+    /// <summary>A shell command that runs for <paramref name="seconds"/> seconds and that every agent runs as asked.</summary>
+    internal static string LongTool(int seconds) => $"python3 -c \"import time; time.sleep({seconds}); print('slept')\"";
+
     public static readonly IReadOnlyList<StateCase> All =
     [
         new("quick", "turn", t => $"Token {t}. Do not run any tools or read any files. {Ask(t)}", ["claude", "codex", "pi"]),
         new("long-answer", "turn", t => $"Token {t}. Without using any tools, write about 300 words on the history of the bicycle, then end with the line: ACK {t}", ["claude", "codex", "pi"]),
-        new("tool-40s", "turn", t => $"Token {t}. Run exactly this shell command and wait for it to finish: sleep 40 . Then {Ask(t)}", ["claude", "codex", "pi"]),
+        // Not "sleep 40": Claude Code refuses a standalone sleep ("Blocked: standalone sleep 40"), so the baseline's Claude case
+        // timed a refused tool, not a forty-second one. A Python sleep is a real forty-second tool on every agent.
+        new("tool-40s", "turn", t => $"Token {t}. Run exactly this shell command and wait for it to finish: {LongTool(40)} . Then {Ask(t)}", ["claude", "codex", "pi"]),
         new("approval", "pending", t => $"Token {t}. Use your shell tool to run exactly: touch approval-{t}.txt . Then {Ask(t)}", ["claude", "codex"], PermissionsOn: true),
         new("question-menu", "pending", t => $"Token {t}. Use the AskUserQuestion tool to ask me one question: red or blue. Do nothing else.", ["claude"]),
         new("model-picker", "menu", _ => "/model", ["claude", "codex", "pi"]),
@@ -63,7 +71,9 @@ public static class StateMatrix
     private static readonly Dictionary<string, string> PermissionArgs = new()
     {
         ["claude"] = "--permission-mode default --model claude-haiku-4-5-20251001",
-        ["codex"] = "-a untrusted -s read-only -m gpt-5.6-luna -c model_reasoning_effort=low",
+        // Codex 0.163 accepts only on-request or never for --ask-for-approval: the baseline's "untrusted" made it exit before
+        // the prompt, so its approval case was never judged. In the read-only sandbox, writing the file needs the owner's yes.
+        ["codex"] = "-a on-request -s read-only -m gpt-5.6-luna -c model_reasoning_effort=low",
     };
 
     public static async Task<int> RunAsync(SessionManager manager, AgentOptions agentOptions, Options opts)
@@ -76,7 +86,8 @@ public static class StateMatrix
             : All.ToList();
         var results = new List<StateResult>();
         var resultsPath = Path.Combine(opts.Out, "state-results.jsonl");
-        Console.WriteLine($"[state] run {runId} on product {commit}: {cases.Count} cases x {opts.Agents.Count} agents. Results: {resultsPath}");
+        var runs = opts.MatrixRepeat;
+        Console.WriteLine($"[state] run {runId} on product {commit}: {cases.Count} cases x {opts.Agents.Count} agents x {runs} runs. Results: {resultsPath}");
         using var desktop = new DesktopHost();
 
         foreach (var agent in opts.Agents)
@@ -85,6 +96,7 @@ public static class StateMatrix
             var executable = agent switch { "claude" => agentOptions.ClaudePath, "codex" => agentOptions.CodexPath, "pi" => agentOptions.PiPath, _ => null } ?? agent;
             var version = Ledger.AgentVersion(executable);
             foreach (var c in cases.Where(c => c.Agents.Contains(agent)))
+            for (var run = 1; run <= runs; run++)
             {
                 var args = c.PermissionsOn ? PermissionArgs[agent] : opts.ArgsOverride.TryGetValue(agent, out var o) ? o : a.Args;
                 var session = manager.CreateSession(repo, a.Kind, string.IsNullOrWhiteSpace(args) ? null : args, SessionBackendType.ConPty, null);
@@ -94,11 +106,12 @@ public static class StateMatrix
                     await desktop.AttachAsync(session);
                     if (!await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120)))
                         Console.WriteLine($"[state] {agent} {c.Name}: not waiting for input after 120s; starting anyway");
-                    r = await RunCaseAsync(agent, c, session, desktop);
+                    r = await RunCaseAsync(agent, c, session, desktop, opts.Out, run);
                 }
                 catch (Exception ex)
                 {
-                    r = new StateResult(agent, c.Name, c.Kind, "-", null, null, 0, null, false, "", false, $"RIG-ERROR {ex.GetType().Name}: {ex.Message}");
+                    var screenFile = ScreenDump.Save(opts.Out, $"state-{agent}-{c.Name}-run{run}-rig-error", session);
+                    r = new StateResult(agent, c.Name, c.Kind, "-", null, null, 0, null, false, "", false, $"RIG-ERROR {ex.GetType().Name}: {ex.Message}", run, screenFile);
                 }
                 finally
                 {
@@ -110,8 +123,8 @@ public static class StateMatrix
                 Ledger.Append(opts.LedgerPath, new LedgerEntry(runId, DateTime.UtcNow, commit, Environment.MachineName,
                     System.Runtime.InteropServices.RuntimeInformation.OSDescription, agent, version, $"state:{c.Name}", 0,
                     "OK", r.Pass ? "CORRECT" : "WRONG", r.Pass, r.ToWaiting ?? -1, $"{r.Detail} | {r.Timeline}", null, Route: "state"));
-                Console.WriteLine($"[state] {agent,-7} {c.Name,-14} {(r.Pass ? "PASS" : "FAIL")} working-after={Fmt(r.ToWorking)} false-waiting={r.FalseWaiting:F1}s " +
-                                  $"waiting-after-true-end={Fmt(r.ToWaiting)} approval-shown={(r.ShowedApproval ? "yes" : "no")} {r.Detail}");
+                Console.WriteLine($"[state] {agent,-7} {c.Name,-14} run {run} {(r.Pass ? "PASS" : "FAIL")} working-after={Fmt(r.ToWorking)} false-waiting={r.FalseWaiting:F1}s " +
+                                  $"waiting-after-true-end={Fmt(r.ToWaiting)} approval-shown={(r.ShowedApproval ? "yes" : "no")} {r.Detail} screen: {r.ScreenFile}");
                 Console.WriteLine($"        {r.Timeline}");
             }
         }
@@ -126,8 +139,10 @@ public static class StateMatrix
 
     private static string Fmt(double? s) => s is { } v ? $"{v:F1}s" : "never";
 
-    private static async Task<StateResult> RunCaseAsync(string agent, StateCase c, Session session, DesktopHost desktop)
+    private static async Task<StateResult> RunCaseAsync(string agent, StateCase c, Session session, DesktopHost desktop, string outDir, int run)
     {
+        var screenName = $"state-{agent}-{c.Name}-run{run}";
+        string? screenFile = null;
         var token = EchoLayer.Token();
         var prompt = c.Prompt(token);
         var samples = new List<(double At, ActivityState State)>();
@@ -156,11 +171,18 @@ public static class StateMatrix
             if (at is { } t) trueWaitAt = Math.Max(0, (t - sentAt).TotalSeconds);
             else await Task.Delay(500);
         }
+        // The screen at the true moment - the approval or the menu the agent drew - so a case can be read, not inferred.
+        if (trueWaitAt is not null && c.Kind != "turn")
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            screenFile = ScreenDump.Save(outDir, screenName, session, $"{agent} {c.Name} run {run}, 2s after the ask was recorded");
+        }
         // Watch on past the true moment, so a late or a wrong state is seen.
         var observeUntil = sentAt.AddSeconds((trueWaitAt ?? (DateTime.UtcNow - sentAt).TotalSeconds) + ObserveAfter.TotalSeconds);
         while (DateTime.UtcNow < observeUntil) await Task.Delay(250);
         stop.Cancel();
         await sampler;
+        screenFile ??= ScreenDump.Save(outDir, screenName, session, $"{agent} {c.Name} run {run}, at the end of the watch");
 
         // Close whatever the case opened (the approval, the menu, the picker), so the session ends cleanly.
         if (c.Kind != "turn") await session.CancelTurnAsync();
@@ -168,8 +190,8 @@ public static class StateMatrix
         var timeline = Timeline(samples);
         if (trueWaitAt is null)
             return new StateResult(agent, c.Name, c.Kind, "unknown", null, null, 0, null, false, timeline, false,
-                "RIG: the records never showed the answer or the ask, so there is no truth to judge against");
-        return Judge(agent, c, trueWaitAt.Value, samples, timeline);
+                "RIG: the records never showed the answer or the ask, so there is no truth to judge against", run, screenFile);
+        return Judge(agent, c, trueWaitAt.Value, samples, timeline) with { Run = run, ScreenFile = screenFile };
     }
 
     /// <summary>Judge the samples against the truth. Pure, so it is tested without an agent.</summary>
@@ -213,24 +235,44 @@ public static class StateMatrix
         return sb.ToString();
     }
 
-    /// <summary>When the agent's ANSWER was recorded: the latest non-user record holding "ACK token".</summary>
-    private static DateTime? AnswerRecordedAt(string agent, DateTime sinceUtc, string token) =>
-        RecordTimes(agent, sinceUtc, $"ACK {token}", root => !AgentRecords.IsUserTurn(agent, root)).DefaultIfEmpty().Max() is var t && t != default ? t : null;
-
-    /// <summary>When the agent's ASK was recorded: the earliest non-user record that names the tool and holds the token
-    /// (the approval's command names it) or, for the question menu, the AskUserQuestion call.</summary>
-    private static DateTime? AskRecordedAt(string agent, DateTime sinceUtc, string token, string caseName)
+    /// <summary>When the agent's earliest TOOL CALL holding <paramref name="needle"/> was recorded, or null.</summary>
+    internal static DateTime? ToolCallRecordedAt(string agent, DateTime sinceUtc, string needle)
     {
-        var needle = caseName == "question-menu" ? "AskUserQuestion" : $"approval-{token}";
-        var times = RecordTimes(agent, sinceUtc, needle, root => !AgentRecords.IsUserTurn(agent, root)).ToList();
+        var times = RecordTimes(AgentRecords.RecentLines(agent, sinceUtc), sinceUtc, needle, root => AgentRecords.IsToolCall(agent, root)).ToList();
         return times.Count == 0 ? null : times.Min();
     }
 
-    /// <summary>The timestamps of the agent's records after <paramref name="sinceUtc"/> that hold <paramref name="needle"/>
-    /// and pass <paramref name="keep"/>. Every agent stamps each record with an ISO time or Unix milliseconds.</summary>
-    private static IEnumerable<DateTime> RecordTimes(string agent, DateTime sinceUtc, string needle, Func<JsonElement, bool> keep)
+    /// <summary>When the agent's ANSWER was recorded: the latest record holding "ACK token" that is neither a user turn nor
+    /// a copy of the prompt (<see cref="AgentRecords.IsCopyOfPrompt"/>) - the prompt asks for those very words, and Codex
+    /// echoes it at once, so without that test the echo read as an answer given before the agent had started.</summary>
+    internal static DateTime? AnswerRecordedAt(string agent, DateTime sinceUtc, string token) =>
+        AnswerRecordedAt(agent, AgentRecords.RecentLines(agent, sinceUtc), sinceUtc, token);
+
+    /// <summary>The answer's time among <paramref name="lines"/>. Pure, so it is tested on recorded lines.</summary>
+    internal static DateTime? AnswerRecordedAt(string agent, IEnumerable<string> lines, DateTime sinceUtc, string token) =>
+        RecordTimes(lines, sinceUtc, $"ACK {token}", root => !AgentRecords.IsUserTurn(agent, root) && !AgentRecords.IsCopyOfPrompt(root))
+            .DefaultIfEmpty().Max() is var t && t != default ? t : null;
+
+    /// <summary>When the agent's ASK was recorded: the earliest TOOL CALL (<see cref="AgentRecords.IsToolCall"/>) that holds
+    /// the token - the approval's command names it - or, for the question menu, the AskUserQuestion call. Only a tool call
+    /// counts: Codex echoes the prompt, which holds the same words, in a record that is not a user turn, and the baseline's
+    /// reader would have taken that echo for the ask (issue #4378).</summary>
+    internal static DateTime? AskRecordedAt(string agent, DateTime sinceUtc, string token, string caseName) =>
+        AskRecordedAt(agent, AgentRecords.RecentLines(agent, sinceUtc), sinceUtc, token, caseName);
+
+    /// <summary>The ask's time among <paramref name="lines"/>. Pure, so it is tested on recorded lines.</summary>
+    internal static DateTime? AskRecordedAt(string agent, IEnumerable<string> lines, DateTime sinceUtc, string token, string caseName)
     {
-        foreach (var line in AgentRecords.RecentLines(agent, sinceUtc))
+        var needle = caseName == "question-menu" ? "AskUserQuestion" : $"approval-{token}";
+        var times = RecordTimes(lines, sinceUtc, needle, root => AgentRecords.IsToolCall(agent, root)).ToList();
+        return times.Count == 0 ? null : times.Min();
+    }
+
+    /// <summary>The timestamps of the records among <paramref name="lines"/> after <paramref name="sinceUtc"/> that hold
+    /// <paramref name="needle"/> and pass <paramref name="keep"/>. Every agent stamps each record with an ISO time or Unix milliseconds.</summary>
+    private static IEnumerable<DateTime> RecordTimes(IEnumerable<string> lines, DateTime sinceUtc, string needle, Func<JsonElement, bool> keep)
+    {
+        foreach (var line in lines)
         {
             if (!line.Contains(needle, StringComparison.Ordinal)) continue;
             DateTime? at = null;
@@ -260,13 +302,13 @@ public static class StateMatrix
     internal static string Summary(IReadOnlyList<StateResult> results)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"{"agent",-8} {"case",-14} {"pass",-5} {"working-after",13} {"false-waiting",13} {"waiting-after-end",17} approval-shown");
+        sb.AppendLine($"{"agent",-8} {"case",-14} {"run",3} {"pass",-5} {"working-after",13} {"false-waiting",13} {"waiting-after-end",17} approval-shown");
         foreach (var r in results)
-            sb.AppendLine($"{r.Agent,-8} {r.Case,-14} {(r.Pass ? "yes" : "NO"),-5} {Fmt(r.ToWorking),13} {r.FalseWaiting,12:F1}s {Fmt(r.ToWaiting),17} {(r.Kind == "pending" ? (r.ShowedApproval ? "yes" : "no") : "-")}");
+            sb.AppendLine($"{r.Agent,-8} {r.Case,-14} {r.Run,3} {(r.Pass ? "yes" : "NO"),-5} {Fmt(r.ToWorking),13} {r.FalseWaiting,12:F1}s {Fmt(r.ToWaiting),17} {(r.Kind == "pending" ? (r.ShowedApproval ? "yes" : "no") : "-")}");
         var pass = results.Count(r => r.Pass);
-        sb.AppendLine($"{pass} of {results.Count} cases correct.");
+        sb.AppendLine($"{pass} of {results.Count} case runs correct; {AgentMatrix.Unsteady(results, r => $"{r.Agent} {r.Case}", r => r.Pass)} case(s) passed on one run and failed on another.");
         foreach (var r in results.Where(r => !r.Pass))
-            sb.AppendLine($"  {r.Agent} {r.Case}: {r.Detail}");
+            sb.AppendLine($"  {r.Agent} {r.Case} run {r.Run}: {r.Detail} (screen: {r.ScreenFile})");
         return sb.ToString();
     }
 }

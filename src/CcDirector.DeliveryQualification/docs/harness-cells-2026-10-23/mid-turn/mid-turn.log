@@ -1,0 +1,53 @@
+[conditions] run 20261023-190743 on product cf4f347b2586: mid-turn x 4 routes x 2 runs. Results: /home/soren/ReposFred/_delivery-qa/runs/harness-cells-20261023-1309/mid-turn/condition-results.jsonl
+[conditions] mid-turn: proves a text sent while the agent runs a 25-second tool reaches it once, alone, character for character - queued or steered into the turn, as the agent does for a person. Cannot: when the agent records a queued prompt only at the end of the turn (Codex, Pi) it cannot show the prompt was taken at once, only that it arrived.
+[conditions] mid-turn on claude: /home/soren/.local/bin/claude (2.1.309 (Claude Code)), args: --dangerously-skip-permissions --model claude-haiku-4-5-20251001
+[conditions] mid-turn    claude desktop-type    ascii        run 1 director=OK           truth=ARRIVED             PASS 1.1s  | the tool was running at the send: started 2.2s before it, finished 22.8s after it
+[conditions] mid-turn    claude desktop-type    ascii        run 2 director=OK           truth=ARRIVED             PASS 1.1s  | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    claude desktop-newline multiline-lf run 1 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    claude desktop-newline multiline-lf run 2 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    claude desktop-paste   ascii        run 1 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    claude desktop-paste   ascii        run 2 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.4s before it, finished 22.6s after it
+[conditions] mid-turn    claude prompt          ascii        run 1 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    claude prompt          ascii        run 2 director=OK           truth=ARRIVED             PASS 0.4s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn on codex: codex (codex-cli 0.163.0), args: --dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low
+[conditions] mid-turn    codex  desktop-type    ascii        run 1 director=OK           truth=ARRIVED             PASS 1.1s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    codex  desktop-type    ascii        run 2 director=OK           truth=ARRIVED             PASS 1.1s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    codex  desktop-newline multiline-lf run 1 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    codex  desktop-newline multiline-lf run 2 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    codex  desktop-paste   ascii        run 1 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.2s before it, finished 22.9s after it
+[conditions] mid-turn    codex  desktop-paste   ascii        run 2 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.0s before it, finished 23.0s after it
+[conditions] mid-turn    codex  prompt          ascii        run 1 director=OK           truth=ARRIVED             PASS 1.5s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    codex  prompt          ascii        run 2 director=OK           truth=ARRIVED             PASS 1.5s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn on pi: /home/soren/.local/bin/pi (1.2.0), args: --model azure-openai-responses/gpt-5.6-terra --thinking off
+[conditions] mid-turn    pi     desktop-type    ascii        run 1 director=OK           truth=ARRIVED             PASS 1.1s  | the tool was running at the send: started 2.5s before it, finished 22.5s after it
+[conditions] mid-turn    pi     desktop-type    ascii        run 2 director=OK           truth=ARRIVED             PASS 1.3s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    pi     desktop-newline multiline-lf run 1 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.4s before it, finished 22.6s after it
+[conditions] mid-turn    pi     desktop-newline multiline-lf run 2 director=OK           truth=ALTERED             FAIL 2.1s first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4." | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    pi     desktop-paste   ascii        run 1 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.3s before it, finished 22.7s after it
+[conditions] mid-turn    pi     desktop-paste   ascii        run 2 director=OK           truth=ARRIVED             PASS 0.5s  | the tool was running at the send: started 2.1s before it, finished 22.9s after it
+[conditions] mid-turn    pi     prompt          ascii        run 1 director=OK           truth=ARRIVED             PASS 1.3s  | the tool was running at the send: started 2.0s before it, finished 23.0s after it
+[conditions] mid-turn    pi     prompt          ascii        run 2 director=OK           truth=ARRIVED             PASS 1.3s  | the tool was running at the send: started 2.4s before it, finished 22.6s after it
+
+condition    agent   route           sends pass fail not-counted unsteady-cells  truths
+mid-turn     claude  desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     claude  desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     codex   desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     pi      desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      prompt              2    2    0           0              0  ARRIVED ARRIVED
+6 of 24 counted cells did not pass (0 not counted):
+  mid-turn claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+What each condition cannot show:
+  mid-turn: when the agent records a queued prompt only at the end of the turn (Codex, Pi) it cannot show the prompt was taken at once, only that it arrived.
+

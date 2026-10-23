@@ -1,0 +1,339 @@
+[echo] run 20261023-170912 on product 4b58b3a2381d: 28 texts x 4 routes x 2 runs. Results: /home/soren/ReposFred/_delivery-qa/runs/harness-cells-20261023-1309/echo/echo-results.jsonl
+[echo] desktop-type    as desktop ascii             run 1 len=94     EXACT         framed=no  enters=1 reads=90 1.1s director=OK  
+[echo] desktop-type    as desktop ascii             run 2 len=94     EXACT         framed=no  enters=1 reads=95 1.1s director=OK  
+[echo] desktop-paste   as desktop ascii             run 1 len=94     EXACT         framed=no  enters=1 reads=13 0.5s director=OK  
+[echo] desktop-paste   as desktop ascii             run 2 len=94     EXACT         framed=no  enters=1 reads=13 0.5s director=OK  
+[echo] desktop-type    as desktop punctuation       run 1 len=187    EXACT         framed=no  enters=1 reads=188 1.9s director=OK  
+[echo] desktop-type    as desktop punctuation       run 2 len=187    EXACT         framed=no  enters=1 reads=188 1.9s director=OK  
+[echo] desktop-paste   as desktop punctuation       run 1 len=187    EXACT         framed=no  enters=1 reads=25 0.7s director=OK  
+[echo] desktop-paste   as desktop punctuation       run 2 len=187    EXACT         framed=no  enters=1 reads=25 0.7s director=OK  
+[echo] desktop-type    as desktop quotes-dashes     run 1 len=180    EXACT         framed=no  enters=1 reads=181 1.8s director=OK  
+[echo] desktop-type    as desktop quotes-dashes     run 2 len=180    EXACT         framed=no  enters=1 reads=181 1.8s director=OK  
+[echo] desktop-paste   as desktop quotes-dashes     run 1 len=180    EXACT         framed=no  enters=1 reads=24 0.7s director=OK  
+[echo] desktop-paste   as desktop quotes-dashes     run 2 len=180    EXACT         framed=no  enters=1 reads=24 0.7s director=OK  
+[echo] desktop-type    as desktop accents-currency  run 1 len=137    EXACT         framed=no  enters=1 reads=138 1.5s director=OK  
+[echo] desktop-type    as desktop accents-currency  run 2 len=137    EXACT         framed=no  enters=1 reads=138 1.5s director=OK  
+[echo] desktop-paste   as desktop accents-currency  run 1 len=137    EXACT         framed=no  enters=1 reads=19 0.6s director=OK  
+[echo] desktop-paste   as desktop accents-currency  run 2 len=137    EXACT         framed=no  enters=1 reads=19 0.6s director=OK  
+[echo] desktop-type    as desktop emoji             run 1 len=130    EXACT         framed=no  enters=1 reads=125 1.3s director=OK  
+[echo] desktop-type    as desktop emoji             run 2 len=130    EXACT         framed=no  enters=1 reads=125 1.3s director=OK  
+[echo] desktop-paste   as desktop emoji             run 1 len=130    EXACT         framed=no  enters=1 reads=18 0.6s director=OK  
+[echo] desktop-paste   as desktop emoji             run 2 len=130    EXACT         framed=no  enters=1 reads=18 0.6s director=OK  
+[echo] desktop-type    as desktop cjk               run 1 len=113    EXACT         framed=no  enters=1 reads=114 1.3s director=OK  
+[echo] desktop-type    as desktop cjk               run 2 len=113    EXACT         framed=no  enters=1 reads=114 1.2s director=OK  
+[echo] desktop-paste   as desktop cjk               run 1 len=113    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-paste   as desktop cjk               run 2 len=113    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-type    as desktop rtl               run 1 len=115    EXACT         framed=no  enters=1 reads=116 1.3s director=OK  
+[echo] desktop-type    as desktop rtl               run 2 len=115    EXACT         framed=no  enters=1 reads=116 1.3s director=OK  
+[echo] desktop-paste   as desktop rtl               run 1 len=115    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-paste   as desktop rtl               run 2 len=115    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-paste   as desktop tabs              run 1 len=116    ALTERED       framed=no  enters=1 reads=16 0.6s director=OK first difference at character 18 of 116 (got 113): wanted "QDE99037EC3.\tcolumn\tcolu", got "QDE99037EC3.columncolumn" 
+[echo] desktop-paste   as desktop tabs              run 2 len=116    ALTERED       framed=no  enters=1 reads=16 0.5s director=OK first difference at character 18 of 116 (got 113): wanted "Q3AE47447FB.\tcolumn\tcolu", got "Q3AE47447FB.columncolumn" 
+[echo] desktop-type    as desktop edge-spaces       run 1 len=130    EXACT         framed=no  enters=1 reads=131 1.4s director=OK  
+[echo] desktop-type    as desktop edge-spaces       run 2 len=130    EXACT         framed=no  enters=1 reads=131 1.4s director=OK  
+[echo] desktop-paste   as desktop edge-spaces       run 1 len=130    EXACT         framed=no  enters=1 reads=18 0.6s director=OK  
+[echo] desktop-paste   as desktop edge-spaces       run 2 len=130    EXACT         framed=no  enters=1 reads=18 0.6s director=OK  
+[echo] desktop-newline as desktop multiline-lf      run 1 len=213    SPLIT         framed=no  enters=4 reads=214 2.1s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-newline as desktop multiline-lf      run 2 len=213    SPLIT         framed=no  enters=4 reads=214 2.1s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-paste   as desktop multiline-lf      run 1 len=213    EXACT         framed=no  enters=1 reads=28 0.7s director=OK  
+[echo] desktop-paste   as desktop multiline-lf      run 2 len=213    EXACT         framed=no  enters=1 reads=28 0.7s director=OK  
+[echo] desktop-newline as desktop multiline-crlf    run 1 len=216    SPLIT         framed=no  enters=4 reads=214 2.1s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-newline as desktop multiline-crlf    run 2 len=216    SPLIT         framed=no  enters=4 reads=214 2.1s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-paste   as desktop multiline-crlf    run 1 len=216    SPLIT         framed=no  enters=4 reads=28 0.7s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-paste   as desktop multiline-crlf    run 2 len=216    SPLIT         framed=no  enters=4 reads=28 0.7s director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt 
+[echo] desktop-newline as desktop blank-lines       run 1 len=152    SPLIT         framed=no  enters=6 reads=153 1.6s director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt 
+[echo] desktop-newline as desktop blank-lines       run 2 len=152    SPLIT         framed=no  enters=6 reads=153 1.6s director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt 
+[echo] desktop-paste   as desktop blank-lines       run 1 len=152    EXACT         framed=no  enters=1 reads=20 0.6s director=OK  
+[echo] desktop-paste   as desktop blank-lines       run 2 len=152    EXACT         framed=no  enters=1 reads=20 0.6s director=OK  
+[echo] desktop-type    as desktop lead-slash        run 1 len=112    EXACT         framed=no  enters=1 reads=113 1.4s director=OK  
+[echo] desktop-type    as desktop lead-slash        run 2 len=112    EXACT         framed=no  enters=1 reads=113 1.4s director=OK  
+[echo] desktop-paste   as desktop lead-slash        run 1 len=112    EXACT         framed=no  enters=1 reads=15 0.5s director=OK  
+[echo] desktop-paste   as desktop lead-slash        run 2 len=112    EXACT         framed=no  enters=1 reads=15 0.6s director=OK  
+[echo] desktop-type    as desktop lead-bang         run 1 len=118    EXACT         framed=no  enters=1 reads=119 1.3s director=OK  
+[echo] desktop-type    as desktop lead-bang         run 2 len=118    EXACT         framed=no  enters=1 reads=119 1.3s director=OK  
+[echo] desktop-paste   as desktop lead-bang         run 1 len=118    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-paste   as desktop lead-bang         run 2 len=118    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-type    as desktop lead-at           run 1 len=109    EXACT         framed=no  enters=1 reads=110 1.2s director=OK  
+[echo] desktop-type    as desktop lead-at           run 2 len=109    EXACT         framed=no  enters=1 reads=110 1.2s director=OK  
+[echo] desktop-paste   as desktop lead-at           run 1 len=109    EXACT         framed=no  enters=1 reads=15 0.5s director=OK  
+[echo] desktop-paste   as desktop lead-at           run 2 len=109    EXACT         framed=no  enters=1 reads=15 0.5s director=OK  
+[echo] desktop-type    as desktop lead-hash         run 1 len=116    EXACT         framed=no  enters=1 reads=117 1.3s director=OK  
+[echo] desktop-type    as desktop lead-hash         run 2 len=116    EXACT         framed=no  enters=1 reads=117 1.3s director=OK  
+[echo] desktop-paste   as desktop lead-hash         run 1 len=116    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-paste   as desktop lead-hash         run 2 len=116    EXACT         framed=no  enters=1 reads=16 0.5s director=OK  
+[echo] desktop-type    as desktop size-199          run 1 len=199    EXACT         framed=no  enters=1 reads=200 2.0s director=OK  
+[echo] desktop-type    as desktop size-199          run 2 len=199    EXACT         framed=no  enters=1 reads=200 2.0s director=OK  
+[echo] desktop-paste   as desktop size-199          run 1 len=199    EXACT         framed=no  enters=1 reads=26 0.7s director=OK  
+[echo] desktop-paste   as desktop size-199          run 2 len=199    EXACT         framed=no  enters=1 reads=26 0.7s director=OK  
+[echo] desktop-type    as desktop size-200          run 1 len=200    EXACT         framed=no  enters=1 reads=201 2.0s director=OK  
+[echo] desktop-type    as desktop size-200          run 2 len=200    EXACT         framed=no  enters=1 reads=201 2.0s director=OK  
+[echo] desktop-paste   as desktop size-200          run 1 len=200    EXACT         framed=no  enters=1 reads=26 0.7s director=OK  
+[echo] desktop-paste   as desktop size-200          run 2 len=200    EXACT         framed=no  enters=1 reads=26 0.7s director=OK  
+[echo] desktop-type    as desktop size-201          run 1 len=201    EXACT         framed=no  enters=1 reads=202 2.0s director=OK  
+[echo] desktop-type    as desktop size-201          run 2 len=201    EXACT         framed=no  enters=1 reads=202 2.1s director=OK  
+[echo] desktop-paste   as desktop size-201          run 1 len=201    EXACT         framed=no  enters=1 reads=27 0.8s director=OK  
+[echo] desktop-paste   as desktop size-201          run 2 len=201    EXACT         framed=no  enters=1 reads=27 0.7s director=OK  
+[echo] desktop-type    as desktop size-299          run 1 len=299    EXACT         framed=no  enters=1 reads=300 2.8s director=OK  
+[echo] desktop-type    as desktop size-299          run 2 len=299    EXACT         framed=no  enters=1 reads=300 2.8s director=OK  
+[echo] desktop-paste   as desktop size-299          run 1 len=299    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-paste   as desktop size-299          run 2 len=299    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-type    as desktop size-300          run 1 len=300    EXACT         framed=no  enters=1 reads=301 2.8s director=OK  
+[echo] desktop-type    as desktop size-300          run 2 len=300    EXACT         framed=no  enters=1 reads=301 2.8s director=OK  
+[echo] desktop-paste   as desktop size-300          run 1 len=300    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-paste   as desktop size-300          run 2 len=300    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-type    as desktop size-301          run 1 len=301    EXACT         framed=no  enters=1 reads=302 2.8s director=OK  
+[echo] desktop-type    as desktop size-301          run 2 len=301    EXACT         framed=no  enters=1 reads=302 2.8s director=OK  
+[echo] desktop-paste   as desktop size-301          run 1 len=301    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-paste   as desktop size-301          run 2 len=301    EXACT         framed=no  enters=1 reads=39 0.9s director=OK  
+[echo] desktop-type    as desktop size-1999         run 1 len=1999   EXACT         framed=no  enters=1 reads=2000 17.1s director=OK  
+[echo] desktop-type    as desktop size-1999         run 2 len=1999   EXACT         framed=no  enters=1 reads=2000 17.0s director=OK  
+[echo] desktop-paste   as desktop size-1999         run 1 len=1999   EXACT         framed=no  enters=1 reads=251 4.3s director=OK  
+[echo] desktop-paste   as desktop size-1999         run 2 len=1999   EXACT         framed=no  enters=1 reads=251 4.3s director=OK  
+[echo] desktop-type    as desktop size-2000         run 1 len=2000   EXACT         framed=no  enters=1 reads=2001 17.1s director=OK  
+[echo] desktop-type    as desktop size-2000         run 2 len=2000   EXACT         framed=no  enters=1 reads=2001 17.5s director=OK  
+[echo] desktop-paste   as desktop size-2000         run 1 len=2000   EXACT         framed=no  enters=1 reads=251 4.3s director=OK  
+[echo] desktop-paste   as desktop size-2000         run 2 len=2000   EXACT         framed=no  enters=1 reads=251 4.3s director=OK  
+[echo] desktop-type    as desktop size-2001         run 1 len=2001   EXACT         framed=no  enters=1 reads=2002 17.1s director=OK  
+[echo] desktop-type    as desktop size-2001         run 2 len=2001   EXACT         framed=no  enters=1 reads=2002 17.1s director=OK  
+[echo] desktop-paste   as desktop size-2001         run 1 len=2001   EXACT         framed=no  enters=1 reads=252 4.3s director=OK  
+[echo] desktop-paste   as desktop size-2001         run 2 len=2001   EXACT         framed=no  enters=1 reads=252 4.3s director=OK  
+[echo] desktop-paste   as desktop size-8k           run 1 len=8192   EXACT         framed=no  enters=1 reads=1025 16.8s director=OK  
+[echo] desktop-paste   as desktop size-8k           run 2 len=8192   EXACT         framed=no  enters=1 reads=1025 17.2s director=OK  
+[echo] desktop-paste   as desktop size-50k          run 1 len=51200  EXACT         framed=no  enters=1 reads=6401 109.6s director=OK  
+[echo] desktop-paste   as desktop size-50k          run 2 len=51200  EXACT         framed=no  enters=1 reads=6401 106.0s director=OK  
+[echo] desktop-newline as desktop multiline-3k      run 1 len=2692   SPLIT         framed=no  enters=50 reads=2693 23.8s director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt 
+[echo] desktop-newline as desktop multiline-3k      run 2 len=2692   SPLIT         framed=no  enters=50 reads=2693 23.0s director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt 
+[echo] desktop-paste   as desktop multiline-3k      run 1 len=2692   EXACT         framed=no  enters=1 reads=338 5.7s director=OK  
+[echo] desktop-paste   as desktop multiline-3k      run 2 len=2692   EXACT         framed=no  enters=1 reads=338 5.7s director=OK  
+[echo] prompt          as claude  ascii             run 1 len=94     EXACT         framed=no  enters=1 reads=3 0.1s director=OK  
+[echo] prompt          as claude  ascii             run 2 len=94     EXACT         framed=no  enters=1 reads=7 0.1s director=OK  
+[echo] prompt          as claude  punctuation       run 1 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as claude  punctuation       run 2 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as claude  quotes-dashes     run 1 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  quotes-dashes     run 2 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  accents-currency  run 1 len=137    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as claude  accents-currency  run 2 len=137    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as claude  emoji             run 1 len=130    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as claude  emoji             run 2 len=130    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as claude  cjk               run 1 len=113    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  cjk               run 2 len=113    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  rtl               run 1 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  rtl               run 2 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  tabs              run 1 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "Q1B7CB34549.\tcolumn\tcolu", got "Q1B7CB34549.columncolumn" 
+[echo] prompt          as claude  tabs              run 2 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "Q2DFBFE098E.\tcolumn\tcolu", got "Q2DFBFE098E.columncolumn" 
+[echo] prompt          as claude  edge-spaces       run 1 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  edge-spaces       run 2 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as claude  multiline-lf      run 1 len=213    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as claude  multiline-lf      run 2 len=213    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as claude  multiline-crlf    run 1 len=216    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as claude  multiline-crlf    run 2 len=216    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as claude  blank-lines       run 1 len=152    EXACT         framed=yes enters=1 reads=12 1.4s director=OK  
+[echo] prompt          as claude  blank-lines       run 2 len=152    EXACT         framed=yes enters=1 reads=12 1.4s director=OK  
+[echo] prompt          as claude  lead-slash        run 1 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as claude  lead-slash        run 2 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as claude  lead-bang         run 1 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as claude  lead-bang         run 2 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as claude  lead-at           run 1 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as claude  lead-at           run 2 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as claude  lead-hash         run 1 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as claude  lead-hash         run 2 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as claude  size-199          run 1 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  size-199          run 2 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  size-200          run 1 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  size-200          run 2 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as claude  size-201          run 1 len=201    EXACT         framed=yes enters=1 reads=15 1.5s director=OK  
+[echo] prompt          as claude  size-201          run 2 len=201    EXACT         framed=yes enters=1 reads=15 1.5s director=OK  
+[echo] prompt          as claude  size-299          run 1 len=299    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as claude  size-299          run 2 len=299    EXACT         framed=yes enters=1 reads=21 1.5s director=OK  
+[echo] prompt          as claude  size-300          run 1 len=300    EXACT         framed=yes enters=1 reads=21 1.5s director=OK  
+[echo] prompt          as claude  size-300          run 2 len=300    EXACT         framed=yes enters=1 reads=21 1.5s director=OK  
+[echo] prompt          as claude  size-301          run 1 len=301    EXACT         framed=yes enters=1 reads=21 1.5s director=OK  
+[echo] prompt          as claude  size-301          run 2 len=301    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as claude  size-1999         run 1 len=1999   EXACT         framed=yes enters=1 reads=127 2.6s director=OK  
+[echo] prompt          as claude  size-1999         run 2 len=1999   EXACT         framed=yes enters=1 reads=127 2.6s director=OK  
+[echo] prompt          as claude  size-2000         run 1 len=2000   EXACT         framed=yes enters=1 reads=127 2.6s director=OK  
+[echo] prompt          as claude  size-2000         run 2 len=2000   EXACT         framed=yes enters=1 reads=127 2.6s director=OK  
+[echo] prompt          as claude  size-2001         run 1 len=2001   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  size-2001         run 2 len=2001   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  size-8k           run 1 len=8192   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  size-8k           run 2 len=8192   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  size-50k          run 1 len=51200  VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  size-50k          run 2 len=51200  VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  multiline-3k      run 1 len=2692   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as claude  multiline-3k      run 2 len=2692   VIA-FILE      framed=no  enters=1 reads=2 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   ascii             run 1 len=94     EXACT         framed=no  enters=1 reads=4 0.1s director=OK  
+[echo] prompt          as codex   ascii             run 2 len=94     EXACT         framed=no  enters=1 reads=7 0.1s director=OK  
+[echo] prompt          as codex   punctuation       run 1 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as codex   punctuation       run 2 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as codex   quotes-dashes     run 1 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   quotes-dashes     run 2 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   accents-currency  run 1 len=137    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as codex   accents-currency  run 2 len=137    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as codex   emoji             run 1 len=130    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as codex   emoji             run 2 len=130    EXACT         framed=no  enters=1 reads=11 0.1s director=OK  
+[echo] prompt          as codex   cjk               run 1 len=113    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   cjk               run 2 len=113    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   rtl               run 1 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   rtl               run 2 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   tabs              run 1 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "QB0EBBE17A2.\tcolumn\tcolu", got "QB0EBBE17A2.columncolumn" 
+[echo] prompt          as codex   tabs              run 2 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "Q47C32E80CA.\tcolumn\tcolu", got "Q47C32E80CA.columncolumn" 
+[echo] prompt          as codex   edge-spaces       run 1 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   edge-spaces       run 2 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as codex   multiline-lf      run 1 len=213    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   multiline-lf      run 2 len=213    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   multiline-crlf    run 1 len=216    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   multiline-crlf    run 2 len=216    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   blank-lines       run 1 len=152    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   blank-lines       run 2 len=152    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   lead-slash        run 1 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as codex   lead-slash        run 2 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as codex   lead-bang         run 1 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as codex   lead-bang         run 2 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as codex   lead-at           run 1 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as codex   lead-at           run 2 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as codex   lead-hash         run 1 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as codex   lead-hash         run 2 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as codex   size-199          run 1 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-199          run 2 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-200          run 1 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-200          run 2 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-201          run 1 len=201    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-201          run 2 len=201    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as codex   size-299          run 1 len=299    EXACT         framed=no  enters=1 reads=20 0.3s director=OK  
+[echo] prompt          as codex   size-299          run 2 len=299    EXACT         framed=no  enters=1 reads=20 0.3s director=OK  
+[echo] prompt          as codex   size-300          run 1 len=300    EXACT         framed=no  enters=1 reads=20 0.3s director=OK  
+[echo] prompt          as codex   size-300          run 2 len=300    EXACT         framed=no  enters=1 reads=20 0.3s director=OK  
+[echo] prompt          as codex   size-301          run 1 len=301    VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-301          run 2 len=301    VIA-FILE      framed=no  enters=1 reads=11 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-1999         run 1 len=1999   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-1999         run 2 len=1999   VIA-FILE      framed=no  enters=1 reads=11 0.1s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-2000         run 1 len=2000   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-2000         run 2 len=2000   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-2001         run 1 len=2001   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-2001         run 2 len=2001   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-8k           run 1 len=8192   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-8k           run 2 len=8192   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-50k          run 1 len=51200  VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   size-50k          run 2 len=51200  VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   multiline-3k      run 1 len=2692   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as codex   multiline-3k      run 2 len=2692   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      ascii             run 1 len=94     EXACT         framed=no  enters=1 reads=3 0.2s director=OK  
+[echo] prompt          as pi      ascii             run 2 len=94     EXACT         framed=no  enters=1 reads=7 0.1s director=OK  
+[echo] prompt          as pi      punctuation       run 1 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as pi      punctuation       run 2 len=187    EXACT         framed=no  enters=1 reads=13 0.2s director=OK  
+[echo] prompt          as pi      quotes-dashes     run 1 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      quotes-dashes     run 2 len=180    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      accents-currency  run 1 len=137    EXACT         framed=no  enters=1 reads=11 0.2s director=OK  
+[echo] prompt          as pi      accents-currency  run 2 len=137    EXACT         framed=no  enters=1 reads=11 0.2s director=OK  
+[echo] prompt          as pi      emoji             run 1 len=130    EXACT         framed=no  enters=1 reads=11 0.2s director=OK  
+[echo] prompt          as pi      emoji             run 2 len=130    EXACT         framed=no  enters=1 reads=11 0.2s director=OK  
+[echo] prompt          as pi      cjk               run 1 len=113    EXACT         framed=no  enters=1 reads=10 0.2s director=OK  
+[echo] prompt          as pi      cjk               run 2 len=113    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as pi      rtl               run 1 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as pi      rtl               run 2 len=115    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as pi      tabs              run 1 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "QB53927BF40.\tcolumn\tcolu", got "QB53927BF40.columncolumn" 
+[echo] prompt          as pi      tabs              run 2 len=116    ALTERED       framed=no  enters=1 reads=9 0.1s director=OK first difference at character 18 of 116 (got 113): wanted "Q28FE662AD1.\tcolumn\tcolu", got "Q28FE662AD1.columncolumn" 
+[echo] prompt          as pi      edge-spaces       run 1 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as pi      edge-spaces       run 2 len=130    EXACT         framed=no  enters=1 reads=10 0.1s director=OK  
+[echo] prompt          as pi      multiline-lf      run 1 len=213    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as pi      multiline-lf      run 2 len=213    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as pi      multiline-crlf    run 1 len=216    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as pi      multiline-crlf    run 2 len=216    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as pi      blank-lines       run 1 len=152    EXACT         framed=yes enters=1 reads=12 1.5s director=OK  
+[echo] prompt          as pi      blank-lines       run 2 len=152    EXACT         framed=yes enters=1 reads=12 1.5s director=OK  
+[echo] prompt          as pi      lead-slash        run 1 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as pi      lead-slash        run 2 len=112    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as pi      lead-bang         run 1 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as pi      lead-bang         run 2 len=118    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as pi      lead-at           run 1 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as pi      lead-at           run 2 len=109    EXACT         framed=no  enters=1 reads=8 0.1s director=OK  
+[echo] prompt          as pi      lead-hash         run 1 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as pi      lead-hash         run 2 len=116    EXACT         framed=no  enters=1 reads=9 0.1s director=OK  
+[echo] prompt          as pi      size-199          run 1 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      size-199          run 2 len=199    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      size-200          run 1 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      size-200          run 2 len=200    EXACT         framed=no  enters=1 reads=14 0.2s director=OK  
+[echo] prompt          as pi      size-201          run 1 len=201    EXACT         framed=yes enters=1 reads=15 1.5s director=OK  
+[echo] prompt          as pi      size-201          run 2 len=201    EXACT         framed=yes enters=1 reads=16 1.5s director=OK  
+[echo] prompt          as pi      size-299          run 1 len=299    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as pi      size-299          run 2 len=299    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as pi      size-300          run 1 len=300    EXACT         framed=yes enters=1 reads=22 1.6s director=OK  
+[echo] prompt          as pi      size-300          run 2 len=300    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as pi      size-301          run 1 len=301    EXACT         framed=yes enters=1 reads=21 1.6s director=OK  
+[echo] prompt          as pi      size-301          run 2 len=301    EXACT         framed=yes enters=1 reads=22 1.6s director=OK  
+[echo] prompt          as pi      size-1999         run 1 len=1999   EXACT         framed=yes enters=1 reads=127 2.8s director=OK  
+[echo] prompt          as pi      size-1999         run 2 len=1999   EXACT         framed=yes enters=1 reads=128 2.8s director=OK  
+[echo] prompt          as pi      size-2000         run 1 len=2000   EXACT         framed=yes enters=1 reads=127 2.8s director=OK  
+[echo] prompt          as pi      size-2000         run 2 len=2000   EXACT         framed=yes enters=1 reads=127 2.8s director=OK  
+[echo] prompt          as pi      size-2001         run 1 len=2001   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      size-2001         run 2 len=2001   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      size-8k           run 1 len=8192   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      size-8k           run 2 len=8192   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      size-50k          run 1 len=51200  VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      size-50k          run 2 len=51200  VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      multiline-3k      run 1 len=2692   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+[echo] prompt          as pi      multiline-3k      run 2 len=2692   VIA-FILE      framed=no  enters=1 reads=11 0.2s director=OK a file reference or file instruction was typed instead of the text; payload exact 
+
+route           as       sends exact split altered via-file other  framed  unsteady-cells
+desktop-type    desktop     42    42     0       0        0     0  0/42               0
+desktop-paste   desktop     56    52     2       2        0     0  0/56               0
+desktop-newline desktop      8     0     8       0        0     0  0/8               0
+prompt          claude      56    46     0       2        8     0  18/56               0
+prompt          codex       56    34     0       2       20     0  0/56               0
+prompt          pi          56    46     0       2        8     0  18/56               0
+54 of 274 did not:
+  desktop-paste as desktop tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QDE99037EC3.\tcolumn\tcolu", got "QDE99037EC3.columncolumn"
+  desktop-paste as desktop tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q3AE47447FB.\tcolumn\tcolu", got "Q3AE47447FB.columncolumn"
+  desktop-newline as desktop multiline-lf run 1 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-lf run 2 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 1 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 2 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-paste as desktop multiline-crlf run 1 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-paste as desktop multiline-crlf run 2 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 1 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 2 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 1 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 2 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt
+  prompt as claude tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q1B7CB34549.\tcolumn\tcolu", got "Q1B7CB34549.columncolumn"
+  prompt as claude tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q2DFBFE098E.\tcolumn\tcolu", got "Q2DFBFE098E.columncolumn"
+  prompt as claude size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as claude multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QB0EBBE17A2.\tcolumn\tcolu", got "QB0EBBE17A2.columncolumn"
+  prompt as codex tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q47C32E80CA.\tcolumn\tcolu", got "Q47C32E80CA.columncolumn"
+  prompt as codex multiline-lf run 1 len=213: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-lf run 2 len=213: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-crlf run 1 len=216: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-crlf run 2 len=216: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex blank-lines run 1 len=152: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex blank-lines run 2 len=152: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-301 run 1 len=301: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-301 run 2 len=301: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-1999 run 1 len=1999: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-1999 run 2 len=1999: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2000 run 1 len=2000: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2000 run 2 len=2000: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as codex multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi tabs run 1 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "QB53927BF40.\tcolumn\tcolu", got "QB53927BF40.columncolumn"
+  prompt as pi tabs run 2 len=116: ALTERED director=OK first difference at character 18 of 116 (got 113): wanted "Q28FE662AD1.\tcolumn\tcolu", got "Q28FE662AD1.columncolumn"
+  prompt as pi size-2001 run 1 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-2001 run 2 len=2001: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-8k run 1 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-8k run 2 len=8192: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-50k run 1 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi size-50k run 2 len=51200: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi multiline-3k run 1 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+  prompt as pi multiline-3k run 2 len=2692: VIA-FILE director=OK a file reference or file instruction was typed instead of the text; payload exact
+

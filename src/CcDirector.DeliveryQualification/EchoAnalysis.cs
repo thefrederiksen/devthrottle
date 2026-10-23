@@ -7,7 +7,7 @@ namespace CcDirector.DeliveryQualification;
 /// What the echo agent received for one send, read the way a composer reads it.
 /// </summary>
 /// <param name="Verdict">EXACT, ALTERED, SPLIT (an Enter before the text ended, so the agent would submit it in
-/// pieces), EXTRA-SUBMIT (whole, but followed by more Enters), NOT-SUBMITTED (no Enter at all), VIA-FILE (a file reference or file instruction instead of the text), or
+/// pieces), DROPPED (the Enter arrived and none of the text did), EXTRA-SUBMIT (whole, but followed by more Enters), NOT-SUBMITTED (no Enter at all), VIA-FILE (a file reference or file instruction instead of the text), or
 /// NOTHING (no bytes arrived).</param>
 /// <param name="Received">The text the composer would hold at the first Enter.</param>
 /// <param name="Framed">The text arrived inside a bracketed paste.</param>
@@ -48,6 +48,8 @@ public static class EchoAnalysis
             return new("EXTRA-SUBMIT", got, framed, enters, reads.Count, ms, $"the text arrived whole, then {enters - 1} more Enter(s) - more than one submit");
         if (got == want)
             return new("EXACT", got, framed, enters, reads.Count, ms, "");
+        if (got.Length == 0 && want.Length > 0)
+            return new("DROPPED", got, framed, enters, reads.Count, ms, "only the Enter arrived: every character of the text was dropped on the way");
         if (want.StartsWith(got, StringComparison.Ordinal))
             return new("SPLIT", got, framed, enters, reads.Count, ms,
                 $"Enter arrived after {got.Length} of {want.Length} characters, so the rest would be a second prompt");

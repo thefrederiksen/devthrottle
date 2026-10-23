@@ -59,7 +59,7 @@ public static class Routes
 }
 
 /// <summary>One cell of the echo layer: what the echo agent received for one text on one route.</summary>
-public sealed record EchoResult(string Route, string As, string Text, int Length, string Director, string DirectorDetail, EchoVerdict Verdict);
+public sealed record EchoResult(string Route, string As, string Text, int Length, string Director, string DirectorDetail, EchoVerdict Verdict, int Run = 1);
 
 /// <summary>
 /// THE ECHO LAYER (issue #4378): every route and every text, sent to the byte-echo agent instead of a model. Free, and
@@ -80,7 +80,8 @@ public static class EchoLayer
         var routes = opts.RouteNames ?? Routes.All;
         var results = new List<EchoResult>();
         var resultsPath = Path.Combine(opts.Out, "echo-results.jsonl");
-        Console.WriteLine($"[echo] run {runId} on product {commit}: {texts.Count} texts x {routes.Count} routes. Results: {resultsPath}");
+        var runs = opts.MatrixRepeat;
+        Console.WriteLine($"[echo] run {runId} on product {commit}: {texts.Count} texts x {routes.Count} routes x {runs} runs. Results: {resultsPath}");
 
         void Record(EchoResult r)
         {
@@ -91,7 +92,7 @@ public static class EchoLayer
                 System.Runtime.InteropServices.RuntimeInformation.OSDescription, "echo", $"as {r.As}", $"{r.Route}:{r.Text}", r.Length,
                 r.Director, v.Verdict, v.Pass && r.Director == "OK", Math.Round(v.Ms / 1000, 1), $"{r.DirectorDetail} {v.Detail}".Trim(), null,
                 Route: r.Route, Exact: v.Verdict == "EXACT", ViaFile: v.Verdict == "VIA-FILE"));
-            Console.WriteLine($"[echo] {r.Route,-15} as {r.As,-7} {r.Text,-17} len={r.Length,-6} {v.Verdict,-13} framed={(v.Framed ? "yes" : "no "),-3} " +
+            Console.WriteLine($"[echo] {r.Route,-15} as {r.As,-7} {r.Text,-17} run {r.Run} len={r.Length,-6} {v.Verdict,-13} framed={(v.Framed ? "yes" : "no "),-3} " +
                               $"enters={v.Enters} reads={v.Reads} {v.Ms / 1000:F1}s director={r.Director} {Short(v.Detail)} {Short(r.DirectorDetail)}");
         }
 
@@ -109,6 +110,7 @@ public static class EchoLayer
                 await desktop.AttachAsync(session);
                 foreach (var text in texts)
                 foreach (var route in desktopRoutes)
+                for (var run = 1; run <= runs; run++)
                 {
                     var token = Token();
                     var body = text.Build(token);
@@ -118,7 +120,7 @@ public static class EchoLayer
                     try { await Routes.DesktopAsync(desktop, route, body); }
                     catch (Exception ex) { director = "FAILED"; detail = $"{ex.GetType().Name}: {ex.Message}"; }
                     var reads = await QuietReadsAsync(log, before);
-                    Record(new EchoResult(route, "desktop", text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body)));
+                    Record(new EchoResult(route, "desktop", text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body), run));
                 }
             }
             finally
@@ -142,6 +144,7 @@ public static class EchoLayer
                     await WaitForScreenAsync(() => [System.Text.Encoding.UTF8.GetString(backend.Buffer?.DumpAll() ?? [])],
                         "echo-agent ready", TimeSpan.FromSeconds(30));
                     foreach (var text in texts)
+                    for (var run = 1; run <= runs; run++)
                     {
                         var token = Token();
                         var body = text.Build(token);
@@ -151,7 +154,7 @@ public static class EchoLayer
                         var reads = await QuietReadsAsync(log, before);
                         var verdict = EchoAnalysis.Analyze(reads, body);
                         if (verdict.Verdict == "VIA-FILE") verdict = verdict with { Detail = verdict.Detail + "; " + PayloadCheck(verdict.Received, repo, body) };
-                        Record(new EchoResult("prompt", asAgent, text.Name, body.Length, director, detail, verdict));
+                        Record(new EchoResult("prompt", asAgent, text.Name, body.Length, director, detail, verdict, run));
                     }
                 }
                 finally
@@ -174,10 +177,10 @@ public static class EchoLayer
     }
 
     /// <summary>The command that starts the echo agent: this rig's own executable with <c>--echo-agent</c>.</summary>
-    internal static (string Exe, string Args) EchoCommand(string log)
+    internal static (string Exe, string Args) EchoCommand(string log, bool usageDialog = false)
     {
         var self = Environment.ProcessPath ?? throw new InvalidOperationException("The rig cannot find its own executable.");
-        var quoted = $"--echo-agent \"{log}\"";
+        var quoted = $"--echo-agent \"{log}\"{(usageDialog ? " --usage-dialog" : "")}";
         return Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
             ? (self, $"\"{typeof(EchoLayer).Assembly.Location}\" {quoted}")
             : (self, quoted);
@@ -198,7 +201,7 @@ public static class EchoLayer
     }
 
     /// <summary>The reads after <paramref name="before"/>, once a second has passed with no new one (two minutes at most).</summary>
-    private static async Task<List<EchoRead>> QuietReadsAsync(string log, int before)
+    internal static async Task<List<EchoRead>> QuietReadsAsync(string log, int before)
     {
         var deadline = DateTime.UtcNow.AddMinutes(2);
         var count = -1;
@@ -227,18 +230,19 @@ public static class EchoLayer
     internal static string Summary(IReadOnlyList<EchoResult> results)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"{"route",-15} {"as",-8} {"texts",5} {"exact",5} {"split",5} {"altered",7} {"via-file",8} {"other",5}  framed");
+        sb.AppendLine($"{"route",-15} {"as",-8} {"sends",5} {"exact",5} {"split",5} {"altered",7} {"via-file",8} {"other",5}  framed  unsteady-cells");
         foreach (var g in results.GroupBy(r => (r.Route, r.As)))
         {
             var l = g.ToList();
             int C(string v) => l.Count(r => r.Verdict.Verdict == v);
             sb.AppendLine($"{g.Key.Route,-15} {g.Key.As,-8} {l.Count,5} {C("EXACT"),5} {C("SPLIT"),5} {C("ALTERED"),7} {C("VIA-FILE"),8} " +
-                          $"{l.Count - C("EXACT") - C("SPLIT") - C("ALTERED") - C("VIA-FILE"),5}  {l.Count(r => r.Verdict.Framed)}/{l.Count}");
+                          $"{l.Count - C("EXACT") - C("SPLIT") - C("ALTERED") - C("VIA-FILE"),5}  {l.Count(r => r.Verdict.Framed)}/{l.Count}  " +
+                          $"{AgentMatrix.Unsteady(l, r => r.Text, r => r.Verdict.Verdict),14}");
         }
         var bad = results.Where(r => !r.Verdict.Pass || r.Director != "OK").ToList();
         sb.AppendLine(bad.Count == 0 ? "EVERY TEXT ARRIVED EXACTLY, AS TEXT, IN ONE SUBMIT." : $"{bad.Count} of {results.Count} did not:");
         foreach (var r in bad)
-            sb.AppendLine($"  {r.Route} as {r.As} {r.Text} len={r.Length}: {r.Verdict.Verdict} director={r.Director} {r.Verdict.Detail} {r.DirectorDetail}".TrimEnd());
+            sb.AppendLine($"  {r.Route} as {r.As} {r.Text} run {r.Run} len={r.Length}: {r.Verdict.Verdict} director={r.Director} {r.Verdict.Detail} {r.DirectorDetail}".TrimEnd());
         return sb.ToString();
     }
 
@@ -246,12 +250,17 @@ public static class EchoLayer
 }
 
 /// <summary>One cell of the agent layer: one text on one route to one real agent, judged by its own records.</summary>
+/// <param name="Run">Which run of the cell this is (each cell runs twice by default).</param>
+/// <param name="Accepted">Why a record that is not character for character still passes - only the agent's own trim of
+/// edge spaces (<see cref="AcceptedDifference"/>); null otherwise.</param>
+/// <param name="ScreenFile">The saved screen of a refused send, relative to the run folder (<see cref="ScreenDump"/>).</param>
 public sealed record AgentMatrixResult(
     string Agent, string Route, string Text, int Length, string Director, string Detail, string Truth, bool Exact, bool ViaFile,
-    double Seconds, string? Difference, string? Screen)
+    double Seconds, string? Difference, string? Screen, int Run = 1, string? Accepted = null, string? ScreenFile = null)
 {
-    /// <summary>Parity: the Director did not fail it, it arrived once, alone, as text, character for character.</summary>
-    public bool Pass => Director is "OK" or "DELIVERING" && Truth == "ARRIVED" && Exact && !ViaFile;
+    /// <summary>Parity: the Director did not fail it, it arrived once, alone, as text, character for character - or with
+    /// only the agent's own trim of edge spaces.</summary>
+    public bool Pass => Director is "OK" or "DELIVERING" && Truth == "ARRIVED" && (Exact || Accepted is not null) && !ViaFile;
 }
 
 /// <summary>
@@ -276,7 +285,8 @@ public static class AgentMatrix
         var results = new List<AgentMatrixResult>();
         var resultsPath = Path.Combine(opts.Out, "agent-results.jsonl");
         var cap = opts.MaxTurns;
-        Console.WriteLine($"[agents] run {runId} on product {commit}: {texts.Count} texts x {routes.Count} routes x {opts.Agents.Count} agents, at most {cap} turns. Results: {resultsPath}");
+        var runs = opts.MatrixRepeat;
+        Console.WriteLine($"[agents] run {runId} on product {commit}: {texts.Count} texts x {routes.Count} routes x {opts.Agents.Count} agents x {runs} runs, at most {cap} turns. Results: {resultsPath}");
         using var load = opts.CpuLoadThreads > 0 ? new CpuLoad(opts.CpuLoadThreads) : null;
         using var desktop = new DesktopHost();
         var turns = 0;
@@ -293,6 +303,7 @@ public static class AgentMatrix
             {
                 foreach (var text in texts)
                 foreach (var route in routes)
+                for (var run = 1; run <= runs; run++)
                 {
                     var token = EchoLayer.Token();
                     var body = text.Build(token);
@@ -314,7 +325,10 @@ public static class AgentMatrix
                         ? await Scenarios.TimeSendAsync(() => current.SendTextAsync(body, SubmissionProvenance.Typed("delivery-qa-rig", "rig"), SendSource.UserInput))
                         : await Scenarios.TimeSendAsync(() => Routes.DesktopAsync(desktop, route, body));
 
-                    var r = await JudgeAsync(agent, route, text.Name, body, token, sentAt, director, detail, seconds, current, repos);
+                    // The screen the send was refused on, saved at once - before the judge waits - so it is the screen the
+                    // Director read, not the one after (the mission's 11.5).
+                    var screenFile = ScreenDump.IsRefusal(director) ? ScreenDump.Save(opts.Out, $"text-{agent}-{route}-{text.Name}-run{run}", current, $"{agent} {route} {text.Name} run {run}: {director} {detail}") : null;
+                    var r = await JudgeAsync(agent, route, text.Name, body, token, sentAt, director, detail, seconds, current, repos) with { Run = run, ScreenFile = screenFile };
                     // The one-word answer is left to finish rather than stopped with Escape: Claude Code puts an
                     // interrupted prompt back into its composer, and the next cell's text then welds onto it. Then the
                     // composer is emptied, so a split cell's leftover lines cannot reach the next cell either.
@@ -325,8 +339,9 @@ public static class AgentMatrix
                     Ledger.Append(opts.LedgerPath, new LedgerEntry(runId, DateTime.UtcNow, commit, Environment.MachineName,
                         System.Runtime.InteropServices.RuntimeInformation.OSDescription, agent, version, $"{route}:{text.Name}", body.Length,
                         r.Director, r.Truth, r.Pass, r.Seconds, $"{r.Detail} {r.Difference}".Trim(), r.Screen, Route: route, Exact: r.Exact, ViaFile: r.ViaFile));
-                    Console.WriteLine($"[agents] {agent,-7} {route,-15} {text.Name,-17} len={body.Length,-6} director={r.Director,-10} truth={r.Truth,-8} " +
-                                      $"exact={(r.Exact ? "yes" : "NO "),-3}{(r.ViaFile ? " via-file" : "")} {(r.Pass ? "PASS" : "FAIL")} {r.Seconds:F1}s {EchoLayer.Short(r.Difference ?? r.Detail)}");
+                    Console.WriteLine($"[agents] {agent,-7} {route,-15} {text.Name,-17} run {run} len={body.Length,-6} director={r.Director,-10} truth={r.Truth,-8} " +
+                                      $"exact={(r.Exact ? "yes" : "NO "),-3}{(r.ViaFile ? " via-file" : "")}{(r.Accepted is { } acc ? $" accepted: {acc}" : "")} {(r.Pass ? "PASS" : "FAIL")} {r.Seconds:F1}s " +
+                                      $"{EchoLayer.Short(r.Difference ?? r.Detail)}{(r.ScreenFile is { } sf ? $" screen: {sf}" : "")}");
                 }
             }
             finally
@@ -343,7 +358,7 @@ public static class AgentMatrix
         return results.All(r => r.Pass) ? 0 : 1;
     }
 
-    private static async Task<AgentMatrixResult> JudgeAsync(string agent, string route, string textName, string body, string token, DateTime sentAt,
+    internal static async Task<AgentMatrixResult> JudgeAsync(string agent, string route, string textName, string body, string token, DateTime sentAt,
         string director, string detail, double seconds, Session session, IReadOnlyList<string> repos)
     {
         RecordsVerdict verdict = new(false, false, false, false, null);
@@ -356,20 +371,35 @@ public static class AgentMatrix
             if (verdict.Found || turn is not null) break;
             await Task.Delay(1000);
         }
+        var (truth, exact, accepted, difference) = Verdict(agent, body, verdict, turn);
+        string? screen = null;
+        if (!(truth == "ARRIVED" && (exact || accepted is not null)) || director is not ("OK" or "DELIVERING"))
+            screen = string.Join("\n", session.SnapshotScreenRows().Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(14));
+        return new AgentMatrixResult(agent, route, textName, body.Length, director, detail, truth, exact, verdict.ViaFile, Math.Round(seconds, 1), difference, screen,
+            Accepted: accepted);
+    }
+
+    /// <summary>
+    /// The truth of one cell from the two witnesses: the folding one (<paramref name="verdict"/>) and the user turn that
+    /// holds the token (<paramref name="turn"/>, null when none does). ARRIVED when the turn is the text character for
+    /// character - or differs only by the agent's own trim of edge spaces, which is then named in Accepted - or when it
+    /// came by the file route; ALTERED when it arrived in one turn but changed; DOUBLED, PARTIAL or LOST otherwise. Pure,
+    /// so it is tested without an agent.
+    /// </summary>
+    internal static (string Truth, bool Exact, string? Accepted, string? Difference) Verdict(string agent, string body, RecordsVerdict verdict, string? turn)
+    {
         var exact = !verdict.ViaFile && turn is not null && EchoAnalysis.Canonical(turn) == EchoAnalysis.Canonical(body);
+        var accepted = !verdict.ViaFile && !exact && turn is not null ? AcceptedDifference.AgentTrim(agent, body, EchoAnalysis.Canonical(turn)) : null;
         string truth;
         if (!verdict.Found && turn is null) truth = verdict.Partial ? "PARTIAL" : "LOST";
         else if (verdict.Found && verdict.Doubled) truth = "DOUBLED";
-        else truth = verdict.ViaFile || exact ? "ARRIVED" : "ALTERED";
+        else truth = verdict.ViaFile || exact || accepted is not null ? "ARRIVED" : "ALTERED";
         string? difference = null;
         if (truth == "ALTERED")
             difference = turn is null
                 ? "the folding witness found the text but no user turn holds its token"
                 : EchoAnalysis.FirstDifference(EchoAnalysis.Canonical(body), EchoAnalysis.Canonical(turn));
-        string? screen = null;
-        if (!(truth == "ARRIVED" && exact) || director is not ("OK" or "DELIVERING"))
-            screen = string.Join("\n", session.SnapshotScreenRows().Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(14));
-        return new AgentMatrixResult(agent, route, textName, body.Length, director, detail, truth, exact, verdict.ViaFile, Math.Round(seconds, 1), difference, screen);
+        return (truth, exact, accepted, difference);
     }
 
     /// <summary>
@@ -377,7 +407,7 @@ public static class AgentMatrix
     /// pressed once per line the last text could have left behind - for Codex and Pi, Ctrl+U clears a line and Backspace
     /// joins the one above. Harmless on an empty composer.
     /// </summary>
-    private static void EmptyComposer(Session session, AgentKind kind, string lastText)
+    internal static void EmptyComposer(Session session, AgentKind kind, string lastText)
     {
         var lines = lastText.Count(c => c == '\n') + 2;
         var keys = kind == AgentKind.ClaudeCode
@@ -387,7 +417,7 @@ public static class AgentMatrix
         session.SendInput(keys, null, SubmissionProvenance.Typed("delivery-qa-rig", "rig"));
     }
 
-    private static async Task EndAsync(SessionManager manager, Session session)
+    internal static async Task EndAsync(SessionManager manager, Session session)
     {
         try { await manager.KillSessionAsync(session.Id); } catch (Exception ex) { Console.WriteLine($"[agents] kill {session.Id}: {ex.Message}"); }
         manager.RemoveSession(session.Id);
@@ -396,18 +426,25 @@ public static class AgentMatrix
     internal static string Summary(IReadOnlyList<AgentMatrixResult> results)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"{"agent",-8} {"route",-15} {"sends",5} {"pass",4} {"altered",7} {"lost",4} {"partial",7} {"doubled",7} {"via-file",8} {"director-failed",15}");
+        sb.AppendLine($"{"agent",-8} {"route",-15} {"sends",5} {"pass",4} {"altered",7} {"lost",4} {"partial",7} {"doubled",7} {"via-file",8} {"director-failed",15} {"trim-accepted",13} {"unsteady-cells",14}");
         foreach (var g in results.GroupBy(r => (r.Agent, r.Route)))
         {
             var l = g.ToList();
             sb.AppendLine($"{g.Key.Agent,-8} {g.Key.Route,-15} {l.Count,5} {l.Count(r => r.Pass),4} {l.Count(r => r.Truth == "ALTERED"),7} " +
                           $"{l.Count(r => r.Truth == "LOST"),4} {l.Count(r => r.Truth == "PARTIAL"),7} {l.Count(r => r.Truth == "DOUBLED"),7} " +
-                          $"{l.Count(r => r.ViaFile),8} {l.Count(r => r.Director is not ("OK" or "DELIVERING")),15}");
+                          $"{l.Count(r => r.ViaFile),8} {l.Count(r => r.Director is not ("OK" or "DELIVERING")),15} {l.Count(r => r.Accepted is not null),13} " +
+                          $"{Unsteady(l, r => r.Text, r => r.Pass),14}");
         }
         var bad = results.Where(r => !r.Pass).ToList();
         sb.AppendLine(bad.Count == 0 ? "EVERY TEXT ARRIVED EXACTLY, AS TEXT, ON EVERY ROUTE." : $"{bad.Count} of {results.Count} did not:");
         foreach (var r in bad)
-            sb.AppendLine($"  {r.Agent} {r.Route} {r.Text} len={r.Length}: director={r.Director} truth={r.Truth}{(r.ViaFile ? " via-file" : "")} {r.Difference ?? r.Detail}".TrimEnd());
+            sb.AppendLine($"  {r.Agent} {r.Route} {r.Text} run {r.Run} len={r.Length}: director={r.Director} truth={r.Truth}{(r.ViaFile ? " via-file" : "")} {r.Difference ?? r.Detail}{(r.ScreenFile is { } sf ? $" (screen: {sf})" : "")}".TrimEnd());
         return sb.ToString();
     }
+
+    /// <summary>How many cells - the results sharing a <paramref name="cell"/> key - had one <paramref name="outcome"/> on
+    /// one run and another on the next (passed once and failed once, or two different verdicts). Each cell runs twice (the
+    /// mission's 11.5) so that this number exists: an unsteady cell is a race, not a rule.</summary>
+    internal static int Unsteady<T, TOutcome>(IEnumerable<T> results, Func<T, string> cell, Func<T, TOutcome> outcome) =>
+        results.GroupBy(cell).Count(g => g.Select(outcome).Distinct().Count() > 1);
 }
