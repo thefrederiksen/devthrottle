@@ -76,6 +76,7 @@ public static class ConditionMatrix
         var conditions = (opts.ConditionNames ?? Conditions.All.Select(c => c.Name).ToList()).Select(Conditions.Named).ToList();
         var routes = opts.RouteNames ?? Routes.All;
         var runs = opts.MatrixRepeat;
+        var proof = opts.EchoProofPath is { } proofPath ? EchoProof.Load(proofPath) : EchoProof.None;
         var results = new List<ConditionResult>();
         var resultsPath = Path.Combine(opts.Out, "condition-results.jsonl");
         Console.WriteLine($"[conditions] run {runId} on product {commit}: {string.Join(", ", conditions.Select(c => c.Name))} x {routes.Count} routes x {runs} runs. Results: {resultsPath}");
@@ -123,7 +124,7 @@ public static class ConditionMatrix
                         }
                         if (!await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120)))
                             Console.WriteLine($"[conditions] {agent}: not waiting for input after 120s; setting up anyway");
-                        var cell = new Cell(condition.Name, agent, a.Kind, route, text, run, session, desktop, [repo], opts.Out);
+                        var cell = new Cell(condition.Name, agent, a.Kind, route, text, run, session, desktop, [repo], opts.Out, proof);
                         ConditionResult r;
                         try
                         {
@@ -185,7 +186,7 @@ public static class ConditionMatrix
 
     /// <summary>Everything one cell needs, and the result it makes.</summary>
     private sealed record Cell(string Condition, string Agent, AgentKind Kind, string Route, MatrixText Text, int Run, Session Session,
-        DesktopHost Desktop, IReadOnlyList<string> Repos, string Out)
+        DesktopHost Desktop, IReadOnlyList<string> Repos, string Out, EchoProof Proof)
     {
         public string ScreenName(string what) => $"{Condition}-{Agent}-{Route}-{Text.Name}-run{Run}-{what}";
 
@@ -298,7 +299,7 @@ public static class ConditionMatrix
             await Task.Delay(1000);
         var turns = AgentRecords.UserTurnsHolding(c.Agent, sentAt, token);
         var draftOnScreen = ScreenHolds(c.Session, draftToken);
-        var (truth, exact, accepted, difference) = DraftVerdict(c.Agent, draft, body, turn, turns, draftOnScreen);
+        var (truth, exact, accepted, difference) = DraftVerdict(c.Agent, draft, body, turn, turns, draftOnScreen, c.Proof, c.Route, c.Text.Name);
         var pass = director is "OK" or "DELIVERING" && truth == "ARRIVED-AFTER-DRAFT";
         return c.Result(body.Length, director, detail, truth, exact, accepted, pass, seconds, difference,
             $"draft typed through the desktop and on the screen before the send; still on the screen after: {draftOnScreen}", screen);
@@ -310,7 +311,7 @@ public static class ConditionMatrix
     /// differs; DRAFT-LOST or DRAFT-LEFT when the text arrived without the draft; DOUBLED, LOST otherwise. Pure.
     /// </summary>
     internal static (string Truth, bool Exact, string? Accepted, string? Difference) DraftVerdict(
-        string agent, string draft, string body, string? turn, int turns, bool draftOnScreen)
+        string agent, string draft, string body, string? turn, int turns, bool draftOnScreen, EchoProof proof, string route, string textName)
     {
         if (turn is null) return ("LOST", false, null, draftOnScreen ? "the draft is still in the composer" : "the draft is gone too");
         if (turns > 1) return ("DOUBLED", false, null, $"{turns} user turns hold the text");
@@ -322,7 +323,7 @@ public static class ConditionMatrix
         var want = EchoAnalysis.Canonical(body);
         var m = Regex.Match(got, "^" + Regex.Escape(draft) + "( *)(.*)$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
         if (m.Success && m.Groups[2].Value == want) return ("ARRIVED-AFTER-DRAFT", true, null, null);
-        if (m.Success && AcceptedDifference.AgentTrim(agent, body, m.Groups[2].Value) is { } why) return ("ARRIVED-AFTER-DRAFT", false, why, null);
+        if (m.Success && AcceptedDifference.AgentTrim(agent, body, m.Groups[2].Value, proof, route, textName) is { } why) return ("ARRIVED-AFTER-DRAFT", false, why, null);
         return ("ALTERED", false, null, EchoAnalysis.FirstDifference(draft + " " + want, got));
     }
 
@@ -364,7 +365,7 @@ public static class ConditionMatrix
         var (director, detail, seconds, screen, sentAt) = await c.SendAsync(body);
         await Task.Delay(TimeSpan.FromSeconds(8));
         var turn = AgentRecords.UserTurnText(c.Agent, sentAt, token);
-        var firstTruth = turn is not null ? AgentMatrix.Verdict(c.Agent, body, AgentRecords.Check(c.Agent, sentAt, body, c.Repos), turn).Truth
+        var firstTruth = turn is not null ? AgentMatrix.Verdict(c.Agent, body, AgentRecords.Check(c.Agent, sentAt, body, c.Repos), turn, c.Proof, c.Route, c.Text.Name).Truth
             : AgentRecords.RecentLines(c.Agent, sentAt).Any(l => l.Contains(token, StringComparison.Ordinal) && !IsCopy(l)) ? "ANSWERED-MENU" : "LOST";
 
         // Close the menu if it is still open, as the owner would, and wait for the agent to settle.
@@ -444,7 +445,7 @@ public static class ConditionMatrix
             foreach (var text in TextsFor(route, opts))
             for (var run = 1; run <= runs; run++)
             {
-                var c = new Cell("usage-limit", "echo", AgentKind.ClaudeCode, route, text, run, session, desktop, [repo], opts.Out);
+                var c = new Cell("usage-limit", "echo", AgentKind.ClaudeCode, route, text, run, session, desktop, [repo], opts.Out, EchoProof.None);
                 await Task.Delay(TimeSpan.FromSeconds(1));
                 var rows = session.SnapshotScreenRows();
                 var dialogScreen = ScreenDump.Save(opts.Out, c.ScreenName("dialog"), session, $"usage-limit {route} run {run}: the screen before the send");
@@ -485,7 +486,7 @@ public static class ConditionMatrix
             if (verdict.Found || turn is not null) break;
             await Task.Delay(1000);
         }
-        return AgentMatrix.Verdict(c.Agent, body, verdict, turn);
+        return AgentMatrix.Verdict(c.Agent, body, verdict, turn, c.Proof, c.Route, c.Text.Name);
     }
 
     private static bool IsCopy(string line)

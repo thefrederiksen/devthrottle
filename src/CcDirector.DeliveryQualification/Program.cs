@@ -423,6 +423,8 @@ public sealed class Options
     public List<string>? KeysOnly { get; private set; }
     public string? CharsAgent { get; private set; }
     public string? NewlineAgent { get; private set; }
+    /// <summary>An echo run's echo-results.jsonl: where an agent's own edge trim may be accepted (issue #4379).</summary>
+    public string? EchoProofPath { get; private set; }
     public IReadOnlyList<string>? NewlineKeyNames { get; private set; }
     public bool Busy { get; private set; }
     public bool FailThenSend { get; private set; }
@@ -475,6 +477,7 @@ public sealed class Options
                 case "--keys-only": o.KeysOnly = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--chars": o.CharsAgent = Next(); break;
                 case "--newline-keys": o.NewlineAgent = Next(); break;
+                case "--echo-proof": o.EchoProofPath = Next(); break;
                 case "--newline-candidates": o.NewlineKeyNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--busy": o.Busy = true; break;
                 case "--fail-then-send": o.FailThenSend = true; break;

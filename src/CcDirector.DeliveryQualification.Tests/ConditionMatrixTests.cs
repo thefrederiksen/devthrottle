@@ -15,47 +15,100 @@ public sealed class ConditionMatrixTests
 {
     private const string Body = "   Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ";
 
-    // ===== the agent's own trim of edge spaces =====
+    // ===== the agent's own trim of edge spaces (widened in issue #4379) =====
 
+    /// <summary>An echo run's results holding one cell per entry, each with its verdict, loaded as the proof.</summary>
+    private static EchoProof Proof(params (string Route, string As, string Text, string Verdict)[] cells)
+    {
+        var file = Path.Combine(Path.GetTempPath(), "echo-proof-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            File.WriteAllLines(file, cells.Select(c => JsonSerializer.Serialize(new EchoResult(c.Route, c.As, c.Text, 10, "OK", "",
+                new EchoVerdict(c.Verdict, "x", false, 1, 1, 1, "")))));
+            return EchoProof.Load(file);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    private static EchoProof WroteIt(string agent) => Proof(("prompt", agent, "edge-spaces", "EXACT"), ("prompt", agent, "edge-spaces", "EXACT"));
+
+    /// <summary>The trim each agent really makes of a text with spaces at both ends, as its records held it on 23 October
+    /// 2026: Claude Code the trailing edge, Codex and Pi BOTH edges (the baseline note said leading only - measured too
+    /// narrowly). With the echo cell proving the Director wrote the spaces, it passes, and the reason names that cell.</summary>
     [Theory]
     [InlineData("claude", "   Token Q1, with spaces before and after. Reply with exactly: ACK Q1", "Claude Code trims trailing spaces")]
-    [InlineData("codex", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ", "Codex trims leading spaces")]
-    [InlineData("pi", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ", "Pi trims leading spaces")]
-    public void AgentTrim_TheAgentsOwnEdge_IsAccepted(string agent, string got, string why)
+    [InlineData("codex", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1", "Codex trims the white space at both edges")]
+    [InlineData("pi", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1", "Pi trims the white space at both edges")]
+    public void AgentTrim_TheAgentsOwnTrimAndTheDirectorWroteTheSpaces_IsAcceptedNamingTheProof(string agent, string got, string why)
     {
-        Assert.Equal(why, AcceptedDifference.AgentTrim(agent, Body, got));
+        var accepted = AcceptedDifference.AgentTrim(agent, Body, got, WroteIt(agent), "prompt", "edge-spaces");
+
+        Assert.NotNull(accepted);
+        Assert.StartsWith(why, accepted);
+        Assert.Contains("the echo cell prompt as " + agent + " edge-spaces shows the Director wrote them", accepted);
+    }
+
+    /// <summary>The same trim with NO proof the Director wrote the spaces - no echo run given, the echo cell for another
+    /// route, or an echo cell that was not EXACT - may be the Director's own loss, so it fails.</summary>
+    [Fact]
+    public void AgentTrim_NoEchoCellProvesTheDirectorWroteTheSpaces_IsNotAccepted()
+    {
+        const string got = "Token Q1, with spaces before and after. Reply with exactly: ACK Q1";
+
+        Assert.Null(AcceptedDifference.AgentTrim("codex", Body, got, EchoProof.None, "prompt", "edge-spaces"));
+        Assert.Null(AcceptedDifference.AgentTrim("codex", Body, got, Proof(("desktop-paste", "codex", "edge-spaces", "EXACT")), "prompt", "edge-spaces"));
+        Assert.Null(AcceptedDifference.AgentTrim("codex", Body, got,
+            Proof(("prompt", "codex", "edge-spaces", "EXACT"), ("prompt", "codex", "edge-spaces", "ALTERED")), "prompt", "edge-spaces"));
     }
 
     [Theory]
-    // The other edge, both edges, and a change inside: none is the agent's own trim.
+    // An edge the agent does not trim, one edge where it trims both, and any change inside: none is the agent's own trim,
+    // even with the proof.
     [InlineData("claude", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ")]
     [InlineData("claude", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1")]
     [InlineData("codex", "   Token Q1, with spaces before and after. Reply with exactly: ACK Q1")]
-    [InlineData("codex", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1")]
-    [InlineData("pi", "Token Q1, with spaces before and after.Reply with exactly: ACK Q1   ")]
-    [InlineData("gemini", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ")]
+    [InlineData("codex", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1   ")]
+    [InlineData("pi", "Token Q1, with spaces before and after.Reply with exactly: ACK Q1")]
+    [InlineData("gemini", "Token Q1, with spaces before and after. Reply with exactly: ACK Q1")]
     public void AgentTrim_AnyOtherDifference_IsNotAccepted(string agent, string got)
     {
-        Assert.Null(AcceptedDifference.AgentTrim(agent, Body, got));
+        Assert.Null(AcceptedDifference.AgentTrim(agent, Body, got, WroteIt(agent), "prompt", "edge-spaces"));
     }
 
     [Fact]
     public void AgentTrim_AnExactRecord_NeedsNothingAccepted()
     {
-        Assert.Null(AcceptedDifference.AgentTrim("claude", "Token Q1", "Token Q1"));
+        Assert.Null(AcceptedDifference.AgentTrim("claude", "Token Q1", "Token Q1", WroteIt("claude"), "prompt", "edge-spaces"));
     }
 
     [Fact]
-    public void Verdict_TheAgentsTrim_ArrivesAndPassesNamingWhy()
+    public void Verdict_TheAgentsTrimWithProof_ArrivesAndPassesNamingWhy()
     {
         var found = new RecordsVerdict(true, false, false, false, "f");
 
-        var (truth, exact, accepted, _) = AgentMatrix.Verdict("claude", Body, found, Body.TrimEnd());
-        var result = new AgentMatrixResult("claude", "prompt", "edge-spaces", Body.Length, "OK", "", truth, exact, false, 1, null, null, Accepted: accepted);
+        var (truth, exact, accepted, _) = AgentMatrix.Verdict("codex", Body, found, Body.Trim(), WroteIt("codex"), "prompt", "edge-spaces");
+        var result = new AgentMatrixResult("codex", "prompt", "edge-spaces", Body.Length, "OK", "", truth, exact, false, 1, null, null, Accepted: accepted);
 
         Assert.Equal("ARRIVED", truth);
         Assert.False(exact);
         Assert.True(result.Pass);
+    }
+
+    /// <summary>Without the proof the cell is ALTERED, and its difference says the trim was seen and why it was not
+    /// accepted - visible, never silent.</summary>
+    [Fact]
+    public void Verdict_TheAgentsTrimWithoutProof_IsAlteredAndSaysWhy()
+    {
+        var found = new RecordsVerdict(true, false, false, false, "f");
+
+        var (truth, _, accepted, difference) = AgentMatrix.Verdict("codex", Body, found, Body.Trim(), EchoProof.None, "prompt", "edge-spaces");
+
+        Assert.Equal("ALTERED", truth);
+        Assert.Null(accepted);
+        Assert.Contains("NOT accepted", difference);
     }
 
     [Fact]
@@ -63,7 +116,8 @@ public sealed class ConditionMatrixTests
     {
         var found = new RecordsVerdict(true, false, false, false, "f");
 
-        var (truth, _, accepted, difference) = AgentMatrix.Verdict("claude", Body, found, Body.Replace("before and", "beforeand").TrimEnd());
+        var (truth, _, accepted, difference) = AgentMatrix.Verdict("claude", Body, found, Body.Replace("before and", "beforeand").TrimEnd(),
+            WroteIt("claude"), "prompt", "edge-spaces");
 
         Assert.Equal("ALTERED", truth);
         Assert.Null(accepted);
@@ -248,7 +302,7 @@ public sealed class ConditionMatrixTests
     [InlineData("")]
     public void DraftVerdict_TheDraftThenTheText_ArrivesAfterTheDraft(string join)
     {
-        var (truth, exact, _, _) = ConditionMatrix.DraftVerdict("codex", Draft, Text, Draft + join + Text, 1, false);
+        var (truth, exact, _, _) = ConditionMatrix.DraftVerdict("codex", Draft, Text, Draft + join + Text, 1, false, EchoProof.None, "prompt", "ascii");
 
         Assert.Equal("ARRIVED-AFTER-DRAFT", truth);
         Assert.True(exact);
@@ -257,19 +311,19 @@ public sealed class ConditionMatrixTests
     [Fact]
     public void DraftVerdict_TheTextAloneAndTheDraftGone_IsDraftLost()
     {
-        Assert.Equal("DRAFT-LOST", ConditionMatrix.DraftVerdict("claude", Draft, Text, Text, 1, draftOnScreen: false).Truth);
+        Assert.Equal("DRAFT-LOST", ConditionMatrix.DraftVerdict("claude", Draft, Text, Text, 1, draftOnScreen: false, EchoProof.None, "prompt", "ascii").Truth);
     }
 
     [Fact]
     public void DraftVerdict_TheTextAloneAndTheDraftLeftInTheComposer_IsDraftLeft()
     {
-        Assert.Equal("DRAFT-LEFT", ConditionMatrix.DraftVerdict("claude", Draft, Text, Text, 1, draftOnScreen: true).Truth);
+        Assert.Equal("DRAFT-LEFT", ConditionMatrix.DraftVerdict("claude", Draft, Text, Text, 1, draftOnScreen: true, EchoProof.None, "prompt", "ascii").Truth);
     }
 
     [Fact]
     public void DraftVerdict_TheTextChangedAfterTheDraft_IsAltered()
     {
-        var (truth, _, _, difference) = ConditionMatrix.DraftVerdict("claude", Draft, Text, Draft + " " + Text.Replace("exactly", "exact"), 1, false);
+        var (truth, _, _, difference) = ConditionMatrix.DraftVerdict("claude", Draft, Text, Draft + " " + Text.Replace("exactly", "exact"), 1, false, EchoProof.None, "prompt", "ascii");
 
         Assert.Equal("ALTERED", truth);
         Assert.NotNull(difference);
@@ -278,24 +332,25 @@ public sealed class ConditionMatrixTests
     [Fact]
     public void DraftVerdict_TheDraftChanged_IsAltered()
     {
-        Assert.Equal("ALTERED", ConditionMatrix.DraftVerdict("claude", Draft, Text, "My draft QD " + Text, 1, false).Truth);
+        Assert.Equal("ALTERED", ConditionMatrix.DraftVerdict("claude", Draft, Text, "My draft QD " + Text, 1, false, EchoProof.None, "prompt", "ascii").Truth);
     }
 
     [Fact]
     public void DraftVerdict_NoTurnOrTwoTurns_IsLostOrDoubled()
     {
-        Assert.Equal("LOST", ConditionMatrix.DraftVerdict("pi", Draft, Text, null, 0, true).Truth);
-        Assert.Equal("DOUBLED", ConditionMatrix.DraftVerdict("pi", Draft, Text, Draft + " " + Text, 2, false).Truth);
+        Assert.Equal("LOST", ConditionMatrix.DraftVerdict("pi", Draft, Text, null, 0, true, EchoProof.None, "prompt", "ascii").Truth);
+        Assert.Equal("DOUBLED", ConditionMatrix.DraftVerdict("pi", Draft, Text, Draft + " " + Text, 2, false, EchoProof.None, "prompt", "ascii").Truth);
     }
 
     [Fact]
     public void DraftVerdict_ClaudeTrimmingTheTextsTrailingSpaces_IsAccepted()
     {
-        var (truth, exact, accepted, _) = ConditionMatrix.DraftVerdict("claude", Draft, Text + "  ", Draft + " " + Text, 1, false);
+        var (truth, exact, accepted, _) = ConditionMatrix.DraftVerdict("claude", Draft, Text + "  ", Draft + " " + Text, 1, false,
+            Proof(("prompt", "claude", "ascii", "EXACT")), "prompt", "ascii");
 
         Assert.Equal("ARRIVED-AFTER-DRAFT", truth);
         Assert.False(exact);
-        Assert.Equal("Claude Code trims trailing spaces", accepted);
+        Assert.StartsWith("Claude Code trims trailing spaces", accepted);
     }
 
     // ===== menu-open =====
