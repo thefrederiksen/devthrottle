@@ -3904,6 +3904,13 @@ body {
   cursor: default;
 }
 
+.chat-earlier-error {
+  margin-left: 10px;
+  align-self: center;
+  color: var(--danger-text);
+  font-size: 12px;
+}
+
 /* The clock down the left of a prompt in the index. Absolute so it sits outside the bubble without
    changing the layout the conversation already has; hidden on a narrow pane where there is no margin
    to put it in. */

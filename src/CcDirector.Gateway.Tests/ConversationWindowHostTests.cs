@@ -50,9 +50,9 @@ public sealed class ConversationWindowHostTests : IAsyncLifetime
         catch { /* best effort */ }
     }
 
-    private async Task<(HttpStatusCode Status, JsonObject Body)> Get(string query)
+    private async Task<(HttpStatusCode Status, JsonObject Body)> Get(string query, string? sid = null)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"sessions/{Sid}/history?{query}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"sessions/{sid ?? Sid}/history?{query}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _device.DeviceKey);
         using var response = await _http.SendAsync(request);
         return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject());
@@ -105,6 +105,37 @@ public sealed class ConversationWindowHostTests : IAsyncLifetime
         Assert.Null(body["olderFrom"]);
         Assert.Equal(0, (int)body["tailFrom"]!);
         Assert.Equal(14, (int)body["windowFrom"]!);
+    }
+
+    [Fact]
+    public async Task AnOlderPageInsideTheConversationButPastWhatTheCursorHolds_IsAnsweredWithAFreshWindow()
+    {
+        // The boundary a real client can produce: its cursor names the first 20 messages, the conversation has since
+        // grown to 24, and it asks for the turns before message 22 - inside the conversation, past what it holds.
+        var sid = Guid.NewGuid().ToString();
+        var turns = Enumerable.Range(0, 12).SelectMany(i => new[] { ("User", $"prompt {i}"), ("Assistant", $"reply {i}") }).ToArray();
+        _gateway.SeedStoredConversationForTest(_device.Tenant, "dir-a", sid, turns.Take(20).ToArray());
+        var (_, first) = await Get("cursor=&turns=5", sid);
+        var cursorFor20 = (string)first["cursor"]!;
+        Assert.StartsWith("v1.20.", cursorFor20);
+        _gateway.SeedStoredConversationForTest(_device.Tenant, "dir-a", sid, turns);
+
+        var (status, body) = await Get($"cursor={Uri.EscapeDataString(cursorFor20)}&turns=5&before=22", sid);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Null(body["olderFrom"]);
+        Assert.Equal(0, (int)body["tailFrom"]!);
+        Assert.Equal(14, (int)body["windowFrom"]!);
+        Assert.Equal(10, body["messages"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public async Task AWindowAskedForWithoutACursor_IsRefused()
+    {
+        var (status, body) = await Get("turns=10");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("cursor", (string)body["error"]!);
     }
 
     [Fact]

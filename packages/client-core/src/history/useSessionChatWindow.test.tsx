@@ -20,18 +20,33 @@ interface Sent {
 }
 
 const gw = vi.hoisted(() => ({
-  state: null as unknown as { messages: HistoryMessageDto[]; sent: Sent[] },
+  state: null as unknown as {
+    /** Session "s"'s conversation; `other` is session "t"'s. */
+    messages: HistoryMessageDto[];
+    other: HistoryMessageDto[];
+    sent: Sent[];
+    /** When true, an older-page answer is held back until `release` is called - to land things while it is in flight. */
+    holdOlder: boolean;
+    release: (() => void) | null;
+    /** When true, every answer for session "t" is held back until `releaseT` is called. */
+    holdT: boolean;
+    releaseT: (() => void) | null;
+  },
 }));
 
-function fullDto(): SessionHistoryDto {
+function messagesFor(sid: string): HistoryMessageDto[] {
+  return sid === "t" ? gw.state.other : gw.state.messages;
+}
+
+function fullDto(sid = "s"): SessionHistoryDto {
   return {
-    sessionId: "s",
+    sessionId: sid,
     directorId: "d",
     agent: "ClaudeCode",
     isSupported: true,
     isRawText: false,
     historyState: "Working",
-    messages: gw.state.messages,
+    messages: messagesFor(sid),
     staleNotice: null,
     emptyText: null,
     status: "ok",
@@ -39,45 +54,58 @@ function fullDto(): SessionHistoryDto {
   };
 }
 
-function cursorFor(count: number): string {
-  return `${count}|${JSON.stringify(gw.state.messages.slice(0, count))}`;
+function cursorFor(sid: string, count: number): string {
+  return `${sid}|${count}|${JSON.stringify(messagesFor(sid).slice(0, count))}`;
 }
 
-function startOfLastTurns(end: number, turns: number): number {
+function startOfLastTurns(sid: string, end: number, turns: number): number {
   let seen = 0;
   for (let i = end - 1; i >= 0; i--) {
-    if (gw.state.messages[i].role !== "User") continue;
+    if (messagesFor(sid)[i].role !== "User") continue;
     seen++;
     if (seen === turns) return i;
   }
   return 0;
 }
 
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client")>()),
   getSessionHistory: vi.fn(
-    async (_sid: string, _signal: AbortSignal | undefined, cursor?: string, window?: { turns: number; before?: number }): Promise<SessionHistoryPage> => {
+    async (sid: string, _signal: AbortSignal | undefined, cursor?: string, window?: { turns: number; before?: number }): Promise<SessionHistoryPage> => {
       gw.state.sent.push({ cursor: cursor ?? "", turns: window?.turns, before: window?.before });
-      const full = fullDto();
+      const full = fullDto(sid);
       const all = full.messages.length;
       let held = -1;
       if (cursor) {
-        const count = Number(cursor.split("|")[0]);
-        if (Number.isInteger(count) && count <= all && cursor === cursorFor(count)) held = count;
+        const count = Number(cursor.split("|")[1]);
+        if (Number.isInteger(count) && count <= all && cursor === cursorFor(sid, count)) held = count;
       }
+      let answer: SessionHistoryPage;
       if (window?.before !== undefined && held >= window.before) {
-        const from = startOfLastTurns(window.before, window.turns);
-        return { ...full, messages: full.messages.slice(from, window.before), olderFrom: from };
+        const from = startOfLastTurns(sid, window.before, window.turns);
+        answer = { ...full, messages: full.messages.slice(from, window.before), olderFrom: from };
+      } else if (held > 0 && window?.before === undefined) {
+        answer = { ...full, messages: full.messages.slice(held), tailFrom: held, cursor: cursorFor(sid, all) };
+      } else {
+        const from = window ? startOfLastTurns(sid, all, window.turns) : 0;
+        answer = {
+          ...full,
+          messages: full.messages.slice(from),
+          tailFrom: 0,
+          cursor: cursorFor(sid, all),
+          ...(window ? { windowFrom: from } : {}),
+        };
       }
-      if (held > 0 && window?.before === undefined)
-        return { ...full, messages: full.messages.slice(held), tailFrom: held, cursor: cursorFor(all) };
-      const from = window ? startOfLastTurns(all, window.turns) : 0;
-      return {
-        ...full,
-        messages: full.messages.slice(from),
-        tailFrom: 0,
-        cursor: cursorFor(all),
-        ...(window ? { windowFrom: from } : {}),
-      };
+      // The answer is decided NOW, from the conversation as it is now, as the real Gateway's is; only its arrival waits.
+      if (sid === "t" && gw.state.holdT)
+        return new Promise((resolve) => {
+          gw.state.releaseT = () => resolve(answer);
+        });
+      if (window?.before !== undefined && gw.state.holdOlder)
+        return new Promise((resolve) => {
+          gw.state.release = () => resolve(answer);
+        });
+      return answer;
     },
   ),
 }));
@@ -85,11 +113,21 @@ vi.mock("../api/client", () => ({
 import { CHAT_LOADING_TEXT, useSessionChat } from "./useSessionChat";
 
 // Prompt N at index 2N, its reply at 2N + 1.
-function conversation(turns: number): HistoryMessageDto[] {
+function conversation(turns: number, label = ""): HistoryMessageDto[] {
   return Array.from({ length: turns * 2 }, (_, i) => ({
     role: i % 2 === 0 ? "User" : "Assistant",
-    parts: [{ kind: "Text", text: i % 2 === 0 ? `prompt ${i / 2}` : `reply ${(i - 1) / 2}` }],
+    parts: [{ kind: "Text", text: i % 2 === 0 ? `${label}prompt ${i / 2}` : `${label}reply ${(i - 1) / 2}` }],
   }));
+}
+
+async function release(): Promise<void> {
+  const r = gw.state.release;
+  expect(r).not.toBeNull();
+  gw.state.release = null;
+  await act(async () => {
+    r!();
+  });
+  await settle();
 }
 
 async function settle(): Promise<void> {
@@ -107,7 +145,7 @@ async function poll(): Promise<void> {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  gw.state = { messages: conversation(25), sent: [] };
+  gw.state = { messages: conversation(25), other: conversation(25, "t-"), sent: [], holdOlder: false, release: null, holdT: false, releaseT: null };
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
 });
 
@@ -175,5 +213,87 @@ describe("what the Chat says before it has an answer (owner, 2026-10-23)", () =>
     expect(result.current.bubbles).toEqual([]);
     expect(result.current.emptyText).toBe(CHAT_LOADING_TEXT);
     expect(result.current.hasEarlier).toBe(false);
+  });
+});
+
+// The races the review named. Revert-proof: drop the whole-reads check and the /clear case puts the OLD conversation's
+// page in front of the new one (both windows start at message 30); drop the session check and the switch case draws
+// session s's turns under session t.
+describe("an older page in flight (issue #4372, review)", () => {
+  it("a tail that lands while the page is in flight keeps both, with no gap and no duplicate", async () => {
+    const { result } = renderHook(() => useSessionChat("s", { turns: 10 }));
+    await settle();
+    gw.state.holdOlder = true;
+
+    act(() => result.current.loadEarlier());
+    gw.state.messages = [...gw.state.messages, ...conversation(26).slice(50)];
+    await poll();
+    expect(result.current.bubbles.at(-1)?.bubble.body).toBe("reply 25");
+    await release();
+
+    expect(result.current.earlierPages).toBe(1);
+    gw.state.holdOlder = false;
+    act(() => result.current.loadEarlier());
+    await settle();
+    expect(result.current.hasEarlier).toBe(false);
+    expect(result.current.bubbles).toEqual(renderChatHistory(fullDto(), loadChatFilter()).bubbles);
+  });
+
+  it("a /clear that lands while the page is in flight drops the page - never mixes the two conversations", async () => {
+    const { result } = renderHook(() => useSessionChat("s", { turns: 10 }));
+    await settle();
+    gw.state.holdOlder = true;
+
+    act(() => result.current.loadEarlier());
+    gw.state.messages = conversation(25, "after-clear ");
+    await poll();
+    await release();
+
+    const bodies = result.current.bubbles.map((b) => b.bubble.body);
+    expect(bodies.every((b) => b.startsWith("after-clear "))).toBe(true);
+    expect(result.current.earlierPages).toBe(0);
+    expect(result.current.loadingEarlier).toBe(false);
+  });
+
+  it("a session switch while the page is in flight never draws the previous session", async () => {
+    const { result, rerender } = renderHook(({ sid }) => useSessionChat(sid, { turns: 10 }), { initialProps: { sid: "s" } });
+    await settle();
+    gw.state.holdOlder = true;
+
+    // The order the review found: the old session's page lands BEFORE the new session's first answer.
+    gw.state.holdT = true;
+    act(() => result.current.loadEarlier());
+    rerender({ sid: "t" });
+    expect(result.current.loadingEarlier).toBe(false);
+    await release();
+    expect(result.current.bubbles).toEqual([]);
+
+    const t = gw.state.releaseT;
+    expect(t).not.toBeNull();
+    await act(async () => {
+      t!();
+    });
+    await settle();
+    const bodies = result.current.bubbles.map((b) => b.bubble.body);
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.every((b) => b.startsWith("t-"))).toBe(true);
+    expect(result.current.earlierPages).toBe(0);
+  });
+
+  it("a failed older-page fetch says so, and the next try clears it", async () => {
+    const client = await import("../api/client");
+    const { result } = renderHook(() => useSessionChat("s", { turns: 10 }));
+    await settle();
+    vi.mocked(client.getSessionHistory).mockRejectedValueOnce(new Error("the Gateway is unreachable"));
+
+    act(() => result.current.loadEarlier());
+    await settle();
+    expect(result.current.earlierError).not.toBeNull();
+    expect(result.current.loadingEarlier).toBe(false);
+
+    act(() => result.current.loadEarlier());
+    expect(result.current.earlierError).toBeNull();
+    await settle();
+    expect(result.current.earlierPages).toBe(1);
   });
 });

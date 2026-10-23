@@ -84,18 +84,23 @@ public static class SessionConversationEndpoint
             // Traffic optimization, phase 2: a client that sends the cursor it was handed gets only the messages
             // after it, when the Gateway can prove it holds exactly that start (ConversationTail). A request with
             // NO cursor parameter at all is an older Cockpit or phone, and gets exactly the answer it always got.
-            if (ctx.Request.Query.TryGetValue(CursorParameter, out var cursorValues))
-            {
-                // Issue #4372: the window. `turns` cuts a whole-conversation answer to the last few turns; `before`
-                // asks for the turns before the window the client holds. Read before anything is decided, so a
-                // malformed number is refused rather than answered in full.
-                var query = ctx.Request.Query;
-                if (!ConversationWindow.TryRead(
-                        query.TryGetValue(ConversationWindow.TurnsParameter, out var turnsValues) ? turnsValues.ToString() : null,
-                        query.TryGetValue(ConversationWindow.BeforeParameter, out var beforeValues) ? beforeValues.ToString() : null,
-                        out var turns, out var before, out var windowError))
-                    return Results.Json(new { error = windowError }, statusCode: StatusCodes.Status400BadRequest);
+            // Issue #4372: the window. `turns` cuts a whole-conversation answer to the last few turns; `before` asks for
+            // the turns before the window the client holds. Read before anything is decided, so a malformed number - or
+            // a window asked for without the cursor it only ever rides with - is refused rather than answered in full.
+            var query = ctx.Request.Query;
+            var hasCursor = query.TryGetValue(CursorParameter, out var cursorValues);
+            if (!ConversationWindow.TryRead(
+                    query.TryGetValue(ConversationWindow.TurnsParameter, out var turnsValues) ? turnsValues.ToString() : null,
+                    query.TryGetValue(ConversationWindow.BeforeParameter, out var beforeValues) ? beforeValues.ToString() : null,
+                    out var windowTurns, out var windowBefore, out var windowError))
+                return Results.Json(new { error = windowError }, statusCode: StatusCodes.Status400BadRequest);
+            if (!hasCursor && windowTurns is not null)
+                return Results.Json(
+                    new { error = $"'{ConversationWindow.TurnsParameter}' needs '{CursorParameter}': a window is only ever sent with the cursor that names it" },
+                    statusCode: StatusCodes.Status400BadRequest);
 
+            if (hasCursor)
+            {
                 var options = ConditionalJson.HostOptions(ctx);
                 var answer = ConversationTail.Decide(
                     cursorValues.ToString(), tenant.Value.Value, sid, stored?.Head.Generation ?? "", dto.Messages, options);
@@ -103,7 +108,7 @@ public static class SessionConversationEndpoint
                 // An older page is served only on top of a conversation the cursor PROVES the client holds, and only
                 // for a point inside what it holds. Anything else falls through to a fresh window, which replaces
                 // what the client holds - never a page that might leave a gap or a duplicate.
-                if (before is { } b && turns is { } pageTurns)
+                if (windowBefore is { } b && windowTurns is { } pageTurns)
                 {
                     var held = answer.Reason is null ? answer.TailFrom : -1;
                     if (held >= b)
@@ -119,7 +124,7 @@ public static class SessionConversationEndpoint
                     // shorter conversation, a changed turn. The first read (no cursor yet) is the normal case.
                     FileLog.Write($"[SessionConversation] history sid={sid} tenant={tenant.Value.ToLogString()}: answered in full ({answer.Reason})");
                 }
-                return ConditionalJson.Serve(ctx, TailBody(dto, answer, options, turns), options);
+                return ConditionalJson.Serve(ctx, TailBody(dto, answer, options, windowTurns), options);
             }
 
             // Traffic optimization, phase 1: a poll whose answer has not changed is a 304 with no body. The tag

@@ -2085,6 +2085,13 @@ a.banner-btn {
   cursor: default;
 }
 
+.chat-earlier-error {
+  margin-left: 10px;
+  align-self: center;
+  color: #ffb4b4;
+  font-size: 12px;
+}
+
 .chat-bubble {
   border: 1px solid var(--border);
   border-radius: 8px;

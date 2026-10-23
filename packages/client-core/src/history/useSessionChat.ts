@@ -55,6 +55,11 @@ export interface SessionChat {
   hasEarlier: boolean;
   /** True while the turns before the held ones are being fetched. */
   loadingEarlier: boolean;
+  /** How many older pages have been put in front so far. It goes up in the SAME render as the bubbles they added,
+   *  which is how a view knows that render grew at the top - and by how much - and keeps the reader in place. */
+  earlierPages: number;
+  /** The sentence for an older-page fetch that failed, or null. Cleared when the next one starts. */
+  earlierError: string | null;
   /** Fetch the turns before the held ones and put them in front. Does nothing without a window, when there is
    *  nothing earlier, or while a fetch is already running. */
   loadEarlier: () => void;
@@ -83,8 +88,15 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
   // never put in front of a different one that replaced it while the page was in flight.
   const [windowFrom, setWindowFrom] = useState(0);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [earlierPages, setEarlierPages] = useState(0);
+  const [earlierError, setEarlierError] = useState<string | null>(null);
   const loadingEarlierRef = useRef(false);
   const wholeReadsRef = useRef(0);
+  // Bumped whenever the session on screen changes. An older-page fetch remembers the value it started under and does
+  // nothing at all when it lands under another: the held copy still names the OLD session until the new session's
+  // first answer arrives, so checking the held copy's session alone let a late page repaint the previous conversation
+  // under the new session's name (found in review).
+  const shownEpochRef = useRef(0);
 
   // A DIFFERENT SESSION STARTS EMPTY. The Cockpit keeps one session screen and changes only the address when another
   // session is selected, so this hook used to keep showing the previous session's conversation - and its empty text -
@@ -99,6 +111,11 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
     setLoadFailed(false);
     setLoadError(null);
     setWindowFrom(0);
+    setLoadingEarlier(false);
+    setEarlierPages(0);
+    setEarlierError(null);
+    loadingEarlierRef.current = false;
+    shownEpochRef.current += 1;
     signatureRef.current = "";
     lastHistoryRef.current = null;
   }
@@ -175,13 +192,17 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
     if (loadingEarlierRef.current) return;
     loadingEarlierRef.current = true;
     setLoadingEarlier(true);
+    setEarlierError(null);
     const before = held.windowFrom;
     const reads = wholeReadsRef.current;
+    const epoch = shownEpochRef.current;
     void getSessionHistory(sessionId, undefined, held.cursor, { turns, before })
       .then((page) => {
+        // Another session is on screen now: this page is nothing to it, and the reset has already cleared the flags.
+        if (shownEpochRef.current !== epoch) return;
         const current = heldRef.current;
-        // Asked against a whole read that has since been replaced, or a session no longer on screen: drop it. The
-        // reader is still at the top, so the next scroll asks again against what is held now.
+        // Asked against a whole read that has since been replaced: drop it. The reader is still at the top, so the
+        // next scroll asks again against what is held now.
         if (current === null || current.sessionId !== sessionId || wholeReadsRef.current !== reads) return;
         const next = applyOlderPage(current, sessionId, before, page);
         if (next === null) {
@@ -189,16 +210,22 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
           heldRef.current = null;
           return;
         }
-        if (page.olderFrom === undefined) wholeReadsRef.current += 1;
+        const prepended = page.olderFrom !== undefined;
+        if (!prepended) wholeReadsRef.current += 1;
         heldRef.current = next;
         setWindowFrom(next.windowFrom);
+        // Counted in the same callback as the bubbles it adds, so React draws both in one render and the view can
+        // measure exactly how much grew at the top.
+        if (prepended) setEarlierPages((n) => n + 1);
         lastHistoryRef.current = next.history;
         renderHistory(next.history, false);
       })
       .catch((err) => {
-        setLoadError(describeAndReport("session-chat", "load the earlier messages", err, { sessionId }));
+        if (shownEpochRef.current !== epoch) return;
+        setEarlierError(describeAndReport("session-chat", "load the earlier messages", err, { sessionId }));
       })
       .finally(() => {
+        if (shownEpochRef.current !== epoch) return;
         loadingEarlierRef.current = false;
         setLoadingEarlier(false);
       });
@@ -226,6 +253,8 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
     setFilter,
     hasEarlier: turns !== undefined && windowFrom > 0,
     loadingEarlier,
+    earlierPages,
+    earlierError,
     loadEarlier,
   };
 }

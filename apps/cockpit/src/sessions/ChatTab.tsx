@@ -59,7 +59,7 @@ function turnClock(r: RenderedBubble): string {
 const SURFACE_PATHS = "cockpit-chat-paths";
 
 export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
-  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter, hasEarlier, loadingEarlier, loadEarlier } =
+  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter, hasEarlier, loadingEarlier, earlierPages, earlierError, loadEarlier } =
     useSessionChat(sessionId, { turns: CHAT_TURNS });
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
   const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
@@ -77,18 +77,20 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
-  // While earlier turns are being fetched: how far the reader was from the BOTTOM of the list, so the turns arriving
-  // above do not push what they were reading down the screen. Null at every other time.
-  const keepFromBottomRef = useRef<number | null>(null);
-
-  // Earlier turns were put in front: hold the reader exactly where they were.
+  // EARLIER TURNS WERE PUT IN FRONT: hold the reader exactly where they were. The list's height is recorded after every
+  // render; the render in which `earlierPages` went up is the one that grew at the top, and by exactly the difference.
+  // Measured per render rather than remembered from when the fetch started, because a new turn can land at the BOTTOM
+  // while the page is in flight, and a distance taken from the bottom then moved the reader twice (found in review).
+  const lastHeightRef = useRef(0);
+  const seenEarlierPagesRef = useRef(earlierPages);
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const fromBottom = keepFromBottomRef.current;
-    if (el === null || fromBottom === null) return;
-    keepFromBottomRef.current = null;
-    el.scrollTop = el.scrollHeight - fromBottom;
-  }, [bubbles]);
+    if (el === null) return;
+    if (earlierPages > seenEarlierPagesRef.current && lastHeightRef.current > 0)
+      el.scrollTop += el.scrollHeight - lastHeightRef.current;
+    seenEarlierPagesRef.current = earlierPages;
+    lastHeightRef.current = el.scrollHeight;
+  });
 
   // Sticky-bottom: stick to the bottom after the list changes ONLY if the reader is already there - and
   // never while a jump is outstanding, which is the one case where the reader has said exactly where
@@ -100,9 +102,7 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
   }, [bubbles, pendingJump]);
 
   const fetchEarlier = useCallback(() => {
-    const el = scrollRef.current;
-    if (!hasEarlier || loadingEarlier || el === null) return;
-    keepFromBottomRef.current = el.scrollHeight - el.scrollTop;
+    if (!hasEarlier || loadingEarlier) return;
     loadEarlier();
   }, [hasEarlier, loadingEarlier, loadEarlier]);
 
@@ -256,6 +256,8 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
                 <button type="button" className="chat-earlier-btn" disabled={loadingEarlier} onClick={fetchEarlier}>
                   {loadingEarlier ? "Loading earlier messages..." : "Load earlier messages"}
                 </button>
+                {/* error-reported-by: useSessionChat */}
+                {earlierError !== null && <span className="chat-earlier-error" role="alert">{earlierError}</span>}
               </div>
             )}
             {/* One centred column holds every turn, and it is the column - not the bubble - that sets the
