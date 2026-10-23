@@ -72,9 +72,11 @@ public static class Program
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
         // --echo-agent <log> [--usage-dialog]: run AS the byte-echo agent inside a terminal the rig started (issue #4378),
-        // drawing Claude Code's usage-limit dialog when asked.
-        if (args.Length is 2 or 3 && args[0] == "--echo-agent")
-            return EchoAgent.Run(args[1], usageDialog: args.Length == 3 && args[2] == "--usage-dialog");
+        // drawing Claude Code's usage-limit dialog when asked. Any other argument after the log is ignored: standing in for
+        // an agent, it is given that agent's own launch arguments too (the Director adds Claude Code's --settings to every
+        // session of that kind; issue #4379).
+        if (args.Length >= 2 && args[0] == "--echo-agent")
+            return EchoAgent.Run(args[1], usageDialog: args.Skip(2).Contains("--usage-dialog"));
 
         var opts = Options.Parse(args);
         if (opts.Rates)
