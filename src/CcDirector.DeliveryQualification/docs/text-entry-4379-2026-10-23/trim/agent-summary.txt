@@ -1,0 +1,11 @@
+agent    route           sends pass altered lost partial doubled via-file director-failed trim-accepted unsteady-cells
+claude   desktop-type        1    1       0    0       0       0        0               0             1              0
+claude   desktop-paste       1    1       0    0       0       0        0               0             1              0
+claude   prompt              1    1       0    0       0       0        0               0             1              0
+codex    desktop-type        1    1       0    0       0       0        0               0             1              0
+codex    desktop-paste       1    1       0    0       0       0        0               0             1              0
+codex    prompt              1    1       0    0       0       0        0               0             1              0
+pi       desktop-type        1    1       0    0       0       0        0               0             1              0
+pi       desktop-paste       1    1       0    0       0       0        0               0             1              0
+pi       prompt              1    1       0    0       0       0        0               0             1              0
+EVERY TEXT ARRIVED EXACTLY, AS TEXT, ON EVERY ROUTE.
