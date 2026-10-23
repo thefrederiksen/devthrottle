@@ -294,19 +294,77 @@ public sealed class SessionTurnStore
                 return null;
             }
 
-            var rows = HeldRows(ctx, key, head);
+            var (rows, _) = HeldRows(ctx, key, head);
             var messages = new List<HistoryMessageDto>(rows.Count);
             foreach (var row in rows)
-            {
-                messages.Add(new HistoryMessageDto
-                {
-                    Role = row.Role,
-                    Timestamp = row.TimestampUtc is { } ts ? new DateTimeOffset(DateTime.SpecifyKind(ts, DateTimeKind.Utc)) : null,
-                    Parts = JsonSerializer.Deserialize<List<HistoryPartDto>>(row.PartsJson, Json) ?? new List<HistoryPartDto>(),
-                });
-            }
+                messages.Add(ToMessage(row));
             return (head, messages);
         }
+    }
+
+    /// <summary>
+    /// The session's current conversation for a CURSOR request (issue #4387): the head, the count, and the index of
+    /// every message - the cursor hash after it and whether it starts a turn - with the messages themselves left to be
+    /// rebuilt only for the part of the answer that is sent (<see cref="ConversationView.Messages"/>).
+    ///
+    /// The index is kept beside the held rows and only extended: a message is hashed and classified once, when it is
+    /// first read, not on every poll. It goes when the held rows go - another generation, eviction, retention - and is
+    /// rebuilt from the rows on the next read. <paramref name="hashTenant"/>, <paramref name="sessionId"/>, the head's
+    /// generation and <paramref name="options"/> are what the cursor hash covers (<see cref="ConversationTail"/>).
+    ///
+    /// Never null: a session with nothing stored answers a view with no head and no messages, whose one hash is the
+    /// cursor for an empty conversation under generation "", as a full read of it would be.
+    /// </summary>
+    public ConversationView ReadView(string sessionId, string hashTenant, JsonSerializerOptions options)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        ArgumentNullException.ThrowIfNull(hashTenant);
+        ArgumentNullException.ThrowIfNull(options);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
+            var key = (ctx.ActiveTenant ?? "", sessionId);
+            if (head is null)
+            {
+                if (_held.TryGetValue(key, out var gone)) Release(key, gone);
+                using var empty = new ConversationIndex(hashTenant, sessionId, "", options);
+                return new ConversationView(null, 0, _ => throw new InvalidOperationException("an empty conversation has no messages"), empty);
+            }
+
+            var (rows, held) = HeldRows(ctx, key, head);
+            var index = held?.Index;
+            if (index is null || !index.IsFor(hashTenant, head.Generation, options) || index.Count > rows.Count)
+            {
+                index?.Dispose();
+                index = new ConversationIndex(hashTenant, sessionId, head.Generation, options);
+                // Rows that are served but not held (a store fault, or a conversation too long to hold) get an index
+                // for this read only, like the rows themselves.
+                if (held is not null) held.Index = index;
+            }
+            for (var i = index.Count; i < rows.Count; i++)
+                index.Append(ToMessage(rows[i]));
+            var view = new ConversationView(head, rows.Count, i => ToMessage(rows[i]), index);
+            if (held is null) index.Dispose();
+            return view;
+        }
+    }
+
+    /// <summary>How many stored rows have been rebuilt into messages, for the tests that prove a poll rebuilds only
+    /// what it sends.</summary>
+    internal long RowsRebuilt => Interlocked.Read(ref _rowsRebuilt);
+    private long _rowsRebuilt;
+
+    /// <summary>One stored row as the message Chat renders: fresh every time, so no two readers share an object.</summary>
+    internal HistoryMessageDto ToMessage(HeldTurn row)
+    {
+        Interlocked.Increment(ref _rowsRebuilt);
+        return new HistoryMessageDto
+        {
+            Role = row.Role,
+            Timestamp = row.TimestampUtc is { } ts ? new DateTimeOffset(DateTime.SpecifyKind(ts, DateTimeKind.Utc)) : null,
+            Parts = JsonSerializer.Deserialize<List<HistoryPartDto>>(row.PartsJson, Json) ?? new List<HistoryPartDto>(),
+        };
     }
 
     // ----- the held conversations (devthrottle_internal#2199) -----
@@ -323,13 +381,15 @@ public sealed class SessionTurnStore
     // deserialises fresh messages, so a caller that changes what it was given cannot change the next caller's answer.
 
     /// <summary>One stored turn as it is held: exactly the three columns a reader is built from.</summary>
-    private sealed record HeldTurn(string Role, DateTime? TimestampUtc, string PartsJson);
+    internal sealed record HeldTurn(string Role, DateTime? TimestampUtc, string PartsJson);
 
     private sealed class HeldConversation
     {
         public required string Generation { get; init; }
         public required List<HeldTurn> Turns { get; init; }
         public DateTime LastReadUtc { get; set; }
+        /// <summary>The cursor index of these rows (issue #4387), built by the first cursor read; null until then.</summary>
+        public ConversationIndex? Index { get; set; }
     }
 
     /// <summary>The most stored turns held across every conversation. Past it the least recently read conversations
@@ -350,9 +410,10 @@ public sealed class SessionTurnStore
     /// The current generation's contiguous prefix, as held rows: the held ones plus whatever the database has past
     /// them. The held rows are discarded - and the prefix read whole - when they cannot be the start of what the head
     /// now describes: another generation, or a head that counts fewer rows than are held (retention removed the
-    /// session and it came back).
+    /// session and it came back). Also answers the held conversation the rows are now part of, or null when they are
+    /// served without being held.
     /// </summary>
-    private List<HeldTurn> HeldRows(GatewayDbContext ctx, (string Tenant, string SessionId) key, SessionTurnHeadEntity head)
+    private (List<HeldTurn> Rows, HeldConversation? Held) HeldRows(GatewayDbContext ctx, (string Tenant, string SessionId) key, SessionTurnHeadEntity head)
     {
         var now = _utcNow();
         EvictIdle(now);
@@ -383,17 +444,17 @@ public sealed class SessionTurnStore
             // holds, as it always did - nothing is held on top of a prefix with a hole in it.
             FileLog.Write($"[SessionTurnStore] ReadCurrent session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
             if (held is not null) Release(key, held);
-            if (from == 0) return added;
-            return ctx.SessionTurns.AsNoTracking()
+            if (from == 0) return (added, null);
+            return (ctx.SessionTurns.AsNoTracking()
                 .Where(t => t.SessionId == sessionId && t.Generation == generation && t.Ordinal < head.Count)
                 .OrderBy(t => t.Ordinal)
                 .Select(t => new HeldTurn(t.Role, t.TimestampUtc, t.PartsJson))
-                .ToList();
+                .ToList(), null);
         }
 
         if (held is null)
         {
-            if (added.Count > MaxHeldTurns) return added;   // too long to hold at all; served, not kept
+            if (added.Count > MaxHeldTurns) return (added, null);   // too long to hold at all; served, not kept
             held = new HeldConversation { Generation = generation, Turns = added, LastReadUtc = now };
             _held[key] = held;
             _heldTurnCount += added.Count;
@@ -407,12 +468,15 @@ public sealed class SessionTurnStore
 
         var answer = new List<HeldTurn>(held.Turns);
         EvictOverCap(keep: key);
-        return answer;
+        return (answer, held);
     }
 
     private void Release((string Tenant, string SessionId) key, HeldConversation held)
     {
-        if (_held.Remove(key)) _heldTurnCount -= held.Turns.Count;
+        if (!_held.Remove(key)) return;
+        _heldTurnCount -= held.Turns.Count;
+        held.Index?.Dispose();
+        held.Index = null;
     }
 
     private void EvictIdle(DateTime now)

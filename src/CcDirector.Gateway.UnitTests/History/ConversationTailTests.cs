@@ -47,6 +47,13 @@ public sealed class ConversationTailTests : IDisposable
     private static string CursorFor(List<HistoryMessageDto> messages, int count, string tenant = Tenant, string sid = Sid, string gen = Gen) =>
         ConversationTail.CursorFor(tenant, sid, gen, messages, count, Web);
 
+    // The tail form, answered from a view of these messages as the endpoint answers it (issue #4387).
+    private static JsonObject TailOf(SessionHistoryDto full, List<HistoryMessageDto> messages, string cursor, int? turns = null)
+    {
+        var view = ConversationView.Of(Tenant, Sid, Gen, messages, Web);
+        return SessionConversationEndpoint.TailBody(full, view, ConversationTail.Decide(cursor, view), Web, turns);
+    }
+
     private static string Json(IEnumerable<HistoryMessageDto> messages) => JsonSerializer.Serialize(messages.ToList(), Web);
 
     [Fact]
@@ -220,7 +227,7 @@ public sealed class ConversationTailTests : IDisposable
         };
         var answer = ConversationTail.Decide(CursorFor(messages, 4), Tenant, Sid, Gen, messages, Web);
 
-        var body = SessionConversationEndpoint.TailBody(full, answer, Web);
+        var body = TailOf(full, messages, CursorFor(messages, 4));
 
         var fullNode = JsonSerializer.SerializeToNode(full, Web)!.AsObject();
         foreach (var (name, value) in fullNode)

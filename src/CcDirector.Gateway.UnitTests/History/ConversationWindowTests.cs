@@ -71,6 +71,13 @@ public sealed class ConversationWindowTests
 
     private static string Json(IEnumerable<HistoryMessageDto> messages) => JsonSerializer.Serialize(messages.ToList(), Web);
 
+    // The tail form, answered from a view of these messages as the endpoint answers it (issue #4387).
+    private static JsonObject TailOf(SessionHistoryDto full, List<HistoryMessageDto> messages, string cursor, int? turns = null)
+    {
+        var view = ConversationView.Of(Tenant, Sid, Gen, messages, Web);
+        return SessionConversationEndpoint.TailBody(full, view, ConversationTail.Decide(cursor, view), Web, turns);
+    }
+
     private static List<HistoryMessageDto> MessagesOf(JsonObject body) =>
         body["messages"]!.Deserialize<List<HistoryMessageDto>>(Web)!;
 
@@ -90,9 +97,8 @@ public sealed class ConversationWindowTests
     public void AWindow_StartsExactlyAtTheTenthLastPrompt_AndRunsToTheEnd()
     {
         var messages = Conversation(25);
-        var answer = ConversationTail.Decide("", Tenant, Sid, Gen, messages, Web);
 
-        var body = SessionConversationEndpoint.TailBody(Full(messages), answer, Web, turns: 10);
+        var body = TailOf(Full(messages), messages, "", turns: 10);
 
         var from = (int)body["windowFrom"]!;
         var window = MessagesOf(body);
@@ -108,9 +114,8 @@ public sealed class ConversationWindowTests
     public void AConversationWithFewerTurnsThanTheWindow_IsSentWhole()
     {
         var messages = Conversation(4);
-        var answer = ConversationTail.Decide("", Tenant, Sid, Gen, messages, Web);
 
-        var body = SessionConversationEndpoint.TailBody(Full(messages), answer, Web, turns: 10);
+        var body = TailOf(Full(messages), messages, "", turns: 10);
 
         Assert.Equal(0, (int)body["windowFrom"]!);
         Assert.Equal(Json(messages), Json(MessagesOf(body)));
@@ -120,9 +125,8 @@ public sealed class ConversationWindowTests
     public void WithoutTurns_TheAnswerIsExactlyWhatAnOlderClientAlwaysGot()
     {
         var messages = Conversation(25);
-        var answer = ConversationTail.Decide("", Tenant, Sid, Gen, messages, Web);
 
-        var body = SessionConversationEndpoint.TailBody(Full(messages), answer, Web);
+        var body = TailOf(Full(messages), messages, "");
 
         Assert.Null(body["windowFrom"]);
         Assert.Equal(Json(messages), Json(MessagesOf(body)));
@@ -133,8 +137,7 @@ public sealed class ConversationWindowTests
     {
         var all = Conversation(40);
         var messages = all.Take(30).ToList();
-        var first = SessionConversationEndpoint.TailBody(
-            Full(messages), ConversationTail.Decide("", Tenant, Sid, Gen, messages, Web), Web, turns: 10);
+        var first = TailOf(Full(messages), messages, "", turns: 10);
         var windowFrom = (int)first["windowFrom"]!;
         var held = MessagesOf(first);
         var cursor = (string)first["cursor"]!;
@@ -143,7 +146,7 @@ public sealed class ConversationWindowTests
         {
             var now = all.Take(count).ToList();
             var answer = ConversationTail.Decide(cursor, Tenant, Sid, Gen, now, Web);
-            var body = SessionConversationEndpoint.TailBody(Full(now), answer, Web, turns: 10);
+            var body = TailOf(Full(now), now, cursor, turns: 10);
             // A tail is what is new, never cut to the window, and carries no windowFrom.
             Assert.Equal(windowFrom + held.Count, (int)body["tailFrom"]!);
             Assert.Null(body["windowFrom"]);
@@ -158,15 +161,14 @@ public sealed class ConversationWindowTests
     public void WalkingBackOlderPage_ByOlderPage_AssemblesTheWholeConversation()
     {
         var messages = Conversation(37);
-        var first = SessionConversationEndpoint.TailBody(
-            Full(messages), ConversationTail.Decide("", Tenant, Sid, Gen, messages, Web), Web, turns: 10);
+        var first = TailOf(Full(messages), messages, "", turns: 10);
         var windowFrom = (int)first["windowFrom"]!;
         var held = MessagesOf(first);
 
         var pages = 0;
         while (windowFrom > 0)
         {
-            var page = SessionConversationEndpoint.OlderBody(Full(messages), windowFrom, 10, Web);
+            var page = SessionConversationEndpoint.OlderBody(Full(messages), ConversationView.Of(Tenant, Sid, Gen, messages, Web), windowFrom, 10, Web);
             var olderFrom = (int)page["olderFrom"]!;
             var older = MessagesOf(page);
             Assert.True(olderFrom < windowFrom);

@@ -53,11 +53,26 @@ public static class ConversationWindow
         ArgumentOutOfRangeException.ThrowIfNegative(end);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(end, messages.Count);
         ArgumentOutOfRangeException.ThrowIfLessThan(turns, 1);
+        return StartOfLastTurns(i => StartsTurn(messages[i]), end, turns);
+    }
 
+    /// <summary>The same, read from a <see cref="ConversationView"/>'s index, so no message is rebuilt to find it
+    /// (issue #4387).</summary>
+    public static int StartOfLastTurns(ConversationView view, int end, int turns)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentOutOfRangeException.ThrowIfNegative(end);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(end, view.Count);
+        ArgumentOutOfRangeException.ThrowIfLessThan(turns, 1);
+        return StartOfLastTurns(view.StartsTurn, end, turns);
+    }
+
+    private static int StartOfLastTurns(Func<int, bool> startsTurn, int end, int turns)
+    {
         var seen = 0;
         for (var i = end - 1; i >= 0; i--)
         {
-            if (!StartsTurn(messages[i]))
+            if (!startsTurn(i))
                 continue;
             seen++;
             if (seen == turns)

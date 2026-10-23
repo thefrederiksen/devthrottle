@@ -92,6 +92,8 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
   const [earlierError, setEarlierError] = useState<string | null>(null);
   const loadingEarlierRef = useRef(false);
   const wholeReadsRef = useRef(0);
+  // The signal of the poll still waiting for its answer, or null (issue #4387).
+  const pollingSignalRef = useRef<AbortSignal | null>(null);
   // Bumped whenever the session on screen changes. An older-page fetch remembers the value it started under and does
   // nothing at all when it lands under another: the held copy still names the OLD session until the new session's
   // first answer arrives, so checking the held copy's session alone let a late page repaint the previous conversation
@@ -144,6 +146,13 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
   const refresh = useCallback(
     async (signal: AbortSignal) => {
       if (!sessionId) return;
+      // Issue #4387: one poll at a time. The timer fires every 2.5 seconds whether or not the last poll has answered,
+      // so a Gateway slow for a moment was sent three more reads that queued behind the first and made it slower.
+      // Keyed on the poll's signal: a session switch or a hidden tab aborts it, so the next session's first read is
+      // never held back by the last one's, and a read that never answers is ended by its own time limit.
+      const inFlight = pollingSignalRef.current;
+      if (inFlight !== null && !inFlight.aborted) return;
+      pollingSignalRef.current = signal;
       try {
         // Traffic optimization, phase 2: ask only for what is new since the conversation already held, and
         // assemble the whole one here, so the renderer below is handed exactly what a full read would give it.
@@ -178,6 +187,8 @@ export function useSessionChat(sessionId: string | undefined, options?: SessionC
         if (signal.aborted) return;
         setLoadFailed(true);
         setLoadError(describeAndReport("session-chat", "load the conversation", err, { sessionId, background: true }));
+      } finally {
+        if (pollingSignalRef.current === signal) pollingSignalRef.current = null;
       }
     },
     [sessionId, renderHistory, turns],
