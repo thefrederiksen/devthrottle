@@ -4699,7 +4699,8 @@ public sealed class Session : IDisposable
                     composerSeen: ComposerSeen(),
                     composerRegion: ComposerRegionReader(),
                     clock: Clock,
-                    commandLine: commandLine);
+                    commandLine: commandLine,
+                    writeClearKeys: ReferenceEquals(target, _backend) ? keys => WriteClearKeysUnlessSomeoneTyped(keys, ownerTextBefore) : null);
 
                 string typed;
                 try
@@ -4798,6 +4799,34 @@ public sealed class Session : IDisposable
         SetActivityState(ActivityState.Working);
         return outcome;
     }
+
+    /// <summary>
+    /// The clear keys for a send's own earlier text, written ONLY if no text has reached the terminal through the
+    /// session's input since the send began (<paramref name="ownerTextBefore"/>), and decided and written under the input
+    /// lock, where every keystroke is written, so none can land between the check and the keys (review of pull request
+    /// 4396, finding 1). Without this a person typing during the clear's wait for quiet had their words erased with the
+    /// line. False when it wrote nothing; the send then clears nothing and types after what is there. A guarded send
+    /// needs none of this: it holds the person's keys until it ends.
+    /// </summary>
+    private bool WriteClearKeysUnlessSomeoneTyped(byte[] keys, long ownerTextBefore)
+    {
+        BeforeClearKeysForTests?.Invoke();
+        lock (_inputLock)
+        {
+            if (_ownerTextCount != ownerTextBefore)
+            {
+                FileLog.Write($"[Session] clear keys NOT pressed: session={Id}: text reached the composer through the session's " +
+                              "input after this send began; its words are kept and the send types after them");
+                return false;
+            }
+            _backend.Write(keys);
+            return true;
+        }
+    }
+
+    /// <summary>Test seam: runs immediately before the clear keys are decided, so a test can type into the session at the
+    /// last moment of the clear's wait. Null in every real session.</summary>
+    internal Action? BeforeClearKeysForTests { get; set; }
 
     /// <summary>
     /// THE PROMPT'S AGE AT THE FIRST KEYSTROKE (Voice Delivery mission, phase 5, QA finding F6): the check the

@@ -141,7 +141,8 @@ public static class TerminalSubmit
         Func<string>? composerSeen = null,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null,
         TimeProvider? clock = null,
-        bool commandLine = false)
+        bool commandLine = false,
+        Func<byte[], bool>? writeClearKeys = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         var throwWhenParked = !recordsProofFollows && !commandLine;
@@ -151,6 +152,8 @@ public static class TerminalSubmit
         if (commandLine)
             SendTrail.Step(driverTag, "CommandLine: the agent takes this line as a command - Enter is pressed once, never nudged");
         SendClock.Value = clock;
+        var clearWriterBefore = ClearKeysWriter.Value;
+        ClearKeysWriter.Value = writeClearKeys;
         var typedAfterExistingText = new StrongBox<bool>();
         try
         {
@@ -168,7 +171,34 @@ public static class TerminalSubmit
         {
             TextWaitsInComposer.Value = nudgeBefore;
             SendClock.Value = clockBefore;
+            ClearKeysWriter.Value = clearWriterBefore;
         }
+    }
+
+    /// <summary>
+    /// HOW THE CLEAR KEYS ARE WRITTEN, carried alongside the send as <see cref="SendClock"/> is (review of pull request
+    /// 4396, finding 1). The clear waits for the terminal to go quiet first - up to <see cref="QuietBeforeClearLimit"/> -
+    /// and a person can type into the composer in that wait; the clear keys would then erase their words with the line
+    /// they were meant for. The Session supplies a writer that writes the keys only if no one's text has reached the
+    /// terminal since the send began, deciding and writing under its input lock so no keystroke lands between the two,
+    /// and answers false when it wrote nothing. Null - a host with no Session - writes the keys as before.
+    /// </summary>
+    private static readonly AsyncLocal<Func<byte[], bool>?> ClearKeysWriter = new();
+
+    /// <summary>Write the clear keys through the send's writer. False when they were NOT written because someone typed
+    /// since the send began; the caller then clears nothing and the send types after what is there, as after any
+    /// draft (the owner's ruling, 21 October 2026).</summary>
+    private static bool WriteClearKeys(ISessionBackend backend, string driverTag, byte[] keys)
+    {
+        if (ClearKeysWriter.Value is not { } writer)
+        {
+            backend.Write(keys);
+            return true;
+        }
+        if (writer(keys)) return true;
+        SendTrail.Step(driverTag, "ResolveRetainedComposer: someone typed into the session after this send began - the clear " +
+                                  "keys are NOT pressed, so their words are not erased, and the send types after what is there");
+        return false;
     }
 
     /// <summary>
@@ -828,8 +858,8 @@ public static class TerminalSubmit
                                       "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
                                       "unread in the terminal's input are read before them and would otherwise run into this send.");
             await WaitForQuietAsync(backend, driverTag);
-            backend.Write(clearKeys);
-            await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
+            if (WriteClearKeys(backend, driverTag, clearKeys))
+                await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         }
         else
         {
@@ -980,7 +1010,7 @@ public static class TerminalSubmit
         SendTrail.Step(driverTag, $"ResolveRetainedComposer: clearing - the composer before: {RegionForTrail(composerRegion)}; " +
                                   $"pressing {DescribeKeys(keys)}");
         var clearedAt = Now;
-        backend.Write(keys);
+        if (!WriteClearKeys(backend, driverTag, keys)) return;
         await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         if (composerHoldsNothing is null) return;
 
