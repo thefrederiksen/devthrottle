@@ -79,3 +79,60 @@ config.
 
 Cost: every text asks for a one-word reply and no tools. Claude Code on a subscription costs no money; an
 agent on a paid provider costs a few thousand tokens per attempt.
+
+## The parity harness (Terminal Parity mission, issue #4378)
+
+Three more modes measure how close the Director comes to a person at the keyboard. They are run on demand, for a
+baseline, after each fix, and whenever the work is picked up again - never on a schedule (the owner's ruling,
+23 October 2026). The mission document is `docs/missions/terminal-parity-2026-10-23/MISSION.md` in
+`devthrottle_internal`.
+
+**Routes.** Each is a way text reaches an agent's composer:
+
+| Route | What it does |
+|---|---|
+| `desktop-type` | Types a single-line text into the SHIPPED desktop terminal control, one character at a time (8 ms apart), then Enter. |
+| `desktop-newline` | Types a multi-line text with Shift+Enter between the lines, as a person makes a new line, then Enter. |
+| `desktop-paste` | Pastes the text through the code Ctrl+V runs once it has read the clipboard, then Enter. |
+| `prompt` | The Director's own send, `Session.SendTextAsync` - what the Gateway's `/prompt`, the phone and dictation reach. |
+
+The desktop routes host the real `TerminalControl` headless (Avalonia.Headless) on the real session, through its
+`HarnessTextInput`, `HarnessKeyDown` and `HarnessPasteAsync` hooks, so the bytes measured are the bytes the desktop
+sends.
+
+**Texts.** `MatrixTexts`: ASCII, every punctuation mark, curly quotes and dashes, accents and currency, emoji, Chinese,
+Japanese and Korean, right-to-left text, tabs, LF and CRLF line breaks, blank lines, a leading `/`, `!`, `@` or `#`,
+and a size on each side of every routing limit in `TerminalSubmit` (199/200/201, 299/300/301, 1999/2000/2001), then
+8 KB, 50 KB and a 50-line text. `lead-hash` reaches only the echo agent: a leading `#` can write to Claude Code's
+memory.
+
+    # 1. THE ECHO LAYER - free, no model. The rig starts ITSELF as the agent (--echo-agent), which logs every byte it
+    #    reads. Every route and text; the prompt route once as each agent, since its route choice depends on the agent.
+    $B --echo --routes all --texts all
+
+    # 2. THE TEXT MATRIX on real agents, judged by their own records character for character (ALTERED when the text
+    #    arrived but not exactly). Stops at --max-turns (default 240) so a run stays small on the owner's subscriptions.
+    $B --text-matrix --agents claude,codex,pi
+
+    # 3. THE WORKING-OR-WAITING MATRIX: quick answer, long answer, a 40-second tool, an approval prompt (permissions ON),
+    #    a question menu, the model picker. The session's state is sampled every 250 ms against the agent's records.
+    $B --state-matrix --agents claude,codex,pi
+
+**Echo verdicts.** `EXACT`; `SPLIT` (an Enter arrived before the text ended, so the agent submits it in pieces);
+`ALTERED` (characters changed or lost - the first difference is shown); `VIA-FILE` (a file reference or file
+instruction was typed instead of the text, with whether the payload file is exact); `NOT-SUBMITTED`; `NOTHING`.
+`framed` says whether the text came as a bracketed paste. The echo agent asks for bracketed paste and echoes typed
+text and repaints at the end of a paste, as the agents' composers do, so the send path's waits behave as they do with a
+real agent.
+
+**State pass rules** (the mission's targets): Working within 2 s of the send; never shown waiting while the agent
+truly works; shown waiting within 2 s of the true end (the answer's record, or the ask's record for an approval or a
+question menu); an approval shown as `WaitingForPerm`. Each case is watched 30 s past the true end, so a late flip is
+measured rather than reported as never. The true end comes from record timestamps, good to about a second.
+
+Each matrix appends to the ledger with `Route`, `Exact` and `ViaFile`, and writes `echo-results.jsonl`,
+`agent-results.jsonl` or `state-results.jsonl` plus a summary to the run folder. Linux and macOS only for now: the
+echo agent's Windows half is built with the Windows baseline run.
+
+Cost: Claude Code (Max) and Codex (ChatGPT sign-in) run on subscriptions - no bill, a small share of the allowance,
+each answer one word. Pi runs on the mindzie dev Azure Foundry, `gpt-5.6-terra`, thinking off - cents a run.

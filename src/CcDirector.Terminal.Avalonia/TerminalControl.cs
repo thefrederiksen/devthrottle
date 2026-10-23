@@ -1084,6 +1084,16 @@ public class TerminalControl : Control
     /// <summary>A key pressed in the control, through the real key-down handler.</summary>
     internal void HarnessKeyDown(global::Avalonia.Input.Key key) => OnKeyDown(new global::Avalonia.Input.KeyEventArgs { Key = key, RoutedEvent = KeyDownEvent });
 
+    /// <summary>A key pressed with modifiers held (Shift+Enter, Ctrl+R), through the real key-down handler - for the
+    /// delivery harness (issue #4378).</summary>
+    internal void HarnessKeyDown(global::Avalonia.Input.Key key, global::Avalonia.Input.KeyModifiers modifiers) =>
+        OnKeyDown(new global::Avalonia.Input.KeyEventArgs { Key = key, KeyModifiers = modifiers, RoutedEvent = KeyDownEvent });
+
+    /// <summary>A paste of <paramref name="text"/> through the same code Ctrl+V runs once it has read the clipboard - for
+    /// the delivery harness (issue #4378). Completes when the last chunk has been written.</summary>
+    internal Task HarnessPasteAsync(string text) =>
+        _session is { } session && !_isPasting ? PasteTextAsync(session, text) : Task.CompletedTask;
+
     /// <summary>Harness: force the grid dimensions (when not driven by layout).</summary>
     internal void HarnessSetGrid(int cols, int rows)
     {
@@ -2342,6 +2352,16 @@ public class TerminalControl : Control
             return;
         }
 
+        await PasteTextAsync(session, text);
+    }
+
+    /// <summary>
+    /// The paste itself, after the clipboard is read: the text Ctrl+V and the Paste menu put into the session. Split
+    /// from <see cref="PasteToTerminalAsync"/> only so the delivery harness (issue #4378) can paste a known text through
+    /// this same code; the clipboard read is the only part it skips.
+    /// </summary>
+    private async Task PasteTextAsync(Session session, string? text)
+    {
         if (string.IsNullOrEmpty(text)) return;
 
         // Strip trailing newlines - user can press Enter themselves
