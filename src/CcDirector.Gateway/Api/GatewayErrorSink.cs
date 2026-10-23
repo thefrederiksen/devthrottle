@@ -204,9 +204,14 @@ internal sealed class GatewayErrorSink : IDisposable
     }
 
     /// <summary>Queue one error. Every free-text field is scrubbed and capped here, whoever built it.</summary>
-    public void Report(GatewayError error)
+    public void Report(GatewayError error) => Report(error, occurrences: 1);
+
+    /// <summary>Queue one error that happened <paramref name="occurrences"/> times - a caller that held its repeats back
+    /// (<see cref="GatewayAccountFailures"/>) hands them over here, so the row's count stays true.</summary>
+    public void Report(GatewayError error, int occurrences)
     {
         ArgumentNullException.ThrowIfNull(error);
+        if (occurrences < 1) throw new ArgumentOutOfRangeException(nameof(occurrences), "an error happens at least once");
         var clean = error with
         {
             Source = ErrorTextScrubber.Clean(error.Source, ErrorReportLimits.MaxShortField),
@@ -235,7 +240,7 @@ internal sealed class GatewayErrorSink : IDisposable
         {
             if (_bySignature.TryGetValue(signature, out var node))
             {
-                node.Value.Count++;
+                node.Value.Count += occurrences;
                 node.Value.LastSeenUtc = now;
                 return;
             }
@@ -255,6 +260,7 @@ internal sealed class GatewayErrorSink : IDisposable
                     Error = clean,
                     FirstSeenUtc = now,
                     LastSeenUtc = now,
+                    Count = occurrences,
                 });
             }
         }

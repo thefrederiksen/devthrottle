@@ -743,6 +743,33 @@ help[5]:
   ...
 ```
 
+**The Gateway's own failures, and every account's scheduled runs (issue #4403).** The Gateway
+reports its own failures that belong to one account into the same store, as component `gateway`,
+under that account: a scheduled run that failed (source `schedule`, with the reason the run record
+carries), a session key or device credential it refused whose account it knows (source
+`credential`: revoked, expired, or a session key on a route it may not call), and a session key a
+Director asked to register and it refused (source `session-key-registration`). A key nobody holds
+names no account and is not reported. The same refusal is stored at most once every ten minutes,
+with the repeats held back counted on the next row. Read them with
+`errors list --email <address> --component gateway`.
+
+`schedule admin-runs` reads every account's scheduled runs on the administrator token - the
+schedule, machine, when it fired, how it ended and the reason recorded - newest first. It takes
+`--account` or `--email`, `--job`, `--since` and `--until` (on the fire time, default the last 7
+days), `--failed` (a problem, or a start whose outcome was never known), `--limit`, `--fields`,
+`--full`, `--json` and `--gateway`.
+
+```
+$ cc-secrets run admin-service-token -- cc-devthrottle schedule admin-runs --email someone@example.com --failed
+scope: account 11111111-1111-1111-1111-111111111111, failed runs, fired 2026-10-16T18:00:00Z to 2026-10-23T18:00:00Z
+count: 1
+runs[1]{fired,account,name,machine,result,problem,reason}:
+  2026-10-23T17:58:02Z,11111111-1111-1111-1111-111111111111,Morning report,workstation-a,problem,did-not-run,"it did not start a session: ..."
+help[3]:
+  cc-devthrottle schedule admin-runs --json
+  cc-devthrottle errors list --email someone@example.com --component gateway --since 7d
+```
+
 `cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,
 with the full command on each row; `--json` is unchanged.
 
