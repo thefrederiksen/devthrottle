@@ -518,19 +518,28 @@ public sealed class SessionTurnStore
     public int PurgeOlderThan(DateTime cutoffUtc)
     {
         var cutoff = Utc(cutoffUtc);
+        // The expired sessions, found on the head's own index.
+        List<string> expired;
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            using var tx = ctx.Database.BeginTransaction();
-            // The expired sessions, found on the head's own index. Their heads go first, and conditionally on the
-            // timestamp that makes them expired: a push that refreshed a head between our read and our delete
-            // keeps its head, and therefore keeps its turns below.
-            var expired = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).Select(h => h.SessionId).ToList();
-            var heads = 0;
-            var turns = 0;
-            // Lists, not arrays: inside a query an array's Contains binds to the span overload, which the query cannot run.
-            foreach (var chunk in expired.Chunk(PurgeChunk).Select(c => c.ToList()))
+            expired = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).Select(h => h.SessionId).ToList();
+        }
+
+        var heads = 0;
+        var turns = 0;
+        // One transaction, and one hold of the lock, per chunk: a session's head and its rows always go together,
+        // and a sweep that expires thousands of sessions at once lets every reader and push in between chunks rather
+        // than making them wait for all of it. Lists, not arrays: inside a query an array's Contains binds to the
+        // span overload, which the query cannot run.
+        foreach (var chunk in expired.Chunk(PurgeChunk).Select(c => c.ToList()))
+        {
+            lock (_gate)
             {
+                using var ctx = _db.CreateContext();
+                using var tx = ctx.Database.BeginTransaction();
+                // Heads first, and conditionally on the timestamp that makes them expired: a push that refreshed a
+                // head between our read and our delete keeps its head, and therefore keeps its turns below.
                 heads += ctx.SessionTurnHeads.Where(h => chunk.Contains(h.SessionId) && h.UpdatedAtUtc < cutoff).ExecuteDelete();
                 // Turns of those sessions that now have NO head at all - whole sessions, never a prefix.
                 //
@@ -543,17 +552,22 @@ public sealed class SessionTurnStore
                 turns += ctx.SessionTurns
                     .Where(t => chunk.Contains(t.SessionId) && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId))
                     .ExecuteDelete();
+                tx.Commit();
             }
-            // Then the aged rows of generations a live session has left; the current generation is never touched here.
+        }
+
+        // Then the aged rows of generations a live session has left; the current generation is never touched here.
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
             turns += ctx.SessionTurns
                 .Where(t => t.ReceivedAtUtc < cutoff
                             && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId && h.Generation == t.Generation))
                 .ExecuteDelete();
-            tx.Commit();
-            if (turns + heads > 0)
-                FileLog.Write($"[SessionTurnStore] PurgeOlderThan: removed {heads} session(s) and {turns} turn row(s) older than {cutoff:O}");
-            return turns + heads;
         }
+        if (turns + heads > 0)
+            FileLog.Write($"[SessionTurnStore] PurgeOlderThan: removed {heads} session(s) and {turns} turn row(s) older than {cutoff:O}");
+        return turns + heads;
     }
 
     /// <summary>Refuse a batch that disagrees with itself before anything is written. A malformed push is a
