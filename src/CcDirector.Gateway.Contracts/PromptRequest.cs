@@ -341,6 +341,20 @@ public sealed class TerminalInputRequest
     public SubmissionProvenanceDto? Provenance { get; set; }
 }
 
+/// <summary>
+/// What became of input sent to a session (issue #4380): every input route answers, never silence. The success body of
+/// the terminal-input, enter, escape, interrupt and history-picker verbs; a REFUSED input is the verb's Conflict, whose
+/// error is the reason.
+/// </summary>
+public sealed class InputAnswerResponse
+{
+    /// <summary>"written" - it reached the terminal; "held" - it is kept and written after the send in front of it.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>Why it was held; null when it was written.</summary>
+    public string? Reason { get; set; }
+}
+
 /// <summary>Body of the git stage/unstage/discard endpoints. Empty paths means "all" (stage/unstage only).</summary>
 public sealed class GitPathsRequest
 {

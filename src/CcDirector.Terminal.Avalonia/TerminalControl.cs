@@ -2372,7 +2372,9 @@ public class TerminalControl : Control
 
         try
         {
-            await PaceChunksAsync(text, bytes => session.SendInput(bytes, null, DesktopTerminalDoor)).ConfigureAwait(false);
+            // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
+            // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
+            await PaceChunksAsync(text, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
         }
         catch (Exception ex)

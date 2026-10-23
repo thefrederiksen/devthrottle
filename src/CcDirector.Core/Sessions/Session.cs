@@ -3245,7 +3245,7 @@ public sealed class Session : IDisposable
     /// </summary>
     private void WriteRawInput(byte[] data, InputOrigin? origin)
     {
-        if (origin is not { Modality: InputModality.Typed, Surface: InputSurface.Desktop })
+        if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin))
         {
             _backend.Write(data);
             return;
@@ -3313,40 +3313,26 @@ public sealed class Session : IDisposable
     /// Reset at each submission. See <see cref="StampSubmission"/>.</summary>
     private int _pendingOriginChars;
 
-    public void SendInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
-        => SendInputCore(data, origin, provenance, refuseWhileSending: false);
-
-    /// <summary>
-    /// One keystroke pressed from outside - an agent's Enter (the owner's ruling, 21 October 2026) - written exactly as
-    /// <see cref="SendInput"/> writes it, unless a send is being typed into the session (<see cref="SendInProgress"/>):
-    /// then nothing is written or held, and it answers false. Decided under the input lock, where a guarded send takes
-    /// the input, so a keystroke is never held while its sender is told it was pressed.
-    /// </summary>
-    internal bool SendKeystrokeUnlessSending(byte[] data, SubmissionProvenance provenance)
-        => SendInputCore(data, origin: null, provenance, refuseWhileSending: true);
-
-    private bool SendInputCore(byte[] data, InputOrigin? origin, SubmissionProvenance provenance, bool refuseWhileSending)
+    /// <returns>Written; held, while a guarded send holds the input, to be written after it in order; or refused, with
+    /// the reason, when the session has ended or the usage-limit guard dropped it (issue #4380: every input route
+    /// answers).</returns>
+    public InputAnswer SendInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return false;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("SendInput");
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
+        bool submits;
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
         // Under the input lock, and counted as input. While a guarded send holds the input, the keystroke is held and
         // written after that send, in order; otherwise it is written now and is in flight until its meaning is applied.
-        bool submits;
         lock (_inputLock)
         {
-            if (refuseWhileSending && (_guardedSection is not null || _submitGate.CurrentCount == 0))
-            {
-                FileLog.Write($"[Session] SendInput: session={Id}: a send is being typed into this session; the keystroke is " +
-                              "refused, not held");
-                return false;
-            }
             if (_guardedSection is not null)
             {
                 _heldKeystrokes.Add(new HeldKeystrokes(data.ToArray(), origin, provenance));
                 FileLog.Write($"[Session] SendInput: session={Id}: a guarded send holds the input; keystroke held until it finishes " +
                               $"({_heldKeystrokes.Count} held)");
-                return true;
+                return InputAnswer.Held(HeldWhileSending);
             }
             _inputGeneration++;
             _inputInFlight++;
@@ -3362,7 +3348,70 @@ public sealed class Session : IDisposable
         }
         try { AfterRawInput(data, origin, provenance, submits); }
         finally { EndInput(); }
-        return true;
+        if (refusals.Refused)
+            return InputAnswer.Refused(UsageLimitInputGuard.RefusedReason);
+        return InputAnswer.Written;
+    }
+
+    /// <summary>The reason a held keystroke carries.</summary>
+    internal const string HeldWhileSending =
+        "a send is being typed into the session; the keystroke is written after it, in the order it was pressed";
+
+    /// <summary>
+    /// One keystroke pressed from outside - the phone's Enter (the owner's ruling, 21 October 2026) - written as
+    /// <see cref="SendInput"/> writes it. While a send is being typed into the session it is HELD and pressed after that
+    /// send, in order, exactly as the desktop's keys are held - never refused (the owner's decision 8, 23 October 2026:
+    /// no gate a person at the terminal does not have) and never written inside the send, where an Enter would submit
+    /// half of it. Decided under the input lock, where a send takes the input, so a keystroke is never written inside a
+    /// send that started a moment before.
+    /// </summary>
+    internal InputAnswer PressKeyAfterAnySend(byte[] data, SubmissionProvenance provenance)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("PressKeyAfterAnySend");
+        lock (_inputLock)
+        {
+            if (_guardedSection is null && _submitGate.CurrentCount == 0)
+            {
+                _keysAfterSend.Add(new HeldKeystrokes(data.ToArray(), null, provenance));
+                FileLog.Write($"[Session] PressKeyAfterAnySend: session={Id}: a send is being typed; the keystroke is held and " +
+                              $"pressed when it ends ({_keysAfterSend.Count} held)");
+                return InputAnswer.Held(HeldWhileSending);
+            }
+        }
+        return SendInput(data, origin: null, provenance);
+    }
+
+    /// <summary>Keystrokes pressed from outside while an ordinary send held the one-at-a-time gate, pressed when it ends.
+    /// Read and written under the input lock.</summary>
+    private readonly List<HeldKeystrokes> _keysAfterSend = new();
+
+    /// <summary>
+    /// End an ordinary send: press the keys held for it (<see cref="PressKeyAfterAnySend"/>), in order, while the gate is
+    /// still held so no other send can start between them, then release the gate. The last check for held keys and the
+    /// release happen under the input lock together, so a key held a moment before the release is never left behind.
+    /// </summary>
+    private void EndSendAndPressHeldKeys()
+    {
+        while (true)
+        {
+            List<HeldKeystrokes> pending;
+            lock (_inputLock)
+            {
+                if (_keysAfterSend.Count == 0)
+                {
+                    _submitGate.Release();
+                    return;
+                }
+                pending = new List<HeldKeystrokes>(_keysAfterSend);
+                _keysAfterSend.Clear();
+            }
+            foreach (var held in pending)
+            {
+                var answer = SendInput(held.Data, held.Origin, held.Provenance);
+                FileLog.Write($"[Session] EndSendAndPressHeldKeys: session={Id}: a key held during the send, {held.Data.Length} byte(s): {answer}");
+            }
+        }
     }
 
     /// <summary>
@@ -4597,6 +4646,9 @@ public sealed class Session : IDisposable
         // ruling 15). A send that fails puts the previous value back.
         var priorOrigin = WorkingOrigin;
         WorkingOrigin = OriginFor(source, origin);
+        // THE OWNER'S OPEN QUESTION, AS ONE SWITCH (mission 11.6): whether a prompt from the phone or the Cockpit goes
+        // through Claude Code's usage-limit dialog as a person at the terminal does. Off until the owner answers.
+        using var remotePerson = UsageLimitInputGuard.PromptPassesTheDialog(origin) ? UsageLimitInputGuard.PersonAtTheTerminal() : null;
         try
         {
             if (BackendType is SessionBackendType.ConPty)
@@ -4672,7 +4724,7 @@ public sealed class Session : IDisposable
                 }
                 finally
                 {
-                    _submitGate.Release();
+                    EndSendAndPressHeldKeys();
                 }
             }
             else

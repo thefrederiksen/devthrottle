@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
@@ -67,29 +68,31 @@ public sealed class EnterCommandTests
         Assert.Empty(terminal.Submitted);
     }
 
+    /// <summary>
+    /// An Enter pressed while a prompt is being typed would submit half of it, so it is never written inside the send.
+    /// The owner's decision 8 (23 October 2026): no gate a person at the terminal does not have - so it is not refused
+    /// either. It is HELD and pressed after the send, as the desktop's keys are held, and the answer says held. Until
+    /// then it was refused with "a prompt is being sent to that session right now".
+    /// </summary>
     [Fact]
-    public async Task EnterCore_WhileAnotherSendIsBeingTyped_RefusesAndPressesNothingInsideIt()
+    public async Task EnterCore_WhileAnotherSendIsBeingTyped_IsHeldAndNotWrittenInsideIt()
     {
-        // An Enter pressed while a prompt is being typed would submit half of it. Pressed from inside the send's own
-        // first write - the moment the send holds the session - it is refused, and the send still goes once, whole.
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
         DirectorCommandResult? during = null;
-        var pressed = false;
-        terminal.OnWrite = _ =>
-        {
-            if (pressed) return;
-            pressed = true;
-            during = SessionCommandExecutor.EnterCore(session);
-        };
+        terminal.OnWrite = _ => during ??= SessionCommandExecutor.EnterCore(session);
 
         var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "carry on", AppendEnter = true });
 
         Assert.True(sent.Ok, sent.Error);
         Assert.NotNull(during);
-        Assert.False(during!.Ok);
-        Assert.Equal(DirectorCommandStatus.Conflict, during.Status);
-        Assert.Equal(SessionCommandExecutor.EnterRefusedWhileSending, during.Error);
-        Assert.Equal(new[] { "carry on" }, terminal.Submitted);
+        Assert.True(during!.Ok, during.Error);
+        var answer = JsonSerializer.Deserialize<InputAnswerResponse>(during.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("held", answer!.Outcome);
+        // Nothing was written inside the send: when the verb answered, the terminal had the send's text and its own Enter
+        // only. The verb answers within its budget while the send's check runs on; that the held Enter is pressed when
+        // the send ends is proven on the Session, on a fake clock (HeldKeyAfterSendTests).
+        Assert.Equal("carry on", terminal.Submitted[0]);
+        Assert.Equal(new[] { "carry on", "\r" }, terminal.Writes.Take(2));
     }
 
     [Fact]

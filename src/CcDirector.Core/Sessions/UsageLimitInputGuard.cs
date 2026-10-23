@@ -14,12 +14,15 @@ namespace CcDirector.Core.Sessions;
 /// and every driver it hands its backend to - is behind it, and a writer added later is behind it too without anyone
 /// remembering to check.
 ///
-/// The one exception is a PERSON at the terminal: keystrokes typed into the terminal itself (the session's raw input
-/// with a typed origin), inside <see cref="PersonAtTheTerminal"/>. That person can see the dialog and choose.
+/// The one exception is a PERSON at the terminal: keystrokes typed or pasted into the desktop terminal itself (the
+/// session's raw input with the desktop's typed origin, <see cref="IsAPersonAtTheTerminal"/>), inside
+/// <see cref="PersonAtTheTerminal"/>. That person can see the dialog and choose. Until issue #4380 a desktop PASTE went
+/// with no origin at all, so it was not counted as the person it is and was dropped.
 ///
 /// A refused write is DROPPED and logged, never thrown: writers run on timer threads where an escaped exception ends
-/// the process. A sender that must not mistake a drop for success - the prompt from the Gateway, which answers the
-/// phone or the Cockpit - opens <see cref="WatchRefusals"/> around its send and answers a refusal when it fired.
+/// the process. Every sender that answers someone opens <see cref="WatchRefusals"/> around its send and answers refused
+/// when it fired (issue #4380: every input route answers - the session's raw input, the terminal socket, the driver keys,
+/// the phone's Enter and the prompt).
 /// </summary>
 internal sealed class UsageLimitInputGuard : ISessionBackend
 {
@@ -37,6 +40,31 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
     }
 
     public ISessionBackend Inner { get; }
+
+    /// <summary>
+    /// THE OWNER'S OPEN QUESTION, AS ONE SWITCH (Terminal Parity mission, section 11.6): should a prompt from the phone or
+    /// the Cockpit go through the usage-limit dialog, as a person at the desktop terminal's does? The Architect
+    /// recommended yes - it is the owner either way. Until the owner answers it stays false, which is the behaviour before
+    /// issue #4380: only the desktop terminal's own keys and pastes pass.
+    /// </summary>
+    internal static readonly bool PhoneAndCockpitPromptsPassTheDialog = false;
+
+    /// <summary>What a sender is told when this guard dropped its input.</summary>
+    internal const string RefusedReason =
+        "the session is showing Claude Code's usage-limit dialog, and only Escape reaches it - Enter there confirms a " +
+        "highlighted option, one of which turns on paid extra usage. Close it with Escape, then send again";
+
+    /// <summary>
+    /// A person at the terminal: input typed - or pasted - into the desktop terminal itself, which can see the dialog.
+    /// Its keys pass the dialog (<see cref="PersonAtTheTerminal"/>).
+    /// </summary>
+    internal static bool IsAPersonAtTheTerminal(InputOrigin? origin) =>
+        origin is { Modality: InputModality.Typed, Surface: InputSurface.Desktop };
+
+    /// <summary>Whether a prompt from <paramref name="origin"/> passes the dialog: one from the phone or the Cockpit, and
+    /// only while <see cref="PhoneAndCockpitPromptsPassTheDialog"/> is on.</summary>
+    internal static bool PromptPassesTheDialog(InputOrigin? origin) =>
+        PhoneAndCockpitPromptsPassTheDialog && origin is { Surface: InputSurface.Phone or InputSurface.Cockpit };
 
     /// <summary>Marks the writes inside the scope as a person's own keystrokes at the terminal.</summary>
     public static IDisposable PersonAtTheTerminal()

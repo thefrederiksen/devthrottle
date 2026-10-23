@@ -65,6 +65,13 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public long BytesWritten { get { lock (_lock) return _bytesWritten; } }
     private long _bytesWritten;
 
+    /// <summary>Every write, in order.</summary>
+    public List<byte[]> Writes { get; } = new();
+
+    /// <summary>Runs after each write is taken in, outside the terminal's lock: a test can press a key from outside at
+    /// exactly that moment.</summary>
+    public Action<byte[]>? OnWrite { get; set; }
+
     /// <summary>Text handed to <see cref="SendTextAsync"/> - the one-call submit a driver used to type its commands with.</summary>
     public List<string> SentTexts { get; } = new();
 
@@ -197,9 +204,16 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public void Write(byte[] data)
     {
         var text = Encoding.UTF8.GetString(data);
+        try { WriteLocked(data, text); }
+        finally { OnWrite?.Invoke(data); }
+    }
+
+    private void WriteLocked(byte[] data, string text)
+    {
         lock (_lock)
         {
             _bytesWritten += data.Length;
+            Writes.Add(data.ToArray());
             if (_unread is not null) { text = _unread + text; _unread = null; }
             for (var i = 0; i < text.Length; i++)
             {

@@ -546,6 +546,48 @@ public sealed class UsageLimitDialogTests
         Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
     }
 
+    /// <summary>Issue #4380: input the guard drops is answered refused, with the reason - never dropped in silence.</summary>
+    [Fact]
+    public void SendInput_AutomaticInputWhileTheDialogShows_AnswersRefusedWithTheReason()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, null, SessionTestDoors.TestDoor);
+
+        Assert.Equal(InputAnswerKind.Refused, answer.Kind);
+        Assert.Equal(UsageLimitInputGuard.RefusedReason, answer.Reason);
+        Assert.Empty(backend.Writes);
+    }
+
+    [Fact]
+    public void SendInput_PersonAtTheTerminalWhileTheDialogShows_AnswersWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, InputOrigin.DesktopTyped, SessionTestDoors.TestDoor);
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Single(backend.Writes);
+    }
+
+    /// <summary>
+    /// The owner's open question (Terminal Parity mission, 11.6), kept as one switch: until the owner answers, a phone or
+    /// Cockpit prompt does not pass the dialog - the behaviour before issue #4380. Answering it is this one value.
+    /// </summary>
+    [Fact]
+    public void PhoneAndCockpitPrompts_DoNotPassTheDialog_UntilTheOwnerAnswers()
+    {
+        Assert.False(UsageLimitInputGuard.PhoneAndCockpitPromptsPassTheDialog);
+        Assert.False(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Typed(InputSurface.Phone)));
+        Assert.False(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Voice(InputSurface.Cockpit)));
+        Assert.True(UsageLimitInputGuard.IsAPersonAtTheTerminal(InputOrigin.DesktopTyped));
+        Assert.False(UsageLimitInputGuard.IsAPersonAtTheTerminal(null));
+    }
+
     [Fact]
     public void Session_DialogGoneAndBack_EscapesItAgain()
     {
