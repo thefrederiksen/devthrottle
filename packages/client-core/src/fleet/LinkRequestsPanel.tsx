@@ -14,8 +14,9 @@ import "./linkRequests.css";
 // the answer in its inbox exactly as it would from either of them.
 //
 // THE CARD DECIDES NOTHING. The Gateway names both sessions (requesterLabel, targetLabel - number and name, never an
-// id), keeps the reason in the asking session's own words, and says what was asked for. The only words of this file's
-// own are the button labels, the line that joins the two names, and the line that says a read failed.
+// id), keeps the reason in the asking session's own words, says what was asked for, and after an answer says what it
+// did (note). The only words of this file's own are the button labels, the line that joins the two names, and the line
+// that says a read failed.
 
 const SURFACE = "link-requests";
 const READ = "load the requests for a message link";
@@ -29,6 +30,10 @@ type Answer = { approve: true } | { decline: true };
 interface LinkRequestsValue {
   /** The requests still waiting for the owner. */
   pending: MessageLinkRequest[];
+  /** The ids the Gateway lists as answered or ended - positive evidence that a request no longer waits. */
+  answeredIds: ReadonlySet<string>;
+  /** The Gateway's sentence for each request answered from this screen. */
+  notes: Readonly<Record<string, string>>;
   /** The waiting ones, and the ones answered from this screen (so their outcome stays in view until put away). */
   shown: MessageLinkRequest[];
   answer: (request: MessageLinkRequest, choice: Answer) => Promise<void>;
@@ -43,6 +48,8 @@ interface LinkRequestsValue {
 
 const NONE: LinkRequestsValue = {
   pending: [],
+  answeredIds: new Set(),
+  notes: {},
   shown: [],
   answer: async () => {},
   dismiss: () => {},
@@ -60,12 +67,17 @@ export function LinkRequestsPanelProvider({ children }: { children: ReactNode })
   const [answeredHere, setAnsweredHere] = useState<ReadonlySet<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [listError, setListError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const list = await listMessageLinkRequests(signal);
+      // The Gateway names both sessions on every row. A row without them is a broken contract, said out loud rather
+      // than papered over with words of our own.
+      const unnamed = list.find((r) => !r.requesterLabel || !r.targetLabel);
+      if (unnamed) throw new Error(`The Gateway listed request ${unnamed.requestId} without naming its sessions.`);
       setRequests(list);
       setListError(null);
       setLoaded(true);
@@ -94,14 +106,8 @@ export function LinkRequestsPanelProvider({ children }: { children: ReactNode })
       setAnsweredHere((s) => new Set(s).add(request.requestId));
       try {
         const result = await answerMessageLinkRequest(request.requestId, choice);
-        // The answer carries no labels (only the list does), so the card keeps the ones it already shows.
-        setRequests((rs) =>
-          rs.map((r) =>
-            r.requestId === request.requestId
-              ? { ...result.request, requesterLabel: r.requesterLabel, targetLabel: r.targetLabel }
-              : r,
-          ),
-        );
+        setRequests((rs) => rs.map((r) => (r.requestId === request.requestId ? result.request : r)));
+        setNotes((n) => ({ ...n, [request.requestId]: result.note }));
       } catch (err) {
         // The Gateway's own sentence - "This request was already allowed. Nothing changed." - verbatim.
         setErrors((e) => ({ ...e, [request.requestId]: describeAndReport(SURFACE, ANSWER, err) }));
@@ -122,14 +128,18 @@ export function LinkRequestsPanelProvider({ children }: { children: ReactNode })
   }, []);
 
   const pending = useMemo(() => requests.filter((r) => r.status === "pending"), [requests]);
+  const answeredIds = useMemo(
+    () => new Set(requests.filter((r) => r.status !== "pending").map((r) => r.requestId)),
+    [requests],
+  );
   const shown = useMemo(
     () => requests.filter((r) => r.status === "pending" || answeredHere.has(r.requestId)),
     [requests, answeredHere],
   );
 
   const value = useMemo<LinkRequestsValue>(
-    () => ({ pending, shown, answer, dismiss, busyId, errors, listError, loaded }),
-    [pending, shown, answer, dismiss, busyId, errors, listError, loaded],
+    () => ({ pending, answeredIds, notes, shown, answer, dismiss, busyId, errors, listError, loaded }),
+    [pending, answeredIds, notes, shown, answer, dismiss, busyId, errors, listError, loaded],
   );
   return <LinkRequestsContext.Provider value={value}>{children}</LinkRequestsContext.Provider>;
 }
@@ -166,21 +176,15 @@ export function LinkRequestsPanel({ emptyText }: LinkRequestsPanelProps) {
   );
 }
 
-/** What became of a request answered from this screen, in a word. */
-function outcomeWords(status: string): string {
-  if (status === "allowed") return "Approved. The session has been told in its inbox.";
-  if (status === "declined") return "Refused. The session has been told in its inbox.";
-  return "This request ended because one of the sessions ended.";
-}
-
-/** One request: who asks, to whom, why, and how much. Approve and Refuse while it waits. */
+/** One request: who asks, to whom, why, and how much. Approve and Deny while it waits. */
 export function LinkRequestCard({ request: r }: { request: MessageLinkRequest }) {
   const ctx = useLinkRequests();
   const busy = ctx.busyId === r.requestId;
   const error = ctx.errors[r.requestId];
   const waiting = r.status === "pending";
-  const from = r.requesterLabel ?? "A session";
-  const to = r.targetLabel ?? "another session";
+  const note = ctx.notes[r.requestId];
+  const from = r.requesterLabel;
+  const to = r.targetLabel;
   return (
     <article
       className={`link-request ${waiting ? "link-request-waiting" : "link-request-closed"}`}
@@ -196,11 +200,11 @@ export function LinkRequestCard({ request: r }: { request: MessageLinkRequest })
       </p>
       <p className="link-request-line link-request-reason">"{r.reason}"</p>
       <p className="link-request-line link-request-dim">Asks for: {requestedAmountWords(r)}</p>
-      {!waiting && (
+      {!waiting && note ? (
         <p className="link-request-line link-request-status" role="status">
-          {outcomeWords(r.status)}
+          {note}
         </p>
-      )}
+      ) : null}
       {error ? (
         <p className="link-request-error" role="alert">
           {/* error-reported-by: LinkRequestsPanelProvider */}
@@ -218,7 +222,7 @@ export function LinkRequestCard({ request: r }: { request: MessageLinkRequest })
             Approve
           </button>
           <button type="button" className="link-request-btn" disabled={busy} onClick={() => void ctx.answer(r, { decline: true })}>
-            Refuse
+            Deny
           </button>
         </div>
       ) : (

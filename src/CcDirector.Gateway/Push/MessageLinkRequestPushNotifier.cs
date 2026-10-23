@@ -9,7 +9,7 @@ namespace CcDirector.Gateway.Push;
 /// <summary>
 /// THE MESSAGE LINK REQUEST PUSH (issue #4373). When a session asks the owner to let it message a session it may not
 /// reach on its own (<c>cc-devthrottle message request</c>), every phone the account subscribed gets one notification,
-/// and tapping it opens the card where the owner approves or refuses. It rides the same Web Push transport
+/// and tapping it opens the card where the owner approves or denies. It rides the same Web Push transport
 /// (<see cref="IWebPushSender"/>) and the same subscription store as the secret handoff push, so a phone that gets one
 /// gets the other.
 ///
@@ -46,8 +46,8 @@ public sealed class MessageLinkRequestPushNotifier : IDisposable
     /// not known.</summary>
     public static string Body(int? requesterNumber, int? targetNumber)
         => requesterNumber is { } from && targetNumber is { } to
-            ? $"Session {from} asks to message session {to}. Approve or refuse?"
-            : "A session asks to message another session. Approve or refuse?";
+            ? $"Session {from} asks to message session {to}. Approve or deny?"
+            : "A session asks to message another session. Approve or deny?";
 
     /// <summary>The whole push message for one new request, as the service worker reads it.</summary>
     public static string BuildPayload(string requestId, int? requesterNumber, int? targetNumber)

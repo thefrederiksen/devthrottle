@@ -77,8 +77,8 @@ export interface MessageLinkRequest {
   requestId: string;
   requesterSessionId: string;
   targetSessionId: string;
-  /** The asking session as the owner reads it - number and name, never an id - written by the Gateway, on the list
-   *  only (issue #4373). */
+  /** The asking session as the owner reads it - number and name, never an id - written by the Gateway on the list and
+   *  on an answer (issue #4373). */
   requesterLabel?: string | null;
   /** The asked-for session, the same way. */
   targetLabel?: string | null;
@@ -119,12 +119,12 @@ export function requestedAmountWords(request: Pick<MessageLinkRequest, "requeste
 export async function answerMessageLinkRequest(
   requestId: string,
   answer: { approve: true } | { amount: MessageLinkAmount } | { decline: true },
-): Promise<{ request: MessageLinkRequest; link?: MessageLink | null }> {
+): Promise<{ request: MessageLinkRequest; link?: MessageLink | null; note: string }> {
   const res = await gatewayFetch(`/fleet/link-requests/${encodeURIComponent(requestId)}/answer`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(answer),
   });
   if (!res.ok) throw await GatewayError.from(res, "answer the request for a message link");
-  return (await res.json()) as { request: MessageLinkRequest; link?: MessageLink | null };
+  return (await res.json()) as { request: MessageLinkRequest; link?: MessageLink | null; note: string };
 }

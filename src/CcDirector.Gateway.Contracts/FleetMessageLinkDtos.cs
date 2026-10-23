@@ -100,8 +100,8 @@ public sealed class FleetMessageLinkRequestDto
     public string? TargetSessionName { get; set; }
 
     /// <summary>
-    /// The asking session as the owner reads it - its number and its name, never its id - on the LIST only (issue
-    /// #4373). Written by the Gateway so the phone renders it verbatim. Null on every other answer.
+    /// The asking session as the owner reads it - its number and its name, never its id - on the list and on the answer
+    /// (issue #4373). Written by the Gateway so the phone renders it verbatim. Null on the asking session's own answer.
     /// </summary>
     public string? RequesterLabel { get; set; }
 
@@ -175,4 +175,8 @@ public sealed class FleetMessageLinkRequestAnswerResponse
 
     /// <summary>The link the answer set up, when it allowed the request.</summary>
     public FleetMessageLinkDto? Link { get; set; }
+
+    /// <summary>What the answer did, in one sentence the owner reads (issue #4373): who may now message whom, and whether
+    /// the asking session was told. The phone shows it verbatim.</summary>
+    public string Note { get; set; } = "";
 }

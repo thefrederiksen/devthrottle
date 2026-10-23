@@ -41,7 +41,7 @@ public sealed class MessageLinkRequestPushNotifierTests : IDisposable
     {
         var payload = JsonDocument.Parse(MessageLinkRequestPushNotifier.BuildPayload("req-1", 121, 125)).RootElement;
 
-        Assert.Equal("Session 121 asks to message session 125. Approve or refuse?", payload.GetProperty("body").GetString());
+        Assert.Equal("Session 121 asks to message session 125. Approve or deny?", payload.GetProperty("body").GetString());
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class MessageLinkRequestPushNotifierTests : IDisposable
     {
         var payload = JsonDocument.Parse(MessageLinkRequestPushNotifier.BuildPayload("req-1", 121, null)).RootElement;
 
-        Assert.Equal("A session asks to message another session. Approve or refuse?", payload.GetProperty("body").GetString());
+        Assert.Equal("A session asks to message another session. Approve or deny?", payload.GetProperty("body").GetString());
     }
 
     [Fact]
@@ -108,6 +108,38 @@ public sealed class MessageLinkRequestPushNotifierTests : IDisposable
         await notifier.NotifyRequestedAsync("req-1", 121, 125, CancellationToken.None);
 
         Assert.Equal(new[] { "https://push.example/live" }, sender.Sent.Select(s => s.endpoint).ToArray());
+    }
+
+    [Fact]
+    public async Task NotifyRequestedAsync_ReachesOnlyTheAskingAccountsPhones()
+    {
+        var tenants = new AsyncLocalTenantContext();
+        var accountA = new TenantId("acct-a");
+        var accountB = new TenantId("acct-b");
+        PushSubscriptionStore store;
+        using (tenants.Enter(accountA))
+        {
+            store = new PushSubscriptionStore(_h.Open(tenants), _h.LegacyPath("push-" + Guid.NewGuid().ToString("N") + ".json"));
+            store.Add("https://push.example/phone-a", "p", "a");
+        }
+        using (tenants.Enter(accountB))
+            store.Add("https://push.example/phone-b", "p", "a");
+        var sender = new FakeSender();
+        var notifier = new MessageLinkRequestPushNotifier(store, sender);
+
+        using (tenants.Enter(accountA))
+            await notifier.NotifyRequestedAsync("req-1", 121, 125, CancellationToken.None);
+
+        Assert.Equal(new[] { "https://push.example/phone-a" }, sender.Sent.Select(s => s.endpoint).ToArray());
+    }
+
+    [Fact]
+    public void AnswerNotes_SayWhatTheAnswerDid_InTheGatewaysWords()
+    {
+        Assert.Equal("Approved. 121 Manager may now message 125 Release, and has been told in its inbox.",
+            FleetMessageLinkRequestEndpoints.ApprovedNote("121 Manager", "125 Release"));
+        Assert.Equal("Denied. 121 Manager has been told in its inbox.", FleetMessageLinkRequestEndpoints.DeniedNote("121 Manager", told: true));
+        Assert.Equal("Denied. 121 Manager has ended, so nobody was told.", FleetMessageLinkRequestEndpoints.DeniedNote("121 Manager", told: false));
     }
 
     [Theory]

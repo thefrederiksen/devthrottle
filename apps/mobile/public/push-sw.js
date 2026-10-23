@@ -32,7 +32,7 @@ var LICENSE_ALARM_KIND = 'license-alarm';
 // A session asking to message another it may not reach (issue #4373). The same shape again: the Gateway wrote the
 // title, the body (the two session numbers, never the reason or a name), the per-request tag and the page to open - the
 // phone's Message requests card. It buzzes, and it never touches the "needs you" dot. The app closes it by its tag once
-// the request has been answered anywhere.
+// the Gateway lists the request as answered anywhere.
 var LINK_REQUEST_KIND = 'link-request';
 
 function showGatewayNotification(payload) {

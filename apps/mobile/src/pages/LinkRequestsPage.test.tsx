@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 // The page a message link request's push opens (issue #4373): the shared card names both sessions in the Gateway's
-// words, Approve and Refuse go through the same Gateway call as the Director and the Cockpit, a request answered
-// elsewhere leaves the screen, and its notification is closed.
+// words, Approve and Deny go through the same Gateway call as the Director and the Cockpit, the Gateway's sentence says
+// what the answer did, a request answered elsewhere leaves the screen on the next read, and its notification is closed
+// only once the Gateway lists it as answered.
 
 const { listMessageLinkRequests, answerMessageLinkRequest } = vi.hoisted(() => ({
   listMessageLinkRequests: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("@devthrottle/client-core/fleet/messageLinksClient", async () => {
 
 import { LinkRequests } from "./LinkRequests";
 import { closeAnsweredNotifications } from "../components/LinkRequestNotifications";
+import { LINK_REQUESTS_PANEL_POLL_MS } from "@devthrottle/client-core/fleet/LinkRequestsPanel";
 
 const REQUEST = {
   requestId: "req-1",
@@ -32,6 +34,9 @@ const REQUEST = {
   askedAtUtc: "2026-10-23T10:00:00Z",
 };
 
+const APPROVED_NOTE = "Approved. 121 Fix the Release - Manager may now message 125 Release - Release Manager, and has been told in its inbox.";
+const DENIED_NOTE = "Denied. 121 Fix the Release - Manager has been told in its inbox.";
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -43,9 +48,12 @@ function renderPage() {
 describe("phone message requests page", () => {
   beforeEach(() => {
     listMessageLinkRequests.mockReset().mockResolvedValue([REQUEST]);
-    answerMessageLinkRequest.mockReset().mockResolvedValue({ request: { ...REQUEST, status: "allowed" }, link: null });
+    answerMessageLinkRequest.mockReset();
   });
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it("LinkRequests_Card_NamesBothSessionsByNumberAndName_NeverTheId", async () => {
     renderPage();
@@ -58,28 +66,44 @@ describe("phone message requests page", () => {
     expect(card.textContent).not.toContain("bbbbbbbb");
   });
 
-  it("LinkRequests_Approve_AnswersThroughTheSameGatewayCall", async () => {
-    // The Gateway lists the request as allowed once it has been answered.
-    listMessageLinkRequests.mockResolvedValueOnce([REQUEST]).mockResolvedValue([{ ...REQUEST, status: "allowed" }]);
+  it("LinkRequests_Approve_AnswersThroughTheSameGatewayCall_AndShowsTheGatewaysSentence", async () => {
+    const allowed = { ...REQUEST, status: "allowed" };
+    answerMessageLinkRequest.mockResolvedValue({ request: allowed, link: null, note: APPROVED_NOTE });
+    listMessageLinkRequests.mockResolvedValueOnce([REQUEST]).mockResolvedValue([allowed]);
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
     await waitFor(() => expect(answerMessageLinkRequest).toHaveBeenCalledWith("req-1", { approve: true }));
-    expect(await screen.findByText("Approved. The session has been told in its inbox.")).toBeTruthy();
+    expect(await screen.findByText(APPROVED_NOTE)).toBeTruthy();
   });
 
-  it("LinkRequests_Refuse_DeclinesThroughTheSameGatewayCall", async () => {
-    answerMessageLinkRequest.mockResolvedValue({ request: { ...REQUEST, status: "declined" }, link: null });
-    listMessageLinkRequests.mockResolvedValueOnce([REQUEST]).mockResolvedValue([{ ...REQUEST, status: "declined" }]);
+  it("LinkRequests_Deny_DeclinesThroughTheSameGatewayCall_AndShowsTheGatewaysSentence", async () => {
+    const declined = { ...REQUEST, status: "declined" };
+    answerMessageLinkRequest.mockResolvedValue({ request: declined, link: null, note: DENIED_NOTE });
+    listMessageLinkRequests.mockResolvedValueOnce([REQUEST]).mockResolvedValue([declined]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Refuse" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Deny" }));
     await waitFor(() => expect(answerMessageLinkRequest).toHaveBeenCalledWith("req-1", { decline: true }));
-    expect(await screen.findByText("Refused. The session has been told in its inbox.")).toBeTruthy();
+    expect(await screen.findByText(DENIED_NOTE)).toBeTruthy();
   });
 
-  it("LinkRequests_AnsweredElsewhere_LeavesTheScreen", async () => {
-    listMessageLinkRequests.mockResolvedValue([{ ...REQUEST, status: "allowed" }]);
+  it("LinkRequests_AnsweredElsewhere_LeavesTheScreenOnTheNextRead", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    listMessageLinkRequests.mockResolvedValueOnce([REQUEST]).mockResolvedValue([{ ...REQUEST, status: "allowed" }]);
     renderPage();
+    expect(await screen.findByTestId("link-request-card")).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LINK_REQUESTS_PANEL_POLL_MS);
+    });
+
     expect(await screen.findByText("No session is waiting for your answer.")).toBeTruthy();
+    expect(screen.queryByTestId("link-request-card")).toBeNull();
+  });
+
+  it("LinkRequests_ARowWithoutLabels_IsAReportedErrorNotWordsOfOurOwn", async () => {
+    listMessageLinkRequests.mockResolvedValue([{ ...REQUEST, requesterLabel: null }]);
+    renderPage();
+    expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.queryByTestId("link-request-card")).toBeNull();
   });
 });
@@ -89,19 +113,20 @@ describe("closing the notification of an answered request", () => {
     vi.unstubAllGlobals();
   });
 
-  it("closes only link request notifications whose request no longer waits", async () => {
+  it("closes only the notifications of requests the Gateway lists as answered", async () => {
     const make = (tag: string) => ({ tag, close: vi.fn() });
     const answered = make("devthrottle-link-request-req-old");
-    const waiting = make("devthrottle-link-request-req-1");
+    const unlisted = make("devthrottle-link-request-req-brand-new");
     const other = make("devthrottle-secret-transfer-tr-1");
-    const registration = { getNotifications: vi.fn(async () => [answered, waiting, other]) };
+    const registration = { getNotifications: vi.fn(async () => [answered, unlisted, other]) };
     vi.stubGlobal("navigator", { serviceWorker: { getRegistration: vi.fn(async () => registration) } });
 
-    const closed = await closeAnsweredNotifications(new Set(["req-1"]));
+    const closed = await closeAnsweredNotifications(new Set(["req-old"]));
 
     expect(closed).toBe(1);
     expect(answered.close).toHaveBeenCalled();
-    expect(waiting.close).not.toHaveBeenCalled();
+    // A request the list has not shown yet - made just after the read left - keeps its fresh notification.
+    expect(unlisted.close).not.toHaveBeenCalled();
     expect(other.close).not.toHaveBeenCalled();
   });
 });

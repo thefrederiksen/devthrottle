@@ -170,7 +170,7 @@ describe("phone push handler", () => {
   const LINK_PUSH = {
     kind: "link-request",
     title: "A session asks to message another",
-    body: "Session 121 asks to message session 125. Approve or refuse?",
+    body: "Session 121 asks to message session 125. Approve or deny?",
     tag: "devthrottle-link-request-req-1",
     url: "/mobile/link-requests",
   };
