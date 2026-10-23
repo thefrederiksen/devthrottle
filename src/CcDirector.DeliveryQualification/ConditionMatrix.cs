@@ -141,6 +141,14 @@ public static class ConditionMatrix
                                 "the rig failed during the cell", ScreenDump.Save(opts.Out, cell.ScreenName("rig-error"), session));
                         }
                         Record(r, version);
+                        // A menu cell gets a fresh session each time: after a few menu-time texts landed as answers, Haiku
+                        // took the next request to open a menu for a prompt injection and refused it (23 October 2026).
+                        if (condition.Name == "menu-open")
+                        {
+                            await AgentMatrix.EndAsync(manager, session);
+                            session = null;
+                            continue;
+                        }
                         // Leave the session as the next cell needs it: any menu closed, the turn finished, the composer empty.
                         CloseMenu(session);
                         await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120));
@@ -305,22 +313,27 @@ public static class ConditionMatrix
     {
         var askToken = EchoLayer.Token();
         var askAt = DateTime.UtcNow;
-        await c.Desktop.TypeAsync($"Token {askToken}. Use the AskUserQuestion tool right now to ask me one question: \"Which colour?\" with the two options Red and Blue. Do nothing else.");
+        await c.Desktop.TypeAsync($"Please use the AskUserQuestion tool to ask me which colour I prefer, with the two options Red and Blue (my reference: {askToken}).");
         await c.Desktop.EnterAsync();
-        // The menu is judged by the agent's record of the ask and the menu's own hint row on the screen - not by the
-        // composer reader, which on a fresh session reads the prompt row above the menu as a composer holding text.
-        var shown = await WaitForAsync(() => StateMatrix.ToolCallRecordedAt(c.Agent, askAt, "AskUserQuestion") is not null
-                                             && MenuShowing(c.Session.SnapshotScreenRows())
-                                             && !DoorbellSafety.ShowsWorking(c.Session.SnapshotScreenRows()), TimeSpan.FromSeconds(90));
+        // The menu is judged by its own hint row at the bottom of the screen under this setup's prompt (its token on the
+        // screen) - not by the composer reader, which on a fresh session reads the prompt row above the menu as a composer
+        // holding text, nor by the screen's working reading, which refused menus the screens show drawn and waiting, nor
+        // by the records: on a session's first turn Claude Code had not yet WRITTEN the ask while its menu was showing (the
+        // record carries the ask's time but is written later). Whether it was recorded by the send is reported.
+        var shown = await WaitForAsync(() => MenuShowing(c.Session.SnapshotScreenRows()) && ScreenHolds(c.Session, askToken), TimeSpan.FromSeconds(90));
         if (!shown)
         {
+            var rows = c.Session.SnapshotScreenRows();
             var setupScreen = ScreenDump.Save(c.Out, c.ScreenName("setup"), c.Session);
+            var why = $"ask recorded: {StateMatrix.ToolCallRecordedAt(c.Agent, askAt, "AskUserQuestion")?.ToString("HH:mm:ss.fff") ?? "no"} (asked {askAt:HH:mm:ss.fff}); " +
+                      $"menu hint in the last rows: {MenuShowing(rows)}; screen rows: {rows.Count()}";
             CloseMenu(c.Session);
-            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null, "the agent never showed its question menu", setupScreen);
+            return c.Result(0, "SETUP-FAILED", "", "-", false, null, false, 0, null, $"the agent never showed its question menu ({why})", setupScreen);
         }
         await Task.Delay(TimeSpan.FromSeconds(2));
         var before = DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame());
         var menuScreen = ScreenDump.Save(c.Out, c.ScreenName("menu"), c.Session, $"menu-open {c.Agent} {c.Route} run {c.Run}: the menu before the send ({before})");
+        var askRecorded = StateMatrix.ToolCallRecordedAt(c.Agent, askAt, "AskUserQuestion") is not null;
 
         var token = LetterToken();
         var body = c.Text.Build(token);
@@ -348,7 +361,7 @@ public static class ConditionMatrix
         var firstArrivedLate = firstTruth is not ("ARRIVED" or "ALTERED") && AgentRecords.UserTurnText(c.Agent, sentAt, token) is not null;
         var (pass, truth) = MenuCellPass(c.Route, firstTruth, director, firstArrivedLate, nextTruth, nextPass);
         return c.Result(body.Length, director, detail, truth, nextExact, nextAccepted, pass, seconds, nextDifference,
-            $"menu shown before the send ({before}), screen {menuScreen}; menu-time text: {firstTruth}{(firstArrivedLate ? ", arrived late" : "")}; " +
+            $"menu shown before the send ({before}; ask in the records by then: {(askRecorded ? "yes" : "no")}), screen {menuScreen}; menu-time text: {firstTruth}{(firstArrivedLate ? ", arrived late" : "")}; " +
             $"next text after Escape: director={nextDirector} truth={nextTruth} {nextDetail}".TrimEnd(), screen ?? nextScreen);
     }
 
