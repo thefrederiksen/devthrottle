@@ -6473,7 +6473,9 @@ public sealed class GatewayHost : IAsyncDisposable
             directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
                 .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
                 ?.MachineName,
-            definitions: FactoryDefinitions);
+            definitions: FactoryDefinitions,
+            // A check runs with no Gateway key: the factory's check-inputs/ documents are how its records reach it.
+            documents: _factoryDocuments);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,

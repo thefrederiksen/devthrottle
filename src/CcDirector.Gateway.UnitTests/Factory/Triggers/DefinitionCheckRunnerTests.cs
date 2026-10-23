@@ -62,11 +62,20 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
         };
         public string? Refusal { get; set; }
         public List<(string Director, string Factory, int Version)> Fetches { get; } = new();
+        public Dictionary<string, string> Inputs { get; set; } = new(StringComparer.Ordinal);
+        public string? InputsRefusal { get; set; }
+        public List<(string Director, string Factory, int Version)> InputFetches { get; } = new();
 
         public Task<FactoryCheckFetch> FetchFactoryChecksAsync(string directorId, string factory, int version, CancellationToken ct)
         {
             Fetches.Add((directorId, factory, version));
             return Task.FromResult(Refusal is null ? new FactoryCheckFetch(Files, null) : FactoryCheckFetch.Refused(Refusal));
+        }
+
+        public Task<FactoryCheckFetch> FetchCheckInputsAsync(string directorId, string factory, int version, CancellationToken ct)
+        {
+            InputFetches.Add((directorId, factory, version));
+            return Task.FromResult(InputsRefusal is null ? new FactoryCheckFetch(Inputs, null) : FactoryCheckFetch.Refused(InputsRefusal));
         }
     }
 
@@ -388,12 +397,12 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
     // ---------- 2.5: the environment and the state file ----------
 
     [Fact]
-    public async Task RunAsync_TheEnvironment_IsTheBaseAndTheFourCheckVariables()
+    public async Task RunAsync_TheEnvironment_IsTheBaseAndTheFiveCheckVariables()
     {
         await Runner().RunAsync(Check(), CancellationToken.None);
 
         var env = _processes.TheCheck.Environment!;
-        Assert.Equal(new[] { "CC_CHECK_FACTORY", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE", "HOME", "PATH" },
+        Assert.Equal(new[] { "CC_CHECK_FACTORY", "CC_CHECK_INPUTS_DIR", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE", "HOME", "PATH" },
             env.Keys.OrderBy(k => k, StringComparer.Ordinal));
         Assert.Equal(Factory, env["CC_CHECK_FACTORY"]);
         Assert.Equal("outreach", env["CC_CHECK_SEAT"]);
@@ -415,6 +424,7 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
             ["CC_GATEWAY_URL"] = "https://gateway.example",
             ["CC_FACTORY_KIT_DIR"] = "D:/kit",
             ["CC_CHECK_STATE_FILE"] = "D:/someone-elses-state",
+            ["CC_CHECK_INPUTS_DIR"] = "D:/someone-elses-inputs",
         };
         if (isWindows) _base["cc_director_id"] = "dir-parent";
 
@@ -422,10 +432,107 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
 
         var env = _processes.TheCheck.Environment!;
         Assert.Equal("the-path", env["PATH"]);
-        Assert.Equal(new[] { "CC_CHECK_FACTORY", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE", "PATH" },
+        Assert.Equal(new[] { "CC_CHECK_FACTORY", "CC_CHECK_INPUTS_DIR", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE", "PATH" },
             env.Keys.OrderBy(k => k, StringComparer.Ordinal));
         Assert.NotEqual("D:/someone-elses-state", env["CC_CHECK_STATE_FILE"]);
+        Assert.NotEqual("D:/someone-elses-inputs", env["CC_CHECK_INPUTS_DIR"]);
     }
+
+    // ---------- the check inputs ----------
+
+    [Fact]
+    public async Task RunAsync_TheFactorysCheckInputs_AreFilesInTheInputsFolder_UnderTheRestOfTheirNames()
+    {
+        _source.Inputs = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["chain.json"] = "{\"finder\": {\"done\": \"08:01\"}}",
+            ["boss/last-review.txt"] = "2026-10-15",
+        };
+        Dictionary<string, string>? seen = null;
+        string? folder = null;
+        _processes.Check = start =>
+        {
+            folder = start.Environment![DefinitionCheckRunner.InputsFolderVariable];
+            seen = Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
+                .ToDictionary(f => Path.GetRelativePath(folder, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllText);
+            return new CheckProcessResult(null, 0, false, "{\"count\": 0}", "");
+        };
+
+        var report = await Runner().RunAsync(Check(), CancellationToken.None);
+
+        Assert.Null(report.StartError);
+        Assert.Equal(_source.Inputs, seen);
+        Assert.Equal((Director, Factory, 3), Assert.Single(_source.InputFetches));
+        Assert.False(folder!.StartsWith(VersionFolder(), StringComparison.OrdinalIgnoreCase));
+        Assert.False(Directory.Exists(folder));
+    }
+
+    [Fact]
+    public async Task RunAsync_AFactoryThatKeepsNoInputs_StillHandsAnEmptyInputsFolder()
+    {
+        bool? existed = null;
+        int? count = null;
+        _processes.Check = start =>
+        {
+            var folder = start.Environment![DefinitionCheckRunner.InputsFolderVariable];
+            existed = Directory.Exists(folder);
+            count = existed == true ? Directory.GetFileSystemEntries(folder).Length : null;
+            return new CheckProcessResult(null, 0, false, "{\"count\": 0}", "");
+        };
+
+        await Runner().RunAsync(Check(), CancellationToken.None);
+
+        Assert.Equal((true, 0), (existed, count));
+    }
+
+    [Fact]
+    public async Task RunAsync_TheInputsAreFetchedOnEveryRun_NeverKeptFromTheLastOne()
+    {
+        var runner = Runner();
+        await runner.RunAsync(Check(), CancellationToken.None);
+        await runner.RunAsync(Check(), CancellationToken.None);
+
+        Assert.Equal(2, _source.InputFetches.Count);
+        Assert.Single(_source.Fetches);
+    }
+
+    [Fact]
+    public async Task RunAsync_TheGatewayRefusesTheInputs_StartErrorQuotesItAndNothingRuns()
+    {
+        _source.InputsRefusal = "HTTP 413: the check inputs of devthrottle take 600000 bytes together";
+
+        var report = await Runner().RunAsync(Check(), CancellationToken.None);
+
+        Assert.Equal("the check inputs of devthrottle could not be fetched: HTTP 413: the check inputs of devthrottle take 600000 bytes together",
+            report.StartError);
+        Assert.Empty(_processes.Runs);
+    }
+
+    [Theory]
+    [InlineData("../outside.txt")]
+    [InlineData("a//b.txt")]
+    [InlineData("C:/x.txt")]
+    [InlineData("a\\b.txt")]
+    public async Task RunAsync_AnInputNameThatClimbsOut_StartErrorAndNothingRuns(string name)
+    {
+        _source.Inputs = new Dictionary<string, string>(StringComparer.Ordinal) { [name] = "x" };
+
+        var report = await Runner().RunAsync(Check(), CancellationToken.None);
+
+        Assert.Equal($"the check inputs of devthrottle were not written: the Gateway sent the name '{name}', which is not a plain relative path",
+            report.StartError);
+        Assert.Empty(_processes.Runs);
+        Assert.False(File.Exists(Path.Combine(_root, "outside.txt")));
+    }
+
+    [Theory]
+    [InlineData("chain.json", null)]
+    [InlineData("boss/last-review.txt", null)]
+    [InlineData("", "is empty")]
+    [InlineData("..", "is not a plain relative path")]
+    [InlineData("a/./b", "is not a plain relative path")]
+    public void WhyNotAnInputName_PlainRelativeNamesOnly(string name, string? why)
+        => Assert.Equal(why, DefinitionCheckRunner.WhyNotAnInputName(name));
 
     [Fact]
     public async Task RunAsync_TheStorageFolderCannotBeWritten_IsAReportedStartError()

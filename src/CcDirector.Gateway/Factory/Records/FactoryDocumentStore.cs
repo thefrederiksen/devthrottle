@@ -90,6 +90,30 @@ public sealed class FactoryDocumentStore
         }
     }
 
+    /// <summary>
+    /// The newest version of every document whose name starts with <paramref name="prefix"/>, WITH its text, by name.
+    /// What a factory's checks are handed (<see cref="Contracts.TriggerCheckLimits.CheckInputsPrefix"/>): read in one
+    /// context, so the inputs a check sees are one moment's.
+    /// </summary>
+    public IReadOnlyList<FactoryDocumentVersionEntity> NewestUnder(TenantId tenant, string factory, string prefix)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(prefix);
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryDocumentVersionEntity>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var newest = ctx.FactoryDocumentVersions.AsNoTracking()
+                .Where(d => d.Factory == factory && d.Name.StartsWith(prefix))
+                .GroupBy(d => d.Name)
+                .Select(g => new { Name = g.Key, Version = g.Max(d => d.Version) })
+                .ToList();
+            return newest
+                .Select(n => Versions(ctx, factory, n.Name).First(d => d.Version == n.Version))
+                .OrderBy(d => d.Name, StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
     /// <summary>One version of one document, with its text, or null when there is no such version.</summary>
     public FactoryDocumentVersionEntity? Find(TenantId tenant, string factory, string name, int version)
     {

@@ -56,6 +56,33 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void NewestUnder_hands_the_newest_version_of_each_document_under_the_prefix_with_its_text_and_nothing_else()
+    {
+        var store = Documents();
+        WriteBySession(store, "chain v1", expect: 0, name: "check-inputs/chain.json");
+        WriteBySession(store, "chain v2", expect: 1, name: "check-inputs/chain.json");
+        WriteBySession(store, "2026-10-14", expect: 0, name: "check-inputs/boss/last-review.txt");
+        WriteBySession(store, "not an input", expect: 0, name: "check-inputs-old/chain.json");
+        WriteBySession(store, "the ledger", expect: 0);
+        WriteBySession(store, "another account's input", expect: 0, name: "check-inputs/hold.txt", tenant: B);
+        Assert.True(store.Write(A, Other, "check-inputs/hold.txt", "another factory's input", 0,
+            FactoryRecordAuthorKinds.Session, RunOne, Now).Ok);
+
+        var under = Documents().NewestUnder(A, TheFactory, "check-inputs/");
+
+        Assert.Equal(new[] { ("check-inputs/boss/last-review.txt", 1, "2026-10-14"), ("check-inputs/chain.json", 2, "chain v2") },
+            under.Select(d => (d.Name, d.Version, d.Text)));
+    }
+
+    [Fact]
+    public void NewestUnder_a_factory_with_nothing_under_the_prefix_is_empty()
+    {
+        WriteBySession(Documents(), "the ledger", expect: 0);
+
+        Assert.Empty(Documents().NewestUnder(A, TheFactory, "check-inputs/"));
+    }
+
+    [Fact]
     public void A_second_write_adds_a_version_and_every_version_is_kept()
     {
         var store = Documents();
