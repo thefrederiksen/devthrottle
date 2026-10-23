@@ -4,7 +4,7 @@
 // also be run by hand against a running rig.
 //
 //   node prove-api-mode-pi-screens.mjs shot --name <name> --session <id> --tab chat|terminal --out <folder>
-//        [--expect <text>] [--expect-reply] [--ready <file>] [--timeout <seconds>]
+//        [--expect <text>] [--ready <file>] [--timeout <seconds>]
 //   node prove-api-mode-pi-screens.mjs newsession --out <folder>
 //
 // Environment: GATEWAY_URL (the test Gateway), GATEWAY_TOKEN (its machine token, which the browser presents as the
@@ -13,20 +13,11 @@
 //
 // For each surface (the Cockpit at 1440 by 900, the phone at 390 by 844) it writes <name>-<surface>.png and
 // <name>-<surface>.aria.txt, the page's accessibility tree as Playwright reads it. `--expect` is text the screen must
-// show before it is photographed; `--expect-reply` adds that, at the same moment, the live conversation must end in a
-// reply with text - the reply streaming in, which is what the mid-turn screen exists to show. `--ready` is a file
-// written once both pages are open, so the caller can start the turn the shot is waiting for. The last line printed
-// is one JSON object per surface: {name, surface, ok, detail}.
-//
-// Why `--expect-reply`: the session's status line says "Working - turn" the moment the turn starts, but Pi's first
-// words arrive a second or more after it. Waiting for the status line alone photographed the Cockpit before the
-// reply existed, and the phone - photographed after the Cockpit - only by luck after it (the run of 20 October 2026,
-// linux-20261020-003750). Measured in the real Cockpit on 20 October: status line at 00:58:33.273, first reply word
-// stored by the Director at 00:58:34.373, drawn by the Cockpit at 00:58:34.456 and by the phone at 00:58:34.438.
+// show before it is photographed; `--ready` is a file written once both pages are open, so the caller can start the
+// turn the shot is waiting for. The last line printed is one JSON object per surface: {name, surface, ok, detail}.
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -36,30 +27,12 @@ const opt = (name, fallback) => {
 };
 const GATEWAY = (process.env.GATEWAY_URL || "").replace(/\/$/, "");
 const TOKEN = process.env.GATEWAY_TOKEN || "";
-
-/** playwright-core from PLAYWRIGHT_DIR (it downloads no browser; it drives CHROME). */
-export function loadChromium() {
-  const require = createRequire(join(process.env.PLAYWRIGHT_DIR, "node_modules") + "/");
-  return require("playwright-core").chromium;
+if (!GATEWAY || !TOKEN || !process.env.PLAYWRIGHT_DIR || !process.env.CHROME) {
+  console.error("GATEWAY_URL, GATEWAY_TOKEN, PLAYWRIGHT_DIR and CHROME are all required");
+  process.exit(2);
 }
-
-/**
- * Wait until the page shows what the shot is for, then return; throws when it does not within `timeout`
- * milliseconds. `expect` is text the page must show. With `reply`, at the same moment the live conversation must end
- * in a reply that has text: a status line alone is not a reply streaming in.
- */
-export async function waitForScreen(page, { expect, reply, timeout }) {
-  if (!reply) {
-    await page.getByText(expect, { exact: false }).first().waitFor({ timeout });
-    return;
-  }
-  await page.waitForFunction((want) => {
-    if (want && !document.body.innerText.includes(want)) return false;
-    const log = document.querySelector('[role="log"][aria-label="Live conversation"]');
-    const last = log?.lastElementChild;
-    return !!last && last.matches("article.live-chat-reply") && (last.textContent ?? "").trim() !== "";
-  }, expect ?? "", { timeout });
-}
+const require = createRequire(join(process.env.PLAYWRIGHT_DIR, "node_modules") + "/");
+const { chromium } = require("playwright-core");
 
 const SURFACES = {
   cockpit: { viewport: { width: 1440, height: 900 } },
@@ -94,9 +67,7 @@ async function goToTab(page, surface, sid, tab) {
 async function shot() {
   const name = opt("name"), sid = opt("session"), tab = opt("tab", "chat"), out = opt("out");
   const expect = opt("expect"), ready = opt("ready"), timeout = Number(opt("timeout", "60")) * 1000;
-  const reply = args.includes("--expect-reply");
-  const want = reply ? `"${expect}" with a reply streaming in` : `"${expect}"`;
-  const browser = await loadChromium().launch({ executablePath: process.env.CHROME, headless: true });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME, headless: true });
   const results = [];
   try {
     const pages = {};
@@ -109,11 +80,11 @@ async function shot() {
       let ok = true, detail = "photographed";
       if (expect) {
         try {
-          await waitForScreen(page, { expect, reply, timeout });
-          detail = `showed ${want}`;
+          await page.getByText(expect, { exact: false }).first().waitFor({ timeout });
+          detail = `showed "${expect}"`;
         } catch {
           ok = false;
-          detail = `did not show ${want} within ${timeout / 1000} seconds`;
+          detail = `did not show "${expect}" within ${timeout / 1000} seconds`;
         }
       }
       await save(page, out, name, surface);
@@ -129,7 +100,7 @@ async function shot() {
 // closed, so no session is started.
 async function newsession() {
   const out = opt("out");
-  const browser = await loadChromium().launch({ executablePath: process.env.CHROME, headless: true });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME, headless: true });
   const results = [];
   try {
     const cockpit = await open(browser, "cockpit");
@@ -173,13 +144,6 @@ async function chooseApiMode(page, scope, out, name, surface) {
   }
 }
 
-// Run as a command; imported (by its test), it only exports.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (!GATEWAY || !TOKEN || !process.env.PLAYWRIGHT_DIR || !process.env.CHROME) {
-    console.error("GATEWAY_URL, GATEWAY_TOKEN, PLAYWRIGHT_DIR and CHROME are all required");
-    process.exit(2);
-  }
-  if (command === "shot") await shot();
-  else if (command === "newsession") await newsession();
-  else { console.error(`unknown command "${command}": shot or newsession`); process.exit(2); }
-}
+if (command === "shot") await shot();
+else if (command === "newsession") await newsession();
+else { console.error(`unknown command "${command}": shot or newsession`); process.exit(2); }

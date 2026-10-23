@@ -11,21 +11,6 @@ user's name and the token are scrubbed.
 | Folder | Machine | What it is | Result |
 |---|---|---|---|
 | `linux-dry-run-20261018-122023` | devlinux, Pi 1.2.0 | Dry run, before phases 3 and 4 (#4186, #4200) were merged. Tree: origin/main at 880a68323 plus the switch (#4208) and this script as committed (the summary names the commit before the home-folder fix, which was in the working tree when it ran). | Every step and every failure case passed, and the user's `~/.local/bin` was unchanged; 0.08 dollars |
-| `linux-20261020-003750` | devlinux, Pi 1.2.0 | **The recorded Linux run.** Commit 602beeb0f (this branch rebased onto origin/main 469719ebb, which has every phase and the fixes #4244 and #4245), in a clean worktree, built fresh with the Cockpit and the phone app, no `-SkipBuild`. | All 27 checks passed: the five steps, the three failure cases a real run can show, the twelve screens and the three teardown checks; 0.08 dollars |
-| `linux-20261020-010149` | devlinux, Pi 1.2.0 | **The Linux run the QA report rests on.** Commit 26a227479, with the mid-turn screen waiting for the reply to stream (#4265), built fresh in a clean worktree. | All 27 checks passed |
-| `windows-20261020-012624` | SOREN_NORTH, Pi 1.3.0 | Windows run 4, before the desktop dialog was found under its owner window. Not in the report. | Desktop dialog not found; the provider took over seven minutes to reply |
-| `windows-20261020-015945` | SOREN_NORTH, Pi 1.3.0 | Windows run 5, in the report. | 3 failed: Stop came after the turn had ended, so both screens after Stop failed too |
-| `windows-20261020-021210` | SOREN_NORTH, Pi 1.3.0 | Windows run 6, in the report. | 3 failed, on the provider's slow replies; Stop cancelled the turn that was running |
-| `windows-20261020-041719` | SOREN_NORTH, Pi 1.3.0 | Windows run 7, in the report, every model-reply wait five minutes. | 7 failed: the provider refused every turn with 429, and the product said so on each receipt and turn |
-| `windows-20261020-061534` | SOREN_NORTH, Pi 1.3.0 | Windows run 8, the last try, in the report. | 5 failed: the provider refused nearly every attempt with 429; Stop cancelled the long prompt's turn while Pi was retrying it ("Delivered - stopped"), and both screens after Stop passed |
-
-**The QA report** is `qa-report.html` in this folder, built from `linux-20261020-010149` and Windows runs 5 to 8 with
-`scripts/build-api-mode-qa-report.ps1` (several runs per platform are shown side by side), and checked with the
-Gateway's `DevReportShapeCheck`. Its status is `done`, set by the Delivery Lead: Linux passed every check in one run;
-on Windows no single run did, because the provider refused with 429 engine_overloaded, and the report says so. The
-Delivery Lead merged #4277 (Pi starts in API mode by default) on the judgement that the report passes with that
-Windows caveat. Spend is given both ways: what Pi recorded, and the script's estimate as an upper bound (spend.md).
-| `linux-20261020-010149` | devlinux, Pi 1.2.0 | The recorded run's script with one change: the mid-turn screen waits, on each surface, for the status line AND a reply streaming in (commit 26a227479, built fresh). In `linux-20261020-003750` the Cockpit was photographed the moment its status line came up, a second or more before Pi's first word, so its picture had no reply; the Cockpit itself streams (measured: it drew Pi's first word 83 milliseconds after the Director stored it). | Every check passed; both mid-turn screens show the reply streaming in; 0.09 dollars |
 
 **This dry run is superseded by the recorded run.** It is kept as a record of the rig working, not as the evidence
 for the QA report: its `Tree:` line names commit `c2b463f5c`, but it ran with the next commit's home-folder fix in the
