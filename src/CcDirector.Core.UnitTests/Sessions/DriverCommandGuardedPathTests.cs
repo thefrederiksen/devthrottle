@@ -100,4 +100,39 @@ public sealed class DriverCommandGuardedPathTests : IDisposable
         Assert.Empty(terminal.SentTexts);
         Assert.NotNull(session.ContextClearedUtc);
     }
+
+    /// <summary>
+    /// THE DOUBLED LEADING SLASH (issue #4380, found on a real Codex 0.163.0 on 23 October 2026). Codex answers an unknown
+    /// command "Unrecognized command" and keeps the line in its composer. The send read that as a swallowed Enter and
+    /// pressed Enter four more times, running the command again each time. A line the agent takes as a command is entered
+    /// once, as a person enters it; the line left in the composer is reported, not submitted again.
+    /// </summary>
+    [Fact]
+    public async Task SendTextAsync_CommandTheAgentRefuses_IsEnteredOnceAndReportedNotSubmitted()
+    {
+        // Arrange
+        var transcript = Path.Combine(_dir, Guid.NewGuid() + ".jsonl");
+        File.WriteAllText(transcript, "");
+        var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, _dir) { Clock = _clock, RejectsSlashLines = true };
+        _cleanup.Add(terminal);
+        var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty)
+        {
+            AgentKind = AgentKind.Codex,
+            Clock = _clock,
+        };
+        _cleanup.Add(session);
+        terminal.StartDrawing();
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        const string text = "/Token Q1 is not a command. Reply with exactly: ACK Q1";
+
+        // Act
+        var ex = await Assert.ThrowsAsync<PromptNotSubmittedException>(
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+
+        // Assert: one Enter, and the send says the line is still in the composer.
+        Assert.Equal(1, terminal.SlashLinesRefused);
+        Assert.Contains("still in", ex.Message);
+        Assert.Contains("makes it a slash command in Codex", ex.Message);
+        Assert.Empty(terminal.Recorded);
+    }
 }

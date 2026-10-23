@@ -4500,7 +4500,10 @@ public sealed class Session : IDisposable
     /// Enter is a fair witness; for a working agent, whose output proves nothing, the send is still delivering - never
     /// reported delivered, and nothing is cleared or typed again.
     /// </summary>
-    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed)
+    /// <param name="leadingMode">What the text's first character made of it (<see cref="Drivers.IAgentDriver.LeadingCharacterMode"/>),
+    /// or null. A command the agent refused stays in its composer; the refusal then names the mode, so the sender learns why
+    /// (issue #4380).</param>
+    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed, string? leadingMode = null)
     {
         if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
@@ -4520,7 +4523,9 @@ public sealed class Session : IDisposable
             Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
             throw new Drivers.PromptNotSubmittedException(
                 $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
-                $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+                $"submitted. It is left there, exactly as typed, and is not typed again." +
+                (leadingMode is null ? "" : $" Its first character makes it {leadingMode} in {AgentKind}, and {AgentKind} did not take it.") +
+                $" Session={Id}, len={typed.Length}.");
         }
         if (!AgentShowsWorking())
         {
@@ -4674,6 +4679,9 @@ public sealed class Session : IDisposable
                     return refusedAtTheKeystroke;
                 }
                 var proof = BeginArrivalProof(target, text);
+                // A LINE THE AGENT TAKES AS A COMMAND IS ENTERED ONCE (issue #4380): see TerminalSubmit's commandLine.
+                var leadingMode = Driver.LeadingCharacterMode(text.TrimEnd('\r', '\n'));
+                var commandLine = leadingMode is not null;
                 Task<string> Submit(bool clearFirst = false) => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
                     text,
@@ -4690,7 +4698,8 @@ public sealed class Session : IDisposable
                     composerText: ComposerTextReader(),
                     composerSeen: ComposerSeen(),
                     composerRegion: ComposerRegionReader(),
-                    clock: Clock);
+                    clock: Clock,
+                    commandLine: commandLine);
 
                 string typed;
                 try
@@ -4723,7 +4732,7 @@ public sealed class Session : IDisposable
                 if (proof is not null)
                     outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
                 else if (ReferenceEquals(target, _backend))
-                    outcome = await ConfirmLeftComposerAsync(typed);
+                    outcome = await ConfirmLeftComposerAsync(typed, leadingMode);
                 }
                 finally
                 {

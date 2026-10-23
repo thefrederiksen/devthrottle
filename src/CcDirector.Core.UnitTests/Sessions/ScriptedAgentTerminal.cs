@@ -61,6 +61,13 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     /// dialog that is already open when a command arrives (issue #4380).</summary>
     public bool MenuOpen { get; set; }
 
+    /// <summary>Answer an Enter on a line starting with "/" the way Codex answers an unknown command: the line stays in
+    /// the composer, nothing is recorded, and each such Enter is counted (issue #4380).</summary>
+    public bool RejectsSlashLines { get; set; }
+
+    /// <summary>How many Enters a "/" line was refused on (<see cref="RejectsSlashLines"/>).</summary>
+    public int SlashLinesRefused { get; private set; }
+
     /// <summary>Every byte written to this terminal, counted - zero means nothing reached it.</summary>
     public long BytesWritten { get { lock (_lock) return _bytesWritten; } }
     private long _bytesWritten;
@@ -279,6 +286,11 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
         if (SwallowEnter) return;
         var submitted = _pasteHeld is not null ? _composer + _pasteHeld : _composer.ToString();
         if (submitted.Length == 0) return;
+        if (RejectsSlashLines && submitted.StartsWith('/'))
+        {
+            SlashLinesRefused++;
+            return;
+        }
         EntersAccepted++;
         _composer.Clear();
         _pasteHeld = null;

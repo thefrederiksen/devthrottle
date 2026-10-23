@@ -111,6 +111,13 @@ public static class TerminalSubmit
     /// NEVER from occurrences of the text anywhere on the screen (Voice Delivery mission, phase 6: a prompt identical
     /// to words already visible in the conversation above could not be sent, and a retained-text check read that
     /// conversation as the composer).</param>
+    /// <param name="commandLine">The agent takes this line as a command - its first character makes it one
+    /// (<see cref="IAgentDriver.LeadingCharacterMode"/>). Enter is pressed ONCE and never again, as a person presses it
+    /// (issue #4380): an agent that refuses a command keeps the line in its composer - Codex answers an unknown one
+    /// "Unrecognized command" and leaves it there - and the nudge ladder read that as a swallowed Enter and pressed Enter
+    /// again, running the command again each time; that is how a leading "/" was sent twice. The output after the Enter
+    /// does not decide either: a command can print almost nothing. The caller's check of the composer after the Enter
+    /// decides.</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
     /// carries it. That is what the agent's records will hold.</returns>
     public static async Task<string> SharedSubmitAsync(
@@ -133,13 +140,16 @@ public static class TerminalSubmit
         Func<string?>? composerText = null,
         Func<string>? composerSeen = null,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        bool commandLine = false)
     {
         ArgumentNullException.ThrowIfNull(backend);
-        var throwWhenParked = !recordsProofFollows;
+        var throwWhenParked = !recordsProofFollows && !commandLine;
         var nudgeBefore = TextWaitsInComposer.Value;
         var clockBefore = SendClock.Value;
-        TextWaitsInComposer.Value = nudgeOnlyWhen;
+        TextWaitsInComposer.Value = commandLine ? () => false : nudgeOnlyWhen;
+        if (commandLine)
+            SendTrail.Step(driverTag, "CommandLine: the agent takes this line as a command - Enter is pressed once, never nudged");
         SendClock.Value = clock;
         var typedAfterExistingText = new StrongBox<bool>();
         try
