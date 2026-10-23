@@ -34,6 +34,9 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --claude-titled-capture [--cols 120] [--rows 40]   (dump Claude Code's composer with the session name in its top rule; nothing is submitted)
 ///   CcDirector.DeliveryQualification --scenarios all|name,name [--agents claude,pi] [--repeat 3]   (the delivery scenarios; every attempt goes to the ledger)
 ///   CcDirector.DeliveryQualification --rates [--ledger FILE]   (the success rate per product commit, agent and scenario, from the ledger)
+///   CcDirector.DeliveryQualification --echo [--routes all|r,r] [--texts all|t,t] [--agents claude,codex,pi]   (the parity texts on every route, sent to the free byte-echo agent; issue #4378)
+///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
+///   CcDirector.DeliveryQualification --text-matrix [--routes ...] [--texts ...] [--agents claude,codex,pi] [--max-turns 240] [--cpu-load 24]   (the same to real agents, judged character for character)
 /// </summary>
 public static class Program
 {
@@ -41,7 +44,9 @@ public static class Program
     {
         ["claude"] = (AgentKind.ClaudeCode, "--dangerously-skip-permissions --model claude-haiku-4-5-20251001"),
         ["codex"] = (AgentKind.Codex, "--dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low"),
-        ["pi"] = (AgentKind.Pi, "--model deepinfra-mindzie/zai-org/GLM-5.3-Flash --thinking off"),
+        // The owner's choice (23 October 2026): Pi runs on the cheapest mindzie dev Azure Foundry deployment. Terra is
+        // taken as the cheaper of the two configured (sol, terra) from the size order of the names; confirm the price.
+        ["pi"] = (AgentKind.Pi, "--model azure-openai-responses/gpt-5.6-terra --thinking off"),
         ["gemini"] = (AgentKind.Gemini, "--yolo"),
         ["grok"] = (AgentKind.Grok, ""),
         ["opencode"] = (AgentKind.OpenCode, ""),
@@ -62,6 +67,10 @@ public static class Program
         // --replay <buffer-json> <cols> <rows>: rebuild a session's grid from its raw output (issue 3289).
         if (args.Length == 4 && args[0] == "--replay")
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
+
+        // --echo-agent <log>: run AS the byte-echo agent inside a terminal the rig started (issue #4378).
+        if (args.Length == 2 && args[0] == "--echo-agent")
+            return EchoAgent.Run(args[1]);
 
         var opts = Options.Parse(args);
         if (opts.Rates)
@@ -172,6 +181,15 @@ public static class Program
                 Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")));
             return 0;
         }
+
+        if (opts.Echo)
+            return await EchoLayer.RunAsync(manager, opts);
+
+        if (opts.TextMatrix)
+            return await AgentMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.StateMatrix)
+            return await StateMatrix.RunAsync(manager, agentOptions, opts);
 
         if (opts.ScenarioNames is { } scenarioNames)
             return await RunScenariosAsync(manager, agentOptions, opts, scenarioNames);
@@ -392,6 +410,15 @@ public sealed class Options
     public short CaptureCols { get; private set; } = 100;
     public short CaptureRows { get; private set; } = 30;
     public int ThawWaitSeconds { get; private set; } = 8;
+    public bool Echo { get; private set; }
+    public bool TextMatrix { get; private set; }
+    public bool StateMatrix { get; private set; }
+    public IReadOnlyList<string>? StateCaseNames { get; private set; }
+    public IReadOnlyList<string>? RouteNames { get; private set; }
+    public IReadOnlyList<string>? MatrixTextNames { get; private set; }
+    /// <summary>The most turns a text-matrix run spends on real agents, so a run cannot quietly use up the owner's
+    /// subscription allowance (the owner's ruling, 23 October 2026: the runs stay small).</summary>
+    public int MaxTurns { get; private set; } = 240;
 
     public static Options Parse(string[] args)
     {
@@ -437,6 +464,21 @@ public sealed class Options
                     break;
                 case "--repeat": o.Repeat = int.Parse(Next()); break;
                 case "--rates": o.Rates = true; break;
+                case "--echo": o.Echo = true; break;
+                case "--text-matrix": o.TextMatrix = true; break;
+                case "--state-matrix": o.StateMatrix = true; break;
+                case "--cases": o.StateCaseNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
+                case "--max-turns": o.MaxTurns = int.Parse(Next()); break;
+                case "--routes":
+                    var rs = Next();
+                    o.RouteNames = rs == "all" ? Routes.All : rs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var r in o.RouteNames) Routes.AppliesTo(r, "");
+                    break;
+                case "--texts":
+                    var ts = Next();
+                    o.MatrixTextNames = ts == "all" ? MatrixTexts.All.Select(t => t.Name).ToList() : ts.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var t in o.MatrixTextNames) MatrixTexts.Named(t);
+                    break;
                 case "--ledger": o._ledger = Next(); break;
                 default:
                     if (args[i].StartsWith("--args-", StringComparison.Ordinal)) { o.ArgsOverride[args[i]["--args-".Length..]] = Next(); break; }

@@ -130,7 +130,7 @@ public static class AgentRecords
         return turns;
     }
 
-    private static bool IsUserTurn(string agent, JsonElement root)
+    internal static bool IsUserTurn(string agent, JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return false;
         static string? Str(JsonElement e, string name) =>
@@ -139,9 +139,87 @@ public static class AgentRecords
         return agent switch
         {
             "claude" => type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True),
-            "codex" => type == "event_msg" && root.TryGetProperty("payload", out var p) && Str(p, "type") == "user_message",
+            // Older Codex wrote the prompt as an event_msg user_message; Codex 0.16x writes it as a response_item message
+            // with role user (and no user_message event), measured 23 October 2026. Either is a user turn.
+            "codex" => root.TryGetProperty("payload", out var p)
+                       && ((type == "event_msg" && Str(p, "type") == "user_message")
+                           || (type == "response_item" && Str(p, "type") == "message" && Str(p, "role") == "user")),
             "pi" => type == "message" && root.TryGetProperty("message", out var msg) && Str(msg, "role") == "user",
             _ => false,
+        };
+    }
+
+    /// <summary>
+    /// THE STRICT WITNESS (issue #4378). <see cref="Check"/> folds whitespace and so cannot see a lost line break, a
+    /// doubled space or a tab turned into a space. This finds the USER TURN that holds <paramref name="token"/> and
+    /// returns its text as the agent recorded it, so the caller can compare it character for character. Null when no
+    /// user turn holds the token. The agent's own paste wrapper is removed; nothing else is changed.
+    /// </summary>
+    public static string? UserTurnText(string agent, DateTime sinceUtc, string token)
+    {
+        foreach (var file in CandidateFiles(agent, sinceUtc).Where(f => f.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var raw = ReadShared(file);
+            if (raw is null) continue;
+            foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line) || !line.Contains(token, StringComparison.Ordinal)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (!IsUserTurn(agent, doc.RootElement)) continue;
+                    var text = TurnText(agent, doc.RootElement);
+                    if (text is not null && text.Contains(token, StringComparison.Ordinal))
+                        // Only the agent's paste wrapper is removed - never surrounding whitespace, which a route may
+                        // have lost (review of #4390, finding 3).
+                        return StripPasteWrapper(text);
+                }
+                catch (JsonException) { }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Every JSON-lines record of <paramref name="agent"/> that may have been written since
+    /// <paramref name="sinceUtc"/>, for the working-or-waiting matrix to read times from (issue #4378).</summary>
+    public static IEnumerable<string> RecentLines(string agent, DateTime sinceUtc)
+    {
+        foreach (var file in CandidateFiles(agent, sinceUtc).Where(f => f.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var raw = ReadShared(file);
+            if (raw is null) continue;
+            foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
+                if (!string.IsNullOrWhiteSpace(line)) yield return line;
+        }
+    }
+
+    /// <summary>The text inside the agent's paste wrapper when the whole record is one, else the record unchanged.</summary>
+    internal static string StripPasteWrapper(string text)
+    {
+        var m = Regex.Match(text, @"^<pasted_content id=""[^""]*"">(?<body>[\s\S]*)</pasted_content(?: id=""[^""]*"")?>$", RegexOptions.CultureInvariant);
+        return m.Success ? m.Groups["body"].Value : text;
+    }
+
+    /// <summary>The prompt text of one user-turn record: Claude Code's message content, Codex's user message, Pi's
+    /// message content - a string, or the text parts of a list, joined.</summary>
+    internal static string? TurnText(string agent, JsonElement root)
+    {
+        static string? FromContent(JsonElement content) => content.ValueKind switch
+        {
+            JsonValueKind.String => content.GetString(),
+            JsonValueKind.Array => string.Concat(content.EnumerateArray()
+                .Where(p => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+                .Select(p => p.GetProperty("text").GetString())),
+            _ => null,
+        };
+        return agent switch
+        {
+            "claude" => root.TryGetProperty("message", out var m) && m.TryGetProperty("content", out var c) ? FromContent(c) : null,
+            "codex" => !root.TryGetProperty("payload", out var p) ? null
+                : p.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String ? msg.GetString()
+                : p.TryGetProperty("content", out var pc0) ? FromContent(pc0) : null,
+            "pi" => root.TryGetProperty("message", out var pm) && pm.TryGetProperty("content", out var pc) ? FromContent(pc) : null,
+            _ => null,
         };
     }
 
