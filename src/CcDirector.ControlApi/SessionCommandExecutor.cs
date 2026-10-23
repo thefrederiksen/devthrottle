@@ -447,10 +447,6 @@ internal static class SessionCommandExecutor
         // drops every such write; this answers the sender a refusal it can show, instead of a success that typed nothing
         // (fix-round review of pull request 3863). Checked before the send, and watched during it, for a dialog drawn
         // while the send waits.
-        if (session.UsageLimitDialogMayShow())
-            return UsageLimitDialogAnswer(session, bufferCursor);
-        using var refusals = UsageLimitInputGuard.WatchRefusals();
-
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
         // dictation delivery (SendSource.Delivery, set from the X-Dictation-Delivery marker) and typed
         // otherwise. Surface comes from the Gateway-authoritative request.Surface. Count when this is an
@@ -474,6 +470,18 @@ internal static class SessionCommandExecutor
                 effectiveSource == SendSource.Delivery ? InputModality.Voice : InputModality.Typed,
                 InputOrigin.RemoteSurfaceFromDeviceType(request.Surface))
             : null;
+
+        // The same switch the session's input guard reads (UsageLimitInputGuard.PhoneAndCockpitPromptsPassTheDialog): off,
+        // and a phone or Cockpit prompt is refused here as it always was; on, it goes through as a person's own keys do.
+        if (!UsageLimitInputGuard.PromptPassesTheDialog(origin) && session.UsageLimitDialogMayShow())
+            return UsageLimitDialogAnswer(session, bufferCursor);
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+
+        // A LEADING "!" OR "/" IS NEVER QUIET (issue #4380): the text is typed exactly as a person would type it, so the
+        // agent does with it what it does for a person - and the answer says what that was.
+        var leadingMode = session.Driver.LeadingCharacterMode(request.Text);
+        if (leadingMode is not null)
+            FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the text's first character makes it {leadingMode} in {session.AgentKind}");
 
         // WHAT THE DOOR KNEW (source logging, 2026-09-05): the Gateway's route built it from what it verified and
         // sent it on the wire; it is recorded as it arrived. A Gateway older than the field sends none, and that
@@ -537,6 +545,7 @@ internal static class SessionCommandExecutor
                     BufferCursor = bufferCursor,
                     ActivityState = session.ActivityState.ToString(),
                     DeliveryState = DeliveryState.Delivering,
+                    LeadingMode = leadingMode,
                 }));
             }
             // Finished within the budget: a failure the send knows about is thrown here and stays a failure, as before.
@@ -566,6 +575,7 @@ internal static class SessionCommandExecutor
                     BufferCursor = bufferCursor,
                     ActivityState = session.ActivityState.ToString(),
                     DeliveryState = DeliveryState.Delivering,
+                    LeadingMode = leadingMode,
                 }));
             }
         }
@@ -591,6 +601,7 @@ internal static class SessionCommandExecutor
             ActivityState = session.ActivityState.ToString(),
             IdleChecked = request.OnlyWhenWaitingForInput,
             DeliveryState = request.AppendEnter ? DeliveryState.Delivered : null,
+            LeadingMode = leadingMode,
         };
         return DirectorCommandResult.Success(Serialize(response));
     }

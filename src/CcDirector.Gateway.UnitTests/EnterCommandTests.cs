@@ -95,6 +95,36 @@ public sealed class EnterCommandTests
         Assert.Equal(new[] { "carry on", "\r" }, terminal.Writes.Take(2));
     }
 
+    /// <summary>
+    /// Issue #4380: a prompt is typed as a person would type it, so a leading "!" gets the agent's own bash mode - and the
+    /// prompt verb says so in its answer, so the shell command is never run quietly.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_LeadingBang_ReportsTheShellMode()
+    {
+        var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        session.AgentKind = Core.Agents.AgentKind.ClaudeCode;
+
+        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "!git status", AppendEnter = false });
+
+        Assert.True(sent.Ok, sent.Error);
+        var body = JsonSerializer.Deserialize<PromptResponse>(sent.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("a shell command (Claude Code's bash mode)", body!.LeadingMode);
+        Assert.Equal(new[] { "!git status" }, terminal.Writes);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_OrdinaryText_ReportsNoMode()
+    {
+        var (session, _) = ScriptedTerminal.NewWaitingSession();
+        session.AgentKind = Core.Agents.AgentKind.ClaudeCode;
+
+        var sent = await SessionCommandExecutor.SendPromptAsync(session, new PromptRequest { Text = "git status", AppendEnter = false });
+
+        var body = JsonSerializer.Deserialize<PromptResponse>(sent.BodyJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Null(body!.LeadingMode);
+    }
+
     [Fact]
     public void EnterCore_SessionWithNoTerminal_IsRefused()
     {

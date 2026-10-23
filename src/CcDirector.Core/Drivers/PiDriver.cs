@@ -69,6 +69,18 @@ public sealed class PiDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.EchoVerifiedSubmitAsync(backend, text, "PiDriver");
 
+    /// <summary>Measured on Pi (Terminal Parity baseline, 23 October 2026): a leading "!" runs the line as a shell command
+    /// and never reaches the conversation. A leading "/" is a command only when it names one of Pi's own commands; any
+    /// other line starting with "/" arrived as an ordinary prompt.</summary>
+    public string? LeadingCharacterMode(string text)
+    {
+        if (text.Length == 0) return null;
+        if (text[0] == '!') return "a shell command";
+        if (text[0] != '/') return null;
+        var word = text[1..].Split(' ', 2)[0];
+        return SlashCommands.Any(c => string.Equals(c.NormalizedName, word, StringComparison.Ordinal)) ? "a slash command" : null;
+    }
+
     public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
     public DriverInput Interrupt() =>

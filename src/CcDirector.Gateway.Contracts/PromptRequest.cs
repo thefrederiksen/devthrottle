@@ -205,6 +205,13 @@ public sealed class PromptResponse
     public string? Error { get; set; }
 
     /// <summary>
+    /// What the text's FIRST character made of it in this agent's composer - "a shell command", "a slash command" - or
+    /// null when it went as an ordinary prompt (issue #4380). A prompt is typed exactly as a person would type it, so it
+    /// gets the agent's own behaviour; this says so, so the prompt route never runs a command QUIETLY.
+    /// </summary>
+    public string? LeadingMode { get; set; }
+
+    /// <summary>
     /// Wingman menu guard (issue #2193): true when this prompt was NOT sent because a menu owns the session's
     /// live screen and the caller asked for <see cref="PromptRequest.MenuGuard"/>. Nothing was typed and no
     /// Enter was pressed. This is a REFUSAL, not a failure - it rides a 200 with <see cref="Accepted"/> false,

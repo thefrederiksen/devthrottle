@@ -231,6 +231,16 @@ public sealed class ClaudeDriver : IAgentDriver
     /// <summary>Letters, digits and '/' only - the echo comparison alphabet (shared helper).</summary>
     public static string NormalizeForEcho(string s) => TerminalSubmit.NormalizeForEcho(s);
 
+    /// <summary>Measured on Claude Code (Terminal Parity baseline, 23 October 2026): a leading "!" opens its bash mode and
+    /// runs the line as a shell command; a leading "/" is a slash command - an unknown one is answered "Unknown command"
+    /// and goes nowhere.</summary>
+    public string? LeadingCharacterMode(string text) => text.Length == 0 ? null : text[0] switch
+    {
+        '!' => "a shell command (Claude Code's bash mode)",
+        '/' => "a slash command",
+        _ => null,
+    };
+
     public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
     public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);

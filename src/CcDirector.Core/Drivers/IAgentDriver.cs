@@ -150,6 +150,15 @@ public interface IAgentDriver
     /// </summary>
     IReadOnlyList<ApiMode.SessionConnectionMode> ConnectionModes => ApiMode.SessionConnectionModes.TerminalOnly;
 
+    /// <summary>
+    /// What this agent's composer makes of a line because of its FIRST character - "a shell command", "a slash command" -
+    /// or null when the line goes as an ordinary prompt (issue #4380). A person typing at the terminal gets the agent's own
+    /// behaviour, and so does a prompt; what a prompt must never do is run a command QUIETLY, so the prompt route reports
+    /// this to its sender. Only modes MEASURED on the agent are declared (the Terminal Parity baseline, 23 October 2026);
+    /// the default is none, and that is the honest answer for an agent nobody has measured.
+    /// </summary>
+    string? LeadingCharacterMode(string text) => null;
+
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }

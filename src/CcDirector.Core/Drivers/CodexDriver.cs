@@ -90,6 +90,15 @@ public sealed class CodexDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.SharedSubmitAsync(backend, text, "CodexDriver");
 
+    /// <summary>Measured on Codex (Terminal Parity baseline, 23 October 2026): a leading "!" runs the line as a shell
+    /// command; a leading "/" is a slash command.</summary>
+    public string? LeadingCharacterMode(string text) => text.Length == 0 ? null : text[0] switch
+    {
+        '!' => "a shell command",
+        '/' => "a slash command",
+        _ => null,
+    };
+
     public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
 
     public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
