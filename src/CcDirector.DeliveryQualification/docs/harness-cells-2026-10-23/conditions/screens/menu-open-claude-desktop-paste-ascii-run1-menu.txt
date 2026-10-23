@@ -1,0 +1,67 @@
+# menu-open claude desktop-paste run 1: the menu before the send (MenuOpen), saved 2026-10-23 18:13:10Z
+00 | 
+01 | 
+02 | ● ACK QCIINMPBJIP
+03 | 
+04 | ✻ Crunched for 1s · done 2:12 PM
+05 | 
+06 | ❯ Token Q5DAC2273AE. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+07 |   options Red and Blue. Do nothing else.
+08 | 
+09 | ● User answered Claude's questions:
+10 |   ⎿  · Which colour? → en QABBELIPFEG, line 1 of 4.
+11 | 
+12 | ● Received: "en QABBELIPFEG, line 1 of 4." Waiting for lines 2-4.
+13 | 
+14 | ✻ Cogitated for 3s · done 2:12 PM
+15 | 
+16 | ❯ Line 2: the quick brown fox jumps over the lazy dog.
+17 | 
+18 | ❯ Line 3: the quick brown fox jumps over the lazy dog.
+19 | 
+20 | ● Received lines 2 and 3. Waiting for line 4.
+21 | 
+22 | ✻ Cogitated for 1s · done 2:12 PM
+23 | 
+24 | ❯ Do not run any tools or read any files. Reply with exactly: ACK QABBELIPFEG
+25 | 
+26 | ● ACK QABBELIPFEG
+27 | 
+28 | ✻ Baked for 1s · done 2:12 PM
+29 | 
+30 | ❯ Token QOPIPKBEODM, line 1 of 4.
+31 | 
+32 | ● Received: "Token QOPIPKBEODM, line 1 of 4." Waiting for lines 2-4.
+33 | 
+34 | ✻ Cooked for 1s · done 2:12 PM
+35 | 
+36 | ❯ Line 2: the quick brown fox jumps over the lazy dog.
+37 | 
+38 | ❯ Line 3: the quick brown fox jumps over the lazy dog.
+39 | 
+40 | ● Received lines 2 and 3. Waiting for line 4.
+41 | 
+42 | ✻ Crunched for 1s · done 2:12 PM
+43 | 
+44 | ❯ Do not run any tools or read any files. Reply with exactly: ACK QOPIPKBEODM
+45 | 
+46 | ● ACK QOPIPKBEODM
+47 | 
+48 | ✻ Sautéed for 1s · done 2:12 PM
+49 | 
+50 | ❯ Token Q90A34E534F. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+51 |   options Red and Blue. Do nothing else.
+52 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+53 |  ☐ Colour
+54 | 
+55 | Which colour?
+56 | 
+57 | ❯ 1. Red
+58 |      The colour red
+59 |   2. Blue
+60 |      The colour blue
+61 |   3. Type something.
+62 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+63 |   4. Chat about this
+64 | 
+65 | Enter to select · ↑/↓ to navigate · Esc to cancel

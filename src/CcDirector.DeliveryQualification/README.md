@@ -202,7 +202,8 @@ The script, one line per mode (`B` is the rig, `R` the run folder):
     $B --state-matrix --agents claude,codex,pi --out $R/state > $R/state.log 2>&1
     $B --text-matrix --agents claude,codex,pi --max-turns 400 --out $R/text > $R/text.log 2>&1
 
-`docs/harness-cells-2026-10-23/run.sh` beside this file is the script the first run of these additions used.
+`docs/harness-cells-2026-10-23/` beside this file holds the first run of these additions: its scripts (`run.sh`,
+`run-conditions.sh`, `run-menu.sh`), its results and saved screens, and a README of what it found.
 
 Cost of the condition matrix with its defaults (two runs): 24 cells on claude, 16 on codex and 16 on pi, at one to three
 turns each. Pi is the only bill: about 40 model calls of about 12,000 tokens in (mostly cached) and 100 out.

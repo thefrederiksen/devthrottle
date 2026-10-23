@@ -1,0 +1,57 @@
+condition    agent   route           sends pass fail not-counted unsteady-cells  truths
+mid-turn     claude  desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     claude  desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     codex   desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     pi      desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      prompt              2    2    0           0              0  ARRIVED ARRIVED
+owner-draft  claude  desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  claude  desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  codex   desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  pi      desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+menu-open    claude  desktop-type        0    0    0           2              0  
+menu-open    claude  desktop-newline     2    0    2           0              0  ALTERED/NEXT-ALTERED ALTERED/NEXT-ALTERED
+menu-open    claude  desktop-paste       1    1    0           1              0  LOST/NEXT-ARRIVED
+menu-open    claude  prompt              1    1    0           1              0  LOST/LOST
+usage-limit  echo    desktop-type        2    2    0           0              0  EXACT EXACT
+usage-limit  echo    desktop-paste       2    0    2           0              0  DROPPED DROPPED
+16 of 56 counted cells did not pass (4 not counted):
+  mid-turn claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  owner-draft claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q3EDF2471EB Token QC65C", got " Q3EDF2471EBToken QC65C3"
+  owner-draft claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q2C156F54BD Token QD749", got " Q2C156F54BDToken QD7497"
+  owner-draft codex desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q7A447C2106 Token Q834D", got " Q7A447C2106Token Q834D1"
+  owner-draft codex desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " QC2C37CB11B Token Q79EF", got " QC2C37CB11BToken Q79EFC"
+  owner-draft pi desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " QD4D66B4F28 Token Q76B7", got " QD4D66B4F28Token Q76B78"
+  owner-draft pi desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q4466173233 Token Q1A10", got " Q4466173233Token Q1A108"
+  menu-open claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  menu-open claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  usage-limit echo desktop-paste ascii run 1: director=OK truth=DROPPED only the Enter arrived: every character of the text was dropped on the way (screen: screens/usage-limit-echo-desktop-paste-ascii-run1-after.txt)
+  usage-limit echo desktop-paste ascii run 2: director=OK truth=DROPPED only the Enter arrived: every character of the text was dropped on the way (screen: screens/usage-limit-echo-desktop-paste-ascii-run2-after.txt)
+  not counted: menu-open claude desktop-type run 1: the agent never showed its question menu
+  not counted: menu-open claude desktop-type run 2: the agent never showed its question menu
+  not counted: menu-open claude desktop-paste run 2: the agent never showed its question menu
+  not counted: menu-open claude prompt run 1: the agent never showed its question menu
+What each condition cannot show:
+  mid-turn: when the agent records a queued prompt only at the end of the turn (Codex, Pi) it cannot show the prompt was taken at once, only that it arrived.
+  owner-draft: how many spaces join the two is not judged: the prompt route adds one, a person types their own.
+  menu-open: on the desktop routes the keys typed into the menu are the person's own - where they go is recorded, not judged. Codex and Pi have no question menu the rig can raise: Codex asks questions only in plan mode, Pi has none, and their model pickers are not used because Enter in one changes the agent's model (Codex also writes the choice to the owner's own configuration file).
+  usage-limit: Claude Code shows the dialog only when the owner's allowance has run out, which no run can cause on demand, so the byte-echo agent draws the dialog's real words and the Director's own guard reads them. It proves what the Director lets through, not what Claude Code does with it. The prompt route is left out: whether phone and Cockpit prompts pass the dialog is the owner's open question (mission 11.6).
