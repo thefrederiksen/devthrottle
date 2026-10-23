@@ -158,6 +158,30 @@ public sealed class ConditionMatrixTests
         Assert.Null(StateMatrix.AskRecordedAt("codex", lines, since, "Q1", "approval"));
     }
 
+    [Theory]
+    [InlineData("""{"type":"api-request-blob","message":{"role":"user","content":[{"type":"tool_result","content":"<system-reminder>The user sent a new message while you were working: Token Q1</system-reminder>"}]}}""", true)]
+    [InlineData("""{"type":"queue-operation","operation":"enqueue","content":"Token Q1"}""", true)]
+    [InlineData("""{"type":"last-prompt","prompt":"Token Q1"}""", true)]
+    [InlineData("""{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"Text","text":"Token Q1"}]}}}""", true)]
+    [InlineData("""{"type":"attachment","attachment":{"type":"queued_command","prompt":"Token Q1","commandMode":"prompt"}}""", false)]
+    [InlineData("""{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"ACK Q1"}]}}}""", false)]
+    public void IsCopyOfPrompt_RecordsThatOnlyCopyThePrompt_AreKnown(string json, bool copy)
+    {
+        Assert.Equal(copy, AgentRecords.IsCopyOfPrompt(Json(json)));
+    }
+
+    [Fact]
+    public void AnswerRecordedAt_CodexsEchoOfThePrompt_IsNotTheAnswer()
+    {
+        // The prompt asks for "ACK Q1", and Codex echoes it at once: the answer is the agent's own message, later.
+        var since = new DateTime(2026, 10, 23, 14, 0, 0, DateTimeKind.Utc);
+        var echo = """{"timestamp":"2026-10-23T14:00:01.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"Text","text":"Then reply with exactly: ACK Q1"}]}}}""";
+        var answer = """{"timestamp":"2026-10-23T14:00:30.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ACK Q1"}]}}""";
+
+        Assert.Null(StateMatrix.AnswerRecordedAt("codex", [echo], since, "Q1"));
+        Assert.Equal(new DateTime(2026, 10, 23, 14, 0, 30, DateTimeKind.Utc), StateMatrix.AnswerRecordedAt("codex", [echo, answer], since, "Q1"));
+    }
+
     [Fact]
     public void LongTool_NamesTheSleepTheMidTurnCellWaitsFor()
     {

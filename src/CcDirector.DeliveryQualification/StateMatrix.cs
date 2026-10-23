@@ -242,9 +242,16 @@ public static class StateMatrix
         return times.Count == 0 ? null : times.Min();
     }
 
-    /// <summary>When the agent's ANSWER was recorded: the latest non-user record holding "ACK token".</summary>
+    /// <summary>When the agent's ANSWER was recorded: the latest record holding "ACK token" that is neither a user turn nor
+    /// a copy of the prompt (<see cref="AgentRecords.IsCopyOfPrompt"/>) - the prompt asks for those very words, and Codex
+    /// echoes it at once, so without that test the echo read as an answer given before the agent had started.</summary>
     internal static DateTime? AnswerRecordedAt(string agent, DateTime sinceUtc, string token) =>
-        RecordTimes(AgentRecords.RecentLines(agent, sinceUtc), sinceUtc, $"ACK {token}", root => !AgentRecords.IsUserTurn(agent, root)).DefaultIfEmpty().Max() is var t && t != default ? t : null;
+        AnswerRecordedAt(agent, AgentRecords.RecentLines(agent, sinceUtc), sinceUtc, token);
+
+    /// <summary>The answer's time among <paramref name="lines"/>. Pure, so it is tested on recorded lines.</summary>
+    internal static DateTime? AnswerRecordedAt(string agent, IEnumerable<string> lines, DateTime sinceUtc, string token) =>
+        RecordTimes(lines, sinceUtc, $"ACK {token}", root => !AgentRecords.IsUserTurn(agent, root) && !AgentRecords.IsCopyOfPrompt(root))
+            .DefaultIfEmpty().Max() is var t && t != default ? t : null;
 
     /// <summary>When the agent's ASK was recorded: the earliest TOOL CALL (<see cref="AgentRecords.IsToolCall"/>) that holds
     /// the token - the approval's command names it - or, for the question menu, the AskUserQuestion call. Only a tool call

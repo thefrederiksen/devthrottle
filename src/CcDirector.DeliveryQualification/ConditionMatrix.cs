@@ -322,7 +322,7 @@ public static class ConditionMatrix
         await Task.Delay(TimeSpan.FromSeconds(8));
         var turn = AgentRecords.UserTurnText(c.Agent, sentAt, token);
         var firstTruth = turn is not null ? AgentMatrix.Verdict(c.Agent, body, AgentRecords.Check(c.Agent, sentAt, body, c.Repos), turn).Truth
-            : AgentRecords.RecentLines(c.Agent, sentAt).Any(l => l.Contains(token, StringComparison.Ordinal)) ? "ANSWERED-MENU" : "LOST";
+            : AgentRecords.RecentLines(c.Agent, sentAt).Any(l => l.Contains(token, StringComparison.Ordinal) && !IsCopy(l)) ? "ANSWERED-MENU" : "LOST";
 
         // Close the menu if it is still open, as the owner would, and wait for the agent to settle.
         if (DoorbellSafety.ReadComposer(c.Kind, c.Session.SnapshotLiveFrame()) is ComposerReading.MenuOpen or ComposerReading.NotFound)
@@ -430,6 +430,12 @@ public static class ConditionMatrix
             await Task.Delay(1000);
         }
         return AgentMatrix.Verdict(c.Agent, body, verdict, turn);
+    }
+
+    private static bool IsCopy(string line)
+    {
+        try { using var doc = JsonDocument.Parse(line); return AgentRecords.IsCopyOfPrompt(doc.RootElement); }
+        catch (JsonException) { return true; }
     }
 
     private static bool ScreenHolds(Session s, string token) => s.SnapshotScreenRows().Any(r => r.Contains(token, StringComparison.Ordinal));

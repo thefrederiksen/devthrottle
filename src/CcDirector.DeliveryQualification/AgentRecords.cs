@@ -152,6 +152,24 @@ public static class AgentRecords
         };
     }
 
+    /// <summary>
+    /// A record that only COPIES a prompt the agent records elsewhere, and so is never its turn, its answer or its ask:
+    ///  - Claude Code's queue-operation (the prompt queued), api-request-blob (the request it sent the model, written
+    ///    BEFORE the queued prompt's own record and holding it inside a reminder - measured on 2.1.309, 23 October 2026)
+    ///    and last-prompt;
+    ///  - Codex's item_completed event for a UserMessage, which echoes the prompt.
+    /// </summary>
+    internal static bool IsCopyOfPrompt(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("type", out var t) || t.ValueKind != JsonValueKind.String) return false;
+        var type = t.GetString();
+        if (type is "queue-operation" or "api-request-blob" or "last-prompt") return true;
+        return type == "event_msg" && root.TryGetProperty("payload", out var p) && p.ValueKind == JsonValueKind.Object
+               && p.TryGetProperty("type", out var pt) && pt.ValueKind == JsonValueKind.String && pt.GetString() == "item_completed"
+               && p.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object
+               && item.TryGetProperty("type", out var it) && it.ValueKind == JsonValueKind.String && it.GetString() == "UserMessage";
+    }
+
     /// <summary>Claude Code's record of a prompt typed while it worked: an attachment of type queued_command in prompt mode.</summary>
     private static bool IsQueuedPrompt(JsonElement root) =>
         root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "attachment"
@@ -401,11 +419,10 @@ public static class AgentRecords
             try
             {
                 using var doc = JsonDocument.Parse(chunk);
-                // A queue record repeats the prompt Claude Code also writes as a user line; reading both would
-                // hide nothing but would make a doubled prompt harder to see, so it is skipped.
-                if (doc.RootElement.ValueKind == JsonValueKind.Object
-                    && doc.RootElement.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
-                    && t.GetString() == "queue-operation")
+                // A COPY of the prompt is not the agent's record of it (IsCopyOfPrompt): reading one would hide nothing
+                // but would make a doubled prompt harder to see - and a copy that wraps the prompt in other text, like
+                // Claude Code's api-request-blob, reads as the prompt welded onto that text.
+                if (IsCopyOfPrompt(doc.RootElement))
                     continue;
                 Collect(doc.RootElement, result);
             }
