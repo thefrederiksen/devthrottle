@@ -5446,8 +5446,10 @@ def factory_attach_remove(
     attachment_id: str = typer.Option(..., "--id", help="The attachment's id, as list shows it."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the removed attachment as JSON."),
 ) -> None:
-    """Remove one file the factory no longer needs. Its bytes are deleted and stop counting against the cap; its record
-    stays, marked removed, so a journal entry that named it still says what it was.
+    """Remove one file the factory no longer needs.
+
+    Its bytes are deleted and stop counting against the cap; its record stays, marked removed, so a journal entry
+    that named it still says what it was.
     """
     factory_record_ops.attach_remove(factory, attachment_id, json_output)
 
