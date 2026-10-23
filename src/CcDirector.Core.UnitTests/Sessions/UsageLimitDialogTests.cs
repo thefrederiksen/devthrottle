@@ -586,6 +586,40 @@ public sealed class UsageLimitDialogTests
         Assert.False(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Voice(InputSurface.Cockpit)));
         Assert.True(UsageLimitInputGuard.IsAPersonAtTheTerminal(InputOrigin.DesktopTyped));
         Assert.False(UsageLimitInputGuard.IsAPersonAtTheTerminal(null));
+        Assert.True(UsageLimitInputGuard.IsAPersonAtTheTerminal(null, SubmissionRoutes.GatewayTerminal));
+        Assert.False(UsageLimitInputGuard.IsAPersonAtTheTerminal(null, SubmissionRoutes.GatewayPrompt));
+    }
+
+    /// <summary>
+    /// Review of pull request 4394, finding 1: a key typed into a live browser terminal is a person typing at a terminal
+    /// they can see, like the desktop's - so Enter reaches the dialog, and the answer is written, not refused.
+    /// </summary>
+    [Fact]
+    public void SendInput_BrowserTerminalKeyWhileTheDialogShows_IsWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, null,
+            SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayTerminal));
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
+    }
+
+    [Fact]
+    public void SendInput_PromptTextWithoutEnterWhileTheDialogShows_IsStillRefused()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x32 }, InputOrigin.Typed(InputSurface.Cockpit),
+            SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt));
+
+        Assert.Equal(InputAnswerKind.Refused, answer.Kind);
+        Assert.Empty(backend.Writes);
     }
 
     [Fact]

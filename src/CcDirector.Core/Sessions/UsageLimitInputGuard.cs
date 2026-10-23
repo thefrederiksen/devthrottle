@@ -55,11 +55,15 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
         "highlighted option, one of which turns on paid extra usage. Close it with Escape, then send again";
 
     /// <summary>
-    /// A person at the terminal: input typed - or pasted - into the desktop terminal itself, which can see the dialog.
-    /// Its keys pass the dialog (<see cref="PersonAtTheTerminal"/>).
+    /// A person at a terminal, whose keys pass the dialog (<see cref="PersonAtTheTerminal"/>): input typed - or pasted -
+    /// into the desktop terminal itself, or keys from a live browser terminal, which arrive by the Gateway's terminal
+    /// route (<see cref="SubmissionRoutes.GatewayTerminal"/>). Both show the person the screen the dialog is on, so both
+    /// are a person typing keys, not a prompt (review of pull request 4394, finding 1; the owner's decision 8). Phone and
+    /// Cockpit PROMPTS are the open question and stay behind <see cref="PhoneAndCockpitPromptsPassTheDialog"/>.
     /// </summary>
-    internal static bool IsAPersonAtTheTerminal(InputOrigin? origin) =>
-        origin is { Modality: InputModality.Typed, Surface: InputSurface.Desktop };
+    internal static bool IsAPersonAtTheTerminal(InputOrigin? origin, string? route = null) =>
+        origin is { Modality: InputModality.Typed, Surface: InputSurface.Desktop }
+        || route == SubmissionRoutes.GatewayTerminal;
 
     /// <summary>Whether a prompt from <paramref name="origin"/> passes the dialog: one from the phone or the Cockpit, and
     /// only while <see cref="PhoneAndCockpitPromptsPassTheDialog"/> is on.</summary>

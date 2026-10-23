@@ -152,22 +152,53 @@ public sealed class TunnelStreamLegsTests
     };
 
     /// <summary>
-    /// Issue #4380: with Claude Code's usage-limit dialog showing, a keystroke from the browser's terminal is dropped by
-    /// the Director's input guard - and the browser used to hear nothing at all. It now gets a refused frame with the
-    /// reason. Driven through the real keystroke pump into the Director's real terminal-input verb and a real session.
+    /// Issue #4380: a keystroke the Director refuses gets a refused frame with the reason - the browser used to hear
+    /// nothing at all. Driven through the real keystroke pump into the Director's real terminal-input verb, for a session
+    /// that has ended.
     /// </summary>
     [Fact]
-    public async Task Terminal_leg_keystroke_refused_on_the_usage_limit_dialog_gets_a_refused_frame()
+    public async Task Terminal_leg_keystroke_the_director_refuses_gets_a_refused_frame()
     {
         var (session, terminal) = ScriptedTerminal.NewWaitingSession();
-        terminal.Buffer!.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H" + string.Join("\r\n", UsageLimitDialogRows)));
         var sessions = new Core.Sessions.SessionManager(new Core.Configuration.AgentOptions());
         sessions.AdoptSession(session);
-        var registry = new GatewayStreamRegistry();
+        session.Dispose();
         DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
             ? Task.FromResult<DirectorCommandResult?>(ControlApi.SessionWriteExecutor.TerminalInput(sessions, c))
             : Ok();
-        var legs = new TunnelStreamLegs(registry, send);
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
+        var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
+        stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("x"));
+
+        try
+        {
+            await legs.ServeTerminalAsync(NewWebSocketContext(stub), session.Id.ToString(), TenantId.Local, "dir1");
+        }
+        finally { sessions.Dispose(); }
+
+        var refused = Assert.Single(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Contains("nothing was typed", JsonDocument.Parse(refused).RootElement.GetProperty("reason").GetString());
+        Assert.Empty(terminal.Writes);
+    }
+
+    /// <summary>
+    /// Review of pull request 4394, finding 1: a key typed into the live browser terminal while Claude Code's usage-limit
+    /// dialog shows is a person typing at a terminal they can see, as at the desktop - it reaches the dialog, and no
+    /// refused frame is sent. (Issue #4380's first wording expected a refused frame here; decision 8 and this review
+    /// overrule it.)
+    /// </summary>
+    [Fact]
+    public async Task Terminal_leg_keystroke_on_the_usage_limit_dialog_reaches_it_as_a_persons_key()
+    {
+        var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        terminal.Buffer!.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H" + string.Join("\r\n", UsageLimitDialogRows)));
+        Assert.True(session.UsageLimitDialogMayShow());
+        var sessions = new Core.Sessions.SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
+            ? Task.FromResult<DirectorCommandResult?>(ControlApi.SessionWriteExecutor.TerminalInput(sessions, c))
+            : Ok();
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
         var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
         stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("1\r"));
 
@@ -177,9 +208,8 @@ public sealed class TunnelStreamLegsTests
         }
         finally { sessions.Dispose(); }
 
-        var refused = Assert.Single(stub.SentText, t => t.Contains("\"type\":\"refused\""));
-        Assert.Contains("usage-limit dialog", JsonDocument.Parse(refused).RootElement.GetProperty("reason").GetString());
-        Assert.Empty(terminal.Writes);
+        Assert.DoesNotContain(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Equal(new[] { "1\r" }, terminal.Writes);
     }
 
     [Fact]
