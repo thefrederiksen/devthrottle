@@ -1095,6 +1095,37 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
         }
     }
 
+    /// <summary>
+    /// A factory's check inputs, for one run of one of its checks (<see cref="Triggers.IFactoryCheckSource"/>). A refusal
+    /// or a failure to reach the Gateway comes back as the reason, never as an empty set: a check that was not handed
+    /// its inputs must fail, not decide from nothing.
+    /// </summary>
+    public async Task<Triggers.FactoryCheckFetch> FetchCheckInputsAsync(string directorId, string factory, int version, CancellationToken ct)
+    {
+        FileLog.Write($"[GatewayClient] FetchCheckInputsAsync: factory={factory}, version={version}");
+        if (!_config.IsEnabled) return Triggers.FactoryCheckFetch.Refused("no Gateway is configured");
+        try
+        {
+            using var resp = await _http.GetAsync(
+                $"directors/{Uri.EscapeDataString(directorId)}/factory-check-inputs/{Uri.EscapeDataString(factory)}/{version}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return Triggers.FactoryCheckFetch.Refused($"HTTP {(int)resp.StatusCode}: {RefusalSentence(body)}");
+            }
+            var answer = await resp.Content.ReadFromJsonAsync<FactoryCheckInputsResponse>(ct);
+            if (answer?.Inputs is null)
+                return Triggers.FactoryCheckFetch.Refused("the Gateway answered with no inputs");
+            FileLog.Write($"[GatewayClient] FetchCheckInputsAsync: factory={factory}, version={version}, inputs={answer.Inputs.Count}");
+            return new Triggers.FactoryCheckFetch(answer.Inputs, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] FetchCheckInputsAsync FAILED: factory={factory}, version={version}, {ex.Message}");
+            return Triggers.FactoryCheckFetch.Refused(ex.Message);
+        }
+    }
+
     /// <summary>The <c>error</c> sentence of a refusal body, or the body itself cut short.</summary>
     private static string RefusalSentence(string body)
     {

@@ -62,7 +62,8 @@ public sealed class BackupMachinesThroughTheRoutesTests : IDisposable
         var jobs = new CronJobStore(_db, _h.LegacyPath("jobs.json"));
         var runs = new CronRunHistoryStore(_db, _h.LegacyPath("runs.json"));
 
-        FactoryCheckEndpoints.Map(_routes, _ => T, directorMachine: (_, id) => Directors.GetValueOrDefault(id), _publish.Store);
+        FactoryCheckEndpoints.Map(_routes, _ => T, directorMachine: (_, id) => Directors.GetValueOrDefault(id), _publish.Store,
+            new CcDirector.Gateway.Factory.Records.FactoryDocumentStore(_db));
         var service = new TriggerService(_triggers, new FactoryActivityRecord(_db),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no session is started in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,

@@ -2253,6 +2253,29 @@ it with 'cc-devthrottle factory check-state show'; ask the owner to reset it.` a
 The routes are `GET /factory-definitions/{factory}/check-state` and
 `POST /factory-definitions/{factory}/check-state/reset` with `{"ownerKey": "trigger:<id>"}`.
 
+### Factory check inputs
+
+How what a factory's seats keep on the Gateway reaches its checks. A check runs on the Director with no Gateway
+key, so it cannot call `factory doc get`. Instead, every working document of the factory whose name begins
+`check-inputs/` is handed to every check of that factory, read only, as a file in the folder named by
+`CC_CHECK_INPUTS_DIR`, under the rest of its name: the document `check-inputs/chain.json` is the file
+`$CC_CHECK_INPUTS_DIR/chain.json`. Nothing else of the factory's records reaches a check.
+
+A seat keeps an input current the way it keeps any working document:
+
+```
+cc-devthrottle factory doc write --factory dev-sales --name check-inputs/chain.json --file chain.json --expected-version 4
+```
+
+The Director fetches the inputs on every run of every check, so a check always decides from what the seats wrote
+last. The folder exists, empty, when the factory keeps none. Inputs that cannot be fetched are a start error with the
+reason, never an empty folder: a check never decides from nothing. All of a factory's inputs together may take at
+most 512 KB; above that the Gateway hands none and the check fails with
+`the check inputs of <factory> take <n> bytes together, and a check is handed at most 524288; make the documents under check-inputs/ smaller`.
+
+The Director's route is `GET /directors/{directorId}/factory-check-inputs/{factory}/{version}`, refused exactly as
+the check download is: only a published version, and only to a Director whose machine has a seat of the factory.
+
 ### Run
 
 How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with

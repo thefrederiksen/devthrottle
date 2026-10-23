@@ -274,6 +274,30 @@ public static class TriggerCheckLimits
     /// byte), plus room for the other fields.
     /// </summary>
     public const long ReportBodyLimitBytes = (2L * OutputCap + StateCapBytes) * 6 + 64 * 1024;
+
+    /// <summary>
+    /// The name every CHECK INPUT starts with: a working document of the factory's records whose name begins
+    /// <c>check-inputs/</c> is handed to every check of that factory, read only, in the folder named by
+    /// <c>CC_CHECK_INPUTS_DIR</c>, under the rest of its name. A check runs with no Gateway key, so this is how what a
+    /// factory's seats keep on the Gateway reaches its checks - and nothing else of the records does.
+    /// </summary>
+    public const string CheckInputsPrefix = "check-inputs/";
+
+    /// <summary>The most all of a factory's check inputs may take together, in UTF-8 bytes. Above it the Gateway hands
+    /// none, and the check fails with the reason: a check is a quick reader, and a factory that needs more gives it a
+    /// smaller document.</summary>
+    public const int MaxCheckInputsBytes = 512 * 1024;
+}
+
+/// <summary>
+/// The answer to <c>GET /directors/{directorId}/factory-check-inputs/{factory}/{version}</c>: the factory's check
+/// inputs as they stand, keyed by the name after <see cref="TriggerCheckLimits.CheckInputsPrefix"/>
+/// (<c>check-inputs/chain.json</c> is <c>chain.json</c>). Empty when the factory keeps none.
+/// </summary>
+public sealed class FactoryCheckInputsResponse
+{
+    public string Factory { get; set; } = "";
+    public Dictionary<string, string> Inputs { get; set; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
