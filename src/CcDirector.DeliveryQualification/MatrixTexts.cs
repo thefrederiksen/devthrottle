@@ -64,6 +64,7 @@ public static class MatrixTexts
         new("cjk", t => $"Token {t}. \u65e5\u672c\u8a9e\u306e\u30c6\u30ad\u30b9\u30c8, \u4e2d\u6587, \ud55c\uad6d\uc5b4. {Ask(t)}"),
         new("rtl", t => $"Token {t}. \u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd and \u0645\u0631\u062d\u0628\u0627. {Ask(t)}"),
         new("tabs", t => $"Token {t}.\tcolumn\tcolumn\tcolumn. {Ask(t)}"),
+        new("edge-spaces", t => $"   Token {t}, with spaces before and after. {Ask(t)}   "),
         new("multiline-lf", t => Lines(t, "\n", 4)),
         new("multiline-crlf", t => Lines(t, "\r\n", 4)),
         new("blank-lines", t => $"Token {t}, first paragraph.\n\nSecond paragraph, after a blank line.\n\n\n{Ask(t)}"),

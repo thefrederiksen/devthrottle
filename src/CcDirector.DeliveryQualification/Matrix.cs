@@ -28,7 +28,9 @@ public static class Routes
         var multi = text.Contains('\n') || text.Contains('\r');
         return route switch
         {
-            "desktop-type" => !multi && text.Length <= TypedLimit,
+            // A person cannot TYPE a tab into a composer - the Tab key completes or switches a mode - so a text with a
+            // tab is pasted or sent, never typed.
+            "desktop-type" => !multi && !text.Contains('\t') && text.Length <= TypedLimit,
             "desktop-newline" => multi && text.Length <= TypedLimit,
             "desktop-paste" or "prompt" => true,
             _ => throw new ArgumentException($"Unknown route '{route}'. Routes: {string.Join(", ", All)}"),

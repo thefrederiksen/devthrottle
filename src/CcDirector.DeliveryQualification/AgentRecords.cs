@@ -170,7 +170,9 @@ public static class AgentRecords
                     if (!IsUserTurn(agent, doc.RootElement)) continue;
                     var text = TurnText(agent, doc.RootElement);
                     if (text is not null && text.Contains(token, StringComparison.Ordinal))
-                        return PasteWrapper.Replace(text.Trim(), "").Trim();
+                        // Only the agent's paste wrapper is removed - never surrounding whitespace, which a route may
+                        // have lost (review of #4390, finding 3).
+                        return StripPasteWrapper(text);
                 }
                 catch (JsonException) { }
             }
@@ -189,6 +191,13 @@ public static class AgentRecords
             foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
                 if (!string.IsNullOrWhiteSpace(line)) yield return line;
         }
+    }
+
+    /// <summary>The text inside the agent's paste wrapper when the whole record is one, else the record unchanged.</summary>
+    internal static string StripPasteWrapper(string text)
+    {
+        var m = Regex.Match(text, @"^<pasted_content id=""[^""]*"">(?<body>[\s\S]*)</pasted_content(?: id=""[^""]*"")?>$", RegexOptions.CultureInvariant);
+        return m.Success ? m.Groups["body"].Value : text;
     }
 
     /// <summary>The prompt text of one user-turn record: Claude Code's message content, Codex's user message, Pi's

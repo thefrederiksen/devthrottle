@@ -7,7 +7,7 @@ namespace CcDirector.DeliveryQualification;
 /// What the echo agent received for one send, read the way a composer reads it.
 /// </summary>
 /// <param name="Verdict">EXACT, ALTERED, SPLIT (an Enter before the text ended, so the agent would submit it in
-/// pieces), NOT-SUBMITTED (no Enter at all), VIA-FILE (a file reference or file instruction instead of the text), or
+/// pieces), EXTRA-SUBMIT (whole, but followed by more Enters), NOT-SUBMITTED (no Enter at all), VIA-FILE (a file reference or file instruction instead of the text), or
 /// NOTHING (no bytes arrived).</param>
 /// <param name="Received">The text the composer would hold at the first Enter.</param>
 /// <param name="Framed">The text arrived inside a bracketed paste.</param>
@@ -44,8 +44,10 @@ public static class EchoAnalysis
             return new("VIA-FILE", submitted, framed, enters, reads.Count, ms, "a file reference or file instruction was typed instead of the text");
         if (enters == 0)
             return new("NOT-SUBMITTED", got, framed, enters, reads.Count, ms, "no Enter arrived outside a paste");
+        if (got == want && enters > 1)
+            return new("EXTRA-SUBMIT", got, framed, enters, reads.Count, ms, $"the text arrived whole, then {enters - 1} more Enter(s) - more than one submit");
         if (got == want)
-            return new("EXACT", got, framed, enters, reads.Count, ms, enters > 1 ? $"{enters} Enters" : "");
+            return new("EXACT", got, framed, enters, reads.Count, ms, "");
         if (want.StartsWith(got, StringComparison.Ordinal))
             return new("SPLIT", got, framed, enters, reads.Count, ms,
                 $"Enter arrived after {got.Length} of {want.Length} characters, so the rest would be a second prompt");
@@ -103,6 +105,11 @@ public static class EchoAnalysis
                     break;
                 case 0x0A:
                     text.Append('\n');
+                    break;
+                case 0x09 when inPaste:
+                    // Inside a paste a tab is text. Outside one it is the Tab key, which a composer does not insert (it
+                    // completes, cycles a mode or queues), so it is left out and the comparison shows it lost.
+                    text.Append('\t');
                     break;
                 case 0x0D:
                     enters++;

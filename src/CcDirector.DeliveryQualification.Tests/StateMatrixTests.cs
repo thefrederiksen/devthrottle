@@ -55,6 +55,16 @@ public sealed class StateMatrixTests
     }
 
     [Fact]
+    public void Judge_WaitingShownJustBeforeTheTrueEnd_IsStillFalseWaiting()
+    {
+        // The reviewer's case: Working until 4.5 s, waiting from 4.75 s, true end at 5.0 s.
+        var r = StateMatrix.Judge("claude", Turn, 5.0, Samples((0, ActivityState.WaitingForInput), (0.5, ActivityState.Working), (4.75, ActivityState.WaitingForInput)), "");
+
+        Assert.False(r.Pass);
+        Assert.True(r.FalseWaiting > 0);
+    }
+
+    [Fact]
     public void Judge_TheWaitingStateFromBeforeTheSend_IsNotTheAnswerToIt()
     {
         // Never left WaitingForInput: it must not be read as having shown Working, nor as a prompt switch to waiting

@@ -47,6 +47,37 @@ public sealed class ParityMatrixTests
     }
 
     [Fact]
+    public void Analyze_ATabInsideAPaste_IsText_ButAnUnframedTabIsTheTabKey()
+    {
+        Assert.Equal("EXACT", EchoAnalysis.Analyze(Reads("\u001b[200~a\tb\u001b[201~", "\r"), "a\tb").Verdict);
+        Assert.Equal("ALTERED", EchoAnalysis.Analyze(Reads("a\tb", "\r"), "a\tb").Verdict);
+    }
+
+    [Fact]
+    public void Routes_ATextWithATab_IsNeverTyped()
+    {
+        Assert.False(Routes.AppliesTo("desktop-type", "a\tb"));
+        Assert.True(Routes.AppliesTo("desktop-paste", "a\tb"));
+    }
+
+    [Fact]
+    public void Analyze_TheWholeTextThenASecondEnter_IsNotAPass()
+    {
+        var v = EchoAnalysis.Analyze(Reads("expected", "\r\r"), "expected");
+
+        Assert.Equal("EXTRA-SUBMIT", v.Verdict);
+        Assert.False(v.Pass);
+    }
+
+    [Theory]
+    [InlineData("  spaced  ", "  spaced  ")]
+    [InlineData("<pasted_content id=\"1\">  body\n</pasted_content>", "  body\n")]
+    public void StripPasteWrapper_KeepsBoundaryWhitespace(string record, string expected)
+    {
+        Assert.Equal(expected, AgentRecords.StripPasteWrapper(record));
+    }
+
+    [Fact]
     public void Analyze_NoEnter_IsNotSubmitted()
     {
         Assert.Equal("NOT-SUBMITTED", EchoAnalysis.Analyze(Reads("typed but never sent"), "typed but never sent").Verdict);

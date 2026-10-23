@@ -180,7 +180,9 @@ public static class StateMatrix
         var falseWaiting = 0.0;
         if (c.Kind != "menu")
             for (var i = 1; i < samples.Count; i++)
-                if (samples[i].At > Tolerance && samples[i].At < trueWaitAt - 0.5 && Waiting(samples[i].State))
+                // Every waiting sample from the end of the start tolerance up to the true moment counts: the mission's
+                // target is zero false waiting, so no margin is taken before the truth (review of #4390, finding 2).
+                if (samples[i].At > Tolerance && samples[i].At < trueWaitAt && Waiting(samples[i].State))
                     falseWaiting += samples[i].At - samples[i - 1].At;
         var firstWaiting = samples.FirstOrDefault(s => s.At >= trueWaitAt && Waiting(s.State));
         double? toWaiting = Waiting(firstWaiting.State) && firstWaiting.At >= trueWaitAt ? Math.Round(firstWaiting.At - trueWaitAt, 2) : null;
