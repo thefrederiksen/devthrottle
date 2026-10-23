@@ -54,6 +54,9 @@ public sealed class SessionTurnStore
     /// <summary>How many ordinals one page of the contiguous-watermark scan reads.</summary>
     private const int WatermarkPage = 1000;
 
+    /// <summary>How many expired sessions one retention delete names.</summary>
+    private const int PurgeChunk = 500;
+
     private readonly Func<DateTime> _utcNow;
 
     /// <param name="utcNow">The clock a held conversation's idleness is measured on; the system clock when omitted.</param>
@@ -519,14 +522,29 @@ public sealed class SessionTurnStore
         {
             using var ctx = _db.CreateContext();
             using var tx = ctx.Database.BeginTransaction();
-            // Heads first, and conditionally on the timestamp that makes them expired: a push that refreshed a
-            // head between our read and our delete keeps its head, and therefore keeps its turns below.
-            var heads = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).ExecuteDelete();
-            // Turns of sessions that now have NO head at all - whole sessions, never a prefix. Then the aged
-            // rows of generations a live session has left; the current generation is never touched here.
-            var turns = ctx.SessionTurns
-                .Where(t => !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId))
-                .ExecuteDelete();
+            // The expired sessions, found on the head's own index. Their heads go first, and conditionally on the
+            // timestamp that makes them expired: a push that refreshed a head between our read and our delete
+            // keeps its head, and therefore keeps its turns below.
+            var expired = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).Select(h => h.SessionId).ToList();
+            var heads = 0;
+            var turns = 0;
+            // Lists, not arrays: inside a query an array's Contains binds to the span overload, which the query cannot run.
+            foreach (var chunk in expired.Chunk(PurgeChunk).Select(c => c.ToList()))
+            {
+                heads += ctx.SessionTurnHeads.Where(h => chunk.Contains(h.SessionId) && h.UpdatedAtUtc < cutoff).ExecuteDelete();
+                // Turns of those sessions that now have NO head at all - whole sessions, never a prefix.
+                //
+                // Issue #4391: only THOSE sessions. This used to delete every turn row with no head, which is a scan
+                // of every conversation row the account holds, run every two minutes inside the store's one lock. On
+                // 23 October that scan took 39.5 seconds for the largest account (1.6 million rows) and found none,
+                // and every Chat read and every push waited behind it. A turn row with no head cannot otherwise
+                // exist: a head is written with its first rows, and only this method removes one, in the same
+                // transaction as its rows.
+                turns += ctx.SessionTurns
+                    .Where(t => chunk.Contains(t.SessionId) && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId))
+                    .ExecuteDelete();
+            }
+            // Then the aged rows of generations a live session has left; the current generation is never touched here.
             turns += ctx.SessionTurns
                 .Where(t => t.ReceivedAtUtc < cutoff
                             && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId && h.Generation == t.Generation))
