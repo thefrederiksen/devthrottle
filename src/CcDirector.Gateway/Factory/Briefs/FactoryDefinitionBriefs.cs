@@ -193,8 +193,6 @@ public sealed record DefinedSeatBrief(FactoryDefinitionVersionSummary Version, s
         WrittenAtUtc = Version.WrittenAtUtc,
         PublishedAtUtc = Version.PublishedAtUtc,
         PublishedBy = Version.PublishedBy,
-        PublishedByKind = Version.PublishedByKind,
-        PublishedByName = Version.PublishedByName,
     };
 }
 
