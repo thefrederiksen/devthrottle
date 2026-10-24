@@ -130,6 +130,14 @@ public class AnsiParserMouseModeTests
     }
 
     [Fact]
+    public void Finding5_EncodeSgr_ReleaseRetainsButtonAndUsesLowercaseM()
+    {
+        byte[] bytes = MouseReportEncoder.EncodeSgr(button: 2, col: 12, row: 5, release: true);
+
+        Assert.Equal("\x1b[<2;12;5m", Encoding.ASCII.GetString(bytes));
+    }
+
+    [Fact]
     public void EncodeX10_WheelUp_OffsetsEachValueBy32()
     {
         // ESC [ M  Cb Cx Cy  where Cb = 32 + button, Cx = 32 + col, Cy = 32 + row.
