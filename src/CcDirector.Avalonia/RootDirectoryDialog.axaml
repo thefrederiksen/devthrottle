@@ -30,7 +30,10 @@
                     BorderThickness="0" Cursor="Hand" />
         </Grid>
 
-        <TextBlock Text="Provider" Foreground="#CCCCCC" FontSize="12" Margin="0,16,0,4" />
+        <TextBlock Text="Where these repositories are hosted" Foreground="#CCCCCC" FontSize="12" Margin="0,16,0,4" />
+        <!-- Issue #4426: this read like "connect GitHub" and is only a label. Signing in lives in Settings > GitHub. -->
+        <TextBlock x:Name="ProviderHint" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
+                   Text="A label only - it does not sign in to anything. To sign in to GitHub, use Settings > GitHub." />
         <ComboBox x:Name="ProviderCombo"
                   Background="#1E1E1E" Foreground="#CCCCCC"
                   BorderBrush="#3C3C3C" BorderThickness="1"

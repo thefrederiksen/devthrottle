@@ -132,16 +132,15 @@ features:
       - src/CcDirector.Avalonia/Controls/BrowserSettingsView.axaml
     summary: Drivable, signed-in-once automation browsers - a pinned rail group with status dots and one-click Start / Sign in / Attach, plus a Settings tab to create, sign in, rename, and remove them. Agents attach through Browser Harness.
 
-  - id: clone-repo
-    title: Clone Repository
+  - id: github-setup
+    title: GitHub setup
     category: source-control
     status: implemented
-    screen: dialog
+    screen: panel
     source:
-      - src/CcDirector.Avalonia/CloneRepoDialog.axaml
-      - src/CcDirector.Avalonia/GitHubRepoPickerDialog.axaml
-    screenshot: clone-repo.png
-    summary: Clone from a URL or browse GitHub repositories to clone and open.
+      - src/CcDirector.Avalonia/Controls/GitHubSetupPanel.cs
+      - src/CcDirector.Core/Setup/GitHubSetup.cs
+    summary: Detects git and the GitHub command line (gh), installs what is missing, and signs gh in - in Settings > GitHub, the first-run wizard's GitHub step, and the Home GitHub row.
 
   # --- Built-in panels ----------------------------------------------------
   - id: home-view

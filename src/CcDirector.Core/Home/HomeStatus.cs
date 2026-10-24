@@ -28,6 +28,9 @@ public enum HomeCheckAction
     /// The Home tools row uses this so its "Fix it" button actually fixes the problem in one click.
     /// </summary>
     RepairTools,
+
+    /// <summary>Open Settings on the GitHub tab, where git and gh are installed and gh is signed in (issue #4426).</summary>
+    SetUpGitHub,
 }
 
 /// <summary>One row in the home page's system-status / readiness card.</summary>
@@ -86,6 +89,9 @@ public static class HomeStatusBuilder
     /// </summary>
     public const string SessionsRowTitle = "Sessions";
 
+    /// <summary>Whether this machine can work with GitHub: git, the GitHub command line, and its sign-in (issue #4426).</summary>
+    public const string GitHubRowTitle = "GitHub";
+
     public static HomeStatus Build(
         IReadOnlyList<AgentCliFact> agentClis,
         int toolsBuilt,
@@ -94,7 +100,8 @@ public static class HomeStatusBuilder
         Tools.ToolHealthSummary? toolHealth = null,
         bool basePythonBroken = false,
         bool toolsSetupInProgress = false,
-        Setup.FleetToolCheck? sessionReachability = null)
+        Setup.FleetToolCheck? sessionReachability = null,
+        Setup.GitHubSetupStatus? gitHub = null)
     {
         // Tool setup that is still running is progress, not a fault - it outranks every failure signal
         // below, because on first launch those signals ARE the unfinished setup. It goes red only once
@@ -129,6 +136,10 @@ public static class HomeStatusBuilder
         // earn, and must not be handed a red one either - it gets no row at all until the check has run.
         if (BuildSessions(sessionReachability) is { } sessionsCheck)
             checks.Add(sessionsCheck);
+
+        // The same rule: no row until the probe has answered, so a machine is never shown signed out before it was asked.
+        if (gitHub is not null)
+            checks.Add(BuildGitHub(gitHub));
 
         var readyCount = checks.Count(c => c.Level == HomeCheckLevel.Ok);
         var allReady = readyCount == checks.Count;
@@ -202,6 +213,21 @@ public static class HomeStatusBuilder
             _ => null,
         };
     }
+
+    /// <summary>
+    /// The GitHub row (issue #4426): green when gh is signed in, amber otherwise, with the step that is missing and a
+    /// way to fix it. Amber, not red - DevThrottle runs without GitHub - but it is not "all systems go" either, because a
+    /// trial user who could not push was never told GitHub had not been set up.
+    /// </summary>
+    private static HomeCheck BuildGitHub(Setup.GitHubSetupStatus gitHub) => gitHub.State switch
+    {
+        Setup.GitHubSetupState.SignedIn => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Ok, gitHub.Detail, HomeCheckAction.None),
+        // Signed in, not confirmed: amber with the account named, and Fix offers signing in again if it has expired.
+        Setup.GitHubSetupState.SignInUnconfirmed => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn, gitHub.Detail, HomeCheckAction.SetUpGitHub),
+        Setup.GitHubSetupState.SignedOut => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn,
+            "not signed in - sign in once so sessions can push and open pull requests", HomeCheckAction.SetUpGitHub),
+        _ => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn, gitHub.Detail, HomeCheckAction.SetUpGitHub),
+    };
 
     /// <summary>
     /// The cc-* tools row from actual test results. Green ONLY when every tool passes. Otherwise it

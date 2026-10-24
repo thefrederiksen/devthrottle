@@ -152,7 +152,7 @@ None of these is needed to install DevThrottle or to start it. They are worth ha
 |---|---|
 | **A coding agent** - Claude Code, Codex, Gemini, Copilot, Cursor, Grok, OpenCode or Pi | Your board has nothing to run. DevThrottle drives all eight; any one of them is enough. |
 | **Git** | The Director cannot read your repositories, so branch names and change counts stay blank. |
-| **GitHub CLI** (`gh`) | The repository picker, pull request lists and merged-pull-request checks are unavailable. Sign in once with `gh auth login`. |
+| **GitHub CLI** (`gh`) | Pull request lists and merged-pull-request checks are unavailable. **Settings > GitHub** installs it and signs it in. |
 | **Python 3.11+** | Only your own scripts. The `cc-*` tools bring their own Python. |
 | **Node.js 20+** | MCP servers and the browser tools. |
 
