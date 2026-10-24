@@ -785,6 +785,22 @@ public sealed class SessionWriteExecutorTests
 
     // Pin CC_DIRECTOR_ROOT into a fresh temp dir so the crash-journal folder is controlled; returns the pinned
     // root and the previous value so RestoreRoot can put it back and delete the temp tree.
+    [Theory]
+    [InlineData("3")]
+    [InlineData("5")]
+    [InlineData("up,down")]
+    public async Task Finding3_TerminalKeys_NonNamedKeyIsBadRequest(string key)
+    {
+        var (sm, session, _) = NewSession();
+        try
+        {
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-keys", session.Id.ToString(), new TerminalKeyRequest { Key = key, Shift = false, Alt = false, Control = false }));
+            Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        }
+        finally { sm.Dispose(); }
+    }
+
     private static (string root, string? prev) PinRoot()
     {
         var prev = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
