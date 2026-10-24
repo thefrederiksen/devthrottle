@@ -86,6 +86,21 @@ public sealed class SessionStateEventDropTests : IDisposable
     }
 
     [Fact]
+    public void Start_StateEventLeftByPreviousDirector_PurgesWithoutApplying()
+    {
+        var path = Drop(Event(1));
+        using var watcher = new SessionPointerWatcher(_manager, _directory)
+        {
+            SuppressWatcherForTests = true,
+        };
+
+        watcher.Start();
+
+        Assert.False(File.Exists(path));
+        Assert.Equal(ActivityState.WaitingForInput, _session.ActivityState);
+    }
+
+    [Fact]
     public void Apply_MalformedJson_RejectsAndRemovesDrop()
     {
         var path = SessionHookFiles.StateEventPathFor(_session.Id, _session.PointerDropToken, 1, _directory);

@@ -422,6 +422,11 @@ public sealed class SessionPointerWatcher : IDisposable
                 try { File.Delete(path); removed++; }
                 catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not purge {path} FAILED: {ex.Message}"); }
             }
+            foreach (var path in System.IO.Directory.EnumerateFiles(_stateDirectory, "*.state.json", SearchOption.AllDirectories))
+            {
+                try { File.Delete(path); removed++; }
+                catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not purge {path} FAILED: {ex.Message}"); }
+            }
         }
         catch (Exception ex)
         {
