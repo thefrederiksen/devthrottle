@@ -90,7 +90,8 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
             findFactory: (_, id) => _registry.Find(T, id),
             runRecords: runRecords,
             accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, factory) => _definitions.IsDefined(T, factory));
+            isDefined: (_, factory) => _definitions.IsDefined(T, factory),
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
         var engine = new CronEngine(_schedules, runs, new CountingStarter(() => _starts++), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FixedClock(Now));
         CronRunEndpoints.Map(_routes, engine, runRecords, jobById: id => _schedules.Get(id),

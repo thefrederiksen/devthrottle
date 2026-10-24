@@ -1,0 +1,186 @@
+Issue #4421 proof - a throwaway Gateway and a test Director built from this tree, on devthrottle-mac-mini (Mac)
+started 2026-10-24T20:40:02Z, finished 2026-10-24T20:40:20Z
+commit 303950c4ac3d84f83f63d57222bc7c07136295ac (a clean tree)
+result: PASS
+
+====================================================================================================
+== 1. The machine, as the Gateway knows it
+====================================================================================================
+machine: devthrottle-mac-mini
+$ GET /cron/folder-choices?machine=devthrottle-mac-mini      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devthrottle-mac-mini","os":"macos","osName":"Mac","online":true,"placeholder":"/Users/<you>/Documents/my-project","note":null,"repositories":[{"name":"alpha","path":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices name the machine's system, Mac, as its Director reported it
+CHECK PASS: the folder choices say the machine is online
+CHECK PASS: the placeholder is an example in the Mac shape
+
+====================================================================================================
+== 2. A Windows path for a Mac is refused in plain words
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "windows path" --machine devthrottle-mac-mini --repo C:\repos\project --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: 'C:\repos\project' is a Windows path, but devthrottle-mac-mini is a Mac. Use a path like /Users/<you>/Documents/project.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: schedule create refuses a Windows path for a Mac, naming the machine and its system
+$ cc-devthrottle schedule create --name "the customer's path" --machine devthrottle-mac-mini --repo \\documents\\devthrottle --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: '\\documents\\devthrottle' is a Windows path, but devthrottle-mac-mini is a Mac. Use a path like /Users/<you>/Documents/devthrottle.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: the path from the issue is refused the same way, with an example that keeps its folder name
+
+====================================================================================================
+== 3. A folder of the right shape that the machine does not have is refused
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "missing folder" --machine devthrottle-mac-mini --repo /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/elsewhere --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/elsewhere' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: schedule create refuses a missing folder, naming the machine and its system - answered by the real Director
+$ POST /cron/jobs      (raw HTTP, as the rig's person)
+  body: {"name": "a file", "scheduleKind": "recurring", "cronExpression": "0 3 1 1 *", "timeZoneId": "UTC", "target": {"machine": "devthrottle-mac-mini"}, "action": {"repoPath": "/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/notes.txt", "seed": "/help"}}
+  status: 400
+  answer: {"error":"'/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/notes.txt' on devthrottle-mac-mini is a file, not a folder. Choose the folder the session should open in."}
+CHECK PASS: a path that is a file is refused
+CHECK PASS: nothing refused was stored
+
+====================================================================================================
+== 4. A folder the machine has is saved, with no warning
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "folder that is there" --machine devthrottle-mac-mini --repo /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha --cron "0 3 1 1 *" --tz UTC --seed /help
+Created schedule.
+  Id:        cj_59d45a
+  Name:      folder that is there
+  Schedule:  cron 0 3 1 1 *
+  Next run:  2027-01-01T03:00:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:56627
+help[3]:
+  cc-devthrottle schedule get cj_59d45a
+  cc-devthrottle schedule run cj_59d45a
+  cc-devthrottle schedule disable cj_59d45a
+[exit 0]
+CHECK PASS: schedule create saves a folder the machine has, with no folder warning
+# the Director answered the folder checks - the test Director's log, lines naming ['FolderCheckExecutor']
+  2026-10-24 20:40:12.602 [FolderCheckExecutor] folder-check: cmdId=ab6e79f6c1d445008b95766b812b01df, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/elsewhere, exists=False, isDirectory=False
+  2026-10-24 20:40:12.674 [FolderCheckExecutor] folder-check: cmdId=e0cbac1381f84035b70c5cf6367ae9b9, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/notes.txt, exists=True, isDirectory=False
+  2026-10-24 20:40:12.906 [FolderCheckExecutor] folder-check: cmdId=69722e1ada5349c29aa43af83852e00e, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha, exists=True, isDirectory=True
+# the Gateway's folder checks - the throwaway Gateway's log, lines naming ['ScheduleFolderCheck']
+  2026-10-24 20:40:11.970 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devthrottle-mac-mini, path=C:\repos\project
+  2026-10-24 20:40:11.971 [ScheduleFolderCheck] devthrottle-mac-mini: REFUSED - 'C:\repos\project' is a Windows path, but devthrottle-mac-mini is a Mac. Use a path like /Users/<you>/Documents/project.
+  2026-10-24 20:40:12.282 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devthrottle-mac-mini, path=\\documents\\devthrottle
+  2026-10-24 20:40:12.282 [ScheduleFolderCheck] devthrottle-mac-mini: REFUSED - '\\documents\\devthrottle' is a Windows path, but devthrottle-mac-mini is a Mac. Use a path like /Users/<you>/Documents/devthrottle.
+  2026-10-24 20:40:12.584 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devthrottle-mac-mini, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/elsewhere
+  2026-10-24 20:40:12.617 [ScheduleFolderCheck] devthrottle-mac-mini: REFUSED - The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/elsewhere' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini.
+  2026-10-24 20:40:12.674 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devthrottle-mac-mini, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/notes.txt
+  2026-10-24 20:40:12.675 [ScheduleFolderCheck] devthrottle-mac-mini: REFUSED - '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/notes.txt' on devthrottle-mac-mini is a file, not a folder. Choose the folder the session should open in.
+  2026-10-24 20:40:12.905 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devthrottle-mac-mini, path=/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha
+  2026-10-24 20:40:12.906 [ScheduleFolderCheck] devthrottle-mac-mini: the folder /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha is there (director=111d6f13-f2a6-4cd0-ad01-ce1b531aed51)
+
+====================================================================================================
+== 5. The Schedule form's repository list for the machine
+====================================================================================================
+
+$ GET /cron/folder-choices?machine=devthrottle-mac-mini      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devthrottle-mac-mini","os":"macos","osName":"Mac","online":true,"placeholder":"/Users/<you>/Documents/my-project","note":null,"repositories":[{"name":"alpha","path":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices offer the machine's known repository
+
+====================================================================================================
+== 6. The machine goes offline
+====================================================================================================
+
+# the test Director asked to stop by its lifecycle request file
+  request: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/director-root/config/lifecycle-signals/cc-director-shutdown-111d6f13-f2a6-4cd0-ad01-ce1b531aed51.request
+  pid 78421 exited: True (exit code 0)
+$ GET /cron/folder-choices?machine=devthrottle-mac-mini      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devthrottle-mac-mini","os":"macos","osName":"Mac","online":false,"placeholder":"/Users/<you>/Documents/my-project","note":"devthrottle-mac-mini is offline, so the folder cannot be checked when you save. It is checked when the schedule first runs.","repositories":[{"name":"alpha","path":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices say the machine is offline and when the folder is checked instead
+$ cc-devthrottle schedule create --name "saved while offline" --machine devthrottle-mac-mini --repo /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone --cron "0 3 1 1 *" --tz UTC --seed /help
+Created schedule.
+  Id:        cj_eff090
+  Name:      saved while offline
+  Schedule:  cron 0 3 1 1 *
+  Next run:  2027-01-01T03:00:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:56627
+  WARNING:   devthrottle-mac-mini is offline, so the folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone' could not be checked. It is checked again when the schedule first runs.
+help[3]:
+  cc-devthrottle schedule get cj_eff090
+  cc-devthrottle schedule run cj_eff090
+  cc-devthrottle schedule disable cj_eff090
+[exit 0]
+CHECK PASS: an offline machine's schedule is saved, with a warning that its folder was not checked
+$ cc-devthrottle schedule create --name "windows path while offline" --machine devthrottle-mac-mini --repo C:\repos\project --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: 'C:\repos\project' is a Windows path, but devthrottle-mac-mini is a Mac. Use a path like /Users/<you>/Documents/project.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: a Windows path for a Mac is refused even while it is offline, from the system it last reported
+
+====================================================================================================
+== 7. The schedule saved offline first runs: its missing folder reads plainly
+====================================================================================================
+
+$ cc-devthrottle schedule run cj_eff090
+Fired the schedule.
+  Fired:   2026-10-24T20:40:17.114756Z UTC
+  Target:  111d6f13-f2a6-4cd0-ad01-ce1b531aed51
+  Session: -
+  Infra:   not-started
+  Task:    unknown
+  Ending:  did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.
+  Reason:  it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone
+help[2]:
+  cc-devthrottle schedule runs cj_eff090
+  cc-devthrottle session buffer <session-id>
+[exit 0]
+CHECK PASS: schedule run prints the plain ending, not the Director's BadRequest
+$ cc-devthrottle schedule runs cj_eff090
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)             | Fired (UTC)                 | Target                               | Session | Infra       | How it ended                                                                                                      | Task    |
+|-----------------------------+-----------------------------+--------------------------------------+---------+-------------+-------------------------------------------------------------------------------------------------------------------+---------|
+| 2026-10-24T20:40:17.058071Z | 2026-10-24T20:40:17.114756Z | 111d6f13-f2a6-4cd0-ad01-ce1b531aed51 | -       | not-started | did not start a session: The folder                                                                               | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone' does not exist on                 |         |
+|                             |                             |                                      |         |             | devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.        |         |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+CHECK PASS: schedule runs shows what was wrong and how to fix it, and not 'BadRequest'
+$ GET /cron/jobs/cj_eff090/runs      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"jobId":"cj_eff090","runs":[{"scheduledUtc":"2026-10-24T20:40:17.058071Z","firedUtc":"2026-10-24T20:40:17.114756Z","machine":"devthrottle-mac-mini","targetDirectorId":"111d6f13-f2a6-4cd0-ad01-ce1b531aed51","sessionId":null,"sessionName":"saved while offline - 2026-10-24 20:40","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"e925ba3f-800b-49e4-8c82-25f107146387","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone","resultUtc":"2026-10-24T20:40:17.114756Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null}]}
+CHECK PASS: the run table's ending text is the plain sentence the Cockpit shows
+
+====================================================================================================
+== 8. Switching off a schedule whose folder is missing always lands
+====================================================================================================
+
+$ cc-devthrottle schedule disable cj_eff090
+Disabled saved while offline (cj_eff090).
+help[2]:
+  cc-devthrottle schedule enable cj_eff090
+  cc-devthrottle schedule delete cj_eff090
+[exit 0]
+CHECK PASS: schedule disable switches off a schedule whose folder is missing
+CHECK PASS: the schedule is switched off
+$ cc-devthrottle schedule enable cj_eff090
+Error: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/projects/gone' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini.
+help[2]:
+  cc-devthrottle schedule list
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: switching it back on is refused while its folder is missing
+# the test Director asked to stop by its lifecycle request file
+  request: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4421-rig/director-root/config/lifecycle-signals/cc-director-shutdown-111d6f13-f2a6-4cd0-ad01-ce1b531aed51.request
+  pid 78626 exited: True (exit code 0)
+CHECK PASS: ~/.local/bin still points at the owner's tools

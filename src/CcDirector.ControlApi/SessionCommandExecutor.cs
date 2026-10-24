@@ -138,6 +138,8 @@ internal static class SessionCommandExecutor
         // Factory Definition, phase 5: the machine question - whether this machine holds a defined factory's seat
         // secrets and has its repositories registered, asked by the Gateway when a person publishes the definition.
         new FactoryMachineQuestionExecutor(),
+        // Issue #4421: the folder check - whether a schedule's folder is on this machine, asked when it is saved.
+        new FolderCheckExecutor(),
     };
 
     /// <summary>

@@ -1448,6 +1448,9 @@ public static class SessionKeyGuard
         if (s.Length == 2 && s[0] == "cron" && s[1] == "load") return verb is "GET" or "HEAD";
         // /cron/seat-choices - the factories and seats a schedule may be linked to (the editor's picker).
         if (s.Length == 2 && s[0] == "cron" && s[1] == "seat-choices") return verb is "GET" or "HEAD";
+        // /cron/folder-choices - one machine's known repositories and its system's folder shape (issue #4421), so an agent
+        // writing a schedule can pick a folder the machine has.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "folder-choices") return verb is "GET" or "HEAD";
         // /cron/problems - the account's scheduled-run problems (Factory Control, step 1), which a factory's boss and
         // the Factory Manager read with `run problems`.
         if (s.Length == 2 && s[0] == "cron" && s[1] == "problems") return verb is "GET" or "HEAD";
