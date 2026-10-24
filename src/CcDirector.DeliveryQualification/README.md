@@ -146,6 +146,30 @@ echo agent's Windows half is built with the Windows baseline run.
 Cost: Claude Code (Max) and Codex (ChatGPT sign-in) run on subscriptions - no bill, a small share of the allowance,
 each answer one word. Pi runs on the mindzie dev Azure Foundry, `gpt-5.6-terra`, thinking off - cents a run.
 
+### On-demand command-line interface conformance (issue #4385)
+
+`--conformance` drives each selected command-line interface through its applicable fixed states: start-up, idle,
+working, permission prompt, question menu, model picker, trust dialog and a multi-line composer. Every captured screen
+is replayed through the shipped composer, picker, model-picker and working-marker classifiers, beside the resolved
+activity state. A mismatch exits one and names every changed answer. There is no schedule, timer, dashboard or launch
+gate.
+
+    $B --conformance --agents claude,pi --args-pi "--model azure-openai-responses/gpt-5.6-terra --thinking off"
+
+Screens are first written below the run's `--out` folder. Only when every applicable state passes does the harness copy
+them to `docs/conformance-4385-2026-10-24/fixtures/passing/` and add the exact version line to the committed manifest
+`src/CcDirector.Core/Agents/cli-conformance-passed.json`. Director start-up reads that embedded manifest after its main
+window is visible and logs a warning for an installed version absent from it; sessions still launch. Codex's cases and
+expectations are present, but its real run remains pending until the owner's Codex allowance resets.
+
+A reduced fixture from the saved older Claude Code 2.1.293 model-picker shape proves changed control text fails loudly:
+
+    $B --conformance-replay docs/conformance-4385-2026-10-24/fixtures/claude-2.1.293-claude-code-model-picker.json
+
+The command exits one because that older screen says `Enter to confirm`, while the current expected answer requires the
+`enter-to-set-default` sign. Runs are on demand only. Claude Code uses the subscription. A Claude Code plus Pi run makes
+about five small Pi turns on `gpt-5.6-terra`, thinking off, and should cost only cents.
+
 ## The additions before the phase-2 runs (the mission's 11.5)
 
 **Every cell runs twice.** Each parity matrix (`--echo`, `--text-matrix`, `--state-matrix`, `--condition-matrix`) runs

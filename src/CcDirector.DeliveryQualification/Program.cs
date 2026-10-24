@@ -39,6 +39,8 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
 ///   CcDirector.DeliveryQualification --text-matrix [--routes ...] [--texts ...] [--agents claude,codex,pi] [--max-turns 240] [--cpu-load 24]   (the same to real agents, judged character for character)
 ///   CcDirector.DeliveryQualification --condition-matrix [--conditions mid-turn,owner-draft,menu-open,usage-limit] [--routes ...] [--agents ...]   (a send into a busy, drafted, menu or dialog state)
+///   CcDirector.DeliveryQualification --conformance [--agents claude,codex,pi]   (capture fixed interface states and check every screen classifier)
+///   CcDirector.DeliveryQualification --conformance-replay FILE   (check a saved versioned screen fixture against today's classifiers)
 ///   Every parity matrix runs each cell twice; --repeat N changes that.
 /// </summary>
 public static class Program
@@ -79,6 +81,8 @@ public static class Program
             return EchoAgent.Run(args[1], usageDialog: args.Skip(2).Contains("--usage-dialog"));
 
         var opts = Options.Parse(args);
+        if (opts.ConformanceReplayPath is { } conformanceFixture)
+            return Conformance.Replay(conformanceFixture);
         if (opts.Rates)
         {
             Console.WriteLine(Ledger.Rates(Ledger.Read(opts.LedgerPath)));
@@ -206,6 +210,9 @@ public static class Program
 
         if (opts.ConditionMatrix)
             return await ConditionMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.Conformance)
+            return await Conformance.RunAsync(manager, agentOptions, opts);
 
         if (opts.ScenarioNames is { } scenarioNames)
             return await RunScenariosAsync(manager, agentOptions, opts, scenarioNames);
@@ -440,6 +447,8 @@ public sealed class Options
     public bool TextMatrix { get; private set; }
     public bool StateMatrix { get; private set; }
     public bool ConditionMatrix { get; private set; }
+    public bool Conformance { get; private set; }
+    public string? ConformanceReplayPath { get; private set; }
     public IReadOnlyList<string>? ConditionNames { get; private set; }
     public IReadOnlyList<string>? StateCaseNames { get; private set; }
     public IReadOnlyList<string>? RouteNames { get; private set; }
@@ -500,6 +509,8 @@ public sealed class Options
                 case "--text-matrix": o.TextMatrix = true; break;
                 case "--state-matrix": o.StateMatrix = true; break;
                 case "--condition-matrix": o.ConditionMatrix = true; break;
+                case "--conformance": o.Conformance = true; break;
+                case "--conformance-replay": o.ConformanceReplayPath = Next(); break;
                 case "--conditions":
                     var cs = Next();
                     o.ConditionNames = cs == "all" ? Conditions.All.Select(c => c.Name).ToList() : cs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();

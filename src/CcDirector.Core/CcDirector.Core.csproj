@@ -55,6 +55,8 @@
     <!-- Tools catalog data, embedded so they are available at runtime regardless of cwd. -->
     <EmbeddedResource Include="Tools\tools-manifest.json" />
     <EmbeddedResource Include="Tools\skill-tool-overrides.json" />
+    <!-- Versions proven by the on-demand terminal conformance run. The harness is the only writer. -->
+    <EmbeddedResource Include="Agents\cli-conformance-passed.json" />
     <!-- Pi lifecycle events are implemented in Pi's own extension runtime. Embed the one shipped
          source so single-file Director builds install the exact bytes covered by the adapter tests. -->
     <EmbeddedResource Include="Pi\state-reporter.ts" />
