@@ -2174,6 +2174,19 @@ internal static partial class GatewayEndpoints
             return Results.Json(session);
         });
 
+        app.MapGet("/sessions/{sid}/events", async (HttpContext ctx, string sid) =>
+        {
+            var requestTenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (requestTenant is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await ctx.Response.WriteAsJsonAsync(new { error = "no tenant is bound to this request" },
+                    cancellationToken: ctx.RequestAborted);
+                return;
+            }
+            await SessionStateEventsEndpoint.StreamAsync(ctx, sid, requestTenant.Value, pushedSessions);
+        });
+
         // ---------------------------------------------------------------------------------------------
         // STOPPING A SESSION (mission "Stop a session"). ONE stop, ONE fold, ONE audit trail, behind TWO
         // DOORS. Everything below this comment is that one handler and the two doors onto it.

@@ -126,6 +126,9 @@ public sealed class PushedSessionStore
     /// </summary>
     public event Action<TenantId, string>? SessionsArrivedOnNewConnection;
 
+    /// <summary>Raised after an accepted snapshot or delta for each session row, outside the store lock.</summary>
+    public event Action<TenantId, SessionDto>? SessionChanged;
+
     /// <summary>
     /// Make every per-session lookup of this store answer through <paramref name="rule"/> in the tenants it governs
     /// (devthrottle_internal#2311): <see cref="TryLocate"/>, <see cref="TryLocateIgnoringFreshness"/>,
@@ -411,6 +414,8 @@ public sealed class PushedSessionStore
             FileLog.Write($"[PushedSessionStore] first snapshot of a new connection: tenant={tenant.ToLogString()}, director={directorId}, sessions={sessions.Count}");
             SessionsArrivedOnNewConnection?.Invoke(tenant, directorId);
         }
+        foreach (var session in sessions)
+            SessionChanged?.Invoke(tenant, session.Clone());
         return true;
     }
 
@@ -435,6 +440,7 @@ public sealed class PushedSessionStore
             entry.LastSequence = sequence;
             entry.ReceivedAtUtc = _utcNow();
         }
+        SessionChanged?.Invoke(tenant, session.Clone());
         return true;
     }
 
