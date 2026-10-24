@@ -1953,6 +1953,16 @@ boss" and "Latest from the boss", never a name, so thirteen factories' bosses no
 people. A factory registered before that day keeps the role word it was registered with until it is
 registered again.
 
+**A schedule's folder is checked on its machine when it is saved (issue #4421).** `schedule create`, `schedule
+enable`, `schedule link` and every save in the Cockpit's Schedule form ask the target machine's Director whether the
+schedule's folder (`--repo`) is a folder there. A folder the machine does not have is refused, naming the machine and its system, and nothing is
+stored. A Windows path (a drive letter or a backslash) for a Mac or a Linux computer is refused even when the machine
+is offline, with an example in the right shape: "'\documents\project' is a Windows path, but STUDIO_MAC is a Mac. Use a
+path like /Users/<you>/Documents/project." When the machine is offline, or its Director is too old to be asked, the
+schedule is saved and `WARNING:` says the folder was not checked. Its first run checks it again. A run that did not
+start because its folder was missing says so in `schedule runs` and `schedule run`. Switching a schedule off is never
+refused for its folder. The Cockpit's form lists the chosen machine's known repositories above the folder box.
+
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
 registered - so register the seat first, then create its schedule:

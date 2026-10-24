@@ -13,13 +13,18 @@ public sealed class CronRunRecordReader
 {
     private readonly CronRunHistoryStore _runs;
     private readonly Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> _endingsOf;
+    private readonly Func<string, string?>? _machineOsOf;
 
     /// <param name="runs">The run history.</param>
     /// <param name="endingsOf">How the given sessions ended, from the work history
     /// (<see cref="SessionHistoryStore.EndingsOf"/> in production).</param>
+    /// <param name="machineOsOf">The system a machine last reported, for the caller's account (issue #4421): a run whose
+    /// folder was missing names it. Null where no machines can be read; those words then name only the machine.</param>
     public CronRunRecordReader(CronRunHistoryStore runs,
-        Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> endingsOf)
+        Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> endingsOf,
+        Func<string, string?>? machineOsOf = null)
     {
+        _machineOsOf = machineOsOf;
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _endingsOf = endingsOf ?? throw new ArgumentNullException(nameof(endingsOf));
     }
@@ -28,7 +33,7 @@ public sealed class CronRunRecordReader
     public IReadOnlyList<CronRunRecord> RunsOf(string jobId, DateTime nowUtc)
     {
         var runs = _runs.List(jobId);
-        CronRunEndingFold.Stamp(runs, _endingsOf(SessionIdsOf(runs)), nowUtc);
+        CronRunEndingFold.Stamp(runs, _endingsOf(SessionIdsOf(runs)), nowUtc, _machineOsOf);
         return runs;
     }
 
@@ -38,7 +43,7 @@ public sealed class CronRunRecordReader
     {
         ArgumentNullException.ThrowIfNull(run);
         var one = new[] { run };
-        CronRunEndingFold.Stamp(one, _endingsOf(SessionIdsOf(one)), nowUtc);
+        CronRunEndingFold.Stamp(one, _endingsOf(SessionIdsOf(one)), nowUtc, _machineOsOf);
         return run;
     }
 

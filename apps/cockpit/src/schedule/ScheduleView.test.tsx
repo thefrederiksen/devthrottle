@@ -18,6 +18,7 @@ const cronClient = vi.hoisted(() => ({
   createCronJob: vi.fn(),
   getCronPause: vi.fn(async () => ({ paused: false, banner: null, actionLabel: "Pause everything", actionTitle: "" })),
   setCronPause: vi.fn(),
+  getFolderChoices: vi.fn(async (machine: string) => ({ machine, os: "", osName: "Unknown", online: true, placeholder: "", note: null, repositories: [] })),
   getSeatChoices: vi.fn(async () => ({ noneLabel: "No factory (Personal)", factories: [] })),
 }));
 vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
@@ -220,5 +221,38 @@ describe("Schedule page: shifts and the shift-end warning", () => {
 
     await waitFor(() => expect(cronClient.getCronRuns).toHaveBeenCalledWith("cj_own"));
     expect(screen.queryByTestId("sched-shift-warning")).toBeNull();
+  });
+});
+
+// Issue #4421: a schedule whose folder is wrong must be told apart from one whose folder is right, and a run that did
+// not start because of it must say so in the Gateway's words.
+describe("Schedule page: a schedule's folder", () => {
+  it("shows each schedule's whole folder in the list, so a bad and a good path no longer read alike", async () => {
+    cronClient.getCronJobs.mockResolvedValue([
+      job("cj_bad", "Mac sweep (bad)", { target: { machine: "STUDIO_MAC" }, action: { repoPath: "\\documents\\devthrottle", seed: "/help", workListName: null } }),
+      job("cj_good", "Mac sweep (good)", { target: { machine: "STUDIO_MAC" }, action: { repoPath: "/Users/pat/devthrottle", seed: "/help", workListName: null } }),
+    ]);
+    renderPage();
+    await screen.findByText("Mac sweep (bad)");
+
+    const folders = Array.from(document.querySelectorAll(".sched-target-repo")).map((e) => e.textContent);
+    expect(folders).toEqual(expect.arrayContaining(["\\documents\\devthrottle", "/Users/pat/devthrottle"]));
+  });
+
+  it("shows a run that did not start because its folder was missing in the Gateway's plain words", async () => {
+    const plain = "did not start a session: '\\documents\\devthrottle' is a Windows path, but STUDIO_MAC is a Mac. "
+      + "Use a path like /Users/<you>/Documents/devthrottle. Then edit the schedule.";
+    cronClient.getCronJobs.mockResolvedValue([job("cj_bad", "Mac sweep (bad)")]);
+    cronClient.getCronRuns.mockResolvedValue([
+      {
+        scheduledUtc: "2026-10-23T18:05:00Z", firedUtc: "2026-10-23T18:05:00Z", machine: "STUDIO_MAC", targetDirectorId: "d1",
+        infraStatus: "not-started", infraTone: "err", taskStatus: "unknown", ending: "no-session", endingText: plain,
+      },
+    ] as never);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Mac sweep (bad)"));
+
+    expect(await screen.findByText(plain)).toBeTruthy();
   });
 });

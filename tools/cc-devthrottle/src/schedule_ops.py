@@ -729,11 +729,14 @@ def _random_settings(
 
 
 def _write_load_warning(job: Dict[str, Any]) -> None:
-    """The Gateway's warning when a schedule just written lands in an hour over its machine's capacity. The schedule
-    is saved either way; the warning says where it is crowded and which hour is quietest."""
-    warning = job.get("loadWarning")
-    if warning:
-        axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
+    """The Gateway's warnings on a schedule just written, each in its own words: the folder could not be checked on its
+    machine (issue #4421 - offline, or a Director too old to ask), and its sessions land in an hour over the machine's
+    capacity. The schedule is saved either way. A folder the machine does not have is not a warning: the Gateway
+    refuses the save, and that refusal is printed as the error."""
+    for key in ("folderWarning", "loadWarning"):
+        warning = job.get(key)
+        if warning:
+            axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
 
 
 def show_load(machine: Optional[str], json_output: bool) -> None:
@@ -859,6 +862,11 @@ def run_now(job_id: str, json_output: bool) -> None:
         f"  Infra:   {_fmt(record.get('infraStatus'))}",
         f"  Task:    {_fmt(record.get('taskStatus'))}",
     ]
+    # How the run went, in the Gateway's words - for a run whose folder is not on its machine, what was wrong and how to
+    # fix it (issue #4421), where the reason below is the Director's own words.
+    ending = record.get("endingText")
+    if ending:
+        lines.append(f"  Ending:  {axi_cli.ascii_text(ending)}")
     # Why a run started nothing, in the Gateway's words - for a seat the Director refused, its own sentence (Factory
     # Definition, phase 5, QA finding 6). A run that started has no reason, and no line.
     reason = record.get("resultReason")

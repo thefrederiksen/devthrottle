@@ -129,7 +129,8 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         CronJobEndpoints.Map(app, _schedules, sessionFactoryOf: _history.FactoryOf,
             findFactory: (_, id) => id == TheFactory ? Registration() : null,
             runRecords: new CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, id) => defined && id == TheFactory);
+            isDefined: (_, id) => defined && id == TheFactory,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),

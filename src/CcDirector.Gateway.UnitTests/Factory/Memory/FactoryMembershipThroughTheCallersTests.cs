@@ -184,7 +184,8 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
                 ? new RegisteredFactoryDto { Factory = TheFactory, Title = "Website Factory", Seats = { new RegisteredFactorySeatDto { Id = "scout" } } }
                 : null,
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
         CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),

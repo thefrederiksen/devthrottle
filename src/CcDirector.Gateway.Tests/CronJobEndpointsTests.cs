@@ -43,7 +43,8 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             findFactory: (_, _) => null,
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(new CronRunHistoryStore(db, _storePath + ".runs.json"),
                 new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
         await _app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(_app)}";
 

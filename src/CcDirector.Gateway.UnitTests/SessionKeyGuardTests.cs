@@ -269,6 +269,8 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/cron/jobs/cj_abc/plan")]
     // The load strip and `schedule load`: each machine's next 24 hours.
     [InlineData("GET", "/cron/load")]
+    // Issue #4421: one machine's repositories and folder shape, for an agent writing a schedule.
+    [InlineData("GET", "/cron/folder-choices")]
     // Factory Control, step 1: `run result`, `run resolve` and `run problems`.
     [InlineData("POST", "/cron/runs/result")]
     [InlineData("POST", "/cron/runs/6a000000-0000-4000-8000-000000000001/resolve")]
