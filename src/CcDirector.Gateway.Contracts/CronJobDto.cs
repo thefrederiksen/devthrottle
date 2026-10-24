@@ -107,6 +107,10 @@ public sealed class CronJobDto
     /// </summary>
     public string? NotifyNote { get; set; }
 
+    /// <summary>The policy in words, for example "When a run fails" (<see cref="CronNotify.Text"/>), folded on every
+    /// read so no client words it itself. Read-only.</summary>
+    public string? NotifyText { get; set; }
+
     /// <summary>
     /// The newest run's state in words when it went wrong (issue #4436), for example "Last run failed: The folder
     /// '/Users/you/project' does not exist on studio-mac (a Mac). ..." - shown on the schedule's row without opening it.
@@ -379,6 +383,19 @@ public static class CronNotify
         }
         return Default;
     }
+
+    /// <summary>True when <paramref name="value"/> is one of <see cref="All"/>, in any case and with any surrounding space.</summary>
+    public static bool IsKnown(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && All.Any(p => string.Equals(p, value.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The policy in the words every surface shows (issue #4436): "When a run fails", "Every run, started or
+    /// failed", or "Off". Folded on the Gateway so no client words it itself.</summary>
+    public static string Text(string? policy) => Normalize(policy) switch
+    {
+        Always => "Every run, started or failed",
+        None => "Off",
+        _ => "When a run fails",
+    };
 
     /// <summary>True when a run with the given outcome should notify under the given policy.</summary>
     public static bool ShouldNotify(string? policy, bool succeeded)

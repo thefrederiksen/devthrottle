@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261024214016_AddScheduleFailureNotices")]
+    [Migration("20261024225657_AddScheduleFailureNotices")]
     partial class AddScheduleFailureNotices
     {
         /// <inheritdoc />
@@ -384,6 +384,9 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<int>("HeldBack")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("LastSentUtc")
                         .HasColumnType("TEXT");

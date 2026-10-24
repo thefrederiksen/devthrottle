@@ -31,11 +31,16 @@ public sealed class CronFailureNoticeStore
         _db = db ?? throw new ArgumentNullException(nameof(db));
     }
 
-    /// <summary>Claim the notice of one failure of <paramref name="cause"/> on schedule <paramref name="jobId"/>.</summary>
-    public CronFailureNoticeClaim Claim(TenantId tenant, string jobId, string cause, DateTime nowUtc)
+    /// <summary>
+    /// Claim the notice of one failure of <paramref name="cause"/> on schedule <paramref name="jobId"/>, recorded at
+    /// <paramref name="failureUtc"/>. A failure recorded at or before the newest one already counted is not counted
+    /// again (the issue #4436 review, finding 3: a restarted Gateway reads the last minutes of the run history again).
+    /// </summary>
+    public CronFailureNoticeClaim Claim(TenantId tenant, string jobId, string cause, DateTime failureUtc, DateTime nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
         ArgumentException.ThrowIfNullOrWhiteSpace(cause);
+        var failedAt = DateTime.SpecifyKind(failureUtc, DateTimeKind.Utc);
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -49,10 +54,14 @@ public sealed class CronFailureNoticeStore
                     Cause = cause,
                     LastSentUtc = nowUtc,
                     HeldBack = 0,
+                    LastCountedUtc = failedAt,
                 });
                 ctx.SaveChanges();
                 return new CronFailureNoticeClaim(true, 1);
             }
+            if (failedAt <= DateTime.SpecifyKind(row.LastCountedUtc, DateTimeKind.Utc))
+                return new CronFailureNoticeClaim(false, 0);
+            row.LastCountedUtc = failedAt;
             if (nowUtc - DateTime.SpecifyKind(row.LastSentUtc, DateTimeKind.Utc) < Window)
             {
                 row.HeldBack++;
@@ -225,7 +234,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
         if (failure is null)
             return false;
 
-        var claim = _notices.Claim(tenant, job.Id, failure.Cause, now);
+        var claim = _notices.Claim(tenant, job.Id, failure.Cause, run.ResultUtc ?? run.FiredUtc, now);
         if (!claim.Send)
         {
             FileLog.Write($"[ScheduleFailureNotifier] run={run.RunId}, job={job.Id}, cause={failure.Cause}: held back, a notice of this cause went out inside the hour");

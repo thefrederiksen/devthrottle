@@ -241,7 +241,7 @@ public sealed class DefinedByDefinitionTests : IDisposable
         nameof(CronJobDto.HasCheck),
         // Issue #4436: when the change of default switched notifications on, its note, and the newest run in words -
         // stamped on every read, never read from a body.
-        nameof(CronJobDto.NotifyDefaultedUtc), nameof(CronJobDto.NotifyNote),
+        nameof(CronJobDto.NotifyDefaultedUtc), nameof(CronJobDto.NotifyNote), nameof(CronJobDto.NotifyText),
         nameof(CronJobDto.LastRunText), nameof(CronJobDto.LastRunTone),
     };
 

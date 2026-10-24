@@ -926,15 +926,9 @@ function scheduleEnglish(j: CronJob): string {
   return runAt.length > 0 ? `Once at ${runAt}` : "Once (no time set)";
 }
 
-// The run-complete notification policy, spelled out for the drawer.
+// The run-complete notification policy for the drawer: the Gateway's own words for it (issue #4436 review, finding 7).
 function notifyDescription(j: CronJob): string {
-  const policy = j.notifyOn.toLowerCase();
-  const base =
-    policy === "always"
-      ? "Every run, started or failed"
-      : policy === "none"
-        ? "Off"
-        : "When a run fails";
+  const base = j.notifyText ?? j.notifyOn;
   const hook = j.notifyWebhookUrl && j.notifyWebhookUrl.length > 0 ? ` - webhook: ${j.notifyWebhookUrl}` : "";
   return base + hook;
 }

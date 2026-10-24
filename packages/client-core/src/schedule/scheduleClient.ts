@@ -56,6 +56,8 @@ export interface CronJob {
    * #4436) and how to turn them off; null otherwise. Show it as given. Read-only.
    */
   notifyNote?: string | null;
+  /** The policy in the Gateway's words, for example "When a run fails". Show it as given. Read-only. */
+  notifyText?: string | null;
   /**
    * The newest run's state in words when it went wrong (issue #4436), for example "Last run failed: The folder ...
    * does not exist on studio-mac (a Mac). ...". Null when it did not go wrong. Show it as given. Read-only.

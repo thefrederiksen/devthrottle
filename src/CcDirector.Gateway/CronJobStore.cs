@@ -535,6 +535,7 @@ public sealed class CronJobStore
         NotifyWebhookUrl = e.NotifyWebhookUrl,
         NotifyDefaultedUtc = e.NotifyDefaultedUtc is { } defaulted ? DateTime.SpecifyKind(defaulted, DateTimeKind.Utc) : null,
         NotifyNote = Running.ScheduleFailureWords.NotifyNote(e.NotifyOn, e.NotifyDefaultedUtc),
+        NotifyText = CronNotify.Text(e.NotifyOn),
         CreatedUtc = e.CreatedUtc,
         LastFiredUtc = e.LastFiredUtc,
         NextRunUtc = e.NextRunUtc,

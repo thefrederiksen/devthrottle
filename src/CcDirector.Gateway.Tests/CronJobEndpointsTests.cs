@@ -222,6 +222,25 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Post_AnUnknownNotifyPolicy_IsRefused()
+    {
+        // Issue #4436 review, finding 6: "off" is not read as the default, which would tell its owner of every failure.
+        var body = new
+        {
+            name = "typo",
+            scheduleKind = "recurring",
+            cronExpression = "0 0 * * *",
+            timeZoneId = "America/Chicago",
+            target = new { machine = "workstation-A" },
+            action = new { repoPath = @"D:\repo", seed = "/help" },
+            notifyOn = "off",
+        };
+        var post = await _http.PostAsJsonAsync("/cron/jobs", body);
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+        Assert.Contains("notifyOn 'off' is not a notification policy", await post.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Put_EditsNotifySettings()
     {
         // AC4: editing a job updates the notify policy + webhook - the owner can turn the default off (issue #4436).

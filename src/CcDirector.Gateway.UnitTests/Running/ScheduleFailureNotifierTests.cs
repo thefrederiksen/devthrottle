@@ -206,11 +206,53 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
     {
         var store = new CronFailureNoticeStore(_db);
         var tenant = TenantId.Local;
+        const string folder = ScheduleFailureCauses.FolderMissing;
 
-        Assert.Equal(new CronFailureNoticeClaim(true, 1), store.Claim(tenant, "cj_a", ScheduleFailureCauses.FolderMissing, _now));
-        Assert.False(store.Claim(tenant, "cj_a", ScheduleFailureCauses.FolderMissing, _now.AddMinutes(59)).Send);
-        Assert.True(store.Claim(tenant, "cj_b", ScheduleFailureCauses.FolderMissing, _now.AddMinutes(1)).Send);
-        Assert.Equal(new CronFailureNoticeClaim(true, 2), store.Claim(tenant, "cj_a", ScheduleFailureCauses.FolderMissing, _now.AddMinutes(60)));
+        Assert.Equal(new CronFailureNoticeClaim(true, 1), store.Claim(tenant, "cj_a", folder, _now, _now));
+        Assert.False(store.Claim(tenant, "cj_a", folder, _now.AddMinutes(59), _now.AddMinutes(59)).Send);
+        Assert.True(store.Claim(tenant, "cj_b", folder, _now.AddMinutes(1), _now.AddMinutes(1)).Send);
+        Assert.Equal(new CronFailureNoticeClaim(true, 2), store.Claim(tenant, "cj_a", folder, _now.AddMinutes(60), _now.AddMinutes(60)));
+    }
+
+    [Fact]
+    public void Claim_AFailureAlreadyCounted_IsNotCountedAgain()
+    {
+        // The #4436 review, finding 3: a restarted Gateway reads the last minutes of the run history again.
+        var store = new CronFailureNoticeStore(_db);
+        var tenant = TenantId.Local;
+        const string folder = ScheduleFailureCauses.FolderMissing;
+        store.Claim(tenant, "cj_a", folder, _now, _now);
+        store.Claim(tenant, "cj_a", folder, _now.AddMinutes(5), _now.AddMinutes(5));
+
+        // Both read again after a restart: neither is counted twice.
+        Assert.False(store.Claim(tenant, "cj_a", folder, _now, _now.AddMinutes(10)).Send);
+        Assert.False(store.Claim(tenant, "cj_a", folder, _now.AddMinutes(5), _now.AddMinutes(10)).Send);
+
+        // An hour on, the next new failure stands for itself and the one held back: two, not four.
+        Assert.Equal(new CronFailureNoticeClaim(true, 2), store.Claim(tenant, "cj_a", folder, _now.AddMinutes(61), _now.AddMinutes(61)));
+    }
+
+    [Fact]
+    public async Task AfterARestart_TheNextNotice_DoesNotCountTheFailuresItReadAgain()
+    {
+        var job = NewSchedule();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await NewNotifier().ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(5);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(0, await NewNotifier().ScanAsync(CancellationToken.None));   // held back
+
+        // A restart reads both again; an hour after the first notice one more failure is told.
+        var restarted = NewNotifier();
+        Assert.Equal(0, await restarted.ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(56);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await restarted.ScanAsync(CancellationToken.None));
+
+        Assert.Equal(2, _fleet[^1].Occurrences);
     }
 
     private sealed class FleetChannel : ICronNotifier

@@ -382,6 +382,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("HeldBack")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("LastSentUtc")
                         .HasColumnType("TEXT");
 

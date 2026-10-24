@@ -37,7 +37,6 @@ public static class ScheduleFailureCauses
     public const string Reported = "reported";
     public const string CheckFailed = "check-failed";
     public const string CheckNotRun = "check-not-run";
-    public const string MailDesk = "mail-desk";
     public const string Other = "other";
 }
 
@@ -96,13 +95,13 @@ public static class ScheduleFailureWords
                     $"The run's session on {machine} ended without reporting how the run went. Open the session to see what it did."),
                 CronRunProblems.RanPastShift => (ScheduleFailureCauses.RanPastShift,
                     $"The run's session on {machine} had not reported and was still open when its shift ended. Open it to see whether it is stuck, and close it if it is."),
+                // What the session or the check wrote is its own words, so it is the detail, never the headline (the
+                // issue #4436 review, finding 4): a report may hold anything, a Director's error text included.
                 CronRunProblems.Reported => (ScheduleFailureCauses.Reported,
-                    reason.Length == 0 ? "The run's session reported a problem." : $"The run's session reported a problem: {Sentence(reason)}"),
+                    $"The run's session on {machine} reported a problem. Its own words are in the details."),
                 CronRunProblems.CheckFailed => (ScheduleFailureCauses.CheckFailed,
-                    reason.Length == 0 ? $"The schedule's check failed on {machine}." : $"The schedule's check failed on {machine}: {Sentence(reason)}"),
+                    $"The schedule's check failed on {machine}. What the check said is in the details."),
                 CronRunProblems.CheckNotRun => CheckNotRun(reason, machine),
-                CronRunProblems.MailboxFailed or CronRunProblems.SpendLimitReached => (ScheduleFailureCauses.MailDesk,
-                    CronRunResultFold.SentenceOf(run.Problem, reason)),
                 _ => (ScheduleFailureCauses.Other, $"This run on {machine} went wrong. The details below say what happened."),
             };
         return new ScheduleFailure(cause, headline, detail);

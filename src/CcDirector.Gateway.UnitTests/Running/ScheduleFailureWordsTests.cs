@@ -151,12 +151,14 @@ public sealed class ScheduleFailureWordsTests
         new object[] { CronRunProblems.RanPastShift, "it had not reported and was still open when its morning shift, Fri 23 Oct, 08:00-16:00 ended",
             ScheduleFailureCauses.RanPastShift, "still open when its shift ended" },
         // The session's own report: its one line, in its own words, is what the owner reads.
-        new object[] { CronRunProblems.Reported, "the build failed on the release branch", ScheduleFailureCauses.Reported,
-            "The run's session reported a problem: The build failed on the release branch." },
+        // A session's own report is its words, so it is the detail, never the headline - even one that quotes a
+        // Director's error text (the #4436 review, finding 4).
+        new object[] { CronRunProblems.Reported, "director returned BadRequest: repoPath does not exist: /x - so I stopped", ScheduleFailureCauses.Reported,
+            "The run's session on studio-mac reported a problem. Its own words are in the details." },
         new object[] { CronRunProblems.CheckNotRun, "no Director on studio-mac ran the check of Inbox before its next time",
             ScheduleFailureCauses.CheckNotRun, "No DevThrottle on studio-mac ran the schedule's check" },
-        new object[] { CronRunProblems.CheckFailed, "the check exited 2 and printed no count", ScheduleFailureCauses.CheckFailed,
-            "The schedule's check failed on studio-mac" },
+        new object[] { CronRunProblems.CheckFailed, "the check exited 2 and printed no count: Exception at line 4", ScheduleFailureCauses.CheckFailed,
+            "The schedule's check failed on studio-mac. What the check said is in the details." },
     };
 
     [Theory]
@@ -251,5 +253,26 @@ public sealed class ScheduleFailureWordsTests
         Assert.Equal(reason, notStarted.ResultReason);
         Assert.Equal(ScheduleFailureCauses.DidNotReport, didNotReport.FailureCause);
         Assert.StartsWith("The run's session on studio-mac ended without reporting", didNotReport.FailureText);
+    }
+
+    [Theory]
+    [InlineData("failure", "When a run fails")]
+    [InlineData("", "When a run fails")]
+    [InlineData("ALWAYS", "Every run, started or failed")]
+    [InlineData("none", "Off")]
+    public void NotifyText_ThePolicyInTheWordsEverySurfaceShows(string policy, string words)
+    {
+        Assert.Equal(words, CronNotify.Text(policy));
+    }
+
+    [Theory]
+    [InlineData("failure", true)]
+    [InlineData(" Always ", true)]
+    [InlineData("none", true)]
+    [InlineData("off", false)]
+    [InlineData("", false)]
+    public void IsKnown_OnlyTheThreePolicies(string policy, bool known)
+    {
+        Assert.Equal(known, CronNotify.IsKnown(policy));
     }
 }

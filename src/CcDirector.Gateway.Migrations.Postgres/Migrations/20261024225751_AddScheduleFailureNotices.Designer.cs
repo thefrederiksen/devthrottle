@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261024214145_AddScheduleFailureNotices")]
+    [Migration("20261024225751_AddScheduleFailureNotices")]
     partial class AddScheduleFailureNotices
     {
         /// <inheritdoc />
@@ -400,6 +400,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<int>("HeldBack")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("LastSentUtc")
                         .HasColumnType("timestamp with time zone");

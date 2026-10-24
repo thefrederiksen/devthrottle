@@ -20,4 +20,9 @@ public sealed class CronFailureNoticeEntity : TenantScopedEntity
 
     /// <summary>The failures of this cause since then that were not told, because the hour had not passed.</summary>
     public int HeldBack { get; set; }
+
+    /// <summary>When the newest failure counted here was recorded (its result time, UTC). A failure recorded at or
+    /// before it was already told or held back - a Gateway that restarts reads a little of the run history again - so
+    /// it is not counted twice.</summary>
+    public DateTime LastCountedUtc { get; set; }
 }

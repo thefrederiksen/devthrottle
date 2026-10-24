@@ -327,7 +327,7 @@ describe("Schedule page: a failed schedule says what went wrong", () => {
 
   it("shows the note that failure notifications became the default", async () => {
     const note = "Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.";
-    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { notifyOn: "failure", notifyNote: note })]);
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { notifyOn: "failure", notifyText: "When a run fails", notifyNote: note })]);
     renderPage();
 
     fireEvent.click(await screen.findByText("Own morning sweep"));

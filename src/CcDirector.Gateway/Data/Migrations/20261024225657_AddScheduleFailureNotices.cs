@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace CcDirector.Gateway.Migrations.Postgres.Migrations
+namespace CcDirector.Gateway.Data.Migrations
 {
     /// <inheritdoc />
     public partial class AddScheduleFailureNotices : Migration
@@ -13,26 +13,27 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         {
             migrationBuilder.AddColumn<DateTime>(
                 name: "NotifyDefaultedUtc",
-                schema: "gateway",
                 table: "cron_jobs",
-                type: "timestamp with time zone",
+                type: "TEXT",
                 nullable: true);
 
-            // A FAILED SCHEDULE TELLS ITS OWNER BY DEFAULT (issue #4436). Every schedule still on the old default, "none",
-            // moves to "failure", and when is recorded on it, so its page can say the default changed and how to turn it off.
+            // A FAILED SCHEDULE TELLS ITS OWNER BY DEFAULT (issue #4436). Every schedule still on the old default - "none",
+            // or no policy at all - moves to "failure", and when is recorded on it, so its page can say the default changed
+            // and how to turn it off.
             migrationBuilder.Sql(
-                "UPDATE gateway.cron_jobs SET \"NotifyOn\" = 'failure', \"NotifyDefaultedUtc\" = CURRENT_TIMESTAMP WHERE \"NotifyOn\" = 'none';");
+                "UPDATE cron_jobs SET \"NotifyOn\" = 'failure', \"NotifyDefaultedUtc\" = CURRENT_TIMESTAMP " +
+                "WHERE \"NotifyOn\" = 'none' OR \"NotifyOn\" = '' OR \"NotifyOn\" IS NULL;");
 
             migrationBuilder.CreateTable(
                 name: "cron_failure_notices",
-                schema: "gateway",
                 columns: table => new
                 {
-                    tenant_id = table.Column<string>(type: "text", nullable: false),
-                    JobId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false, collation: "C"),
-                    Cause = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false, collation: "C"),
-                    LastSentUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    HeldBack = table.Column<int>(type: "integer", nullable: false)
+                    tenant_id = table.Column<string>(type: "TEXT", nullable: false),
+                    JobId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
+                    Cause = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
+                    LastSentUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    HeldBack = table.Column<int>(type: "INTEGER", nullable: false),
+                    LastCountedUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -41,7 +42,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_cron_failure_notices_tenant_id",
-                schema: "gateway",
                 table: "cron_failure_notices",
                 column: "tenant_id");
         }
@@ -50,16 +50,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "cron_failure_notices",
-                schema: "gateway");
+                name: "cron_failure_notices");
 
             // Going back puts the schedules this moved back on "none".
             migrationBuilder.Sql(
-                "UPDATE gateway.cron_jobs SET \"NotifyOn\" = 'none' WHERE \"NotifyDefaultedUtc\" IS NOT NULL AND \"NotifyOn\" = 'failure';");
+                "UPDATE cron_jobs SET \"NotifyOn\" = 'none' WHERE \"NotifyDefaultedUtc\" IS NOT NULL AND \"NotifyOn\" = 'failure';");
 
             migrationBuilder.DropColumn(
                 name: "NotifyDefaultedUtc",
-                schema: "gateway",
                 table: "cron_jobs");
         }
     }
