@@ -134,7 +134,7 @@ def test_all_accounts_sends_the_admin_token_to_the_admin_route(calls, monkeypatc
     assert "email=robert%40example.com" in calls[0]["path"]
     assert calls[0]["bearer"] == "admin-secret"
     assert calls[0]["base_url"] == "https://gw.example"
-    assert "scope: every account" in result.output
+    assert "scope: account robert@example.com," in result.output
 
 
 def test_empty_answer_is_definitive(calls):
@@ -195,3 +195,22 @@ def test_admin_read_shows_whose_error_it_is_by_default(calls, monkeypatch):
     assert admin.exit_code == 0, admin.output
     assert "11111111-1111-1111-1111-111111111111" in admin.output
     assert "11111111-1111-1111-1111-111111111111" not in own.output
+
+
+@pytest.mark.parametrize(
+    "args, scope",
+    [
+        (["--email", "robert@example.com"], "scope: account robert@example.com,"),
+        (["--account", "tenant-42"], "scope: account tenant-42,"),
+        (["--all-accounts"], "scope: every account,"),
+        ([], "scope: this account,"),
+    ],
+)
+def test_scope_line_names_what_was_read(calls, monkeypatch, args, scope):
+    # Issue #4428: --email read one account's rows but the first line said "every account".
+    monkeypatch.setenv("ADMIN_SERVICE_TOKEN", "admin-secret")
+
+    result = runner.invoke(app, ["errors", "list", *args])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0].startswith(scope)
