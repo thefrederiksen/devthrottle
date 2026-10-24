@@ -102,6 +102,20 @@ public sealed partial class PiStateExtensionInstallerTests : IDisposable
     }
 
     [Fact]
+    public void Extension_TwoProcessesShareOnePersistedCounterUnderTheCrossProcessLock()
+    {
+        var source = PiStateExtensionInstaller.ExtensionSource();
+        var report = ReportFunction().Match(source).Groups[1].Value;
+
+        Assert.Contains("acquireSequenceLock(directory)", report, StringComparison.Ordinal);
+        Assert.Contains("nextSequence(directory)", report, StringComparison.Ordinal);
+        Assert.True(report.IndexOf("acquireSequenceLock(directory)", StringComparison.Ordinal)
+            < report.IndexOf("nextSequence(directory)", StringComparison.Ordinal));
+        Assert.Contains("join(directory, \".sequence\")", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("let sequence =", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Extension_SequenceLock_RefusesToRemoveALockHeldByALiveProcess()
     {
         var source = PiStateExtensionInstaller.ExtensionSource();
@@ -120,6 +134,9 @@ public sealed partial class PiStateExtensionInstallerTests : IDisposable
         Assert.DoesNotContain("permission_requested", source, StringComparison.Ordinal);
         Assert.Contains("\"ui_prompt_start\": \"menu_opened\"", source, StringComparison.Ordinal);
     }
+
+    [GeneratedRegex(@"const report = async \(lifecycleEvent: PiLifecycleEvent\): Promise<void> => \{([\s\S]*?)\n  \};")]
+    private static partial Regex ReportFunction();
 
     [GeneratedRegex(@"const stateEventMap = (\{[\s\S]*?\}) as const;")]
     private static partial Regex StateEventMap();
