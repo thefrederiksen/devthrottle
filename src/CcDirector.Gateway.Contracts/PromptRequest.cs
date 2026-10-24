@@ -336,6 +336,27 @@ public sealed class ResizeResponse
 /// Esc) survive the JSON envelope intact. The target session is the command's SessionId. This is a plain
 /// unary write, not a stream verb.
 /// </summary>
+public sealed class TerminalKeyRequest
+{
+    public string Key { get; set; } = "";
+    public bool Shift { get; set; }
+    public bool Alt { get; set; }
+    public bool Control { get; set; }
+}
+
+public sealed class TerminalPasteRequest
+{
+    public string Text { get; set; } = "";
+}
+
+public sealed class TerminalMouseRequest
+{
+    public string Button { get; set; } = "";
+    public int Column { get; set; }
+    public int Row { get; set; }
+    public bool Release { get; set; }
+}
+
 public sealed class TerminalInputRequest
 {
     /// <summary>The raw keystroke bytes, base64-encoded.</summary>
