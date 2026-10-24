@@ -162,7 +162,7 @@ them to `docs/conformance-4385-2026-10-24/fixtures/passing/` and add the exact v
 window is visible and logs a warning for an installed version absent from it; sessions still launch. Codex's cases and
 expectations are present, but its real run remains pending until the owner's Codex allowance resets.
 
-A saved older Claude Code 2.1.293 model-picker fixture proves changed control text fails loudly:
+A reduced fixture from the saved older Claude Code 2.1.293 model-picker shape proves changed control text fails loudly:
 
     $B --conformance-replay docs/conformance-4385-2026-10-24/fixtures/claude-2.1.293-claude-code-model-picker.json
 

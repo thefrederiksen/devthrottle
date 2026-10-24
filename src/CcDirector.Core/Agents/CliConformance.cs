@@ -59,7 +59,12 @@ public static class CliConformance
         {
             using var process = Process.Start(start);
             if (process is null) return "could not start";
-            if (!process.WaitForExit(2_000)) return "version check did not exit within two seconds";
+            if (!process.WaitForExit(2_000))
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                process.WaitForExit(1_000);
+                return "version check did not exit within two seconds";
+            }
             var line = process.StandardOutput.ReadToEnd().Split('\n').FirstOrDefault(value => value.Trim().Length > 0);
             return string.IsNullOrWhiteSpace(line) ? "version output was empty" : line.Trim();
         }

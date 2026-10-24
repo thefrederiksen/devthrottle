@@ -12,8 +12,9 @@ model-picker shape. Replaying it exits one: its `Enter to confirm` footer does n
 
 Pi 1.2.0 hides its terminal cursor in this run. The Pi composer classifier therefore deliberately answers `NotFound`
 for idle and multi-line composer screens: its positive rule requires a visible cursor so a partial repaint cannot be
-mistaken for an editable composer. The fixtures pin that command-line interface limitation rather than weakening the
-reader.
+mistaken for an editable composer. Conformance separately requires Pi's positive footer text on idle and both typed
+lines plus that footer in the multi-line state, so blank, dropped or mangled input cannot pass. The fixtures pin the
+command-line interface limitation rather than weakening the reader.
 
 Codex expectations and driving cases are implemented, but no Codex version is in the passing manifest. Its real run is
 pending until the owner's Codex allowance resets on 18 November 2026. Until then Director start-up logs the warning and

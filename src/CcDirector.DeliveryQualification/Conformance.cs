@@ -16,7 +16,8 @@ public sealed record ConformanceExpected(
     bool? WorkingMarker,
     IReadOnlyList<string> Activity,
     string? RequiredPickerSign = null,
-    string? ComposerText = null);
+    string? ComposerText = null,
+    IReadOnlyList<string>? RequiredScreenText = null);
 
 public sealed record ConformanceAnswer(
     string Composer,
@@ -59,8 +60,10 @@ public static class ConformanceExpectations
         if (!Applies(agent, state)) throw new ArgumentException($"State '{state}' does not apply to {agent}.");
         return (agent, state) switch
         {
-            (_, "start-up") => new(["NotFound", "Empty"], false, false, false, ["Starting", "Working", "WaitingForInput"]),
-            ("pi", "idle") => new(["NotFound"], false, false, false, ["WaitingForInput", "Idle"]),
+            ("claude", "start-up") => new(["NotFound", "Empty"], false, false, false, ["Starting", "Working", "WaitingForInput"], RequiredScreenText: ["Claude Code v"]),
+            ("codex", "start-up") => new(["NotFound", "Empty"], false, false, false, ["Starting", "Working", "WaitingForInput"], RequiredScreenText: ["OpenAI Codex"]),
+            ("pi", "start-up") => new(["NotFound", "Empty"], false, false, false, ["Starting", "Working", "WaitingForInput"], RequiredScreenText: ["Pi can explain its own features"]),
+            ("pi", "idle") => new(["NotFound"], false, false, false, ["WaitingForInput", "Idle"], RequiredScreenText: ["Pi can explain its own features", "thinking off"]),
             (_, "idle") => new(["Empty"], false, false, false, ["WaitingForInput", "Idle"]),
             ("claude", "working") => new(["NotFound", "Empty"], false, false, true, ["Working"]),
             (_, "working") => new(["NotFound", "Empty"], false, false, false, ["Working"]),
@@ -71,7 +74,7 @@ public static class ConformanceExpectations
             ("codex", "model-picker") => new(["MenuOpen", "NotFound"], true, false, false, ["MenuOpen"]),
             (_, "trust-dialog") => new(["MenuOpen", "NotFound"], true, false, false, ["MenuOpen", "WaitingForPerm", "WaitingForInput"]),
             ("claude", "multi-line-composer") => new(["HoldsText"], false, false, false, ["Working"], ComposerText: "first line\n  second line"),
-            ("pi", "multi-line-composer") => new(["NotFound"], false, false, false, ["Working"]),
+            ("pi", "multi-line-composer") => new(["NotFound"], false, false, false, ["Working"], RequiredScreenText: ["first line", "second line", "thinking off"]),
             (_, "multi-line-composer") => new(["HoldsText"], false, false, false, ["Working"], ComposerText: "first line\nsecond line"),
             _ => throw new ArgumentException($"No expected answer for {agent} {state}."),
         };
@@ -114,6 +117,9 @@ public static class Conformance
         if (!expected.Activity.Contains(actual.Activity, StringComparer.Ordinal)) differences.Add($"activity expected [{string.Join(",", expected.Activity)}], got {actual.Activity}");
         if (expected.RequiredPickerSign is { } sign && !actual.PickerSigns.Contains(sign, StringComparer.Ordinal)) differences.Add($"picker sign '{sign}' was absent; got [{string.Join(",", actual.PickerSigns)}]");
         if (expected.ComposerText is { } text && !string.Equals(text, actual.ComposerText, StringComparison.Ordinal)) differences.Add($"composer text expected '{text.Replace("\n", "\\n")}', got '{actual.ComposerText.Replace("\n", "\\n")}'");
+        var screen = string.Join("\n", fixture.Rows);
+        foreach (var required in expected.RequiredScreenText ?? [])
+            if (!screen.Contains(required, StringComparison.Ordinal)) differences.Add($"screen text '{required}' was absent");
         return new ConformanceVerdict(differences.Count == 0, differences);
     }
 
@@ -139,7 +145,7 @@ public static class Conformance
             try
             {
                 await desktop.AttachAsync(session);
-                await Task.Delay(500);
+                await RequireAsync(() => session.SnapshotScreenRows().Any(row => !string.IsNullOrWhiteSpace(row)), "start-up screen", TimeSpan.FromSeconds(30));
                 Save(fixtures, options.Out, agent, version, "start-up", session);
                 if (!await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120)))
                     throw new InvalidOperationException("Conformance state 'idle' did not remain ready for three seconds within 120 seconds.");

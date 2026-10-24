@@ -48,6 +48,20 @@ public sealed class ConformanceTests
     }
 
     [Fact]
+    public void Judge_PiMultiLineStateWithoutTheTypedLines_FailsLoudly()
+    {
+        var fixture = new ConformanceFixture("pi", "1.2.0", "multi-line-composer", DateTime.UnixEpoch, 0, 0, false,
+            ["Pi can explain its own features", "thinking off"], null,
+            new ConformanceAnswer("NotFound", "", false, false, false, "Working", []));
+
+        var verdict = Conformance.Judge(fixture);
+
+        Assert.False(verdict.Pass);
+        Assert.Contains(verdict.Differences, difference => difference.Contains("first line", StringComparison.Ordinal));
+        Assert.Contains(verdict.Differences, difference => difference.Contains("second line", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Judge_OlderClaudeModelPickerWhoseControlStringChanged_FailsLoudly()
     {
         var fixture = ModelPicker("2.1.293 (Claude Code)", "Enter to confirm · Esc to cancel");
