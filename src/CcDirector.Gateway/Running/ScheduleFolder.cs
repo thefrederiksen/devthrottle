@@ -28,9 +28,10 @@ public sealed record ScheduleFolderVerdict(string? Refusal, string? Warning)
 /// reads. Every sentence names the machine and, where the Gateway knows it, its system, so a person on a Mac who typed a
 /// Windows path is told exactly that.
 ///
-/// The SHAPE of a path is read here too. A drive letter (<c>C:</c>) or a backslash is a Windows path: on a Mac or a
-/// Linux computer it cannot be a folder anyone meant, so it is refused from the shape alone - which works while the
-/// machine is offline. The reverse is NOT refused from the shape: on Windows, <c>/Users/you</c> is read against the
+/// The SHAPE of a path is read here too. A drive letter (<c>C:</c>), or a backslash in a path that does not start with
+/// <c>/</c> or <c>~</c>, is a Windows path: on a Mac or a Linux computer it cannot be a folder anyone meant, so it is
+/// refused from the shape alone - which works while the machine is offline. A path that starts the Mac and Linux way
+/// may have a backslash in a folder's name, so it is judged by the machine's own answer. The reverse is NOT refused from the shape: on Windows, <c>/Users/you</c> is read against the
 /// current drive and may really exist, so a path like that on a Windows computer is judged by the machine's own answer,
 /// and only a missing one is told it looks like a Mac or Linux path.
 /// </summary>

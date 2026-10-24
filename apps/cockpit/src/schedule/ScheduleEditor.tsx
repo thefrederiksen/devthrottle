@@ -207,7 +207,7 @@ export function ScheduleEditor({
       .catch((err: unknown) => {
         // The Gateway's own sentence when it gave one; otherwise the shared one, which names what could not be done.
         if (!abort.signal.aborted)
-          setFolderChoicesError(describeAndReport(SURFACE, "read the machine's repositories", err));
+          setFolderChoicesError(describeAndReport(SURFACE, "read the folder choices", err));
       });
     return () => abort.abort();
   }, [chosenMachine]);
