@@ -476,6 +476,7 @@ public partial class MainWindow : Window
         // so the very first frame at zero sessions is the home, not a blank content area.
         HomeView.NewSessionRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> New Session"); _ = ShowNewSessionDialog(); };
         HomeView.OpenToolsRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> Tools tab in Settings"); _ = OpenSettingsAsync(onToolsTab: true); };
+        HomeView.SetUpGitHubRequested += (_, _) => { FileLog.Write("[MainWindow] Home -> GitHub tab in Settings"); _ = OpenSettingsAsync(onGitHubTab: true); };
         HomeView.RepairToolsRequested += (_, _) => _ = RepairToolsAsync();
         HomeView.OpenSettingsRequested += (_, _) => BtnSettings_Click(this, new RoutedEventArgs());
         HomeView.GatewayClicked += (_, _) => OpenGatewayConnectionPanel();
@@ -1339,9 +1340,12 @@ public partial class MainWindow : Window
                 || (facts.missing.Count > 0 && !_autoRepairAttempted);
             _lastHomeStatus = HomeStatusBuilder.Build(
                 facts.clis, facts.built, facts.total, facts.missing, _lastToolHealth, _lastBasePythonBroken,
-                _toolsSetupInProgress, _lastFleetToolCheck);
+                _toolsSetupInProgress, _lastFleetToolCheck, _lastGitHubStatus);
 
             ApplyHomeHealth();
+
+            // Ask whether this machine can work with GitHub (issue #4426), off the UI thread; the row appears when it answers.
+            _ = RefreshGitHubStatusAsync();
 
             // Run the tool checks in the background so the tools row shows real pass/fail/not-built
             // instead of just build status. The home renders immediately; the breakdown fills in.
@@ -1360,6 +1364,26 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] RefreshHomeAsync FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>Re-read git, gh and the gh sign-in, and re-fold the Home rows with the answer (issue #4426).</summary>
+    private async Task RefreshGitHubStatusAsync()
+    {
+        try
+        {
+            _lastGitHubStatus = await Task.Run(() => GitHubSetupProbe.ProbeAsync());
+            if (_lastClis is { } clis && _lastBuildFacts is { } bf)
+            {
+                _lastHomeStatus = HomeStatusBuilder.Build(
+                    clis, bf.built, bf.total, bf.missing, _lastToolHealth, _lastBasePythonBroken, _toolsSetupInProgress,
+                    _lastFleetToolCheck, _lastGitHubStatus);
+                ApplyHomeHealth();
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshGitHubStatusAsync FAILED: {ex.Message}");
         }
     }
 
@@ -1414,6 +1438,8 @@ public partial class MainWindow : Window
     // Whether the cc-devthrottle a spawned session would reach can drive THIS Director. Null means not
     // judged yet, which is rendered as nothing rather than as a pass.
     private FleetToolCheck? _lastFleetToolCheck;
+    // The last reading of git, gh and its sign-in (issue #4426). Null until the probe answers: no row is shown before then.
+    private GitHubSetupStatus? _lastGitHubStatus;
     private bool _toolHealthRunning;
     // True while the tools are still being set up (first-launch provisioning or a repair in flight).
     // The status screen renders this as progress instead of a failure - see HomeCheckLevel.Busy.
@@ -1472,7 +1498,7 @@ public partial class MainWindow : Window
             {
                 _lastHomeStatus = HomeStatusBuilder.Build(
                     clis, bf.built, bf.total, bf.missing, summary, basePythonBroken, _toolsSetupInProgress,
-                    _lastFleetToolCheck);
+                    _lastFleetToolCheck, _lastGitHubStatus);
                 ApplyHomeHealth();
             }
 
@@ -1526,7 +1552,7 @@ public partial class MainWindow : Window
         {
             _lastHomeStatus = HomeStatusBuilder.Build(
                 homeClis, homeFacts.built, homeFacts.total, homeFacts.missing, _lastToolHealth,
-                _lastBasePythonBroken, _toolsSetupInProgress, _lastFleetToolCheck);
+                _lastBasePythonBroken, _toolsSetupInProgress, _lastFleetToolCheck, _lastGitHubStatus);
             ApplyHomeHealth();
         }
 
@@ -5224,12 +5250,12 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task OpenSettingsAsync(
         bool onGatewayTab = false, bool onToolsTab = false,
-        bool onBrowsersTab = false, bool openBrowserCreate = false)
+        bool onBrowsersTab = false, bool openBrowserCreate = false, bool onGitHubTab = false)
     {
-        FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}, onToolsTab={onToolsTab}, onBrowsersTab={onBrowsersTab}");
+        FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}, onToolsTab={onToolsTab}, onBrowsersTab={onBrowsersTab}, onGitHubTab={onGitHubTab}");
         try
         {
-            await ShowSettingsDialogAsync(onGatewayTab, onToolsTab, onBrowsersTab, openBrowserCreate);
+            await ShowSettingsDialogAsync(onGatewayTab, onToolsTab, onBrowsersTab, openBrowserCreate, onGitHubTab);
         }
         catch (Exception ex)
         {
@@ -5250,7 +5276,7 @@ public partial class MainWindow : Window
     /// is reported from.
     /// </summary>
     private async Task ShowSettingsDialogAsync(
-        bool onGatewayTab, bool onToolsTab, bool onBrowsersTab, bool openBrowserCreate)
+        bool onGatewayTab, bool onToolsTab, bool onBrowsersTab, bool openBrowserCreate, bool onGitHubTab = false)
     {
         var dialog = new SettingsDialog(ReloadScreenshotsPanelAsync);
         // Live-sync the pinned rail group with every change made on the Browsers tab, so the rail
@@ -5284,7 +5310,12 @@ public partial class MainWindow : Window
             dialog.SelectToolsTab();
         else if (onBrowsersTab)
             dialog.SelectBrowsersTab(openBrowserCreate);
+        else if (onGitHubTab)
+            dialog.SelectGitHubTab();
         await dialog.ShowDialog<bool?>(this);
+
+        // The GitHub tab can install git and gh and sign gh in; re-read it so the Home row matches.
+        _ = RefreshGitHubStatusAsync();
 
         // The Tools tab can download/repair tools while the dialog is open, so re-run the health
         // check on close - this clears the rail indicator once the toolset is whole again.
