@@ -500,6 +500,75 @@ internal static class WorkspaceEndpoints
             }
         });
 
+        // A CRASH RECORD (issue #4120). A Director that was killed or crashed wrote no record of its own - the record
+        // is written on the way DOWN, and there was no way down - so its sessions were offered back by nothing. The
+        // next Director on that machine finds its crash journal and sends it here, and the Gateway keeps it as a
+        // restart record the way up offers back. Like a capture, the Gateway writes the record's header itself from
+        // the sending Director's registration; the sender supplies only the journal, which only it can read.
+        //
+        // ONLY THAT DIRECTOR'S OWN CREDENTIAL, the rule the restore marks keep: a person or a session cannot write a
+        // record of what a Director's machine held. Sending the same journal again is answered 409 "already recorded",
+        // because the record id is derived from the dead process.
+        app.MapPost("/gateway/workspaces/crash-records", async (HttpContext ctx, CancellationToken ct) =>
+        {
+            if (!IsDirectorCredential(ctx))
+            {
+                FileLog.Write("[WorkspaceEndpoints] crash record REFUSED: not a Director's credential");
+                return Results.Json(new { error = "only a Director sends the crash journal of the Director that ran before it; a person or a session cannot." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            WorkspaceCrashRecordRequest? req;
+            try
+            {
+                req = await JsonSerializer.DeserializeAsync<WorkspaceCrashRecordRequest>(ctx.Request.Body, WorkspaceStore.DocumentJsonOptions, ct);
+            }
+            catch (JsonException ex)
+            {
+                return Results.Json(new { error = $"the crash record body could not be read: {ex.Message}" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+            if (req is null || string.IsNullOrWhiteSpace(req.DirectorId) || req.Journal is null)
+                return Results.Json(new { error = "a crash record names the Director sending it and carries the journal" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            if (req.Journal.Sessions.Count == 0)
+                return Results.Json(new { error = "the crash journal holds no session, so there is nothing to record" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            if (!string.Equals(req.Id, WorkspaceCrashRecords.IdFor(req.Journal.DirectorId, req.Journal.Pid), StringComparison.Ordinal))
+                return Results.Json(new { error = $"a crash record's id is derived from the dead process: expected '{WorkspaceCrashRecords.IdFor(req.Journal.DirectorId, req.Journal.Pid)}', got '{req.Id}'" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
+            if (!callerIsDirector(ctx, req.DirectorId))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] crash record REFUSED: director={req.DirectorId}: the credential is not the one that Director is connected on");
+                return Results.Json(new { error = $"this credential is not the one Director '{req.DirectorId}' is connected to this Gateway on, so it may not send a crash record in that Director's name." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var director = lookupDirector(req.DirectorId);
+            if (director is null)
+                return Results.Json(new { error = $"no Director with id '{req.DirectorId}' - this Gateway has never seen it, or it belongs to another account" },
+                    statusCode: StatusCodes.Status404NotFound);
+
+            var doc = WorkspaceCrashRecords.Build(req, director.DisplayName, director.Version, director.MachineName);
+            try
+            {
+                var saved = store.Create(doc, DateTime.UtcNow);
+                FileLog.Write($"[WorkspaceEndpoints] crash record: id={saved.Id}, directorId={req.DirectorId}, deadDirector={req.Journal.DirectorId}, deadPid={req.Journal.Pid}, seats={saved.Seats.Count}");
+                return Results.Json(saved, WorkspaceStore.DocumentJsonOptions, statusCode: StatusCodes.Status201Created);
+            }
+            catch (WorkspaceValidationException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] crash record REFUSED: id={req.Id}: {ex.Message}");
+                return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status400BadRequest);
+            }
+            catch (WorkspaceConflictException ex)
+            {
+                FileLog.Write($"[WorkspaceEndpoints] crash record ALREADY RECORDED: id={req.Id}");
+                return Results.Json(new { error = ex.Message, alreadyRecorded = true }, statusCode: StatusCodes.Status409Conflict);
+            }
+        });
+
         app.MapDelete("/gateway/workspaces/{id}", (string id) =>
         {
             var deleted = store.Delete(id);

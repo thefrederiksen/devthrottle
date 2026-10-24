@@ -347,6 +347,11 @@ public sealed class ControlApiHost : IAsyncDisposable
                   ?? Environment.MachineName);
     }
 
+    /// <summary>The recorder that keeps a crashed predecessor's journal on the Gateway as a restart record (issue #4120),
+    /// on the same Gateway seam the way up uses.</summary>
+    public SmartRestart.WayUpCrashRecorder CreateCrashRecorder()
+        => new(new SmartRestart.GatewayClientWayUp(() => _gatewayClient, DirectorId));
+
     /// <summary>Create a workspace, refusing if the id is taken. See <see cref="ListWorkspacesAsync"/>
     /// for the null case.</summary>
     /// <param name="doc">The workspace to create.</param>

@@ -834,8 +834,16 @@ public static class WorkspaceShutdownKinds
     /// is offered back automatically.</summary>
     public const string IgnoreAll = "ignore-all";
 
+    /// <summary>
+    /// The Director did NOT shut down: it was killed or it crashed, and the next Director on that machine found its
+    /// crash journal (issue #4120). Nobody was asked for a handover, because nobody could be. The way up offers the
+    /// saved conversations of such a record back, as it does for a smart shutdown whose sessions ran out of time.
+    /// Written by the Gateway alone, from the journal the next Director sends (POST /gateway/workspaces/crash-records).
+    /// </summary>
+    public const string Crash = "crash";
+
     /// <summary>Every valid value.</summary>
-    public static readonly string[] All = { SmartShutdown, IgnoreAll };
+    public static readonly string[] All = { SmartShutdown, IgnoreAll, Crash };
 }
 
 /// <summary>
@@ -964,8 +972,13 @@ public static class WorkspaceDrainStates
     /// offer the saved conversation.</summary>
     public const string EndedAtLimit = "ended-at-limit";
 
+    /// <summary>The session died with its Director - killed or crashed - so nobody was asked anything and no handover
+    /// exists (issue #4120). Written only on a <see cref="WorkspaceShutdownKinds.Crash"/> record. Its conversation id,
+    /// when the crash journal had one, is on the seat, which is what lets the way up offer the saved conversation.</summary>
+    public const string DiedWithDirector = "died-with-director";
+
     /// <summary>Every valid drain state.</summary>
-    public static readonly string[] All = { Drained, Blocked, Unreachable, Covered, Declined, EndedAtLimit };
+    public static readonly string[] All = { Drained, Blocked, Unreachable, Covered, Declined, EndedAtLimit, DiedWithDirector };
 }
 
 /// <summary>What was decided about bringing a seat back.</summary>
@@ -1105,4 +1118,111 @@ public sealed class WorkspaceSecretFinding
 
     /// <summary>The line with the matched region replaced by a marker.</summary>
     public string RedactedExcerpt { get; set; } = "";
+}
+
+/// <summary>
+/// POST /gateway/workspaces/crash-records: a Director that found the crash journal of the Director that ran before it
+/// on this machine - killed or crashed, so it wrote no record of its own - asks the Gateway to keep it as a restart
+/// record, so the way up can offer its sessions back (issue #4120).
+/// </summary>
+public sealed class WorkspaceCrashRecordRequest
+{
+    /// <summary>The record's id. The Director derives it from the dead process (<see cref="WorkspaceCrashRecords.IdFor"/>),
+    /// so a journal sent at every start-up is recorded once and the second send is answered "already recorded".</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The LIVE Director sending it. The record is stamped with this Director's name and machine, because the
+    /// way up finds a record by those, and the Director that died had the name this one has now.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>The crash journal exactly as the dead Director last wrote it.</summary>
+    public CrashJournalDto Journal { get; set; } = new();
+}
+
+/// <summary>How a crash journal becomes a restart record (issue #4120). In the contracts so the Director that sends it
+/// and the Gateway that writes it share one rule.</summary>
+public static class WorkspaceCrashRecords
+{
+    /// <summary>
+    /// The record id for one dead Director process: its identifier's first eight letters and digits and its process id.
+    /// The same dead process always gives the same id, which is what makes sending it again harmless.
+    /// </summary>
+    public static string IdFor(string deadDirectorId, int deadPid)
+    {
+        var letters = new string((deadDirectorId ?? "").ToLowerInvariant().Where(char.IsAsciiLetterOrDigit).Take(8).ToArray());
+        return $"crash-{(letters.Length == 0 ? "director" : letters)}-{deadPid}";
+    }
+
+    /// <summary>The reason a crash record gives, in the owner's words on the offer and in the restart history.</summary>
+    public const string Reason =
+        "The Director stopped without shutting down - it was killed or it crashed - so no session could write a handover.";
+
+    /// <summary>
+    /// The record, built from the journal. Every seat died with the Director and is undecided, which is the pair the way
+    /// up reads to offer a saved conversation back - nothing is brought back by itself.
+    /// </summary>
+    /// <param name="request">What the Director sent.</param>
+    /// <param name="directorName">The live Director's display name, from the Gateway's own registration.</param>
+    /// <param name="directorVersion">The live Director's version.</param>
+    /// <param name="machine">The live Director's machine, from the Gateway's own registration.</param>
+    public static WorkspaceDocument Build(WorkspaceCrashRecordRequest request, string? directorName, string? directorVersion, string? machine)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var journal = request.Journal ?? throw new ArgumentException("a crash record needs the journal", nameof(request));
+        var diedBy = journal.LastUpdatedUtc.UtcDateTime;
+
+        var seats = journal.Sessions
+            .Where(s => !string.IsNullOrWhiteSpace(s.SessionId))
+            .OrderBy(s => s.CreatedAtUtc)
+            .Select((s, index) => new WorkspaceSeat
+            {
+                SessionId = s.SessionId,
+                Name = s.Name ?? "",
+                Agent = s.Agent,
+                RepoPath = s.RepoPath,
+                ReportsTo = string.IsNullOrWhiteSpace(s.ControllerSessionId) ? null : s.ControllerSessionId,
+                OriginKind = string.IsNullOrWhiteSpace(s.OriginKind) ? null : s.OriginKind,
+                Factory = string.IsNullOrWhiteSpace(s.Factory) ? null : s.Factory,
+                FactorySeat = string.IsNullOrWhiteSpace(s.FactorySeat) ? null : s.FactorySeat,
+                FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+                FactoryKit = string.IsNullOrWhiteSpace(s.FactoryKit) ? null : s.FactoryKit,
+                LaunchModel = string.IsNullOrWhiteSpace(s.LaunchModel) ? null : s.LaunchModel,
+                ConnectionMode = s.ConnectionMode == ConnectionModes.Api ? ConnectionModes.Api : null,
+                SortOrder = index,
+                ClaudeSessionId = string.IsNullOrWhiteSpace(s.ClaudeSessionId) ? null : s.ClaudeSessionId,
+                CreatedAt = s.CreatedAtUtc.UtcDateTime,
+                DrainState = WorkspaceDrainStates.DiedWithDirector,
+                Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
+                ClosedAtUtc = diedBy,
+            })
+            .ToList();
+
+        return new WorkspaceDocument
+        {
+            SchemaVersion = 1,
+            Id = request.Id,
+            Name = $"Crash of {(string.IsNullOrWhiteSpace(directorName) ? "the Director" : directorName)} on {(string.IsNullOrWhiteSpace(machine) ? journal.MachineName : machine)}",
+            Description = $"Built from the crash journal of Director {journal.DirectorId} (process {journal.Pid}), found by the next Director on that machine.",
+            Origin = WorkspaceOrigins.Captured,
+            Machine = string.IsNullOrWhiteSpace(machine) ? journal.MachineName : machine.Trim(),
+            DirectorId = request.DirectorId,
+            DirectorName = directorName,
+            DirectorVersionBefore = null,
+            DirectorVersionAfter = directorVersion,
+            // The journal's last write is the last moment the Director is known to have been alive; it died after it.
+            StartedAtUtc = diedBy,
+            CompletedAtUtc = diedBy,
+            Reason = Reason,
+            ShutdownKind = WorkspaceShutdownKinds.Crash,
+            DirectorOutcome = WorkspaceDirectorOutcomes.Restarted,
+            Integrity = new WorkspaceIntegrity
+            {
+                CheckedAtUtc = diedBy,
+                ReadyToRestart = false,
+                NotReadyReason = Reason,
+                Problems = { "No session was asked for a handover: " + Reason },
+            },
+            Seats = seats,
+        };
+    }
 }

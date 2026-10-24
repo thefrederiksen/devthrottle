@@ -140,7 +140,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 var record = BuildRecord(offered);
                 FileLog.Write($"[DirectorWayUp] FindOfferAsync: offering {offered.Id}, shut down " +
                               $"{ShutdownAtUtc(offered):u}, owed={record.SeatsOwed}, rows={record.Rows.Count}");
-                return new WayUpOffer(WayUpOfferState.Offered, WayUpWords.Headline, record);
+                return new WayUpOffer(WayUpOfferState.Offered, record.Headline, record);
             }
 
             FileLog.Write($"[DirectorWayUp] FindOfferAsync: nothing waiting ({read} record(s) read)");
@@ -533,7 +533,10 @@ public sealed class DirectorWayUp : IDirectorWayUp
     internal static bool HasSomethingToActOn(WorkspaceDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        return string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
+        // A CRASH RECORD IS OFFERED LIKE A SMART SHUTDOWN (issue #4120): every one of its seats died with the
+        // Director, which is the operating-system-shutdown case below with even less warning.
+        return (string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
+                || string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal))
                && doc.CancelledAtUtc is null
                && (OwedSeats(doc).Count > 0 || ReopenableSeats(doc).Count > 0);
     }
@@ -598,8 +601,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
             WorkspaceId: doc.Id,
             ShutdownAtUtc: at,
             ShutdownAtLocal: local,
-            Headline: WayUpWords.Headline,
-            WhenLabel: WayUpWords.WhenLabel(local),
+            Headline: WayUpWords.HeadlineFor(doc.ShutdownKind),
+            WhenLabel: WayUpWords.WhenLabel(local, doc.ShutdownKind),
             Reason: doc.Reason,
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
             SeatsOwed: owed.Count,
@@ -645,7 +648,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             WorkspaceId: doc.Id,
             AtUtc: at,
             AtLocal: local,
-            WhenLabel: WayUpWords.WhenLabel(local),
+            WhenLabel: WayUpWords.WhenLabel(local, doc.ShutdownKind),
             KindLabel: WayUpWords.KindLabel(doc.ShutdownKind),
             Reason: doc.Reason,
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
@@ -833,7 +836,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
            && seat.Restore?.ReopenedAtUtc is null
            && seat.Restore is not { Decision: WorkspaceRestoreDecisions.Restore }
            && (string.Equals(seat.DrainState, WorkspaceDrainStates.EndedAtLimit, StringComparison.Ordinal)
-               || string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal));
+               || string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal)
+               || string.Equals(seat.DrainState, WorkspaceDrainStates.DiedWithDirector, StringComparison.Ordinal));
 
     /// <summary>
     /// The seat at the top of this seat's reporting chain inside the record. A chain that leaves the record,
@@ -1021,7 +1025,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             Name = seat.Name,
             Role = string.IsNullOrWhiteSpace(seat.Role) ? null : seat.Role,
             ResumeSessionId = string.IsNullOrWhiteSpace(seat.ClaudeSessionId) ? null : seat.ClaudeSessionId,
-            PrePrompt = WayUpWords.ReopenPrompt(ToLocal(ShutdownAtUtc(doc))),
+            PrePrompt = WayUpWords.ReopenPrompt(ToLocal(ShutdownAtUtc(doc)), doc.ShutdownKind),
             // The reopened seat CONTINUES the session it was captured from, so it keeps that session's starter:
             // a mission seat reopened after a restart is not one the owner started (Your Throttle, 2026-09-27).
             // A seat captured before the starter was recorded is reopened by the owner, as before.

@@ -71,6 +71,14 @@ public interface IWayUpGateway
     /// <param name="workspaceId">The record.</param>
     /// <param name="ct">Cancellation.</param>
     Task<WayUpMarkOutcome> MarkClearedFromStartUpOfferAsync(string workspaceId, CancellationToken ct);
+
+    /// <summary>
+    /// KEEP A CRASHED DIRECTOR'S JOURNAL AS A RESTART RECORD (issue #4120). True when the Gateway wrote it, false when
+    /// it was already there. Throws when the Gateway cannot be reached or refuses it, with its reason.
+    /// </summary>
+    /// <param name="journal">The crash journal the Director that ran before this one left.</param>
+    /// <param name="ct">Cancellation.</param>
+    Task<bool> RecordCrashAsync(CrashJournalDto journal, CancellationToken ct);
 }
 
 /// <summary>What became of a write of the reopen mark. Three states, kept apart because they are three
@@ -190,6 +198,15 @@ public sealed class GatewayClientWayUp : IWayUpGateway
             ? new WayUpMarkOutcome(WayUpMarkState.AlreadyDealtWith, error)
             : new WayUpMarkOutcome(WayUpMarkState.Refused, error);
     }
+
+    /// <inheritdoc />
+    public Task<bool> RecordCrashAsync(CrashJournalDto journal, CancellationToken ct)
+        => Required().RecordCrashAsync(new WorkspaceCrashRecordRequest
+        {
+            Id = WorkspaceCrashRecords.IdFor(journal.DirectorId, journal.Pid),
+            DirectorId = _directorId,
+            Journal = journal,
+        }, ct);
 
     /// <inheritdoc />
     public async Task<WayUpMarkOutcome> MarkClearedFromStartUpOfferAsync(string workspaceId, CancellationToken ct)
