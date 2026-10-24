@@ -51,6 +51,8 @@ public sealed class ConnectionChoiceTests : IDisposable
     private string _journalsJson = "[]";
     /// <summary>Whether the restore asked the reporting Director to drop the journal row.</summary>
     private bool _journalRowRemoved;
+    /// <summary>When set, the fake Director answers a create with a failure: nothing is started.</summary>
+    private bool _createFails;
     private NewSessionRequest? _machineDoorSaw;
     private WorkspaceStore? _workspaces;
     /// <summary>The clock the Director door judges a reopen claim by, standing still: no test reads the real one.</summary>
@@ -734,6 +736,30 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Equal(continuation, seat.Restore.ReopenedSessionId);
     }
 
+    // Review round 3: a restore whose create failed started nothing, so it must not leave the record's seat claimed -
+    // otherwise every door would refuse the seat for good.
+    [Fact]
+    public async Task RestoreInterrupted_CreateFails_GivesTheRecordsSeatBack_AndASecondRestoreStartsIt()
+    {
+        // Arrange
+        await StartAsync();
+        var row = JournalApiModeSeat(connectionMode: null);
+        var recordId = KeepAsCrashRecord();
+        _createFails = true;
+
+        // Act
+        using var failed = await RestoreAsync(row);
+        var seatAfterFailure = _workspaces!.Get(recordId)!.Seats.Single(s => s.SessionId == row.SessionId);
+        _createFails = false;
+        using var second = await RestoreAsync(row);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadGateway, failed.StatusCode);
+        Assert.Null(seatAfterFailure.Restore!.ReopenedAtUtc);
+        Assert.True(second.IsSuccessStatusCode, $"second restore answered {(int)second.StatusCode}: {await second.Content.ReadAsStringAsync()}");
+        Assert.NotNull(_workspaces.Get(recordId)!.Seats.Single(s => s.SessionId == row.SessionId).Restore!.ReopenedSessionId);
+    }
+
     /// <summary>Keep the journal the reporting Director serves as the crash record the Gateway would have written.</summary>
     private string KeepAsCrashRecord()
     {
@@ -1233,6 +1259,8 @@ public sealed class ConnectionChoiceTests : IDisposable
                 case "interrupted-remove":
                     _journalRowRemoved = true;
                     return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{}"));
+                case "create" when _createFails:
+                    return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Fail(DirectorCommandStatus.Error, "the agent would not start"));
                 case "create":
                     _directorDoorSaw = JsonSerializer.Deserialize<NewSessionRequest>(command.PayloadJson ?? "{}", Web);
                     return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(

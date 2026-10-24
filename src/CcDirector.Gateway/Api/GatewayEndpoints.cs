@@ -2099,13 +2099,20 @@ internal static partial class GatewayEndpoints
             }
 
             var createSr = await DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", "", spawnReq, CancellationToken.None, machineName: target.MachineName);
-            if (createSr is null)
-                return Results.Problem("target director is not connected to the tunnel", statusCode: StatusCodes.Status502BadGateway);
-            SessionDto? created = createSr.Ok ? DirectorCommandRouter.ReadBody<SessionDto>(createSr) : null;
-            if (created is null && createSr.Ok is false)
-                return Results.Problem(
-                    $"target director failed to create the continuation session: {DirectorCommandRouter.DescribeFailure(createSr)}",
-                    statusCode: StatusCodes.Status502BadGateway);
+            // NOTHING WAS STARTED, SO THE CLAIM GOES BACK (review round 3). Not sent at all, or answered with a failure: the
+            // Gateway knows no session exists, and a claim left standing would make every door refuse the seat. (An answer
+            // with an empty body may have started something, so that claim stands.)
+            if (createSr is null || createSr.Ok is false)
+            {
+                if (crashRecordClaimed)
+                    workspaces!.ReleaseUnstartedReopenClaim(crashRecordId, row.SessionId, target.DirectorId, DateTime.UtcNow);
+                return createSr is null
+                    ? Results.Problem("target director is not connected to the tunnel", statusCode: StatusCodes.Status502BadGateway)
+                    : Results.Problem(
+                        $"target director failed to create the continuation session: {DirectorCommandRouter.DescribeFailure(createSr)}",
+                        statusCode: StatusCodes.Status502BadGateway);
+            }
+            SessionDto? created = DirectorCommandRouter.ReadBody<SessionDto>(createSr);
             if (created is null)
                 return Results.Problem("target director returned an empty session body", statusCode: StatusCodes.Status502BadGateway);
             created.DirectorId = target.DirectorId;
