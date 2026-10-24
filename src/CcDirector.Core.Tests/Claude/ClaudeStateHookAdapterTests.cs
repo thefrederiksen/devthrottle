@@ -55,6 +55,32 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.DoesNotContain("https://", script, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(false, "report-state.sh")]
+    [InlineData(true, "report-state.ps1")]
+    public void EnsureInstalled_StateScriptSerializesSequenceBeforeWritingTheRecord(bool forWindows, string scriptName)
+    {
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var script = File.ReadAllText(Path.Combine(_directory, scriptName));
+
+        Assert.Contains(".claude-sequence.lock", script, StringComparison.Ordinal);
+        Assert.Contains(".claude-sequence", script, StringComparison.Ordinal);
+        Assert.Contains(".state.json", script, StringComparison.Ordinal);
+        Assert.Contains(".tmp", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnsureInstalled_PowerShellStateScript_MalformedPayloadBecomesUnsupportedAndUsesInvariantTimestamp()
+    {
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows: true, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var script = File.ReadAllText(Path.Combine(_directory, "report-state.ps1"));
+
+        Assert.Contains("catch { $eventName = 'unsupported'; $detail = $args[0] }", script, StringComparison.Ordinal);
+        Assert.Contains("[Globalization.CultureInfo]::InvariantCulture", script, StringComparison.Ordinal);
+    }
+
     private static void AssertStateCommand(JsonElement hooks, string hookName, string fact)
     {
         var entries = hooks.GetProperty(hookName);
