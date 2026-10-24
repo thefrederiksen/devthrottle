@@ -59,9 +59,6 @@ internal sealed class TunnelCatchAllDispatch
     private static readonly Dictionary<string, string> BodyWrites = new(StringComparer.OrdinalIgnoreCase)
     {
         ["POST resize"] = "resize",
-        // Raw terminal frames are the single direct-input path; higher-level keys, paste and
-        // mouse requests are encoded by their owning Director before reaching this verb.
-        ["POST terminal-input"] = "terminal-input",
         ["POST keys"] = "terminal-keys",
         ["POST paste"] = "terminal-paste",
         ["POST mouse"] = "terminal-mouse",

@@ -3303,17 +3303,17 @@ def session_enter(
 @session_app.command()
 def keys(target: str = typer.Argument(...), combo: str = typer.Argument(...)) -> None:
     """Send a named terminal key chord, for example ctrl+c or alt+f."""
-    terminal_keys(target, combo)
+    console.print_json(json.dumps(terminal_keys(target, combo)))
 
 @session_app.command()
 def paste(target: str = typer.Argument(...), text: str = typer.Argument(...)) -> None:
     """Paste text into a session using its live terminal paste mode."""
-    terminal_paste(target, text)
+    console.print_json(json.dumps(terminal_paste(target, text)))
 
 @session_app.command()
 def resize(target: str = typer.Argument(...), cols: int = typer.Argument(...), rows: int = typer.Argument(...)) -> None:
     """Resize a session terminal grid."""
-    terminal_resize(target, cols, rows)
+    console.print_json(json.dumps(terminal_resize(target, cols, rows)))
 
 @session_app.command()
 def screen(target: str = typer.Argument(...)) -> None:
