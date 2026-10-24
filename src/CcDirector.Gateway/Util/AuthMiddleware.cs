@@ -258,6 +258,10 @@ internal static class AuthMiddleware
         Api.DirectorErrorEndpoints.AdminGroupsPath,
         Api.DirectorErrorEndpoints.AdminSummariesPath,
         Api.DirectorErrorEndpoints.AdminLinkedIssuePath,
+        // Issue #4403: the administrator read of every account's scheduled runs. Same reason, same service-token gate,
+        // exact-match. Read-only; it returns run records - identifiers, statuses and the reasons the Gateway recorded -
+        // and no prompt, session or terminal content.
+        Api.AdminCronRunEndpoints.Path,
         // Issue #3675: the website's error intake and the minting of its token. The website's server holds no device
         // key. The intake carries its own gate - the website error token, which can write component "website" and
         // nothing else - and the minting carries the administrator service-token gate. Both exact-match.
@@ -448,6 +452,7 @@ internal static class AuthMiddleware
             // grant covers was accepted above and never reaches here, and on any other route the two answers are the same.
             var refusal = SessionKeyGuard.Check(ctx.Request.Method, path);
             FileLog.Write($"[AuthMiddleware] session key REFUSED: {ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(path)} - {refusal.Reason}");
+            ReportRefusal(ctx, cfg, path, StatusCodes.Status403Forbidden, "session_key_out_of_scope", refusal.Reason);
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             ctx.Response.ContentType = "application/json; charset=utf-8";
             await ctx.Response.WriteAsync(
@@ -466,6 +471,8 @@ internal static class AuthMiddleware
             return;
         }
 
+        if (authentication == AuthenticationResultKind.RevokedCredential)
+            ReportRefusal(ctx, cfg, path, StatusCodes.Status401Unauthorized, "credential_revoked", reason: null);
         ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         ctx.Response.ContentType = "application/json; charset=utf-8";
         await ctx.Response.WriteAsync(authentication == AuthenticationResultKind.RevokedCredential
@@ -590,7 +597,14 @@ internal static class AuthMiddleware
 
         var resolution = devices.ResolveCredential(credential);
         if (resolution.Kind == DeviceCredentialResolutionKind.Revoked)
+        {
             NoteRevokedReason(ctx, resolution.RevokedReason);
+            if (resolution.Identity is { TenantId: { Length: > 0 } tenant } device)
+                NoteKnownRefusal(ctx, new KnownRefusal(tenant, "device credential",
+                    $"device {device.DeviceId}'s credential is no longer accepted ("
+                    + (string.IsNullOrWhiteSpace(resolution.RevokedReason) ? $"status {device.Status}" : resolution.RevokedReason) + ")",
+                    SessionId: null));
+        }
         return resolution.Kind switch
         {
             DeviceCredentialResolutionKind.Active when resolution.Identity is not null
@@ -599,6 +613,29 @@ internal static class AuthMiddleware
             DeviceCredentialResolutionKind.Unavailable => AuthenticationResultKind.RegistryUnavailable,
             _ => AuthenticationResultKind.UnknownCredential,
         };
+    }
+
+    // Issue #4403: the last credential on this request that VERIFIED as somebody's and was refused - whose it was and
+    // why - so the refusal can be reported under that account. A key nobody holds never sets it.
+    private const string KnownRefusalItemKey = "cc.auth.KnownRefusal";
+
+    private sealed record KnownRefusal(string Account, string Credential, string Reason, string? SessionId);
+
+    private static void NoteKnownRefusal(HttpContext ctx, KnownRefusal refusal) => ctx.Items[KnownRefusalItemKey] = refusal;
+
+    /// <summary>
+    /// Report the refusal this request is being answered with, under the account of the credential refused (issue
+    /// #4403), when one verified as somebody's. The reason given is the one the refusal itself carries, or the one the
+    /// credential's lookup recorded. Never the credential.
+    /// </summary>
+    private static void ReportRefusal(HttpContext ctx, RequireToken cfg, string path, int status, string code, string? reason)
+    {
+        if (cfg.AccountFailures is null) return;
+        if (!ctx.Items.TryGetValue(KnownRefusalItemKey, out var noted) || noted is not KnownRefusal known) return;
+        if (string.IsNullOrWhiteSpace(known.Account)) return;
+        cfg.AccountFailures.CredentialRefused(new Api.CredentialRefusal(known.Account, known.Credential,
+            reason ?? known.Reason, status, code, ctx.Request.Method, Api.TeamInvitationEndpoints.RedactForLog(path),
+            known.SessionId));
     }
 
     // Set only while every revoked device key seen on this request was revoked for removal from the team.
@@ -665,10 +702,18 @@ internal static class AuthMiddleware
                         verdict = asRaised;
                 }
                 if (!verdict.Allowed)
+                {
+                    NoteKnownRefusal(ctx, new KnownRefusal(resolution.Identity.Tenant.Value, "session key",
+                        verdict.Reason, resolution.Identity.SessionId.ToString()));
                     return AuthenticationResultKind.OutOfScopeSessionKey;
+                }
                 return AcceptSession(ctx, credential, resolution.Identity, verdict.RaisedGrant);
 
             case SessionCredentialResolutionKind.Revoked:
+                // A key with no usable account names nobody, and is not reported (see GatewayAccountFailures).
+                if (resolution.Identity is { } refused)
+                    NoteKnownRefusal(ctx, new KnownRefusal(refused.Tenant.Value, "session key",
+                        resolution.Refusal ?? "the session key is no longer accepted", refused.SessionId.ToString()));
                 return AuthenticationResultKind.RevokedCredential;
 
             case SessionCredentialResolutionKind.Unavailable:
@@ -915,6 +960,13 @@ internal static class AuthMiddleware
         /// not run. Required wherever <see cref="IsRaised"/> is set.
         /// </summary>
         public Action<SessionCredentialIdentity, RaisedGrant, string, string>? RecordRaisedAction { get; init; }
+
+        /// <summary>
+        /// Issue #4403: where a refused credential whose account is known is reported - revoked, expired, or a session
+        /// key on a route it may not call - so the refusal reaches the error store under that account. Null reports
+        /// nothing.
+        /// </summary>
+        public Api.GatewayAccountFailures? AccountFailures { get; init; }
     }
 
     internal enum AuthenticationResultKind

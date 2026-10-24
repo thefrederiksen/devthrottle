@@ -537,6 +537,16 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Pairing.SessionKeyRegistry SessionKeys { get; }
 
+    /// <summary>
+    /// Issue #4403: the Gateway's own failures that belong to one account - a refused credential, a refused session-key
+    /// registration, a failed scheduled run - into the error store under that account. One instance, shared by the auth
+    /// gate, the Director hub and <see cref="_cronRunFailures"/>; attached to the error sink once the sink exists.
+    /// </summary>
+    internal Api.GatewayAccountFailures AccountFailures { get; } = new();
+
+    // Issue #4403: reads every account's failed runs and reports each once through AccountFailures.
+    private Running.CronRunFailureReporter? _cronRunFailures;
+
     /// <summary>Every session each account has ever marked as its Fleet Manager (the Fleet Manager mission,
     /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
     internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
@@ -4731,6 +4741,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Remove-the-network-port phase 1b: the DirectorHub (constructed per-invocation by SignalR) registers
         // and revokes session keys through the SAME registry the auth gate verifies against.
         builder.Services.AddSingleton(SessionKeys);
+        // Issue #4403: the hub reports a session key it refused to register under the account.
+        builder.Services.AddSingleton(AccountFailures);
         // The hub ends a raised entry when it reaps the session (the Fleet Manager Improvement mission, phase 1).
         builder.Services.AddSingleton(RaisedSessions);
         // The hub ends a session's message links when it reaps the session, and records it (issue #3548).
@@ -4759,6 +4771,14 @@ public sealed class GatewayHost : IAsyncDisposable
         _errorSink = new Api.GatewayErrorSink(_errorReports);
         _errorSink.Start();
         Api.GatewayRequestErrors.Use(_app, _errorSink);
+        // Issue #4403: the Gateway's own failures that belong to one account go to the same store, under that account.
+        AccountFailures.Attach(_errorSink);
+        var failureStore = _errorReports;
+        _cronRunFailures = new Running.CronRunFailureReporter(_cronRuns, AccountFailures,
+            alreadyStored: since => Running.CronRunFailureReporter.StoredScheduleFailures(failureStore, since, DateTime.UtcNow),
+            // Beside the error store, on the durable root a deploy does not touch.
+            checkpointPath: Path.Combine(failureStore.Root, "schedule-failure-checkpoint.txt"));
+        _cronRunFailures.Start();
 
         _app.UseForwardedHeaders();
 
@@ -4902,6 +4922,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 IsRaised = identity => RaisedSessions.IsRaised(identity.Tenant, identity.SessionId.ToString()),
                 RecordRaisedAction = (identity, grant, method, path) => RaisedSessionRecord.Action(identity.Tenant,
                     identity.SessionId.ToString(), Fleet.RaisedSessionRecord.DescribeGuardGrant(grant, method, path)),
+                // Issue #4403: a refused credential whose account is known is reported under that account.
+                AccountFailures = AccountFailures,
             };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
@@ -5938,6 +5960,8 @@ public sealed class GatewayHost : IAsyncDisposable
             ?? throw new InvalidOperationException("the error store is created before the pipeline and must exist when the routes are mapped");
         InstallReportEndpoints.Map(_app, errorReports);
         DirectorErrorEndpoints.Map(_app, errorReports, _tenantBoundary, TenantRegistry);
+        // Issue #4403: the administrator's read of every account's scheduled runs, behind the same service token.
+        AdminCronRunEndpoints.Map(_app, _cronRuns, TenantRegistry);
         // The browser error channel: every error the Cockpit or the phone app shows the user is also reported
         // here, into the SAME durable store under the caller's account (the Error Logging mission, issue #3675) -
         // no on-screen error exists only on the user's screen.
@@ -7897,6 +7921,10 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         try { _sessionKeySweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session key sweep timer dispose error: {ex.Message}"); }
         _sessionKeySweepTimer = null;
+        // Issue #4403: stop reading failed runs before the sink they are reported into goes.
+        try { _cronRunFailures?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] schedule failure reporter dispose FAILED: {ex.Message}"); }
+        _cronRunFailures = null;
+        AccountFailures.Detach();
         // The Gateway's own errors: detach from the log and write what is waiting, the running flood hour included.
         try { _errorSink?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] error sink dispose FAILED: {ex.Message}"); }
         _errorSink = null;

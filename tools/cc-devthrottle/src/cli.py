@@ -4519,6 +4519,48 @@ def schedule_runs(
     schedule_ops.list_runs(job_id, json_output)
 
 
+@schedule_app.command("admin-runs")
+def schedule_admin_runs(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output the Gateway's answer as JSON: every field of every run. Filters still apply."
+    ),
+    account: str = typer.Option(None, "--account", help="Only this account id."),
+    email: str = typer.Option(None, "--email", help="Only the account recorded against this email."),
+    job: str = typer.Option(None, "--job", help="Only this schedule id."),
+    since: str = typer.Option(None, "--since", help="Fired from this time: ISO 8601, or an age such as 6h, 7d. Default 7d."),
+    until: str = typer.Option(None, "--until", help="Fired up to this time: ISO 8601, or an age. Default now."),
+    failed: bool = typer.Option(False, "--failed", help="Only runs that failed: a problem, or a start never known."),
+    limit: int = typer.Option(100, "--limit", "-n", help="At most this many, newest first (1 to 500)."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: fired,account,name,machine,result,problem,reason. "
+        "Valid: fired, account, job, name, machine, status, result, problem, failed, reason, session, run, "
+        "scheduled, resolved.",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show whole reasons instead of a preview."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Read from this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """All accounts' scheduled runs and how each ended. Administrator."""
+    from .schedule_admin_ops import list_admin_runs
+
+    list_admin_runs(
+        json_output=json_output,
+        account=account,
+        email=email,
+        job=job,
+        since=since,
+        until=until,
+        failed=failed,
+        limit=limit,
+        fields=fields,
+        full=full,
+        gateway_url=gateway_url,
+    )
+
+
 @schedule_app.command("plan")
 def schedule_plan(
     job_id: str = typer.Argument(..., help="The schedule id (a random schedule)."),
