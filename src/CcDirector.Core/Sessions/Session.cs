@@ -979,7 +979,8 @@ public sealed class Session : IDisposable
                 SessionStateEventContract.StateFor(evt.Event),
                 SessionStateSources.Agent,
                 evt.OccurredAtUtc,
-                isFallback: false);
+                isFallback: false,
+                positiveIdleComposer: false);
             return true;
         }
     }
@@ -5481,6 +5482,18 @@ public sealed class Session : IDisposable
         ApplyResolvedActivityState(newState, SessionStateSources.Screen, Clock.GetUtcNow(), isFallback: false);
 
     /// <summary>
+    /// Submit positive evidence that the idle composer is visible with no working marker. This can
+    /// end an agent-selected turn whose adapter missed its interrupt or error-stop event.
+    /// </summary>
+    internal void ApplyIdleComposerActivityState() =>
+        ApplyResolvedActivityState(
+            ActivityState.WaitingForInput,
+            SessionStateSources.Screen,
+            Clock.GetUtcNow(),
+            isFallback: false,
+            positiveIdleComposer: true);
+
+    /// <summary>
     /// Submit the Wingman interpretation of an already detected unclear stop. This never detects the stop itself.
     /// </summary>
     internal void ApplyWingmanActivityState(ActivityState newState) =>
@@ -5490,17 +5503,19 @@ public sealed class Session : IDisposable
         ActivityState reportedState,
         string reportedSource,
         DateTimeOffset reportedAtUtc,
-        bool isFallback)
+        bool isFallback,
+        bool positiveIdleComposer = false)
     {
         lock (_stateResolutionGate)
-            ApplyResolvedActivityStateLocked(reportedState, reportedSource, reportedAtUtc, isFallback);
+            ApplyResolvedActivityStateLocked(reportedState, reportedSource, reportedAtUtc, isFallback, positiveIdleComposer);
     }
 
     private void ApplyResolvedActivityStateLocked(
         ActivityState reportedState,
         string reportedSource,
         DateTimeOffset reportedAtUtc,
-        bool isFallback)
+        bool isFallback,
+        bool positiveIdleComposer)
     {
         var selectedPriority = SessionStateSources.Priority(ActivityStateSource);
         var reportedPriority = SessionStateSources.Priority(reportedSource);
@@ -5526,7 +5541,14 @@ public sealed class Session : IDisposable
         var advancesTerminalCycle = isLater
             && ActivityStateSource == SessionStateSources.TerminalOutput
             && reportedSource == SessionStateSources.SilenceTimer;
-        if (disagrees && selectedPriority > reportedPriority && !clearsPermission && !advancesTerminalCycle)
+        var clearsUnreportedAgentStop = isLater
+            && positiveIdleComposer
+            && ActivityStateSource == SessionStateSources.Agent
+            && ActivityState is ActivityState.Working or ActivityState.MenuOpen;
+        if (disagrees && selectedPriority > reportedPriority
+            && !clearsPermission
+            && !advancesTerminalCycle
+            && !clearsUnreportedAgentStop)
         {
             RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);
             FileLog.Write($"[Session] state fact DISAGREED: session={Id}, reported={reportedState}/{reportedSource}, selected={ActivityState}/{ActivityStateSource}");

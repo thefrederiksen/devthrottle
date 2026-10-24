@@ -53,7 +53,11 @@ a partial write for a complete event.
 
 Merge priority is agent facts, then core screen facts, then the Wingman judge only for the meaning
 of an already detected unclear stop, then the silence timer as last resort. A lower-priority fact
-cannot replace a newer, still-current higher-priority fact. Disagreements are recorded with both
-source, state/fact, timestamp, and the selected source. State snapshots and changes expose the
-winning source; a silence-timer result is marked as fallback. The Wingman source is reserved for the
-unclear-stop interpretation and is not wired to a producer yet.
+cannot replace a newer, still-current higher-priority fact. An agent-selected `Working` or `MenuOpen`
+fact stops being current when a later positive idle-composer screen fact shows a recognised composer
+and no working marker. This covers an interrupt, error stop, or answered menu for which the adapter
+emits no closing event; it resolves `WaitingForInput` with `screen` as the deciding source. A composer
+beneath a working marker is not idle evidence and cannot end the agent fact. Disagreements are
+recorded with both source, state/fact, timestamp, and the selected source. State snapshots and changes
+expose the winning source; a silence-timer result is marked as fallback. The Wingman source is
+reserved for the unclear-stop interpretation and is not wired to a producer yet.
