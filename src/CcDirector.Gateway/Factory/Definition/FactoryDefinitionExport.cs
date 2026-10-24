@@ -222,8 +222,9 @@ public static class FactoryDefinitionExport
             yield return $"it runs on {s.Target.Machine} and the seat on {seatMachine}; a start runs where its seat runs.";
         if (!string.IsNullOrWhiteSpace(s.Action.RepoPath))
             yield return $"its working folder '{s.Action.RepoPath}' is not kept: a seat works in a repository named under repositories in factory.yaml, or in none.";
-        if (!string.Equals(s.NotifyOn, CronNotify.None, StringComparison.Ordinal))
-            yield return $"its notification ('{s.NotifyOn}'{(string.IsNullOrWhiteSpace(s.NotifyWebhookUrl) ? "" : $" to {s.NotifyWebhookUrl}")}) is not kept: a start has none.";
+        // A start's schedule gets the default notifications (issue #4436); anything else the schedule has is not kept.
+        if (!string.Equals(CronNotify.Normalize(s.NotifyOn), CronNotify.Default, StringComparison.Ordinal))
+            yield return $"its notification ('{s.NotifyOn}'{(string.IsNullOrWhiteSpace(s.NotifyWebhookUrl) ? "" : $" to {s.NotifyWebhookUrl}")}) is not kept: a start's schedule notifies on failure.";
         if (!s.Action.AutoDismiss)
             yield return "it keeps its session open when the run ends, and a start's session always closes itself.";
     }

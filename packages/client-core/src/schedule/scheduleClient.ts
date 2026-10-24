@@ -48,9 +48,21 @@ export interface CronJob {
   target: CronJobTarget;
   action: CronJobAction;
   preventOverlap: boolean;
-  /** Run-complete notification policy (#622): "none" | "always" | "failure". */
+  /** Run-complete notification policy (#622): "failure" (the default since issue #4436) | "always" | "none". */
   notifyOn: string;
   notifyWebhookUrl?: string | null;
+  /**
+   * The Gateway's note that failure notifications were switched on for this schedule by the change of default (issue
+   * #4436) and how to turn them off; null otherwise. Show it as given. Read-only.
+   */
+  notifyNote?: string | null;
+  /**
+   * The newest run's state in words when it went wrong (issue #4436), for example "Last run failed: The folder ...
+   * does not exist on studio-mac (a Mac). ...". Null when it did not go wrong. Show it as given. Read-only.
+   */
+  lastRunText?: string | null;
+  /** How lastRunText is shown: "err" (it failed) or "warn" (not known whether it started); null with no text. Read-only. */
+  lastRunTone?: string | null;
   createdUtc?: string;
   /** UTC instant the job last fired, or null if it never has. */
   lastFiredUtc?: string | null;
@@ -131,6 +143,13 @@ export interface CronRunRecord {
   ending?: string | null;
   /** The ending in words, for example "closed itself after 6 min". Read-only. */
   endingText?: string | null;
+  /**
+   * What went wrong with a failed run, as one plain sentence saying what happened, on which machine and what to do
+   * (issue #4436); null for a run that did not fail. Show it as given; resultReason is the detail. Read-only.
+   */
+  failureText?: string | null;
+  /** The run record's own reason, unreworded: the detail behind failureText. Read-only. */
+  resultReason?: string | null;
   /** The shift the run started in, for example "morning shift, Sun 11 Oct, 08:00-16:00". Read-only. */
   shiftText?: string | null;
 }

@@ -1,0 +1,23 @@
+namespace CcDirector.Gateway.Data.Entities;
+
+/// <summary>
+/// When a schedule's owner was last told that it failed for one cause (issue #4436): one row per (account, schedule,
+/// cause) in <c>cron_failure_notices</c>. A broken schedule firing every five minutes would otherwise notify its owner
+/// every five minutes; with this it notifies at most once an hour for each cause, and the failures held back in between
+/// are counted onto the next notice. Kept in the database, not in memory, so a Gateway restart neither tells the same
+/// failure twice nor forgets that an hour has not passed.
+/// </summary>
+public sealed class CronFailureNoticeEntity : TenantScopedEntity
+{
+    /// <summary>The schedule's id.</summary>
+    public string JobId { get; set; } = "";
+
+    /// <summary>The cause of the failure, one of <see cref="Running.ScheduleFailureCauses"/>.</summary>
+    public string Cause { get; set; } = "";
+
+    /// <summary>When the owner was last told of a failure of this cause (UTC).</summary>
+    public DateTime LastSentUtc { get; set; }
+
+    /// <summary>The failures of this cause since then that were not told, because the hour had not passed.</summary>
+    public int HeldBack { get; set; }
+}

@@ -533,6 +533,8 @@ public sealed class CronJobStore
         PreventOverlap = e.PreventOverlap,
         NotifyOn = e.NotifyOn,
         NotifyWebhookUrl = e.NotifyWebhookUrl,
+        NotifyDefaultedUtc = e.NotifyDefaultedUtc is { } defaulted ? DateTime.SpecifyKind(defaulted, DateTimeKind.Utc) : null,
+        NotifyNote = Running.ScheduleFailureWords.NotifyNote(e.NotifyOn, e.NotifyDefaultedUtc),
         CreatedUtc = e.CreatedUtc,
         LastFiredUtc = e.LastFiredUtc,
         NextRunUtc = e.NextRunUtc,

@@ -209,21 +209,22 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_NoNotify_DefaultsToNone()
+    public async Task Post_NoNotify_DefaultsToFailure()
     {
-        // AC4 default-OFF: a job created without the notify fields comes back as "none".
+        // Issue #4436: a job created without the notify fields tells its owner when a run fails.
         var created = await CreateJob("silent");
         var get = await _http.GetAsync($"/cron/jobs/{created.Id}");
         var fetched = JsonSerializer.Deserialize<CronJobDto>(await get.Content.ReadAsStringAsync(), JsonOpts);
         Assert.NotNull(fetched);
-        Assert.Equal("none", fetched!.NotifyOn);
+        Assert.Equal("failure", fetched!.NotifyOn);
         Assert.Null(fetched.NotifyWebhookUrl);
+        Assert.Null(fetched.NotifyNote);
     }
 
     [Fact]
     public async Task Put_EditsNotifySettings()
     {
-        // AC4: editing a job updates the notify policy + webhook.
+        // AC4: editing a job updates the notify policy + webhook - the owner can turn the default off (issue #4436).
         var created = await CreateJob("editme");
 
         var edit = new
@@ -234,14 +235,14 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             timeZoneId = "America/Chicago",
             target = new { machine = "workstation-A" },
             action = new { repoPath = @"D:\repo", seed = "/help" },
-            notifyOn = "failure",
+            notifyOn = "none",
             notifyWebhookUrl = "https://example.com/h2",
         };
         var put = await _http.PutAsJsonAsync($"/cron/jobs/{created.Id}", edit);
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
         var dto = JsonSerializer.Deserialize<CronJobDto>(await put.Content.ReadAsStringAsync(), JsonOpts);
         Assert.NotNull(dto);
-        Assert.Equal("failure", dto!.NotifyOn);
+        Assert.Equal("none", dto!.NotifyOn);
         Assert.Equal("https://example.com/h2", dto.NotifyWebhookUrl);
     }
 

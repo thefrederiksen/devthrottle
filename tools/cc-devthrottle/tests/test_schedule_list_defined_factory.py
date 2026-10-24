@@ -207,7 +207,8 @@ def test_schedule_run_ASeatTheDirectorRefused_PrintsTheReasonTheGatewayRecorded(
     result = runner.invoke(app, ["schedule", "run", "cj_19cb4d"])
 
     assert result.exit_code == 0, result.stderr
-    assert "  Reason:  it did not start a session: " + REFUSED in result.stdout.splitlines()
+    # The run's own reason is the detail (issue #4436); the plain sentence, when the Gateway gave one, is the Problem line.
+    assert "  Detail:  it did not start a session: " + REFUSED in result.stdout.splitlines()
 
 
 def test_schedule_run_UNDEFINED_FACTORY_ARunThatStarted_PrintsNoReasonLine(monkeypatch):
@@ -219,5 +220,6 @@ def test_schedule_run_UNDEFINED_FACTORY_ARunThatStarted_PrintsNoReasonLine(monke
     result = runner.invoke(app, ["schedule", "run", "cj_plain1"])
 
     assert result.exit_code == 0, result.stderr
-    assert "Reason:" not in result.stdout
+    assert "Detail:" not in result.stdout
+    assert "Problem:" not in result.stdout
     assert "  Session: s-1" in result.stdout.splitlines()

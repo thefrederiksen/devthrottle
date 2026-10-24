@@ -1773,7 +1773,21 @@ COMMANDS:
 ```
 
 `--json` is available on `list`, `get`, `runs`, `plan`, `create`, `run`, and `endpoint`.
-`--notify-on none|always|failure` and `--notify-webhook URL` are available on `create`.
+`--notify-on failure|always|none` and `--notify-webhook URL` are available on `create`.
+
+**A failed schedule tells its owner by default (issue #4436).** `--notify-on` defaults to `failure`:
+a run that did not run (a missed run too), did not start, may not have started, or ended with a
+problem tells the schedule's owner - on the fleet notification channel, the owner's phones, the
+webhook when one is set, and the account owner's email on the hosted Gateway - at most once an
+hour for each cause of each schedule. `always` also tells every run that started; `none` turns it
+off. Every schedule that was still on the old default (`none`) was moved to `failure`, and
+`schedule get` says so in its `Note:` line.
+
+**What went wrong, in plain words.** `schedule runs` has a `What went wrong` column, `schedule run`
+prints a `Problem:` line and `schedule get` a `Last run:` line: one sentence the Gateway chose from
+the cause - what happened, on which machine, and what to do. The run's own reason (for example the
+Director's `repoPath does not exist: ...`) is the `Detail:` line of `schedule run`, and stays in
+`--json` as `resultReason`; it is never the headline.
 
 **Random schedules (issue #3622).** `--random 07:00-01:00 --per-day 4 --min-gap 45` fires about four
 times a day at random times inside that local window (an end at or before the start crosses

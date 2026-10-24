@@ -106,7 +106,8 @@ const EMPTY_FORM: FormState = {
   cron: "",
   runAt: "",
   timeZone: "",
-  notifyOn: "none",
+  // A failed run tells its owner by default (issue #4436).
+  notifyOn: "failure",
   notifyWebhookUrl: "",
   enabled: true,
   preventOverlap: true,
@@ -634,16 +635,16 @@ export function ScheduleEditor({
                 </div>
 
                 <div className="sched-fld">
-                  <label className="sched-fld-label">Notify when run completes</label>
+                  <label className="sched-fld-label">Notify me</label>
                   <select
                     value={form.notifyOn}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, notifyOn: e.target.value as "none" | "always" | "failure" }))
                     }
                   >
+                    <option value="failure">When a run fails (the default)</option>
+                    <option value="always">Every run, started or failed</option>
                     <option value="none">Off (no notification)</option>
-                    <option value="always">Always (success or failure)</option>
-                    <option value="failure">Only on failure</option>
                   </select>
                 </div>
 
@@ -825,8 +826,9 @@ export function ScheduleEditor({
 }
 
 function normalizeNotify(value: string | null | undefined): "none" | "always" | "failure" {
+  // The Gateway's own rule (CronNotify.Normalize): an empty or unknown policy is the default, failure.
   const v = (value ?? "").toLowerCase();
-  return v === "always" || v === "failure" ? v : "none";
+  return v === "always" || v === "none" ? v : "failure";
 }
 
 // The form's kind for a stored job. An unknown kind reads as one-off, as it always has.
