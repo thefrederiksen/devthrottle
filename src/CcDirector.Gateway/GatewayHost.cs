@@ -1574,6 +1574,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // non-interruptive by construction: a Working session is never evaluated and never touched.
     private Supervision.SessionSupervisor? _sessionSupervisor;
 
+    // Issue #3907: reads a scheduled session's screen when its turn ends, to see whether its seat is at its limit.
+    private Supervision.GatewaySupervisorEnvironment? _seatLimitScreen;
+
     // Issue #2662: the raised hands of supervised sessions. Constructed unconditionally and never null - a
     // null registry would make every hand read as "down", which is the shape of failure this whole mission
     // exists to remove (a check that passes because nothing is recording). In memory on purpose; see the
@@ -4144,6 +4147,34 @@ public sealed class GatewayHost : IAsyncDisposable
             brainProvider: WingmanBrainAsync,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
+    /// <summary>
+    /// Issue #3907: when a session a schedule started ends a turn, read its screen once and let the schedule's results
+    /// record a seat at its usage or spend limit as a failed run. Fire and forget; it never throws.
+    /// </summary>
+    private void OnScheduledTurnEnd(TenantId tenant, string directorId, string sessionId)
+    {
+        var started = PushedSessions.GetLastKnown(tenant, directorId).Sessions.FirstOrDefault(s =>
+            string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (started is null || _seatLimitScreen is not { } screen || _cronRunResults is not { } results
+            || !string.Equals(started.OriginSurface, Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal))
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                {
+                    var rows = await screen.ReadScreenRowsAsync(tenant, directorId, sessionId, CancellationToken.None).ConfigureAwait(false);
+                    results.RecordSeatLimitFromScreen(tenant, sessionId, rows);
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayHost] scheduled turn end FAILED: sid={sessionId}: {ex.Message}");
+            }
+        });
+    }
+
     private Supervision.GatewaySupervisorEnvironment BuildSupervisorEnvironment()
     {
         var notify = new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
@@ -4310,6 +4341,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // below, deliberately: that event is the only thing that can wake it, so a Working session is out of
         // its reach by construction rather than by a rule somebody has to remember.
         _sessionSupervisor ??= new Supervision.SessionSupervisor(BuildSupervisorEnvironment());
+        _seatLimitScreen ??= BuildSupervisorEnvironment();
         FileLog.Write("[GatewayHost] StartAsync: session supervisor armed (auto-recovery on a transient transport fault)");
 
         // The rule evaluator (Session Rules mission, phase 2). It hangs off the SAME turn-end boundary, so
@@ -4516,6 +4548,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 {
                     FileLog.Write($"[GatewayHost] turn-end supervision FAILED: sid={signal.SessionId}: {ex.Message}");
                 }
+
+                // A scheduled session whose seat is at its limit is a failed run, from its first turn end (issue
+                // #3907). Only a session a schedule started is looked at - read from the roster in memory - and its
+                // screen is read once, off this thread. It never throws.
+                OnScheduledTurnEnd(tenant, signal.DirectorId, signal.SessionId);
 
                 // Session Rules (mission phase 2): evaluate this idle transition against the account's
                 // standing instructions. The launch is a piece of that FEATURE and lives with it - see

@@ -209,6 +209,12 @@ public static class CronRunProblems
     /// </summary>
     public const string PromptNotDelivered = "prompt-not-delivered";
 
+    /// <summary>
+    /// The run's session started, and its agent answered that its seat is at a usage or spend limit (issue #3907): it
+    /// cannot do the work until the limit resets or is raised. Recorded from the session's screen when its turn ends.
+    /// </summary>
+    public const string SeatLimit = "seat-limit";
+
     /// <summary>The run's check broke its contract (Factory Definition, phase 5b); the reason is the contract's, quoted.
     /// Also the kind of a definition trigger's failed check on the problems list.</summary>
     public const string CheckFailed = "check-failed";
@@ -242,6 +248,7 @@ public static class CronRunProblems
         RanPastShift => "ran past its shift",
         DidNotRun => "did not run",
         PromptNotDelivered => "its prompt never reached the agent",
+        SeatLimit => "its seat was at its limit",
         CheckFailed => "check failed",
         CheckNotRun => "check did not run",
         MailboxFailed => "mailbox could not be checked",

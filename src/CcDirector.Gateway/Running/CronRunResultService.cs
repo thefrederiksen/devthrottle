@@ -403,6 +403,41 @@ public sealed class CronRunResultService
     }
 
     /// <summary>
+    /// A SCHEDULED SESSION WHOSE SEAT IS AT ITS LIMIT IS A FAILED RUN AT ONCE (issue #3907). On 12 October 2026 every
+    /// scheduled session of a factory started, answered its first prompt with "You've hit your monthly spend limit" and
+    /// sat at the prompt; each run read as started and still open for eight to ten hours, and nothing told the owner.
+    /// Called with the session's screen when one of its turns ends: when the session is a scheduled run still waiting
+    /// for its result, and the end of its screen is a usage or spend limit block
+    /// (<see cref="Supervision.TerminatingFaultClassifier.UsageLimitSignatures"/>), the run is recorded as the problem
+    /// <see cref="CronRunProblems.SeatLimit"/>, naming the block. Returns true when it was recorded. No model is asked:
+    /// the screen's own words decide.
+    /// </summary>
+    public bool RecordSeatLimitFromScreen(TenantId tenant, string sessionId, IReadOnlyList<string>? rows)
+    {
+        if (rows is null || string.IsNullOrWhiteSpace(sessionId)) return false;
+        var found = _runs.FindBySession(tenant, sessionId);
+        if (found is null || found.Run.Result != CronRunResults.Pending) return false;
+        var fault = Supervision.TerminatingFaultClassifier.Classify(rows);
+        var limit = Supervision.TerminatingFaultClassifier.UsageLimitSignatures
+            .FirstOrDefault(sig => fault.Class == Supervision.SessionFaultClass.NonRecoverable
+                && string.Equals(fault.Signature, sig, StringComparison.OrdinalIgnoreCase));
+        if (limit is null) return false;
+
+        var machine = string.IsNullOrWhiteSpace(found.Run.Machine) ? "its machine" : found.Run.Machine;
+        var reason = $"its session started on {machine}, but the agent answered that its seat is at a limit (\"{limit}\"), so the work could not be done";
+        var written = _runs.RecordResult(tenant, Guid.Parse(found.Run.RunId), CronRunResults.Pending, null,
+            CronRunResults.Problem, CronRunProblems.SeatLimit, reason, _nowUtc());
+        if (!written.Applied)
+        {
+            FileLog.Write($"[CronRunResultService] RecordSeatLimitFromScreen: run={found.Run.RunId} already has its result; left as it is");
+            return false;
+        }
+        FileLog.Write($"[CronRunResultService] RecordSeatLimitFromScreen: run={found.Run.RunId}, job={found.JobId}, session={sessionId}: seat at its limit ({limit})");
+        TryWriteOwedActivity(tenant, Guid.Parse(found.Run.RunId));
+        return true;
+    }
+
+    /// <summary>
     /// The engine recorded a run that already carries its result - a fire that started no session, a due run that was
     /// skipped. Its factory activity row is owed from the moment it was recorded; write it now.
     /// </summary>
