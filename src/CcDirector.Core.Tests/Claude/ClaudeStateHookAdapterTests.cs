@@ -17,6 +17,9 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.NotNull(settingsPath);
         using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
         var hooks = document.RootElement.GetProperty("hooks");
+        Assert.Equal(
+            new[] { "Notification", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit" },
+            hooks.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
         AssertStateCommand(hooks, "UserPromptSubmit", "turn_started");
         AssertStateCommand(hooks, "Stop", "turn_ended");
         AssertStateCommand(hooks, "PermissionRequest", "permission_requested");
@@ -25,11 +28,30 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         AssertStateCommand(hooks, "PostToolUseFailure", "tool_finished");
 
         var notifications = hooks.GetProperty("Notification");
-        Assert.Equal(2, notifications.GetArrayLength());
-        Assert.Equal("permission_prompt", notifications[0].GetProperty("matcher").GetString());
-        Assert.Contains("permission_requested", ReadCommand(notifications[0]), StringComparison.Ordinal);
-        Assert.Equal("idle_prompt", notifications[1].GetProperty("matcher").GetString());
-        Assert.Contains("turn_ended", ReadCommand(notifications[1]), StringComparison.Ordinal);
+        Assert.Single(notifications.EnumerateArray());
+        Assert.False(notifications[0].TryGetProperty("matcher", out _));
+        Assert.Contains("notification", ReadCommand(notifications[0]), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, "report-state.sh")]
+    [InlineData(true, "report-state.ps1")]
+    public void EnsureInstalled_StateScriptCarriesVersionedCapabilityProtectedAtomicContract(
+        bool forWindows, string scriptName)
+    {
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var script = File.ReadAllText(Path.Combine(_directory, scriptName));
+
+        Assert.Contains("CC_STATE_EVENT_DIR", script, StringComparison.Ordinal);
+        Assert.Contains("CC_STATE_EVENT_TOKEN", script, StringComparison.Ordinal);
+        Assert.Contains("CC_SESSION_ID", script, StringComparison.Ordinal);
+        Assert.Contains("version", script, StringComparison.Ordinal);
+        Assert.Contains(".state.json", script, StringComparison.Ordinal);
+        Assert.Contains(".tmp", script, StringComparison.Ordinal);
+        Assert.Contains("cliVersion", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("http://", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("https://", script, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -55,6 +77,24 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.Empty(Directory.GetFiles(stateDirectory, "*.tmp"));
         AssertEvent(files[0], sessionId, 1, "turn_started");
         AssertEvent(files[1], sessionId, 2, "menu_opened");
+    }
+
+    [Fact]
+    public void UnixStateHook_UnknownNotification_EmitsUnsupportedDiagnostic()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows: false, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var sessionId = Guid.NewGuid();
+        var token = "0123456789abcdef0123456789abcdef";
+        var stateDirectory = Path.Combine(_directory, sessionId + "." + token);
+        var script = Path.Combine(_directory, "report-state.sh");
+
+        RunUnixHook(script, "notification", sessionId, token, stateDirectory,
+            "{\"hook_event_name\":\"Notification\",\"notification_type\":\"auth_success\"}");
+
+        var file = Assert.Single(Directory.GetFiles(stateDirectory, "*.state.json"));
+        AssertEvent(file, sessionId, 1, "unsupported", "auth_success");
     }
 
     [Fact]
@@ -120,7 +160,7 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.Equal(0, process.ExitCode);
     }
 
-    private static void AssertEvent(string path, Guid sessionId, long sequence, string eventName)
+    private static void AssertEvent(string path, Guid sessionId, long sequence, string eventName, string? detail = null)
     {
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         var root = document.RootElement;
@@ -132,7 +172,11 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.Equal(eventName, root.GetProperty("event").GetString());
         Assert.Equal("agent", root.GetProperty("source").GetString());
         Assert.Equal("claude", root.GetProperty("agent").GetString());
-        Assert.Equal("cliVersion=2.1.302 (test fixture)", root.GetProperty("detail").GetString());
+        if (detail is null)
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("detail").ValueKind);
+        else
+            Assert.Equal(detail, root.GetProperty("detail").GetString());
+        Assert.Equal("2.1.302 (test fixture)", root.GetProperty("cliVersion").GetString());
     }
 
     public void Dispose()

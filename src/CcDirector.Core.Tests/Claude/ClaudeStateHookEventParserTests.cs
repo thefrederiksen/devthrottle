@@ -5,18 +5,50 @@ namespace CcDirector.Core.Tests.Claude;
 
 public sealed class ClaudeStateHookEventParserTests
 {
-    public static TheoryData<string, string> CapturedPayloads => new()
+    public static TheoryData<string, string> SupportedPayloads => new()
     {
         { "claude-code-2.1.302-user-prompt-submit.json", "turn_started" },
         { "claude-code-2.1.302-stop.json", "turn_ended" },
         { "claude-code-2.1.302-notification-permission.json", "permission_requested" },
     };
 
+    public static TheoryData<string> CapturedToolPayloads => new()
+    {
+        "claude-code-2.1.302-pretooluse-bash.json",
+        "claude-code-2.1.302-windows-pretooluse-bash.json",
+        "claude-code-2.1.302-windows-pretooluse-powershell.json",
+    };
+
     [Theory]
-    [MemberData(nameof(CapturedPayloads))]
-    public void Parse_CapturedClaudeCodePayload_ReturnsContractFact(string fileName, string expected)
+    [MemberData(nameof(SupportedPayloads))]
+    public void Parse_SupportedClaudeCodePayload_ReturnsContractFact(string fileName, string expected)
     {
         var body = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "claude-state-hooks", fileName));
+
+        var result = ClaudeStateHookEventParser.Parse(body);
+
+        Assert.Equal(expected, result.Event);
+        Assert.Null(result.UnsupportedReason);
+    }
+
+    [Theory]
+    [MemberData(nameof(CapturedToolPayloads))]
+    public void Parse_CapturedToolPayload_ReturnsTurnStarted(string fileName)
+    {
+        var body = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "claude-state-hooks", fileName));
+
+        var result = ClaudeStateHookEventParser.Parse(body);
+
+        Assert.Equal("turn_started", result.Event);
+        Assert.Null(result.UnsupportedReason);
+    }
+
+    [Theory]
+    [InlineData("permission_prompt", "permission_requested")]
+    [InlineData("idle_prompt", "turn_ended")]
+    public void Parse_SupportedNotificationType_ReturnsPinnedContractFact(string notificationType, string expected)
+    {
+        var body = $$"""{"hook_event_name":"Notification","notification_type":"{{notificationType}}"}""";
 
         var result = ClaudeStateHookEventParser.Parse(body);
 

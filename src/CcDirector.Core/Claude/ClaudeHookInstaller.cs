@@ -27,9 +27,11 @@ namespace CcDirector.Core.Claude;
 /// error body printed to stdout and reaching the agent dressed as the preamble, and the two
 /// platforms disagreeing about the response shape.
 ///
-/// The hook files are STATIC and shared across all Claude sessions: the script reads its two
-/// per-session paths from the environment the Director injects, so nothing per-session is baked
-/// into them and it no-ops entirely in the user's own (non-Director) Claude sessions. Passing
+/// The hook files are STATIC and shared across all Claude sessions: the scripts read their
+/// per-session paths and capability token from the environment the Director injects, so nothing
+/// per-session is baked into them and they no-op entirely in the user's own (non-Director) Claude
+/// sessions. The state script turns supported prompt, stop, permission, notification and tool
+/// lifecycle hooks into versioned atomic records in the session's state-event directory. Passing
 /// this settings file via <c>--settings</c> MERGES with the user's own hooks (it never replaces
 /// them - see Claude Code issue #11392), so the user's hooks keep running too.
 ///
@@ -124,9 +126,15 @@ public static class ClaudeHookInstaller
         "$ErrorActionPreference = 'SilentlyContinue'\r\n" +
         "try {\r\n" +
         "    $eventName = $args[0]\r\n" +
-        "    if ($eventName -in @('tool_started','tool_finished')) {\r\n" +
+        "    if ($eventName -in @('tool_started','tool_finished','notification')) {\r\n" +
         "        $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\n" +
-        "        if ($payload.tool_name -eq 'AskUserQuestion' -and $eventName -eq 'tool_started') { $eventName = 'menu_opened' }\r\n" +
+        "        $detail = $null\r\n" +
+        "        if ($eventName -eq 'notification') {\r\n" +
+        "            if ($payload.notification_type -eq 'permission_prompt') { $eventName = 'permission_requested' }\r\n" +
+        "            elseif ($payload.notification_type -eq 'idle_prompt') { $eventName = 'turn_ended' }\r\n" +
+        "            else { $eventName = 'unsupported'; $detail = [string]$payload.notification_type; if (-not $detail) { $detail = 'Notification' } }\r\n" +
+        "        }\r\n" +
+        "        elseif ($payload.tool_name -eq 'AskUserQuestion' -and $eventName -eq 'tool_started') { $eventName = 'menu_opened' }\r\n" +
         "        else { $eventName = 'turn_started' }\r\n" +
         "    }\r\n" +
         "    $dir = $env:CC_STATE_EVENT_DIR\r\n" +
@@ -136,7 +144,7 @@ public static class ClaudeHookInstaller
         "    if (-not $dir -or -not $token -or $token -notmatch '^[0-9a-f]{32}$' -or\r\n" +
         "        -not [Guid]::TryParse($sessionText, [ref]$session) -or\r\n" +
         "        ([System.IO.Path]::GetFileName($dir) -ne ($sessionText + '.' + $token))) { exit 0 }\r\n" +
-        "    if ($eventName -notin @('turn_started','turn_ended','permission_requested','menu_opened','menu_closed')) { exit 0 }\r\n" +
+        "    if ($eventName -notin @('turn_started','turn_ended','permission_requested','menu_opened','menu_closed','unsupported')) { exit 0 }\r\n" +
         "    [System.IO.Directory]::CreateDirectory($dir) | Out-Null\r\n" +
         "    $versionPath = [System.IO.Path]::Combine($dir, '.claude-version')\r\n" +
         "    if (-not [System.IO.File]::Exists($versionPath)) {\r\n" +
@@ -153,7 +161,7 @@ public static class ClaudeHookInstaller
         "    $counterTmp = $counter + '.' + $PID + '.tmp'\r\n" +
         "    [System.IO.File]::WriteAllText($counterTmp, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture))\r\n" +
         "    Move-Item -LiteralPath $counterTmp -Destination $counter -Force\r\n" +
-        "    $record = [ordered]@{ version=1; eventId=[Guid]::NewGuid().ToString(); sessionId=$session.ToString(); sequence=$sequence; occurredAtUtc=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); event=$eventName; source='agent'; agent='claude'; detail=('cliVersion=' + $version) }\r\n" +
+        "    $record = [ordered]@{ version=1; eventId=[Guid]::NewGuid().ToString(); sessionId=$session.ToString(); sequence=$sequence; occurredAtUtc=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); event=$eventName; source='agent'; agent='claude'; detail=$detail; cliVersion=$version }\r\n" +
         "    $path = [System.IO.Path]::Combine($dir, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture) + '.state.json')\r\n" +
         "    $tmp = $path + '.' + $PID + '.tmp'\r\n" +
         "    [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json -Compress))\r\n" +
@@ -165,8 +173,10 @@ public static class ClaudeHookInstaller
         "#!/bin/sh\n" +
         "# Claude Code state hook, written by DevThrottle. Best-effort and local-file only.\n" +
         "event_name=$1\n" +
+        "detail=\n" +
         "case \"$event_name\" in\n" +
         "  tool_started|tool_finished) raw=$(cat 2>/dev/null || true); if [ \"$event_name\" = tool_started ] && printf '%s' \"$raw\" | grep -Eq '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then event_name=menu_opened; else event_name=turn_started; fi ;;\n" +
+        "  notification) raw=$(cat 2>/dev/null || true); notification_type=$(printf '%s' \"$raw\" | sed -n 's/.*\"notification_type\"[[:space:]]*:[[:space:]]*\"\\([A-Za-z0-9_.:-]*\\)\".*/\\1/p' | head -n 1); case \"$notification_type\" in permission_prompt) event_name=permission_requested ;; idle_prompt) event_name=turn_ended ;; *) event_name=unsupported; detail=${notification_type:-Notification} ;; esac ;;\n" +
         "  turn_started|turn_ended|permission_requested|menu_opened|menu_closed) ;;\n" +
         "  *) exit 0 ;;\n" +
         "esac\n" +
@@ -192,7 +202,8 @@ public static class ClaudeHookInstaller
         "occurred=$(date -u '+%Y-%m-%dT%H:%M:%SZ')\n" +
         "path=\"$CC_STATE_EVENT_DIR/$sequence.state.json\"\n" +
         "tmp=\"$path.$$.tmp\"\n" +
-        "printf '{\"version\":1,\"eventId\":\"%s\",\"sessionId\":\"%s\",\"sequence\":%s,\"occurredAtUtc\":\"%s\",\"event\":\"%s\",\"source\":\"agent\",\"agent\":\"claude\",\"detail\":\"cliVersion=%s\"}' \"$event_id\" \"$CC_SESSION_ID\" \"$sequence\" \"$occurred\" \"$event_name\" \"$version\" > \"$tmp\" 2>/dev/null || exit 0\n" +
+        "if [ -n \"$detail\" ]; then detail_json=\"\\\"$detail\\\"\"; else detail_json=null; fi\n" +
+        "printf '{\"version\":1,\"eventId\":\"%s\",\"sessionId\":\"%s\",\"sequence\":%s,\"occurredAtUtc\":\"%s\",\"event\":\"%s\",\"source\":\"agent\",\"agent\":\"claude\",\"detail\":%s,\"cliVersion\":\"%s\"}' \"$event_id\" \"$CC_SESSION_ID\" \"$sequence\" \"$occurred\" \"$event_name\" \"$detail_json\" \"$version\" > \"$tmp\" 2>/dev/null || exit 0\n" +
         "mv -f \"$tmp\" \"$path\" 2>/dev/null || rm -f \"$tmp\" 2>/dev/null || true\n" +
         "exit 0\n";
 
@@ -367,11 +378,7 @@ public static class ClaudeHookInstaller
             ["PostToolUse"] = [new { hooks = new[] { StateHook("tool_finished") } }],
             ["PostToolUseFailure"] = [new { hooks = new[] { StateHook("tool_finished") } }],
             ["PermissionRequest"] = [new { hooks = new[] { StateHook("permission_requested") } }],
-            ["Notification"] =
-            [
-                new { matcher = "permission_prompt", hooks = new[] { StateHook("permission_requested") } },
-                new { matcher = "idle_prompt", hooks = new[] { StateHook("turn_ended") } },
-            ],
+            ["Notification"] = [new { hooks = new[] { StateHook("notification") } }],
         };
 
         // The rule evaluator is registered in EXEC form: args present (empty), so Claude Code spawns the
