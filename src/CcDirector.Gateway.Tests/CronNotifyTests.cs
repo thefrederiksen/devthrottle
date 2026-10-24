@@ -13,10 +13,10 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// Tests for the per-job run-complete notification (issue #622): the firing engine notifies on
-/// success and on failure when the job opts in, honors the always-vs-failure policy, stays silent by
-/// default, and the production notifier rides the existing fleet event ring AND posts the optional
-/// webhook with the same payload. Covers AC1, AC2, AC3, AC5, and the AC4 default-OFF guard.
+/// Tests for the per-job run-complete notification (issue #622): the firing engine notifies a started run when the job
+/// asks for every run, a failed run is told by the failure notifier (issue #4436: on failure is the default), the
+/// policy honors always vs failure vs none, and the production notifier rides the existing fleet event ring AND posts
+/// the optional webhook with the same payload. Covers AC1, AC2, AC3, AC5, and the AC4 turned-off guard.
 /// </summary>
 public sealed class CronNotifyTests : IDisposable
 {
@@ -75,10 +75,17 @@ public sealed class CronNotifyTests : IDisposable
         Assert.Null(p.Reason);
     }
 
-    // ---- AC2: a job whose fire FAILS still notifies, with the failure reason ----
+    // ---- AC2: a job whose fire FAILS tells its owner, with a plain sentence and the raw reason as the detail ----
+    // Issue #4436: a failure is no longer told by the engine at fire time but by ScheduleFailureNotifier from the run
+    // history - one path for every failure, missed runs included, limited to one notice an hour for each cause.
+
+    private ScheduleFailureNotifier FailureNotifier(CronJobStore store, CronRunHistoryStore history, ICronNotifier fleet) =>
+        new(history, new CronFailureNoticeStore(Db), (_, id) => store.Get(id), (_, _) => null, fleet,
+            (_, _, _) => Task.CompletedTask, (_, _, _, _) => Task.FromResult<string?>("no account to email in this test"),
+            _ => new NoScope(), () => DateTime.UtcNow);
 
     [Fact]
-    public async Task NotifyAlways_FailedFire_Notifies_WithFailureReason()
+    public async Task NotifyAlways_FailedFire_IsToldByTheFailureNotifier_WithAPlainSentence()
     {
         var store = NewJobStore();
         var history = NewHistory();
@@ -89,13 +96,15 @@ public sealed class CronNotifyTests : IDisposable
         var result = await engine.RunNowAsync(created.Id, CancellationToken.None);
 
         Assert.Equal(CronFireOutcome.Fired, result.Outcome);       // a run is still recorded
-        Assert.Equal(1, notifier.CallCount);                       // AC2: a failed fire notifies
+        Assert.Equal(0, notifier.CallCount);                       // the engine no longer tells a failure itself
+        Assert.Equal(1, await FailureNotifier(store, history, notifier).ScanAsync(CancellationToken.None));
         var p = notifier.Last!;
         Assert.False(p.Succeeded);
         Assert.Equal("not-started", p.InfraStatus);
         Assert.Null(p.SessionId);
         Assert.Equal("", p.SessionLink);                           // no session -> no link
-        Assert.Equal("target director not registered", p.Reason);
+        Assert.Equal("This run did not start on workstation-A. The details below say why.", p.Reason);
+        Assert.Equal("it did not start a session: target director not registered", p.Detail);
     }
 
     // ---- AC3: notifyOn honors always vs failure ----
@@ -111,16 +120,17 @@ public sealed class CronNotifyTests : IDisposable
         var okJob = store.Create(SeedJob(CronNotify.Failure));
         await Engine(store, history, new OkStarter(), notifierA).RunNowAsync(okJob.Id, CancellationToken.None);
         Assert.Equal(0, notifierA.CallCount);                      // AC3: success under failure is silent
+        Assert.Equal(0, await FailureNotifier(store, history, notifierA).ScanAsync(CancellationToken.None));
 
         // failure under "failure" -> notifies.
         var notifierB = new RecordingCronNotifier();
         var failJob = store.Create(SeedJob(CronNotify.Failure));
         await Engine(store, history, new FailingStarter("boom"), notifierB).RunNowAsync(failJob.Id, CancellationToken.None);
-        Assert.Equal(1, notifierB.CallCount);                      // AC3: failure notifies
+        Assert.Equal(1, await FailureNotifier(store, history, notifierB).ScanAsync(CancellationToken.None));
         Assert.False(notifierB.Last!.Succeeded);
     }
 
-    // ---- AC4 (default-OFF guard): a job with no notify policy never notifies ----
+    // ---- AC4: a job whose owner turned notifications off never notifies ----
 
     [Fact]
     public async Task NotifyNone_NeitherSuccessNorFailure_Notifies()
@@ -131,26 +141,34 @@ public sealed class CronNotifyTests : IDisposable
         var notifierOk = new RecordingCronNotifier();
         var okJob = store.Create(SeedJob(CronNotify.None));
         await Engine(store, history, new OkStarter(), notifierOk).RunNowAsync(okJob.Id, CancellationToken.None);
-        Assert.Equal(0, notifierOk.CallCount);                     // default OFF: silent on success
+        Assert.Equal(0, notifierOk.CallCount);                     // off: silent on success
 
         var notifierFail = new RecordingCronNotifier();
         var failJob = store.Create(SeedJob(CronNotify.None));
         await Engine(store, history, new FailingStarter("x"), notifierFail).RunNowAsync(failJob.Id, CancellationToken.None);
-        Assert.Equal(0, notifierFail.CallCount);                   // default OFF: silent on failure too
+        Assert.Equal(0, await FailureNotifier(store, history, notifierFail).ScanAsync(CancellationToken.None));
+        Assert.Equal(0, notifierFail.CallCount);                   // off: silent on failure too
     }
 
     [Fact]
-    public async Task UnsetNotifyOn_DefaultsToNone_StaysSilent()
+    public async Task UnsetNotifyOn_DefaultsToFailure_SilentOnSuccess_ToldOnFailure()
     {
+        // Issue #4436: a schedule nobody chose notifications for tells its owner when a run fails.
         var store = NewJobStore();
         var history = NewHistory();
-        var notifier = new RecordingCronNotifier();
-        // A job created without ever touching NotifyOn defaults to "none" on the DTO.
         var job = SeedJob(CronNotify.Always);
-        job.NotifyOn = "";                                          // simulate an old/silent job
+        job.NotifyOn = "";
         var created = store.Create(job);
-        await Engine(store, history, new OkStarter(), notifier).RunNowAsync(created.Id, CancellationToken.None);
-        Assert.Equal(0, notifier.CallCount);
+        Assert.Equal(CronNotify.Failure, created.NotifyOn);
+        Assert.Equal(CronNotify.Failure, new CronJobDto().NotifyOn);
+
+        var okNotifier = new RecordingCronNotifier();
+        await Engine(store, history, new OkStarter(), okNotifier).RunNowAsync(created.Id, CancellationToken.None);
+        Assert.Equal(0, okNotifier.CallCount);
+
+        var failNotifier = new RecordingCronNotifier();
+        await Engine(store, history, new FailingStarter("x"), failNotifier).RunNowAsync(created.Id, CancellationToken.None);
+        Assert.Equal(1, await FailureNotifier(store, history, failNotifier).ScanAsync(CancellationToken.None));
     }
 
     // ---- CronNotify policy helper ----
@@ -162,8 +180,9 @@ public sealed class CronNotifyTests : IDisposable
     [InlineData(CronNotify.Always, false, true)]
     [InlineData(CronNotify.Failure, true, false)]
     [InlineData(CronNotify.Failure, false, true)]
-    [InlineData("", true, false)]                                  // unset -> none
-    [InlineData("BOGUS", false, false)]                            // unknown -> none (no notify)
+    [InlineData("", true, false)]                                  // unset -> failure (the default, issue #4436)
+    [InlineData("", false, true)]
+    [InlineData("BOGUS", false, true)]                             // unknown -> failure
     public void ShouldNotify_HonorsPolicy(string policy, bool succeeded, bool expected)
     {
         Assert.Equal(expected, CronNotify.ShouldNotify(policy, succeeded));
@@ -173,12 +192,17 @@ public sealed class CronNotifyTests : IDisposable
     [InlineData("always", "always")]
     [InlineData("FAILURE", "failure")]
     [InlineData("  None  ", "none")]
-    [InlineData("", "none")]
-    [InlineData(null, "none")]
-    [InlineData("nonsense", "none")]
-    public void Normalize_MapsToCanonicalOrNone(string? input, string expected)
+    [InlineData("", "failure")]
+    [InlineData(null, "failure")]
+    [InlineData("nonsense", "failure")]
+    public void Normalize_MapsToCanonicalOrTheDefault(string? input, string expected)
     {
         Assert.Equal(expected, CronNotify.Normalize(input));
+    }
+
+    private sealed class NoScope : IDisposable
+    {
+        public void Dispose() { }
     }
 
     // ---- AC5: the production notifier rides the existing event ring AND posts the webhook ----

@@ -35,6 +35,11 @@ var LICENSE_ALARM_KIND = 'license-alarm';
 // the Gateway lists the request as answered anywhere.
 var LINK_REQUEST_KIND = 'link-request';
 
+// A schedule whose run failed (issue #4436). The same shape again: the Gateway wrote the title (the schedule's name),
+// the body (one plain sentence saying what went wrong and what to do, never the run's raw reason), the per-schedule tag
+// and the page to open - the Cockpit's Schedule page. It buzzes, and it never touches the "needs you" dot.
+var SCHEDULE_FAILED_KIND = 'schedule-failed';
+
 function showGatewayNotification(payload) {
   return self.registration.showNotification(String(payload.title), {
     tag: String(payload.tag),
@@ -54,7 +59,7 @@ self.addEventListener('push', function (event) {
     try {
       var payload = event.data.json();
       if (payload && (payload.kind === SECRET_TRANSFER_KIND || payload.kind === LICENSE_ALARM_KIND
-          || payload.kind === LINK_REQUEST_KIND)) {
+          || payload.kind === LINK_REQUEST_KIND || payload.kind === SCHEDULE_FAILED_KIND)) {
         event.waitUntil(showGatewayNotification(payload));
         return;
       }

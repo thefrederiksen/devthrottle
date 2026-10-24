@@ -379,6 +379,38 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("api_mode_receipts", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronFailureNoticeEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<int>("HeldBack")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSentUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "JobId", "Cause");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("cron_failure_notices", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -422,6 +454,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("NextRunUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NotifyDefaultedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("NotifyOn")

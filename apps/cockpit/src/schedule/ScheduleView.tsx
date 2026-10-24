@@ -378,18 +378,26 @@ export function ScheduleView() {
       {
         key: "last",
         header: "Last run",
-        width: "135px",
+        width: "260px",
         sortable: true,
         sortValue: (job) => epochOrMax(job.lastFiredUtc),
         render: (job) => {
           const outcome = lastOutcome(job.lastStatus);
           return (
-            <span className="sched-lastrun" title={absoluteUtc(job.lastFiredUtc)}>
-              <span className="dim">
-                {job.lastFiredUtc ? relativeTime(job.lastFiredUtc, { withAgo: true }) : "never"}
+            <span className="sched-lastrun-cell">
+              <span className="sched-lastrun" title={absoluteUtc(job.lastFiredUtc)}>
+                <span className="dim">
+                  {job.lastFiredUtc ? relativeTime(job.lastFiredUtc, { withAgo: true }) : "never"}
+                </span>
+                {!job.lastRunText && outcome.kind !== "none" && (
+                  <span className={`sched-outcome ${outcome.kind}`}>{outcome.label}</span>
+                )}
               </span>
-              {outcome.kind !== "none" && (
-                <span className={`sched-outcome ${outcome.kind}`}>{outcome.label}</span>
+              {/* What went wrong with the newest run, in the Gateway's words (issue #4436), without opening it. */}
+              {job.lastRunText && (
+                <span className={`sched-lastrun-text ${job.lastRunTone ?? ""}`} data-testid={`sched-lastrun-text-${job.id}`}>
+                  {job.lastRunText}
+                </span>
               )}
             </span>
           );
@@ -539,7 +547,14 @@ export function ScheduleView() {
             <dt>Shift</dt>
             <dd>{job.shiftText ?? "-"}</dd>
             <dt>Notify</dt>
-            <dd>{notifyDescription(job)}</dd>
+            <dd>
+              {notifyDescription(job)}
+              {job.notifyNote && (
+                <span className="sched-notify-note" data-testid="sched-notify-note">
+                  {job.notifyNote}
+                </span>
+              )}
+            </dd>
           </dl>
 
           {job.shiftWarning && (
@@ -581,7 +596,21 @@ export function ScheduleView() {
                       <span className={`sched-st ${r.infraTone ?? ""}`} data-testid="sched-run-infra">{r.infraStatus}</span>
                     </td>
                     <td className="dim">{r.shiftText ?? "-"}</td>
-                    <td className="dim">{r.endingText ?? r.taskStatus}</td>
+                    <td className="dim">
+                      {r.endingText ?? r.taskStatus}
+                      {/* A run that failed after it started says what went wrong too (issue #4436); one that did not start
+                          already says it in its ending. The run's own reason is the detail, never the headline. */}
+                      {r.failureText && !(r.endingText ?? "").includes(r.failureText) && (
+                        <span className="sched-run-failure" data-testid="sched-run-failure">
+                          {r.failureText}
+                        </span>
+                      )}
+                      {r.failureText && r.resultReason && (
+                        <span className="sched-run-detail" data-testid="sched-run-detail">
+                          Details: {r.resultReason}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -897,15 +926,9 @@ function scheduleEnglish(j: CronJob): string {
   return runAt.length > 0 ? `Once at ${runAt}` : "Once (no time set)";
 }
 
-// The run-complete notification policy, spelled out for the drawer.
+// The run-complete notification policy for the drawer: the Gateway's own words for it (issue #4436 review, finding 7).
 function notifyDescription(j: CronJob): string {
-  const policy = j.notifyOn.toLowerCase();
-  const base =
-    policy === "always"
-      ? "Always (success or failure)"
-      : policy === "failure"
-        ? "Only on failure"
-        : "Off";
+  const base = j.notifyText ?? j.notifyOn;
   const hook = j.notifyWebhookUrl && j.notifyWebhookUrl.length > 0 ? ` - webhook: ${j.notifyWebhookUrl}` : "";
   return base + hook;
 }

@@ -359,7 +359,8 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         ("action.workListName", j => j["action"]!["workListName"] = "inbox"),
         ("action.autoDismiss", j => j["action"]!["autoDismiss"] = false),
         ("preventOverlap", j => j["preventOverlap"] = false),
-        ("notifyOn", j => j["notifyOn"] = "failure"),
+        // A published schedule notifies on failure, the default (issue #4436), so the change is to another policy.
+        ("notifyOn", j => j["notifyOn"] = "always"),
         ("notifyWebhookUrl", j => j["notifyWebhookUrl"] = "https://example.com/hook"),
         ("scheduleKind and runAt", j => { j["scheduleKind"] = "oneOff"; j["runAt"] = "2026-11-01T08:00"; j["cronExpression"] = null; }),
     }.Select(f => new object[] { f.Field, f.Change });

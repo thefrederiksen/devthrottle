@@ -1,0 +1,235 @@
+Issue #4436 proof - a throwaway Gateway and a test Director built from this tree, on devthrottle-mac-mini (Mac)
+started 2026-10-24T23:08:25Z, finished 2026-10-24T23:16:15Z
+commit 49c3f7d8d14e242c24697c5eb5e52025c7be71e7 (a clean tree)
+result: PASS
+
+====================================================================================================
+== 1. A new schedule notifies its owner on failure without any setting changed
+====================================================================================================
+machine: devthrottle-mac-mini
+$ cc-devthrottle schedule create --name "morning report" --machine devthrottle-mac-mini --repo /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site --cron "* * * * *" --tz UTC --seed /help --notify-webhook http://127.0.0.1:58613/hook
+Created schedule.
+  Id:        cj_aa5e20
+  Name:      morning report
+  Schedule:  cron * * * * *
+  Next run:  2026-10-24T23:09:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:58614
+  WARNING:   devthrottle-mac-mini will have 30 scheduled sessions open at once while this one runs from 23:09, over its capacity of 6 (1431 of its runs in the next 24 hours are). The quietest hour is 23:00 (30 open) - see cc-devthrottle schedule load --machine devthrottle-mac-mini.
+help[3]:
+  cc-devthrottle schedule get cj_aa5e20
+  cc-devthrottle schedule run cj_aa5e20
+  cc-devthrottle schedule disable cj_aa5e20
+[exit 0]
+CHECK PASS: schedule create saves a schedule whose folder is there
+$ GET /cron/jobs/cj_aa5e20      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"id":"cj_aa5e20","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devthrottle-mac-mini"},"action":{"repoPath":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:58613/hook","createdUtc":"2026-10-24T23:08:35.185505Z","lastFiredUtc":null,"nextRunUtc":"2026-10-24T23:09:00Z","lastStatus":null,"scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+CHECK PASS: the schedule was created with no --notify-on and notifies on failure
+CHECK PASS: a schedule made after the change carries no note about the change of default
+$ cc-devthrottle schedule get cj_aa5e20
+morning report  (cj_aa5e20)
+  Enabled:    yes
+  Machine:    devthrottle-mac-mini
+  Runs:       skill /help
+  Schedule:   cron * * * * *  (UTC)
+  Notify:     on failure + webhook http://127.0.0.1:58613/hook
+  Seat:       none (a plain job in no factory)
+  Next run:   2026-10-24T23:09:00Z UTC
+  Last fired: -  (-)
+  Created:    2026-10-24T23:08:35.185505Z UTC
+[exit 0]
+CHECK PASS: schedule get says it notifies on failure
+
+====================================================================================================
+== 2. Run now: the run reads as one plain sentence, the Director's words only as the detail
+====================================================================================================
+
+$ cc-devthrottle schedule run cj_aa5e20
+Fired the schedule.
+  Fired:   2026-10-24T23:08:35.707667Z UTC
+  Target:  5360daa8-9508-4e93-9594-4df041e5419f
+  Session: -
+  Infra:   not-started
+  Task:    unknown
+  Ending:  did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.
+  Detail:  it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site
+help[2]:
+  cc-devthrottle schedule runs cj_aa5e20
+  cc-devthrottle session buffer <session-id>
+[exit 0]
+CHECK PASS: schedule run prints the plain sentence as how the run ended
+CHECK PASS: schedule run keeps the Director's own words, as the detail
+CHECK PASS: 'BadRequest' is not in anything schedule run prints above the detail
+
+====================================================================================================
+== 3. The owner is told, once, on the schedule's webhook, in the same plain sentence
+====================================================================================================
+
+# the notices the webhook received
+  2026-10-24T23:08:56Z: {"jobId": "cj_aa5e20", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devthrottle-mac-mini", "sessionId": null, "sessionLink": "", "reason": "The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:08:35.707667Z"}
+CHECK PASS: the notice's reason is the plain sentence
+CHECK PASS: the notice carries the Director's own words as its detail
+CHECK PASS: the notice names the schedule, says it failed, and gives the cause
+# the Gateway's notices - the throwaway Gateway's log, lines naming ['ScheduleFailureNotifier', 'ScheduleFailurePushNotifier']
+  2026-10-24 23:08:26.446 [ScheduleFailureNotifier] reading failed runs from 2026-10-24T22:53:26.4462650Z
+  2026-10-24 23:08:26.446 [ScheduleFailureNotifier] Start: telling owners of failed runs every 30s
+  2026-10-24 23:08:56.469 [ScheduleFailureNotifier] telling the owner: tenant=local, job=cj_aa5e20, run=0314bbe8-9730-4e60-8725-27b5d6c885fa, cause=folder-missing, occurrences=1
+  2026-10-24 23:08:56.487 [ScheduleFailurePushNotifier] NotifyAsync: no phone is subscribed, tenant=local
+  2026-10-24 23:08:56.488 [ScheduleFailureNotifier] email not sent: job=cj_aa5e20: this self-hosted Gateway has no DevThrottle account to email
+  2026-10-24 23:08:56.488 [ScheduleFailureNotifier] ScanAsync: considered 1 failed run(s) since 2026-10-24T22:51:26.4462650Z, sent 1 notice(s)
+
+====================================================================================================
+== 4. A schedule firing every minute keeps failing: still one notice inside the hour
+====================================================================================================
+
+$ GET /cron/jobs/cj_aa5e20/runs      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"jobId":"cj_aa5e20","runs":[{"scheduledUtc":"2026-10-24T23:12:00Z","firedUtc":"2026-10-24T23:12:29.618913Z","machine":"devthrottle-mac-mini","targetDirectorId":"5360daa8-9508-4e93-9594-4df041e5419f","sessionId":null,"sessionName":"morning report - 2026-10-24 23:12","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureText":"The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"49d2d57a-a15a-437b-94df-4cb97ca95ee6","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:12:29.618913Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:11:00Z","firedUtc":"2026-10-24T23:11:29.623047Z","machine":"devthrottle-mac-mini","targetDirectorId":"5360daa8-9508-4e93-9594-4df041e5419f","sessionId":null,"sessionName":"morning report - 2026-10-24 23:11","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureText":"The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"682de12b-7586-47c6-a2b7-6b38e2f21773","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:11:29.623047Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:10:00Z","firedUtc":"2026-10-24T23:10:29.619765Z","machine":"devthrottle-mac-mini","targetDirectorId":"5360daa8-9508-4e93-9594-4df041e5419f","sessionId":null,"sessionName":"morning report - 2026-10-24 23:10","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureText":"The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"3c70de20-325d-422c-8383-c731e77e9ef6","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:10:29.619765Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:09:00Z","firedUtc":"2026-10-24T23:09:29.641869Z","machine":"devthrottle-mac-mini","targetDirectorId":"5360daa8-9508-4e93-9594-4df041e5419f","sessionId":null,"sessionName":"morning report - 2026-10-24 23:09","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureText":"The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"211f368a-a4e2-4f31-ae23-1c165c6c9612","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:09:29.641869Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:08:35.680639Z","firedUtc":"2026-10-24T23:08:35.707667Z","machine":"devthrottle-mac-mini","targetDirectorId":"5360daa8-9508-4e93-9594-4df041e5419f","sessionId":null,"sessionName":"morning report - 2026-10-24 23:08","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureText":"The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"0314bbe8-9730-4e60-8725-27b5d6c885fa","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:08:35.707667Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null}]}
+CHECK PASS: the schedule failed 5 times by now, on its own every-minute fires and the Run now
+CHECK PASS: every failed run carries the same plain sentence
+CHECK PASS: no failed run's sentence or ending holds 'BadRequest'
+CHECK PASS: the webhook received 1 notice(s) for those failures: one
+# the failures held back inside the hour - the throwaway Gateway's log, lines naming ['held back, a notice of this cause went out inside the hour']
+  2026-10-24 23:09:56.455 [ScheduleFailureNotifier] run=211f368a-a4e2-4f31-ae23-1c165c6c9612, job=cj_aa5e20, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-24 23:10:56.450 [ScheduleFailureNotifier] run=3c70de20-325d-422c-8383-c731e77e9ef6, job=cj_aa5e20, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-24 23:11:56.452 [ScheduleFailureNotifier] run=682de12b-7586-47c6-a2b7-6b38e2f21773, job=cj_aa5e20, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-24 23:12:56.452 [ScheduleFailureNotifier] run=49d2d57a-a15a-437b-94df-4cb97ca95ee6, job=cj_aa5e20, cause=folder-missing: held back, a notice of this cause went out inside the hour
+CHECK PASS: the Gateway says it held back the later failures of the same cause
+$ cc-devthrottle schedule runs cj_aa5e20
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)             | Fired (UTC)                 | Target                               | Session | Infra       | How it ended                                            | What went wrong                                         | Task    |
+|-----------------------------+-----------------------------+--------------------------------------+---------+-------------+---------------------------------------------------------+---------------------------------------------------------+---------|
+| 2026-10-24T23:12:00Z        | 2026-10-24T23:12:29.618913Z | 5360daa8-9508-4e93-9594-4df041e5419f | -       | not-started | did not start a session: The folder                     | The folder                                              | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... |         |
+|                             |                             |                                      |         |             | does not exist on devthrottle-mac-mini (a Mac). Choose  | does not exist on devthrottle-mac-mini (a Mac). Choose  |         |
+|                             |                             |                                      |         |             | a folder that exists on devthrottle-mac-mini. Then edit | a folder that exists on devthrottle-mac-mini. Then edit |         |
+|                             |                             |                                      |         |             | the schedule.                                           | the schedule.                                           |         |
+| 2026-10-24T23:11:00Z        | 2026-10-24T23:11:29.623047Z | 5360daa8-9508-4e93-9594-4df041e5419f | -       | not-started | did not start a session: The folder                     | The folder                                              | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... |         |
+|                             |                             |                                      |         |             | does not exist on devthrottle-mac-mini (a Mac). Choose  | does not exist on devthrottle-mac-mini (a Mac). Choose  |         |
+|                             |                             |                                      |         |             | a folder that exists on devthrottle-mac-mini. Then edit | a folder that exists on devthrottle-mac-mini. Then edit |         |
+|                             |                             |                                      |         |             | the schedule.                                           | the schedule.                                           |         |
+| 2026-10-24T23:10:00Z        | 2026-10-24T23:10:29.619765Z | 5360daa8-9508-4e93-9594-4df041e5419f | -       | not-started | did not start a session: The folder                     | The folder                                              | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... |         |
+|                             |                             |                                      |         |             | does not exist on devthrottle-mac-mini (a Mac). Choose  | does not exist on devthrottle-mac-mini (a Mac). Choose  |         |
+|                             |                             |                                      |         |             | a folder that exists on devthrottle-mac-mini. Then edit | a folder that exists on devthrottle-mac-mini. Then edit |         |
+|                             |                             |                                      |         |             | the schedule.                                           | the schedule.                                           |         |
+| 2026-10-24T23:09:00Z        | 2026-10-24T23:09:29.641869Z | 5360daa8-9508-4e93-9594-4df041e5419f | -       | not-started | did not start a session: The folder                     | The folder                                              | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... |         |
+|                             |                             |                                      |         |             | does not exist on devthrottle-mac-mini (a Mac). Choose  | does not exist on devthrottle-mac-mini (a Mac). Choose  |         |
+|                             |                             |                                      |         |             | a folder that exists on devthrottle-mac-mini. Then edit | a folder that exists on devthrottle-mac-mini. Then edit |         |
+|                             |                             |                                      |         |             | the schedule.                                           | the schedule.                                           |         |
+| 2026-10-24T23:08:35.680639Z | 2026-10-24T23:08:35.707667Z | 5360daa8-9508-4e93-9594-4df041e5419f | -       | not-started | did not start a session: The folder                     | The folder                                              | unknown |
+|                             |                             |                                      |         |             | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... | '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/is... |         |
+|                             |                             |                                      |         |             | does not exist on devthrottle-mac-mini (a Mac). Choose  | does not exist on devthrottle-mac-mini (a Mac). Choose  |         |
+|                             |                             |                                      |         |             | a folder that exists on devthrottle-mac-mini. Then edit | a folder that exists on devthrottle-mac-mini. Then edit |         |
+|                             |                             |                                      |         |             | the schedule.                                           | the schedule.                                           |         |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+CHECK PASS: schedule runs shows what went wrong in plain words, and not 'BadRequest'
+$ cc-devthrottle schedule get cj_aa5e20
+morning report  (cj_aa5e20)
+  Enabled:    yes
+  Machine:    devthrottle-mac-mini
+  Runs:       skill /help
+  Schedule:   cron * * * * *  (UTC)
+  Notify:     on failure + webhook http://127.0.0.1:58613/hook
+  Seat:       none (a plain job in no factory)
+  Next run:   2026-10-24T23:13:00Z UTC
+  Last fired: 2026-10-24T23:12:29.618913Z  (not-started)
+  Last run:   Last run failed: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.
+  Created:    2026-10-24T23:08:35.185505Z UTC
+[exit 0]
+CHECK PASS: schedule get prints the last run's state in words
+$ GET /cron/jobs?include=random,window      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"jobs":[{"id":"cj_aa5e20","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devthrottle-mac-mini"},"action":{"repoPath":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:58613/hook","createdUtc":"2026-10-24T23:08:35.185505Z","lastFiredUtc":"2026-10-24T23:12:29.618913Z","nextRunUtc":"2026-10-24T23:13:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":{"verdict":"bad","text":"0 of 5 closed itself - 5 did not start","runs":5},"factoryTitle":null,"factoryHref":null,"shortName":"morning report","loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}]}
+CHECK PASS: the schedule's row in the list carries the last run's state in words, for the Cockpit
+
+====================================================================================================
+== 5. A schedule whose owner turned notifications off is not told
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "quiet one" --machine devthrottle-mac-mini --repo /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet --cron "0 3 1 1 *" --tz UTC --seed /help --notify-on none --notify-webhook http://127.0.0.1:58613/hook
+Created schedule.
+  Id:        cj_47dda8
+  Name:      quiet one
+  Schedule:  cron 0 3 1 1 *
+  Next run:  2027-01-01T03:00:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:58614
+help[3]:
+  cc-devthrottle schedule get cj_47dda8
+  cc-devthrottle schedule run cj_47dda8
+  cc-devthrottle schedule disable cj_47dda8
+[exit 0]
+$ cc-devthrottle schedule run cj_47dda8
+Fired the schedule.
+  Fired:   2026-10-24T23:12:59.018335Z UTC
+  Target:  5360daa8-9508-4e93-9594-4df041e5419f
+  Session: -
+  Infra:   not-started
+  Task:    unknown
+  Ending:  did not start a session: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.
+  Detail:  it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet
+help[2]:
+  cc-devthrottle schedule runs cj_47dda8
+  cc-devthrottle session buffer <session-id>
+[exit 0]
+CHECK PASS: its run failed for the same cause
+CHECK PASS: no notice was sent for a schedule whose Notify is off
+
+====================================================================================================
+== 6. A second cause of the same schedule is told: its machine goes offline
+====================================================================================================
+
+# the test Director asked to stop by its lifecycle request file
+  request: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/director-root/config/lifecycle-signals/cc-director-shutdown-5360daa8-9508-4e93-9594-4df041e5419f.request
+  pid 12397 exited: True (exit code 0)
+# the notices the webhook received
+  2026-10-24T23:08:56Z: {"jobId": "cj_aa5e20", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devthrottle-mac-mini", "sessionId": null, "sessionLink": "", "reason": "The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site' does not exist on devthrottle-mac-mini (a Mac). Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:08:35.707667Z"}
+  2026-10-24T23:14:56Z: {"jobId": "cj_aa5e20", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devthrottle-mac-mini", "sessionId": null, "sessionLink": "", "reason": "devthrottle-mac-mini was not reachable: DevThrottle was not running there and could not be started. Switch devthrottle-mac-mini on and open DevThrottle on it; the next run starts as usual.", "detail": "it did not start a session: no Director on 'devthrottle-mac-mini' and the launcher could not start one", "cause": "machine-offline", "occurrences": 1, "firedUtc": "2026-10-24T23:14:29.626343Z"}
+CHECK PASS: the second notice is for the machine being offline
+CHECK PASS: it says so in a plain sentence naming the machine
+CHECK PASS: the resolver's own words ('the launcher could not start one') are only the detail
+CHECK PASS: the offline machine's later failures inside the hour were held back: one notice for that cause
+# the email leg on a self-hosted Gateway - the throwaway Gateway's log, lines naming ['email not sent', 'emailed the account owner']
+  2026-10-24 23:08:56.488 [ScheduleFailureNotifier] email not sent: job=cj_aa5e20: this self-hosted Gateway has no DevThrottle account to email
+  2026-10-24 23:14:56.457 [ScheduleFailureNotifier] email not sent: job=cj_aa5e20: this self-hosted Gateway has no DevThrottle account to email
+$ PUT /cron/jobs/cj_aa5e20      (raw HTTP, as the rig's person)
+  body: {"id": "cj_aa5e20", "name": "morning report", "enabled": false, "scheduleKind": "recurring", "cronExpression": "* * * * *", "runAt": null, "timeZoneId": "UTC", "factory": null, "seat": null, "target": {"machine": "devthrottle-mac-mini"}, "action": {"repoPath": "/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site", "seed": "/help", "workListName": null, "autoDismiss": true}, "preventOverlap": true, "notifyOn": "failure", "notifyDefaultedUtc": null, "notifyNote": null, "notifyText": "When a run fails", "lastRunText": "Last run failed: devthrottle-mac-mini was not reachable: DevThrottle was not running there and could not be started. Switch devthrottle-mac-mini on and open DevThrottle on it; the next run starts as usual.", "lastRunTone": "err", "notifyWebhookUrl": "http://127.0.0.1:58613/hook", "createdUtc": "2026-10-24T23:08:35.185505Z", "lastFiredUtc": "2026-10-24T23:15:29.617932Z", "nextRunUtc": "2026-10-24T23:16:00Z", "lastStatus": "not-started", "scheduleText": null, "remainingToday": null, "lifecycle": "active", "stateLabel": "Active", "toggleLabel": "Pause", "runRecord": null, "factoryTitle": null, "factoryHref": null, "shortName": null, "loadWarning": null, "folderWarning": null, "shifts": ["night", "morning", "evening"], "shiftText": "Night, morning and evening shifts", "shiftWarning": "Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.", "shiftRule": "The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.", "definedByDefinition": false, "pathText": null, "checkPath": null, "checkSecrets": null, "definitionVersion": null}
+  status: 200
+  answer: {"id":"cj_aa5e20","name":"morning report","enabled":false,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devthrottle-mac-mini"},"action":{"repoPath":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:58613/hook","createdUtc":"2026-10-24T23:08:35.185505Z","lastFiredUtc":"2026-10-24T23:15:29.617932Z","nextRunUtc":"2026-10-24T23:17:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"paused","stateLabel":"Paused","toggleLabel":"Resume","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+CHECK PASS: the every-minute schedule is switched off
+
+====================================================================================================
+== 7. A schedule still on the old default is moved to failure when the Gateway is updated
+====================================================================================================
+
+# the database put back as it was before this change
+  migration removed: 20261024225657_AddScheduleFailureNotices
+  cron_jobs (Id, NotifyOn): [('cj_47dda8', 'none'), ('cj_aa5e20', 'failure')]
+# the migration - the throwaway Gateway's log, lines naming ['AddScheduleFailureNotices', 'pending migration']
+  (none)
+$ GET /cron/jobs/cj_47dda8      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"id":"cj_47dda8","name":"quiet one","enabled":true,"scheduleKind":"recurring","cronExpression":"0 3 1 1 *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devthrottle-mac-mini"},"action":{"repoPath":"/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":"2026-10-24T23:16:14Z","notifyNote":"Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.","notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet' does not exist on devthrottle-mac-mini. Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:58613/hook","createdUtc":"2026-10-24T23:12:58.842623Z","lastFiredUtc":"2026-10-24T23:12:59.018335Z","nextRunUtc":"2027-01-01T03:00:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+CHECK PASS: after 20261024225657_AddScheduleFailureNotices, a schedule that was on 'none' notifies on failure
+CHECK PASS: and says so, with how to turn it off
+$ cc-devthrottle schedule get cj_47dda8
+quiet one  (cj_47dda8)
+  Enabled:    yes
+  Machine:    devthrottle-mac-mini
+  Runs:       skill /help
+  Schedule:   cron 0 3 1 1 *  (UTC)
+  Notify:     on failure + webhook http://127.0.0.1:58613/hook
+  Seat:       none (a plain job in no factory)
+  Next run:   2027-01-01T03:00:00Z UTC
+  Last fired: 2026-10-24T23:12:59.018335Z  (not-started)
+  Last run:   Last run failed: The folder '/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/issue-4436-rig/projects/quiet' does not exist on devthrottle-mac-mini. Choose a folder that exists on devthrottle-mac-mini. Then edit the schedule.
+  Note:       Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.
+  Created:    2026-10-24T23:12:58.842623Z UTC
+[exit 0]
+CHECK PASS: schedule get prints the note
+CHECK PASS: ~/.local/bin still points at the owner's tools
