@@ -50,6 +50,12 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Assert.Equal(Path.Combine(HooksDirectory, forWindows ? "cc-rule-hook.exe" : "cc-rule-hook"), written);
         Assert.Equal(HookBytes, File.ReadAllBytes(written));
 
+        var preToolUseEntries = Hooks(settings)["PreToolUse"]!.AsArray();
+        Assert.Equal(2, preToolUseEntries.Count);
+        var stateEntry = Assert.Single(preToolUseEntries, entry => entry!["matcher"] is null)!.AsObject();
+        var stateHook = Assert.Single(stateEntry["hooks"]!.AsArray())!.AsObject();
+        Assert.DoesNotContain("cc-rule-hook", (string?)stateHook["command"] ?? string.Empty, StringComparison.Ordinal);
+
         var preToolUse = Assert.IsType<JsonObject>(RulePreToolUse(Hooks(settings)));
         Assert.Equal("^(Bash|PowerShell)$", (string?)preToolUse["matcher"]);
         var hook = Assert.Single(preToolUse["hooks"]!.AsArray())!;
@@ -110,6 +116,9 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         var hooks = Hooks(settings);
         Assert.Null(RulePreToolUse(hooks));
+        var stateEntry = Assert.Single(hooks["PreToolUse"]!.AsArray());
+        var stateHook = Assert.Single(stateEntry!["hooks"]!.AsArray())!.AsObject();
+        Assert.DoesNotContain("cc-rule-hook", (string?)stateHook["command"] ?? string.Empty, StringComparison.Ordinal);
         Assert.Equal(4, hooks["SessionStart"]!.AsArray().Count);
         Assert.False(File.Exists(ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows)));
     }

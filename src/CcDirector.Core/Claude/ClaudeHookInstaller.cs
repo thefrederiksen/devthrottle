@@ -197,9 +197,11 @@ public static class ClaudeHookInstaller
         "if [ ! -f \"$version_path\" ]; then version=$(claude --version 2>/dev/null | head -n 1 | tr -cd '[:alnum:].,_+() /:-' | cut -c 1-200); [ -n \"$version\" ] || version=unavailable; printf '%s' \"$version\" > \"$version_path\" 2>/dev/null || exit 0; fi\n" +
         "version=$(cat \"$version_path\" 2>/dev/null || printf unavailable)\n" +
         "lock=\"$CC_STATE_EVENT_DIR/.claude-sequence.lock\"\n" +
-        "attempt=0\n" +
-        "until mkdir \"$lock\" 2>/dev/null; do attempt=$((attempt + 1)); [ \"$attempt\" -lt 500 ] || exit 0; sleep 0.01; done\n" +
-        "trap 'rmdir \"$lock\" 2>/dev/null || true' EXIT\n" +
+        "while ! mkdir \"$lock\" 2>/dev/null; do holder=$(cat \"$lock/pid\" 2>/dev/null || true); case \"$holder\" in *[!0-9]*|'') ;; *) if ! kill -0 \"$holder\" 2>/dev/null; then rm -f \"$lock/pid\" 2>/dev/null && rmdir \"$lock\" 2>/dev/null || true; fi ;; esac; sleep 0.01; done\n" +
+        "printf '%s' \"$$\" > \"$lock/pid\" 2>/dev/null || { rmdir \"$lock\" 2>/dev/null || true; exit 0; }\n" +
+        "cleanup() { rm -f \"$lock/pid\" 2>/dev/null || true; rmdir \"$lock\" 2>/dev/null || true; }\n" +
+        "trap 'cleanup' EXIT\n" +
+        "trap 'cleanup; exit 0' HUP INT TERM\n" +
         "counter=\"$CC_STATE_EVENT_DIR/.claude-sequence\"\n" +
         "sequence=0\n" +
         "if [ -f \"$counter\" ]; then sequence=$(cat \"$counter\" 2>/dev/null) || exit 0; fi\n" +
