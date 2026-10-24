@@ -1,0 +1,26 @@
+agent    case           run pass  working-after false-waiting waiting-after-end approval-shown
+claude   quick            1 yes            1.0s          0.0s              0.2s -
+claude   quick            2 yes            1.0s          0.0s              0.1s -
+claude   long-answer      1 yes            1.2s          0.0s              0.2s -
+claude   long-answer      2 yes            1.2s          0.0s              0.1s -
+claude   tool-40s         1 yes            1.5s          0.0s              0.2s -
+claude   tool-40s         2 yes            1.5s          0.0s              0.2s -
+claude   approval         1 yes            1.2s          0.0s              0.2s yes
+claude   approval         2 yes            1.2s          0.0s              0.3s yes
+claude   question-menu    1 yes            1.0s          0.0s              0.0s yes
+claude   question-menu    2 yes            1.0s          0.0s              0.1s yes
+claude   model-picker     1 NO             0.2s          0.0s              9.3s -
+claude   model-picker     2 NO             0.2s          0.0s              9.3s -
+pi       quick            1 yes            1.0s          0.0s              0.2s -
+pi       quick            2 yes            1.0s          0.0s              0.1s -
+pi       long-answer      1 yes            1.2s          0.0s              0.2s -
+pi       long-answer      2 yes            1.2s          0.0s              0.1s -
+pi       tool-40s         1 yes            1.5s          0.0s              0.0s -
+pi       tool-40s         2 yes            1.5s          0.0s              0.1s -
+pi       model-picker     1 NO             0.2s          0.0s              9.3s -
+pi       model-picker     2 NO             0.2s          0.0s              9.3s -
+16 of 20 case runs correct; 0 case(s) passed on one run and failed on another.
+  claude model-picker run 1: not shown waiting within 2s of the true end (screen: screens/state-claude-model-picker-run1.txt)
+  claude model-picker run 2: not shown waiting within 2s of the true end (screen: screens/state-claude-model-picker-run2.txt)
+  pi model-picker run 1: not shown waiting within 2s of the true end (screen: screens/state-pi-model-picker-run1.txt)
+  pi model-picker run 2: not shown waiting within 2s of the true end (screen: screens/state-pi-model-picker-run2.txt)

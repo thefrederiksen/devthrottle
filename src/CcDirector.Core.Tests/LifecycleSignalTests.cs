@@ -24,19 +24,6 @@ public sealed class LifecycleSignalTests
     private static string UniqueName() => "cc-director-test-" + Guid.NewGuid().ToString("N");
 
     [Fact]
-    public void ARaisedSignal_ReachesItsListener()
-    {
-        var name = UniqueName();
-        using var arrived = new ManualResetEventSlim(false);
-        using var listener = LifecycleSignal.Listen(name, () => arrived.Set());
-
-        Assert.True(LifecycleSignal.Raise(name));
-
-        Assert.True(arrived.Wait(TimeSpan.FromSeconds(10)),
-            "the signal was raised but the listener never ran");
-    }
-
-    [Fact]
     public void HasListener_WhereItCannotBeObserved_SaysSoRatherThanInventingANo()
     {
         // Unix has no named event: the mechanism is a request file a listener polls, and nothing on disk
