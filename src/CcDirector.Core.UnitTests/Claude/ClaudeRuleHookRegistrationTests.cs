@@ -32,6 +32,13 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
     private static JsonObject Hooks(string settingsPath)
         => JsonNode.Parse(File.ReadAllText(settingsPath))!["hooks"]!.AsObject();
 
+    private static JsonObject? RulePreToolUse(JsonObject hooks)
+    {
+        if (!hooks.TryGetPropertyValue("PreToolUse", out var entries) || entries is not JsonArray array)
+            return null;
+        return array.SingleOrDefault(entry => (string?)entry?["matcher"] == ClaudeHookInstaller.ShellToolMatcher)?.AsObject();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -43,7 +50,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Assert.Equal(Path.Combine(HooksDirectory, forWindows ? "cc-rule-hook.exe" : "cc-rule-hook"), written);
         Assert.Equal(HookBytes, File.ReadAllBytes(written));
 
-        var preToolUse = Assert.Single(Hooks(settings)["PreToolUse"]!.AsArray())!;
+        var preToolUse = Assert.IsType<JsonObject>(RulePreToolUse(Hooks(settings)));
         Assert.Equal("^(Bash|PowerShell)$", (string?)preToolUse["matcher"]);
         var hook = Assert.Single(preToolUse["hooks"]!.AsArray())!;
         Assert.Equal("command", (string?)hook["type"]);
@@ -77,7 +84,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, HookBytes)!;
 
         // Read from the file as Claude Code reads it: the args key must be there, as an empty array.
-        var hook = Hooks(settings)["PreToolUse"]![0]!["hooks"]![0]!.AsObject();
+        var hook = Assert.IsType<JsonObject>(RulePreToolUse(Hooks(settings)))["hooks"]![0]!.AsObject();
         Assert.True(hook.ContainsKey("args"));
         Assert.Equal(["type", "command", "args", "timeout"], hook.Select(p => p.Key));
         AssertExecForm(hook, ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows));
@@ -102,7 +109,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, ruleHook: null)!;
 
         var hooks = Hooks(settings);
-        Assert.False(hooks.ContainsKey("PreToolUse"));
+        Assert.Null(RulePreToolUse(hooks));
         Assert.Equal(4, hooks["SessionStart"]!.AsArray().Count);
         Assert.False(File.Exists(ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows)));
     }
@@ -115,7 +122,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows: false, ruleHook: null)!;
 
-        Assert.False(Hooks(settings).ContainsKey("PreToolUse"));
+        Assert.Null(RulePreToolUse(Hooks(settings)));
     }
 
     [Fact]
@@ -174,7 +181,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         Assert.NotNull(settings);
         Assert.Equal(OlderHookBytes, File.ReadAllBytes(path));
-        AssertExecForm(Hooks(settings)["PreToolUse"]![0]!["hooks"]![0]!, path);
+        AssertExecForm(Assert.IsType<JsonObject>(RulePreToolUse(Hooks(settings)))["hooks"]![0]!, path);
         Assert.DoesNotContain(Directory.GetFiles(HooksDirectory), f => f.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
@@ -185,7 +192,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
             replace: (_, _) => throw new UnauthorizedAccessException("Access to the path is denied."))!;
 
         Assert.NotNull(settings);
-        Assert.False(Hooks(settings).ContainsKey("PreToolUse"));
+        Assert.Null(RulePreToolUse(Hooks(settings)));
     }
 
     [Fact]
@@ -222,7 +229,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         var path = ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows);
         Assert.Equal(HookBytes, File.ReadAllBytes(path));
-        AssertExecForm(Hooks(own)["PreToolUse"]![0]!["hooks"]![0]!, path);
+        AssertExecForm(Assert.IsType<JsonObject>(RulePreToolUse(Hooks(own)))["hooks"]![0]!, path);
 
         // And the shared install that follows agrees with it.
         var shared = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, HookBytes)!;
@@ -238,7 +245,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         var own = ClaudeHookInstaller.WriteSessionSettings(kit, HooksDirectory, forWindows: true, new JsonObject(), ruleHook: null);
 
-        Assert.False(Hooks(own).ContainsKey("PreToolUse"));
+        Assert.Null(RulePreToolUse(Hooks(own)));
     }
 
     // ---------- Review finding 1: nothing about the evaluator may cost the session its other hooks ----------
@@ -282,7 +289,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         Assert.NotNull(settings);
         Assert.Equal(4, Hooks(settings!)["SessionStart"]!.AsArray().Count);
-        Assert.False(Hooks(settings!).ContainsKey("PreToolUse"));
+        Assert.Null(RulePreToolUse(Hooks(settings!)));
         Assert.DoesNotContain(Directory.GetFiles(HooksDirectory), f => f.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
