@@ -203,7 +203,7 @@ internal static class FactoryRecordEndpoints
             if (store.Find(tenant, folded, name, version) is not { } found)
                 return Results.NotFound(new
                 {
-                    error = $"'{name}' of {folded} has no version {version}",
+                    error = $"'{name}' of {folded} has no version {version}; only the newest {FactoryDocumentStore.KeptVersions} versions of a document are kept",
                     newestVersion = store.Get(tenant, folded, name)?.Version ?? 0,
                 });
             return Results.Json(ToDto(found, withText: true));

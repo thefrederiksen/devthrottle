@@ -2279,6 +2279,12 @@ machine has a seat of the factory in it. A machine that had a seat in an older v
 nothing (`version_not_current`).
 
 
+### Factory working documents: the newest three versions
+
+A working document (`factory doc write`) keeps its newest three versions; every write removes the older ones. A
+writer still states the newest version it read, and a stale write is still refused with the current text. Reading
+a version older than the three answers 404 and says only the newest three are kept.
+
 ### Factory attachments: kept once, removed when no longer needed
 
 A factory keeps files on the Gateway (`factory attach add`), each at most 4 MB and all of one factory's together at
