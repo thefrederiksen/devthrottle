@@ -23,6 +23,13 @@ namespace CcDirector.Gateway.Api;
 internal static class LauncherReachability
 {
     /// <summary>
+    /// How long after its stream closed a heartbeating launcher is still called reconnecting. A launcher restarting
+    /// into a new version is back within seconds to a minute; past this it is not coming back by itself, and saying
+    /// "look again in a minute" for ever would hide a launcher that cannot be commanded (issue #4423, review finding 2).
+    /// </summary>
+    public static readonly TimeSpan ReconnectWindow = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// Classify a launcher's reach.
     ///
     /// A LIVE STREAM IS THE WHOLE ANSWER WHEN IT IS THERE, and it outranks the registration row
@@ -46,8 +53,8 @@ internal static class LauncherReachability
         // Heartbeating and yet unreachable - and this Gateway WATCHED IT HOLD A STREAM. A launcher that has held
         // a stream is not too old for one; it is restarting into a new version or reconnecting (issue #4423).
         // This is checked before the too-old inference because it is evidence, and that is a guess.
-        if (registered.StreamClosedAt is not null)
-            return LauncherReach.Reconnecting;
+        if (registered.StreamClosedAt is { } closedAt)
+            return nowUtc - closedAt <= ReconnectWindow ? LauncherReach.Reconnecting : LauncherReach.StreamDown;
 
         // Heartbeating and yet unreachable, with no stream ever seen. The two facts together are the evidence:
         // it can talk TO this Gateway and this Gateway cannot talk to it, which is exactly what a launcher

@@ -134,6 +134,9 @@ public sealed class LauncherSelfUpdateStreamLossTests : IAsyncLifetime
             await SendUpdateAsync(SendHook()).WaitAsync(TimeSpan.FromSeconds(30));
             await _streamClosed.Task.WaitAsync(TimeSpan.FromSeconds(30));
         }
+        // The old launcher quits cleanly: its registration client DELETEs its row (review finding 1). Then the new
+        // process registers, before it opens its own stream.
+        _launchers.Remove(TenantId.Local, Machine);
         RegisterLauncher("2.30.0");
 
         // Act - ask again before the new stream is up.
@@ -216,8 +219,10 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
         return (res.StatusCode, body);
     }
 
+    // Review finding 3: the expected outcome of an update that restarts the launcher is answered as the update's view,
+    // in the warn tone - not as an error the Cockpit shows in red and files as a fault.
     [Fact]
-    public async Task PostUpdate_StreamLostMidUpdate_SaysTheLauncherRestartedAndNeverTooOld()
+    public async Task PostUpdate_StreamLostMidUpdate_AnswersTheUpdateViewInTheWarnTone()
     {
         // Arrange
         RegisterLauncher("2.28.0");
@@ -228,13 +233,30 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
         var (status, body) = await PostUpdateAsync();
 
         // Assert
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(FleetTone.Warn, body.GetProperty("tone").GetString());
+        var headline = body.GetProperty("headline").GetString()!;
+        Assert.Contains("restarted", headline);
+        Assert.Contains("version column", headline);
+        Assert.DoesNotContain("too old", headline);
+    }
+
+    [Fact]
+    public async Task PostUpdate_StreamDownLongerThanARestartTakes_SaysRestartTheLauncherNotTooOld()
+    {
+        // Arrange
+        RegisterLauncher("2.30.0");
+        _launchers.NoteStreamClosed(TenantId.Local, Machine, DateTime.UtcNow - LauncherReachability.ReconnectWindow - TimeSpan.FromMinutes(1));
+
+        // Act
+        var (status, body) = await PostUpdateAsync();
+
+        // Assert
         Assert.Equal(HttpStatusCode.BadGateway, status);
-        Assert.Equal("launcher-stream-lost", body.GetProperty("reason").GetString());
+        Assert.Equal("launcher-stream-down", body.GetProperty("reason").GetString());
         var error = body.GetProperty("error").GetString()!;
-        Assert.Contains("restarted", error);
-        Assert.Contains("version column", error);
+        Assert.Contains("Restart the launcher", error);
         Assert.DoesNotContain("too old", error);
-        Assert.False(body.GetProperty("retryable").GetBoolean());
     }
 
     [Fact]

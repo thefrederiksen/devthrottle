@@ -84,6 +84,12 @@ internal static class LauncherLifecycleRelay
         /// what that looks like from here - so this is neither a refusal nor an undelivered command.
         /// </summary>
         StreamLost,
+
+        /// <summary>
+        /// Registered and heartbeating, and the stream this Gateway saw it hold has been down longer than a restart
+        /// takes (<see cref="LauncherReachability.ReconnectWindow"/>). Not too old, not reconnecting: restart it.
+        /// </summary>
+        StreamDown,
     }
 
     /// <summary>The result of one relay attempt.</summary>
@@ -404,6 +410,14 @@ internal static class LauncherLifecycleRelay
                               + $"for tenant={tenant.Value}, machine={machine} - refused as reconnecting, not too old");
                 return new LauncherRelayOutcome(RelayOutcomeKind.Reconnecting, LauncherVersion: registered!.Version,
                     QuietForSeconds: quietForSeconds, StreamClosedForSeconds: closedForSeconds);
+
+            case LauncherReach.StreamDown:
+                var downForSeconds = LauncherReachability.StreamClosedForSeconds(registered, DateTime.UtcNow);
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
+                              + $"({quietForSeconds}s ago) and its command stream has been down {downForSeconds}s, "
+                              + $"for tenant={tenant.Value}, machine={machine} - refused");
+                return new LauncherRelayOutcome(RelayOutcomeKind.StreamDown, LauncherVersion: registered!.Version,
+                    QuietForSeconds: quietForSeconds, StreamClosedForSeconds: downForSeconds);
 
             case LauncherReach.NotConnected:
                 FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "

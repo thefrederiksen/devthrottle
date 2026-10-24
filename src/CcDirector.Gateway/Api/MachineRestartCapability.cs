@@ -197,6 +197,13 @@ internal static class MachineRestartCapability
                     $"its launcher (version {Version(dto)}) is registered and heartbeating - it reached this "
                     + $"Gateway {dto.QuietForSeconds}s ago - and is reconnecting its command stream, which was up "
                     + "until recently. It is restarting or reconnecting, not too old. Ask again in a minute.");
+
+            case LauncherReach.StreamDown:
+                return new Route(CapabilityState.Unavailable,
+                    $"its launcher (version {Version(dto)}) is registered and heartbeating - it reached this "
+                    + $"Gateway {dto.QuietForSeconds}s ago - but the command stream this Gateway saw it hold has been "
+                    + "down longer than a restart takes, so it cannot be told anything. Restart the launcher on that "
+                    + "machine. It is not too old.");
         }
 
         if (dto.Declaration == LauncherDeclarationState.DeclaredNothing)

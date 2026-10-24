@@ -729,6 +729,17 @@ internal static class MachineEndpoints
     /// </summary>
     private static IResult ToUpdateViewResult(string machine, string verb, LauncherLifecycleRelay.LauncherRelayOutcome outcome)
     {
+        // AN UPDATE THAT RESTARTED THE LAUNCHER BEFORE IT ANSWERED IS NOT A FAILURE (issue #4423, review finding 3).
+        // It is what an update that replaces the launcher does, so it is answered as the update's view - in the warn
+        // tone, saying what happened - rather than as an error a client shows in red and files as a fault.
+        if (outcome.Kind == LauncherLifecycleRelay.RelayOutcomeKind.StreamLost
+            && string.Equals(verb, LauncherCapabilities.DirectorUpdate, StringComparison.Ordinal))
+        {
+            var restarted = DirectorUpdateViewFold.RestartedBeforeAnswering(machine);
+            FileLog.Write($"[MachineEndpoints] {verb} on {machine}: {restarted.Headline}");
+            return Results.Json(restarted);
+        }
+
         if (!outcome.Accepted)
             return ToQueryResult(machine, verb, outcome);
 
@@ -832,16 +843,13 @@ internal static class MachineEndpoints
                 }, statusCode: 503),
 
             // THE ANSWER WAS LOST, NOT REFUSED (issue #4423). The launcher had the command; its stream closed
-            // before it replied. For an update that is the expected shape - the update restarts the launcher - so
-            // the sentence says to look at the versions rather than to try again, which could start a second pass.
+            // before it replied, so whether it did it is not known here. (An UPDATE losing its answer this way is
+            // the expected shape, and is answered as a view by ToUpdateViewResult before it reaches here.) The
+            // sentence says to look rather than to try again, which could do the thing twice.
             LauncherLifecycleRelay.RelayOutcomeKind.StreamLost => Results.Json(
                 new
                 {
-                    error = string.Equals(verb, LauncherCapabilities.DirectorUpdate, StringComparison.Ordinal)
-                        ? $"the launcher on '{machine}' took the update and restarted before it could answer, which is "
-                          + $"what an update that replaces the launcher does. Check the version column in a minute: "
-                          + $"the new versions appear there when the launcher and the Director are back."
-                        : $"the launcher on '{machine}' was sent '{verb}' and its command stream closed before it "
+                    error = $"the launcher on '{machine}' was sent '{verb}' and its command stream closed before it "
                           + $"answered, so whether it did it is not known here. The launcher may be restarting; "
                           + $"check that machine in a minute before asking again.",
                     machine,
@@ -849,6 +857,21 @@ internal static class MachineEndpoints
                     launcherVersion = outcome.LauncherVersion,
                     reason = "launcher-stream-lost",
                     retryable = false,
+                }, statusCode: 502),
+
+            // HEARTBEATING, AND ITS STREAM HAS BEEN DOWN LONGER THAN A RESTART TAKES (issue #4423, review finding 2).
+            // Not too old - this Gateway saw it stream - and not merely reconnecting any more.
+            LauncherLifecycleRelay.RelayOutcomeKind.StreamDown => Results.Json(
+                new
+                {
+                    error = $"the launcher on '{machine}' is reaching this Gateway (it heartbeated "
+                          + $"{outcome.QuietForSeconds}s ago) but its command stream has been down for "
+                          + $"{outcome.StreamClosedForSeconds / 60} minutes, longer than a restart takes, so nothing "
+                          + $"was sent. Restart the launcher on that machine.",
+                    machine,
+                    verb,
+                    launcherVersion = outcome.LauncherVersion,
+                    reason = "launcher-stream-down",
                 }, statusCode: 502),
 
             _ => Results.Json(

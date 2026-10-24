@@ -171,13 +171,44 @@ public sealed class LauncherRegistryTests
         Assert.Equal(closedAt, dto.StreamClosedAt);
     }
 
+    // Review finding 1: a launcher that quits cleanly closes its stream and then DELETEs its registration, and the new
+    // process registers before it opens its own stream. The close must survive the DELETE.
     [Fact]
-    public void NoteStreamClosed_UnknownMachine_AddsNothing()
+    public void Upsert_AfterTheStreamClosedAndTheRowWasRemoved_StillCarriesTheClose()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 101, version: "2.28.0"));
+        reg.NoteStreamClosed(tenant, "studio-mac", closedAt);
+        reg.Remove(tenant, "studio-mac");
+
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 202, version: "2.30.0"));
+
+        Assert.Equal(closedAt, reg.Get(tenant, "studio-mac")!.StreamClosedAt);
+    }
+
+    [Fact]
+    public void NoteStreamClosed_BeforeTheMachineRegisters_IsCarriedByItsRegistration()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+
+        reg.NoteStreamClosed(tenant, "studio-mac", closedAt);
+
+        Assert.Null(reg.Get(tenant, "studio-mac"));
+        reg.Upsert(tenant, MakeReq("STUDIO-MAC", pid: 202));
+        Assert.Equal(closedAt, reg.Get(tenant, "studio-mac")!.StreamClosedAt);
+    }
+
+    [Fact]
+    public void Upsert_MachineThatNeverStreamed_CarriesNoClose()
     {
         var reg = new LauncherRegistry();
 
-        reg.NoteStreamClosed(CcDirector.Core.Tenancy.TenantId.Local, "nobody", DateTime.UtcNow);
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("old-box"));
 
-        Assert.Null(reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "nobody"));
+        Assert.Null(reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "old-box")!.StreamClosedAt);
     }
 }

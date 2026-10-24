@@ -245,6 +245,11 @@ internal static class FleetManagerPlacementFold
                 choice.StateLabel = "Not reachable right now - its launcher is reconnecting.";
                 choice.Detail = "The launcher is running and is restarting or reconnecting its command stream. Try again in a minute.";
                 break;
+            case LauncherReach.StreamDown:
+                choice.StateLabel = "Not reachable - its launcher has stopped taking commands.";
+                choice.Detail = "The launcher is running, but its command stream has been down for longer than a restart "
+                                + "takes. Restart the launcher on that computer.";
+                break;
             default:
                 choice.StateLabel = lastSeen is { } seen
                     ? $"Not reachable - last seen {FormatWhen(seen, tz, now)}."

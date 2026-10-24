@@ -225,6 +225,32 @@ public sealed class FleetMachinesFoldTests
         Assert.DoesNotContain(view.Highlights, h => h.Text.Contains("too old"));
     }
 
+    // Review finding 2: "reconnecting" has a limit. Past it the launcher is not coming back by itself.
+    [Fact]
+    public void Fold_StreamDownLongerThanARestartTakes_IsNotTakingCommandsNotReconnecting()
+    {
+        var launcher = Launcher("STUDIO_MAC");
+        launcher.StreamClosedAt = Now - LauncherReachability.ReconnectWindow - TimeSpan.FromSeconds(1);
+
+        var view = Fold(new[] { launcher }, new(), new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        var machine = Assert.Single(view.Machines);
+        Assert.Equal(LauncherReach.StreamDown, machine.Reach);
+        Assert.Equal("Not taking commands", machine.ReachLabel);
+        Assert.Contains("Restart the launcher", machine.ReachDetail);
+    }
+
+    [Fact]
+    public void Fold_StreamClosedJustInsideTheWindow_IsReconnecting()
+    {
+        var launcher = Launcher("STUDIO_MAC");
+        launcher.StreamClosedAt = Now - LauncherReachability.ReconnectWindow;
+
+        var view = Fold(new[] { launcher }, new(), new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        Assert.Equal(LauncherReach.Reconnecting, Assert.Single(view.Machines).Reach);
+    }
+
     [Fact]
     public void Fold_HeartbeatingWithNoStreamEverSeen_IsStillTooOld()
     {

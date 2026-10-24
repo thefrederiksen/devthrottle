@@ -99,6 +99,9 @@ internal static class FleetMachinesFold
             LauncherReach.Reconnecting => ("Launcher reconnecting", FleetTone.Warn,
                 "The launcher is running and its command stream was up until recently. It is restarting - an update "
                 + "restarts it - or reconnecting. Look again in a minute."),
+            LauncherReach.StreamDown => ("Not taking commands", FleetTone.Bad,
+                "The launcher is running and reaching this Gateway, but its command stream has been down for longer than "
+                + "a restart takes. Restart the launcher on the machine."),
             LauncherReach.NotConnected => ("Launcher offline", FleetTone.Idle,
                 "The launcher has stopped talking to this Gateway. Start it on the machine to manage it from here."),
             _ => ("No launcher", FleetTone.Idle,
