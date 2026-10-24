@@ -11,11 +11,12 @@ namespace CcDirector.Gateway.Api;
 /// <summary>Streams resolved session-state transitions as server-sent events.</summary>
 internal static class SessionStateEventsEndpoint
 {
-    public static async Task StreamAsync(
+    internal static async Task StreamAsync(
         HttpContext context,
         string sessionId,
         TenantId tenant,
-        PushedSessionStore? sessions)
+        PushedSessionStore? sessions,
+        Action? afterSubscription = null)
     {
         FileLog.Write($"[SessionStateEventsEndpoint] StreamAsync: tenant={tenant.ToLogString()}, session={sessionId}");
         if (sessions is null)
@@ -26,24 +27,29 @@ internal static class SessionStateEventsEndpoint
             return;
         }
 
+        var queue = System.Threading.Channels.Channel.CreateUnbounded<SessionDto>();
+        void OnSessionChanged(TenantId changedTenant, string directorId, SessionDto changed)
+        {
+            if (changedTenant.Equals(tenant)
+                && string.Equals(changed.SessionId, sessionId, StringComparison.Ordinal)
+                && sessions.IsHoldersRow(tenant, directorId, sessionId))
+                queue.Writer.TryWrite(changed);
+        }
+
+        // Subscribe first: a delta between the initial read and subscription would otherwise leave
+        // the stream showing the stale row until another state change happened.
+        sessions.SessionChanged += OnSessionChanged;
+        afterSubscription?.Invoke();
         var initial = sessions.TryGetLastKnownSession(tenant, sessionId)?.Session;
         if (initial is null)
         {
+            sessions.SessionChanged -= OnSessionChanged;
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             await context.Response.WriteAsJsonAsync(new { error = "session not found" },
                 cancellationToken: context.RequestAborted);
             return;
         }
 
-        var queue = System.Threading.Channels.Channel.CreateUnbounded<SessionDto>();
-        void OnSessionChanged(TenantId changedTenant, SessionDto changed)
-        {
-            if (changedTenant.Equals(tenant)
-                && string.Equals(changed.SessionId, sessionId, StringComparison.Ordinal))
-                queue.Writer.TryWrite(changed);
-        }
-
-        sessions.SessionChanged += OnSessionChanged;
         context.Response.ContentType = GatewayResponseCompression.EventStreamMimeType;
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";

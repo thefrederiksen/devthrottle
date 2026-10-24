@@ -23,7 +23,10 @@ launch context.
 ```
 
 `eventId` and `sessionId` are GUIDs. `sequence` is a positive, strictly increasing integer per
-session and adapter process. `occurredAtUtc` is UTC ISO-8601. `source` is `agent`; `agent` is one
+session across every emitter. An adapter with multiple processes obtains the next value from one
+counter file inside `CC_STATE_EVENT_DIR`, updating that counter under a cross-process file lock before
+writing its event. A hook process must not restart the sequence at one. `occurredAtUtc` is UTC ISO-8601.
+`source` is `agent`; `agent` is one
 of `claude`, `codex`, `pi`. `detail` is optional, bounded text. Event vocabulary:
 
 | Event | Resolved fact |
@@ -45,10 +48,12 @@ capability token, duplicate/out-of-order sequence, events over 30 seconds old or
 the future, oversized detail, or an `unsupported` diagnostic without both its raw type and command-line
 program version are rejected and logged. Rejected drops are removed. Event files
 are written atomically (temporary sibling then rename); one event per sequence-named file avoids
-overwriting a faster event.
+overwriting a faster event. The temporary name must not end in `.state.json`, so intake cannot mistake
+a partial write for a complete event.
 
 Merge priority is agent facts, then core screen facts, then the Wingman judge only for the meaning
 of an already detected unclear stop, then the silence timer as last resort. A lower-priority fact
 cannot replace a newer, still-current higher-priority fact. Disagreements are recorded with both
 source, state/fact, timestamp, and the selected source. State snapshots and changes expose the
-winning source; a silence-timer result is marked as fallback.
+winning source; a silence-timer result is marked as fallback. The Wingman source is reserved for the
+unclear-stop interpretation and is not wired to a producer yet.

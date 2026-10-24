@@ -2,6 +2,7 @@ using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.UnitTests.ApiMode;
+using CcDirector.TestInfrastructure;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -80,16 +81,44 @@ public sealed class SessionStateEventTests : IDisposable
     }
 
     [Fact]
-    public void ApplyAgentStateEvent_PermissionThenLaterSilence_LaterFactClearsStalePermission()
+    public void ApplyAgentStateEvent_PermissionThenLaterSilence_PermissionRemainsSelected()
     {
         Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
 
         _clock.Advance(TimeSpan.FromSeconds(1));
         _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
 
-        Assert.Equal(ActivityState.WaitingForInput, _session.ActivityState);
-        Assert.Equal(SessionStateSources.SilenceTimer, _session.ActivityStateSource);
-        Assert.True(_session.ActivityStateIsFallback);
+        Assert.Equal(ActivityState.WaitingForPerm, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Agent, _session.ActivityStateSource);
+        Assert.False(_session.ActivityStateIsFallback);
+        Assert.Single(_session.StateDisagreements);
+    }
+
+    [Fact]
+    public void ApplyAgentStateEvent_PermissionThenPicker_PermissionRemainsSelected()
+    {
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyScreenActivityState(ActivityState.MenuOpen);
+
+        Assert.Equal(ActivityState.WaitingForPerm, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Agent, _session.ActivityStateSource);
+        Assert.Single(_session.StateDisagreements);
+    }
+
+    [Fact]
+    public void ApplyAgentStateEvent_AgreeingTerminalOutput_DoesNotDemoteAgentBeforeScreenDisagreement()
+    {
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "turn_started")));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyTerminalActivityState(ActivityState.Working);
+        _clock.Advance(TimeSpan.FromSeconds(15));
+        _session.ApplyScreenActivityState(ActivityState.WaitingForInput);
+
+        Assert.Equal(ActivityState.Working, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Agent, _session.ActivityStateSource);
         Assert.Single(_session.StateDisagreements);
     }
 
@@ -127,6 +156,16 @@ public sealed class SessionStateEventTests : IDisposable
 
         Assert.False(_session.ApplyAgentStateEvent(Event(1, "turn_started", occurredAtUtc: occurred)));
         Assert.Equal(ActivityState.WaitingForInput, _session.ActivityState);
+    }
+
+    [Fact]
+    public void PublishedContract_SequenceIsPerSessionAcrossEveryEmitter()
+    {
+        var contract = File.ReadAllText(Path.Combine(RepositorySourceIndex.Root, "docs", "terminal-state-event-contract.md"));
+
+        Assert.Contains("strictly increasing integer per", contract, StringComparison.Ordinal);
+        Assert.Contains("session across every emitter", contract, StringComparison.Ordinal);
+        Assert.Contains("hook process must not restart the sequence at one", contract, StringComparison.Ordinal);
     }
 
     [Fact]

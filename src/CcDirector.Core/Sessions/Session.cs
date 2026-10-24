@@ -5420,14 +5420,14 @@ public sealed class Session : IDisposable
         // terminal produces output again (Working), or the session otherwise leaves the parked
         // turn-end it was judged at, the background-wait verdict is stale. The next turn-end
         // briefing re-evaluates from scratch. Only states waiting on the owner preserve it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen))
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             IsBackgroundRunning = false;
         // The same edge drops any structured ask. The user answered the question box or approved the
         // plan, the session went back to work, and a question box left standing in the Smart shutdown
         // dialog would send the owner hunting for a question nobody is asking. PendingInteraction has
         // documented this clearing since it was written; until the detection that fills it landed
         // (PendingInteractionWatcher) there was nothing to clear, and so no code here saying it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen))
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             PendingInteraction = null;
         // The work that a submission explained is over once the session settles or exits; the next working
         // edge is explained only by the next submission.
@@ -5506,19 +5506,26 @@ public sealed class Session : IDisposable
         var reportedPriority = SessionStateSources.Priority(reportedSource);
         var disagrees = reportedState != ActivityState;
 
+        // Agreement does not let weaker evidence take ownership of an agent-selected state. If it
+        // did, one output byte would demote agent Working to terminal-output and the next quiet
+        // settle could incorrectly paint a still-running turn as waiting.
+        if (!disagrees && selectedPriority >= reportedPriority)
+            return;
+
         var isLater = reportedAtUtc > _selectedStateFactAtUtc;
         // Permission is an edge, not a permanent latch. Some agents do not report the matching
         // approval-completed edge, so any later fact that says the session is no longer at that
         // permission gate supersedes it even when that fact comes from a lower-priority source.
         var clearsPermission = ActivityState == ActivityState.WaitingForPerm
             && isLater
-            && reportedState != ActivityState.WaitingForPerm;
-        // Real bytes prove that work resumed. Silence after those bytes is the other half of the
-        // terminal detector's own work cycle, rather than an unrelated low-priority contradiction.
-        var advancesTerminalCycle = isLater
             && (reportedState == ActivityState.Working
-                || (ActivityStateSource == SessionStateSources.TerminalOutput
-                    && reportedSource == SessionStateSources.SilenceTimer));
+                || (reportedSource == SessionStateSources.Screen
+                    && reportedState == ActivityState.WaitingForInput));
+        // Silence after terminal output is the other half of that detector's own work cycle. It
+        // does not advance an agent-selected cycle: only the adapter ends one of those.
+        var advancesTerminalCycle = isLater
+            && ActivityStateSource == SessionStateSources.TerminalOutput
+            && reportedSource == SessionStateSources.SilenceTimer;
         if (disagrees && selectedPriority > reportedPriority && !clearsPermission && !advancesTerminalCycle)
         {
             RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);

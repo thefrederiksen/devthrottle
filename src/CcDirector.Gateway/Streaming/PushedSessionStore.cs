@@ -127,7 +127,7 @@ public sealed class PushedSessionStore
     public event Action<TenantId, string>? SessionsArrivedOnNewConnection;
 
     /// <summary>Raised after an accepted snapshot or delta for each session row, outside the store lock.</summary>
-    public event Action<TenantId, SessionDto>? SessionChanged;
+    public event Action<TenantId, string, SessionDto>? SessionChanged;
 
     /// <summary>
     /// Make every per-session lookup of this store answer through <paramref name="rule"/> in the tenants it governs
@@ -415,7 +415,7 @@ public sealed class PushedSessionStore
             SessionsArrivedOnNewConnection?.Invoke(tenant, directorId);
         }
         foreach (var session in sessions)
-            SessionChanged?.Invoke(tenant, session.Clone());
+            SessionChanged?.Invoke(tenant, directorId, session.Clone());
         return true;
     }
 
@@ -440,7 +440,7 @@ public sealed class PushedSessionStore
             entry.LastSequence = sequence;
             entry.ReceivedAtUtc = _utcNow();
         }
-        SessionChanged?.Invoke(tenant, session.Clone());
+        SessionChanged?.Invoke(tenant, directorId, session.Clone());
         return true;
     }
 

@@ -44,13 +44,13 @@ public sealed class SessionStateEventsEndpointTests : IAsyncDisposable
         ActivityStateIsFallback = fallback,
     };
 
-    private async Task StartAsync()
+    private async Task StartAsync(Action? afterSubscription = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         _application = builder.Build();
         _application.MapGet("/sessions/{sid}/events", (HttpContext context, string sid) =>
-            SessionStateEventsEndpoint.StreamAsync(context, sid, Tenant, _sessions));
+            SessionStateEventsEndpoint.StreamAsync(context, sid, Tenant, _sessions, afterSubscription));
         await _application.StartAsync();
         _client = _application.GetTestClient();
     }
@@ -80,6 +80,44 @@ public sealed class SessionStateEventsEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Stream_ChangeAtSubscriptionBoundary_IsNotMissed()
+    {
+        await StartAsync(() => Assert.True(_sessions.ApplyDelta(Tenant, "director-a", "connection-a", 2,
+            State("WaitingForInput", "agent", fallback: false))));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{SessionId}/events");
+        using var response = await _client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        var first = await ReadFrameAsync(reader);
+
+        Assert.Equal(("1", "state", "WaitingForInput", "agent", false), Values(first));
+    }
+
+    [Fact]
+    public async Task Stream_OldDirectorExitAfterMove_DoesNotEndOrFlipStream()
+    {
+        _sessions.RegisterConnection(Tenant, "director-old", "connection-old");
+        Assert.True(_sessions.ApplySnapshot(Tenant, "director-old", "connection-old", 1,
+            [State("Working", "agent", fallback: false)]));
+        _sessions.UseHolderRule(new NamesDirector("director-a"));
+        await StartAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{SessionId}/events");
+        using var response = await _client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+        Assert.Equal("Working", Values(await ReadFrameAsync(reader)).State);
+
+        Assert.True(_sessions.ApplyDelta(Tenant, "director-old", "connection-old", 2,
+            State("Exited", "core", fallback: false)));
+        Assert.True(_sessions.ApplyDelta(Tenant, "director-a", "connection-a", 2,
+            State("WaitingForInput", "agent", fallback: false)));
+        var currentHolder = await ReadFrameAsync(reader);
+
+        Assert.Equal("WaitingForInput", Values(currentHolder).State);
+    }
+
+    [Fact]
     public async Task Stream_UnknownSession_ReturnsNotFound()
     {
         await StartAsync();
@@ -102,6 +140,12 @@ public sealed class SessionStateEventsEndpointTests : IAsyncDisposable
             if (split > 0)
                 frame[line[..split]] = line[(split + 1)..].TrimStart();
         }
+    }
+
+    private sealed class NamesDirector(string directorId) : ISessionHolderRule
+    {
+        public bool Governs(TenantId tenant) => true;
+        public string? HolderOf(TenantId tenant, string sessionId, IReadOnlyList<string> holders) => directorId;
     }
 
     private static (string Id, string Event, string State, string Source, bool Fallback) Values(

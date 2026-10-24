@@ -161,7 +161,7 @@ public sealed class SessionStatusWingman : IDisposable
                 // Keep the prompt-text mirror responsive: when the session settles at its
                 // input box, nudge the injection watcher to scan now rather than waiting
                 // for the next byte. This is text mirroring only - not a color decision.
-                if (newState == ActivityState.WaitingForInput
+                if (ActivityStateFacts.IsTurnEnd(newState)
                     && _injectionWatchers.TryGetValue(session.Id, out var w))
                     w.RequestImmediateScan();
             }
