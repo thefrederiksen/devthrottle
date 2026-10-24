@@ -184,6 +184,14 @@ public sealed class CronJobDto
     public string? LoadWarning { get; set; }
 
     /// <summary>
+    /// Set on the answer to a create or an update when the schedule's folder could not be checked on its machine
+    /// (issue #4421): the machine is offline, or its Director is too old to be asked. The schedule is saved, and the
+    /// folder is checked again when it first runs. Null when the folder was checked and is there. A folder the machine
+    /// does not have is not a warning: the save is refused. Read-only.
+    /// </summary>
+    public string? FolderWarning { get; set; }
+
+    /// <summary>
     /// The shifts this schedule's runs start in over the next 7 days, in the account's time zone, in the order a day
     /// has them: "night", "morning", "evening" (Factory Control, step 3). Folded by <c>ScheduleShifts</c> on every
     /// read. Read-only.

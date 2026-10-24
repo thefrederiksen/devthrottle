@@ -42,7 +42,8 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         var runRecords = new CronRunRecordReader(history, new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf);
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => _zone,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
         var engine = new CronEngine(_store, history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(EngineNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,

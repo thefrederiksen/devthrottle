@@ -88,6 +88,12 @@ export interface CronJob {
    * over its machine's capacity, or null when it fits. The schedule is saved either way. Read-only.
    */
   loadWarning?: string | null;
+  /**
+   * On the answer to a create or update only (issue #4421): the Gateway's warning that the schedule's folder could not
+   * be checked on its machine (offline, or a Director too old to ask), or null when it was checked. The schedule is
+   * saved either way; a folder the machine does not have is refused instead. Read-only.
+   */
+  folderWarning?: string | null;
   /** The shifts this schedule starts runs in over the next 7 days: "night" | "morning" | "evening". Read-only. */
   shifts?: string[] | null;
   /** The shifts in words, for example "Morning shift" or "No run in the next 7 days". Read-only. */
@@ -233,6 +239,44 @@ export async function getSeatChoices(signal?: AbortSignal): Promise<CronSeatChoi
   });
   if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/seat-choices");
   return (await res.json()) as CronSeatChoices;
+}
+
+/** One repository the Gateway knows on a machine, in the one repository list's order. */
+export interface CronFolderRepository {
+  name: string;
+  path: string;
+  lastUsed?: string | null;
+  neverOpened?: boolean;
+}
+
+/**
+ * What the Schedule form offers for a schedule's folder on one machine (GET /cron/folder-choices, issue #4421). Every
+ * word is the Gateway's: the placeholder and the note are shown as they arrive, the repositories in the order they arrive.
+ */
+export interface CronFolderChoices {
+  machine: string;
+  /** "macos" | "windows" | "linux", or "" when the Gateway does not know. */
+  os: string;
+  /** "Mac", "Windows", "Linux" or "Unknown". */
+  osName: string;
+  /** True when a save can check the folder now. */
+  online: boolean;
+  /** An example folder in the machine's own shape, for the empty folder box. */
+  placeholder: string;
+  /** One line under the folder box, or null. */
+  note?: string | null;
+  repositories: CronFolderRepository[];
+}
+
+// GET /cron/folder-choices?machine=NAME -> CronFolderChoicesDto: the schedule editor's folder choices for one machine.
+export async function getFolderChoices(machine: string, signal?: AbortSignal): Promise<CronFolderChoices> {
+  const res = await fetch(`/cron/folder-choices?machine=${encodeURIComponent(machine)}`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/folder-choices");
+  return (await res.json()) as CronFolderChoices;
 }
 
 // GET /cron/load -> CronLoadDto: each machine's next 24 hours, for the load strip.

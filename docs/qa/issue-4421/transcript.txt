@@ -1,0 +1,185 @@
+Issue #4421 proof - a throwaway Gateway and a test Director built from this tree, on devlinux (Linux)
+started 2026-10-24T20:33:32Z, finished 2026-10-24T20:34:02Z
+commit 752f08a7ef4384b99278ef5a746d3f765dd7eb29 (plus the uncommitted change under review)
+result: PASS
+
+====================================================================================================
+== 1. The machine, as the Gateway knows it
+====================================================================================================
+machine: devlinux
+$ GET /cron/folder-choices?machine=devlinux      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devlinux","os":"linux","osName":"Linux","online":true,"placeholder":"/home/<you>/my-project","note":null,"repositories":[{"name":"alpha","path":"/tmp/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices name the machine's system, Linux, as its Director reported it
+CHECK PASS: the folder choices say the machine is online
+CHECK PASS: the placeholder is an example in the Linux shape
+
+====================================================================================================
+== 2. A Windows path for a Linux computer is refused in plain words
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "windows path" --machine devlinux --repo C:\repos\project --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: 'C:\repos\project' is a Windows path, but devlinux is a Linux computer. Use a path like /home/<you>/project.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: schedule create refuses a Windows path for a Linux computer, naming the machine and its system
+$ cc-devthrottle schedule create --name "the customer's path" --machine devlinux --repo \\documents\\devthrottle --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: '\\documents\\devthrottle' is a Windows path, but devlinux is a Linux computer. Use a path like /home/<you>/devthrottle.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: the path from the issue is refused the same way, with an example that keeps its folder name
+
+====================================================================================================
+== 3. A folder of the right shape that the machine does not have is refused
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "missing folder" --machine devlinux --repo /tmp/issue-4421-rig/projects/elsewhere --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: The folder '/tmp/issue-4421-rig/projects/elsewhere' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: schedule create refuses a missing folder, naming the machine and its system - answered by the real Director
+$ POST /cron/jobs      (raw HTTP, as the rig's person)
+  body: {"name": "a file", "scheduleKind": "recurring", "cronExpression": "0 3 1 1 *", "timeZoneId": "UTC", "target": {"machine": "devlinux"}, "action": {"repoPath": "/tmp/issue-4421-rig/projects/notes.txt", "seed": "/help"}}
+  status: 400
+  answer: {"error":"'/tmp/issue-4421-rig/projects/notes.txt' on devlinux is a file, not a folder. Choose the folder the session should open in."}
+CHECK PASS: a path that is a file is refused
+CHECK PASS: nothing refused was stored
+
+====================================================================================================
+== 4. A folder the machine has is saved, with no warning
+====================================================================================================
+
+$ cc-devthrottle schedule create --name "folder that is there" --machine devlinux --repo /tmp/issue-4421-rig/projects/alpha --cron "0 3 1 1 *" --tz UTC --seed /help
+Created schedule.
+  Id:        cj_1b9095
+  Name:      folder that is there
+  Schedule:  cron 0 3 1 1 *
+  Next run:  2027-01-01T03:00:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:52453
+help[3]:
+  cc-devthrottle schedule get cj_1b9095
+  cc-devthrottle schedule run cj_1b9095
+  cc-devthrottle schedule disable cj_1b9095
+[exit 0]
+CHECK PASS: schedule create saves a folder the machine has, with no folder warning
+# the Director answered the folder checks - the test Director's log, lines naming ['FolderCheckExecutor']
+  2026-10-24 20:33:49.490 [FolderCheckExecutor] folder-check: cmdId=39a33f8b85cb4351a341e8f177fe87e8, path=/tmp/issue-4421-rig/projects/elsewhere, exists=False, isDirectory=False
+  2026-10-24 20:33:49.812 [FolderCheckExecutor] folder-check: cmdId=97cbacfeb0f34201a2192bc180177312, path=/tmp/issue-4421-rig/projects/notes.txt, exists=True, isDirectory=False
+  2026-10-24 20:33:50.367 [FolderCheckExecutor] folder-check: cmdId=9d1680ab84db4200b67bfa665ab094ad, path=/tmp/issue-4421-rig/projects/alpha, exists=True, isDirectory=True
+# the Gateway's folder checks - the throwaway Gateway's log, lines naming ['ScheduleFolderCheck']
+  2026-10-24 20:33:47.905 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devlinux, path=C:\repos\project
+  2026-10-24 20:33:47.907 [ScheduleFolderCheck] devlinux: REFUSED - 'C:\repos\project' is a Windows path, but devlinux is a Linux computer. Use a path like /home/<you>/project.
+  2026-10-24 20:33:48.671 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devlinux, path=\\documents\\devthrottle
+  2026-10-24 20:33:48.671 [ScheduleFolderCheck] devlinux: REFUSED - '\\documents\\devthrottle' is a Windows path, but devlinux is a Linux computer. Use a path like /home/<you>/devthrottle.
+  2026-10-24 20:33:49.408 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devlinux, path=/tmp/issue-4421-rig/projects/elsewhere
+  2026-10-24 20:33:49.576 [ScheduleFolderCheck] devlinux: REFUSED - The folder '/tmp/issue-4421-rig/projects/elsewhere' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux.
+  2026-10-24 20:33:49.810 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devlinux, path=/tmp/issue-4421-rig/projects/notes.txt
+  2026-10-24 20:33:49.813 [ScheduleFolderCheck] devlinux: REFUSED - '/tmp/issue-4421-rig/projects/notes.txt' on devlinux is a file, not a folder. Choose the folder the session should open in.
+  2026-10-24 20:33:50.365 [ScheduleFolderCheck] CheckAsync: tenant=local, machine=devlinux, path=/tmp/issue-4421-rig/projects/alpha
+  2026-10-24 20:33:50.367 [ScheduleFolderCheck] devlinux: the folder /tmp/issue-4421-rig/projects/alpha is there (director=c4993cc0-d45a-436e-ba4b-c7c4de508578)
+
+====================================================================================================
+== 5. The Schedule form's repository list for the machine
+====================================================================================================
+
+$ GET /cron/folder-choices?machine=devlinux      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devlinux","os":"linux","osName":"Linux","online":true,"placeholder":"/home/<you>/my-project","note":null,"repositories":[{"name":"alpha","path":"/tmp/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices offer the machine's known repository
+
+====================================================================================================
+== 6. The machine goes offline
+====================================================================================================
+
+# the test Director asked to stop by its lifecycle request file
+  request: /tmp/issue-4421-rig/director-root/config/lifecycle-signals/cc-director-shutdown-c4993cc0-d45a-436e-ba4b-c7c4de508578.request
+  pid 522482 exited: True (exit code 0)
+$ GET /cron/folder-choices?machine=devlinux      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"machine":"devlinux","os":"linux","osName":"Linux","online":false,"placeholder":"/home/<you>/my-project","note":"devlinux is offline, so the folder cannot be checked when you save. It is checked when the schedule first runs.","repositories":[{"name":"alpha","path":"/tmp/issue-4421-rig/projects/alpha","lastUsed":null,"neverOpened":true}]}
+CHECK PASS: the folder choices say the machine is offline and when the folder is checked instead
+$ cc-devthrottle schedule create --name "saved while offline" --machine devlinux --repo /tmp/issue-4421-rig/projects/gone --cron "0 3 1 1 *" --tz UTC --seed /help
+Created schedule.
+  Id:        cj_53b6ad
+  Name:      saved while offline
+  Schedule:  cron 0 3 1 1 *
+  Next run:  2027-01-01T03:00:00Z UTC
+  Seat:      none (a plain job in no factory)
+  Gateway:   http://127.0.0.1:52453
+  WARNING:   devlinux is offline, so the folder '/tmp/issue-4421-rig/projects/gone' could not be checked. It is checked again when the schedule first runs.
+help[3]:
+  cc-devthrottle schedule get cj_53b6ad
+  cc-devthrottle schedule run cj_53b6ad
+  cc-devthrottle schedule disable cj_53b6ad
+[exit 0]
+CHECK PASS: an offline machine's schedule is saved, with a warning that its folder was not checked
+$ cc-devthrottle schedule create --name "windows path while offline" --machine devlinux --repo C:\repos\project --cron "0 3 1 1 *" --tz UTC --seed /help
+Error: 'C:\repos\project' is a Windows path, but devlinux is a Linux computer. Use a path like /home/<you>/project.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: a Windows path for a Linux computer is refused even while it is offline, from the system it last reported
+
+====================================================================================================
+== 7. The schedule saved offline first runs: its missing folder reads plainly
+====================================================================================================
+
+$ cc-devthrottle schedule run cj_53b6ad
+Fired the schedule.
+  Fired:   2026-10-24T20:33:57.7435402Z UTC
+  Target:  c4993cc0-d45a-436e-ba4b-c7c4de508578
+  Session: -
+  Infra:   not-started
+  Task:    unknown
+  Ending:  did not start a session: The folder '/tmp/issue-4421-rig/projects/gone' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.
+  Reason:  it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4421-rig/projects/gone
+help[2]:
+  cc-devthrottle schedule runs cj_53b6ad
+  cc-devthrottle session buffer <session-id>
+[exit 0]
+CHECK PASS: schedule run prints the plain ending, not the Director's BadRequest
+$ cc-devthrottle schedule runs cj_53b6ad
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)              | Fired (UTC)                  | Target                               | Session | Infra       | How it ended                                                                                                    | Task    |
+|------------------------------+------------------------------+--------------------------------------+---------+-------------+-----------------------------------------------------------------------------------------------------------------+---------|
+| 2026-10-24T20:33:57.6084004Z | 2026-10-24T20:33:57.7435402Z | c4993cc0-d45a-436e-ba4b-c7c4de508578 | -       | not-started | did not start a session: The folder '/tmp/issue-4421-rig/projects/gone' does not exist on devlinux (a Linux     | unknown |
+|                              |                              |                                      |         |             | computer). Choose a folder that exists on devlinux. Then edit the schedule.                                     |         |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+CHECK PASS: schedule runs shows what was wrong and how to fix it, and not 'BadRequest'
+$ GET /cron/jobs/cj_53b6ad/runs      (raw HTTP, as the rig's person)
+  status: 200
+  answer: {"jobId":"cj_53b6ad","runs":[{"scheduledUtc":"2026-10-24T20:33:57.6084004Z","firedUtc":"2026-10-24T20:33:57.7435402Z","machine":"devlinux","targetDirectorId":"c4993cc0-d45a-436e-ba4b-c7c4de508578","sessionId":null,"sessionName":"saved while offline - 2026-10-24 20:33","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4421-rig/projects/gone' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"6ef79d86-becd-43a7-ab8a-1fc27324e085","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4421-rig/projects/gone","resultUtc":"2026-10-24T20:33:57.7435402Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null}]}
+CHECK PASS: the run table's ending text is the plain sentence the Cockpit shows
+
+====================================================================================================
+== 8. Switching off a schedule whose folder is missing always lands
+====================================================================================================
+
+$ cc-devthrottle schedule disable cj_53b6ad
+Disabled saved while offline (cj_53b6ad).
+help[2]:
+  cc-devthrottle schedule enable cj_53b6ad
+  cc-devthrottle schedule delete cj_53b6ad
+[exit 0]
+CHECK PASS: schedule disable switches off a schedule whose folder is missing
+CHECK PASS: the schedule is switched off
+$ cc-devthrottle schedule enable cj_53b6ad
+Error: The folder '/tmp/issue-4421-rig/projects/gone' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux.
+help[2]:
+  cc-devthrottle schedule list
+  cc-devthrottle schedule endpoint
+[exit 1]
+CHECK PASS: switching it back on is refused while its folder is missing
+# the test Director asked to stop by its lifecycle request file
+  request: /tmp/issue-4421-rig/director-root/config/lifecycle-signals/cc-director-shutdown-c4993cc0-d45a-436e-ba4b-c7c4de508578.request
+  pid 523073 exited: True (exit code 0)
+CHECK PASS: ~/.local/bin still points at the owner's tools

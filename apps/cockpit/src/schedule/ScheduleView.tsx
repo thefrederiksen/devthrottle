@@ -18,7 +18,7 @@ import { ScheduleEditor, type ScheduleEditorRequest } from "./ScheduleEditor";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "./SchedulerPause";
 import { getGatewaySettings } from "@devthrottle/client-core/settings/settingsClient";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
-import { clockLabel, relativeTime, repoBasename } from "../fleet/format";
+import { clockLabel, relativeTime } from "../fleet/format";
 import {
   Button,
   ConfirmDialog,
@@ -321,7 +321,9 @@ export function ScheduleView() {
         render: (job) => (
           <span className="sched-target">
             <span className="mono">{job.target.machine}</span>
-            <span className="sched-target-repo">{repoBasename(job.action.repoPath)}</span>
+            {/* The whole folder, not its last name (issue #4421): '\\documents\\devthrottle' and
+                '/Users/pat/devthrottle' used to read alike as "devthrottle". Cut off at the end, so its start shows. */}
+            <span className="sched-target-repo mono" title={job.action.repoPath}>{job.action.repoPath}</span>
           </span>
         ),
       },
