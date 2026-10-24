@@ -127,6 +127,9 @@ public sealed class TunnelCatchAllDispatchTests
     }
 
     [Theory]
+    [InlineData("POST", "keys", "terminal-keys")]
+    [InlineData("POST", "paste", "terminal-paste")]
+    [InlineData("POST", "mouse", "terminal-mouse")]
     [InlineData("POST", "clear-context", "clear-context")]
     [InlineData("POST", "mobile-mode", "mobile-mode")]
     [InlineData("POST", "voice-mode", "voice-mode")]
