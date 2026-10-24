@@ -1215,6 +1215,9 @@ public class TerminalControl : Control
         _isSelecting = false;
     }
 
+    /// <summary>Harness: the menu a right-click opens, built by the same code (issue #2810).</summary>
+    internal Task<ContextMenu> HarnessBuildRightClickMenuAsync() => BuildPasteContextMenuAsync();
+
     /// <summary>Harness: the selected text, through the same path the clipboard copy uses.</summary>
     internal string HarnessSelectedText => GetSelectedText();
 
@@ -1544,31 +1547,20 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Handle right-click: copy selection or show paste context menu.
+    /// Handle right-click: a menu, always. With text selected it starts with Copy (issue #2810) - right-click used to
+    /// copy silently and clear the highlight, which looked like nothing happened.
     /// </summary>
     private async void HandleRightClick(PointerReleasedEventArgs e)
     {
         try
         {
-            // Right-click with selection copies to clipboard
-            if (_hasSelection)
-            {
-                FileLog.Write("[TerminalControl] Right-click with selection, copying to clipboard");
-                await CopySelectionToClipboardAsync();
-                ClearSelection();
-                InvalidateVisual();
-                e.Handled = true;
-                return;
-            }
+            if (!_hasSelection && _session == null) return;
 
-            // Right-click without selection: always show paste affordance for terminal input.
-            if (_session != null)
-            {
-                var menu = await BuildPasteContextMenuAsync();
-                this.ContextMenu = menu;
-                menu.Open(this);
-                e.Handled = true;
-            }
+            FileLog.Write($"[TerminalControl] HandleRightClick: hasSelection={_hasSelection}, hasSession={_session != null}");
+            var menu = await BuildPasteContextMenuAsync();
+            this.ContextMenu = menu;
+            menu.Open(this);
+            e.Handled = true;
         }
         catch (Exception ex)
         {
@@ -1591,8 +1583,43 @@ public class TerminalControl : Control
         }
 
         var menu = new ContextMenu();
-        AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
+        AddSelectionCopyItem(menu, separatorAfter: _session != null);
+        if (_session != null)
+            AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
         return menu;
+    }
+
+    /// <summary>
+    /// With text selected, puts <b>Copy</b> first in <paramref name="menu"/>, followed by a separator when other items follow
+    /// (issue #2810). The
+    /// text is read when the menu opens, so Copy puts exactly what was highlighted on the clipboard even if the screen
+    /// scrolls while the menu is open. It belongs to the terminal, like the paste items, not to the shared
+    /// <see cref="LinkContextMenuBuilder"/> the History tab also uses.
+    /// </summary>
+    private void AddSelectionCopyItem(ContextMenu menu, bool separatorAfter)
+    {
+        if (!_hasSelection) return;
+        var text = GetSelectedText();
+        if (string.IsNullOrEmpty(text)) return;
+
+        var copyItem = new MenuItem { Header = "Copy" };
+        copyItem.Click += async (_, _) =>
+        {
+            try
+            {
+                FileLog.Write($"[TerminalControl] Menu Copy: {text.Length} characters");
+                await SetClipboardTextAsync(text);
+                ClearSelection();
+                InvalidateVisual();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TerminalControl] Menu Copy FAILED: {ex.Message}");
+            }
+        };
+        menu.Items.Add(copyItem);
+        if (separatorAfter)
+            menu.Items.Add(new Separator());
     }
 
     private void AddPasteItems(ContextMenu menu, bool hasClipboardText = true)
@@ -1624,27 +1651,13 @@ public class TerminalControl : Control
             bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
             bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
 
-            // Ctrl+C with selection = copy to clipboard (not SIGINT)
-            // Ctrl+Shift+C = always copy to clipboard
-            if (ctrl && e.Key == Key.C && _hasSelection)
+            // Copy, paste and select all: Control on Windows and Linux, Command on a Mac (issue #4425). Ctrl+C with
+            // nothing selected is not one of these - it goes on below as the interrupt.
+            var clipboardAction = TerminalClipboardChord.Classify(e.Key, e.KeyModifiers, OperatingSystem.IsMacOS(), _hasSelection);
+            if (clipboardAction != TerminalClipboardAction.None)
             {
-                FileLog.Write($"[TerminalControl] Ctrl+C detected with selection, copying to clipboard");
-                _ = CopySelectionToClipboardAsync();
-                ClearSelection();
-                InvalidateVisual();
-                e.Handled = true;
-                return;
-            }
-
-            if (ctrl && shift && e.Key == Key.C)
-            {
-                FileLog.Write($"[TerminalControl] Ctrl+Shift+C detected, hasSelection={_hasSelection}");
-                if (_hasSelection)
-                {
-                    _ = CopySelectionToClipboardAsync();
-                    ClearSelection();
-                    InvalidateVisual();
-                }
+                FileLog.Write($"[TerminalControl] OnKeyDown: {e.KeyModifiers}+{e.Key} -> {clipboardAction}, hasSelection={_hasSelection}");
+                RunClipboardAction(clipboardAction);
                 e.Handled = true;
                 return;
             }
@@ -1653,15 +1666,6 @@ public class TerminalControl : Control
             if (ctrl && shift && e.Key == Key.F12)
             {
                 DumpDiagnosticCapture();
-                e.Handled = true;
-                return;
-            }
-
-            // Ctrl+V / Ctrl+Shift+V = paste clipboard as slow keystrokes
-            if (ctrl && e.Key == Key.V)
-            {
-                FileLog.Write($"[TerminalControl] {(shift ? "Ctrl+Shift+V" : "Ctrl+V")} detected, pasting to terminal");
-                _ = PasteToTerminalAsync();
                 e.Handled = true;
                 return;
             }
@@ -2324,14 +2328,70 @@ public class TerminalControl : Control
     {
         var text = GetSelectedText();
         if (!string.IsNullOrEmpty(text))
+            await SetClipboardTextAsync(text);
+    }
+
+    private async Task SetClipboardTextAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null)
         {
-            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard != null)
-            {
-                await clipboard.SetTextAsync(text);
-                FileLog.Write($"[TerminalControl] Copied {text.Length} characters to clipboard");
-            }
+            await clipboard.SetTextAsync(text);
+            FileLog.Write($"[TerminalControl] Copied {text.Length} characters to clipboard");
         }
+    }
+
+    /// <summary>True while text is highlighted - what the Mac Edit menu asks before it offers Copy.</summary>
+    public bool HasSelection => _hasSelection;
+
+    /// <summary>
+    /// Copy, Paste or Select All, from a key chord or from the Mac Edit menu (issue #4425): one place, so the menu and
+    /// the keys can never do different things.
+    /// </summary>
+    public void RunClipboardCommand(TerminalClipboardCommand command)
+    {
+        FileLog.Write($"[TerminalControl] RunClipboardCommand: {command}, hasSelection={_hasSelection}");
+        RunClipboardAction(command switch
+        {
+            TerminalClipboardCommand.Copy => _hasSelection ? TerminalClipboardAction.Copy : TerminalClipboardAction.Swallow,
+            TerminalClipboardCommand.Paste => TerminalClipboardAction.Paste,
+            TerminalClipboardCommand.SelectAll => TerminalClipboardAction.SelectAll,
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command, "unknown clipboard command"),
+        });
+    }
+
+    private void RunClipboardAction(TerminalClipboardAction action)
+    {
+        switch (action)
+        {
+            case TerminalClipboardAction.Copy:
+                _ = CopySelectionToClipboardAsync();
+                ClearSelection();
+                InvalidateVisual();
+                break;
+            case TerminalClipboardAction.Paste:
+                _ = PasteToTerminalAsync();
+                break;
+            case TerminalClipboardAction.SelectAll:
+                SelectAllVisible();
+                break;
+            case TerminalClipboardAction.Swallow:
+            case TerminalClipboardAction.None:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, "unknown clipboard action");
+        }
+    }
+
+    /// <summary>Select every cell on the screen, top left to bottom right.</summary>
+    private void SelectAllVisible()
+    {
+        if (_cols <= 0 || _rows <= 0) return;
+        _selectionStart = (0, 0);
+        _selectionEnd = (_cols - 1, _rows - 1);
+        _isSelecting = false;
+        _hasSelection = true;
+        InvalidateVisual();
     }
 
     /// <summary>
@@ -2479,6 +2539,9 @@ public class TerminalControl : Control
     private void ShowLinkContextMenu(Point position, string link, LinkDetector.LinkType type, string? address = null)
     {
         _linkContextMenu = new ContextMenu();
+        // Selected text comes first, before the link's own items (issue #2810): a person who selected a whole command
+        // line and clicked the path inside it wants the line, not the path.
+        AddSelectionCopyItem(_linkContextMenu, separatorAfter: true);
 
         LinkContextMenuBuilder.PopulateLinkItems(_linkContextMenu, new LinkMenuContext
         {

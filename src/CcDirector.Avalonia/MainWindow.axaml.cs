@@ -35,6 +35,7 @@ using CcDirector.Core.Teams;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using CcDirector.Terminal.Avalonia;
 using FileViewerControls = CcDirector.Avalonia.Controls;
 
 namespace CcDirector.Avalonia;
@@ -5026,6 +5027,23 @@ public partial class MainWindow : Window
         file.Menu.Items.Add(Item("Exit", Close));
         menu.Items.Add(file);
 
+        // ===== Edit (Mac only) =====
+        // Every Mac app has an Edit menu, and Cmd+C / Cmd+V / Cmd+A are its key equivalents (issue #4425). Not on
+        // Windows or Linux: there the menu bar is drawn in the window and a Ctrl+C gesture on it would take Ctrl+C away
+        // from the terminal, where it interrupts the agent.
+        if (OperatingSystem.IsMacOS())
+        {
+            var edit = new NativeMenuItem("Edit") { Menu = new NativeMenu() };
+            edit.Menu.Items.Add(Item("Copy", () => RunEditCommand(TerminalClipboardCommand.Copy),
+                new KeyGesture(Key.C, KeyModifiers.Meta)));
+            edit.Menu.Items.Add(Item("Paste", () => RunEditCommand(TerminalClipboardCommand.Paste),
+                new KeyGesture(Key.V, KeyModifiers.Meta)));
+            edit.Menu.Items.Add(new NativeMenuItemSeparator());
+            edit.Menu.Items.Add(Item("Select All", () => RunEditCommand(TerminalClipboardCommand.SelectAll),
+                new KeyGesture(Key.A, KeyModifiers.Meta)));
+            menu.Items.Add(edit);
+        }
+
         // ===== Developer (alpha only) =====
         // The "Session" menu was retired: Repositories moved to the pinned sidebar entry (#507),
         // which left only alpha developer tools. Those now live under a Developer menu, so the
@@ -5105,6 +5123,21 @@ public partial class MainWindow : Window
         menu.Items.Add(help);
 
         NativeMenu.SetMenu(this, menu);
+    }
+
+    /// <summary>
+    /// The Mac Edit menu (issue #4425). On a Mac its key equivalents take Cmd+C, Cmd+V and Cmd+A before any control sees
+    /// them, so this is the one path those keys run. It acts on whatever has focus in the window that is in front - see
+    /// <see cref="EditCommandRouter"/>: the terminal runs the command, any other control gets the platform's own key.
+    /// </summary>
+    private void RunEditCommand(TerminalClipboardCommand command)
+    {
+        var lifetime = global::Avalonia.Application.Current?.ApplicationLifetime
+            as global::Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+        var front = lifetime?.Windows.FirstOrDefault(w => w.IsActive) ?? this;
+        var focused = front.FocusManager?.GetFocusedElement();
+        var route = EditCommandRouter.Run(command, focused, TerminalHost, front.PlatformSettings?.HotkeyConfiguration);
+        FileLog.Write($"[MainWindow] RunEditCommand: {command}, window={front.GetType().Name}, focused={focused?.GetType().Name ?? "(none)"}, route={route}");
     }
 
     // ==================== TOP APP BAR ====================
