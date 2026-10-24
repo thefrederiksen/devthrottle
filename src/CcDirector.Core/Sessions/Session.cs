@@ -2890,6 +2890,9 @@ public sealed class Session : IDisposable
         }
     }
 
+    public bool MouseReportingEnabled { get { lock (_screenLock) return _screenParser?.MouseReportingEnabled ?? false; } }
+    public bool MouseSgrCoordinates { get { lock (_screenLock) return _screenParser?.MouseSgrCoordinates ?? false; } }
+
     /// <summary>True when the terminal application requested application cursor-key mode (DECCKM, ?1).</summary>
     public bool ApplicationCursorKeys
     {
