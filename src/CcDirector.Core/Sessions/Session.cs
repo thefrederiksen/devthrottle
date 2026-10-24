@@ -5506,13 +5506,20 @@ public sealed class Session : IDisposable
         var reportedPriority = SessionStateSources.Priority(reportedSource);
         var disagrees = reportedState != ActivityState;
 
+        var isLater = reportedAtUtc > _selectedStateFactAtUtc;
         // Permission is an edge, not a permanent latch. Some agents do not report the matching
         // approval-completed edge, so any later fact that says the session is no longer at that
         // permission gate supersedes it even when that fact comes from a lower-priority source.
         var clearsPermission = ActivityState == ActivityState.WaitingForPerm
-            && reportedAtUtc > _selectedStateFactAtUtc
+            && isLater
             && reportedState != ActivityState.WaitingForPerm;
-        if (disagrees && selectedPriority > reportedPriority && !clearsPermission)
+        // Real bytes prove that work resumed. Silence after those bytes is the other half of the
+        // terminal detector's own work cycle, rather than an unrelated low-priority contradiction.
+        var advancesTerminalCycle = isLater
+            && (reportedState == ActivityState.Working
+                || (ActivityStateSource == SessionStateSources.TerminalOutput
+                    && reportedSource == SessionStateSources.SilenceTimer));
+        if (disagrees && selectedPriority > reportedPriority && !clearsPermission && !advancesTerminalCycle)
         {
             RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);
             FileLog.Write($"[Session] state fact DISAGREED: session={Id}, reported={reportedState}/{reportedSource}, selected={ActivityState}/{ActivityStateSource}");

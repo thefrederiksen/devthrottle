@@ -310,7 +310,7 @@ public sealed class SessionPointerWatcher : IDisposable
         catch (FileNotFoundException) { return false; }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionPointerWatcher] could not read state event {path}: {ex.Message}");
+            FileLog.Write($"[SessionPointerWatcher] read state event FAILED: path={path}, error={ex.Message}");
             return false;
         }
 
@@ -334,8 +334,9 @@ public sealed class SessionPointerWatcher : IDisposable
             RemoveDrop();
             return false;
         }
-        if (evt.OccurredAtUtc < DateTimeOffset.UtcNow - SessionStateEventContract.MaxAge
-            || evt.OccurredAtUtc > DateTimeOffset.UtcNow + SessionStateEventContract.MaxFutureSkew)
+        var now = session.Clock.GetUtcNow();
+        if (evt.OccurredAtUtc < now - SessionStateEventContract.MaxAge
+            || evt.OccurredAtUtc > now + SessionStateEventContract.MaxFutureSkew)
         {
             FileLog.Write($"[SessionPointerWatcher] rejecting stale/future state event {evt.EventId} for {sessionId}");
             RemoveDrop();
