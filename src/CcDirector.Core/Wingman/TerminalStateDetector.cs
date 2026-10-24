@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using CcDirector.Core.Agents;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -6,8 +7,8 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Wingman;
 
 /// <summary>
-/// Time-based turn detector. TWO rules, both purely mechanical -- no footer parsing, no grid
-/// diffing, no LLM judge:
+/// Mechanical terminal state detector. The working and silence rules remain byte and time based; positive screen
+/// evidence may settle a drawn interactive picker before the silence fallback. No model judges terminal activity:
 ///   1. Any byte out of the ConPTY means the agent is producing output, so it is Working. We
 ///      set Working the instant a byte arrives and re-arm the idle countdown on every byte.
 ///   2. When the stream has been COMPLETELY silent for <see cref="QuietThreshold"/>, we flag the
@@ -414,6 +415,13 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly IReadOnlyCollection<string> _chromeMarkers;
         private readonly ITimer _contentCheckTimer;
 
+        // A model picker has no hook in Claude Code or Pi. Its drawing bytes arrive while the session is Working, where
+        // the turn-content rule deliberately reads no screen. This separate, throttled check reads once after a burst
+        // starts and positively recognises only a drawn picker; a miss changes no state and later bytes schedule another
+        // check. It is therefore independent of the ten-second silence fallback without turning an ambiguous screen red.
+        private readonly ITimer _pickerCheckTimer;
+        private int _pickerCheckScheduled;
+
         // The two candidates, held as INTERFACES and never as functions, so the rule work item five
         // scores is the rule the Director ran.
         //
@@ -539,6 +547,8 @@ public sealed class TerminalStateDetector : IDisposable
                 OnQuiet, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             _contentCheckTimer = _timeProvider.CreateTimer(
                 OnContentCheck, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _pickerCheckTimer = _timeProvider.CreateTimer(
+                OnPickerCheck, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
         public void Start()
@@ -628,9 +638,9 @@ public sealed class TerminalStateDetector : IDisposable
                 return;
             }
 
-            // WHILE THE SESSION IS ALREADY ACTIVE, NOTHING BELOW APPLIES. Bytes re-arm the idle
-            // countdown and no screen is read. That is where almost all the bytes are, so the
-            // content rule costs a working session nothing at all.
+            // WHILE THE SESSION IS ALREADY ACTIVE, THE TURN-CONTENT RULE BELOW DOES NOT APPLY. Bytes re-arm the idle
+            // countdown. Claude Code and Pi also receive one throttled positive picker read per output burst because
+            // neither agent reports its model picker through a hook; that reader can only settle a proven menu.
             //
             // EmitsContinuousIdleOutput now selects ONLY this: whether a raw byte may re-arm the
             // quiet timer. For an agent whose footer repaints forever it may not - its idle clock
@@ -638,6 +648,7 @@ public sealed class TerminalStateDetector : IDisposable
             // It no longer selects a different activation rule; the settled case below is shared.
             if (_active)
             {
+                SchedulePickerCheck();
                 if (_continuousIdle)
                 {
                     // A footer that repaints forever is not a burst. For this driver the unit of
@@ -714,6 +725,42 @@ public sealed class TerminalStateDetector : IDisposable
         /// inference from silence.
         /// </summary>
         private void Stamp(string disposition) => Volatile.Write(ref _lastByteDisposition, disposition);
+
+        /// <summary>
+        /// Schedule one positive picker read for the current output burst. This is a throttle, not a debounce: bytes do
+        /// not postpone an armed read, so a continuously repainting control cannot defer recognition forever. If that
+        /// read catches a partial repaint and finds no complete sign, the next byte after it arms another read.
+        /// </summary>
+        private void SchedulePickerCheck()
+        {
+            if (!_driveState
+                || _session.AgentKind is not (AgentKind.ClaudeCode or AgentKind.Pi)
+                || Volatile.Read(ref _disposed) != 0)
+                return;
+            if (Interlocked.CompareExchange(ref _pickerCheckScheduled, 1, 0) != 0) return;
+            try { _pickerCheckTimer.Change(_settleCheckDelay, Timeout.InfiniteTimeSpan); }
+            catch (ObjectDisposedException) { Interlocked.Exchange(ref _pickerCheckScheduled, 0); }
+        }
+
+        private void OnPickerCheck(object? state)
+        {
+            Interlocked.Exchange(ref _pickerCheckScheduled, 0);
+            if (Volatile.Read(ref _disposed) != 0 || !_active) return;
+            try
+            {
+                var picker = PickerOnScreen.Read(_session.SnapshotScreenRows(), _session.AgentKind.ToString());
+                if (!picker.ModelPickerDrawn) return;
+
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=MENU from screen | {picker.Describe()}");
+                _session.ApplyScreenActivityState(ActivityState.MenuOpen);
+            }
+            catch (Exception ex)
+            {
+                // Timer callbacks are process entry points. A broken screen read is logged and leaves the current state
+                // alone; it must never turn an unreadable screen into a menu or terminate the Director.
+                FileLog.Write($"[TerminalStateDetector] picker check failed session={_session.Id} FAILED: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// Today's activation, kept intact so the switch-off path is byte for byte.
@@ -1317,6 +1364,7 @@ public sealed class TerminalStateDetector : IDisposable
             _buffer.OnBytesWritten -= _onBytes;
             _quietTimer.Dispose();
             _contentCheckTimer.Dispose();
+            _pickerCheckTimer.Dispose();
         }
     }
 }

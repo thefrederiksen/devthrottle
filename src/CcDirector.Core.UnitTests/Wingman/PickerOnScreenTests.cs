@@ -26,6 +26,7 @@ public sealed class PickerOnScreenTests
         var reading = Read(" Do you want to proceed?", " " + Marker + " 1. Yes", "   2. No", " Esc to cancel - Tab to amend");
 
         Assert.True(reading.Drawn);
+        Assert.False(reading.ModelPickerDrawn);
         Assert.Contains("proceed-prompt", reading.Signs);
     }
 
@@ -68,6 +69,63 @@ public sealed class PickerOnScreenTests
 
         Assert.True(reading.Drawn);
         Assert.True(reading.Calibrated);
+    }
+
+    /// <summary>Claude Code 2.1.310, captured by the state matrix on 24 October 2026. The selected row is more than
+    /// eight rows above the bottom and the changed footer says "set as default", so the earlier reader missed it.</summary>
+    [Fact]
+    public void Read_ClaudeCodeCurrentModelPicker_ReturnsDrawn()
+    {
+        var reading = Read(
+            "     1.  Default (recommended)  Opus 5.5 · Best for everyday, complex tasks",
+            "     2.  Opus 5.5               For complex work and everyday tasks",
+            "     3.  Fable 5.1              For your toughest challenges",
+            "     4.  Sonnet 5.5             Most efficient for simpler tasks",
+            "     5.  Haiku 5.5              Fastest for quick answers",
+            "   " + Marker + " 6.  Haiku 4.5 ✔            Fastest for quick answers",
+            "     7.  Sonnet 5               Efficient for routine tasks",
+            "     8.  Opus 5                 Best for everyday, complex tasks",
+            "     9.  Fable 5                Most capable for your hardest and longest-running tasks",
+            "   ↓ 10. Opus 4.8               Best for everyday, complex tasks",
+            "      … +3 models",
+            "",
+            "   ○ Effort not supported for Haiku 4.5",
+            "",
+            "   Enter to set as default · s to use this session only · Esc to cancel");
+
+        Assert.True(reading.Drawn);
+        Assert.True(reading.ModelPickerDrawn);
+        Assert.Contains("enter-to-set-default", reading.Signs);
+    }
+
+    /// <summary>Pi 1.2.0, captured by the state matrix on 24 October 2026.</summary>
+    [Fact]
+    public void Read_PiCurrentModelPicker_ReturnsDrawnAndCalibrated()
+    {
+        var reading = PickerOnScreen.Read(new[]
+        {
+            "Only showing models from configured providers. Use /login to add providers.",
+            "",
+            ">",
+            "",
+            "→ ✓ gpt-5.6-terra [azure-openai-responses]",
+            "    gpt-5.6-sol [azure-openai-responses] · default",
+            "    huihui-qwen3.5-4b-abliterated [lmstudio]",
+            "",
+            "  Model Name: Azure GPT-5.6 Terra (mindzie dev)",
+            "",
+            "  Model catalogs refreshed.",
+            "",
+            "  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel",
+            "────────────────────────────────────────────────────────────────────────────────",
+            "~/ReposFred/_delivery-qa/repo-1 (master)",
+            "0.0%/400k (auto)                 (azure-openai-responses) gpt-5.6-terra • thinking off"
+        }, "Pi");
+
+        Assert.True(reading.Drawn);
+        Assert.True(reading.ModelPickerDrawn);
+        Assert.True(reading.Calibrated);
+        Assert.Contains("pi-model-select", reading.Signs);
     }
 
     // ================================================================= look-alikes that are not pickers
@@ -119,6 +177,21 @@ public sealed class PickerOnScreenTests
     {
         Assert.False(Read("  How is Claude doing this session? (optional)", "  1: Bad    2: Fine   3: Good   0: Dismiss",
             ComposerFooter).Drawn);
+    }
+
+    [Fact]
+    public void Read_NormalComposer_ReturnsNotDrawn()
+    {
+        Assert.False(Read("────────────────────────────────", Marker + NoBreakSpace,
+            "────────────────────────────────", ComposerFooter).Drawn);
+    }
+
+    [Fact]
+    public void Read_HalfDrawnModelPickerWithoutAControlSign_ReturnsNotDrawn()
+    {
+        Assert.False(Read("   Select model",
+            "   Switch between models. Your pick becomes the default for new sessions.",
+            "", "     1.  Default (recommended)").Drawn);
     }
 
     /// <summary>A footer far above the bottom of the screen belongs to a picker that has since gone.</summary>
