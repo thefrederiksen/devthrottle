@@ -5126,25 +5126,38 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The Mac Edit menu (issue #4425): Copy, Paste or Select All in the text box that has focus, or else in the session
-    /// terminal. A text box keeps its own clipboard behaviour; the terminal runs the same command its keys run.
+    /// The Mac Edit menu (issue #4425). On a Mac its key equivalents take Cmd+C, Cmd+V and Cmd+A before any control
+    /// sees them, so this is the one path those keys run. It acts on whatever has focus in the window that is in front:
+    /// a text box keeps its own clipboard behaviour, and the session terminal runs the same command its keys run. With
+    /// focus anywhere else it does nothing - a Cmd+V typed into a dialog must never land in the agent's terminal.
     /// </summary>
     private void RunEditCommand(TerminalClipboardCommand command)
     {
-        var focused = FocusManager?.GetFocusedElement();
-        FileLog.Write($"[MainWindow] RunEditCommand: {command}, focused={focused?.GetType().Name ?? "(none)"}");
-        if (focused is TextBox box)
+        var lifetime = global::Avalonia.Application.Current?.ApplicationLifetime
+            as global::Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+        var front = lifetime?.Windows.FirstOrDefault(w => w.IsActive) ?? this;
+        var focused = front.FocusManager?.GetFocusedElement();
+        FileLog.Write($"[MainWindow] RunEditCommand: {command}, window={front.GetType().Name}, focused={focused?.GetType().Name ?? "(none)"}");
+
+        switch (EditCommandTarget.For(focused, TerminalHost))
         {
-            switch (command)
-            {
-                case TerminalClipboardCommand.Copy: box.Copy(); break;
-                case TerminalClipboardCommand.Paste: box.Paste(); break;
-                case TerminalClipboardCommand.SelectAll: box.SelectAll(); break;
-                default: throw new ArgumentOutOfRangeException(nameof(command), command, "unknown edit command");
-            }
-            return;
+            case EditCommandTarget.Kind.TextBox:
+                var box = (TextBox)focused!;
+                switch (command)
+                {
+                    case TerminalClipboardCommand.Copy: box.Copy(); break;
+                    case TerminalClipboardCommand.Paste: box.Paste(); break;
+                    case TerminalClipboardCommand.SelectAll: box.SelectAll(); break;
+                    default: throw new ArgumentOutOfRangeException(nameof(command), command, "unknown edit command");
+                }
+                break;
+            case EditCommandTarget.Kind.Terminal:
+                TerminalHost.RunClipboardCommand(command);
+                break;
+            case EditCommandTarget.Kind.Nothing:
+                FileLog.Write($"[MainWindow] RunEditCommand: {command} ignored - focus is neither a text box nor the terminal");
+                break;
         }
-        TerminalHost.RunClipboardCommand(command);
     }
 
     // ==================== TOP APP BAR ====================
