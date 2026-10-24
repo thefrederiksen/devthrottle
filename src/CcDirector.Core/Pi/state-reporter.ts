@@ -122,7 +122,7 @@ function describePrompt(event: PiLifecycleEvent): string {
   return `${kind}${title}`;
 }
 
-function translate(event: PiLifecycleEvent): { event: StateEventName; detail: string | null } {
+function translate(event: PiLifecycleEvent, runActive: boolean): { event: StateEventName; detail: string | null } {
   const mapped = stateEventMap[event.type as keyof typeof stateEventMap];
   if (!mapped) return { event: "unsupported", detail: event.type || "missing_event_type" };
   if ((event.type === "ui_prompt_start" || event.type === "ui_prompt_end")
@@ -130,7 +130,9 @@ function translate(event: PiLifecycleEvent): { event: StateEventName; detail: st
     return { event: "unsupported", detail: `${event.type}:${String(event.kind ?? "missing_kind")}` };
   }
   return {
-    event: mapped,
+    // Closing an extension prompt does not settle Pi's run. The tool and model continue working,
+    // so restore the higher-priority agent fact instead of falsely reporting that Pi awaits input.
+    event: event.type === "ui_prompt_end" && runActive ? "turn_started" : mapped,
     detail: event.type.startsWith("ui_prompt_") ? describePrompt(event) : null,
   };
 }
@@ -145,12 +147,13 @@ export default function stateReporter(pi: ExtensionAPI): void {
       || basename(directory) !== `${sessionId}.${token}`) return;
 
   mkdirSync(directory, { recursive: true });
+  let runActive = false;
 
-  const report = async (lifecycleEvent: PiLifecycleEvent): Promise<void> => {
+  const report = async (lifecycleEvent: PiLifecycleEvent, runWasActive = runActive): Promise<void> => {
     const release = await acquireSequenceLock(directory);
     try {
       const sequence = nextSequence(directory);
-      const translated = translate(lifecycleEvent);
+      const translated = translate(lifecycleEvent, runWasActive);
       const record = {
         version: 1,
         eventId: randomUUID(),
@@ -172,8 +175,14 @@ export default function stateReporter(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("agent_start", (event) => report(event));
-  pi.on("agent_settled", (event) => report(event));
+  pi.on("agent_start", (event) => {
+    runActive = true;
+    return report(event);
+  });
+  pi.on("agent_settled", (event) => {
+    runActive = false;
+    return report(event);
+  });
   pi.on("ui_prompt_start", (event) => report(event));
   pi.on("ui_prompt_end", (event) => report(event));
 }

@@ -64,8 +64,8 @@ public sealed partial class PiStateExtensionInstallerTests : IDisposable
     [Theory]
     [InlineData("{\"type\":\"agent_start\"}", "turn_started")]
     [InlineData("{\"type\":\"agent_settled\",\"aborted\":false}", "turn_ended")]
-    [InlineData("{\"type\":\"ui_prompt_start\",\"reason\":\"ui_prompt\",\"kind\":\"select\",\"title\":\"Choose model\"}", "menu_opened")]
-    [InlineData("{\"type\":\"ui_prompt_end\",\"reason\":\"ui_prompt\",\"kind\":\"select\",\"title\":\"Choose model\"}", "menu_closed")]
+    [InlineData("{\"type\":\"ui_prompt_start\",\"reason\":\"ui_prompt\",\"kind\":\"select\",\"title\":\"Choose action\"}", "menu_opened")]
+    [InlineData("{\"type\":\"ui_prompt_end\",\"reason\":\"ui_prompt\",\"kind\":\"select\",\"title\":\"Choose action\"}", "menu_closed")]
     public void Extension_CapturedPiLifecyclePayload_MapsToTheContractEvent(string capturedPayload, string expected)
     {
         using var payload = JsonDocument.Parse(capturedPayload);
@@ -76,6 +76,17 @@ public sealed partial class PiStateExtensionInstallerTests : IDisposable
 
         Assert.NotNull(eventMap);
         Assert.Equal(expected, eventMap[type!]);
+    }
+
+    [Fact]
+    public void Extension_PromptEndsDuringRun_RestoresWorkingUntilPiSettles()
+    {
+        var source = PiStateExtensionInstaller.ExtensionSource();
+
+        Assert.Contains("event.type === \"ui_prompt_end\" && runActive ? \"turn_started\" : mapped", source, StringComparison.Ordinal);
+        Assert.Contains("runActive = true", source, StringComparison.Ordinal);
+        Assert.Contains("runActive = false", source, StringComparison.Ordinal);
+        Assert.Contains("runWasActive = runActive", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -135,7 +146,7 @@ public sealed partial class PiStateExtensionInstallerTests : IDisposable
         Assert.Contains("\"ui_prompt_start\": \"menu_opened\"", source, StringComparison.Ordinal);
     }
 
-    [GeneratedRegex(@"const report = async \(lifecycleEvent: PiLifecycleEvent\): Promise<void> => \{([\s\S]*?)\n  \};")]
+    [GeneratedRegex(@"const report = async \(lifecycleEvent: PiLifecycleEvent, runWasActive = runActive\): Promise<void> => \{([\s\S]*?)\n  \};")]
     private static partial Regex ReportFunction();
 
     [GeneratedRegex(@"const stateEventMap = (\{[\s\S]*?\}) as const;")]
