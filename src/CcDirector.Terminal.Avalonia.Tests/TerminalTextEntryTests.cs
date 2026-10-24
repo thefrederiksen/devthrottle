@@ -150,6 +150,17 @@ public sealed class TerminalTextEntryTests
     /// <summary>A program that never asked for bracketed paste (a shell, a sign-in prompt) gets the text as a terminal
     /// sends it - no markers, at the keystroke pace that sign-in prompts need.</summary>
     [AvaloniaFact]
+    public async Task Finding4_Paste_TrimsTrailingNewlineBeforeUnframedWrite()
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: false);
+
+        await terminal.HarnessPasteAsync("yes\r\n");
+
+        Assert.Equal("yes", Encoding.UTF8.GetString(backend.All()));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task Paste_ProgramNeverAskedForBracketedPaste_GoesUnframed()
     {
         var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: false);
