@@ -26,14 +26,14 @@ public sealed class TextDeliveryReviewTests : IDisposable
     }
 
     [Fact]
-    public async Task A_long_Claude_text_goes_as_an_at_reference_not_a_paste()
+    public async Task A_Claude_text_over_the_measured_paste_limit_goes_as_an_at_reference_not_a_paste()
     {
-        // Under full CPU load Claude Code took in none of an 8 KB paste; the @-reference arrived in seconds.
+        // The file route is the recorded fallback above the largest paste the parity harness proved (issue #4379).
         var dir = Path.Combine(Path.GetTempPath(), "cc-ref-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
         backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
-        var text = "Token QX. " + new string('a', TerminalSubmit.PasteLimit + 10);
+        var text = "Token QX. " + new string('a', TerminalSubmit.MeasuredPasteLimit + 10);
 
         var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
             echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
@@ -45,13 +45,13 @@ public sealed class TextDeliveryReviewTests : IDisposable
     }
 
     [Fact]
-    public async Task A_long_Pi_text_goes_through_the_instruction_file_not_a_paste()
+    public async Task A_Pi_text_over_the_measured_paste_limit_goes_through_the_instruction_file_not_a_paste()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-pi-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
         backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
-        var text = "Token QP. " + new string('b', TerminalSubmit.PasteLimit + 10);
+        var text = "Token QP. " + new string('b', TerminalSubmit.MeasuredPasteLimit + 10);
 
         var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "Pi", bracketedPasteEnabled: true,
             echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
@@ -92,7 +92,7 @@ public sealed class TextDeliveryReviewTests : IDisposable
         {
             var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = slot, PromptFileDirectory = prompts };
             backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
-            var text = "You are Worker.\n--- your brief ---\n" + new string('a', TerminalSubmit.PasteLimit + 10);
+            var text = "You are Worker.\n--- your brief ---\n" + new string('a', TerminalSubmit.MeasuredPasteLimit + 10);
 
             var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
                 echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
@@ -144,13 +144,41 @@ public sealed class TextDeliveryReviewTests : IDisposable
         {
             var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
             backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
-            var text = "line\n" + new string('c', TerminalSubmit.PasteLimit + 10);
+            var text = "line\n" + new string('c', TerminalSubmit.MeasuredPasteLimit + 10);
 
             var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
                 echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
 
             Assert.StartsWith("@.temp/input_", typed);
             Assert.Equal(text, File.ReadAllText(Path.Combine(dir, typed[1..])));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Issue #4379: under the measured limit a long Claude Code text is ONE bracketed paste of the text itself - the
+    /// 2,000-character @-reference limit is gone, because the harness proved 51,200 characters arrive as a paste.
+    /// </summary>
+    [Fact]
+    public async Task A_long_Claude_text_under_the_measured_limit_is_pasted_not_sent_as_a_file()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-paste-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
+            backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+            var text = "Token QL. " + new string('d', 8000);
+
+            var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
+                echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+            Assert.Equal(text, typed);
+            Assert.Contains(backend.WrittenBytes, b => System.Text.Encoding.UTF8.GetString(b).Contains("[200~"));
+            Assert.Empty(Directory.GetFileSystemEntries(dir));
         }
         finally
         {

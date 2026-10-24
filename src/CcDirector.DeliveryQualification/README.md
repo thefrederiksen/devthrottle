@@ -118,6 +118,15 @@ memory.
     #    a question menu, the model picker. The session's state is sampled every 250 ms against the agent's records.
     $B --state-matrix --agents claude,codex,pi
 
+The echo layer runs the desktop routes once as a plain program (`as desktop`) and once standing in for each agent in
+`--agents` (`as claude`, `as codex`, `as pi`): the session is of that agent's kind, so the desktop sends what it sends that
+agent - Shift+Enter, for one, is each agent's measured newline key (issue #4379).
+
+    # 4. WHICH KEY MAKES A NEW LINE (issue #4379): types a line, presses each candidate key (Ctrl+J, Alt+Enter, kitty and
+    #    xterm Shift+Enter, backslash then Enter), types a second line, presses Enter, and reads the agent's records. Also
+    #    prints the keyboard modes the agent asked the terminal for. At most one one-word turn per key.
+    $B --newline-keys claude [--newline-candidates ctrl-j,alt-enter]
+
 **Echo verdicts.** `EXACT`; `SPLIT` (an Enter arrived before the text ended, so the agent submits it in pieces);
 `ALTERED` (characters changed or lost - the first difference is shown); `VIA-FILE` (a file reference or file
 instruction was typed instead of the text, with whether the payload file is exact); `NOT-SUBMITTED`; `NOTHING`.
@@ -151,10 +160,13 @@ so it is the screen the Director refused on. The results line names the file. Th
 screen (at the ask for an approval or a menu, else at the end of the watch), and the condition matrix saves the menu and
 the dialog it sent into.
 
-**The agent's own trim of edge spaces is accepted** - Claude Code drops trailing spaces, Codex and Pi leading ones, and
-a person typing at the agent gets the same. Only that trim, on that agent's edge, passes (`Accepted` names it in the
-results, `trim-accepted` counts it in the summary). The other edge, both edges, or any change inside still fails:
-`edge-spaces` stays strict for everything else.
+**The agent's own trim of edge spaces is accepted** - Claude Code drops trailing spaces, Codex and Pi the white space at
+BOTH edges (the baseline's note said leading only; that was measured too narrowly - issue #4379), and a person typing at the
+agent gets the same. It is accepted only where the echo layer proved the Director wrote those spaces: pass the echo run's
+results with `--echo-proof <echo>/echo-results.jsonl`, and the same text on the same route, standing in for the same agent,
+must have been EXACT on every echo run. Without that proof the trim may be the Director's own loss, and the cell fails with
+a difference that says so. `Accepted` names the trim and the echo cell in the results; `trim-accepted` counts it. Any other
+change still fails: `edge-spaces` stays strict for everything else.
 
 **The Codex approval ask is read from its records.** The ask is the agent's TOOL CALL holding the approval's file name -
 Codex's `function_call`, `custom_tool_call` or `local_shell_call` (or an approval-request event), Claude Code's

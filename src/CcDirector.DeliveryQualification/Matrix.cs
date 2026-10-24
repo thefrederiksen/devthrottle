@@ -96,13 +96,19 @@ public static class EchoLayer
                               $"enters={v.Enters} reads={v.Reads} {v.Ms / 1000:F1}s director={r.Director} {Short(v.Detail)} {Short(r.DirectorDetail)}");
         }
 
-        // THE DESKTOP ROUTES: one echo agent in a real Director session, the shipped terminal control attached to it.
+        // THE DESKTOP ROUTES: one echo agent in a real Director session, the shipped terminal control attached to it - once
+        // as a plain program ("desktop"), and once standing in for each agent, because what a key sends depends on the
+        // agent the session runs (Shift+Enter sends each agent's measured newline key, issue #4379).
         var desktopRoutes = routes.Where(r => r.StartsWith("desktop-", StringComparison.Ordinal)).ToList();
-        if (desktopRoutes.Count > 0)
+        var desktopAs = new List<(string As, AgentKind? Kind)> { ("desktop", null) };
+        desktopAs.AddRange(new[] { ("claude", AgentKind.ClaudeCode), ("codex", AgentKind.Codex), ("pi", AgentKind.Pi) }
+            .Where(a => opts.Agents.Contains(a.Item1)).Select(a => (a.Item1, (AgentKind?)a.Item2)));
+        foreach (var (desktopName, desktopKind) in desktopRoutes.Count > 0 ? desktopAs : [])
         {
-            var log = Path.Combine(opts.Out, "echo-desktop.jsonl");
+            var log = Path.Combine(opts.Out, $"echo-desktop-{desktopName}.jsonl");
             var (exe, args) = EchoCommand(log);
-            var session = manager.CreateSession(repo, new RawCliAgent(exe, args), null, SessionBackendType.ConPty, null);
+            IAgent echoAgent = desktopKind is { } kind ? new EchoStandIn(kind, exe, args) : new RawCliAgent(exe, args);
+            var session = manager.CreateSession(repo, echoAgent, null, SessionBackendType.ConPty, null);
             using var desktop = new DesktopHost();
             try
             {
@@ -120,7 +126,7 @@ public static class EchoLayer
                     try { await Routes.DesktopAsync(desktop, route, body); }
                     catch (Exception ex) { director = "FAILED"; detail = $"{ex.GetType().Name}: {ex.Message}"; }
                     var reads = await QuietReadsAsync(log, before);
-                    Record(new EchoResult(route, "desktop", text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body), run));
+                    Record(new EchoResult(route, desktopName, text.Name, body.Length, director, detail, EchoAnalysis.Analyze(reads, body), run));
                 }
             }
             finally
@@ -286,7 +292,9 @@ public static class AgentMatrix
         var resultsPath = Path.Combine(opts.Out, "agent-results.jsonl");
         var cap = opts.MaxTurns;
         var runs = opts.MatrixRepeat;
+        var proof = opts.EchoProofPath is { } proofPath ? EchoProof.Load(proofPath) : EchoProof.None;
         Console.WriteLine($"[agents] run {runId} on product {commit}: {texts.Count} texts x {routes.Count} routes x {opts.Agents.Count} agents x {runs} runs, at most {cap} turns. Results: {resultsPath}");
+        Console.WriteLine($"[agents] an agent's own edge trim is accepted only where the echo layer proved the Director wrote the spaces: {proof}");
         using var load = opts.CpuLoadThreads > 0 ? new CpuLoad(opts.CpuLoadThreads) : null;
         using var desktop = new DesktopHost();
         var turns = 0;
@@ -328,7 +336,7 @@ public static class AgentMatrix
                     // The screen the send was refused on, saved at once - before the judge waits - so it is the screen the
                     // Director read, not the one after (the mission's 11.5).
                     var screenFile = ScreenDump.IsRefusal(director) ? ScreenDump.Save(opts.Out, $"text-{agent}-{route}-{text.Name}-run{run}", current, $"{agent} {route} {text.Name} run {run}: {director} {detail}") : null;
-                    var r = await JudgeAsync(agent, route, text.Name, body, token, sentAt, director, detail, seconds, current, repos) with { Run = run, ScreenFile = screenFile };
+                    var r = await JudgeAsync(agent, route, text.Name, body, token, sentAt, director, detail, seconds, current, repos, proof) with { Run = run, ScreenFile = screenFile };
                     // The one-word answer is left to finish rather than stopped with Escape: Claude Code puts an
                     // interrupted prompt back into its composer, and the next cell's text then welds onto it. Then the
                     // composer is emptied, so a split cell's leftover lines cannot reach the next cell either.
@@ -359,7 +367,7 @@ public static class AgentMatrix
     }
 
     internal static async Task<AgentMatrixResult> JudgeAsync(string agent, string route, string textName, string body, string token, DateTime sentAt,
-        string director, string detail, double seconds, Session session, IReadOnlyList<string> repos)
+        string director, string detail, double seconds, Session session, IReadOnlyList<string> repos, EchoProof proof)
     {
         RecordsVerdict verdict = new(false, false, false, false, null);
         string? turn = null;
@@ -371,7 +379,7 @@ public static class AgentMatrix
             if (verdict.Found || turn is not null) break;
             await Task.Delay(1000);
         }
-        var (truth, exact, accepted, difference) = Verdict(agent, body, verdict, turn);
+        var (truth, exact, accepted, difference) = Verdict(agent, body, verdict, turn, proof, route, textName);
         string? screen = null;
         if (!(truth == "ARRIVED" && (exact || accepted is not null)) || director is not ("OK" or "DELIVERING"))
             screen = string.Join("\n", session.SnapshotScreenRows().Where(r => !string.IsNullOrWhiteSpace(r)).TakeLast(14));
@@ -386,10 +394,12 @@ public static class AgentMatrix
     /// came by the file route; ALTERED when it arrived in one turn but changed; DOUBLED, PARTIAL or LOST otherwise. Pure,
     /// so it is tested without an agent.
     /// </summary>
-    internal static (string Truth, bool Exact, string? Accepted, string? Difference) Verdict(string agent, string body, RecordsVerdict verdict, string? turn)
+    internal static (string Truth, bool Exact, string? Accepted, string? Difference) Verdict(string agent, string body, RecordsVerdict verdict, string? turn,
+        EchoProof proof, string route, string textName)
     {
         var exact = !verdict.ViaFile && turn is not null && EchoAnalysis.Canonical(turn) == EchoAnalysis.Canonical(body);
-        var accepted = !verdict.ViaFile && !exact && turn is not null ? AcceptedDifference.AgentTrim(agent, body, EchoAnalysis.Canonical(turn)) : null;
+        var accepted = !verdict.ViaFile && !exact && turn is not null
+            ? AcceptedDifference.AgentTrim(agent, body, EchoAnalysis.Canonical(turn), proof, route, textName) : null;
         string truth;
         if (!verdict.Found && turn is null) truth = verdict.Partial ? "PARTIAL" : "LOST";
         else if (verdict.Found && verdict.Doubled) truth = "DOUBLED";
@@ -398,7 +408,10 @@ public static class AgentMatrix
         if (truth == "ALTERED")
             difference = turn is null
                 ? "the folding witness found the text but no user turn holds its token"
-                : EchoAnalysis.FirstDifference(EchoAnalysis.Canonical(body), EchoAnalysis.Canonical(turn));
+                : EchoAnalysis.FirstDifference(EchoAnalysis.Canonical(body), EchoAnalysis.Canonical(turn))
+                  + (AcceptedDifference.TrimShape(agent, body, EchoAnalysis.Canonical(turn)) is not null
+                      ? $"; the agent's own trim, NOT accepted: no echo cell {route} as {agent} {textName} proves the Director wrote those spaces ({proof})"
+                      : "");
         return (truth, exact, accepted, difference);
     }
 

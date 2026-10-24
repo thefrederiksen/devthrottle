@@ -33,6 +33,7 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --claude-suggestion-capture [--cols 120] [--rows 40]   (dump Claude Code's grey prompt suggestion and a short prompt typed over it)
 ///   CcDirector.DeliveryQualification --claude-titled-capture [--cols 120] [--rows 40]   (dump Claude Code's composer with the session name in its top rule; nothing is submitted)
 ///   CcDirector.DeliveryQualification --scenarios all|name,name [--agents claude,pi] [--repeat 3]   (the delivery scenarios; every attempt goes to the ledger)
+///   CcDirector.DeliveryQualification --newline-keys claude [--newline-candidates ctrl-j,alt-enter]   (which keystroke makes a new line in the agent's composer; issue #4379)
 ///   CcDirector.DeliveryQualification --rates [--ledger FILE]   (the success rate per product commit, agent and scenario, from the ledger)
 ///   CcDirector.DeliveryQualification --echo [--routes all|r,r] [--texts all|t,t] [--agents claude,codex,pi]   (the parity texts on every route, sent to the free byte-echo agent; issue #4378)
 ///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
@@ -71,9 +72,11 @@ public static class Program
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
         // --echo-agent <log> [--usage-dialog]: run AS the byte-echo agent inside a terminal the rig started (issue #4378),
-        // drawing Claude Code's usage-limit dialog when asked.
-        if (args.Length is 2 or 3 && args[0] == "--echo-agent")
-            return EchoAgent.Run(args[1], usageDialog: args.Length == 3 && args[2] == "--usage-dialog");
+        // drawing Claude Code's usage-limit dialog when asked. Any other argument after the log is ignored: standing in for
+        // an agent, it is given that agent's own launch arguments too (the Director adds Claude Code's --settings to every
+        // session of that kind; issue #4379).
+        if (args.Length >= 2 && args[0] == "--echo-agent")
+            return EchoAgent.Run(args[1], usageDialog: args.Skip(2).Contains("--usage-dialog"));
 
         var opts = Options.Parse(args);
         if (opts.Rates)
@@ -183,6 +186,13 @@ public static class Program
             await ClearKeyExperiment.RunAsync(manager, keysAgent, k, opts.ArgsOverride.TryGetValue(keysAgent, out var ka) ? ka : a,
                 Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.KeysOnly);
             return 0;
+        }
+
+        if (opts.NewlineAgent is { } newlineAgent)
+        {
+            var (nk, na) = Agents[newlineAgent];
+            return await NewlineKeyExperiment.RunAsync(manager, newlineAgent, nk, opts.ArgsOverride.TryGetValue(newlineAgent, out var nka) ? nka : na,
+                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.NewlineKeyNames);
         }
 
         if (opts.Echo)
@@ -412,6 +422,10 @@ public sealed class Options
     public string? KeysAgent { get; private set; }
     public List<string>? KeysOnly { get; private set; }
     public string? CharsAgent { get; private set; }
+    public string? NewlineAgent { get; private set; }
+    /// <summary>An echo run's echo-results.jsonl: where an agent's own edge trim may be accepted (issue #4379).</summary>
+    public string? EchoProofPath { get; private set; }
+    public IReadOnlyList<string>? NewlineKeyNames { get; private set; }
     public bool Busy { get; private set; }
     public bool FailThenSend { get; private set; }
     public bool RepeatShortPrompt { get; private set; }
@@ -462,6 +476,9 @@ public sealed class Options
                 case "--keys": o.KeysAgent = Next(); break;
                 case "--keys-only": o.KeysOnly = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--chars": o.CharsAgent = Next(); break;
+                case "--newline-keys": o.NewlineAgent = Next(); break;
+                case "--echo-proof": o.EchoProofPath = Next(); break;
+                case "--newline-candidates": o.NewlineKeyNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--busy": o.Busy = true; break;
                 case "--fail-then-send": o.FailThenSend = true; break;
                 case "--repeat-short-prompt": o.RepeatShortPrompt = true; break;

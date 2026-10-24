@@ -72,6 +72,9 @@ public sealed class ParityMatrixTests
     [Theory]
     [InlineData("  spaced  ", "  spaced  ")]
     [InlineData("<pasted_content id=\"1\">  body\n</pasted_content>", "  body\n")]
+    // Claude Code's own form for a long paste (issue #4379): the breaks round the wrapper, and the one after its opening
+    // tag, are the wrapper's; the text keeps its own leading spaces.
+    [InlineData("\n\n<pasted_content id=\"e942\">\n  Token body\n</pasted_content id=\"e942\">\n", "  Token body\n")]
     public void StripPasteWrapper_KeepsBoundaryWhitespace(string record, string expected)
     {
         Assert.Equal(expected, AgentRecords.StripPasteWrapper(record));
@@ -193,5 +196,34 @@ public sealed class ParityMatrixTests
         using var doc = JsonDocument.Parse(json);
 
         Assert.False(AgentRecords.IsUserTurn(agent, doc.RootElement));
+    }
+
+    /// <summary>
+    /// Claude Code's api-request-blob is its copy of what it sent the model. After an @-reference it holds the file's
+    /// text inside the Read tool's result, which the witness read as a second copy of the prompt, so every file-route
+    /// send to Claude Code in the baseline was judged DOUBLED though the turn was recorded once (issue #4379). The
+    /// witness must read the user turn and never the blob.
+    /// </summary>
+    [Fact]
+    public void StringsOf_ClaudeApiRequestBlob_IsNotReadAsARecord()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "witness-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            File.WriteAllLines(file,
+            [
+                """{"type":"user","message":{"role":"user","content":"@.temp/input_x.txt"}}""",
+                """{"type":"api-request-blob","message":{"role":"user","content":[{"type":"text","text":"Result of calling the Read tool:\n1\tToken Q1. the payload"}]}}""",
+            ]);
+
+            var strings = AgentRecords.StringsOf(file);
+
+            Assert.Contains("@.temp/input_x.txt", strings);
+            Assert.DoesNotContain(strings, s => s.Contains("Token Q1", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
     }
 }

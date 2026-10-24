@@ -278,10 +278,14 @@ public static class AgentRecords
         }
     }
 
-    /// <summary>The text inside the agent's paste wrapper when the whole record is one, else the record unchanged.</summary>
+    /// <summary>The text inside the agent's paste wrapper when the whole record is one, else the record unchanged.
+    /// Claude Code writes a long paste as <c>\n\n&lt;pasted_content id="…"&gt;\n…\n&lt;/pasted_content id="…"&gt;\n</c>: the line breaks
+    /// round the wrapper and the one just after its opening tag are the wrapper's, not the text's (issue #4379 - the
+    /// baseline read every such paste as ALTERED). The break before the closing tag is kept: it cannot be told from a
+    /// trailing break the text really had, and the comparison already ignores trailing breaks.</summary>
     internal static string StripPasteWrapper(string text)
     {
-        var m = Regex.Match(text, @"^<pasted_content id=""[^""]*"">(?<body>[\s\S]*)</pasted_content(?: id=""[^""]*"")?>$", RegexOptions.CultureInvariant);
+        var m = Regex.Match(text, @"^\n*<pasted_content id=""[^""]*"">\n?(?<body>[\s\S]*)</pasted_content(?: id=""[^""]*"")?>\n*$", RegexOptions.CultureInvariant);
         return m.Success ? m.Groups["body"].Value : text;
     }
 
@@ -406,7 +410,7 @@ public static class AgentRecords
 
     /// <summary>Every string value in a JSON or JSON-lines file. A line that does not parse (half written) is
     /// skipped.</summary>
-    private static List<string> StringsOf(string file)
+    internal static List<string> StringsOf(string file)
     {
         var raw = ReadShared(file);
         var result = new List<string>();

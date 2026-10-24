@@ -11,6 +11,8 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Backends;
+using CcDirector.Core.Drivers;
+using CcDirector.Core.Input;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
@@ -1666,6 +1668,16 @@ public class TerminalControl : Control
 
             if (_session == null) return;
 
+            // SHIFT+ENTER AND CTRL+J MAKE A NEW LINE, AS A PERSON EXPECTS (issue #4379). Shift+Enter used to send a plain
+            // Enter, which submitted the first line on its own. Each agent gets the key measured to insert a new line in
+            // its composer; an agent not yet measured keeps what the terminal always sent.
+            if (IsNewlineChord(e.Key, e.KeyModifiers) && ComposerNewlineKey.For(_session.AgentKind) is { } newline)
+            {
+                _session.SendInput(newline, InputOrigin.DesktopTyped, DesktopTerminalDoor);
+                e.Handled = true;
+                return;
+            }
+
             byte[]? data = MapKeyToBytes(e.Key, e.KeyModifiers);
             if (data != null)
             {
@@ -1686,7 +1698,9 @@ public class TerminalControl : Control
         {
             if (_session == null || string.IsNullOrEmpty(e.Text)) return;
 
-            var bytes = Encoding.UTF8.GetBytes(e.Text);
+            // The one platform encoder (issue #4379): on Windows a character outside ASCII goes as a key event, exactly
+            // as the Director's own send writes it.
+            var bytes = TerminalInputEncoder.Encode(e.Text, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(_session.Backend));
             // DevThrottle Stats: raw desktop terminal typing - typed character volume, local by construction.
             _session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor);
             e.Handled = true;
@@ -2378,14 +2392,23 @@ public class TerminalControl : Control
         // Strip trailing newlines - user can press Enter themselves
         text = text.TrimEnd('\r', '\n');
 
-        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars");
+        // ONE BRACKETED PASTE WHEN THE AGENT ASKED FOR ONE (issue #4379). The paste used to go as plain keystrokes, so
+        // every line break in it was an Enter that submitted the text in pieces, and every tab was the Tab key. Inside
+        // the brackets a line break and a tab are text. The writes come from the one platform encoder the Director's own
+        // send uses. Without brackets it goes at the old keystroke pace, which interactive prompts (claude /login) need.
+        var bracketed = session.BracketedPasteEnabled;
+        var writes = TerminalInputEncoder.Paste(text, bracketed, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend),
+            bracketed ? TerminalInputEncoder.PasteChunkBytes : PasteChunkSize).ToList();
+        var pause = bracketed ? TerminalInputEncoder.PasteChunkPause : TimeSpan.FromMilliseconds(PasteChunkDelayMs);
+
+        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}, writes={writes.Count}");
         _isPasting = true;
 
         try
         {
             // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
             // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
-            await PaceChunksAsync(text, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
+            await PaceChunksAsync(writes, pause, bracketed, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
         }
         catch (Exception ex)
@@ -2399,9 +2422,9 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Sends <paramref name="text"/> to <paramref name="send"/> in <see cref="PasteChunkSize"/>-character
-    /// chunks with a <see cref="PasteChunkDelayMs"/> delay between chunks, stopping early if
-    /// <see cref="_isPasting"/> is cleared (Cancel Paste).
+    /// Sends each of <paramref name="writes"/> to <paramref name="send"/> with <paramref name="pause"/> between them,
+    /// stopping early if <see cref="_isPasting"/> is cleared (Cancel Paste). A cancelled BRACKETED paste still writes its
+    /// end marker, so the agent is never left reading everything after it as part of the paste.
     ///
     /// The loop runs inside <see cref="Task.Run(System.Action)"/> and every delay uses
     /// ConfigureAwait(false), so it executes entirely on the thread pool and NEVER resumes on the
@@ -2412,29 +2435,34 @@ public class TerminalControl : Control
     /// of render load. Kept as a separate method so a headless test can drive the real pacing against a
     /// deliberately saturated UI thread. See PasteOffUiThreadTests.
     /// </summary>
-    private async Task PaceChunksAsync(string text, Action<byte[]> send)
+    private async Task PaceChunksAsync(IReadOnlyList<byte[]> writes, TimeSpan pause, bool bracketed, Action<byte[]> send)
     {
         await Task.Run(async () =>
         {
-            for (int i = 0; i < text.Length; i += PasteChunkSize)
+            for (int i = 0; i < writes.Count; i++)
             {
-                if (!_isPasting) break; // Cancelled
+                if (!_isPasting) // Cancelled
+                {
+                    if (bracketed && i > 0) send(TerminalInputEncoder.PasteEnd);
+                    break;
+                }
 
-                var chunk = text.Substring(i, Math.Min(PasteChunkSize, text.Length - i));
-                send(Encoding.UTF8.GetBytes(chunk));
-                await Task.Delay(PasteChunkDelayMs).ConfigureAwait(false);
+                send(writes[i]);
+                if (i < writes.Count - 1) await Task.Delay(pause).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
     }
 
     /// <summary>Test seam: drive the real <see cref="PaceChunksAsync"/> with injected text and a capture
-    /// callback instead of the clipboard and a live session. Mirrors the production _isPasting lifecycle.</summary>
+    /// callback instead of the clipboard and a live session, at the unbracketed keystroke pace. Mirrors the production
+    /// _isPasting lifecycle.</summary>
     internal async Task HarnessPaceChunksAsync(string text, Action<byte[]> send)
     {
         _isPasting = true;
         try
         {
-            await PaceChunksAsync(text, send).ConfigureAwait(false);
+            var writes = TerminalInputEncoder.Paste(text, bracketed: false, nonAsciiAsKeyEvents: false, PasteChunkSize).ToList();
+            await PaceChunksAsync(writes, TimeSpan.FromMilliseconds(PasteChunkDelayMs), bracketed: false, send).ConfigureAwait(false);
         }
         finally
         {
@@ -2472,6 +2500,10 @@ public class TerminalControl : Control
         this.ContextMenu = _linkContextMenu;
         _linkContextMenu.Open(this);
     }
+
+    /// <summary>Shift+Enter, or Ctrl+J: the chords a person uses for a new line in an agent's composer.</summary>
+    internal static bool IsNewlineChord(Key key, KeyModifiers modifiers) =>
+        (key == Key.Enter && modifiers == KeyModifiers.Shift) || (key == Key.J && modifiers == KeyModifiers.Control);
 
     private static byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
     {
