@@ -112,7 +112,7 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>
     /// SETTINGS CHANGED, SO REMEMBERED SETTINGS ARE FORGOTTEN (issue #4405) - see <see cref="Settings.TenantSettingsGenerations"/>.
     /// Moved whether the save succeeded or not: a failed save changed nothing, and forgetting early only costs a read.
-    /// Inside a transaction the accounts are kept and moved again when it ends (<see cref="SettingsTransactionEnded"/>).
+    /// Inside a transaction the accounts are kept and moved again when it ends (<see cref="TransactionEnded"/>).
     /// </summary>
     private void SettingsSaved(List<string>? tenants)
     {
@@ -125,10 +125,21 @@ public sealed class GatewayDbContext : DbContext
         }
     }
 
-    /// <summary>The transaction this context saved settings in has committed or rolled back: move those accounts'
-    /// numbers once more, so a value read between the save and the commit is not trusted.</summary>
-    internal void SettingsTransactionEnded()
+    /// <summary>
+    /// Set by <see cref="CredentialTableWriteInterceptor"/> when a command inside this context's open transaction wrote a
+    /// table a device key check reads (issue #4409); cleared by <see cref="TransactionEnded"/>.
+    /// </summary>
+    internal bool CredentialsWrittenInTransaction { get; set; }
+
+    /// <summary>The transaction this context wrote in has committed or rolled back: move the numbers of what it wrote
+    /// once more, so a remembered setting or key read between the write and the commit is not trusted.</summary>
+    internal void TransactionEnded()
     {
+        if (CredentialsWrittenInTransaction)
+        {
+            Pairing.DeviceCredentialGeneration.Bump();
+            CredentialsWrittenInTransaction = false;
+        }
         if (_settingsTenantsAwaitingCommit.Count == 0) return;
         foreach (var tenant in _settingsTenantsAwaitingCommit)
             Settings.TenantSettingsGenerations.Bump(tenant);
