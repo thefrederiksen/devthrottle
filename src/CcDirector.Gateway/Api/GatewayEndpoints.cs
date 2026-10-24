@@ -2069,6 +2069,35 @@ internal static partial class GatewayEndpoints
                     ResolveReadTenant(ctx, tenantBoundary) is { } restoreTenant
                     && (factoryKitCapabilities?.BuildsFactoryKit(restoreTenant, target.DirectorId) ?? false)) is { } noKit)
                 return Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict);
+            // ONE DEAD SESSION, TWO DOORS (issue #4120, review round 2). A crashed Director's journal is also kept as a crash
+            // record, whose seat the Director's own window offers to reopen. The record's seat is claimed HERE, before
+            // anything is started, exactly as the window claims it before its start: whichever door is used first wins,
+            // and the second is refused rather than starting a second agent for one dead session.
+            var crashRecordId = WorkspaceCrashRecords.IdFor(journal);
+            var crashRecordClaimed = false;
+            if (workspaces?.Get(crashRecordId) is { } crashRecord
+                && crashRecord.Seats.Any(s => string.Equals(s.SessionId, row.SessionId, StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    workspaces.RecordRestoreMark(crashRecordId, new WorkspaceRestoreMark
+                    {
+                        DirectorId = target.DirectorId,
+                        Kind = WorkspaceRestoreMarkKinds.Reopened,
+                        SeatSessionId = row.SessionId,
+                    }, DateTime.UtcNow);
+                    crashRecordClaimed = true;
+                }
+                catch (Workspaces.WorkspaceConflictException ex)
+                {
+                    FileLog.Write($"[GatewayEndpoints] restore REFUSED for dead {row.SessionId}: its crash record {crashRecordId} already brought it back: {ex.Message}");
+                    return Results.Json(new
+                    {
+                        error = $"'{row.Name ?? row.SessionId}' has already been brought back from its crash record ({crashRecordId}), so it is not started again - a second agent in the same work would collide with the first. {ex.Message}",
+                    }, statusCode: StatusCodes.Status409Conflict);
+                }
+            }
+
             var createSr = await DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", "", spawnReq, CancellationToken.None, machineName: target.MachineName);
             if (createSr is null)
                 return Results.Problem("target director is not connected to the tunnel", statusCode: StatusCodes.Status502BadGateway);
@@ -2081,6 +2110,26 @@ internal static partial class GatewayEndpoints
                 return Results.Problem("target director returned an empty session body", statusCode: StatusCodes.Status502BadGateway);
             created.DirectorId = target.DirectorId;
             FileLog.Write($"[GatewayEndpoints] restore: created continuation {created.SessionId} on {target.DirectorId} for dead {row.SessionId}");
+
+            // Which session took it, on the crash record, so its history says so. The claim above is what stops a second
+            // start; this write failing costs the record that one session id and nothing else.
+            if (crashRecordClaimed)
+            {
+                try
+                {
+                    workspaces!.RecordRestoreMark(crashRecordId, new WorkspaceRestoreMark
+                    {
+                        DirectorId = target.DirectorId,
+                        Kind = WorkspaceRestoreMarkKinds.Reopened,
+                        SeatSessionId = row.SessionId,
+                        ReopenedSessionId = created.SessionId,
+                    }, DateTime.UtcNow);
+                }
+                catch (Exception ex) when (ex is Workspaces.WorkspaceConflictException or Workspaces.WorkspaceValidationException)
+                {
+                    FileLog.Write($"[GatewayEndpoints] restore: continuation {created.SessionId} started, but its crash record {crashRecordId} could not say so: {ex.Message}");
+                }
+            }
 
             // Give the continuation the dead session's name. Best-effort: a failed rename
             // does not undo a successful restore.
