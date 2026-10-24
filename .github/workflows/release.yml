@@ -166,6 +166,7 @@ jobs:
           --binary src/CcDirector.Avalonia/bin/Release/net10.0/osx-arm64/publish/cc-director
           --out artifacts-mac
           --dmg-name devthrottle-mac-arm64.dmg
+          --display-name DevThrottle
 
       - name: Upload cc-director mac artifact
         uses: actions/upload-artifact@v6

@@ -25,6 +25,7 @@ public partial class HomeView : UserControl
     public event EventHandler? OpenSettingsRequested;
     public event EventHandler? GatewayClicked;
     public event EventHandler? RepairToolsRequested;
+    public event EventHandler? SetUpGitHubRequested;
 
     public HomeView()
     {
@@ -97,6 +98,7 @@ public partial class HomeView : UserControl
                 HomeCheckAction.OpenTools => () => OpenToolsRequested?.Invoke(this, EventArgs.Empty),
                 HomeCheckAction.OpenSettings => () => OpenSettingsRequested?.Invoke(this, EventArgs.Empty),
                 HomeCheckAction.RepairTools => () => RepairToolsRequested?.Invoke(this, EventArgs.Empty),
+                HomeCheckAction.SetUpGitHub => () => SetUpGitHubRequested?.Invoke(this, EventArgs.Empty),
                 _ => null,
             };
             // Error report decision (issue #3675): a red (Bad) row is a failure the user sees, so it is reported here,

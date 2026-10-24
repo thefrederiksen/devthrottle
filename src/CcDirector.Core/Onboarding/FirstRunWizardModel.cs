@@ -22,6 +22,10 @@ public enum WizardStep
     Agents,
     Tools,
     Code,
+
+    /// <summary>git, the GitHub command line and its sign-in (issue #4426). About this machine: gh signs in per machine.</summary>
+    GitHub,
+
     Screenshots,
     Browsers,
     Gateway,
@@ -75,6 +79,9 @@ public sealed class FirstRunWizardModel
     /// itself - and it is the one step that can ask for a browser sign-in, which is interactive and
     /// cannot be hurried. Putting it last means the wizard has already delivered everything else before
     /// it asks for the minute that costs the most.
+    ///
+    /// GitHub comes straight after Code (issue #4426): once the person has said where their repositories are, the next
+    /// thing those repositories need is a way to push. A trial user set up a repository and was never asked to sign in.
     /// </remarks>
     public static readonly IReadOnlyList<WizardStep> CanonicalOrder = new[]
     {
@@ -83,6 +90,7 @@ public sealed class FirstRunWizardModel
         WizardStep.Agents,
         WizardStep.Tools,
         WizardStep.Code,
+        WizardStep.GitHub,
         WizardStep.Screenshots,
         WizardStep.Browsers,
         WizardStep.Done,

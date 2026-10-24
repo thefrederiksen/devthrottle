@@ -91,6 +91,9 @@ public partial class SettingsDialog : Window
             // The Team tab (screen D3): which team this Director works for, and the move to another.
             TeamSettingsHost.Child = Controls.DirectorTeamPanel.CreateForThisDirector();
 
+            // The GitHub tab (issue #4426): it reads git, gh and the sign-in itself when it is shown.
+            GitHubSettingsHost.Child = new Controls.GitHubSetupPanel();
+
             // Tools auto-update opt-out (issue #828): reflect tools.autoUpdate.enabled (default ON).
             // The read ran off the UI thread above; suppress the write that the programmatic set
             // would otherwise trigger, then show the current on/off explanation.
@@ -635,9 +638,9 @@ public partial class SettingsDialog : Window
     /// window's status box routes here, and the Account tab's Manage connection button does too).</summary>
     public void SelectGatewayTab()
     {
-        // Tab order in SettingsDialog.axaml: Account(0), Gateway(1), Agents(2), ...
-        const int gatewayTabIndex = 1;
-        SettingsTabs.SelectedIndex = gatewayTabIndex;
+        // By the tab itself, never by its position: inserting the Team tab shifted every index after it, and
+        // Manage Browser Profiles opened the Agents tab and the Home tools Fix opened Advanced.
+        SettingsTabs.SelectedItem = GatewayTab;
     }
 
     /// <summary>Select the Browsers tab (the drivable automation browsers workshop). The main window's
@@ -645,9 +648,7 @@ public partial class SettingsDialog : Window
     /// opens the inline new-browser panel (the menu's "New Browser...").</summary>
     public void SelectBrowsersTab(bool openCreate = false)
     {
-        // Tab order in SettingsDialog.axaml: Account(0), Gateway(1), Agents(2), Browsers(3).
-        const int browsersTabIndex = 3;
-        SettingsTabs.SelectedIndex = browsersTabIndex;
+        SettingsTabs.SelectedItem = BrowsersTab;
         if (openCreate)
             BrowsersView.OpenCreatePanel();
     }
@@ -656,10 +657,14 @@ public partial class SettingsDialog : Window
     /// rail tools indicator routes here when a tool is missing or failing.</summary>
     public void SelectToolsTab()
     {
-        // Tab order in SettingsDialog.axaml: Account(0), Gateway(1), Agents(2), Browsers(3),
-        // Directories(4), Advanced(5), Tools(6).
-        const int toolsTabIndex = 6;
-        SettingsTabs.SelectedIndex = toolsTabIndex;
+        SettingsTabs.SelectedItem = ToolsTab;
+    }
+
+    /// <summary>Select the GitHub tab (issue #4426). The Home GitHub row's Fix routes here.</summary>
+    public void SelectGitHubTab()
+    {
+        FileLog.Write("[SettingsDialog] SelectGitHubTab");
+        SettingsTabs.SelectedItem = GitHubTab;
     }
 
     /// <summary>

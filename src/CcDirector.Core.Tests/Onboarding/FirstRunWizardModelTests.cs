@@ -123,10 +123,10 @@ public class FirstRunWizardModelTests
     }
 
     [Fact]
-    public void CreateFull_HasAllEightStepsInCanonicalOrder()
+    public void CreateFull_HasAllNineStepsInCanonicalOrder()
     {
         var model = FirstRunWizardModel.CreateFull();
-        Assert.Equal(8, model.Count);
+        Assert.Equal(9, model.Count);
 
         // The WHOLE sequence, written out, not compared against the production list. Comparing
         // model.Steps to CanonicalOrder only proves the model did not reorder its own input - it
@@ -141,6 +141,7 @@ public class FirstRunWizardModelTests
                 WizardStep.Agents,      // your workforce
                 WizardStep.Tools,       // their toolbelt
                 WizardStep.Code,        // what we watch over
+                WizardStep.GitHub,      // where that code is pushed (issue #4426)
                 WizardStep.Screenshots, // show, don't type
                 WizardStep.Browsers,    // give an agent a signed-in browser
                 WizardStep.Done,        // the receipt
@@ -176,6 +177,8 @@ public class FirstRunWizardModelTests
         var machineScoped = new[]
         {
             WizardStep.Welcome, WizardStep.Agents, WizardStep.Tools, WizardStep.Code,
+            // gh signs in per machine: the account it signs in to is the person's, but the sign-in is this machine's.
+            WizardStep.GitHub,
             WizardStep.Screenshots, WizardStep.Browsers, WizardStep.Gateway, WizardStep.Done,
         };
 

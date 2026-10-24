@@ -67,9 +67,15 @@ public partial class App : Application
 
     public bool SandboxMode { get; private set; }
 
+    /// <summary>The name a Mac shows for the app in its menu bar (issue #4427). Avalonia puts the application's
+    /// Name there, and an unnamed application reads "Avalonia Application" (#3438).</summary>
+    public const string MacMenuBarName = "DevThrottle";
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        if (OperatingSystem.IsMacOS())
+            Name = MacMenuBarName;
     }
 
     public override void RegisterServices()
