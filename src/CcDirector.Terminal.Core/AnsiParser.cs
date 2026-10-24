@@ -84,7 +84,11 @@ public class AnsiParser
     private bool _invisible;
 
     // --- Modes ---
+    // The next printable scalar continues the preceding emoji ZWJ grapheme.
+    // TerminalCell stores one UTF-16 character, so this preserves the cluster width for cursor-relative redraws.
+    private bool _emojiJoinPending;
     private bool _autoWrap = true;     // DECAWM (?7)
+    private bool _applicationCursorKeys; // DECCKM (?1)
     private bool _originMode;          // DECOM (?6)
     private bool _cursorVisible = true; // DECTCEM (?25)
     // Synchronized output (DEC private mode ?2026, the BSU/ESU protocol used by
@@ -409,6 +413,9 @@ public class AnsiParser
     /// wrap pasted blocks in ESC[200~ ... ESC[201~ only while this is true.
     /// </summary>
     public bool BracketedPasteEnabled => _bracketedPaste;
+
+    /// <summary>Whether the application requested application cursor-key mode (DECCKM, ?1).</summary>
+    public bool ApplicationCursorKeys => _applicationCursorKeys;
 
     /// <summary>
     /// Whether the application has requested mouse reporting (?1000 normal,
@@ -1137,6 +1144,7 @@ public class AnsiParser
         {
             switch (mode)
             {
+                case 1:    _applicationCursorKeys = set; break;
                 case 6:    _originMode = set; _pendingWrap = false; _cursorCol = 0; _cursorRow = set ? _scrollTop : 0; break;
                 case 7:    _autoWrap = set; break;
                 case 25:   _cursorVisible = set; break;
@@ -1172,6 +1180,7 @@ public class AnsiParser
 
         if (width == 0)
         {
+            if (codepoint == 0x200D) _emojiJoinPending = true;
             // Zero-width combining mark / joiner -- overlay on the previous
             // cell. If the prev cell is unwritten, we just drop it (we don't
             // synthesize a base character).
@@ -1180,6 +1189,12 @@ public class AnsiParser
             // We don't currently model multi-codepoint grapheme clusters,
             // so this is a no-op beyond state tracking.
             return;
+        }
+
+        if (_emojiJoinPending)
+        {
+            _emojiJoinPending = false;
+            if (width == 2) return;
         }
 
         if (_pendingWrap && _autoWrap)
@@ -1828,10 +1843,12 @@ public class AnsiParser
         _cursorCol = 0;
         _cursorRow = 0;
         _pendingWrap = false;
+        _emojiJoinPending = false;
         _scrollTop = 0;
         _scrollBottom = _rows - 1;
         ResetAttributes();
         _autoWrap = true;
+        _applicationCursorKeys = false;
         _originMode = false;
         _cursorVisible = true;
         _hasSavedCursor = false;

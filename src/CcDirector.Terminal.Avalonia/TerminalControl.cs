@@ -2505,52 +2505,16 @@ public class TerminalControl : Control
     internal static bool IsNewlineChord(Key key, KeyModifiers modifiers) =>
         (key == Key.Enter && modifiers == KeyModifiers.Shift) || (key == Key.J && modifiers == KeyModifiers.Control);
 
-    private static byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
+    private byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
     {
-        bool ctrl = (modifiers & KeyModifiers.Control) != 0;
-        bool shift = (modifiers & KeyModifiers.Shift) != 0;
-
-        // Ctrl+C
-        if (ctrl && key == Key.C) return new byte[] { 0x03 };
-        // Ctrl+D
-        if (ctrl && key == Key.D) return new byte[] { 0x04 };
-        // Ctrl+Z
-        if (ctrl && key == Key.Z) return new byte[] { 0x1A };
-        // Ctrl+L
-        if (ctrl && key == Key.L) return new byte[] { 0x0C };
-
-        // Shift+Tab (backtab) - used by Claude Code for mode cycling
-        if (shift && key == Key.Tab) return "\x1b[Z"u8.ToArray();
-
-        return key switch
-        {
-            Key.Enter => "\r"u8.ToArray(),
-            Key.Back => new byte[] { 0x7F },
-            Key.Tab => "\t"u8.ToArray(),
-            Key.Escape => new byte[] { 0x1B },
-            Key.Up => "\x1b[A"u8.ToArray(),
-            Key.Down => "\x1b[B"u8.ToArray(),
-            Key.Right => "\x1b[C"u8.ToArray(),
-            Key.Left => "\x1b[D"u8.ToArray(),
-            Key.Home => "\x1b[H"u8.ToArray(),
-            Key.End => "\x1b[F"u8.ToArray(),
-            Key.Delete => "\x1b[3~"u8.ToArray(),
-            Key.PageUp => "\x1b[5~"u8.ToArray(),
-            Key.PageDown => "\x1b[6~"u8.ToArray(),
-            Key.Insert => "\x1b[2~"u8.ToArray(),
-            Key.F1 => "\x1bOP"u8.ToArray(),
-            Key.F2 => "\x1bOQ"u8.ToArray(),
-            Key.F3 => "\x1bOR"u8.ToArray(),
-            Key.F4 => "\x1bOS"u8.ToArray(),
-            Key.F5 => "\x1b[15~"u8.ToArray(),
-            Key.F6 => "\x1b[17~"u8.ToArray(),
-            Key.F7 => "\x1b[18~"u8.ToArray(),
-            Key.F8 => "\x1b[19~"u8.ToArray(),
-            Key.F9 => "\x1b[20~"u8.ToArray(),
-            Key.F10 => "\x1b[21~"u8.ToArray(),
-            Key.F11 => "\x1b[23~"u8.ToArray(),
-            Key.F12 => "\x1b[24~"u8.ToArray(),
-            _ => null
-        };
+        if (TerminalKeyInputPolicy.ShouldLeaveToTextInput(key, modifiers, OperatingSystem.IsWindows())) return null;
+        if (!TerminalKeyInputPolicy.TryMap(key, out var terminalKey)) return null;
+        return KeyEncoder.Encode(terminalKey, ToTerminalModifiers(modifiers), _session?.ApplicationCursorKeys ?? false);
     }
+
+    private static TerminalKeyModifiers ToTerminalModifiers(KeyModifiers modifiers) =>
+        (modifiers.HasFlag(KeyModifiers.Shift) ? TerminalKeyModifiers.Shift : TerminalKeyModifiers.None) |
+        (modifiers.HasFlag(KeyModifiers.Alt) ? TerminalKeyModifiers.Alt : TerminalKeyModifiers.None) |
+        (modifiers.HasFlag(KeyModifiers.Control) ? TerminalKeyModifiers.Control : TerminalKeyModifiers.None);
+
 }

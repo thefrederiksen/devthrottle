@@ -101,6 +101,36 @@ public sealed class TerminalTextEntryTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void PlainSpace_KeyDownAndTextInput_WritesOnlyTheTextInputByte()
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: true);
+
+        terminal.HarnessKeyDown(Key.Space);
+        terminal.HarnessTextInput(" ");
+
+        Assert.Equal(new byte[] { 0x20 }, backend.All());
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CtrlSpace_WritesNul()
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: true);
+
+        terminal.HarnessKeyDown(Key.Space, KeyModifiers.Control);
+
+        Assert.Equal(new byte[] { 0x00 }, backend.All());
+        window.Close();
+    }
+
+    [Fact]
+    public void AltGrLetter_OnWindows_IsLeftForTextInput()
+    {
+        Assert.True(TerminalKeyInputPolicy.ShouldLeaveToTextInput(Key.Q, KeyModifiers.Control | KeyModifiers.Alt, isWindows: true));
+        Assert.False(TerminalKeyInputPolicy.ShouldLeaveToTextInput(Key.Q, KeyModifiers.Control | KeyModifiers.Alt, isWindows: false));
+    }
+
     /// <summary>THE DESKTOP PASTE WAS NOT A PASTE: it went as plain keystrokes, so each line break was an Enter and each
     /// tab the Tab key. With the agent's bracketed paste on, Ctrl+V's code must send ONE bracketed paste, its CR LF breaks
     /// as single LFs and its tabs as tabs, with no Enter inside, and nothing after the end marker (the person presses
