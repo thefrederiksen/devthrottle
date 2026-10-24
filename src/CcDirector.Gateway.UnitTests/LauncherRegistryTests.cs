@@ -202,6 +202,41 @@ public sealed class LauncherRegistryTests
         Assert.Equal(closedAt, reg.Get(tenant, "studio-mac")!.StreamClosedAt);
     }
 
+    // Review round 2: the close is kept for good, so it is usually old. A launcher starting this morning after its
+    // machine was off overnight is reconnecting for the moment until its stream opens - not "not taking commands".
+    [Fact]
+    public void Classify_LauncherStartingAfterALongStop_IsReconnectingNotStreamDown()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var lastNight = DateTime.UtcNow.AddHours(-10);
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 101, version: "2.30.0"));
+        reg.NoteStreamClosed(tenant, "studio-mac", lastNight);
+        reg.Remove(tenant, "studio-mac");
+        var thisMorning = DateTime.UtcNow;
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 202, version: "2.30.0"));
+
+        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(reg.Get(tenant, "studio-mac"), streamConnected: false, thisMorning.AddSeconds(2));
+
+        Assert.Equal(LauncherReach.Reconnecting, reach);
+    }
+
+    [Fact]
+    public void Classify_RegisteredLongAgoAndStreamLongDown_IsStreamDown()
+    {
+        var registered = new LauncherDto
+        {
+            MachineName = "studio-mac",
+            RegisteredAt = DateTime.UtcNow.AddHours(-3),
+            LastSeenAt = DateTime.UtcNow.AddSeconds(-5),
+            StreamClosedAt = DateTime.UtcNow.AddHours(-1),
+        };
+
+        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
+
+        Assert.Equal(LauncherReach.StreamDown, reach);
+    }
+
     [Fact]
     public void Upsert_MachineThatNeverStreamed_CarriesNoClose()
     {

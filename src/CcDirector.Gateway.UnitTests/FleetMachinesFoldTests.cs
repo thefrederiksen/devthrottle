@@ -28,6 +28,7 @@ public sealed class FleetMachinesFoldTests
         Pid = 10,
         Version = version,
         StartedAt = Now.AddHours(-1),
+        RegisteredAt = Now.AddHours(-1),
         LastSeenAt = Now - (quiet ?? TimeSpan.FromSeconds(5)),
     };
 

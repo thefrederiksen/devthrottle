@@ -73,6 +73,7 @@ public sealed class LauncherRegistry
             Version = req.Version,
             StartedAt = req.StartedAt,
             LastSeenAt = now,
+            RegisteredAt = now,
             StreamClosedAt = _streamClosedAt.TryGetValue(Key(tenant, req.MachineName), out var closedAt) ? closedAt : null,
         };
 

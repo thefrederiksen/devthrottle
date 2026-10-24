@@ -53,8 +53,16 @@ internal static class LauncherReachability
         // Heartbeating and yet unreachable - and this Gateway WATCHED IT HOLD A STREAM. A launcher that has held
         // a stream is not too old for one; it is restarting into a new version or reconnecting (issue #4423).
         // This is checked before the too-old inference because it is evidence, and that is a guess.
+        //
+        // THE WINDOW RUNS FROM WHICHEVER IS LATER, THE CLOSE OR THIS REGISTRATION (review round 2). The close is kept for
+        // good, so it is usually old: a machine that was off overnight closed its stream last night, and when its
+        // launcher registers this morning it is starting, not "not taking commands", for the moment until its stream
+        // opens. A launcher that registered long ago and lost its stream long ago is the one that is not coming back.
         if (registered.StreamClosedAt is { } closedAt)
-            return nowUtc - closedAt <= ReconnectWindow ? LauncherReach.Reconnecting : LauncherReach.StreamDown;
+        {
+            var since = closedAt > registered.RegisteredAt ? closedAt : registered.RegisteredAt;
+            return nowUtc - since <= ReconnectWindow ? LauncherReach.Reconnecting : LauncherReach.StreamDown;
+        }
 
         // Heartbeating and yet unreachable, with no stream ever seen. The two facts together are the evidence:
         // it can talk TO this Gateway and this Gateway cannot talk to it, which is exactly what a launcher

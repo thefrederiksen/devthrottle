@@ -26,6 +26,11 @@ public sealed class LauncherDto
     /// <summary>UTC timestamp of the last successful registration or heartbeat.</summary>
     public DateTime LastSeenAt { get; set; }
 
+    /// <summary>UTC timestamp at which THIS registration was written - the Gateway's own clock, set once when the
+    /// launcher process registers and not moved by a heartbeat. A launcher that has just registered and not yet opened
+    /// its stream is starting, however long ago its last stream closed (issue #4423, review round 2).</summary>
+    public DateTime RegisteredAt { get; set; }
+
     /// <summary>
     /// UTC timestamp of the last time this machine's launcher command stream closed, or null when this Gateway
     /// has not seen one close since it started.

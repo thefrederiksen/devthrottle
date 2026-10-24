@@ -244,8 +244,9 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
     [Fact]
     public async Task PostUpdate_StreamDownLongerThanARestartTakes_SaysRestartTheLauncherNotTooOld()
     {
-        // Arrange
+        // Arrange - a launcher registered an hour ago whose stream went six minutes ago and has not come back.
         RegisterLauncher("2.30.0");
+        _launchers.Get(TenantId.Local, Machine)!.RegisteredAt = DateTime.UtcNow.AddHours(-1);
         _launchers.NoteStreamClosed(TenantId.Local, Machine, DateTime.UtcNow - LauncherReachability.ReconnectWindow - TimeSpan.FromMinutes(1));
 
         // Act
