@@ -2449,26 +2449,16 @@ public class TerminalControl : Control
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        // Strip trailing newlines - user can press Enter themselves
-        text = text.TrimEnd('\r', '\n');
-
-        // ONE BRACKETED PASTE WHEN THE AGENT ASKED FOR ONE (issue #4379). The paste used to go as plain keystrokes, so
-        // every line break in it was an Enter that submitted the text in pieces, and every tab was the Tab key. Inside
-        // the brackets a line break and a tab are text. The writes come from the one platform encoder the Director's own
-        // send uses. Without brackets it goes at the old keystroke pace, which interactive prompts (claude /login) need.
         var bracketed = session.BracketedPasteEnabled;
-        var writes = TerminalInputEncoder.Paste(text, bracketed, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend),
-            bracketed ? TerminalInputEncoder.PasteChunkBytes : PasteChunkSize).ToList();
-        var pause = bracketed ? TerminalInputEncoder.PasteChunkPause : TimeSpan.FromMilliseconds(PasteChunkDelayMs);
-
-        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}, writes={writes.Count}");
+        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}");
         _isPasting = true;
 
         try
         {
             // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
             // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
-            await PaceChunksAsync(writes, pause, bracketed, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
+            await TerminalPasteExecutor.PasteAsync(text, bracketed, session.Backend,
+                bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
         }
         catch (Exception ex)

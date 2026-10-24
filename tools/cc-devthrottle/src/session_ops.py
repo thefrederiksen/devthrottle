@@ -878,6 +878,45 @@ def press_key(target: str, key: str) -> Dict[str, Any]:
     return resp if isinstance(resp, dict) else {}
 
 
+def terminal_keys(target: str, combo: str) -> Dict[str, Any]:
+    parts = [p for p in combo.lower().split("+") if p]
+    modifiers = {"shift", "alt", "ctrl", "control"}
+    keys = [p for p in parts if p not in modifiers]
+    if len(keys) != 1:
+        axi_cli.usage_error("combo must name exactly one key, for example ctrl+c or shift+tab")
+    sid = resolve_target_or_current(target, "cc-devthrottle session keys")
+    body = {"key": keys[0], "shift": "shift" in parts, "alt": "alt" in parts,
+            "control": "ctrl" in parts or "control" in parts}
+    try:
+        return gateway.post_json(f"sessions/{sid}/keys", body)
+    except gateway.GatewayError as err:
+        axi_cli.fail(f"could not send keys to session {sid}: {err}", _CHECK_SESSION)
+
+
+def terminal_paste(target: str, text: str) -> Dict[str, Any]:
+    sid = resolve_target_or_current(target, "cc-devthrottle session paste")
+    try:
+        return gateway.post_json(f"sessions/{sid}/paste", {"text": text})
+    except gateway.GatewayError as err:
+        axi_cli.fail(f"could not paste into session {sid}: {err}", _CHECK_SESSION)
+
+
+def terminal_resize(target: str, cols: int, rows: int) -> Dict[str, Any]:
+    sid = resolve_target_or_current(target, "cc-devthrottle session resize")
+    try:
+        return gateway.post_json(f"sessions/{sid}/resize", {"cols": cols, "rows": rows})
+    except gateway.GatewayError as err:
+        axi_cli.fail(f"could not resize session {sid}: {err}", _CHECK_SESSION)
+
+
+def terminal_screen(target: str) -> Dict[str, Any]:
+    sid = resolve_target_or_current(target, "cc-devthrottle session screen")
+    try:
+        return gateway.get_json(f"sessions/{sid}/screen")
+    except gateway.GatewayError as err:
+        axi_cli.fail(f"could not read screen for session {sid}: {err}", _CHECK_SESSION)
+
+
 def hold_session(target: Optional[str], release: bool = False, minutes: Optional[int] = None) -> Dict[str, Any]:
     """Park a session, or release it. Restores the old POST /sessions/{sid}/hold.
 
