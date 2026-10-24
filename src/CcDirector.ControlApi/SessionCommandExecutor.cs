@@ -1588,18 +1588,6 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>
-    /// THE SEAT'S START, SETTLED BEFORE THE CREATE (Factory Definition mission, phase 5, design sections 2 and 4): which
-    /// kit the Director downloads and writes before the agent starts, and where the seat works. Returns the refusal, in
-    /// one sentence, or null. A create that names no part of a seat settles nothing and is exactly what it was.
-    ///
-    /// A seat with no repository (<see cref="NewSessionRequest.FactoryHome"/>) works in its kit's work/ folder, and any
-    /// repository path sent with it is ignored. A seat in a repository names it by NAME
-    /// (<see cref="NewSessionRequest.FactoryWorktree"/>), resolved through this machine's own registered repositories,
-    /// and takes a fresh pooled slot of it whatever the pooled-worktree setting says. A restore hands back the kit
-    /// folder the seat ran in (<see cref="NewSessionRequest.FactoryKitDirectory"/>), which is only ever taken with its
-    /// seat; the SessionManager then checks the folder is one of its own.
-    /// </summary>
-    /// <summary>
     /// Settle the folder trust of a scheduled Claude Code session before it starts (issue #3469), or return why it may
     /// not start. Null when the folder is already trusted (by itself, a parent, or its main checkout), when it is one
     /// of this machine's registered repositories - which is then marked trusted - or when this Director marks no
@@ -1612,25 +1600,42 @@ internal static class SessionCommandExecutor
         if (trust is null || string.IsNullOrWhiteSpace(folder)) return null;
         if (trust.Covers(folder)) return null;
         var full = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        // The same rule the repository registry decides "the same repository" by (RepositoryRegistry.TryAdd).
+        var comparison = StringComparison.OrdinalIgnoreCase;
         var isRepository = registered?.Any(r => !string.IsNullOrWhiteSpace(r.Path) && string.Equals(
             Path.GetFullPath(r.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), full, comparison)) == true;
         if (!isRepository)
             return $"not started: the folder '{folder}' is not one of the repositories of {machine}, and Claude Code has never been told to trust it, " +
                    $"so the scheduled session would wait at the folder-trust question with nobody to answer it. Add the folder as a repository of {machine}, " +
-                   "or open it once in DevThrottle and answer the question; the next run then starts.";
+                   "or open it (or the repository it is in) once in DevThrottle and answer the question; the next run then starts.";
         try
         {
             trust.Trust(full);
         }
         catch (CcDirector.Core.Claude.ClaudeFolderTrustException ex)
         {
-            return $"not started: the folder '{folder}' could not be marked trusted for Claude Code on {machine}: {ex.Message}";
+            // Its message is worded for a factory seat; the run's record gets a sentence of its own, and the log the detail.
+            FileLog.Write($"[SessionCommandExecutor] ScheduledFolderTrustRefusal: marking {full} trusted FAILED: {ex.Message}");
+            return $"not started: the folder '{folder}' is a repository of {machine}, but Claude Code's configuration there could not be " +
+                   "read or written to record it as trusted, so the scheduled session would wait at the folder-trust question. " +
+                   $"Open the folder once in DevThrottle on {machine} and answer the question; the next run then starts.";
         }
         FileLog.Write($"[SessionCommandExecutor] marked {full} trusted for Claude Code: a scheduled session in a repository of this machine");
         return null;
     }
 
+    /// <summary>
+    /// THE SEAT'S START, SETTLED BEFORE THE CREATE (Factory Definition mission, phase 5, design sections 2 and 4): which
+    /// kit the Director downloads and writes before the agent starts, and where the seat works. Returns the refusal, in
+    /// one sentence, or null. A create that names no part of a seat settles nothing and is exactly what it was.
+    ///
+    /// A seat with no repository (<see cref="NewSessionRequest.FactoryHome"/>) works in its kit's work/ folder, and any
+    /// repository path sent with it is ignored. A seat in a repository names it by NAME
+    /// (<see cref="NewSessionRequest.FactoryWorktree"/>), resolved through this machine's own registered repositories,
+    /// and takes a fresh pooled slot of it whatever the pooled-worktree setting says. A restore hands back the kit
+    /// folder the seat ran in (<see cref="NewSessionRequest.FactoryKitDirectory"/>), which is only ever taken with its
+    /// seat; the SessionManager then checks the folder is one of its own.
+    /// </summary>
     internal static string? SettleSeatStart(NewSessionRequest req, IReadOnlyList<RepositoryConfig>? registered,
         string machine, out FactoryKitRequest? factoryKit, out bool forcePooledWorktree)
     {

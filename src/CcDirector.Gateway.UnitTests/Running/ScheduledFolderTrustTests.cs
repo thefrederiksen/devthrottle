@@ -54,6 +54,7 @@ public sealed class ScheduledFolderTrustTests : IDisposable
 
         Assert.NotNull(refusal);
         Assert.StartsWith($"not started: the folder '{elsewhere}' is not one of the repositories of devlinux", refusal);
+        Assert.Contains("open it (or the repository it is in) once", refusal);
         Assert.Contains("would wait at the folder-trust question with nobody to answer it", refusal);
         Assert.False(TrustedInTheFile(elsewhere));
     }
