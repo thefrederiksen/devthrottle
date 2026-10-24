@@ -59,9 +59,11 @@ public sealed class SessionPointerWatcher : IDisposable
 
     private readonly SessionManager _sessions;
     private readonly string _directory;
+    private readonly string _stateDirectory;
     private readonly Background.BackgroundJobs _jobs;
     private Background.BackgroundJob? _sweepJob;
     private FileSystemWatcher? _watcher;
+    private FileSystemWatcher? _stateWatcher;
     private bool _disposed;
 
     /// <summary>
@@ -78,6 +80,7 @@ public sealed class SessionPointerWatcher : IDisposable
         _jobs = jobs ?? Background.BackgroundJobs.Default;
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _directory = string.IsNullOrWhiteSpace(directory) ? Storage.CcStorage.SessionPointers() : directory;
+        _stateDirectory = Path.Combine(_directory, "state-events");
     }
 
     /// <summary>The directory being watched.</summary>
@@ -93,6 +96,7 @@ public sealed class SessionPointerWatcher : IDisposable
     public void Start()
     {
         System.IO.Directory.CreateDirectory(_directory);
+        System.IO.Directory.CreateDirectory(_stateDirectory);
         Purge();
 
         if (!SuppressWatcherForTests)
@@ -107,6 +111,17 @@ public sealed class SessionPointerWatcher : IDisposable
             _watcher.Renamed += OnDropped;
             _watcher.Error += OnWatcherError;
             _watcher.EnableRaisingEvents = true;
+
+            _stateWatcher = new FileSystemWatcher(_stateDirectory, "*.state.json")
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                IncludeSubdirectories = true,
+            };
+            _stateWatcher.Created += OnDropped;
+            _stateWatcher.Changed += OnDropped;
+            _stateWatcher.Renamed += OnDropped;
+            _stateWatcher.Error += OnWatcherError;
+            _stateWatcher.EnableRaisingEvents = true;
         }
 
         // The sweep is a slow-and-steady job on the scheduler (docs/BackgroundWork.md): the delivery
@@ -138,6 +153,13 @@ public sealed class SessionPointerWatcher : IDisposable
             if (Apply(path))
                 applied++;
         }
+        if (System.IO.Directory.Exists(_stateDirectory))
+        {
+            foreach (var path in System.IO.Directory.EnumerateFiles(_stateDirectory, "*.state.json", SearchOption.AllDirectories))
+            {
+                if (Apply(path)) applied++;
+            }
+        }
         return applied;
     }
 
@@ -151,6 +173,9 @@ public sealed class SessionPointerWatcher : IDisposable
         // Windows filename filters have historically matched more than they appear to.
         if (!string.Equals(Path.GetExtension(path), SessionHookFiles.DropExtension, StringComparison.OrdinalIgnoreCase))
             return false;
+
+        if (Path.GetFileName(path).EndsWith(SessionHookFiles.StateEventExtension, StringComparison.OrdinalIgnoreCase))
+            return ApplyStateEvent(path);
 
         if (!SessionHookFiles.TryParseDropName(path, out var sessionId, out var dropToken))
         {
@@ -252,6 +277,84 @@ public sealed class SessionPointerWatcher : IDisposable
         return moved;
     }
 
+    private bool ApplyStateEvent(string path)
+    {
+        void RemoveDrop()
+        {
+            try { File.Delete(path); }
+            catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] could not remove state event {path} FAILED: {ex.Message}"); }
+        }
+
+        if (!SessionHookFiles.TryParseStateEventDropName(path, out var sessionId, out var token))
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting malformed state-event filename {path}");
+            RemoveDrop();
+            return false;
+        }
+        var session = _sessions.GetSession(sessionId);
+        if (session is null)
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting state event for non-live session {sessionId}");
+            RemoveDrop();
+            return false;
+        }
+        if (!TokensMatch(token, session.PointerDropToken))
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting state event for {sessionId}: capability mismatch");
+            RemoveDrop();
+            return false;
+        }
+
+        string body;
+        try { body = File.ReadAllText(path); }
+        catch (FileNotFoundException) { return false; }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionPointerWatcher] could not read state event {path}: {ex.Message}");
+            return false;
+        }
+
+        var error = body.Length > 4096 ? "event exceeds 4096 characters" : "";
+        SessionStateEvent? evt = null;
+        if (body.Length > 4096 || !SessionStateEventContract.TryParse(body, out evt, out error))
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting invalid state event for {sessionId}: {error}");
+            RemoveDrop();
+            return false;
+        }
+        if (evt is null)
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting invalid state event for {sessionId}: parser returned no event");
+            RemoveDrop();
+            return false;
+        }
+        if (evt.SessionId != sessionId || !SessionStateEventContract.MatchesAgent(evt.Agent, session.AgentKind))
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting state event with wrong session/agent (file={sessionId}, body={evt.SessionId}, agent={evt.Agent})");
+            RemoveDrop();
+            return false;
+        }
+        if (evt.OccurredAtUtc < DateTimeOffset.UtcNow - SessionStateEventContract.MaxAge
+            || evt.OccurredAtUtc > DateTimeOffset.UtcNow + SessionStateEventContract.MaxFutureSkew)
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting stale/future state event {evt.EventId} for {sessionId}");
+            RemoveDrop();
+            return false;
+        }
+        if (!session.ApplyAgentStateEvent(evt))
+        {
+            FileLog.Write($"[SessionPointerWatcher] rejecting duplicate/out-of-order state event {evt.EventId} sequence={evt.Sequence} for {sessionId}");
+            RemoveDrop();
+            return false;
+        }
+        var result = evt.Event == "unsupported"
+            ? "diagnostic=retained state=unchanged"
+            : $"state={SessionStateEventContract.StateFor(evt.Event)} source=agent";
+        FileLog.Write($"[SessionPointerWatcher] applied state event session={sessionId} event={evt.Event} sequence={evt.Sequence} {result}");
+        RemoveDrop();
+        return true;
+    }
+
     /// <summary>
     /// Delete a session's drop files. Called when the session is removed. Matches on the id half of
     /// the name rather than reconstructing the exact tokened path, so it also clears anything a
@@ -344,6 +447,16 @@ public sealed class SessionPointerWatcher : IDisposable
             _watcher.Error -= OnWatcherError;
             _watcher.Dispose();
             _watcher = null;
+        }
+        if (_stateWatcher is not null)
+        {
+            _stateWatcher.EnableRaisingEvents = false;
+            _stateWatcher.Created -= OnDropped;
+            _stateWatcher.Changed -= OnDropped;
+            _stateWatcher.Renamed -= OnDropped;
+            _stateWatcher.Error -= OnWatcherError;
+            _stateWatcher.Dispose();
+            _stateWatcher = null;
         }
     }
 }

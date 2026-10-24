@@ -164,6 +164,7 @@ public sealed class SnoozeLandingObserver
     private static bool IsSettled(string activity) =>
         string.Equals(activity, nameof(ActivityState.WaitingForInput), StringComparison.OrdinalIgnoreCase)
         || string.Equals(activity, nameof(ActivityState.WaitingForPerm), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(activity, nameof(ActivityState.MenuOpen), StringComparison.OrdinalIgnoreCase)
         || string.Equals(activity, nameof(ActivityState.Idle), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Observe a whole pushed snapshot - the reconnect path, where a landing can hide.</summary>

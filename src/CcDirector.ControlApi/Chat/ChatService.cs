@@ -127,7 +127,7 @@ public sealed class ChatService
             try { await Task.Delay(PollInterval, ct); } catch (OperationCanceledException) { break; }
             finalState = session.ActivityState;
             if (finalState is ActivityState.Idle or ActivityState.WaitingForInput
-                or ActivityState.WaitingForPerm or ActivityState.Exited)
+                or ActivityState.WaitingForPerm or ActivityState.MenuOpen or ActivityState.Exited)
                 break;
             if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             {
@@ -199,7 +199,7 @@ public sealed class ChatService
         string status;
         if (state is ActivityState.Exited || session.Status is SessionStatus.Exited or SessionStatus.Failed)
             status = "session_not_found";
-        else if (state is ActivityState.Idle or ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+        else if (state is ActivityState.Idle or ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen)
             status = "ok";
         else
             status = "working";

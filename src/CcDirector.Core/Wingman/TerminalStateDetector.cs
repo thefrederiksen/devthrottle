@@ -1271,8 +1271,18 @@ public sealed class TerminalStateDetector : IDisposable
                 _settledBodyHash = null;
                 FileLog.Write($"[TerminalStateDetector] {_session.Id} settled with NO baseline (screen could not be read); the next check is ambiguous and will open");
             }
-            FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | hook={_session.ActivityState}");
-            if (_driveState) _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            var picker = PickerOnScreen.Read(_session.SnapshotScreenRows(), _session.AgentKind.ToString());
+            var composer = Drivers.DoorbellSafety.ReadComposer(_session.AgentKind, _session.SnapshotLiveFrame());
+            FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | state={_session.ActivityState} | composer={composer} | {picker.Describe()}");
+            if (_driveState)
+            {
+                if (picker.Drawn)
+                    _session.ApplyScreenActivityState(ActivityState.MenuOpen);
+                else if (composer is Drivers.ComposerReading.Empty or Drivers.ComposerReading.HoldsText)
+                    _session.ApplyScreenActivityState(ActivityState.WaitingForInput);
+                else
+                    _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            }
         }
 
         // Every time this detector reads. Two windows it compares against are stamped by the SESSION on the

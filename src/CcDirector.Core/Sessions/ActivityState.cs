@@ -11,5 +11,6 @@ public enum ActivityState
     Working,
     WaitingForInput,
     WaitingForPerm,
+    MenuOpen,
     Exited
 }
