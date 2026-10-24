@@ -20,7 +20,8 @@ namespace CcDirector.Gateway.Api;
 /// Filters: <c>account</c> or <c>email</c> (one, looked up as <c>/gateway/admin/director-errors</c> does), <c>job</c>,
 /// <c>since</c> and <c>until</c> on the time the run fired (an ISO 8601 time or an age such as 6h or 7d; the default is
 /// the last <see cref="DefaultWindow"/>), <c>outcome</c> (<c>failed</c> for failed runs only, or <c>all</c>, the
-/// default) and <c>limit</c> (1 to <see cref="MaxLimit"/>, default 100). Every refusal says why. Read-only.
+/// default) and <c>limit</c> (1 to <see cref="MaxLimit"/>, default 100). Any other key is refused, so a mistyped
+/// filter can never widen the read to every account. Every refusal says why. Read-only.
 ///
 /// Each row: the account, the schedule's id and name, the machine, when it was due and fired, how it ended (its status,
 /// its result, its problem and the reason the record gives, and whether it was resolved), and the session it started.
@@ -30,6 +31,8 @@ internal static class AdminCronRunEndpoints
     public const string Path = "/gateway/admin/cron-runs";
     internal const int MaxLimit = 500;
     internal static readonly TimeSpan DefaultWindow = TimeSpan.FromDays(7);
+    private static readonly HashSet<string> KnownFilters =
+        new(new[] { "account", "email", "job", "since", "until", "outcome", "limit" }, StringComparer.Ordinal);
 
     public static void Map(IEndpointRouteBuilder app, CronRunHistoryStore runs, TenantRegistry? tenants,
         Func<DateTime>? nowUtc = null)
@@ -58,6 +61,12 @@ internal static class AdminCronRunEndpoints
     /// gate is in front of it in <see cref="Map"/>.</summary>
     internal static IResult Handle(CronRunHistoryStore runs, TenantRegistry? tenants, IQueryCollection q, DateTime nowUtc)
     {
+        // A filter this route does not know is refused, never ignored: a mistyped ?acount= would otherwise read every
+        // account's runs, the broadest answer there is, for a caller who asked for one.
+        var unknown = q.Keys.Where(k => !KnownFilters.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        if (unknown.Count > 0)
+            return Results.BadRequest(new { error = $"unknown filter {string.Join(", ", unknown)}; the filters are {string.Join(", ", KnownFilters.Order(StringComparer.Ordinal))}" });
+
         if (!DirectorErrorEndpoints.TryResolveAdminAccount(q, tenants, out var account, out var bad)) return bad;
 
         var until = nowUtc;

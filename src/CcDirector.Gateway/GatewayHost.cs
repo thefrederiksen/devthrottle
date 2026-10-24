@@ -4773,7 +4773,9 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.GatewayRequestErrors.Use(_app, _errorSink);
         // Issue #4403: the Gateway's own failures that belong to one account go to the same store, under that account.
         AccountFailures.Attach(_errorSink);
-        _cronRunFailures = new Running.CronRunFailureReporter(_cronRuns, AccountFailures);
+        var failureStore = _errorReports;
+        _cronRunFailures = new Running.CronRunFailureReporter(_cronRuns, AccountFailures,
+            alreadyStored: since => Running.CronRunFailureReporter.StoredScheduleFailures(failureStore, since, DateTime.UtcNow));
         _cronRunFailures.Start();
 
         _app.UseForwardedHeaders();

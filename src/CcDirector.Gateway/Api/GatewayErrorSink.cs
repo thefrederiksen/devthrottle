@@ -204,11 +204,13 @@ internal sealed class GatewayErrorSink : IDisposable
     }
 
     /// <summary>Queue one error. Every free-text field is scrubbed and capped here, whoever built it.</summary>
-    public void Report(GatewayError error) => Report(error, occurrences: 1);
+    public bool Report(GatewayError error) => Report(error, occurrences: 1);
 
     /// <summary>Queue one error that happened <paramref name="occurrences"/> times - a caller that held its repeats back
-    /// (<see cref="GatewayAccountFailures"/>) hands them over here, so the row's count stays true.</summary>
-    public void Report(GatewayError error, int occurrences)
+    /// (<see cref="GatewayAccountFailures"/>) hands them over here, so the row's count stays true. Returns false when the
+    /// error was DROPPED because the table is full (it is counted in the hour's flood record), true when it is waiting
+    /// to be written - so a caller that must not lose one can try again later.</summary>
+    public bool Report(GatewayError error, int occurrences)
     {
         ArgumentNullException.ThrowIfNull(error);
         if (occurrences < 1) throw new ArgumentOutOfRangeException(nameof(occurrences), "an error happens at least once");
@@ -242,7 +244,7 @@ internal sealed class GatewayErrorSink : IDisposable
             {
                 node.Value.Count += occurrences;
                 node.Value.LastSeenUtc = now;
-                return;
+                return true;
             }
             if (_order.Count >= MaxPending)
             {
@@ -265,11 +267,12 @@ internal sealed class GatewayErrorSink : IDisposable
             }
         }
 
-        if (!dropped) return;
+        if (!dropped) return true;
         _floods.Dropped(ErrorIntakeFloods.GatewayLog, 1, now);
         // Once per episode, and in the reporter's own tag, so the announcement is never itself a report.
         if (announceFull)
             FileLog.Write($"{ErrorLine.ReporterTag} gateway: {MaxPending} distinct errors are waiting to be stored; new ones are dropped and counted until some are stored");
+        return false;
     }
 
     /// <summary>

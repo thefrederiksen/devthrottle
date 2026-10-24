@@ -48,17 +48,39 @@ public sealed class GatewayAccountFailures
     /// are counted onto the next row, so its count stays true.
     /// </summary>
     internal static readonly TimeSpan RepeatWindow = TimeSpan.FromMinutes(10);
-    internal const int MaxThrottled = 2000;
+
+    /// <summary>At most this many distinct refusals are remembered for the window. When every one is still inside it,
+    /// a new refusal is not stored on its own: it is counted, and the count is stored as one Gateway row
+    /// (<see cref="OverflowMessage"/>) - so a burst across many keys can neither grow this table nor fill the store.</summary>
+    internal const int DefaultMaxThrottled = 2000;
+
+    /// <summary>The one row a refusal is counted in when the table is full.</summary>
+    internal const string OverflowMessage =
+        "more distinct credential refusals arrived inside ten minutes than the Gateway keeps apart; these were counted here and not stored one by one";
 
     private volatile GatewayErrorSink? _sink;
     private int _noSinkLogged;
     private readonly Func<DateTime> _clock;
     private readonly object _throttleLock = new();
     private readonly Dictionary<string, (DateTime Stored, int HeldBack)> _throttle = new(StringComparer.Ordinal);
+    private readonly int _maxThrottled;
 
     public GatewayAccountFailures() : this(null) { }
 
-    internal GatewayAccountFailures(Func<DateTime>? clock) => _clock = clock ?? (() => DateTime.UtcNow);
+    internal GatewayAccountFailures(Func<DateTime>? clock, int maxThrottled = DefaultMaxThrottled)
+    {
+        if (maxThrottled < 1) throw new ArgumentOutOfRangeException(nameof(maxThrottled));
+        _clock = clock ?? (() => DateTime.UtcNow);
+        _maxThrottled = maxThrottled;
+    }
+
+    /// <summary>
+    /// The correlation id a failed run's report carries: the run and the result time it was reported for. It is how a
+    /// restarted Gateway knows, from the store itself, which failures already reached it
+    /// (<see cref="Running.CronRunFailureReporter"/>), and it keeps each run's failure its own row.
+    /// </summary>
+    internal static string RunCorrelation(string runId, DateTime resultUtc)
+        => $"schedule-run {runId} {DateTime.SpecifyKind(resultUtc, DateTimeKind.Utc).Ticks}";
 
     /// <summary>Send this Gateway's account failures to <paramref name="sink"/>. Called once, when the sink exists.</summary>
     internal void Attach(GatewayErrorSink sink)
@@ -99,8 +121,9 @@ public sealed class GatewayAccountFailures
             SessionId: sessionId));
     }
 
-    /// <summary>A scheduled run that failed, with the reason its record carries.</summary>
-    internal void ScheduleRunFailed(CronRunHistoryStore.AccountRun failed)
+    /// <summary>A scheduled run that failed, with the reason its record carries. Returns false when it could not be
+    /// handed to the store - no sink, or the sink's table is full - so the caller tries again.</summary>
+    internal bool ScheduleRunFailed(CronRunHistoryStore.AccountRun failed)
     {
         ArgumentNullException.ThrowIfNull(failed);
         var run = failed.Run;
@@ -110,12 +133,13 @@ public sealed class GatewayAccountFailures
             : Contracts.CronRunProblems.Words(run.Problem);
         var machine = string.IsNullOrWhiteSpace(run.Machine) ? "" : $" on {run.Machine}";
         var reason = string.IsNullOrWhiteSpace(run.ResultReason) ? "the run record gives no reason" : run.ResultReason;
-        Report(new GatewayError(
+        return Report(new GatewayError(
             Source: ScheduleSource,
             Kind: ScheduleKind,
             Message: $"schedule {name}{machine}: {how}: {reason}",
             Account: failed.Account,
             Surface: $"schedule {failed.JobId}",
+            CorrelationId: RunCorrelation(run.RunId, run.ResultUtc ?? run.FiredUtc),
             ErrorCode: run.Problem ?? run.Result,
             SessionId: run.SessionId));
     }
@@ -125,6 +149,7 @@ public sealed class GatewayAccountFailures
         var key = string.Join('|', error.Source, error.Account, error.SessionId ?? "", error.HttpStatus?.ToString() ?? "", error.Message);
         var now = _clock();
         int occurrences;
+        var overflow = false;
         lock (_throttleLock)
         {
             if (_throttle.TryGetValue(key, out var seen) && now - seen.Stored < RepeatWindow)
@@ -133,7 +158,7 @@ public sealed class GatewayAccountFailures
                 return;
             }
             occurrences = 1 + (_throttle.TryGetValue(key, out var before) ? before.HeldBack : 0);
-            if (_throttle.Count >= MaxThrottled)
+            if (!_throttle.ContainsKey(key) && _throttle.Count >= _maxThrottled)
             {
                 // Bounded: what has left its window is forgotten. Its held-back repeats were counted by nobody, so they
                 // are written in the log rather than lost silently.
@@ -142,22 +167,31 @@ public sealed class GatewayAccountFailures
                 var uncounted = gone.Sum(g => g.Value.HeldBack);
                 if (uncounted > 0)
                     FileLog.Write($"[GatewayAccountFailures] forgot {gone.Count} refusal(s) past their window; {uncounted} repeat(s) of them were never stored");
+                overflow = _throttle.Count >= _maxThrottled;
             }
-            _throttle[key] = (now, 0);
+            if (!overflow) _throttle[key] = (now, 0);
+        }
+        if (overflow)
+        {
+            // Every remembered refusal is still inside its window: this one is not kept apart. It is counted in ONE row
+            // that names no account - the operator's to read - and the sink folds every such count into that row.
+            Report(new GatewayError(Source: CredentialSource, Kind: Kind, Message: OverflowMessage,
+                ErrorCode: "credential_refusals_not_kept_apart"), occurrences);
+            return;
         }
         Report(error, occurrences);
     }
 
-    private void Report(GatewayError error, int occurrences = 1)
+    private bool Report(GatewayError error, int occurrences = 1)
     {
         var sink = _sink;
         if (sink is null)
         {
             if (Interlocked.Exchange(ref _noSinkLogged, 1) == 0)
                 FileLog.Write($"[GatewayAccountFailures] no error sink is attached, so the Gateway's account failures are not stored (first: {error.Source})");
-            return;
+            return false;
         }
-        sink.Report(error, occurrences);
+        return sink.Report(error, occurrences);
     }
 }
 

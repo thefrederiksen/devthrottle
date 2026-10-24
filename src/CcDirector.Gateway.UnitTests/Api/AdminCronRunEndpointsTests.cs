@@ -194,6 +194,9 @@ public sealed class AdminCronRunEndpointsTests : IAsyncLifetime
     [InlineData("?since=1h&until=2h", HttpStatusCode.BadRequest)]
     [InlineData("?account=x&email=alpha%40example.com", HttpStatusCode.BadRequest)]
     [InlineData("?email=nobody%40example.com", HttpStatusCode.NotFound)]
+    // A mistyped filter must never widen the read to every account.
+    [InlineData("?acount=x", HttpStatusCode.BadRequest)]
+    [InlineData("?outcome=failed&machine=workstation-a", HttpStatusCode.BadRequest)]
     public async Task Get_ABadFilter_IsRefusedWithAReason_NeverReadAsEverything(string query, HttpStatusCode expected)
     {
         SeedTwoAccounts();

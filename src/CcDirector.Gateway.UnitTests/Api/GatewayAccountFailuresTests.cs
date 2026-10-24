@@ -61,10 +61,88 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
 
     // ---- scheduled runs ---------------------------------------------------------------------------------------
 
+    /// <summary>A reporter as the Gateway builds one: it reads what the store already holds to know what was told.</summary>
+    private CronRunFailureReporter NewReporter(GatewayAccountFailures? failures = null)
+        => new(_host.Runs, failures ?? _host.Failures,
+            since => CronRunFailureReporter.StoredScheduleFailures(_host.Errors, since, _host.Now), () => _host.Now);
+
+    private CronRunRecord FailMorningRun()
+    {
+        _host.AddJob(_host.AccountA, "cj_morning", "Morning report");
+        return _host.AddRun(_host.AccountA, "cj_morning", _host.Now, CronRunResults.Problem, CronRunProblems.DidNotRun,
+            "it did not start a session", _host.Now);
+    }
+
+    [Fact]
+    public void AFailureRecordedBeforeTheReporterStarted_IsReported()
+    {
+        // A Gateway that restarts must not start blind: the last one may have recorded a failure it never stored.
+        var run = FailMorningRun();
+        _host.Now = _host.Now.AddMinutes(3);
+
+        Assert.Equal(1, NewReporter().Scan());
+
+        var row = Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+        Assert.Equal(GatewayAccountFailures.RunCorrelation(run.RunId, run.ResultUtc!.Value), row.CorrelationId);
+    }
+
+    [Fact]
+    public void AfterARestart_AFailureAlreadyStored_IsNotReportedAgain()
+    {
+        FailMorningRun();
+        _host.Now = _host.Now.AddMinutes(1);
+        Assert.Equal(1, NewReporter().Scan());
+        _host.Sink.Flush();
+
+        _host.Now = _host.Now.AddMinutes(1);
+        Assert.Equal(0, NewReporter().Scan());
+
+        Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+    }
+
+    [Fact]
+    public void AfterARestart_AFailureAcceptedButLostWithTheProcess_IsReportedAgain()
+    {
+        FailMorningRun();
+        _host.Now = _host.Now.AddMinutes(1);
+        Assert.Equal(1, NewReporter().Scan());
+        // The process ends before its sink wrote: that sink's table is gone. A new process has a new sink.
+        _host.Failures.Detach();
+        using var nextSink = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now,
+            new GatewayErrorSink.ProcessFacts("2.99.0", "linux", "test", "x64", "0123456789abcdef"));
+        var nextFailures = new GatewayAccountFailures(() => _host.Now);
+        nextFailures.Attach(nextSink);
+        _host.Now = _host.Now.AddMinutes(1);
+
+        Assert.Equal(1, NewReporter(nextFailures).Scan());
+        nextSink.Flush();
+
+        var row = Assert.Single(_host.Errors.Query(new ErrorReportQuery(_host.Now.AddDays(-1), _host.Now.AddDays(1), Limit: 500))
+            .Records, r => r.Source == GatewayAccountFailures.ScheduleSource);
+        Assert.Equal(_host.AccountA.Value, row.Account);
+    }
+
+    [Fact]
+    public void AFailureTheSinkDropped_IsNotMarkedTold_AndTheNextScanReportsIt()
+    {
+        for (var i = 0; i < GatewayErrorSink.MaxPending; i++)
+            Assert.True(_host.Sink.Report(new GatewayError("filler", "logged", $"filler error number {i} FAILED", SessionId: $"s{i}")));
+        var reporter = NewReporter();
+        FailMorningRun();
+        _host.Now = _host.Now.AddMinutes(1);
+
+        Assert.Equal(0, reporter.Scan());
+        Assert.Empty(GatewayRows(GatewayAccountFailures.ScheduleSource));
+
+        _host.Now = _host.Now.AddSeconds(30);
+        Assert.Equal(1, reporter.Scan());
+        Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+    }
+
     [Fact]
     public async Task AFailedScheduledRun_IsReportedUnderItsAccount_WithTheReasonTheRunCarries()
     {
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountA, "cj_morning", "Morning report");
         _host.AddJob(_host.AccountB, "cj_nightly", "Nightly sweep");
         _host.Now = _host.Now.AddMinutes(1);
@@ -90,7 +168,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     [Fact]
     public void AFailedRun_IsReportedOnce_HoweverManyScansSeeIt()
     {
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountB, "cj_nightly", "Nightly sweep");
         _host.Now = _host.Now.AddMinutes(1);
         _host.AddRun(_host.AccountB, "cj_nightly", _host.Now, CronRunResults.Problem, CronRunProblems.DidNotReport,
@@ -111,7 +189,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     [Fact]
     public void ARunThatFailsAfterAScan_IsReportedByTheNextOne()
     {
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountA, "cj_morning", "Morning report");
         Assert.Equal(0, reporter.Scan());
 
@@ -129,7 +207,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     public void AFailureRecordedJustBeforeAScanButCommittedAfterIt_IsStillReported()
     {
         // The result time is taken before the write commits; a scan in between must not leave it behind for good.
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountA, "cj_morning", "Morning report");
         var stampedAt = _host.Now.AddSeconds(10);
         _host.Now = _host.Now.AddSeconds(20);
@@ -145,7 +223,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     [Fact]
     public void ABurstLargerThanOnePage_IsReportedInFullOverTheNextScans()
     {
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountA, "cj_burst", "Burst");
         var total = CronRunFailureReporter.MaxPerScan + 5;
         for (var i = 0; i < total; i++)
@@ -173,7 +251,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     public void ABurstThatSharesOneResultTime_IsReportedInFull()
     {
         // The runs missed while the Gateway was down are recorded in one write, every one with the same result time.
-        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, () => _host.Now);
+        var reporter = NewReporter();
         _host.AddJob(_host.AccountA, "cj_missed", "Missed");
         var at = _host.Now.AddSeconds(1);
         var total = CronRunFailureReporter.MaxPerScan + 3;
@@ -297,6 +375,32 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
         var rows = GatewayRows(GatewayAccountFailures.CredentialSource);
         Assert.Equal(2, rows.Count);
         Assert.Equal(6, rows.Sum(r => r.RepeatCount));
+    }
+
+    [Fact]
+    public void WhenTheThrottleIsFullAndNothingHasLeftItsWindow_ANewRefusalIsCountedInOneRow_AndTheTableDoesNotGrow()
+    {
+        var failures = new GatewayAccountFailures(() => _host.Now, maxThrottled: 2);
+        failures.Attach(_host.Sink);
+        CredentialRefusal Refusal(string session) => new(_host.AccountA.Value, "session key", "the session key expired", 401,
+            "credential_revoked", "GET", "/x", session);
+
+        failures.CredentialRefused(Refusal("s1"));
+        failures.CredentialRefused(Refusal("s2"));
+        failures.CredentialRefused(Refusal("s3"));
+        failures.CredentialRefused(Refusal("s4"));
+        failures.CredentialRefused(Refusal("s1"));
+
+        var rows = GatewayRows(GatewayAccountFailures.CredentialSource);
+        Assert.Equal(new[] { "s1", "s2" }, rows.Where(r => r.SessionId is not null).Select(r => r.SessionId).Order());
+        var overflow = Assert.Single(rows, r => r.Message == GatewayAccountFailures.OverflowMessage);
+        Assert.Equal("", overflow.Account);
+        Assert.Equal(2, overflow.RepeatCount);
+
+        // Once the remembered ones leave their window, a new refusal is kept apart again.
+        _host.Now = _host.Now + GatewayAccountFailures.RepeatWindow;
+        failures.CredentialRefused(Refusal("s5"));
+        Assert.Contains(GatewayRows(GatewayAccountFailures.CredentialSource), r => r.SessionId == "s5");
     }
 
     // ---- refused registrations -----------------------------------------------------------------------------
