@@ -2563,9 +2563,12 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
 
         // GitHub row (issue #4426), from the panel's last reading; none when the step was never opened.
         if (_gitHubStatus is { } gitHub)
-            DoneReceiptPanel.Children.Add(gitHub.State == GitHubSetupState.SignedIn
-                ? ReceiptRow("GitHub signed in", gitHub.Account ?? "github.com", done: true)
-                : ReceiptRow("GitHub not set up yet", "Sign in any time in Settings > GitHub", done: false));
+            DoneReceiptPanel.Children.Add(gitHub.State switch
+            {
+                GitHubSetupState.SignedIn => ReceiptRow("GitHub signed in", gitHub.Account ?? "github.com", done: true),
+                GitHubSetupState.SignInUnconfirmed => ReceiptRow("GitHub sign-in not confirmed", gitHub.Detail, done: false),
+                _ => ReceiptRow("GitHub not set up yet", "Sign in any time in Settings > GitHub", done: false),
+            });
 
         // Screenshots row.
         if (_shotsSelectedPath is not null)

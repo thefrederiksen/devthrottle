@@ -10,10 +10,11 @@ public sealed class GitHubSetupCommandsTests
     [Fact]
     public void SignIn_Mac_LogsInThroughTheBrowserWithHttps_ThenSetsUpGit()
     {
-        var step = GitHubSetupCommands.SignIn("/opt/homebrew/bin/gh", OSPlatform.OSX);
+        var step = GitHubSetupCommands.SignIn("/opt/homebrew/bin/gh", "/usr/bin/git", OSPlatform.OSX);
 
         Assert.Equal(GitHubSetupStepKind.Terminal, step.Kind);
         Assert.StartsWith("#!/bin/zsh", step.Script);
+        Assert.Contains("export PATH='/usr/bin':'/opt/homebrew/bin':\"$PATH\"", step.Script);
         Assert.Contains("'/opt/homebrew/bin/gh' auth login --hostname github.com --git-protocol https --web && '/opt/homebrew/bin/gh' auth setup-git --hostname github.com", step.Script);
         Assert.Contains("Done. You can close this window", step.Script);
     }
@@ -21,10 +22,12 @@ public sealed class GitHubSetupCommandsTests
     [Fact]
     public void SignIn_Windows_QuotesThePath_AndStopsAtTheFirstFailure()
     {
-        var step = GitHubSetupCommands.SignIn(@"C:\Program Files\GitHub CLI\gh.exe", OSPlatform.Windows);
+        var step = GitHubSetupCommands.SignIn(@"C:\Program Files\GitHub CLI\gh.exe", @"C:\Program Files\Git\cmd\git.exe", OSPlatform.Windows);
 
         var lines = step.Script.Split(Environment.NewLine);
         Assert.Equal("@echo off", lines[0]);
+        // Review of #4426: a git and gh installed a minute ago are not on the PATH the console inherits; gh needs git on it.
+        Assert.Equal("set \"PATH=C:\\Program Files\\Git\\cmd;C:\\Program Files\\GitHub CLI;%PATH%\"", lines[1]);
         var login = Array.IndexOf(lines, "\"C:\\Program Files\\GitHub CLI\\gh.exe\" auth login --hostname github.com --git-protocol https --web");
         Assert.True(login > 0);
         Assert.Equal("if errorlevel 1 goto failed", lines[login + 1]);

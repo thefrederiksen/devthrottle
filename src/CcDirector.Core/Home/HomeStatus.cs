@@ -222,6 +222,8 @@ public static class HomeStatusBuilder
     private static HomeCheck BuildGitHub(Setup.GitHubSetupStatus gitHub) => gitHub.State switch
     {
         Setup.GitHubSetupState.SignedIn => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Ok, gitHub.Detail, HomeCheckAction.None),
+        // Signed in, not confirmed: amber with the account named, and Fix offers signing in again if it has expired.
+        Setup.GitHubSetupState.SignInUnconfirmed => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn, gitHub.Detail, HomeCheckAction.SetUpGitHub),
         Setup.GitHubSetupState.SignedOut => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn,
             "not signed in - sign in once so sessions can push and open pull requests", HomeCheckAction.SetUpGitHub),
         _ => new HomeCheck(GitHubRowTitle, HomeCheckLevel.Warn, gitHub.Detail, HomeCheckAction.SetUpGitHub),

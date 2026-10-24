@@ -70,4 +70,17 @@ public class HomeStatusGitHubRowTests
         Assert.Equal($"detail for {state}", row.Detail);
         Assert.Equal(HomeCheckAction.SetUpGitHub, row.Action);
     }
+
+    [Fact]
+    public void SignInUnconfirmed_SaysWhoIsSignedIn_NotThatNobodyIs()
+    {
+        var unconfirmed = new GitHubSetupStatus(GitHubSetupState.SignInUnconfirmed, "/usr/bin/git", "2.43.0", "/usr/bin/gh", "2.62.0",
+            "octocat", "signed in as octocat, but GitHub could not confirm it - it may be unreachable just now, or the sign-in has expired");
+
+        var row = Row(BuildWith(unconfirmed))!;
+
+        Assert.Equal(HomeCheckLevel.Warn, row.Level);
+        Assert.StartsWith("signed in as octocat", row.Detail);
+        Assert.DoesNotContain("not signed in", row.Detail);
+    }
 }

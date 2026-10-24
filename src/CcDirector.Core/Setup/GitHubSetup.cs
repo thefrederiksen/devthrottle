@@ -16,6 +16,12 @@ public enum GitHubSetupState
     /// <summary>Both are installed and gh is not signed in to github.com.</summary>
     SignedOut,
 
+    /// <summary>
+    /// gh holds a sign-in for an account but could not confirm it: GitHub could not be reached, or the sign-in has
+    /// expired - gh says the same words for both. Not "signed out": an offline laptop must not be told nobody is signed in.
+    /// </summary>
+    SignInUnconfirmed,
+
     /// <summary>gh is signed in to github.com.</summary>
     SignedIn,
 }
@@ -59,6 +65,9 @@ public static class GitHubSetupProbe
     // gh 2.40+ prints "Logged in to github.com account octocat (keyring)"; older releases print "as octocat".
     private static readonly Regex AccountPattern = new(@"Logged in to github\.com (?:account|as) ([A-Za-z0-9-]+)", RegexOptions.Compiled);
 
+    // A stored sign-in gh could not confirm (offline, or an expired token): "X Failed to log in to github.com account octocat".
+    private static readonly Regex UnconfirmedPattern = new(@"Failed to log in to github\.com (?:account|as) ([A-Za-z0-9-]+)", RegexOptions.Compiled);
+
     /// <summary>"git version 2.43.0" and "gh version 2.40.1 (2023-12-13)" give their version; anything else gives null.</summary>
     public static string? ParseVersion(string output)
     {
@@ -95,6 +104,10 @@ public static class GitHubSetupProbe
         if (ghVersion is null)
             return new GitHubSetupStatus(GitHubSetupState.GhMissing, git.Path, gitVersion, null, null, null,
                 "the GitHub command line (gh) is not installed, so DevThrottle cannot sign in to GitHub");
+
+        if (authStatus is not null && authStatus.ExitCode != 0 && UnconfirmedPattern.Match(authStatus.Output) is { Success: true } stored)
+            return new GitHubSetupStatus(GitHubSetupState.SignInUnconfirmed, git.Path, gitVersion, gh.Path, ghVersion, stored.Groups[1].Value,
+                $"signed in as {stored.Groups[1].Value}, but GitHub could not confirm it - it may be unreachable just now, or the sign-in has expired");
 
         if (authStatus is null || authStatus.ExitCode != 0)
             return new GitHubSetupStatus(GitHubSetupState.SignedOut, git.Path, gitVersion, gh.Path, ghVersion, null,
@@ -143,6 +156,37 @@ public static class GitHubSetupProbe
         var status = Classify(git, gh, auth);
         FileLog.Write($"[GitHubSetupProbe] ProbeAsync: state={status.State}, git={status.GitVersion ?? "none"}, gh={status.GhVersion ?? "none"}, account={status.Account ?? "none"}");
         return status;
+    }
+
+    /// <summary>
+    /// The folders <paramref name="status"/> found git and gh in that are not on <paramref name="path"/>, in that order.
+    /// </summary>
+    public static IReadOnlyList<string> FoldersMissingFromPath(GitHubSetupStatus status, string? path)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        var onPath = (path ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.TrimEnd(Path.DirectorySeparatorChar)).ToHashSet(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        return new[] { status.GitPath, status.GhPath }
+            .Where(p => p is not null)
+            .Select(p => Path.GetDirectoryName(p!)!)
+            .Distinct()
+            .Where(d => !onPath.Contains(d))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Put the folders git and gh were found in onto this process's PATH when they are not on it (review of #4426). A gh
+    /// that winget installed a minute ago is not on the PATH the Director started with, and every session's PATH is built
+    /// from the Director's - so without this, sessions could not push until the Director restarted. Returns what it added.
+    /// </summary>
+    public static IReadOnlyList<string> AddFoundFoldersToProcessPath(GitHubSetupStatus status)
+    {
+        var current = Environment.GetEnvironmentVariable("PATH");
+        var missing = FoldersMissingFromPath(status, current);
+        if (missing.Count == 0) return missing;
+        Environment.SetEnvironmentVariable("PATH", string.Join(Path.PathSeparator, missing.Append(current ?? "")));
+        FileLog.Write($"[GitHubSetupProbe] added to this process's PATH so sessions find git and gh: {string.Join(", ", missing)}");
+        return missing;
     }
 
     /// <summary>The gh executable this machine has, or null - for the screens that start a sign-in.</summary>

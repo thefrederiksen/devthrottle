@@ -72,6 +72,7 @@ public sealed class GitHubSetupPanelTests
     [InlineData(GitHubSetupState.GitMissing, "Install git and gh")]
     [InlineData(GitHubSetupState.GhMissing, "Install the GitHub command line")]
     [InlineData(GitHubSetupState.SignedOut, "Sign in to GitHub")]
+    [InlineData(GitHubSetupState.SignInUnconfirmed, "Sign in again")]
     [InlineData(GitHubSetupState.SignedIn, "")]
     public void StepLabel_PerState(GitHubSetupState state, string expected)
     {

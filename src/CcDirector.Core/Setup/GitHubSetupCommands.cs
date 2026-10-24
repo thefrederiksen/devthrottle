@@ -36,7 +36,9 @@ public static class GitHubSetupCommands
     /// The sign-in: <c>gh auth login</c> through the browser with https for git, then <c>gh auth setup-git</c> so a plain
     /// <c>git push</c> from a session uses the same sign-in ("authenticate Git").
     /// </summary>
-    public static GitHubSetupStep SignIn(string ghPath, OSPlatform platform)
+    /// <param name="gitPath">Where git was found. Its folder goes first on the script's PATH: gh needs git on the PATH to
+    /// set it up, and a git installed a minute ago is not on the PATH the terminal inherits from the Director.</param>
+    public static GitHubSetupStep SignIn(string ghPath, string? gitPath, OSPlatform platform)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ghPath);
         var gh = Quote(ghPath, platform);
@@ -46,10 +48,18 @@ public static class GitHubSetupCommands
             $"{gh} auth login --hostname {host} --git-protocol https --web",
             $"{gh} auth setup-git --hostname {host}",
         };
+        var folders = new[] { gitPath, ghPath }.Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => DirectoryOf(p!, platform)).Distinct().ToList();
         return new GitHubSetupStep(GitHubSetupStepKind.Terminal,
-            Script(platform, "Signing in to GitHub for DevThrottle. Follow the steps below; your browser opens to finish.", lines),
+            Script(platform, "Signing in to GitHub for DevThrottle. Follow the steps below; your browser opens to finish.", lines, folders),
             null,
-            "A terminal window opens. Press Enter when it shows a code, sign in to GitHub in the browser, and come back here.");
+            "A terminal window opens. Answer Yes to \"Authenticate Git with your GitHub credentials?\", press Enter when it shows a code, sign in to GitHub in the browser, and come back here.");
+    }
+
+    private static string DirectoryOf(string path, OSPlatform platform)
+    {
+        var cut = platform == OSPlatform.Windows ? path.LastIndexOfAny(new[] { '\\', '/' }) : path.LastIndexOf('/');
+        return cut > 0 ? path[..cut] : path;
     }
 
     /// <summary>
@@ -104,13 +114,16 @@ public static class GitHubSetupCommands
     /// The script a terminal window runs: a heading, each command in order (stopping at the first that fails), and a
     /// closing line, so the person can read what happened before closing the window.
     /// </summary>
-    public static string Script(OSPlatform platform, string heading, IReadOnlyList<string> commands)
+    public static string Script(OSPlatform platform, string heading, IReadOnlyList<string> commands,
+        IReadOnlyList<string>? pathFirst = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
+        var first = pathFirst ?? Array.Empty<string>();
         var sb = new StringBuilder();
         if (platform == OSPlatform.Windows)
         {
             sb.AppendLine("@echo off");
+            if (first.Count > 0) sb.AppendLine($"set \"PATH={string.Join(';', first)};%PATH%\"");
             sb.AppendLine($"echo {heading}");
             sb.AppendLine("echo.");
             foreach (var command in commands)
@@ -130,6 +143,7 @@ public static class GitHubSetupCommands
         }
 
         sb.AppendLine(platform == OSPlatform.OSX ? "#!/bin/zsh" : "#!/bin/bash");
+        if (first.Count > 0) sb.AppendLine($"export PATH={string.Join(':', first.Select(f => Quote(f, platform)))}:\"$PATH\"");
         sb.AppendLine($"echo '{heading.Replace("'", "'\\''")}'");
         sb.AppendLine("echo");
         sb.AppendLine("if " + string.Join(" && ", commands) + "; then");
@@ -191,9 +205,10 @@ public static class GitHubSetupCommands
         File.SetUnixFileMode(linuxFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         if (terminal is null)
             return $"No terminal program was found. Open a terminal and run: bash {linuxFile}";
+        // The executable script alone: xterm takes the program and its arguments separately, and gnome-terminal splits one.
         var psi = new ProcessStartInfo(terminal) { UseShellExecute = false };
         psi.ArgumentList.Add("-e");
-        psi.ArgumentList.Add($"bash {linuxFile}");
+        psi.ArgumentList.Add(linuxFile);
         Process.Start(psi);
         return null;
     }

@@ -131,6 +131,8 @@ public sealed class GitHubSetupPanel : UserControl
         try
         {
             var status = await Task.Run(() => GitHubSetupProbe.ProbeAsync());
+            // A git or gh found outside the Director's PATH (just installed) is put on it, so new sessions find it.
+            GitHubSetupProbe.AddFoundFoldersToProcessPath(status);
             Show(status);
         }
         catch (Exception ex)
@@ -161,6 +163,7 @@ public sealed class GitHubSetupPanel : UserControl
         {
             GitHubSetupState.SignedIn => status.Account is { } a ? $"yes, as {a}" : "yes",
             GitHubSetupState.SignedOut => "no",
+            GitHubSetupState.SignInUnconfirmed => $"as {status.Account}, but GitHub could not confirm it (offline, or the sign-in expired)",
             _ => "not yet - install the missing tools first",
         }, status.State == GitHubSetupState.SignedIn);
 
@@ -168,7 +171,8 @@ public sealed class GitHubSetupPanel : UserControl
         {
             GitHubSetupState.GitMissing or GitHubSetupState.GhMissing =>
                 GitHubSetupCommands.Install(status.State, CurrentPlatform(), GitHubSetupCommands.FindInstaller()),
-            GitHubSetupState.SignedOut when status.GhPath is { } gh => GitHubSetupCommands.SignIn(gh, CurrentPlatform()),
+            GitHubSetupState.SignedOut or GitHubSetupState.SignInUnconfirmed when status.GhPath is { } gh =>
+                GitHubSetupCommands.SignIn(gh, status.GitPath, CurrentPlatform()),
             _ => null,
         };
         _stepButton.Content = StepLabel(status.State);
@@ -194,6 +198,7 @@ public sealed class GitHubSetupPanel : UserControl
         GitHubSetupState.GitMissing => "Install git and gh",
         GitHubSetupState.GhMissing => "Install the GitHub command line",
         GitHubSetupState.SignedOut => "Sign in to GitHub",
+        GitHubSetupState.SignInUnconfirmed => "Sign in again",
         _ => "",
     };
 

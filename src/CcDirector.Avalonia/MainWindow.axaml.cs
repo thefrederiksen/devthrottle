@@ -1373,6 +1373,8 @@ public partial class MainWindow : Window
         try
         {
             _lastGitHubStatus = await Task.Run(() => GitHubSetupProbe.ProbeAsync());
+            // A git or gh installed since this Director started is put on its PATH, which every session's PATH is built from.
+            GitHubSetupProbe.AddFoundFoldersToProcessPath(_lastGitHubStatus);
             if (_lastClis is { } clis && _lastBuildFacts is { } bf)
             {
                 _lastHomeStatus = HomeStatusBuilder.Build(

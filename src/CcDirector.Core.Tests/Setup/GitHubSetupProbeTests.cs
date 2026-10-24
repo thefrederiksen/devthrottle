@@ -126,4 +126,34 @@ public sealed class GitHubSetupProbeTests
         Assert.Contains(GitHubSetupProbe.KnownLocations("gh", OSPlatform.Windows), p => p.EndsWith(Path.Combine("GitHub CLI", "gh.exe")));
         Assert.Contains(GitHubSetupProbe.KnownLocations("git", OSPlatform.Windows), p => p.EndsWith(Path.Combine("Git", "cmd", "git.exe")));
     }
+
+    // Review of #4426: gh validates the token against GitHub; offline (or expired) it exits 1 with these words.
+    private const string Unconfirmed = """
+        github.com
+          X Failed to log in to github.com account octo-cat (keyring)
+          - Active account: true
+          - The token in keyring is invalid.
+          - To re-authenticate, run: gh auth login -h github.com
+        """;
+
+    [Fact]
+    public void Classify_StoredSignInGhCouldNotConfirm_IsUnconfirmed_NotSignedOut()
+    {
+        var status = GitHubSetupProbe.Classify(Git, Gh, new ToolProbe(Gh.Path, 1, Unconfirmed));
+
+        Assert.Equal(GitHubSetupState.SignInUnconfirmed, status.State);
+        Assert.Equal("octo-cat", status.Account);
+        Assert.StartsWith("signed in as octo-cat, but GitHub could not confirm it", status.Detail);
+    }
+
+    [Fact]
+    public void FoldersMissingFromPath_NamesOnlyTheFoldersNotAlreadyThere()
+    {
+        var status = new GitHubSetupStatus(GitHubSetupState.SignedIn, "/usr/bin/git", "2.43.0", "/opt/homebrew/bin/gh", "2.62.0", "x", "d");
+        var sep = Path.PathSeparator;
+
+        Assert.Equal(new[] { "/opt/homebrew/bin" }, GitHubSetupProbe.FoldersMissingFromPath(status, $"/usr/bin{sep}/bin"));
+        Assert.Empty(GitHubSetupProbe.FoldersMissingFromPath(status, $"/opt/homebrew/bin/{sep}/usr/bin"));
+        Assert.Equal(new[] { "/usr/bin", "/opt/homebrew/bin" }, GitHubSetupProbe.FoldersMissingFromPath(status, null));
+    }
 }
