@@ -275,6 +275,14 @@ internal sealed class GatewayErrorSink : IDisposable
         return false;
     }
 
+    /// <summary>True while an error carrying <paramref name="correlationId"/> is waiting in the table to be written -
+    /// so a caller that tells it again can wait instead, and the count stays true (issue #4403).</summary>
+    internal bool IsWaiting(string correlationId)
+    {
+        lock (_lock)
+            return _order.Any(p => string.Equals(p.Error.CorrelationId, correlationId, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Write what is waiting: first every flood hour that has closed (never subject to any budget), then the waiting
     /// errors within this hour's budget. Returns the number of rows written. Never throws for a store that cannot be

@@ -91,6 +91,10 @@ public sealed class GatewayAccountFailures
         FileLog.Write("[GatewayAccountFailures] Attach: the Gateway's account failures now reach the error store");
     }
 
+    /// <summary>True while the attached sink still holds a report carrying <paramref name="correlationId"/>, waiting to be
+    /// written. False with no sink.</summary>
+    internal bool IsWaiting(string correlationId) => _sink?.IsWaiting(correlationId) ?? false;
+
     /// <summary>Stop reporting: the sink is being disposed.</summary>
     internal void Detach() => _sink = null;
 

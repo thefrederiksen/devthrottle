@@ -21,7 +21,8 @@ namespace CcDirector.Gateway.Running;
 /// TOLD MEANS THE SINK TOOK IT; DONE MEANS THE STORE HOLDS IT. A run is marked told only when
 /// <see cref="GatewayErrorSink"/> accepted its report; a report the sink dropped because its table was full leaves the run
 /// untold and the window where it is, so the next scan tries it again. A told report stays UNCONFIRMED until the store
-/// holds it: the checkpoint never passes it, and one still missing <see cref="ConfirmWithin"/> later is told again.
+/// holds it: the checkpoint and the scan window never pass it, and one still missing <see cref="ConfirmWithin"/> later
+/// that the sink no longer holds is told again; one the sink still holds is waited on, so its count stays true.
 ///
 /// A RESTART LOSES NOTHING. Each report carries its run and result time as its correlation id
 /// (<see cref="GatewayAccountFailures.RunCorrelation"/>), and after every scan that drained its backlog the reporter
@@ -193,7 +194,7 @@ public sealed class CronRunFailureReporter : IDisposable
 
     /// <summary>
     /// Drop from the unconfirmed list every report the store now holds. One still not there <see cref="ConfirmWithin"/>
-    /// after it was handed to the sink - the sink gave it up after its write attempts - is handed back to be told again.
+    /// after it was handed to the sink, and no longer in the sink - it gave the write up - is told again.
     /// </summary>
     private void ConfirmStored(DateTime now)
     {
@@ -201,14 +202,23 @@ public sealed class CronRunFailureReporter : IDisposable
         var ids = _alreadyStored(_unconfirmed.Keys.Min(k => k.ResultUtc) - Overlap);
         foreach (var (key, toldAt) in _unconfirmed.ToList())
         {
-            if (ids.Contains(GatewayAccountFailures.RunCorrelation(key.RunId, key.ResultUtc)))
+            var correlation = GatewayAccountFailures.RunCorrelation(key.RunId, key.ResultUtc);
+            if (ids.Contains(correlation))
             {
                 _unconfirmed.Remove(key);
                 continue;
             }
-            if (now - toldAt < ConfirmWithin) continue;
-            FileLog.Write($"[CronRunFailureReporter] run {key.RunId}: its report is not in the store {ConfirmWithin.TotalMinutes:0} minutes after the sink took it; telling it again");
-            _unconfirmed.Remove(key);
+            if (now - toldAt < ConfirmWithin || !_told.ContainsKey(key)) continue;
+            // Still waiting in the sink - held back while its hourly allowance is spent - is not lost: wait on, so the one
+            // failure is never counted twice.
+            if (_failures.IsWaiting(correlation))
+            {
+                _unconfirmed[key] = now;
+                continue;
+            }
+            // Gone from the sink and not in the store: told again. It STAYS unconfirmed, so the scan window and the
+            // checkpoint keep reaching back to it until the store holds it.
+            FileLog.Write($"[CronRunFailureReporter] run {key.RunId}: its report is not in the store {ConfirmWithin.TotalMinutes:0} minutes after the sink took it, and the sink no longer holds it; telling it again");
             _told.Remove(key);
         }
     }

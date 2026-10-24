@@ -223,7 +223,7 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     }
 
     [Fact]
-    public void AReportTheSinkTookButNeverStored_IsToldAgainInTheSameProcess()
+    public void AReportTheSinkGaveUp_IsToldAgain_ScanningAtTheRealInterval_AndTheCheckpointNeverPassesIt()
     {
         var facts = new GatewayErrorSink.ProcessFacts("2.99.0", "linux", "test", "x64", "0123456789abcdef");
         using var losing = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now, facts);
@@ -231,21 +231,49 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
         var failures = new GatewayAccountFailures(() => _host.Now);
         failures.Attach(losing);
         var reporter = NewReporter(failures);
-        FailMorningRun();
-        _host.Now = _host.Now.AddMinutes(1);
+        var run = FailMorningRun();
+        _host.Now += CronRunFailureReporter.ScanInterval;
         Assert.Equal(1, reporter.Scan());
 
-        // The first sink never writes it (it gave the write up); from here the reports go to another.
+        // The sink gives the write up: the report is gone from it, and from here reports go to another sink.
         failures.Attach(next);
-        _host.Now = _host.Now.AddMinutes(1);
-        Assert.Equal(0, reporter.Scan());
+        var retold = 0;
+        for (var scan = 0; scan < 40; scan++)
+        {
+            _host.Now += CronRunFailureReporter.ScanInterval;
+            retold += reporter.Scan();
+            Assert.True(CronRunFailureReporter.ReadCheckpoint(_host.CheckpointPath) <= run.ResultUtc);
+            if (retold == 1) break;
+        }
+        Assert.Equal(1, retold);
 
-        _host.Now = _host.Now + CronRunFailureReporter.ConfirmWithin;
-        Assert.Equal(1, reporter.Scan());
         next.Flush();
-
+        _host.Now += CronRunFailureReporter.ScanInterval;
+        Assert.Equal(0, reporter.Scan());
         Assert.Single(_host.Errors.Query(new ErrorReportQuery(_host.Now.AddDays(-1), _host.Now.AddDays(1), Limit: 500)).Records,
             r => r.Source == GatewayAccountFailures.ScheduleSource);
+        // Stored: the checkpoint moves on.
+        Assert.Equal(_host.Now, CronRunFailureReporter.ReadCheckpoint(_host.CheckpointPath));
+    }
+
+    [Fact]
+    public void AReportTheSinkStillHolds_IsWaitedOn_NotToldAgain_SoItsCountStaysTrue()
+    {
+        // The sink holds an accepted report back for most of an hour while its hourly allowance is spent.
+        var reporter = NewReporter();
+        FailMorningRun();
+        _host.Now += CronRunFailureReporter.ScanInterval;
+        Assert.Equal(1, reporter.Scan());
+        var told = 0;
+        for (var scan = 0; scan < 100; scan++)
+        {
+            _host.Now += CronRunFailureReporter.ScanInterval;
+            told += reporter.Scan();
+        }
+        Assert.Equal(0, told);
+
+        var row = Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+        Assert.Equal(1, row.RepeatCount);
     }
 
     [Fact]
