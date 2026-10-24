@@ -526,6 +526,9 @@ public static class CcStorage
     /// <summary>The preamble file handed to the Pi agent: base/pi-preamble/.</summary>
     public static string PiPreamble() => Path.Combine(Base(), "pi-preamble");
 
+    /// <summary>The Director-carried Pi extensions installed for sessions it starts.</summary>
+    public static string PiExtensions() => Path.Combine(Base(), "pi-extensions");
+
     /// <summary>
     /// Remove-the-network-port mission, phase 3: the ready-to-print SessionStart hook output the
     /// Director MAINTAINS for each live session, one file per session:
