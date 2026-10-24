@@ -5183,8 +5183,14 @@ public sealed class Session : IDisposable
                     SetActivityState(ActivityState.WaitingForInput);
                     break;
                 case Gateway.Contracts.ApiMode.TurnEnded:
+                    // A Pi extension dialog belongs to the turn that raised it. Pi emits no separate event when the
+                    // dialog times out or is abandoned by Stop, so the turn end is the authoritative end of the ask.
+                    PendingInteraction = null;
                     if (!processEnded)
                         SetActivityState(ActivityState.WaitingForInput);
+                    break;
+                case Gateway.Contracts.ApiMode.ConnectionEnded:
+                    PendingInteraction = null;
                     break;
                 case Gateway.Contracts.ApiMode.TurnStarted:
                     SetActivityState(ActivityState.Working);
