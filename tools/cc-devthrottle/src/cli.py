@@ -66,6 +66,7 @@ from .session_ops import (
     spawn_session,
     stop_session,
     undo_done,
+    wait_for_session,
     whoami as show_whoami,
 )
 
@@ -2558,6 +2559,17 @@ def session_list(
 ) -> None:
     """List every session in the fleet: id, name, state and repository."""
     list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields, connection=connection)
+
+
+@session_app.command("wait")
+def session_wait(
+    target: str = typer.Argument(None, help="Session number, id, or exact name. Default: this session."),
+    until: str = typer.Option(..., "--until", help="State to wait for: idle or needs-approval."),
+    timeout_seconds: int = typer.Option(3600, "--timeout", help="Stop waiting after this many seconds."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the reached state as JSON."),
+) -> None:
+    """Wait until a session is idle or needs approval."""
+    wait_for_session(target, until, timeout_seconds, json_output)
 
 
 @errors_app.command("list")
