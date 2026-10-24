@@ -54,8 +54,9 @@ a partial write for a complete event.
 ## Pi adapter limits
 
 The Pi extension reports `agent_start` as `turn_started`, and reports `agent_settled` as
-`turn_ended`. Pi's extension user-interface prompt events report `menu_opened` and `menu_closed`.
-The current Pi command-line program has no built-in approval prompt and exposes no event that says a
+`turn_ended`. An extension user-interface prompt reports `menu_opened`. When that prompt closes
+inside an active run, the adapter restores `turn_started`, because Pi continues the tool and model;
+it reports `menu_closed` only when no run is active. The current Pi command-line program has no built-in approval prompt and exposes no event that says a
 generic confirmation is a tool permission request, so the adapter does not emit
 `permission_requested`. Treating every confirmation as approval would turn ordinary questions into a
 false needs-approval state. Pi's built-in model picker also exposes no extension lifecycle event, so
