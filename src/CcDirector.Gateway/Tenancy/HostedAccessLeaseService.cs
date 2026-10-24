@@ -270,12 +270,7 @@ public sealed class HostedAccessLeaseService
 
                 case EntitlementOutcome.Entitled:
                 {
-                    // The clip: never past the paid boundary. A null period end means the row recorded none
-                    // (an active row need not), so fall back to the plain ttl.
-                    var ttlExpiry = now + _leaseTtl;
-                    var expiry = decision.CurrentPeriodEnd is { } end && new DateTimeOffset(end, TimeSpan.Zero) < ttlExpiry
-                        ? new DateTimeOffset(end, TimeSpan.Zero)
-                        : ttlExpiry;
+                    var expiry = LeaseExpiry(now, decision.CurrentPeriodEnd);
 
                     // REMOTE ACCESS RIDES THE SAME READ (Pricing Change mission, B2): the tier above and the tenant
                     // row are what the one rule needs, so it is asked here, once per read, and kept on the lease.
@@ -344,10 +339,7 @@ public sealed class HostedAccessLeaseService
         {
             case EntitlementOutcome.Entitled when EntitlementScopes.GrantsHostedGateway(entitlement.Tier):
             {
-                var ttlExpiry = now + _leaseTtl;
-                var expiry = entitlement.CurrentPeriodEnd is { } end && new DateTimeOffset(end, TimeSpan.Zero) < ttlExpiry
-                    ? new DateTimeOffset(end, TimeSpan.Zero)
-                    : ttlExpiry;
+                var expiry = LeaseExpiry(now, entitlement.CurrentPeriodEnd);
 
                 // A TEAM'S TENANT IS UNCHANGED BY THE PRICING CHANGE: every member has remote access here, whatever
                 // their seat and whatever the team's bill. This is the one line that says so. It is deliberately NOT
@@ -380,6 +372,28 @@ public sealed class HostedAccessLeaseService
     }
 
     private static string TeamKey(TenantId tenant, string person) => tenant.Value + TeamKeySeparator + person;
+
+    /// <summary>
+    /// When a positive lease taken at <paramref name="now"/> expires. The clip: never past a paid boundary that is
+    /// still AHEAD, so caching cannot extend access one moment beyond it. A null period end means the row recorded
+    /// none (an active row need not), so the plain ttl applies.
+    ///
+    /// A period end already BEHIND us is not a boundary to clip to. The read just granted despite it - an active
+    /// subscription is entitled whatever its recorded end says - so the next read would grant again. Clipping to a
+    /// past instant made the lease expire the moment it was taken, and every request from that account then paid two
+    /// database reads to hear the same answer: one active row a few weeks past its recorded end cost the production
+    /// Gateway about 13 reads a second (issue #4411). A cancellation is still caught by the sweep within one cycle, as
+    /// for any other lease, and the past-due grace branch grants only while its end is ahead, so it is clipped as
+    /// before.
+    /// </summary>
+    internal DateTimeOffset LeaseExpiry(DateTimeOffset now, DateTime? currentPeriodEnd)
+    {
+        var ttlExpiry = now + _leaseTtl;
+        if (currentPeriodEnd is not { } end)
+            return ttlExpiry;
+        var boundary = new DateTimeOffset(end, TimeSpan.Zero);
+        return boundary > now && boundary < ttlExpiry ? boundary : ttlExpiry;
+    }
 
     /// <summary>Drop any cached lease for a tenant - a personal tenant's, or every person's in a team (used by the
     /// revoker so a torn-down tenant cannot ride a stale positive lease). Idempotent.</summary>
