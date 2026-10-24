@@ -117,6 +117,85 @@ public static class ClaudeHookInstaller
         "fi\n" +
         "exit 0\n";
 
+    // One state fact per invocation. Claude runs command hooks synchronously unless a hook explicitly
+    // asks to be asynchronous, so the sequence file is a per-session monotonic counter without a race
+    // between two invocations. A gap after a process failure is valid; reusing a number is not.
+    private const string PowerShellStateScriptContent =
+        "$ErrorActionPreference = 'SilentlyContinue'\r\n" +
+        "try {\r\n" +
+        "    $eventName = $args[0]\r\n" +
+        "    if ($eventName -in @('tool_started','tool_finished')) {\r\n" +
+        "        $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\n" +
+        "        if ($payload.tool_name -eq 'AskUserQuestion' -and $eventName -eq 'tool_started') { $eventName = 'menu_opened' }\r\n" +
+        "        else { $eventName = 'turn_started' }\r\n" +
+        "    }\r\n" +
+        "    $dir = $env:CC_STATE_EVENT_DIR\r\n" +
+        "    $token = $env:CC_STATE_EVENT_TOKEN\r\n" +
+        "    $sessionText = $env:CC_SESSION_ID\r\n" +
+        "    $session = [Guid]::Empty\r\n" +
+        "    if (-not $dir -or -not $token -or $token -notmatch '^[0-9a-f]{32}$' -or\r\n" +
+        "        -not [Guid]::TryParse($sessionText, [ref]$session) -or\r\n" +
+        "        ([System.IO.Path]::GetFileName($dir) -ne ($sessionText + '.' + $token))) { exit 0 }\r\n" +
+        "    if ($eventName -notin @('turn_started','turn_ended','permission_requested','menu_opened','menu_closed')) { exit 0 }\r\n" +
+        "    [System.IO.Directory]::CreateDirectory($dir) | Out-Null\r\n" +
+        "    $versionPath = [System.IO.Path]::Combine($dir, '.claude-version')\r\n" +
+        "    if (-not [System.IO.File]::Exists($versionPath)) {\r\n" +
+        "        $version = ((& claude --version 2>$null | Select-Object -First 1) -replace '[\\x00-\\x1f\\\"]','').Trim()\r\n" +
+        "        if (-not $version) { $version = 'unavailable' }\r\n" +
+        "        if ($version.Length -gt 200) { $version = $version.Substring(0, 200) }\r\n" +
+        "        [System.IO.File]::WriteAllText($versionPath, $version)\r\n" +
+        "    }\r\n" +
+        "    $version = [System.IO.File]::ReadAllText($versionPath)\r\n" +
+        "    $counter = [System.IO.Path]::Combine($dir, '.claude-sequence')\r\n" +
+        "    [long]$sequence = 0\r\n" +
+        "    if ([System.IO.File]::Exists($counter) -and (-not [long]::TryParse([System.IO.File]::ReadAllText($counter), [ref]$sequence) -or $sequence -lt 0)) { exit 0 }\r\n" +
+        "    $sequence++\r\n" +
+        "    $counterTmp = $counter + '.' + $PID + '.tmp'\r\n" +
+        "    [System.IO.File]::WriteAllText($counterTmp, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture))\r\n" +
+        "    Move-Item -LiteralPath $counterTmp -Destination $counter -Force\r\n" +
+        "    $record = [ordered]@{ version=1; eventId=[Guid]::NewGuid().ToString(); sessionId=$session.ToString(); sequence=$sequence; occurredAtUtc=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); event=$eventName; source='agent'; agent='claude'; detail=('cliVersion=' + $version) }\r\n" +
+        "    $path = [System.IO.Path]::Combine($dir, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture) + '.state.json')\r\n" +
+        "    $tmp = $path + '.' + $PID + '.tmp'\r\n" +
+        "    [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json -Compress))\r\n" +
+        "    Move-Item -LiteralPath $tmp -Destination $path -Force\r\n" +
+        "} catch { }\r\n" +
+        "exit 0\r\n";
+
+    private const string ShellStateScriptContent =
+        "#!/bin/sh\n" +
+        "# Claude Code state hook, written by DevThrottle. Best-effort and local-file only.\n" +
+        "event_name=$1\n" +
+        "case \"$event_name\" in\n" +
+        "  tool_started|tool_finished) raw=$(cat 2>/dev/null || true); if [ \"$event_name\" = tool_started ] && printf '%s' \"$raw\" | grep -Eq '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then event_name=menu_opened; else event_name=turn_started; fi ;;\n" +
+        "  turn_started|turn_ended|permission_requested|menu_opened|menu_closed) ;;\n" +
+        "  *) exit 0 ;;\n" +
+        "esac\n" +
+        "case \"$CC_STATE_EVENT_TOKEN\" in *[!0-9a-f]*|'') exit 0 ;; esac\n" +
+        "[ ${#CC_STATE_EVENT_TOKEN} -eq 32 ] || exit 0\n" +
+        "[ -n \"$CC_SESSION_ID\" ] && [ -n \"$CC_STATE_EVENT_DIR\" ] || exit 0\n" +
+        "case \"$CC_SESSION_ID\" in *[!0-9a-fA-F-]*) exit 0 ;; esac\n" +
+        "[ ${#CC_SESSION_ID} -eq 36 ] || exit 0\n" +
+        "[ \"$(basename \"$CC_STATE_EVENT_DIR\")\" = \"$CC_SESSION_ID.$CC_STATE_EVENT_TOKEN\" ] || exit 0\n" +
+        "mkdir -p \"$CC_STATE_EVENT_DIR\" 2>/dev/null || exit 0\n" +
+        "version_path=\"$CC_STATE_EVENT_DIR/.claude-version\"\n" +
+        "if [ ! -f \"$version_path\" ]; then version=$(claude --version 2>/dev/null | head -n 1 | tr -cd '[:alnum:].,_+() /:-' | cut -c 1-200); [ -n \"$version\" ] || version=unavailable; printf '%s' \"$version\" > \"$version_path\" 2>/dev/null || exit 0; fi\n" +
+        "version=$(cat \"$version_path\" 2>/dev/null || printf unavailable)\n" +
+        "counter=\"$CC_STATE_EVENT_DIR/.claude-sequence\"\n" +
+        "sequence=0\n" +
+        "if [ -f \"$counter\" ]; then sequence=$(cat \"$counter\" 2>/dev/null) || exit 0; fi\n" +
+        "case \"$sequence\" in *[!0-9]*|'') exit 0 ;; esac\n" +
+        "sequence=$((sequence + 1))\n" +
+        "counter_tmp=\"$counter.$$.tmp\"\n" +
+        "printf '%s' \"$sequence\" > \"$counter_tmp\" 2>/dev/null || exit 0\n" +
+        "mv -f \"$counter_tmp\" \"$counter\" 2>/dev/null || { rm -f \"$counter_tmp\"; exit 0; }\n" +
+        "if [ -r /proc/sys/kernel/random/uuid ]; then event_id=$(cat /proc/sys/kernel/random/uuid); elif command -v uuidgen >/dev/null 2>&1; then event_id=$(uuidgen | tr 'A-F' 'a-f'); else exit 0; fi\n" +
+        "occurred=$(date -u '+%Y-%m-%dT%H:%M:%SZ')\n" +
+        "path=\"$CC_STATE_EVENT_DIR/$sequence.state.json\"\n" +
+        "tmp=\"$path.$$.tmp\"\n" +
+        "printf '{\"version\":1,\"eventId\":\"%s\",\"sessionId\":\"%s\",\"sequence\":%s,\"occurredAtUtc\":\"%s\",\"event\":\"%s\",\"source\":\"agent\",\"agent\":\"claude\",\"detail\":\"cliVersion=%s\"}' \"$event_id\" \"$CC_SESSION_ID\" \"$sequence\" \"$occurred\" \"$event_name\" \"$version\" > \"$tmp\" 2>/dev/null || exit 0\n" +
+        "mv -f \"$tmp\" \"$path\" 2>/dev/null || rm -f \"$tmp\" 2>/dev/null || true\n" +
+        "exit 0\n";
+
     /// <summary>Claude Code's shell tools, as its PreToolUse matcher names them. Claude Code 2.1.302 lists
     /// exactly these two as shell tools; PowerShell exists on Windows only, so naming it costs nothing
     /// elsewhere. Anchored, so no other tool whose name merely CONTAINS one of the two ever runs the
@@ -172,10 +251,12 @@ public static class ClaudeHookInstaller
 
             var scriptPath = ScriptPathIn(directory, forWindows);
             File.WriteAllText(scriptPath, forWindows ? PowerShellScriptContent : ShellScriptContent);
+            var stateScriptPath = StateScriptPathIn(directory, forWindows);
+            File.WriteAllText(stateScriptPath, forWindows ? PowerShellStateScriptContent : ShellStateScriptContent);
 
             var settingsPath = Path.Combine(directory, SharedSettingsFileName);
             var ruleHookPath = InstallRuleHook(directory, forWindows, ruleHook, replace);
-            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows, ruleHookPath));
+            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, stateScriptPath, forWindows, ruleHookPath));
 
             return settingsPath;
         }
@@ -223,7 +304,8 @@ public static class ClaudeHookInstaller
         // It installs it itself - the same compare-before-write, so the shared install after it is a no-op.
         var ruleHookPath = InstallRuleHook(hooksDirectory, forWindows, ruleHook, ReplaceFile);
 
-        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows, ruleHookPath))!.AsObject();
+        var settings = JsonSerializer.SerializeToNode(BuildSettings(
+            ScriptPathIn(hooksDirectory, forWindows), StateScriptPathIn(hooksDirectory, forWindows), forWindows, ruleHookPath))!.AsObject();
         settings["permissions"] = permissions.DeepClone();
 
         var path = Path.Combine(kitDirectory, SessionSettingsFileName);
@@ -239,15 +321,19 @@ public static class ClaudeHookInstaller
         ? Path.Combine(directory, "report-session.ps1")
         : Path.Combine(directory, "report-session.sh");
 
+    private static string StateScriptPathIn(string directory, bool forWindows) => forWindows
+        ? Path.Combine(directory, "report-state.ps1")
+        : Path.Combine(directory, "report-state.sh");
+
     private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
 
-    private static string BuildSettingsJson(string scriptPath, bool forWindows, string? ruleHookPath)
-        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows, ruleHookPath), SettingsJsonOptions);
+    private static string BuildSettingsJson(string scriptPath, string stateScriptPath, bool forWindows, string? ruleHookPath)
+        => JsonSerializer.Serialize(BuildSettings(scriptPath, stateScriptPath, forWindows, ruleHookPath), SettingsJsonOptions);
 
     // THE ONE BUILDER of the hooks content: the shared file is it serialized, and a seat's own file is it plus the
     // seat's permissions (WriteSessionSettings). Two builders would drift, and a seat would lose the pointer tracking
     // and the preamble every other session has.
-    private static object BuildSettings(string scriptPath, bool forWindows, string? ruleHookPath)
+    private static object BuildSettings(string scriptPath, string stateScriptPath, bool forWindows, string? ruleHookPath)
     {
         // Shell form (single command string, no args). Claude Code hands it to sh on Linux and macOS;
         // on Windows to Git Bash when it is installed (what the Session Rules phase 1 Windows proof
@@ -260,6 +346,13 @@ public static class ClaudeHookInstaller
             ? $"powershell -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\""
             : $"/bin/sh \"{scriptPath}\"";
         var hook = new { type = "command", command, timeout = 10 };
+        object StateHook(string fact)
+        {
+            var stateCommand = forWindows
+                ? $"powershell -NoProfile -ExecutionPolicy Bypass -File \"{stateScriptPath}\" {fact}"
+                : $"/bin/sh \"{stateScriptPath}\" {fact}";
+            return new { type = "command", command = stateCommand, timeout = 10 };
+        }
 
         var sessionStart = new object[SessionStartMatchers.Length];
         for (var i = 0; i < SessionStartMatchers.Length; i++)
@@ -268,6 +361,17 @@ public static class ClaudeHookInstaller
         var hooks = new Dictionary<string, object[]>
         {
             ["SessionStart"] = sessionStart,
+            ["UserPromptSubmit"] = [new { hooks = new[] { StateHook("turn_started") } }],
+            ["Stop"] = [new { hooks = new[] { StateHook("turn_ended") } }],
+            ["PreToolUse"] = [new { hooks = new[] { StateHook("tool_started") } }],
+            ["PostToolUse"] = [new { hooks = new[] { StateHook("tool_finished") } }],
+            ["PostToolUseFailure"] = [new { hooks = new[] { StateHook("tool_finished") } }],
+            ["PermissionRequest"] = [new { hooks = new[] { StateHook("permission_requested") } }],
+            ["Notification"] =
+            [
+                new { matcher = "permission_prompt", hooks = new[] { StateHook("permission_requested") } },
+                new { matcher = "idle_prompt", hooks = new[] { StateHook("turn_ended") } },
+            ],
         };
 
         // The rule evaluator is registered in EXEC form: args present (empty), so Claude Code spawns the
@@ -279,7 +383,11 @@ public static class ClaudeHookInstaller
         if (ruleHookPath is not null)
         {
             var ruleHook = new { type = "command", command = ruleHookPath, args = Array.Empty<string>(), timeout = 10 };
-            hooks["PreToolUse"] = [new { matcher = ShellToolMatcher, hooks = new[] { ruleHook } }];
+            hooks["PreToolUse"] =
+            [
+                new { hooks = new[] { StateHook("tool_started") } },
+                new { matcher = ShellToolMatcher, hooks = new object[] { ruleHook } },
+            ];
         }
 
         return new { hooks };
