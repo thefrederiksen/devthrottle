@@ -226,6 +226,28 @@ describe("ScheduleEditor folder choices", () => {
     );
   });
 
+  it("asks the Gateway for the empty box's words before a machine is chosen (review, finding 5)", async () => {
+    cronClient.getFolderChoices.mockResolvedValue({
+      machine: "", os: "", osName: "Unknown", online: false, placeholder: "Choose the machine first", note: null, repositories: [],
+    });
+    render(<ScheduleEditor request={{ kind: "create", timeZone: "America/Toronto" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const box = screen.getByLabelText("Repository path") as HTMLInputElement;
+    await waitFor(() => expect(box.placeholder).toBe("Choose the machine first"));
+    expect(cronClient.getFolderChoices).toHaveBeenCalledWith("", expect.anything());
+  });
+
+  it("shows the Gateway's own sentence when the folder choices cannot be read, with nothing added by the form", async () => {
+    cronClient.getFolderChoices.mockRejectedValue(new GatewayError(503, "GET /cron/folder-choices failed", {
+      reason: "Known repository storage is not available.",
+    }));
+    openOn(onTheMac);
+
+    const shown = await screen.findByText(/Known repository storage is not available\./);
+    // The shared sentence alone: the Gateway's reason, and the retry hint the shared helper gives a 503.
+    expect(shown.textContent).toBe("Known repository storage is not available. Try again.");
+  });
+
   it("shows the Gateway's note when the machine is offline", async () => {
     cronClient.getFolderChoices.mockResolvedValue({
       machine: "STUDIO_MAC", os: "macos", osName: "Mac", online: false, placeholder: "/Users/<you>/Documents/my-project",

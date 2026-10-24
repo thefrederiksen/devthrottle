@@ -193,21 +193,21 @@ export function ScheduleEditor({
   const chosenFactory = seatChoices?.factories.find((c) => c.factory === form.factory);
 
   // The folder choices for the chosen machine (issue #4421): its known repositories, an example folder in its own
-  // shape, and a note when a save cannot check the folder. Read again whenever the machine changes; the save checks
-  // the folder on the machine either way.
+  // shape, and a note when a save cannot check the folder. Read again whenever the machine changes - also before one
+  // is chosen, when the Gateway's answer is only the placeholder asking for one. The save checks the folder either way.
   const [folderChoices, setFolderChoices] = useState<CronFolderChoices | null>(null);
   const [folderChoicesError, setFolderChoicesError] = useState<string | null>(null);
   const chosenMachine = form.machine.trim();
   useEffect(() => {
     setFolderChoices(null);
     setFolderChoicesError(null);
-    if (chosenMachine.length === 0) return;
     const abort = new AbortController();
     getFolderChoices(chosenMachine, abort.signal)
       .then(setFolderChoices)
       .catch((err: unknown) => {
+        // The Gateway's own sentence when it gave one; otherwise the shared one, which names what could not be done.
         if (!abort.signal.aborted)
-          setFolderChoicesError(`Could not read ${chosenMachine}'s repositories: ${describeAndReport(SURFACE, "read the folder choices", err)}`);
+          setFolderChoicesError(describeAndReport(SURFACE, "read the machine's repositories", err));
       });
     return () => abort.abort();
   }, [chosenMachine]);
@@ -550,7 +550,7 @@ export function ScheduleEditor({
                     id="sched-repo-path"
                     className={`mono${formErrors.repoPath ? " invalid" : ""}`}
                     value={form.repoPath}
-                    placeholder={folderChoices?.placeholder ?? (chosenMachine.length === 0 ? "Choose the machine first" : "")}
+                    placeholder={folderChoices?.placeholder ?? ""}
                     onChange={(e) => setForm((f) => ({ ...f, repoPath: e.target.value }))}
                   />
                   {folderChoices?.note && <div className="sched-statepick-hint">{folderChoices.note}</div>}

@@ -50,6 +50,9 @@ public sealed class ScheduleFolderCheckTests
     [InlineData(CustomersPath, true)]
     [InlineData(@"documents\project", true)]
     [InlineData("/Users/pat/project", false)]
+    // A Mac or Linux folder may have a backslash in its name (review, finding 4): it starts the Mac and Linux way.
+    [InlineData(@"/Users/pat/odd\name", false)]
+    [InlineData(@"~/odd\name", false)]
     [InlineData("~/project", false)]
     [InlineData("project", false)]
     public void IsWindowsShaped_ReadsTheDriveLetterAndTheBackslash(string path, bool windows)
@@ -229,6 +232,18 @@ public sealed class ScheduleFolderCheckTests
         var verdict = await check.CheckAsync(A, "STUDIO_MAC", CustomersPath, CancellationToken.None);
 
         Assert.StartsWith($"'{CustomersPath}' is a Windows path, but STUDIO_MAC is a Mac.", verdict.Refusal);
+    }
+
+    [Fact]
+    public async Task CheckAsync_AMacFolderWithABackslashInItsName_IsAskedOfTheMachine_NotRefusedFromItsShape()
+    {
+        var tunnel = new Tunnel();
+        var check = Check(tunnel, new[] { Director("d-mac", "STUDIO_MAC", DirectorOs.MacOs) }, new HashSet<string> { "d-mac" });
+
+        var verdict = await check.CheckAsync(A, "STUDIO_MAC", @"/Users/pat/odd\name", CancellationToken.None);
+
+        Assert.Equal(ScheduleFolderVerdict.Fine, verdict);
+        Assert.Single(tunnel.Sent);
     }
 
     [Fact]

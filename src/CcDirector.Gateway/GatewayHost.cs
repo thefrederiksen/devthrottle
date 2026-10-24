@@ -5662,7 +5662,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
-            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
+            // A missing-folder run names its machine's system here too (issue #4421 review, finding 3).
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now,
+                machine => Running.ScheduleFolderCheck.ReportedOs(Registry.ListDirectors(tenant), machine)),
             (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false),
             // The factories New factory made that are not published yet (Factory Definition, phase 6b), each read from
