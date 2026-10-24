@@ -131,4 +131,24 @@ public static class InstallCompletion
     /// </summary>
     /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
     public static bool CreatesDesktopShortcut(bool isUpdate) => !isUpdate;
+
+    /// <summary>The Mac open button (issue #4427): the app is called DevThrottle there, in the Finder, Spotlight and
+    /// the Dock, so the button says the same name.</summary>
+    public const string MacOpenButtonText = "Open DevThrottle";
+
+    /// <summary>
+    /// Where the app is on a Mac, in the words a person uses to find it (issue #4427). The trial user who could not
+    /// find it saw only the installer in their Applications folder; this names the folder and the Spotlight search.
+    /// </summary>
+    /// <param name="installedBundle">The placed bundle (<see cref="InstallLayout.PathFor(Component)"/>).</param>
+    public static string MacPlaceText(string installedBundle)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(installedBundle);
+        var folder = Path.GetDirectoryName(installedBundle.TrimEnd('/')) ?? installedBundle;
+        var which = string.Equals(folder, MacAppsFolder.SystemAppsDir, StringComparison.Ordinal)
+            ? "the Applications folder"
+            : "the Applications folder in your home folder";
+        return $"DevThrottle is in {which} ({folder}). To open it later, press Command+Space and type DevThrottle, "
+               + "or keep it in the Dock.";
+    }
 }
