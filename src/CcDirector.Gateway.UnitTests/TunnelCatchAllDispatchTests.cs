@@ -126,6 +126,16 @@ public sealed class TunnelCatchAllDispatchTests
         Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
     }
 
+    [Fact]
+    public async Task Finding2_raw_terminal_input_is_not_a_public_route()
+    {
+        var dispatch = new TunnelCatchAllDispatch(Capture(out var seen, DirectorCommandResult.Success()));
+        var (ctx, _) = NewCtx("POST", "{\"provenance\":{\"identityKind\":\"owner\"}}");
+
+        Assert.False(await dispatch.TryDispatchAsync(ctx, Guid.NewGuid().ToString(), "dir1", "terminal-input"));
+        Assert.Null(seen());
+    }
+
     [Theory]
     [InlineData("POST", "keys", "terminal-keys")]
     [InlineData("POST", "paste", "terminal-paste")]
