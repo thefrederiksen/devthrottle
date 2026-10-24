@@ -2754,7 +2754,7 @@ public sealed class Session : IDisposable
         switch (gate.Outcome)
         {
             case Drivers.FirstPromptGateOutcome.Ready:
-                await SendTextAsync(text, provenance, SendSource.Framework);
+                await SendTextAsync(FirstPromptToType(text), provenance, SendSource.Framework);
                 return;
             case Drivers.FirstPromptGateOutcome.Exited:
                 return;
@@ -2767,6 +2767,32 @@ public sealed class Session : IDisposable
                 throw new Drivers.ComposerNotAcceptingInputException($"[Session] DeliverFirstPromptAsync: session={Id}: {reason}");
         }
     }
+
+    /// <summary>
+    /// What is typed for a new session's first prompt (issue #3967). A long or multi-line prompt reaches Claude Code as a
+    /// file, and it used to be typed as the bare <c>@file</c> reference alone. A scheduled run's agent then answered "The
+    /// message arrived as pasted text only, with nothing typed by you alongside it" and waited for a go-ahead nobody was
+    /// there to give, so the run never ran. Now the file is written here and ONE TYPED SENTENCE names it as this
+    /// session's instructions, which is what every other agent's long prompt already gets
+    /// (<see cref="Drivers.TerminalSubmit"/>'s instruction file). The prompt's own words are unchanged, in the file.
+    ///
+    /// Only the first prompt a Director delivers - a spawn's prompt, a schedule's seed, a restore - comes through here.
+    /// A person's own typed or dictated prompt never does, so nothing is ever added to the words a person said.
+    /// </summary>
+    internal string FirstPromptToType(string text)
+    {
+        if (AgentKind != Agents.AgentKind.ClaudeCode || !Input.LargeInputHandler.IsLargeInput(text)
+            || string.IsNullOrWhiteSpace(_backend.WorkingDirectory))
+            return text;
+        var file = Input.LargeInputHandler.CreateTempFile(text, _backend.WorkingDirectory, _backend.PromptFileDirectory);
+        var reference = Input.LargeInputHandler.AtReference(Input.LargeInputHandler.MakeAtReference(file, _backend.WorkingDirectory));
+        FileLog.Write($"[Session] FirstPromptToType: session={Id}, len={text.Length}: typed as the sentence naming {reference}");
+        return FirstPromptSentence(reference);
+    }
+
+    /// <summary>The one sentence a long first prompt to Claude Code is typed as (issue #3967).</summary>
+    internal static string FirstPromptSentence(string reference) =>
+        $"Your instructions for this session are in {reference}. Read the file and carry them out.";
 
     /// <summary>
     /// Type and submit the fleet doorbell line (the Message Load mission) through

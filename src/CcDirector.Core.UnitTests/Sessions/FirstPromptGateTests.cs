@@ -328,4 +328,79 @@ public sealed class FirstPromptGateTests
         Assert.Contains("first prompt was not typed", tally.LastFailureReason);
         Assert.Contains("not drawn", ex.Message);
     }
+
+    // ---------- issue #3967: a long first prompt to Claude Code is typed as one sentence naming its file ----------
+
+    private sealed class FolderBackend : ISessionBackend
+    {
+        public FolderBackend(string folder) => WorkingDirectory = folder;
+        public string WorkingDirectory { get; }
+        public int ProcessId => 1234;
+        public string Status => "Recording";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+        public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void FirstPromptToType_ALongSeedForClaudeCode_IsTypedAsOneSentenceNamingItsFile_WithItsWordsUnchanged()
+    {
+        // The seed of the schedule in the issue: it says no human is watching, over many lines.
+        var folder = Directory.CreateTempSubdirectory("first-prompt-3967-").FullName;
+        try
+        {
+            using var session = new Session(Guid.NewGuid(), folder, folder, null, new FolderBackend(folder), SessionBackendType.ConPty);
+            var seed = "This is a scheduled run. No human is watching it.\nRead the weekly usage and write the report.\n" + new string('x', 1500);
+
+            var typed = session.FirstPromptToType(seed);
+
+            Assert.StartsWith("Your instructions for this session are in @.temp/input_", typed);
+            Assert.EndsWith(".txt. Read the file and carry them out.", typed);
+            Assert.DoesNotContain('\n', typed);
+            var file = Directory.GetFiles(Path.Combine(folder, ".temp"), "input_*.txt").Single();
+            Assert.Equal(seed, File.ReadAllText(file));
+            Assert.Contains(Path.GetFileName(file), typed);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FirstPromptToType_AShortOneLinePrompt_IsTypedAsItIs()
+    {
+        var folder = Directory.CreateTempSubdirectory("first-prompt-3967-").FullName;
+        try
+        {
+            using var session = new Session(Guid.NewGuid(), folder, folder, null, new FolderBackend(folder), SessionBackendType.ConPty);
+
+            Assert.Equal("Read the brief and follow it", session.FirstPromptToType("Read the brief and follow it"));
+            Assert.False(Directory.Exists(Path.Combine(folder, ".temp")));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FirstPromptSentence_ReferenceWithASpace_IsQuotedAsClaudeCodeReadsIt()
+    {
+        Assert.Equal("Your instructions for this session are in @\"my folder/input_1.txt\". Read the file and carry them out.",
+            Session.FirstPromptSentence(LargeInputHandlerRef("my folder/input_1.txt")));
+    }
+
+    private static string LargeInputHandlerRef(string path) => CcDirector.Core.Input.LargeInputHandler.AtReference(path);
 }
