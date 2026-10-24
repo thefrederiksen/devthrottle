@@ -2,7 +2,8 @@
 pop-up and its worker run with no window system, no clock and no sleep (issue #4442).
 
 What it keeps from the real toolkit is what the product relies on: a variable holds what it was set to, a button or
-a box that is disabled does nothing when invoked, a destroyed window no longer exists, and an option the real widget
+a box that is disabled does nothing when invoked, destroying a window destroys every widget inside it (a destroyed
+widget then refuses cget, configure and invoke, as Tk does, while a variable lives on), and an option the real widget
 does not have is refused (as Tk refuses it) rather than quietly kept. Time does not pass on its own: every call
 handed to `after` waits for the test to `tick`, and one tick runs every call that was waiting, whatever its delay.
 
@@ -48,17 +49,42 @@ class BooleanVar(_Variable):
         super().set(bool(value))
 
 
-class _Widget:
+class _Node:
+    """Anything in the window tree. As in Tk, destroying a window destroys every widget inside it: a widget whose
+    window is gone answers False to winfo_exists, and refuses every other call with the error Tk gives."""
+
+    def __init__(self, master=None) -> None:
+        self.master = master
+        self._destroyed = False
+
+    def winfo_exists(self) -> bool:
+        node = self
+        while node is not None:
+            if node._destroyed:
+                return False
+            node = node.master
+        return True
+
+    def destroy(self) -> None:
+        self._destroyed = True
+
+    def _require(self) -> None:
+        if not self.winfo_exists():
+            raise TclError(f'invalid command name "{type(self).__name__}" (it was destroyed)')
+
+
+class _Widget(_Node):
     OPTIONS: set = set()
 
     def __init__(self, master=None, **options) -> None:
-        self.master = master
+        super().__init__(master)
         self._options = {}
         self.gridded = False
         self.bindings = {}
         self.configure(**options)
 
     def configure(self, **options) -> None:
+        self._require()
         unknown = set(options) - self.OPTIONS
         if unknown:
             raise TclError(f'unknown option "-{sorted(unknown)[0]}" for {type(self).__name__}')
@@ -67,21 +93,25 @@ class _Widget:
     config = configure
 
     def cget(self, name: str):
+        self._require()
         if name not in self.OPTIONS:
             raise TclError(f'unknown option "-{name}" for {type(self).__name__}')
         value = self._options.get(name, "")
         return value.get() if isinstance(value, _Variable) else value
 
     def grid(self, **_where) -> None:
+        self._require()
         self.gridded = True
 
     def grid_remove(self) -> None:
+        self._require()
         self.gridded = False
 
     def columnconfigure(self, index, **_how) -> None:
-        pass
+        self._require()
 
     def bind(self, sequence: str, handler: Callable) -> None:
+        self._require()
         self.bindings[sequence] = handler
 
     def _enabled(self) -> bool:
@@ -109,6 +139,7 @@ class Button(_Widget):
 
     def invoke(self):
         """As the real button: a disabled one does nothing; an enabled one runs its command."""
+        self._require()
         if self._enabled() and self._options.get("command") is not None:
             return self._options["command"]()
         return None
@@ -119,6 +150,7 @@ class Checkbutton(_Widget):
 
     def invoke(self):
         """As the real box: a disabled one does nothing; an enabled one flips its variable, then runs its command."""
+        self._require()
         if not self._enabled():
             return None
         variable = self._options.get("variable")
@@ -128,12 +160,12 @@ class Checkbutton(_Widget):
         return command() if command is not None else None
 
 
-class Root:
+class Root(_Node):
     """The application window: holds the calls handed to `after` until the test ticks."""
 
     def __init__(self) -> None:
+        super().__init__(None)
         self._waiting: List[Tuple[int, Callable[[], None]]] = []
-        self._destroyed = False
 
     def after(self, ms: int, call: Callable[[], None]) -> str:
         self._waiting.append((ms, call))
@@ -145,50 +177,41 @@ class Root:
         for _ms, call in waiting:
             call()
 
-    def winfo_exists(self) -> bool:
-        return not self._destroyed
 
-    def destroy(self) -> None:
-        self._destroyed = True
-
-
-class Toplevel:
+class Toplevel(_Node):
     """A dialog or pop-up window: its title, and whether it still exists."""
 
     def __init__(self, master=None) -> None:
-        self.master = master
+        super().__init__(master)
         self._title = ""
-        self._destroyed = False
         self.bindings = {}
         self.protocols = {}
         self.attributes_set = {}
 
     def title(self, text=None):
+        self._require()
         if text is None:
             return self._title
         self._title = text
         return None
 
     def resizable(self, width, height) -> None:
-        pass
+        self._require()
 
     def transient(self, master) -> None:
-        pass
+        self._require()
 
     def attributes(self, name: str, value) -> None:
+        self._require()
         self.attributes_set[name] = value
 
     def bind(self, sequence: str, handler: Callable) -> None:
+        self._require()
         self.bindings[sequence] = handler
 
     def protocol(self, name: str, handler: Callable) -> None:
+        self._require()
         self.protocols[name] = handler
-
-    def winfo_exists(self) -> bool:
-        return not self._destroyed
-
-    def destroy(self) -> None:
-        self._destroyed = True
 
 
 def modules() -> Tuple[types.ModuleType, types.ModuleType]:

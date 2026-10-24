@@ -371,11 +371,14 @@ def test_Worker_ACallbackThatRaises_DoesNotStopLaterResults(window):
     assert got == [2]
 
 
-def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsStillArrive(window):
+def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsStillArrive(window, monkeypatch):
     import threading
 
+    from src import transfer_window
     from src.transfer_window import TransferDialog, Worker
 
+    failures = []
+    monkeypatch.setattr(transfer_window, "log_failure", lambda where, exc: failures.append((where, type(exc).__name__)))
     release = threading.Event()
     fake = FakeActions([])
     real_others = fake.others
@@ -390,7 +393,13 @@ def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsS
     dialog.close()
     release.set()
     _pump(window, lambda: False, ticks=5)
-    assert dialog.machine.get() == "" and str(dialog.go.cget("state")) == "disabled"
+    # The dialog and its widgets are gone, as on real Tk, where touching one raises; only its variables can still be
+    # read. The late list of machines must not have reached them, nor tried to fill a destroyed widget (on real Tk
+    # that raises, and the worker logs it as a failure).
+    assert not dialog.win.winfo_exists() and not dialog.go.winfo_exists()
+    assert dialog.machine.get() == ""
+    assert dialog.status.get() == "Finding the machines that can take part..."
+    assert failures == []
     got = []
     worker.run(lambda: "later", got.append, lambda e: None)
 
