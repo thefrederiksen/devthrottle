@@ -22,16 +22,21 @@ namespace CcDirector.Gateway.Running;
 /// report the sink dropped because its table was full leaves the run untold and the window where it is, so the next
 /// scan tries it again.
 ///
-/// A RESTART LOSES NOTHING IT CAN STILL SEE. Each report carries its run and result time as its correlation id
-/// (<see cref="GatewayAccountFailures.RunCorrelation"/>). A new reporter starts <see cref="RestartLookback"/> back and
-/// first reads which of those failures the store already holds, so a failure the last Gateway recorded but never got
-/// into the store - accepted by its sink and lost with the process - is reported now, and one that did get there is not
-/// told twice. A failure older than the lookback that never reached the store is not recovered.
+/// A RESTART LOSES NOTHING. Each report carries its run and result time as its correlation id
+/// (<see cref="GatewayAccountFailures.RunCorrelation"/>), and after every scan that drained its backlog the reporter
+/// writes a CHECKPOINT - the time it had read up to - to a file on the durable storage root. A new reporter starts from
+/// that checkpoint less <see cref="CheckpointSlack"/> (time enough for the last process's sink to have written what it
+/// accepted), however long the Gateway was down, and first reads which of those failures the store already holds. So a
+/// failure the last Gateway recorded but never got into the store - accepted by its sink and lost with the process - is
+/// reported now, and one that did get there is not told twice. With no checkpoint yet (the first start with this
+/// reporter) it starts <see cref="RestartLookback"/> back. It never reaches past what the store keeps.
 /// </summary>
 public sealed class CronRunFailureReporter : IDisposable
 {
     internal static readonly TimeSpan Overlap = TimeSpan.FromMinutes(2);
     internal static readonly TimeSpan RestartLookback = TimeSpan.FromHours(6);
+    internal static readonly TimeSpan CheckpointSlack = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan MaxLookback = TimeSpan.FromDays(ErrorReportStore.RetentionDays);
     internal static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(30);
     /// <summary>At most this many failed runs are reported in one scan; the rest wait for the next. Well under the
     /// sink's <see cref="GatewayErrorSink.MaxPending"/>, so one scan can never fill the sink's table on its own. A burst of
@@ -42,10 +47,14 @@ public sealed class CronRunFailureReporter : IDisposable
     private readonly GatewayAccountFailures _failures;
     private readonly Func<DateTime> _clock;
     private readonly Func<DateTime, IReadOnlySet<string>> _alreadyStored;
+    // What the store already held when this reporter started, kept until the backlog from the lookback is drained -
+    // not just for the first scan, because a backlog longer than one page is read over several.
+    private IReadOnlySet<string>? _stored;
     private bool _reconciled;
     private readonly object _lock = new();
     private readonly Dictionary<(string RunId, DateTime ResultUtc), DateTime> _told = new();
     private DateTime _since;
+    private readonly string _checkpointPath;
 
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
@@ -54,14 +63,42 @@ public sealed class CronRunFailureReporter : IDisposable
     /// <param name="alreadyStored">The correlation ids of the schedule failures the error store holds from the given time
     /// on - what a restarted reporter must not tell again. REQUIRED, so a wiring line that forgot it fails to compile
     /// rather than reporting every recent failure again on every start.</param>
+    /// <param name="checkpointPath">The file the checkpoint is kept in, on durable storage. REQUIRED for the same reason.</param>
     public CronRunFailureReporter(CronRunHistoryStore runs, GatewayAccountFailures failures,
-        Func<DateTime, IReadOnlySet<string>> alreadyStored, Func<DateTime>? clock = null)
+        Func<DateTime, IReadOnlySet<string>> alreadyStored, string checkpointPath, Func<DateTime>? clock = null)
     {
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _failures = failures ?? throw new ArgumentNullException(nameof(failures));
         _alreadyStored = alreadyStored ?? throw new ArgumentNullException(nameof(alreadyStored));
+        if (string.IsNullOrWhiteSpace(checkpointPath)) throw new ArgumentException("a checkpoint path is required", nameof(checkpointPath));
+        _checkpointPath = checkpointPath;
         _clock = clock ?? (() => DateTime.UtcNow);
-        _since = _clock() - RestartLookback;
+        var now = _clock();
+        var checkpoint = ReadCheckpoint(checkpointPath);
+        _since = checkpoint is { } c ? c - CheckpointSlack : now - RestartLookback;
+        if (_since < now - MaxLookback) _since = now - MaxLookback;
+        FileLog.Write($"[CronRunFailureReporter] reading failed runs from {_since:o} ({(checkpoint is null ? "no checkpoint yet" : $"checkpoint {checkpoint:o}")})");
+    }
+
+    /// <summary>The checkpoint in <paramref name="path"/>, or null when there is none. A file that is there and cannot be
+    /// read as a time is a fault, and fails loud.</summary>
+    internal static DateTime? ReadCheckpoint(string path)
+    {
+        if (!File.Exists(path)) return null;
+        var text = File.ReadAllText(path).Trim();
+        if (!DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var at))
+            throw new InvalidOperationException($"the schedule failure checkpoint {path} does not hold a time ('{text}')");
+        return DateTime.SpecifyKind(at, DateTimeKind.Utc);
+    }
+
+    private void WriteCheckpoint(DateTime at)
+    {
+        var dir = Path.GetDirectoryName(_checkpointPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        var temp = _checkpointPath + ".tmp";
+        File.WriteAllText(temp, at.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+        File.Move(temp, _checkpointPath, overwrite: true);
     }
 
     /// <summary>Start the scan timer. Call once.</summary>
@@ -81,8 +118,13 @@ public sealed class CronRunFailureReporter : IDisposable
         {
             var now = _clock();
             var from = _since - Overlap;
-            // Once, on the first scan: what the store already holds from the lookback was told by an earlier Gateway.
-            var stored = _reconciled ? null : _alreadyStored(from);
+            // Read once, on the first scan: what the store already holds from the lookback was told by an earlier Gateway.
+            if (!_reconciled)
+            {
+                _stored = _alreadyStored(from);
+                _reconciled = true;
+            }
+            var stored = _stored;
             // The page is widened by what was already told inside the window, so a window full of told runs - a burst of
             // missed runs recorded in one write all carry one result time - can never hide the ones not yet told.
             var toldInWindow = _told.Count(t => t.Value >= from);
@@ -113,7 +155,13 @@ public sealed class CronRunFailureReporter : IDisposable
                 _told[key] = key.Item2;
                 reported++;
             }
-            _reconciled = true;
+            // The lookback's backlog is drained: everything the store held has been read past, so the set is let go, and
+            // how far this reporter has read is kept for the next process.
+            if (!more)
+            {
+                _stored = null;
+                WriteCheckpoint(now);
+            }
 
             // While a backlog remains the window stays where it is, and the told set keeps it from being told twice; once
             // it is drained the window moves on to now.
@@ -130,28 +178,43 @@ public sealed class CronRunFailureReporter : IDisposable
 
     /// <summary>
     /// The correlation ids of every schedule failure the error store holds from <paramref name="sinceUtc"/> to
-    /// <paramref name="nowUtc"/> - what a restarted reporter must not tell again. Read an hour at a time, because one read
-    /// returns at most <see cref="ErrorReportStore.MaxLimit"/> rows and the store keeps up to
-    /// <see cref="GatewayErrorSink.MaxStoredPerHour"/> Gateway rows an hour; an hour that still fills a read is logged, as
-    /// its older failures may then be told once more (told twice, never lost).
+    /// <paramref name="nowUtc"/> - what a restarted reporter must not tell again. Read an hour at a time, and any part that
+    /// holds more than one read returns (<see cref="ErrorReportStore.MaxLimit"/>; the store keeps up to
+    /// <see cref="GatewayErrorSink.MaxStoredPerHour"/> Gateway rows an hour) is read again in halves.
     /// </summary>
     internal static IReadOnlySet<string> StoredScheduleFailures(ErrorReportStore store, DateTime sinceUtc, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(store);
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        for (var from = sinceUtc; from < nowUtc; from += TimeSpan.FromHours(1))
+        var end = nowUtc.AddMinutes(5);
+        for (var from = sinceUtc; from < end; from += TimeSpan.FromHours(1))
         {
-            var to = from + TimeSpan.FromHours(1) < nowUtc ? from + TimeSpan.FromHours(1) : nowUtc.AddMinutes(5);
-            var page = store.Query(new ErrorReportQuery(from, to,
-                Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Gateway, Limit: ErrorReportStore.MaxLimit));
-            if (page.TotalMatched > page.Records.Count)
-                FileLog.Write($"[CronRunFailureReporter] StoredScheduleFailures: {page.TotalMatched} Gateway rows from {from:o}, more than one read returns; some failures of that hour may be reported again");
-            foreach (var r in page.Records)
-                if (r.Source == GatewayAccountFailures.ScheduleSource && r.CorrelationId is { Length: > 0 } id)
-                    ids.Add(id);
+            var to = from + TimeSpan.FromHours(1) < end ? from + TimeSpan.FromHours(1) : end;
+            ReadStored(store, from, to, ids);
         }
         FileLog.Write($"[CronRunFailureReporter] StoredScheduleFailures: {ids.Count} schedule failure(s) already stored since {sinceUtc:o}");
         return ids;
+    }
+
+    // One read returns at most ErrorReportStore.MaxLimit rows; a window that holds more is read in halves until each fits.
+    private static void ReadStored(ErrorReportStore store, DateTime from, DateTime to, HashSet<string> ids)
+    {
+        var page = store.Query(new ErrorReportQuery(from, to,
+            Component: CcDirector.Core.ErrorReports.ErrorReportLimits.Gateway, Limit: ErrorReportStore.MaxLimit));
+        if (page.TotalMatched > page.Records.Count)
+        {
+            if (to - from > TimeSpan.FromSeconds(1))
+            {
+                var middle = from + TimeSpan.FromTicks((to - from).Ticks / 2);
+                ReadStored(store, from, middle, ids);
+                ReadStored(store, middle, to, ids);
+                return;
+            }
+            FileLog.Write($"[CronRunFailureReporter] StoredScheduleFailures: {page.TotalMatched} Gateway rows inside one second at {from:o}, more than one read returns; some may be reported again");
+        }
+        foreach (var r in page.Records)
+            if (r.Source == GatewayAccountFailures.ScheduleSource && r.CorrelationId is { Length: > 0 } id)
+                ids.Add(id);
     }
 
     private async Task RunLoopAsync()

@@ -47,6 +47,9 @@ internal sealed class AdminVisibilityTestHost : IAsyncDisposable
     public GatewayAccountFailures Failures { get; }
     public HttpClient Http { get; private set; } = null!;
 
+    /// <summary>Where a reporter keeps its checkpoint in this test.</summary>
+    public string CheckpointPath => Path.Combine(_root, "schedule-failure-checkpoint.txt");
+
     public AdminVisibilityTestHost()
     {
         Db = _harness.Open();

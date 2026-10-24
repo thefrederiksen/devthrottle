@@ -64,7 +64,8 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     /// <summary>A reporter as the Gateway builds one: it reads what the store already holds to know what was told.</summary>
     private CronRunFailureReporter NewReporter(GatewayAccountFailures? failures = null)
         => new(_host.Runs, failures ?? _host.Failures,
-            since => CronRunFailureReporter.StoredScheduleFailures(_host.Errors, since, _host.Now), () => _host.Now);
+            since => CronRunFailureReporter.StoredScheduleFailures(_host.Errors, since, _host.Now), _host.CheckpointPath,
+            () => _host.Now);
 
     private CronRunRecord FailMorningRun()
     {
@@ -120,6 +121,90 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
         var row = Assert.Single(_host.Errors.Query(new ErrorReportQuery(_host.Now.AddDays(-1), _host.Now.AddDays(1), Limit: 500))
             .Records, r => r.Source == GatewayAccountFailures.ScheduleSource);
         Assert.Equal(_host.AccountA.Value, row.Account);
+    }
+
+    [Fact]
+    public void AfterARestart_ABacklogOfStoredFailuresLongerThanOnePage_IsNotReportedAgainOnAnyPage()
+    {
+        _host.AddJob(_host.AccountA, "cj_burst", "Burst");
+        var total = CronRunFailureReporter.MaxPerScan * 2 + 7;
+        for (var i = 0; i < total; i++)
+        {
+            var at = _host.Now.AddMilliseconds(10 * (i + 1));
+            _host.AddRun(_host.AccountA, "cj_burst", at, CronRunResults.Problem, CronRunProblems.DidNotRun, $"reason {i}", at,
+                sessionId: $"sid-{i}");
+        }
+        _host.Now = _host.Now.AddSeconds(10);
+        var first = NewReporter();
+        var told = 0;
+        for (var scan = 0; scan < 5; scan++)
+        {
+            told += first.Scan();
+            _host.Sink.Flush();
+        }
+        Assert.Equal(total, told);
+
+        // A restart: every one of them is already stored, and reading past them takes more than one page.
+        _host.Now = _host.Now.AddMinutes(1);
+        var second = NewReporter();
+        var again = 0;
+        for (var scan = 0; scan < 5; scan++) again += second.Scan();
+
+        Assert.Equal(0, again);
+        Assert.Equal(total, GatewayRows(GatewayAccountFailures.ScheduleSource).Count);
+    }
+
+    [Fact]
+    public void AfterAnOutageLongerThanTheFirstLookback_AFailureNeverStored_IsReportedFromTheCheckpoint()
+    {
+        // The last Gateway read up to its checkpoint, recorded one more failure, and went down for two days before its
+        // sink wrote it. The next Gateway starts from the checkpoint, not from a fixed six hours back.
+        var last = NewReporter();
+        Assert.Equal(0, last.Scan());
+        Assert.True(File.Exists(_host.CheckpointPath));
+        _host.Now = _host.Now.AddSeconds(5);
+        FailMorningRun();
+
+        _host.Now = _host.Now.AddDays(2);
+        Assert.Equal(1, NewReporter().Scan());
+        Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+    }
+
+    [Fact]
+    public void ACheckpointThatIsNotATime_FailsLoud()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_host.CheckpointPath)!);
+        File.WriteAllText(_host.CheckpointPath, "not a time");
+
+        Assert.Throws<InvalidOperationException>(() => NewReporter());
+    }
+
+    [Fact]
+    public void TheStoredReadSplitsAWindowHoldingMoreThanOneReadReturns()
+    {
+        // More Gateway rows in one hour than one read returns: every stored schedule failure must still be found.
+        _host.AddJob(_host.AccountA, "cj_many", "Many");
+        var reporter = NewReporter();
+        var total = ErrorReportStore.MaxLimit + 40;
+        for (var i = 0; i < total; i++)
+        {
+            var at = _host.Now.AddMilliseconds(5 * (i + 1));
+            _host.AddRun(_host.AccountA, "cj_many", at, CronRunResults.Problem, CronRunProblems.DidNotRun, $"reason {i}", at,
+                sessionId: $"sid-{i}");
+        }
+        _host.Now = _host.Now.AddSeconds(10);
+        for (var scan = 0; scan < 20; scan++)
+        {
+            reporter.Scan();
+            _host.Now = _host.Now.AddSeconds(30);
+            _host.Sink.Flush();
+        }
+        // One plain read holds at most MaxLimit rows - which is the point: the split read finds all of them.
+        Assert.Equal(ErrorReportStore.MaxLimit, GatewayRows(GatewayAccountFailures.ScheduleSource).Count);
+
+        var ids = CronRunFailureReporter.StoredScheduleFailures(_host.Errors, _host.Now.AddHours(-1), _host.Now);
+
+        Assert.Equal(total, ids.Count);
     }
 
     [Fact]
@@ -394,7 +479,9 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
         var rows = GatewayRows(GatewayAccountFailures.CredentialSource);
         Assert.Equal(new[] { "s1", "s2" }, rows.Where(r => r.SessionId is not null).Select(r => r.SessionId).Order());
         var overflow = Assert.Single(rows, r => r.Message == GatewayAccountFailures.OverflowMessage);
-        Assert.Equal("", overflow.Account);
+        // Still the customer's, under what was refused, so the account's own read shows it.
+        Assert.Equal(_host.AccountA.Value, overflow.Account);
+        Assert.Equal(GatewayAccountFailures.CredentialSource, overflow.Source);
         Assert.Equal(2, overflow.RepeatCount);
 
         // Once the remembered ones leave their window, a new refusal is kept apart again.

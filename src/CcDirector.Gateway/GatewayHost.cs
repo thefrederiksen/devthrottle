@@ -4775,7 +4775,9 @@ public sealed class GatewayHost : IAsyncDisposable
         AccountFailures.Attach(_errorSink);
         var failureStore = _errorReports;
         _cronRunFailures = new Running.CronRunFailureReporter(_cronRuns, AccountFailures,
-            alreadyStored: since => Running.CronRunFailureReporter.StoredScheduleFailures(failureStore, since, DateTime.UtcNow));
+            alreadyStored: since => Running.CronRunFailureReporter.StoredScheduleFailures(failureStore, since, DateTime.UtcNow),
+            // Beside the error store, on the durable root a deploy does not touch.
+            checkpointPath: Path.Combine(failureStore.Root, "schedule-failure-checkpoint.txt"));
         _cronRunFailures.Start();
 
         _app.UseForwardedHeaders();

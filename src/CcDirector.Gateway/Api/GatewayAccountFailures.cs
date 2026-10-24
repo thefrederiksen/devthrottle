@@ -50,13 +50,14 @@ public sealed class GatewayAccountFailures
     internal static readonly TimeSpan RepeatWindow = TimeSpan.FromMinutes(10);
 
     /// <summary>At most this many distinct refusals are remembered for the window. When every one is still inside it,
-    /// a new refusal is not stored on its own: it is counted, and the count is stored as one Gateway row
-    /// (<see cref="OverflowMessage"/>) - so a burst across many keys can neither grow this table nor fill the store.</summary>
+    /// a new refusal is not stored on its own: it is counted, and the count is stored as one row per account and source
+    /// (<see cref="OverflowMessage"/>) - so a burst across many keys can neither grow this table nor fill the store, and
+    /// the account still sees that it was refused.</summary>
     internal const int DefaultMaxThrottled = 2000;
 
     /// <summary>The one row a refusal is counted in when the table is full.</summary>
     internal const string OverflowMessage =
-        "more distinct credential refusals arrived inside ten minutes than the Gateway keeps apart; these were counted here and not stored one by one";
+        "more distinct refusals arrived inside ten minutes than the Gateway keeps apart; these were counted here and not stored one by one";
 
     private volatile GatewayErrorSink? _sink;
     private int _noSinkLogged;
@@ -173,10 +174,11 @@ public sealed class GatewayAccountFailures
         }
         if (overflow)
         {
-            // Every remembered refusal is still inside its window: this one is not kept apart. It is counted in ONE row
-            // that names no account - the operator's to read - and the sink folds every such count into that row.
-            Report(new GatewayError(Source: CredentialSource, Kind: Kind, Message: OverflowMessage,
-                ErrorCode: "credential_refusals_not_kept_apart"), occurrences);
+            // Every remembered refusal is still inside its window: this one is not kept apart. It is counted in one row
+            // per account and source - so it still shows in that account's read, under what was refused - and the sink
+            // folds every such count into that row.
+            Report(new GatewayError(Source: error.Source, Kind: Kind, Message: OverflowMessage, Account: error.Account,
+                ErrorCode: "refusals_not_kept_apart"), occurrences);
             return;
         }
         Report(error, occurrences);
