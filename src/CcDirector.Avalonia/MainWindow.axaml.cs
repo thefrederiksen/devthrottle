@@ -35,6 +35,7 @@ using CcDirector.Core.Teams;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.ErrorReports;
+using CcDirector.Terminal.Avalonia;
 using FileViewerControls = CcDirector.Avalonia.Controls;
 
 namespace CcDirector.Avalonia;
@@ -5026,6 +5027,23 @@ public partial class MainWindow : Window
         file.Menu.Items.Add(Item("Exit", Close));
         menu.Items.Add(file);
 
+        // ===== Edit (Mac only) =====
+        // Every Mac app has an Edit menu, and Cmd+C / Cmd+V / Cmd+A are its key equivalents (issue #4425). Not on
+        // Windows or Linux: there the menu bar is drawn in the window and a Ctrl+C gesture on it would take Ctrl+C away
+        // from the terminal, where it interrupts the agent.
+        if (OperatingSystem.IsMacOS())
+        {
+            var edit = new NativeMenuItem("Edit") { Menu = new NativeMenu() };
+            edit.Menu.Items.Add(Item("Copy", () => RunEditCommand(TerminalClipboardCommand.Copy),
+                new KeyGesture(Key.C, KeyModifiers.Meta)));
+            edit.Menu.Items.Add(Item("Paste", () => RunEditCommand(TerminalClipboardCommand.Paste),
+                new KeyGesture(Key.V, KeyModifiers.Meta)));
+            edit.Menu.Items.Add(new NativeMenuItemSeparator());
+            edit.Menu.Items.Add(Item("Select All", () => RunEditCommand(TerminalClipboardCommand.SelectAll),
+                new KeyGesture(Key.A, KeyModifiers.Meta)));
+            menu.Items.Add(edit);
+        }
+
         // ===== Developer (alpha only) =====
         // The "Session" menu was retired: Repositories moved to the pinned sidebar entry (#507),
         // which left only alpha developer tools. Those now live under a Developer menu, so the
@@ -5105,6 +5123,28 @@ public partial class MainWindow : Window
         menu.Items.Add(help);
 
         NativeMenu.SetMenu(this, menu);
+    }
+
+    /// <summary>
+    /// The Mac Edit menu (issue #4425): Copy, Paste or Select All in the text box that has focus, or else in the session
+    /// terminal. A text box keeps its own clipboard behaviour; the terminal runs the same command its keys run.
+    /// </summary>
+    private void RunEditCommand(TerminalClipboardCommand command)
+    {
+        var focused = FocusManager?.GetFocusedElement();
+        FileLog.Write($"[MainWindow] RunEditCommand: {command}, focused={focused?.GetType().Name ?? "(none)"}");
+        if (focused is TextBox box)
+        {
+            switch (command)
+            {
+                case TerminalClipboardCommand.Copy: box.Copy(); break;
+                case TerminalClipboardCommand.Paste: box.Paste(); break;
+                case TerminalClipboardCommand.SelectAll: box.SelectAll(); break;
+                default: throw new ArgumentOutOfRangeException(nameof(command), command, "unknown edit command");
+            }
+            return;
+        }
+        TerminalHost.RunClipboardCommand(command);
     }
 
     // ==================== TOP APP BAR ====================
