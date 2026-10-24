@@ -202,6 +202,10 @@ public sealed class SessionManager : IDisposable
     /// (<see cref="Claude.ClaudeHookInstaller.DefaultDirectory"/>); a test points it at a scratch folder.</summary>
     public string? ClaudeHooksDirectory { get; init; }
 
+    /// <summary>Where the Director-carried Pi lifecycle extension goes. Null is the real storage root
+    /// (<see cref="Storage.CcStorage.PiExtensions"/>); a test points it at a scratch folder.</summary>
+    public string? PiExtensionsDirectory { get; init; }
+
     /// <summary>Where a session's maintained preamble file goes. Null is the real storage root
     /// (<see cref="Storage.CcStorage.SessionPreambles"/>); a test points it at a scratch folder.</summary>
     public string? SessionPreambleDirectory { get; init; }
@@ -1250,6 +1254,15 @@ public sealed class SessionManager : IDisposable
             // builds the preamble locally from the session's known identity.
             if (agent.Kind == AgentKind.Pi)
             {
+                var stateExtension = PiExtensionsDirectory is { } extensionDirectory
+                    ? CcDirector.Core.Pi.PiStateExtensionInstaller.EnsureInstalled(extensionDirectory)
+                    : CcDirector.Core.Pi.PiStateExtensionInstaller.EnsureInstalled();
+                args = CcDirector.Core.Pi.PiStateExtensionInstaller.AppendLaunchArgument(args, stateExtension);
+                if (stateExtension is not null)
+                    _log?.Invoke("Installed the Pi lifecycle extension and passed it via --extension.");
+                else
+                    _log?.Invoke("The Pi lifecycle extension could not be installed; this session cannot report its own working or waiting state.");
+
                 // Issue #800: route the display-name fallback through the single composer so a
                 // session never identifies itself by the bare folder name.
                 var piName = SessionName.DisplayName(
