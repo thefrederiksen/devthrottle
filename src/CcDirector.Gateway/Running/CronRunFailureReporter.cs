@@ -18,9 +18,10 @@ namespace CcDirector.Gateway.Running;
 /// so a failure whose result time was taken just before a scan but committed just after it is still seen; the runs
 /// already told inside that overlap are remembered, and forgotten once they fall out of it.
 ///
-/// TOLD MEANS THE SINK TOOK IT. A run is marked told only when <see cref="GatewayErrorSink"/> accepted its report. A
-/// report the sink dropped because its table was full leaves the run untold and the window where it is, so the next
-/// scan tries it again.
+/// TOLD MEANS THE SINK TOOK IT; DONE MEANS THE STORE HOLDS IT. A run is marked told only when
+/// <see cref="GatewayErrorSink"/> accepted its report; a report the sink dropped because its table was full leaves the run
+/// untold and the window where it is, so the next scan tries it again. A told report stays UNCONFIRMED until the store
+/// holds it: the checkpoint never passes it, and one still missing <see cref="ConfirmWithin"/> later is told again.
 ///
 /// A RESTART LOSES NOTHING. Each report carries its run and result time as its correlation id
 /// (<see cref="GatewayAccountFailures.RunCorrelation"/>), and after every scan that drained its backlog the reporter
@@ -36,6 +37,9 @@ public sealed class CronRunFailureReporter : IDisposable
     internal static readonly TimeSpan Overlap = TimeSpan.FromMinutes(2);
     internal static readonly TimeSpan RestartLookback = TimeSpan.FromHours(6);
     internal static readonly TimeSpan CheckpointSlack = TimeSpan.FromMinutes(10);
+    /// <summary>A report the store does not hold this long after the sink took it is told again: the sink gives a write up
+    /// after <see cref="GatewayErrorSink.MaxAttempts"/> tries, and may hold one back while its hourly allowance is spent.</summary>
+    internal static readonly TimeSpan ConfirmWithin = TimeSpan.FromMinutes(15);
     internal static readonly TimeSpan MaxLookback = TimeSpan.FromDays(ErrorReportStore.RetentionDays);
     internal static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(30);
     /// <summary>At most this many failed runs are reported in one scan; the rest wait for the next. Well under the
@@ -53,6 +57,8 @@ public sealed class CronRunFailureReporter : IDisposable
     private bool _reconciled;
     private readonly object _lock = new();
     private readonly Dictionary<(string RunId, DateTime ResultUtc), DateTime> _told = new();
+    // Reports the sink took and the store does not yet hold, with when they were handed over.
+    private readonly Dictionary<(string RunId, DateTime ResultUtc), DateTime> _unconfirmed = new();
     private DateTime _since;
     private readonly string _checkpointPath;
 
@@ -117,7 +123,12 @@ public sealed class CronRunFailureReporter : IDisposable
         lock (_lock)
         {
             var now = _clock();
-            var from = _since - Overlap;
+            ConfirmStored(now);
+
+            // The window reaches back to the oldest report not yet confirmed stored, so one handed back for telling again
+            // is read again.
+            var oldestUnconfirmed = _unconfirmed.Count == 0 ? (DateTime?)null : _unconfirmed.Keys.Min(k => k.ResultUtc);
+            var from = (oldestUnconfirmed is { } u && u < _since ? u : _since) - Overlap;
             // Read once, on the first scan: what the store already holds from the lookback was told by an earlier Gateway.
             if (!_reconciled)
             {
@@ -153,26 +164,52 @@ public sealed class CronRunFailureReporter : IDisposable
                     break;
                 }
                 _told[key] = key.Item2;
+                _unconfirmed[key] = now;
                 reported++;
-            }
-            // The lookback's backlog is drained: everything the store held has been read past, so the set is let go, and
-            // how far this reporter has read is kept for the next process.
-            if (!more)
-            {
-                _stored = null;
-                WriteCheckpoint(now);
             }
 
             // While a backlog remains the window stays where it is, and the told set keeps it from being told twice; once
             // it is drained the window moves on to now.
-            if (!more) _since = now;
-            var forgetBefore = _since - Overlap;
-            foreach (var stale in _told.Where(t => t.Value < forgetBefore).Select(t => t.Key).ToList())
+            if (!more)
+            {
+                _stored = null;
+                _since = now;
+                // THE CHECKPOINT NEVER PASSES A REPORT THE STORE DOES NOT HOLD. Accepted only means it is waiting in the
+                // sink's memory; until the store has it, the next process must start no later than its result time.
+                WriteCheckpoint(_unconfirmed.Count == 0 ? now : _unconfirmed.Keys.Min(k => k.ResultUtc));
+            }
+            var oldestKept = _since;
+            foreach (var key in _unconfirmed.Keys)
+                if (key.ResultUtc < oldestKept) oldestKept = key.ResultUtc;
+            var forgetBefore = oldestKept - Overlap;
+            foreach (var stale in _told.Where(t => t.Value < forgetBefore && !_unconfirmed.ContainsKey(t.Key)).Select(t => t.Key).ToList())
                 _told.Remove(stale);
 
             if (reported > 0)
                 FileLog.Write($"[CronRunFailureReporter] Scan: reported {reported} failed scheduled run(s) recorded since {from:o}{(more ? "; more are waiting for the next scan" : "")}");
             return reported;
+        }
+    }
+
+    /// <summary>
+    /// Drop from the unconfirmed list every report the store now holds. One still not there <see cref="ConfirmWithin"/>
+    /// after it was handed to the sink - the sink gave it up after its write attempts - is handed back to be told again.
+    /// </summary>
+    private void ConfirmStored(DateTime now)
+    {
+        if (_unconfirmed.Count == 0) return;
+        var ids = _alreadyStored(_unconfirmed.Keys.Min(k => k.ResultUtc) - Overlap);
+        foreach (var (key, toldAt) in _unconfirmed.ToList())
+        {
+            if (ids.Contains(GatewayAccountFailures.RunCorrelation(key.RunId, key.ResultUtc)))
+            {
+                _unconfirmed.Remove(key);
+                continue;
+            }
+            if (now - toldAt < ConfirmWithin) continue;
+            FileLog.Write($"[CronRunFailureReporter] run {key.RunId}: its report is not in the store {ConfirmWithin.TotalMinutes:0} minutes after the sink took it; telling it again");
+            _unconfirmed.Remove(key);
+            _told.Remove(key);
         }
     }
 

@@ -170,6 +170,84 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
         Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
     }
 
+    /// <summary>The process ends: its sink's waiting reports are gone, and the next process has a new sink.</summary>
+    private (GatewayErrorSink Sink, GatewayAccountFailures Failures) NextProcess()
+    {
+        _host.Failures.Detach();
+        var sink = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now,
+            new GatewayErrorSink.ProcessFacts("2.99.0", "linux", "test", "x64", "0123456789abcdef"));
+        var failures = new GatewayAccountFailures(() => _host.Now);
+        failures.Attach(sink);
+        return (sink, failures);
+    }
+
+    [Fact]
+    public void TheCheckpointNeverPassesAReportTheStoreDoesNotHold()
+    {
+        // The review's case: a run an hour old is recovered and taken by a sink that has not written it (its hourly
+        // allowance spent), the process stops twenty minutes later, and the next one must still find the run.
+        var run = FailMorningRun();
+        _host.Now = _host.Now.AddHours(1);
+        // The first process's sink takes the report and is never written: the process stops with it waiting.
+        var dying = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now,
+            new GatewayErrorSink.ProcessFacts("2.99.0", "linux", "test", "x64", "0123456789abcdef"));
+        var dyingFailures = new GatewayAccountFailures(() => _host.Now);
+        dyingFailures.Attach(dying);
+        Assert.Equal(1, NewReporter(dyingFailures).Scan());
+        Assert.True(CronRunFailureReporter.ReadCheckpoint(_host.CheckpointPath) <= run.ResultUtc);
+
+        _host.Now = _host.Now.AddMinutes(20);
+        var (sink, failures) = NextProcess();
+        using (sink)
+        {
+            Assert.Equal(1, NewReporter(failures).Scan());
+            sink.Flush();
+        }
+
+        Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+    }
+
+    [Fact]
+    public void OnceTheStoreHoldsTheReport_TheCheckpointMovesOn()
+    {
+        FailMorningRun();
+        _host.Now = _host.Now.AddHours(1);
+        var reporter = NewReporter();
+        Assert.Equal(1, reporter.Scan());
+        _host.Sink.Flush();
+        _host.Now = _host.Now.AddSeconds(30);
+
+        Assert.Equal(0, reporter.Scan());
+
+        Assert.Equal(_host.Now, CronRunFailureReporter.ReadCheckpoint(_host.CheckpointPath));
+    }
+
+    [Fact]
+    public void AReportTheSinkTookButNeverStored_IsToldAgainInTheSameProcess()
+    {
+        var facts = new GatewayErrorSink.ProcessFacts("2.99.0", "linux", "test", "x64", "0123456789abcdef");
+        using var losing = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now, facts);
+        using var next = new GatewayErrorSink(_host.Errors, new ErrorIntakeFloods(), () => _host.Now, facts);
+        var failures = new GatewayAccountFailures(() => _host.Now);
+        failures.Attach(losing);
+        var reporter = NewReporter(failures);
+        FailMorningRun();
+        _host.Now = _host.Now.AddMinutes(1);
+        Assert.Equal(1, reporter.Scan());
+
+        // The first sink never writes it (it gave the write up); from here the reports go to another.
+        failures.Attach(next);
+        _host.Now = _host.Now.AddMinutes(1);
+        Assert.Equal(0, reporter.Scan());
+
+        _host.Now = _host.Now + CronRunFailureReporter.ConfirmWithin;
+        Assert.Equal(1, reporter.Scan());
+        next.Flush();
+
+        Assert.Single(_host.Errors.Query(new ErrorReportQuery(_host.Now.AddDays(-1), _host.Now.AddDays(1), Limit: 500)).Records,
+            r => r.Source == GatewayAccountFailures.ScheduleSource);
+    }
+
     [Fact]
     public void ACheckpointThatIsNotATime_FailsLoud()
     {
