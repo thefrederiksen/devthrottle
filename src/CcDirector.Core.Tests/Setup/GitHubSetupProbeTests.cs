@@ -149,11 +149,34 @@ public sealed class GitHubSetupProbeTests
     [Fact]
     public void FoldersMissingFromPath_NamesOnlyTheFoldersNotAlreadyThere()
     {
-        var status = new GitHubSetupStatus(GitHubSetupState.SignedIn, "/usr/bin/git", "2.43.0", "/opt/homebrew/bin/gh", "2.62.0", "x", "d");
+        // Built with this platform's separators: the method reads real paths, and a Unix path on Windows is not one.
+        var root = Path.GetTempPath();
+        var gitDir = Path.Combine(root, "git-bin");
+        var ghDir = Path.Combine(root, "gh-bin");
+        var status = new GitHubSetupStatus(GitHubSetupState.SignedIn, Path.Combine(gitDir, "git"), "2.43.0",
+            Path.Combine(ghDir, "gh"), "2.62.0", "x", "d");
         var sep = Path.PathSeparator;
 
-        Assert.Equal(new[] { "/opt/homebrew/bin" }, GitHubSetupProbe.FoldersMissingFromPath(status, $"/usr/bin{sep}/bin"));
-        Assert.Empty(GitHubSetupProbe.FoldersMissingFromPath(status, $"/opt/homebrew/bin/{sep}/usr/bin"));
-        Assert.Equal(new[] { "/usr/bin", "/opt/homebrew/bin" }, GitHubSetupProbe.FoldersMissingFromPath(status, null));
+        Assert.Equal(new[] { ghDir }, GitHubSetupProbe.FoldersMissingFromPath(status, $"{gitDir}{sep}{root}"));
+        Assert.Empty(GitHubSetupProbe.FoldersMissingFromPath(status, $"{ghDir}{Path.DirectorySeparatorChar}{sep}{gitDir}"));
+        Assert.Equal(new[] { gitDir, ghDir }, GitHubSetupProbe.FoldersMissingFromPath(status, null));
+    }
+
+    [Fact]
+    public void Classify_ActiveAccountSignedIn_WhileAnInactiveOneFailed_IsSignedIn()
+    {
+        const string twoAccounts = """
+            github.com
+              ✓ Logged in to github.com account octo-cat (keyring)
+              - Active account: true
+              X Failed to log in to github.com account old-cat (keyring)
+              - Active account: false
+              - The token in keyring is invalid.
+            """;
+
+        var status = GitHubSetupProbe.Classify(Git, Gh, new ToolProbe(Gh.Path, 1, twoAccounts));
+
+        Assert.Equal(GitHubSetupState.SignedIn, status.State);
+        Assert.Equal("octo-cat", status.Account);
     }
 }

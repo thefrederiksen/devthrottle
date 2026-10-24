@@ -105,6 +105,12 @@ public static class GitHubSetupProbe
             return new GitHubSetupStatus(GitHubSetupState.GhMissing, git.Path, gitVersion, null, null, null,
                 "the GitHub command line (gh) is not installed, so DevThrottle cannot sign in to GitHub");
 
+        // A "Logged in" line means the active account is signed in, whatever the exit code: with two accounts, an expired
+        // token on the inactive one makes gh exit 1 while the active one works.
+        if (authStatus is not null && ParseSignedInAccount(authStatus.Output) is { } active)
+            return new GitHubSetupStatus(GitHubSetupState.SignedIn, git.Path, gitVersion, gh.Path, ghVersion, active,
+                $"signed in to github.com as {active}");
+
         if (authStatus is not null && authStatus.ExitCode != 0 && UnconfirmedPattern.Match(authStatus.Output) is { Success: true } stored)
             return new GitHubSetupStatus(GitHubSetupState.SignInUnconfirmed, git.Path, gitVersion, gh.Path, ghVersion, stored.Groups[1].Value,
                 $"signed in as {stored.Groups[1].Value}, but GitHub could not confirm it - it may be unreachable just now, or the sign-in has expired");
@@ -175,7 +181,8 @@ public static class GitHubSetupProbe
     }
 
     /// <summary>
-    /// Put the folders git and gh were found in onto this process's PATH when they are not on it (review of #4426). A gh
+    /// Add the folders git and gh were found in to the END of this process's PATH when they are not on it (review of #4426).
+    /// At the end, so nothing already resolvable - a python3 or node - starts resolving somewhere else. A gh
     /// that winget installed a minute ago is not on the PATH the Director started with, and every session's PATH is built
     /// from the Director's - so without this, sessions could not push until the Director restarted. Returns what it added.
     /// </summary>
@@ -184,7 +191,8 @@ public static class GitHubSetupProbe
         var current = Environment.GetEnvironmentVariable("PATH");
         var missing = FoldersMissingFromPath(status, current);
         if (missing.Count == 0) return missing;
-        Environment.SetEnvironmentVariable("PATH", string.Join(Path.PathSeparator, missing.Append(current ?? "")));
+        Environment.SetEnvironmentVariable("PATH", string.Join(Path.PathSeparator,
+            new[] { current }.Where(p => !string.IsNullOrEmpty(p)).Concat(missing)));
         FileLog.Write($"[GitHubSetupProbe] added to this process's PATH so sessions find git and gh: {string.Join(", ", missing)}");
         return missing;
     }
