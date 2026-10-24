@@ -30,7 +30,7 @@ namespace CcDirector.Gateway.Factory.Records;
 /// write saves the whole text, and a seat rewrites its ledger many times a day, so keeping every version grew each
 /// factory's history without end. A successful write removes every version of that document older than the newest
 /// <see cref="KeptVersions"/>; version numbers still only climb, so a writer's expected version means what it always
-/// meant. History is read a page at a time and WITHOUT text, as a brief's history is.
+/// meant. The one version the one-time upload stored is kept as well, so a re-run of the upload knows it stored it. History is read a page at a time and WITHOUT text, as a brief's history is.
 ///
 /// NO REGISTRATION IS REQUIRED, as for memory: the one-time upload stores the records of every factory folder on a
 /// machine, including a factory that was never registered, and refusing those would leave them on the one disk.
@@ -259,8 +259,11 @@ public sealed class FactoryDocumentStore
             try
             {
                 var keepFrom = written.Version - KeptVersions + 1;
+                // The version the one-time upload stored stays: its import key is the upload's only memory that it
+                // stored the file, so a re-run answers "already stored" rather than a stale refusal it cannot act on
+                // (review of #4412, finding 2). The upload writes at most one row per file, so this set never grows.
                 removed = ctx.FactoryDocumentVersions
-                    .Where(d => d.Factory == factory && d.Name == name && d.Version < keepFrom)
+                    .Where(d => d.Factory == factory && d.Name == name && d.Version < keepFrom && d.ImportKey == null)
                     .ExecuteDelete();
             }
             catch (Exception ex)

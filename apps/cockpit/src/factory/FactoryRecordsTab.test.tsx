@@ -175,7 +175,7 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
     );
     client.getFactoryRecordsDocumentHistory.mockResolvedValue({
       name: "outreach/ledger.json",
-      heading: "Every version of outreach/ledger.json",
+      heading: "The newest versions of outreach/ledger.json",
       summaryText: "2 versions. (fixture)",
       columns: ["Version", "State", "Written by", "When", "Size"],
       rows: [

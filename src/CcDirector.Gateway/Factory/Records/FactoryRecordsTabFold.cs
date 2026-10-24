@@ -195,8 +195,8 @@ public static class FactoryRecordsTabFold
         return new FactoryRecordsDocumentHistoryViewDto
         {
             Name = name,
-            Heading = $"Every version of {name}",
-            SummaryText = $"{FactoriesScreenFold.Count(page.Total, "version")}. Every version is kept.",
+            Heading = $"The newest versions of {name}",
+            SummaryText = $"{FactoriesScreenFold.Count(page.Total, "version")}. Only the newest {FactoryDocumentStore.KeptVersions} versions of a document are kept.",
             Columns = new List<string> { "Version", "State", "Written by", "When", "Size" },
             Rows = page.Versions.Select(v => new FactoryRecordsDocumentVersionRowDto
             {

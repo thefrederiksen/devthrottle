@@ -101,6 +101,20 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_version_the_upload_stored_is_kept_so_a_re_run_of_the_upload_is_already_stored()
+    {
+        var store = Documents();
+        Assert.True(store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json").Ok);
+        for (var v = 2; v <= 5; v++) Assert.True(WriteBySession(store, $"v{v}", expect: v - 1).Ok);
+
+        Assert.Equal(new[] { 5, 4, 3, 1 }, store.History(A, TheFactory, Ledger).Versions.Select(v => v.Version));
+        var again = store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json");
+        Assert.Equal(FactoryRecordOutcome.AlreadyStored, again.Outcome);
+    }
+
+    [Fact]
     public void Trimming_one_document_leaves_every_other_document_factory_and_account_alone()
     {
         var store = Documents();

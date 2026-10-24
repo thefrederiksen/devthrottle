@@ -201,10 +201,10 @@ public sealed class FactoryRecordsDocumentHistoryViewDto
 {
     public string Name { get; set; } = "";
 
-    /// <summary>"Every version of outreach/ledger.json".</summary>
+    /// <summary>"The newest versions of outreach/ledger.json".</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>"4 versions. Every version is kept."</summary>
+    /// <summary>"3 versions. Only the newest 3 versions of a document are kept."</summary>
     public string SummaryText { get; set; } = "";
 
     public List<string> Columns { get; set; } = new();

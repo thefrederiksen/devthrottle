@@ -195,7 +195,7 @@ factory_journal_app = typer.Typer(
 factory_app.add_typer(factory_journal_app, name="journal")
 factory_doc_app = typer.Typer(
     cls=AxiGroup,
-    help="A factory's working documents on the Gateway, every version kept.",
+    help="A factory's working documents on the Gateway, the newest three versions kept.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -5373,7 +5373,7 @@ def factory_doc_history(
 ) -> None:
     """One page of a working document's versions, newest first, without their text.
 
-    Every version is kept.
+    Only the newest three versions of a document are kept.
     """
     factory_record_ops.doc_history(factory, name, count, before, json_output)
 
