@@ -12,8 +12,12 @@ public static class MacRelocationNotice
 {
     private const string FileName = "mac-app-location-notice.txt";
 
-    /// <summary>True the first time <paramref name="bundlePath"/> is asked about, and records it so the next start is quiet.</summary>
+    /// <summary>True when <paramref name="bundlePath"/> has not been told about yet. Call <see cref="RecordShown(string)"/>
+    /// once the notice has actually been shown, so a notice that failed to appear is tried again next start.</summary>
     public static bool ShouldShow(string bundlePath) => ShouldShow(bundlePath, CcStorage.ToolConfig("director"));
+
+    /// <summary>Record that the person was told about <paramref name="bundlePath"/>.</summary>
+    public static void RecordShown(string bundlePath) => RecordShown(bundlePath, CcStorage.ToolConfig("director"));
 
     /// <summary>The same, with the folder the record is kept in named - for a test.</summary>
     public static bool ShouldShow(string bundlePath, string recordDirectory)
@@ -27,9 +31,16 @@ public static class MacRelocationNotice
             return false;
         }
 
-        Directory.CreateDirectory(recordDirectory);
-        File.WriteAllText(record, bundlePath);
-        FileLog.Write($"[MacRelocationNotice] telling the person where the app is: {bundlePath}");
         return true;
+    }
+
+    /// <summary>The same, with the folder the record is kept in named - for a test.</summary>
+    public static void RecordShown(string bundlePath, string recordDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bundlePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(recordDirectory);
+        Directory.CreateDirectory(recordDirectory);
+        File.WriteAllText(Path.Combine(recordDirectory, FileName), bundlePath);
+        FileLog.Write($"[MacRelocationNotice] told the person where the app is: {bundlePath}");
     }
 }

@@ -14,16 +14,26 @@ public sealed class MacRelocationNoticeTests : IDisposable
     }
 
     [Fact]
-    public void ShouldShow_FirstTimeForAPlace_IsTrue_ThenQuiet()
+    public void ShouldShow_FirstTimeForAPlace_IsTrue_ThenQuietOnceShown()
     {
         Assert.True(MacRelocationNotice.ShouldShow("/Users/someone/Applications/Director.app", _dir));
+        MacRelocationNotice.RecordShown("/Users/someone/Applications/Director.app", _dir);
         Assert.False(MacRelocationNotice.ShouldShow("/Users/someone/Applications/Director.app", _dir));
+    }
+
+    [Fact]
+    public void ShouldShow_ANoticeThatWasNeverShown_IsTriedAgain()
+    {
+        // Review of #4427: recorded only after it appears, so a notice that failed to show is not lost.
+        Assert.True(MacRelocationNotice.ShouldShow("/Users/someone/Applications/Director.app", _dir));
+        Assert.True(MacRelocationNotice.ShouldShow("/Users/someone/Applications/Director.app", _dir));
     }
 
     [Fact]
     public void ShouldShow_ADifferentPlace_IsToldAgain()
     {
         Assert.True(MacRelocationNotice.ShouldShow("/Users/someone/Applications/Director.app", _dir));
+        MacRelocationNotice.RecordShown("/Users/someone/Applications/Director.app", _dir);
         Assert.True(MacRelocationNotice.ShouldShow("/Users/someone/Desktop/Director.app", _dir));
     }
 }

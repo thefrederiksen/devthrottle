@@ -638,8 +638,13 @@ public static class UpdateInstaller
     ///
     /// The correct pattern was already in this file, a hundred lines away, on the sibling path.
     /// </param>
+    /// <param name="newInstance">
+    /// On macOS, pass <c>open -n</c>: start a new process even though one is running from this bundle. Needed when the
+    /// process issuing the relaunch runs from the very bundle it relaunches and is still alive - without it Launch
+    /// Services brings the running one to the front and the arguments are never delivered (review of #4427).
+    /// </param>
     public static ProcessStartInfo BuildRelaunchStartInfo(string targetPath, string? instanceSlug,
-        int? waitForProcessId = null)
+        int? waitForProcessId = null, bool newInstance = false)
     {
         // UseShellExecute must stay false: the environment block can only be edited on a direct start.
         var psi = new ProcessStartInfo
@@ -666,6 +671,7 @@ public static class UpdateInstaller
 
         if (OperatingSystem.IsMacOS())
         {
+            if (newInstance) psi.ArgumentList.Add("-n");
             psi.ArgumentList.Add(targetPath);
             if (appArgs.Count > 0)
             {

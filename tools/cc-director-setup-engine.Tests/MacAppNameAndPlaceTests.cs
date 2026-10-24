@@ -74,6 +74,51 @@ public sealed class MacAppNameAndPlaceTests
     }
 
     [Fact]
+    public void CarryIdentities_EveryInstanceKeepsItsIdentifier_AtTheNewPath()
+    {
+        // Review of #4427: the identifier is keyed by the executable path, so without this the moved Director would mint a
+        // new one and the Mac would appear on the account as a second workstation.
+        var root = Path.Combine(Path.GetTempPath(), $"carry-{Guid.NewGuid():N}");
+        try
+        {
+            const string oldBundle = "/Users/someone/Applications/Director.app";
+            const string newBundle = "/Applications/Director.app";
+            string SlotFile(string slug, string bundle) => CcDirector.Core.Instances.DirectorIdentitySlot.FilePathFor(
+                CcDirector.Core.Instances.DirectorIdentitySlot.DirectoryFor(Path.Combine(root, "instances", slug)),
+                CcDirector.Core.Instances.DirectorIdentitySlot.KeyFor(Path.Combine(bundle, "Contents", "MacOS", "cc-director"), slug));
+
+            var ids = new Dictionary<string, string> { ["default"] = Guid.NewGuid().ToString(), ["work"] = Guid.NewGuid().ToString() };
+            foreach (var (slug, id) in ids)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SlotFile(slug, oldBundle))!);
+                File.WriteAllText(SlotFile(slug, oldBundle), id);
+            }
+            // An instance that already has an identity at the new path keeps it: nothing is overwritten.
+            Directory.CreateDirectory(Path.GetDirectoryName(SlotFile("kept", newBundle))!);
+            File.WriteAllText(SlotFile("kept", oldBundle), Guid.NewGuid().ToString());
+            File.WriteAllText(SlotFile("kept", newBundle), "already-here");
+
+            var carried = MacDirectorRelocation.CarryIdentities(root, oldBundle, newBundle, _ => { });
+
+            Assert.Equal(2, carried);
+            foreach (var (slug, id) in ids)
+                Assert.Equal(id, File.ReadAllText(SlotFile(slug, newBundle)));
+            Assert.Equal("already-here", File.ReadAllText(SlotFile("kept", newBundle)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CarryIdentities_NoInstancesFolder_CarriesNothing()
+    {
+        Assert.Equal(0, MacDirectorRelocation.CarryIdentities(Path.Combine(Path.GetTempPath(), $"none-{Guid.NewGuid():N}"),
+            "/a/Director.app", "/b/Director.app", _ => { }));
+    }
+
+    [Fact]
     public void DockAddArguments_AddsTheBundleAsAFileAddress_WithItsSpacesEscaped()
     {
         var args = MacDock.AddArguments("/Users/some one/Applications/Director.app");

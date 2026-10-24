@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using CcDirector.Core.Instances;
 
 namespace CcDirector.Setup.Engine;
 
@@ -122,6 +123,8 @@ public static class MacDirectorRelocation
                         + $"not be moved there ({ex.Message}). Drag it into the Applications folder in the Finder.");
                 }
 
+                // Before anything starts from the new place: a Director's identity is keyed by the path it runs from.
+                CarryIdentities(layout.LocalRoot, Trim(runningBundle), installed, log);
                 MacAppPlacer.RegisterWithLaunchServices(installed, log);
                 log($"[MacDirectorRelocation] moved {runningBundle} -> {installed}");
                 return new MacRelocationResult(true, installed, $"DevThrottle moved from {runningBundle} to {installed}.");
@@ -129,6 +132,42 @@ public static class MacDirectorRelocation
             default:
                 throw new ArgumentOutOfRangeException(nameof(decision), decision, "unknown relocation decision");
         }
+    }
+
+    /// <summary>
+    /// Give every instance of the moved install the identity it had (review of #4427). A Director's identifier is kept
+    /// in its instance home under a slot keyed by the executable it runs from (<see cref="DirectorIdentitySlot"/>), so
+    /// after the move each instance would find no file for its new path and mint a new identifier - the same Mac would
+    /// appear on the account as a second workstation, and anything stopping it by its old identifier would miss. For
+    /// each instance home, the old slot's file is copied to the new slot, unless the new slot already has one. Returns
+    /// how many were carried.
+    /// </summary>
+    /// <param name="machineRoot">The root holding <c>instances/&lt;slug&gt;</c> (<see cref="InstallLayout.LocalRoot"/>).</param>
+    public static int CarryIdentities(string machineRoot, string oldBundle, string newBundle, Action<string> log)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldBundle);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newBundle);
+        ArgumentNullException.ThrowIfNull(log);
+
+        var instances = Path.Combine(machineRoot, "instances");
+        if (!Directory.Exists(instances)) return 0;
+
+        var oldExe = Path.Combine(oldBundle, "Contents", "MacOS", "cc-director");
+        var newExe = Path.Combine(newBundle, "Contents", "MacOS", "cc-director");
+        var carried = 0;
+        foreach (var home in Directory.EnumerateDirectories(instances))
+        {
+            var slug = Path.GetFileName(home);
+            var idDirectory = DirectorIdentitySlot.DirectoryFor(home);
+            var from = DirectorIdentitySlot.FilePathFor(idDirectory, DirectorIdentitySlot.KeyFor(oldExe, slug));
+            var to = DirectorIdentitySlot.FilePathFor(idDirectory, DirectorIdentitySlot.KeyFor(newExe, slug));
+            if (!File.Exists(from) || File.Exists(to)) continue;
+            File.Copy(from, to);
+            carried++;
+            log($"[MacDirectorRelocation] instance {slug} keeps its identity: {Path.GetFileName(from)} -> {Path.GetFileName(to)}");
+        }
+        return carried;
     }
 
     private static string Trim(string path) => path.TrimEnd('/');

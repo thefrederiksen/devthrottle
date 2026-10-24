@@ -306,7 +306,7 @@ internal static class Program
                 {
                     System.Diagnostics.Process.Start(
                         UpdateInstaller.BuildRelaunchStartInfo(relocation.BundlePath, InstanceContext.Slug,
-                            waitForProcessId: Environment.ProcessId));
+                            waitForProcessId: Environment.ProcessId, newInstance: true));
                     FileLog.Write($"[Program] relaunching from {relocation.BundlePath} after the move");
                     ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
                     FileLog.Stop();
@@ -323,7 +323,10 @@ internal static class Program
                 try
                 {
                     if (MacRelocationNotice.ShouldShow(relocation.BundlePath))
+                    {
                         ShowStartupNotice(relocation.Message, "DevThrottle - where the app is", MB_ICONWARNING);
+                        MacRelocationNotice.RecordShown(relocation.BundlePath);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -386,23 +389,6 @@ internal static class Program
     /// is refused after an update instead of coming back as the machine's default instance - which is the
     /// 2488 hazard. Only test rigs run that way.
     /// </summary>
-    /// <summary>The Mac move out of ~/Applications (issue #4427). Null when there is nothing to do or say; never
-    /// throws, because where the app sits must not stop it from starting.</summary>
-    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
-    private static CcDirector.Setup.Engine.MacRelocationResult? RelocateMacBundle()
-    {
-        try
-        {
-            return CcDirector.Setup.Engine.MacDirectorRelocation.TryMove(
-                UpdateInstaller.InstallTarget(), CcDirector.Setup.Engine.InstallLayout.Default(), FileLog.Write);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[Program] RelocateMacBundle FAILED: {ex.GetType().Name}: {ex.Message}");
-            return null;
-        }
-    }
-
     private static string? ResolveInstance(string[] args)
     {
         var requested = ParseInstanceArg(args);
@@ -450,6 +436,23 @@ internal static class Program
             // The default instance: isolating its home must never stop the app from starting (best effort).
         }
         return null;
+    }
+
+    /// <summary>The Mac move out of ~/Applications (issue #4427). Null when there is nothing to do or say; never
+    /// throws, because where the app sits must not stop it from starting.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static CcDirector.Setup.Engine.MacRelocationResult? RelocateMacBundle()
+    {
+        try
+        {
+            return CcDirector.Setup.Engine.MacDirectorRelocation.TryMove(
+                UpdateInstaller.InstallTarget(), CcDirector.Setup.Engine.InstallLayout.Default(), FileLog.Write);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[Program] RelocateMacBundle FAILED: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>True when <paramref name="slug"/> names an instance other than the default.</summary>
