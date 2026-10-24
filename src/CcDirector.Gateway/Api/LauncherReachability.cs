@@ -39,14 +39,30 @@ internal static class LauncherReachability
         if (streamConnected) return LauncherReach.Connected;
         if (registered is null) return LauncherReach.NoLauncher;
 
-        // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO this
-        // Gateway and this Gateway cannot talk to it, which is exactly what a launcher predating the
-        // command stream looks like. It expected the Gateway to dial its own listener, and that relay is
-        // deleted.
         var quietFor = nowUtc - registered.LastSeenAt;
-        return quietFor < LauncherRegistry.HeartbeatTimeout
-            ? LauncherReach.NotStreamCapable
-            : LauncherReach.NotConnected;
+        if (quietFor >= LauncherRegistry.HeartbeatTimeout)
+            return LauncherReach.NotConnected;
+
+        // Heartbeating and yet unreachable - and this Gateway WATCHED IT HOLD A STREAM. A launcher that has held
+        // a stream is not too old for one; it is restarting into a new version or reconnecting (issue #4423).
+        // This is checked before the too-old inference because it is evidence, and that is a guess.
+        if (registered.StreamClosedAt is not null)
+            return LauncherReach.Reconnecting;
+
+        // Heartbeating and yet unreachable, with no stream ever seen. The two facts together are the evidence:
+        // it can talk TO this Gateway and this Gateway cannot talk to it, which is exactly what a launcher
+        // predating the command stream looks like. It expected the Gateway to dial its own listener, and that
+        // relay is deleted.
+        return LauncherReach.NotStreamCapable;
+    }
+
+    /// <summary>How long ago that launcher's command stream closed, in whole seconds, or 0 when no close has
+    /// been seen. Clock skew is reported as 0, the same way <see cref="QuietForSeconds"/> reports it.</summary>
+    public static int StreamClosedForSeconds(LauncherDto? registered, DateTime nowUtc)
+    {
+        if (registered?.StreamClosedAt is not { } closedAt) return 0;
+        var closedFor = nowUtc - closedAt;
+        return closedFor < TimeSpan.Zero ? 0 : (int)closedFor.TotalSeconds;
     }
 
     /// <summary>How long since that launcher last registered or heartbeated, in whole seconds. 0 when no

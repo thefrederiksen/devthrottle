@@ -241,6 +241,10 @@ internal static class FleetManagerPlacementFold
                 choice.Detail = "The launcher is running but is older than remote commands, so it cannot start a Director "
                                 + "there. Update it once on that computer; after that the Fleet Manager can run there.";
                 break;
+            case LauncherReach.Reconnecting:
+                choice.StateLabel = "Not reachable right now - its launcher is reconnecting.";
+                choice.Detail = "The launcher is running and is restarting or reconnecting its command stream. Try again in a minute.";
+                break;
             default:
                 choice.StateLabel = lastSeen is { } seen
                     ? $"Not reachable - last seen {FormatWhen(seen, tz, now)}."

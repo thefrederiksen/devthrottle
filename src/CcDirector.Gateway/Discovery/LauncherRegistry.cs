@@ -55,6 +55,10 @@ public sealed class LauncherRegistry
     public LauncherDto Upsert(TenantId tenant, LauncherRegistrationRequest req)
     {
         var now = DateTime.UtcNow;
+        // A RE-REGISTRATION KEEPS THE STREAM'S LAST CLOSE (issue #4423). A launcher restarting into a new version
+        // registers BEFORE it opens its stream, and that window is exactly when "heartbeating, no stream" must
+        // read as restarting rather than too old - so the evidence must survive the new process's registration.
+        var previous = _launchers.TryGetValue(Key(tenant, req.MachineName), out var existing) ? existing.Dto : null;
         var dto = new LauncherDto
         {
             MachineName = req.MachineName,
@@ -62,6 +66,7 @@ public sealed class LauncherRegistry
             Version = req.Version,
             StartedAt = req.StartedAt,
             LastSeenAt = now,
+            StreamClosedAt = previous?.StreamClosedAt,
         };
 
         _launchers[Key(tenant, req.MachineName)] = new Entry
@@ -91,6 +96,24 @@ public sealed class LauncherRegistry
         entry.Dto.LastSeenAt = now;
         FileLog.Write($"[LauncherRegistry] Heartbeat: tenant={tenant.Value}, machine={machineName}");
         return true;
+    }
+
+    /// <summary>
+    /// Record that the calling tenant's launcher for that machine closed its command stream at
+    /// <paramref name="closedAtUtc"/>. Called when the stream connection registry clears that machine's live
+    /// stream. A machine with no registration row has nothing to annotate and is left alone: with no row it
+    /// reads as no launcher at all, which needs no help telling apart from "too old".
+    /// </summary>
+    public void NoteStreamClosed(TenantId tenant, string machineName, DateTime closedAtUtc)
+    {
+        if (!_launchers.TryGetValue(Key(tenant, machineName), out var entry))
+        {
+            FileLog.Write($"[LauncherRegistry] NoteStreamClosed: no registration for tenant={tenant.Value}, machine={machineName} - nothing to note");
+            return;
+        }
+
+        entry.Dto.StreamClosedAt = closedAtUtc;
+        FileLog.Write($"[LauncherRegistry] NoteStreamClosed: tenant={tenant.Value}, machine={machineName}, at={closedAtUtc:o}");
     }
 
     /// <summary>

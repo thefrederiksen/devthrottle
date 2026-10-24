@@ -153,4 +153,31 @@ public sealed class LauncherRegistryTests
             Version = version,
             StartedAt = DateTime.UtcNow,
         };
+
+    // Issue #4423: the new launcher process registers BEFORE it opens its stream, so the old stream's close must
+    // survive that registration - it is the evidence that "heartbeating, no stream" means restarting.
+    [Fact]
+    public void Upsert_AfterNoteStreamClosed_KeepsTheClose()
+    {
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("STUDIO-MAC", pid: 101));
+        reg.NoteStreamClosed(CcDirector.Core.Tenancy.TenantId.Local, "studio-mac", closedAt);
+
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("STUDIO-MAC", pid: 202));
+
+        var dto = reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "STUDIO-MAC");
+        Assert.Equal(202, dto!.Pid);
+        Assert.Equal(closedAt, dto.StreamClosedAt);
+    }
+
+    [Fact]
+    public void NoteStreamClosed_UnknownMachine_AddsNothing()
+    {
+        var reg = new LauncherRegistry();
+
+        reg.NoteStreamClosed(CcDirector.Core.Tenancy.TenantId.Local, "nobody", DateTime.UtcNow);
+
+        Assert.Null(reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "nobody"));
+    }
 }

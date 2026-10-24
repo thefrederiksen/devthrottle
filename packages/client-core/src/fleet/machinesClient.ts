@@ -36,7 +36,7 @@ export interface FleetMachine {
   machine: string;
   launcherVersion?: string | null;
   launcherLastSeenUtc?: string | null;
-  /** NoLauncher | NotConnected | NotStreamCapable | Connected. */
+  /** NoLauncher | NotConnected | NotStreamCapable | Reconnecting | Connected. */
   reach: string;
   reachLabel: string;
   reachTone: FleetTone;
@@ -47,6 +47,8 @@ export interface FleetMachine {
   update: FleetAction;
   restart: FleetAction;
   start: FleetAction;
+  /** True when the launcher and every running Director are on the newest release - what an update is for. */
+  upToDate: boolean;
   directors: FleetMachineDirector[];
 }
 

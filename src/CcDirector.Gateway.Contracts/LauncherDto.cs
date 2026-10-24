@@ -25,4 +25,17 @@ public sealed class LauncherDto
 
     /// <summary>UTC timestamp of the last successful registration or heartbeat.</summary>
     public DateTime LastSeenAt { get; set; }
+
+    /// <summary>
+    /// UTC timestamp of the last time this machine's launcher command stream closed, or null when this Gateway
+    /// has not seen one close since it started.
+    ///
+    /// IT IS THE PROOF THAT SEPARATES "RESTARTING" FROM "TOO OLD" (issue #4423). A launcher that heartbeats
+    /// while holding no stream used to be called too old for commands - and that is also exactly what a
+    /// launcher looks like in the minute it takes to restart into a new version: the new process registers
+    /// before it opens its stream. A launcher this Gateway has watched hold a stream is not too old, whatever
+    /// it looks like now. Kept across a re-registration, because the new process is the one that has not
+    /// opened its stream yet.
+    /// </summary>
+    public DateTime? StreamClosedAt { get; set; }
 }
