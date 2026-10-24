@@ -26,8 +26,11 @@ namespace CcDirector.Gateway.Factory.Records;
 /// can merge its rows in and write again. Silently winning would delete the first run's rows - exactly what the
 /// ledger's rule forbids.
 ///
-/// EVERY VERSION IS KEPT. The cap is on one version's text; nothing is pruned, because "what did the ledger say on
-/// Tuesday" must stay answerable. History is read a page at a time and WITHOUT text, as a brief's history is.
+/// THE NEWEST THREE VERSIONS ARE KEPT (owner, 2026-10-24: "We only need to keep the last three versions."). Every
+/// write saves the whole text, and a seat rewrites its ledger many times a day, so keeping every version grew each
+/// factory's history without end. A successful write removes every version of that document older than the newest
+/// <see cref="KeptVersions"/>; version numbers still only climb, so a writer's expected version means what it always
+/// meant. The one version the one-time upload stored is kept as well, so a re-run of the upload knows it stored it. History is read a page at a time and WITHOUT text, as a brief's history is.
 ///
 /// NO REGISTRATION IS REQUIRED, as for memory: the one-time upload stores the records of every factory folder on a
 /// machine, including a factory that was never registered, and refusing those would leave them on the one disk.
@@ -39,6 +42,9 @@ public sealed class FactoryDocumentStore
     /// the largest working document on any factory's disk on 14 October 2026 was 1.66 MB, and none was over 2 MB.
     /// </summary>
     public const int MaxDocumentBytes = 2 * 1024 * 1024;
+
+    /// <summary>How many versions of one document are kept: the newest three (owner, 2026-10-24).</summary>
+    public const int KeptVersions = 3;
 
     /// <summary>How many versions one page of a history holds when the reader does not say.</summary>
     public const int DefaultHistoryPage = 50;
@@ -247,7 +253,25 @@ public sealed class FactoryDocumentStore
                     $"'{name}' could not be stored: {FactoryRecordNames.Innermost(ex).Message}", headNow);
             }
 
-            FileLog.Write($"[FactoryDocumentStore] {factory}/{name}: wrote version {written.Version} ({bytes} bytes) by {authorKind} {authorId ?? "(unknown)"}");
+            // Only the newest KeptVersions stay. A trim that fails leaves extra versions, never a lost write: the
+            // write above is already stored, and the next write trims again.
+            var removed = 0;
+            try
+            {
+                var keepFrom = written.Version - KeptVersions + 1;
+                // The version the one-time upload stored stays: its import key is the upload's only memory that it
+                // stored the file, so a re-run answers "already stored" rather than a stale refusal it cannot act on
+                // (review of #4412, finding 2). The upload writes at most one row per file, so this set never grows.
+                removed = ctx.FactoryDocumentVersions
+                    .Where(d => d.Factory == factory && d.Name == name && d.Version < keepFrom && d.ImportKey == null)
+                    .ExecuteDelete();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[FactoryDocumentStore] {factory}/{name}: the older versions could not be removed after version {written.Version}: {ex.Message}");
+            }
+
+            FileLog.Write($"[FactoryDocumentStore] {factory}/{name}: wrote version {written.Version} ({bytes} bytes) by {authorKind} {authorId ?? "(unknown)"}, removed {removed} older version(s)");
             return FactoryDocumentWrite.Written(written);
         }
     }

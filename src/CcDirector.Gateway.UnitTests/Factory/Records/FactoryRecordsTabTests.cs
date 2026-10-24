@@ -372,7 +372,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         Assert.Equal(404, none.Status);
         Assert.Equal("qa-outreach has no working document 'nope.md'", none.Body.GetProperty("error").GetString());
         var noVersion = await Get($"/gateway/factories/{F}/records/documents/read?name=focus.md&version=9");
-        Assert.Equal("'focus.md' has no version 9; its newest is version 1", noVersion.Body.GetProperty("error").GetString());
+        Assert.Equal("'focus.md' has no version 9; its newest is version 1, and only the newest 3 are kept", noVersion.Body.GetProperty("error").GetString());
     }
 
     [Fact]

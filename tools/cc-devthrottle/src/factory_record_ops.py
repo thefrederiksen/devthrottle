@@ -4,7 +4,7 @@ Three kinds of record, each beside the factory's memory and its activity record:
 
 - `factory journal`  what a seat wrote down about a day. Append-only: `add` and the two reads, never an edit.
 - `factory doc`      a named working document a seat reads and rewrites - the outreach ledger, the playbook.
-                     Every version kept. `write` sends the version the caller last READ, and a write against a
+                     The newest three versions kept. `write` sends the version the caller last READ, and a write against a
                      version that is no longer the newest is refused with the CURRENT text, so the caller can merge
                      and write again. Two runs writing the ledger at once: one is refused, nothing is lost.
 - `factory attach`   a file a factory kept - a screenshot, a walk's JSON. Bytes kept apart from any journal.

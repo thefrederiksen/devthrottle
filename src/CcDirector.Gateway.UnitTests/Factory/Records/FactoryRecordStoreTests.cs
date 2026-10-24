@@ -83,6 +83,51 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void Only_the_newest_three_versions_are_kept_and_the_numbers_still_climb()
+    {
+        var store = Documents();
+        for (var v = 1; v <= 5; v++)
+            Assert.True(WriteBySession(store, $"v{v}", expect: v - 1).Ok);
+
+        var page = store.History(A, TheFactory, Ledger);
+        Assert.Equal(3, page.Total);
+        Assert.Equal(new[] { 5, 4, 3 }, page.Versions.Select(v => v.Version));
+        Assert.Null(store.Find(A, TheFactory, Ledger, 2));
+        Assert.Equal("v3", store.Find(A, TheFactory, Ledger, 3)!.Text);
+        // The next writer still states the newest version it read; a stale one is still refused.
+        Assert.Equal(FactoryRecordOutcome.Stale, WriteBySession(store, "late", expect: 4).Outcome);
+        Assert.Equal(6, WriteBySession(store, "v6", expect: 5).Document!.Version);
+        Assert.Equal(new[] { 6, 5, 4 }, store.History(A, TheFactory, Ledger).Versions.Select(v => v.Version));
+    }
+
+    [Fact]
+    public void The_version_the_upload_stored_is_kept_so_a_re_run_of_the_upload_is_already_stored()
+    {
+        var store = Documents();
+        Assert.True(store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json").Ok);
+        for (var v = 2; v <= 5; v++) Assert.True(WriteBySession(store, $"v{v}", expect: v - 1).Ok);
+
+        Assert.Equal(new[] { 5, 4, 3, 1 }, store.History(A, TheFactory, Ledger).Versions.Select(v => v.Version));
+        var again = store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json");
+        Assert.Equal(FactoryRecordOutcome.AlreadyStored, again.Outcome);
+    }
+
+    [Fact]
+    public void Trimming_one_document_leaves_every_other_document_factory_and_account_alone()
+    {
+        var store = Documents();
+        WriteBySession(store, "other", expect: 0, name: "playbook.md");
+        WriteBySession(store, "theirs", expect: 0, tenant: B);
+        for (var v = 1; v <= 5; v++) WriteBySession(store, $"v{v}", expect: v - 1);
+
+        Assert.Equal(1, store.History(A, TheFactory, "playbook.md").Total);
+        Assert.Equal("theirs", store.Get(B, TheFactory, Ledger)!.Text);
+        Assert.Equal(1, store.History(B, TheFactory, Ledger).Total);
+    }
+
+    [Fact]
     public void A_second_write_adds_a_version_and_every_version_is_kept()
     {
         var store = Documents();

@@ -102,7 +102,7 @@ internal static class FactoryRecordsTabEndpoints
                         return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{versionSent}'" });
                     wanted = documents.Find(tenant, registered.Factory, name, v);
                     if (wanted is null)
-                        return Results.Json(new { error = $"'{name}' has no version {v}; its newest is version {newest.Version}" },
+                        return Results.Json(new { error = $"'{name}' has no version {v}; its newest is version {newest.Version}, and only the newest {FactoryDocumentStore.KeptVersions} are kept" },
                             statusCode: StatusCodes.Status404NotFound);
                 }
                 var dto = FactoryRecordsTabFold.Document(wanted, newest.Version, sources.Activity.TimeZone(tenant), nowUtc());
