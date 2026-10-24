@@ -123,6 +123,26 @@ public sealed class SessionStateEventTests : IDisposable
     }
 
     [Fact]
+    public void ApplyAgentStateEvent_InterruptedWithoutTurnEnd_IdleComposerEndsAgentWorking()
+    {
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "turn_started")));
+
+        // Escape interrupts the turn without an adapter turn_ended event. Once the settled screen
+        // positively shows an idle composer, the agent's Working fact is no longer current.
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyIdleComposerActivityState();
+
+        Assert.Equal(ActivityState.WaitingForInput, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Screen, _session.ActivityStateSource);
+        Assert.False(_session.ActivityStateIsFallback);
+        var disagreement = Assert.Single(_session.StateDisagreements);
+        Assert.Equal(ActivityState.Working, disagreement.ReportedState);
+        Assert.Equal(SessionStateSources.Agent, disagreement.ReportedSource);
+        Assert.Equal(ActivityState.WaitingForInput, disagreement.SelectedState);
+        Assert.Equal(SessionStateSources.Screen, disagreement.SelectedSource);
+    }
+
+    [Fact]
     public void ApplyAgentStateEvent_UnsupportedDiagnostic_LeavesStateUnchangedAndRetainsDiagnostic()
     {
         var before = _session.ActivityState;
@@ -166,6 +186,8 @@ public sealed class SessionStateEventTests : IDisposable
         Assert.Contains("strictly increasing integer per", contract, StringComparison.Ordinal);
         Assert.Contains("session across every emitter", contract, StringComparison.Ordinal);
         Assert.Contains("hook process must not restart the sequence at one", contract, StringComparison.Ordinal);
+        Assert.Contains("positive idle-composer screen fact", contract, StringComparison.Ordinal);
+        Assert.Contains("beneath a working marker is not idle evidence", contract, StringComparison.Ordinal);
     }
 
     [Fact]

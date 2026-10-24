@@ -1,5 +1,6 @@
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Drivers;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
 using Xunit;
@@ -39,6 +40,23 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
     {
         // A silence this long flips the session to WaitingForInput (the red "needs you" badge).
         Assert.Equal(System.TimeSpan.FromSeconds(10), TerminalStateDetector.QuietThreshold);
+    }
+
+    [Fact]
+    public void IsPositiveIdleComposer_RecognisedComposerWithoutWorkingMarker_IsPositive()
+    {
+        var frame = new ScreenFrame(["────────────────", "❯", "────────────────"], 1, 2, true);
+
+        Assert.True(TerminalStateDetector.IsPositiveIdleComposer(ComposerReading.Empty, frame));
+    }
+
+    [Fact]
+    public void IsPositiveIdleComposer_RecognisedComposerBeneathWorkingMarker_IsNotPositive()
+    {
+        var frame = new ScreenFrame(
+            ["────────────────", "❯", "────────────────", "esc to interrupt"], 1, 2, true);
+
+        Assert.False(TerminalStateDetector.IsPositiveIdleComposer(ComposerReading.Empty, frame));
     }
 
     [Fact]

@@ -38,6 +38,14 @@ public sealed class TerminalStateDetector : IDisposable
     /// unknown), so the body cannot be isolated; the caller then treats the frame as activity
     /// rather than risk a false idle. Pure and side-effect free so it can be unit tested directly.
     /// </summary>
+    /// <summary>
+    /// Whether a settled screen positively proves the agent is at an idle composer. A recognised
+    /// composer beneath a working marker is the mid-turn shape and is not idle evidence.
+    /// </summary>
+    internal static bool IsPositiveIdleComposer(Drivers.ComposerReading composer, Drivers.ScreenFrame frame) =>
+        (composer is Drivers.ComposerReading.Empty or Drivers.ComposerReading.HoldsText)
+        && !Drivers.DoorbellSafety.ShowsWorking(frame.Rows);
+
     internal static bool TryExtractBody(string[] rows, int cursorRow, out string body)
     {
         body = "";
@@ -1272,13 +1280,18 @@ public sealed class TerminalStateDetector : IDisposable
                 FileLog.Write($"[TerminalStateDetector] {_session.Id} settled with NO baseline (screen could not be read); the next check is ambiguous and will open");
             }
             var picker = PickerOnScreen.Read(_session.SnapshotScreenRows(), _session.AgentKind.ToString());
-            var composer = Drivers.DoorbellSafety.ReadComposer(_session.AgentKind, _session.SnapshotLiveFrame());
-            FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | state={_session.ActivityState} | composer={composer} | {picker.Describe()}");
+            var frame = _session.SnapshotLiveFrame();
+            var composer = Drivers.DoorbellSafety.ReadComposer(_session.AgentKind, frame);
+            var composerRecognised = composer is Drivers.ComposerReading.Empty or Drivers.ComposerReading.HoldsText;
+            var positiveIdleComposer = IsPositiveIdleComposer(composer, frame);
+            FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | state={_session.ActivityState} | composer={composer} | positiveIdleComposer={positiveIdleComposer} | {picker.Describe()}");
             if (_driveState)
             {
                 if (picker.Drawn)
                     _session.ApplyScreenActivityState(ActivityState.MenuOpen);
-                else if (composer is Drivers.ComposerReading.Empty or Drivers.ComposerReading.HoldsText)
+                else if (positiveIdleComposer)
+                    _session.ApplyIdleComposerActivityState();
+                else if (composerRecognised)
                     _session.ApplyScreenActivityState(ActivityState.WaitingForInput);
                 else
                     _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
