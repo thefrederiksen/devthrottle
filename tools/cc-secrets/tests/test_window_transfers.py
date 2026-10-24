@@ -1,18 +1,20 @@
-"""The Secret Handoff mission, phase 5: what the cc-secrets window does to send, get and answer a transfer, without a
-screen; and the Send dialog and approval pop-up themselves on a real screen (skipped where there is none)."""
+"""The Secret Handoff mission, phase 5: what the cc-secrets window does to send, get and answer a transfer; and the
+Send dialog, the approval pop-up and their worker themselves, drawn on a stand-in for tkinter (tests/fake_tk.py) so
+they need no screen, no clock and no sleep on any machine."""
 
-import time
+import sys
 
+import fake_tk
 import pytest
 
-from src import entry_window, gateway_link, known_machines, machine_key, machines, transfers
+from src import gateway_link, known_machines, machine_key, machines, transfers
 from src.window_transfers import Destination, Waiting, WindowTransfers, ended_sentence
 from test_transfer import TID, _dto, two  # noqa: F401  (the two-machine fixture)
 
 
 @pytest.fixture(autouse=True)
 def own_secrets_folder(home):
-    """Every test here, the screen tests included, writes any log line into its own folder, never the owner's."""
+    """Every test here, the window tests included, writes any log line into its own folder, never the owner's."""
     yield home
 
 
@@ -215,20 +217,14 @@ def test_ResolveMachine_NotSignedIn_IsARefusal(monkeypatch):
         gateway_link.resolve_machine()
 
 
-# --- On a real screen ----------------------------------------------------------------------------------------------
-
-def _screen_problem():
-    try:
-        return entry_window.display_problem()
-    except Exception as exc:  # noqa: BLE001 - any failure to ask means no usable screen here
-        return type(exc).__name__
-
-
-screen = pytest.mark.skipif(_screen_problem() is not None, reason="needs a screen")
+# --- The Send dialog, the approval pop-up and the worker, drawn on a stand-in for tkinter ---------------------------
+# These once opened a real Tk window and waited on the clock, so they passed or failed on whether the machine had a
+# working Tk install and a screen (issue #4442). They now draw on tests/fake_tk.py: the same calls into the product,
+# with every `after` run by a tick of the test and every worker thread joined, so the code alone decides.
 
 
 class FakeActions:
-    """Stands in for WindowTransfers on screen: answers at once, records what was asked."""
+    """Stands in for WindowTransfers: answers at once, records what was asked."""
 
     def __init__(self, waiting):
         self.waiting = list(waiting)
@@ -262,80 +258,92 @@ def _waiting(receiver=MAC):
     return Waiting(transfers.Transfer.from_dto(_dto("waiting")), receiver)
 
 
-def _pump(root, condition, seconds=5.0):
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        root.update()
+class FakeWindow:
+    def __init__(self, root, threads):
+        self.root = root
+        self.threads = threads
+
+
+@pytest.fixture
+def window(monkeypatch):
+    """The window's root on the stand-in toolkit, with the worker's threads recorded so each tick can join them."""
+    from src import transfer_window
+
+    tk, ttk = fake_tk.modules()
+    monkeypatch.setitem(sys.modules, "tkinter", tk)
+    monkeypatch.setitem(sys.modules, "tkinter.ttk", ttk)
+    threads = fake_tk.Threads()
+    monkeypatch.setattr(transfer_window, "threading", threads)
+    return FakeWindow(fake_tk.Root(), threads)
+
+
+def _pump(window, condition, ticks=50):
+    """Let the window run: each tick waits for every worker thread started so far, then runs every waiting `after`
+    call. Counted in ticks, not seconds; True as soon as the condition holds."""
+    for _ in range(ticks):
+        window.threads.join_all()
+        window.root.tick()
         if condition():
             return True
-        time.sleep(0.02)
     return False
 
 
-@pytest.fixture(scope="module")
-def tk_root():
-    """One Tk for the module: Tk on Windows sometimes cannot start again in one process."""
-    root = entry_window.open_root("cc-secrets transfer screen test")
-    yield root
-    root.destroy()
-
-
-@screen
-def test_Popup_AppearsForAWaitingTransfer_AndApproveAnswersFromTheWindow(tk_root):
+def test_Popup_AppearsForAWaitingTransfer_AndApproveAnswersFromTheWindow(window):
     from src.transfer_window import ApprovalWatcher, Worker
 
     fake = FakeActions([_waiting()])
     said = []
-    watcher = ApprovalWatcher(tk_root, Worker(tk_root), fake, said.append, poll_ms=100)
+    watcher = ApprovalWatcher(window.root, Worker(window.root), fake, said.append, poll_ms=100)
 
-    assert _pump(tk_root, lambda: TID in watcher.open)
+    assert _pump(window, lambda: TID in watcher.open)
     popup = watcher.open[TID]
     assert popup.win.title() == "A secret transfer needs your answer"
     popup.approve_button.invoke()
 
-    assert _pump(tk_root, lambda: TID not in watcher.open and said)
+    assert _pump(window, lambda: TID not in watcher.open and said)
     assert fake.answered == [(TID, True, None)]
     assert said[-1].startswith("Approved: qa-handoff-one from SOREN_NORTH")
+    assert not popup.win.winfo_exists()
 
 
-@screen
-def test_Popup_AnsweredElsewhere_Closes_AndSaysSo(tk_root):
+def test_Popup_AnsweredElsewhere_Closes_AndSaysSo(window):
     from src.transfer_window import ApprovalWatcher, Worker
 
     fake = FakeActions([_waiting()])
     said = []
-    watcher = ApprovalWatcher(tk_root, Worker(tk_root), fake, said.append, poll_ms=100)
-    assert _pump(tk_root, lambda: TID in watcher.open)
+    watcher = ApprovalWatcher(window.root, Worker(window.root), fake, said.append, poll_ms=100)
+    assert _pump(window, lambda: TID in watcher.open)
+    popup = watcher.open[TID]
 
     fake.waiting = []
 
-    assert _pump(tk_root, lambda: TID not in watcher.open and said)
+    assert _pump(window, lambda: TID not in watcher.open and said)
     assert said[-1].startswith("Answered elsewhere")
+    assert not popup.win.winfo_exists()
 
 
-@screen
-def test_SendDialog_ListsTheMachines_AndSendSaysHowItEnded(tk_root):
+def test_SendDialog_ListsTheMachines_AndSendSaysHowItEnded(window):
     from src.transfer_window import TransferDialog, Worker
 
     fake = FakeActions([])
     ended = []
-    dialog = TransferDialog(tk_root, Worker(tk_root), fake, "send", "qa-handoff-one", ended.append)
+    dialog = TransferDialog(window.root, Worker(window.root), fake, "send", "qa-handoff-one", ended.append)
+    assert str(dialog.go.cget("state")) == "disabled"
 
-    assert _pump(tk_root, lambda: str(dialog.go.cget("state")) == "normal")
+    assert _pump(window, lambda: str(dialog.go.cget("state")) == "normal")
     assert dialog.machine.get() == "devthrottle-mac-mini"
     dialog.go.invoke()
 
-    assert _pump(tk_root, lambda: ended)
+    assert _pump(window, lambda: ended)
     assert fake.sent == [("qa-handoff-one", "devthrottle-mac-mini", "qa-handoff-one", False, False)]
     assert dialog.status.get() == "Stored qa-handoff-one on devthrottle-mac-mini."
     dialog.close()
 
 
-@screen
-def test_Worker_AFailure_ReachesItsCallbackWithTheException(tk_root):
+def test_Worker_AFailure_ReachesItsCallbackWithTheException(window):
     from src.transfer_window import Worker
 
-    worker = Worker(tk_root)
+    worker = Worker(window.root)
     got = []
 
     def boom():
@@ -343,15 +351,14 @@ def test_Worker_AFailure_ReachesItsCallbackWithTheException(tk_root):
 
     worker.run(boom, lambda r: got.append(("done", r)), lambda e: got.append(("failed", str(e))))
 
-    assert _pump(tk_root, lambda: got)
+    assert _pump(window, lambda: got)
     assert got == [("failed", "It was already answered on the phone.")]
 
 
-@screen
-def test_Worker_ACallbackThatRaises_DoesNotStopLaterResults(tk_root):
+def test_Worker_ACallbackThatRaises_DoesNotStopLaterResults(window):
     from src.transfer_window import Worker
 
-    worker = Worker(tk_root)
+    worker = Worker(window.root)
     got = []
 
     def raising(_):
@@ -360,12 +367,11 @@ def test_Worker_ACallbackThatRaises_DoesNotStopLaterResults(tk_root):
     worker.run(lambda: 1, raising, lambda e: None)
     worker.run(lambda: 2, got.append, lambda e: None)
 
-    assert _pump(tk_root, lambda: got)
+    assert _pump(window, lambda: got)
     assert got == [2]
 
 
-@screen
-def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsStillArrive(tk_root):
+def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsStillArrive(window):
     import threading
 
     from src.transfer_window import TransferDialog, Worker
@@ -375,78 +381,81 @@ def test_SendDialog_ClosedBeforeTheMachinesArrive_ChangesNothingAndLaterResultsS
     real_others = fake.others
 
     def slow_others():
-        release.wait(5)
+        release.wait()
         return real_others()
 
     fake.others = slow_others
-    worker = Worker(tk_root)
-    dialog = TransferDialog(tk_root, worker, fake, "send", "qa-handoff-one")
+    worker = Worker(window.root)
+    dialog = TransferDialog(window.root, worker, fake, "send", "qa-handoff-one")
     dialog.close()
     release.set()
-    _pump(tk_root, lambda: False, seconds=0.5)
+    _pump(window, lambda: False, ticks=5)
+    assert dialog.machine.get() == "" and str(dialog.go.cget("state")) == "disabled"
     got = []
     worker.run(lambda: "later", got.append, lambda e: None)
 
-    assert _pump(tk_root, lambda: got)
+    assert _pump(window, lambda: got)
     assert got == ["later"]
 
 
-@screen
-def test_Popup_ToAMachineWhoseKeyChanged_ApprovesOnlyWithTheBoxTicked_AndSendsThatKey(tk_root):
+def test_Popup_ToAMachineWhoseKeyChanged_ApprovesOnlyWithTheBoxTicked_AndSendsThatKey(window):
     from src.transfer_window import ApprovalWatcher, Worker
 
     fake = FakeActions([_waiting(MAC_CHANGED)])
-    watcher = ApprovalWatcher(tk_root, Worker(tk_root), fake, lambda s: None, poll_ms=100)
-    assert _pump(tk_root, lambda: TID in watcher.open)
+    watcher = ApprovalWatcher(window.root, Worker(window.root), fake, lambda s: None, poll_ms=100)
+    assert _pump(window, lambda: TID in watcher.open)
     popup = watcher.open[TID]
 
     assert str(popup.approve_button.cget("state")) == "disabled"
+    popup.approve_button.invoke()
+    assert fake.answered == []
     popup.accept_box.invoke()
     assert str(popup.approve_button.cget("state")) == "normal"
     popup.approve_button.invoke()
 
-    assert _pump(tk_root, lambda: fake.answered)
+    assert _pump(window, lambda: fake.answered)
     assert fake.answered == [(TID, True, "b" * 64)]
 
 
-@screen
-def test_Watcher_AFailedPoll_IsSaidOnce_AndItKeepsAsking(tk_root):
+def test_Watcher_AFailedPoll_IsSaidOnce_AndItKeepsAsking(window):
     from src.transfer_window import ApprovalWatcher, Worker
 
     fake = FakeActions([])
     calls = {"n": 0}
 
-    def flaky():
+    def fails_twice():
         calls["n"] += 1
         if calls["n"] <= 2:
             raise ConnectionError("the Gateway is restarting")
         return [_waiting()]
 
-    fake.waiting_here = flaky
+    fake.waiting_here = fails_twice
     said = []
-    watcher = ApprovalWatcher(tk_root, Worker(tk_root), fake, said.append, poll_ms=100)
+    watcher = ApprovalWatcher(window.root, Worker(window.root), fake, said.append, poll_ms=100)
 
-    assert _pump(tk_root, lambda: TID in watcher.open)
+    assert _pump(window, lambda: TID in watcher.open)
     assert sum(1 for line in said if line.startswith("Could not check")) == 1
     watcher.open[TID].dismiss()
 
 
-@screen
-def test_Watcher_NotSignedIn_IsSaidOnce_AndItStops(tk_root):
+def test_Watcher_NotSignedIn_IsSaidOnce_AndItStops(window):
     from src.transfer_window import ApprovalWatcher, Worker
 
     fake = FakeActions([])
+    calls = {"n": 0}
 
     def not_signed_in():
+        calls["n"] += 1
         raise gateway_link.NotSignedIn("This machine is not signed in to a Gateway.")
 
     fake.waiting_here = not_signed_in
     said = []
-    ApprovalWatcher(tk_root, Worker(tk_root), fake, said.append, poll_ms=100)
+    ApprovalWatcher(window.root, Worker(window.root), fake, said.append, poll_ms=100)
 
-    assert _pump(tk_root, lambda: said)
-    _pump(tk_root, lambda: False, seconds=0.5)
+    assert _pump(window, lambda: said)
+    _pump(window, lambda: False, ticks=10)
     assert said == ["Moving secrets between machines is off here: This machine is not signed in to a Gateway."]
+    assert calls["n"] == 1
 
 
 def test_LocalTime_ShowsTheOwnersClock_NotARawUtcStamp():
