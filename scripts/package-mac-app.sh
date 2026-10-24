@@ -147,15 +147,19 @@ chmod +x "$APP/Contents/MacOS/launch"
 # ----------------------------------------------------------------------------
 # The name shown (--display-name). When it differs from the folder name, Info.plist
 # says the bundle has a localized name and en.lproj carries it; English is the
-# development region, so every language without its own folder shows it too.
+# development region and Base is the fallback, so every language without its own folder shows it too.
 # ----------------------------------------------------------------------------
 LOCALIZED_KEYS=""
 if [[ "$DISPLAY_NAME" != "$APP_NAME" ]]; then
-    mkdir -p "$APP/Contents/Resources/en.lproj"
-    cat > "$APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
+    # English, and Base for every language the bundle has no folder for, so a Mac set to any
+    # language shows the same name.
+    for LPROJ in en Base; do
+        mkdir -p "$APP/Contents/Resources/$LPROJ.lproj"
+        cat > "$APP/Contents/Resources/$LPROJ.lproj/InfoPlist.strings" <<STRINGS
 CFBundleName = "$DISPLAY_NAME";
 CFBundleDisplayName = "$DISPLAY_NAME";
 STRINGS
+    done
     LOCALIZED_KEYS="    <key>LSHasLocalizedDisplayName</key><true/>"
 fi
 

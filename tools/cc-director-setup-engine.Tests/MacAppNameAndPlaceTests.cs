@@ -148,6 +148,8 @@ public sealed class MacAppNameAndPlaceTests
         Assert.Contains("<key>CFBundleName</key>            <string>$DISPLAY_NAME</string>", script);
         Assert.Contains("<key>LSHasLocalizedDisplayName</key><true/>", script);
         Assert.Contains("CFBundleDisplayName = \"$DISPLAY_NAME\";", script);
+        // Base as well as English, so a Mac set to any language shows DevThrottle.
+        Assert.Contains("for LPROJ in en Base; do", script);
     }
 
     private static string RepoRoot()
