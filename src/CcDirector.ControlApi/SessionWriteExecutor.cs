@@ -234,10 +234,13 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (request is null) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "text is required");
         var session = sessionManager.GetSession(id);
         if (session is null) return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
-        var text = request.Text.TrimEnd('\r', '\n');
-        if (text.Length == 0) return SessionCommandExecutor.Answer(InputAnswer.Written);
-        var bytes = TerminalInputEncoder.Paste(text, session.BracketedPasteEnabled, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend), TerminalInputEncoder.PasteChunkBytes).SelectMany(x => x).ToArray();
-        try { return SessionCommandExecutor.Answer(session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))); }
+        try
+        {
+            InputAnswer answer = InputAnswer.Written;
+            TerminalPasteExecutor.PasteAsync(request.Text, session.BracketedPasteEnabled, session.Backend, bytes =>
+                answer = session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))).GetAwaiter().GetResult();
+            return SessionCommandExecutor.Answer(answer);
+        }
         catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
