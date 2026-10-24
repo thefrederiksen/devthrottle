@@ -44,7 +44,12 @@ public sealed class SessionEventJsonTests
                 new PermissionOption { OptionId = "o2", Name = "Reject", Kind = PermissionOptionKind.RejectAlways },
             ],
         },
-        new ToolCallFinished { SessionId = "s1", Sequence = 8, At = At, TurnId = "t1", ToolCallId = "c1", Outcome = ToolCallOutcome.Succeeded, Output = "a.txt\n", DurationMilliseconds = 12 },
+        new InteractionRequested
+        {
+            SessionId = "s1", Sequence = 8, At = At, RequestId = "ui-1", Method = "select",
+            Prompt = "Choose one", Options = ["First", "Second"],
+        },
+        new ToolCallFinished { SessionId = "s1", Sequence = 9, At = At, TurnId = "t1", ToolCallId = "c1", Outcome = ToolCallOutcome.Succeeded, Output = "a.txt\n", DurationMilliseconds = 12 },
         new MessageText { SessionId = "s1", Sequence = 9, At = At, TurnId = "t1", MessageId = "m2", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Final, Text = "PONG" },
         new TurnEnded
         {
@@ -82,10 +87,11 @@ public sealed class SessionEventJsonTests
     [InlineData(4, "MessageText", "sessionId,sequence,at,turnId,messageId,channel,kind,text")]
     [InlineData(5, "ToolCallStarted", "sessionId,sequence,at,turnId,toolCallId,toolName,kind,input")]
     [InlineData(6, "PermissionRequested", "sessionId,sequence,at,turnId,requestId,toolCallId,title,options")]
-    [InlineData(7, "ToolCallFinished", "sessionId,sequence,at,turnId,toolCallId,outcome,output,durationMilliseconds")]
-    [InlineData(9, "TurnEnded", "sessionId,sequence,at,turnId,outcome,reason,agentStopReason,usage")]
-    [InlineData(10, "PromptRefused", "sessionId,sequence,at,promptId,promptText,reason,refusedBy")]
-    [InlineData(11, "ConnectionEnded", "sessionId,sequence,at,exitCode,reason,stderrTail")]
+    [InlineData(7, "InteractionRequested", "sessionId,sequence,at,requestId,method,prompt,options")]
+    [InlineData(8, "ToolCallFinished", "sessionId,sequence,at,turnId,toolCallId,outcome,output,durationMilliseconds")]
+    [InlineData(10, "TurnEnded", "sessionId,sequence,at,turnId,outcome,reason,agentStopReason,usage")]
+    [InlineData(11, "PromptRefused", "sessionId,sequence,at,promptId,promptText,reason,refusedBy")]
+    [InlineData(12, "ConnectionEnded", "sessionId,sequence,at,exitCode,reason,stderrTail")]
     public void Serialize_EachEvent_WritesTheDiscriminatorFirstThenTheEventModelFieldNames(int index, string type, string fields)
     {
         // Arrange
@@ -118,12 +124,12 @@ public sealed class SessionEventJsonTests
         Assert.Equal("execute", (string)nodes[5]["kind"]!);
         Assert.Equal("allowOnce", (string)nodes[6]["options"]![0]!["kind"]!);
         Assert.Equal("rejectAlways", (string)nodes[6]["options"]![1]!["kind"]!);
-        Assert.Equal("succeeded", (string)nodes[7]["outcome"]!);
-        Assert.Equal("final", (string)nodes[8]["kind"]!);
-        Assert.Equal("reply", (string)nodes[8]["channel"]!);
-        Assert.Equal("done", (string)nodes[9]["outcome"]!);
-        Assert.Equal("agent", (string)nodes[10]["refusedBy"]!);
-        var usage = nodes[9]["usage"]!.AsObject();
+        Assert.Equal("succeeded", (string)nodes[8]["outcome"]!);
+        Assert.Equal("final", (string)nodes[9]["kind"]!);
+        Assert.Equal("reply", (string)nodes[9]["channel"]!);
+        Assert.Equal("done", (string)nodes[10]["outcome"]!);
+        Assert.Equal("agent", (string)nodes[11]["refusedBy"]!);
+        var usage = nodes[10]["usage"]!.AsObject();
         Assert.Equal(["input", "output", "cacheRead", "cacheWrite"], usage.Select(p => p.Key));
     }
 
@@ -180,7 +186,7 @@ public sealed class SessionEventJsonTests
         // Assert: newlines, a carriage return and the leading and trailing spaces all come back as they went.
         Assert.Equal(SpacedText, Assert.IsType<PromptQueued>(back[1]).PromptText);
         Assert.Equal(SpacedText, Assert.IsType<PromptDelivered>(back[2]).PromptText);
-        Assert.Equal("A second prompt", Assert.IsType<PromptRefused>(back[10]).PromptText);
+        Assert.Equal("A second prompt", Assert.IsType<PromptRefused>(back[11]).PromptText);
         Assert.Equal(SpacedText, (string)JsonNode.Parse(JsonSerializer.Serialize(events[1], Json))!["promptText"]!);
     }
 

@@ -129,6 +129,7 @@ internal sealed class PiWireLogReplay
         ToolCallFinished f => $"ToolCallFinished {f.TurnId} {f.Outcome} {JsonSerializer.Serialize(f.Output)} {f.DurationMilliseconds}",
         TurnEnded t => $"TurnEnded {t.TurnId} {t.Outcome} reason={t.Reason} stop={t.AgentStopReason}",
         PermissionRequested p => $"PermissionRequested {p.RequestId}",
+        InteractionRequested i => $"InteractionRequested {i.RequestId} {i.Method}",
         ConnectionReady c => $"ConnectionReady {c.AgentSessionId} {c.Model}",
         ConnectionEnded c => $"ConnectionEnded {c.ExitCode}: {c.Reason} [{string.Join(" | ", c.StderrTail)}]",
         _ => throw new InvalidOperationException($"Unknown event {e.GetType().Name}"),

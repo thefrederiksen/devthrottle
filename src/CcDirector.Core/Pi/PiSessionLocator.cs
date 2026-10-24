@@ -49,6 +49,29 @@ public static class PiSessionLocator
         return found;
     }
 
+    /// <summary>The live transcript files for one working directory, newest written first.</summary>
+    public static List<(string AgentSessionId, DateTime LastWriteUtc)> ListForRepo(string repoPath) =>
+        ListForRepo(repoPath, SessionsDirectory());
+
+    /// <summary>As <see cref="ListForRepo(string)"/>, against an explicit sessions directory for replay tests.</summary>
+    public static List<(string AgentSessionId, DateTime LastWriteUtc)> ListForRepo(string repoPath, string sessionsDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(sessionsDirectory))
+            return [];
+        var target = NormalizePath(repoPath);
+        try
+        {
+            return EnumerateSessionFiles(sessionsDirectory)
+                .Select(file => (File: file, Header: ReadHeader(file.FullName)))
+                .Where(item => item.Header is not null && NormalizePath(item.Header.Cwd) == target)
+                .Select(item => (item.Header!.Id, item.File.LastWriteTimeUtc))
+                .OrderByDescending(item => item.LastWriteTimeUtc)
+                .ToList();
+        }
+        catch (IOException) { return []; }
+        catch (UnauthorizedAccessException) { return []; }
+    }
+
     /// <summary>The file named <c>&lt;timestamp&gt;_&lt;agentSessionId&gt;.jsonl</c> anywhere under the sessions
     /// directory, or null. pi's <c>_archived</c> folders are skipped: an archived session is not a live one.</summary>
     public static string? FindById(string agentSessionId, string sessionsDirectory)

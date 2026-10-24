@@ -45,6 +45,23 @@ public sealed class TextDeliveryReviewTests : IDisposable
     }
 
     [Fact]
+    public async Task A_short_Pi_prompt_is_pasted_verbatim_and_submitted_instead_of_becoming_a_file_reference()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-pi-short-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
+        backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+        var text = "Token QS. " + new string('p', 440);
+
+        var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "Pi", bracketedPasteEnabled: true,
+            echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+        Assert.Equal(text, typed);
+        Assert.False(Directory.Exists(Path.Combine(dir, ".temp")));
+        Assert.Contains(backend.WrittenBytes, bytes => bytes.Length == 1 && bytes[0] == 0x0D);
+    }
+
+    [Fact]
     public async Task A_Pi_text_over_the_measured_paste_limit_goes_through_the_instruction_file_not_a_paste()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-pi-" + Guid.NewGuid().ToString("N"));

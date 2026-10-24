@@ -56,14 +56,14 @@ public sealed class PendingInteractionOption
 /// expected the replacement to read the structured ask off the terminal grid. That is NOT what
 /// happened, and the difference matters to anyone adding a kind below.
 ///
-/// It is filled from the agent's OWN TRANSCRIPT, by <see cref="PendingInteractionDetector"/>, at
-/// each turn end (<see cref="PendingInteractionWatcher"/>). A Claude Code tool call to
-/// AskUserQuestion or ExitPlanMode with no matching tool result yet is a box on the user's screen.
-/// Nothing is read off the screen, and no other agent is inspected.
+/// It is filled from an agent-owned structured record, never guessed from the screen. Claude Code questions and
+/// plans come from its transcript through <see cref="PendingInteractionDetector"/> at each turn end
+/// (<see cref="PendingInteractionWatcher"/>). Pi API-mode extension dialogs come directly from Pi's
+/// <c>extension_ui_request</c> event while the turn is running, and retain the request identifier so the person's
+/// answer goes back as an <c>extension_ui_response</c> instead of becoming another prompt.
 ///
-/// That is why <see cref="PendingInteractionKind.Permission"/> is still never produced: its source
-/// was a hook event, and a hook event is not written into the transcript. Question and Plan are
-/// what a transcript can honestly say, and a permission ask is not faked from anything else.
+/// <see cref="PendingInteractionKind.Permission"/> is still never produced: the removed hook path was its only source,
+/// and a permission ask is not faked from anything else.
 ///
 /// This object is intentionally volatile state: it is NOT persisted by
 /// <c>SessionStateStore</c>.
@@ -103,4 +103,10 @@ public sealed class PendingInteraction
     /// truncated summary of the tool's arguments (e.g. the first line of a
     /// Bash command). Null for other kinds.</summary>
     public string? ToolInputSummary { get; init; }
+
+    /// <summary>Pi's API-mode extension request identifier. Null for transcript-derived interactions.</summary>
+    public string? AgentRequestId { get; init; }
+
+    /// <summary>Pi's extension dialog method: select, confirm, input, or editor. Null for other sources.</summary>
+    public string? AgentRequestMethod { get; init; }
 }

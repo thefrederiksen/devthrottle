@@ -6,7 +6,7 @@ namespace CcDirector.Core.Tests.Drivers;
 public sealed class PiDriverTests
 {
     [Fact]
-    public void Capabilities_Default_DeclaresOnlyCancelAndClearContext()
+    public void Capabilities_Default_DeclaresPiTerminalAndTranscriptFeatures()
     {
         var driver = new PiDriver();
 
@@ -16,7 +16,8 @@ public sealed class PiDriverTests
         Assert.True(capabilities.HasFlag(DriverCapabilities.ClearContext));
         Assert.False(capabilities.HasFlag(DriverCapabilities.Interrupt));
         Assert.False(capabilities.HasFlag(DriverCapabilities.History));
-        Assert.False(capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(capabilities.HasFlag(DriverCapabilities.TokenUsage));
     }
 
     [Fact]

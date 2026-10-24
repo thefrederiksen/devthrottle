@@ -299,6 +299,30 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         return result;
     }
 
+    /// <summary>Answer the extension dialog Pi is waiting on. The response itself has no acknowledgement;
+    /// the resumed turn's ordinary events are the proof that Pi accepted it.</summary>
+    public async Task<bool> AnswerInteractionAsync(string requestId, string method, string answer, CancellationToken cancellationToken)
+    {
+        FileLog.Write($"[ApiModeSessionHost] AnswerInteractionAsync: session={_sessionId}, request={requestId}, method={method}");
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_sessionEnded is not null || _connection is not { Ended: false } connection)
+            {
+                FileLog.Write($"[ApiModeSessionHost] AnswerInteractionAsync REFUSED: session={_sessionId}, Pi is not running");
+                return false;
+            }
+            var command = connection.Dialect.BuildExtensionUiAnswer(requestId, method, answer);
+            var written = await WriteCommandLocked(connection, command).ConfigureAwait(false);
+            FileLog.Write($"[ApiModeSessionHost] AnswerInteractionAsync done: session={_sessionId}, written={written}");
+            return written;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     /// <summary>
     /// Stop: write Pi's <c>abort</c> and wait for Pi to answer it, which Pi does only once it is idle. Returns the turn
     /// that ended meanwhile (<see cref="TurnOutcome.Cancelled"/> when Pi cut it short), or null when nothing was
