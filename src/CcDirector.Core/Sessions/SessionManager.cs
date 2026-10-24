@@ -1158,6 +1158,24 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // Every supported agent writes state facts to the same capability-protected drop box.
+            // Adapter hooks are installed separately; the intake contract remains agent-neutral.
+            if (agent.Kind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi)
+            {
+                try
+                {
+                    var stateEventDirectory = SessionHookFiles.StateEventDirectoryFor(id, session.PointerDropToken, SessionPointerDirectory);
+                    Directory.CreateDirectory(stateEventDirectory);
+                    envVars[SessionHookFiles.StateEventDirectoryEnvVar] = stateEventDirectory;
+                    envVars[SessionHookFiles.StateEventTokenEnvVar] = session.PointerDropToken;
+                }
+                catch (Exception ex)
+                {
+                    _log?.Invoke($"The state-event drop box could not be prepared: {ex.Message}");
+                    FileLog.Write($"[SessionManager] state-event drop box FAILED (session still launching): {ex}");
+                }
+            }
+
             // Session Rules part 2, phase 1: the rules file the before-a-command hook reads and the
             // directory it writes each decision into. Claude Code alone - it is the only agent whose
             // before-a-command hook is registered in phase 1 (ruling P9). The decision directory carries

@@ -42,7 +42,7 @@ public sealed class AutoDismissVerdictWatcher
             _ = oldState; // unused: we only care about the state we transitioned INTO
             // A turn is over only when the session settles to WaitingForInput (the dumb quiet timer). At that
             // point the final assistant message - which carries any CC-DISMISS block - is in the transcript.
-            if (newState is not ActivityState.WaitingForInput)
+            if (!ActivityStateFacts.IsTurnEnd(newState))
                 return;
             _ = Task.Run(() => ScanAndStamp(session));
         };

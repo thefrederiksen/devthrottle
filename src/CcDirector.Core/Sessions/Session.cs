@@ -191,6 +191,13 @@ public sealed class Session : IDisposable
     /// </summary>
     public string PointerDropToken { get; } = SessionHookFiles.NewDropToken();
 
+    private readonly object _stateResolutionGate = new();
+    private readonly HashSet<Guid> _acceptedStateEventIds = new();
+    private readonly List<SessionStateDisagreement> _stateDisagreements = new();
+    private readonly List<SessionStateDiagnostic> _stateDiagnostics = new();
+    private long _lastStateEventSequence;
+    private DateTimeOffset _selectedStateFactAtUtc = DateTimeOffset.MinValue;
+
     /// <summary>If this session was created as part of a group (issue #225), the shared
     /// group identity its members travel by; null for a solo session. Members of the same
     /// group sort adjacently and drag as one unit. Stamped at creation, immutable.</summary>
@@ -923,6 +930,59 @@ public sealed class Session : IDisposable
     /// phase 2.3, and the Director has not painted green since it either.
     /// </summary>
     public ActivityState ActivityState { get; private set; } = ActivityState.WaitingForInput;
+
+    /// <summary>The source whose fact selected <see cref="ActivityState"/>.</summary>
+    public string ActivityStateSource { get; private set; } = SessionStateSources.Initial;
+
+    /// <summary>True only when the selected state came from the last-resort silence timer.</summary>
+    public bool ActivityStateIsFallback { get; private set; }
+
+    /// <summary>A bounded snapshot of lower-priority facts that contradicted the selected fact.</summary>
+    public IReadOnlyList<SessionStateDisagreement> StateDisagreements
+    {
+        get
+        {
+            lock (_stateResolutionGate)
+                return _stateDisagreements.ToArray();
+        }
+    }
+
+    /// <summary>A bounded snapshot of adapter event types the installed command-line program did not support.</summary>
+    public IReadOnlyList<SessionStateDiagnostic> StateDiagnostics
+    {
+        get
+        {
+            lock (_stateResolutionGate)
+                return _stateDiagnostics.ToArray();
+        }
+    }
+
+    internal bool ApplyAgentStateEvent(SessionStateEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        var now = Clock.GetUtcNow();
+        lock (_stateResolutionGate)
+        {
+            if (evt.SessionId != Id || !SessionStateEventContract.MatchesAgent(evt.Agent, AgentKind)) return false;
+            if (evt.Sequence <= _lastStateEventSequence || _acceptedStateEventIds.Contains(evt.EventId)) return false;
+            if (!SessionStateEventContract.IsTimestampAccepted(evt.OccurredAtUtc, now)) return false;
+
+            _lastStateEventSequence = evt.Sequence;
+            _acceptedStateEventIds.Add(evt.EventId);
+            if (evt.Event == "unsupported")
+            {
+                RecordStateDiagnosticLocked(evt, now);
+                return true;
+            }
+
+            ApplyResolvedActivityStateLocked(
+                SessionStateEventContract.StateFor(evt.Event),
+                SessionStateSources.Agent,
+                evt.OccurredAtUtc,
+                isFallback: false);
+            return true;
+        }
+    }
 
     /// <summary>The session_id reported by Claude hooks, used for routing.</summary>
     public string? ClaudeSessionId { get; internal set; }
@@ -1753,8 +1813,8 @@ public sealed class Session : IDisposable
     /// </summary>
     private void RecordSupervisionFacts(ActivityState old, ActivityState @new)
     {
-        var wasWaiting = old is ActivityState.WaitingForInput or ActivityState.WaitingForPerm;
-        var isWaiting = @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm;
+        var wasWaiting = old is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen;
+        var isWaiting = @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen;
 
         if (@new == ActivityState.WaitingForInput)
             _turnCount++;
@@ -5334,9 +5394,16 @@ public sealed class Session : IDisposable
             "submitted; no follow-up was sent.");
     }
 
-    private void SetActivityState(ActivityState newState)
+    private void SetActivityState(
+        ActivityState newState,
+        string source = SessionStateSources.Core,
+        bool isFallback = false,
+        DateTimeOffset? occurredAtUtc = null)
     {
         var old = ActivityState;
+        ActivityStateSource = source;
+        ActivityStateIsFallback = isFallback;
+        _selectedStateFactAtUtc = occurredAtUtc ?? Clock.GetUtcNow();
         if (old == newState) return;
         ActivityState = newState;
         // NO HOLD EDGES LIVE HERE, AND NONE MAY BE ADDED. Activity does not decide hold. This method used
@@ -5352,15 +5419,15 @@ public sealed class Session : IDisposable
         // A real activity change ends any Wingman "running in the background" overlay: once the
         // terminal produces output again (Working), or the session otherwise leaves the parked
         // turn-end it was judged at, the background-wait verdict is stale. The next turn-end
-        // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+        // briefing re-evaluates from scratch. Only states waiting on the owner preserve it.
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             IsBackgroundRunning = false;
         // The same edge drops any structured ask. The user answered the question box or approved the
         // plan, the session went back to work, and a question box left standing in the Smart shutdown
         // dialog would send the owner hunting for a question nobody is asking. PendingInteraction has
         // documented this clearing since it was written; until the detection that fills it landed
         // (PendingInteractionWatcher) there was nothing to clear, and so no code here saying it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             PendingInteraction = null;
         // The work that a submission explained is over once the session settles or exits; the next working
         // edge is explained only by the next submission.
@@ -5400,10 +5467,109 @@ public sealed class Session : IDisposable
     // from "blocked on a question" - the thing the detector explicitly refuses to do. See issue #1564.
 
     /// <summary>
-    /// Set ActivityState from the <c>TerminalStateDetector</c> in terminal-driven mode.
-    /// The detector is the single authority for state in that mode; this is its writer.
+    /// Submit the silence detector's last-resort state fact. Agent, screen, and Wingman facts outrank it.
     /// </summary>
-    internal void ApplyTerminalActivityState(ActivityState newState) => SetActivityState(newState);
+    internal void ApplyTerminalActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(
+            newState,
+            newState == ActivityState.Working ? SessionStateSources.TerminalOutput : SessionStateSources.SilenceTimer,
+            Clock.GetUtcNow(),
+            isFallback: newState != ActivityState.Working);
+
+    /// <summary>Submit a positive per-agent screen reading.</summary>
+    internal void ApplyScreenActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(newState, SessionStateSources.Screen, Clock.GetUtcNow(), isFallback: false);
+
+    /// <summary>
+    /// Submit the Wingman interpretation of an already detected unclear stop. This never detects the stop itself.
+    /// </summary>
+    internal void ApplyWingmanActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(newState, SessionStateSources.Wingman, Clock.GetUtcNow(), isFallback: false);
+
+    private void ApplyResolvedActivityState(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        bool isFallback)
+    {
+        lock (_stateResolutionGate)
+            ApplyResolvedActivityStateLocked(reportedState, reportedSource, reportedAtUtc, isFallback);
+    }
+
+    private void ApplyResolvedActivityStateLocked(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        bool isFallback)
+    {
+        var selectedPriority = SessionStateSources.Priority(ActivityStateSource);
+        var reportedPriority = SessionStateSources.Priority(reportedSource);
+        var disagrees = reportedState != ActivityState;
+
+        // Agreement does not let weaker evidence take ownership of an agent-selected state. If it
+        // did, one output byte would demote agent Working to terminal-output and the next quiet
+        // settle could incorrectly paint a still-running turn as waiting.
+        if (!disagrees && selectedPriority >= reportedPriority)
+            return;
+
+        var isLater = reportedAtUtc > _selectedStateFactAtUtc;
+        // Permission is an edge, not a permanent latch. Some agents do not report the matching
+        // approval-completed edge, so any later fact that says the session is no longer at that
+        // permission gate supersedes it even when that fact comes from a lower-priority source.
+        var clearsPermission = ActivityState == ActivityState.WaitingForPerm
+            && isLater
+            && (reportedState == ActivityState.Working
+                || (reportedSource == SessionStateSources.Screen
+                    && reportedState == ActivityState.WaitingForInput));
+        // Silence after terminal output is the other half of that detector's own work cycle. It
+        // does not advance an agent-selected cycle: only the adapter ends one of those.
+        var advancesTerminalCycle = isLater
+            && ActivityStateSource == SessionStateSources.TerminalOutput
+            && reportedSource == SessionStateSources.SilenceTimer;
+        if (disagrees && selectedPriority > reportedPriority && !clearsPermission && !advancesTerminalCycle)
+        {
+            RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);
+            FileLog.Write($"[Session] state fact DISAGREED: session={Id}, reported={reportedState}/{reportedSource}, selected={ActivityState}/{ActivityStateSource}");
+            return;
+        }
+
+        if (disagrees && selectedPriority > 0)
+            RecordStateDisagreementLocked(ActivityState, ActivityStateSource, _selectedStateFactAtUtc,
+                reportedState, reportedSource);
+
+        SetActivityState(reportedState, reportedSource, isFallback, reportedAtUtc);
+    }
+
+    private void RecordStateDiagnosticLocked(SessionStateEvent evt, DateTimeOffset recordedAtUtc)
+    {
+        const int maximumDiagnostics = 100;
+        if (_stateDiagnostics.Count == maximumDiagnostics)
+            _stateDiagnostics.RemoveAt(0);
+        var rawType = evt.Detail ?? throw new InvalidOperationException("A validated unsupported event has no detail.");
+        var cliVersion = evt.CliVersion ?? throw new InvalidOperationException("A validated unsupported event has no command-line program version.");
+        _stateDiagnostics.Add(new SessionStateDiagnostic(
+            recordedAtUtc, evt.EventId, evt.Sequence, evt.Agent, rawType, cliVersion));
+        FileLog.Write($"[Session] state adapter UNSUPPORTED: session={Id}, agent={evt.Agent}, rawType={rawType}, cliVersion={cliVersion}, sequence={evt.Sequence}");
+    }
+
+    private void RecordStateDisagreementLocked(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        ActivityState? selectedState = null,
+        string? selectedSource = null)
+    {
+        const int maximumDisagreements = 100;
+        if (_stateDisagreements.Count == maximumDisagreements)
+            _stateDisagreements.RemoveAt(0);
+        _stateDisagreements.Add(new SessionStateDisagreement(
+            Clock.GetUtcNow(),
+            reportedState,
+            reportedSource,
+            reportedAtUtc,
+            selectedState ?? ActivityState,
+            selectedSource ?? ActivityStateSource));
+    }
 
     /// <summary>
     /// Refresh Claude session metadata from sessions-index.json.
