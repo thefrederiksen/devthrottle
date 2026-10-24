@@ -5506,10 +5506,12 @@ public sealed class Session : IDisposable
         var reportedPriority = SessionStateSources.Priority(reportedSource);
         var disagrees = reportedState != ActivityState;
 
+        // Permission is an edge, not a permanent latch. Some agents do not report the matching
+        // approval-completed edge, so any later fact that says the session is no longer at that
+        // permission gate supersedes it even when that fact comes from a lower-priority source.
         var clearsPermission = ActivityState == ActivityState.WaitingForPerm
             && reportedAtUtc > _selectedStateFactAtUtc
-            && (reportedState == ActivityState.Working
-                || (reportedSource == SessionStateSources.Screen && reportedState == ActivityState.WaitingForInput));
+            && reportedState != ActivityState.WaitingForPerm;
         if (disagrees && selectedPriority > reportedPriority && !clearsPermission)
         {
             RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);

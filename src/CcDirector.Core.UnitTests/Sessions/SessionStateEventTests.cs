@@ -80,6 +80,20 @@ public sealed class SessionStateEventTests : IDisposable
     }
 
     [Fact]
+    public void ApplyAgentStateEvent_PermissionThenLaterSilence_LaterFactClearsStalePermission()
+    {
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        Assert.Equal(ActivityState.WaitingForInput, _session.ActivityState);
+        Assert.Equal(SessionStateSources.SilenceTimer, _session.ActivityStateSource);
+        Assert.True(_session.ActivityStateIsFallback);
+        Assert.Single(_session.StateDisagreements);
+    }
+
+    [Fact]
     public void ApplyAgentStateEvent_UnsupportedDiagnostic_LeavesStateUnchangedAndRetainsDiagnostic()
     {
         var before = _session.ActivityState;
