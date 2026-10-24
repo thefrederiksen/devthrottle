@@ -1,0 +1,27 @@
+[conformance] saved claude 2.1.310 (Claude Code) start-up: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-start-up.json
+[conformance] saved claude 2.1.310 (Claude Code) idle: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-idle.json
+[conformance] saved claude 2.1.310 (Claude Code) working: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-working.json
+[conformance] saved claude 2.1.310 (Claude Code) model-picker: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-model-picker.json
+[conformance] saved claude 2.1.310 (Claude Code) multi-line-composer: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-multi-line-composer.json
+[conformance] saved claude 2.1.310 (Claude Code) permission-prompt: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-permission-prompt.json
+[conformance] saved claude 2.1.310 (Claude Code) question-menu: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-question-menu.json
+[conformance] saved claude 2.1.310 (Claude Code) trust-dialog: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/claude-2.1.310-claude-code-trust-dialog.json
+[conformance] saved pi 1.2.0 start-up: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/pi-1.2.0-start-up.json
+[conformance] saved pi 1.2.0 idle: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/pi-1.2.0-idle.json
+[conformance] saved pi 1.2.0 working: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/pi-1.2.0-working.json
+[conformance] saved pi 1.2.0 model-picker: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/pi-1.2.0-model-picker.json
+[conformance] saved pi 1.2.0 multi-line-composer: /home/soren/ReposFred/devthrottle.worktrees/tp-4385/src/CcDirector.DeliveryQualification/docs/conformance-4385-2026-10-24/current-run-7/fixtures/pi-1.2.0-multi-line-composer.json
+[conformance] claude 2.1.310 (Claude Code) start-up: PASS
+[conformance] claude 2.1.310 (Claude Code) idle: PASS
+[conformance] claude 2.1.310 (Claude Code) working: PASS
+[conformance] claude 2.1.310 (Claude Code) model-picker: PASS
+[conformance] claude 2.1.310 (Claude Code) multi-line-composer: PASS
+[conformance] claude 2.1.310 (Claude Code) permission-prompt: PASS
+[conformance] claude 2.1.310 (Claude Code) question-menu: PASS
+[conformance] claude 2.1.310 (Claude Code) trust-dialog: PASS
+[conformance] pi 1.2.0 start-up: PASS
+[conformance] pi 1.2.0 idle: PASS
+[conformance] pi 1.2.0 working: PASS
+[conformance] pi 1.2.0 model-picker: PASS
+[conformance] pi 1.2.0 multi-line-composer: PASS
+[conformance] recorded 13 passing fixtures and updated src/CcDirector.Core/Agents/cli-conformance-passed.json

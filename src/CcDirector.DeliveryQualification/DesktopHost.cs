@@ -40,6 +40,7 @@ public sealed class DesktopHost : IDisposable
         Dispatcher.UIThread.RunJobs();
         if (_terminal.HarnessCols < 10 || _terminal.HarnessRows < 3) _terminal.HarnessSetGrid(120, 40);
         _terminal.Attach(session);
+        _terminal.Focus();
         Dispatcher.UIThread.RunJobs();
         return true;
     }, CancellationToken.None);

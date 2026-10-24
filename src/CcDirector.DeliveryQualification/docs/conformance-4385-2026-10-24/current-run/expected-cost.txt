@@ -1,0 +1,1 @@
+Expected cost before run: Claude Code uses the existing subscription. Pi makes about five small turns on mindzie dev Azure gpt-5.6-terra with thinking off; expected billed cost is cents (under $0.10). Codex is pending until its allowance resets.

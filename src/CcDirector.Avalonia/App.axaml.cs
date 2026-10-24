@@ -174,6 +174,13 @@ public partial class App : Application
         mainWindow.Show();
         FileLog.Write("[CcDirector] Main window shown");
 
+        // Conformance is a warning only. Version processes run after the window is visible, off the interface thread,
+        // and can neither delay nor refuse start-up when a command is missing, changed, or slow.
+        _ = Task.Run(() => CliConformance.LogInstalledVersions(Options))
+            .ContinueWith(
+                task => FileLog.Write($"[CliConformance] Background version check FAILED: {task.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+
         // The FIRST repository rescan starts HERE, not in InitializeServices (ruling R2-8): the
         // MainWindow constructor above wired RepositoryMonitor.LiveSessionsProvider, and the
         // monitor refuses to scan without it. Triggering the scan after the constructor makes
