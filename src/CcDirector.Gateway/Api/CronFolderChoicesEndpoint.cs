@@ -10,7 +10,8 @@ namespace CcDirector.Gateway.Api;
 /// <summary>
 /// THE SCHEDULE FORM'S FOLDER CHOICES (issue #4421).
 ///
-///   GET /cron/folder-choices?machine=NAME -> CronFolderChoicesDto | 400 (no machine) | 403 (no account)
+///   GET /cron/folder-choices?machine=NAME -> CronFolderChoicesDto | 403 (no account)
+///   GET /cron/folder-choices               -> CronFolderChoicesDto for no machine yet: the placeholder that asks for one
 ///
 /// A schedule's folder used to be a free-text box with a Windows placeholder, whatever the machine, and a person on a
 /// Mac typed a Windows path into it. The form now asks this route for the machine it runs on: the machine's known
@@ -35,8 +36,9 @@ internal static class CronFolderChoicesEndpoint
         ArgumentNullException.ThrowIfNull(machineFolders);
         app.MapGet(Route, (HttpContext ctx, string? machine) =>
         {
+            // Before a machine is chosen the form still shows the Gateway's words in its empty folder box.
             if (string.IsNullOrWhiteSpace(machine))
-                return Results.BadRequest(new { error = "name the machine: ?machine=NAME" });
+                return Results.Json(NoMachine);
             var name = machine.Trim();
             var known = machineFolders(ctx, name);
             if (known is null)
@@ -49,6 +51,17 @@ internal static class CronFolderChoicesEndpoint
             return Results.Json(choices);
         });
     }
+
+    /// <summary>The answer before a machine is chosen: nothing to list and nothing to check, only the box's placeholder.</summary>
+    internal static CronFolderChoicesDto NoMachine => new()
+    {
+        Machine = "",
+        Os = "",
+        OsName = DirectorOs.DisplayName(null),
+        Online = false,
+        Placeholder = ScheduleFolderWords.NoMachinePlaceholder,
+        Note = null,
+    };
 
     internal static CronFolderChoicesDto Fold(string machine, MachineFolders known)
     {

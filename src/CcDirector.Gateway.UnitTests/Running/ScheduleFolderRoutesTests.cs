@@ -184,10 +184,15 @@ public sealed class ScheduleFolderRoutesTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FolderChoices_WithNoMachine_IsABadRequest()
+    public async Task FolderChoices_BeforeAMachineIsChosen_GiveTheGatewaysPlaceholderAndNothingToList()
     {
-        var response = await _http.GetAsync("/cron/folder-choices");
+        // Review, finding 5: the empty box's words before a machine is chosen are the Gateway's, not the form's.
+        var choices = (await _http.GetFromJsonAsync<CronFolderChoicesDto>("/cron/folder-choices?machine=", Json))!;
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Choose the machine first", choices.Placeholder);
+        Assert.Equal("", choices.Machine);
+        Assert.False(choices.Online);
+        Assert.Empty(choices.Repositories);
+        Assert.Empty(_sent);
     }
 }
