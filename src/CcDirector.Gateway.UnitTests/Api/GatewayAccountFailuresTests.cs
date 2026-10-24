@@ -257,6 +257,47 @@ public sealed class GatewayAccountFailuresTests : IAsyncLifetime
     }
 
     [Fact]
+    public void AReportTheSinkWritesBetweenTheStoreReadAndTheCheck_IsStoredOnce()
+    {
+        // The review's race, made certain: the sink holds the report past ConfirmWithin, and its flush lands right after
+        // the reporter's read of the store - so that read misses it, and the sink no longer holds it.
+        var flushAfterNextRead = false;
+        var reporter = new CronRunFailureReporter(_host.Runs, _host.Failures, since =>
+        {
+            var ids = CronRunFailureReporter.StoredScheduleFailures(_host.Errors, since, _host.Now);
+            if (flushAfterNextRead)
+            {
+                flushAfterNextRead = false;
+                _host.Sink.Flush();
+            }
+            return ids;
+        }, _host.CheckpointPath, () => _host.Now);
+        FailMorningRun();
+        _host.Now += CronRunFailureReporter.ScanInterval;
+        Assert.Equal(1, reporter.Scan());
+        var handedOver = _host.Now;
+
+        var raced = false;
+        var told = 0;
+        for (var scan = 0; scan < 40; scan++)
+        {
+            _host.Now += CronRunFailureReporter.ScanInterval;
+            // The scan on which the report has been with the sink ConfirmWithin: the one that decides to tell it again.
+            if (!raced && _host.Now - handedOver >= CronRunFailureReporter.ConfirmWithin)
+            {
+                flushAfterNextRead = true;
+                raced = true;
+            }
+            told += reporter.Scan();
+        }
+
+        Assert.True(raced);
+        Assert.Equal(0, told);
+        var row = Assert.Single(GatewayRows(GatewayAccountFailures.ScheduleSource));
+        Assert.Equal(1, row.RepeatCount);
+    }
+
+    [Fact]
     public void AReportTheSinkStillHolds_IsWaitedOn_NotToldAgain_SoItsCountStaysTrue()
     {
         // The sink holds an accepted report back for most of an hour while its hourly allowance is spent.

@@ -200,6 +200,7 @@ public sealed class CronRunFailureReporter : IDisposable
     {
         if (_unconfirmed.Count == 0) return;
         var ids = _alreadyStored(_unconfirmed.Keys.Min(k => k.ResultUtc) - Overlap);
+        var gone = new List<(string RunId, DateTime ResultUtc)>();
         foreach (var (key, toldAt) in _unconfirmed.ToList())
         {
             var correlation = GatewayAccountFailures.RunCorrelation(key.RunId, key.ResultUtc);
@@ -209,15 +210,29 @@ public sealed class CronRunFailureReporter : IDisposable
                 continue;
             }
             if (now - toldAt < ConfirmWithin || !_told.ContainsKey(key)) continue;
-            // Still waiting in the sink - held back while its hourly allowance is spent - is not lost: wait on, so the one
-            // failure is never counted twice.
+            // Still held by the sink - waiting, held back while its hourly allowance is spent, or in a write under way -
+            // is not lost: wait on, so the one failure is never counted twice.
             if (_failures.IsWaiting(correlation))
             {
                 _unconfirmed[key] = now;
                 continue;
             }
-            // Gone from the sink and not in the store: told again. It STAYS unconfirmed, so the scan window and the
-            // checkpoint keep reaching back to it until the store holds it.
+            gone.Add(key);
+        }
+        if (gone.Count == 0) return;
+
+        // The sink no longer holds them. Asked FIRST and the store read AFTER, so one the sink wrote in between is seen
+        // here and not told twice: what is in neither is truly lost.
+        var again = _alreadyStored(gone.Min(k => k.ResultUtc) - Overlap);
+        foreach (var key in gone)
+        {
+            if (again.Contains(GatewayAccountFailures.RunCorrelation(key.RunId, key.ResultUtc)))
+            {
+                _unconfirmed.Remove(key);
+                continue;
+            }
+            // Told again. It STAYS unconfirmed, so the scan window and the checkpoint keep reaching back to it until the
+            // store holds it.
             FileLog.Write($"[CronRunFailureReporter] run {key.RunId}: its report is not in the store {ConfirmWithin.TotalMinutes:0} minutes after the sink took it, and the sink no longer holds it; telling it again");
             _told.Remove(key);
         }

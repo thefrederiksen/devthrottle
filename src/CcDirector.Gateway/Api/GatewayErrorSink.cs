@@ -81,6 +81,9 @@ internal sealed class GatewayErrorSink : IDisposable
     private readonly LinkedList<Pending> _order = new();
     private readonly Dictionary<string, LinkedListNode<Pending>> _bySignature = new(StringComparer.Ordinal);
     private readonly Queue<(DateTime At, int Count)> _storedWindow = new();
+    // The correlation ids of the batch a flush has taken out of the table and not yet finished with - written, or put
+    // back, or given up. Held under _lock, so IsWaiting never answers "not held" for a report a write is carrying.
+    private readonly List<string> _inFlight = new();
     private readonly object _flushLock = new();
     private long _dropped;
     private long _stored;
@@ -275,12 +278,21 @@ internal sealed class GatewayErrorSink : IDisposable
         return false;
     }
 
-    /// <summary>True while an error carrying <paramref name="correlationId"/> is waiting in the table to be written -
-    /// so a caller that tells it again can wait instead, and the count stays true (issue #4403).</summary>
+    /// <summary>True while an error carrying <paramref name="correlationId"/> is waiting in the table, or is in a write a
+    /// flush has under way - so a caller that tells it again can wait instead, and the count stays true (issue #4403).
+    /// False means it is in the store already, or gone.</summary>
     internal bool IsWaiting(string correlationId)
     {
         lock (_lock)
-            return _order.Any(p => string.Equals(p.Error.CorrelationId, correlationId, StringComparison.Ordinal));
+            return _inFlight.Contains(correlationId)
+                || _order.Any(p => string.Equals(p.Error.CorrelationId, correlationId, StringComparison.Ordinal));
+    }
+
+    // Under _lock: the batch is no longer carried by a write.
+    private void EndFlight(List<Pending> batch)
+    {
+        foreach (var p in batch)
+            if (p.Error.CorrelationId is { } id) _inFlight.Remove(id);
     }
 
     /// <summary>
@@ -334,6 +346,7 @@ internal sealed class GatewayErrorSink : IDisposable
                 {
                     _order.Remove(_bySignature[p.Signature]);
                     _bySignature.Remove(p.Signature);
+                    if (p.Error.CorrelationId is { } id) _inFlight.Add(id);
                 }
             }
 
@@ -354,7 +367,11 @@ internal sealed class GatewayErrorSink : IDisposable
             }
             if (stored)
             {
-                lock (_lock) _storedWindow.Enqueue((now, batch.Count));
+                lock (_lock)
+                {
+                    _storedWindow.Enqueue((now, batch.Count));
+                    EndFlight(batch);
+                }
                 return written + batch.Count;
             }
 
@@ -394,6 +411,7 @@ internal sealed class GatewayErrorSink : IDisposable
         var givenUp = 0;
         lock (_lock)
         {
+            EndFlight(batch);
             for (var i = batch.Count - 1; i >= 0; i--)
             {
                 var p = batch[i];
