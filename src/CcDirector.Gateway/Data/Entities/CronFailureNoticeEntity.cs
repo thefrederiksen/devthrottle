@@ -25,4 +25,8 @@ public sealed class CronFailureNoticeEntity : TenantScopedEntity
     /// before it was already told or held back - a Gateway that restarts reads a little of the run history again - so
     /// it is not counted twice.</summary>
     public DateTime LastCountedUtc { get; set; }
+
+    /// <summary>The run counted last, at <see cref="LastCountedUtc"/>. Several runs can carry one result time - a late sweep
+    /// records every run it skipped in one write - so a run at that same time is new unless it is this one.</summary>
+    public string LastCountedRunId { get; set; } = "";
 }

@@ -7,10 +7,12 @@ using CcDirector.Gateway.Data.Entities;
 namespace CcDirector.Gateway.Running;
 
 /// <summary>What one claim on a schedule's failure notice came to.</summary>
-/// <param name="Send">True when the owner is to be told now; false when a notice of this cause went out inside the hour.</param>
+/// <param name="Send">True when the owner is to be told now.</param>
 /// <param name="Occurrences">When <paramref name="Send"/>: how many failures this notice stands for - this one and the
 /// ones held back since the last notice.</param>
-public sealed record CronFailureNoticeClaim(bool Send, int Occurrences);
+/// <param name="AlreadyCounted">When not sent: true when this failure was counted before (read again after a restart),
+/// false when it is held back because a notice of its cause went out inside the hour.</param>
+public sealed record CronFailureNoticeClaim(bool Send, int Occurrences, bool AlreadyCounted = false);
 
 /// <summary>
 /// THE HOURLY LIMIT ON A SCHEDULE'S FAILURE NOTICES (issue #4436), in <c>cron_failure_notices</c>. One row per account,
@@ -36,7 +38,8 @@ public sealed class CronFailureNoticeStore
     /// <paramref name="failureUtc"/>. A failure recorded at or before the newest one already counted is not counted
     /// again (the issue #4436 review, finding 3: a restarted Gateway reads the last minutes of the run history again).
     /// </summary>
-    public CronFailureNoticeClaim Claim(TenantId tenant, string jobId, string cause, DateTime failureUtc, DateTime nowUtc)
+    public CronFailureNoticeClaim Claim(TenantId tenant, string jobId, string cause, DateTime failureUtc, DateTime nowUtc,
+        string runId = "")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
         ArgumentException.ThrowIfNullOrWhiteSpace(cause);
@@ -55,13 +58,18 @@ public sealed class CronFailureNoticeStore
                     LastSentUtc = nowUtc,
                     HeldBack = 0,
                     LastCountedUtc = failedAt,
+                    LastCountedRunId = runId,
                 });
                 ctx.SaveChanges();
                 return new CronFailureNoticeClaim(true, 1);
             }
-            if (failedAt <= DateTime.SpecifyKind(row.LastCountedUtc, DateTimeKind.Utc))
-                return new CronFailureNoticeClaim(false, 0);
+            // Older than the last one counted, or that very run: read again. At the same instant but another run: new -
+            // a late sweep records every run it skipped with one result time (the #4436 review, second round, finding A).
+            var lastCounted = DateTime.SpecifyKind(row.LastCountedUtc, DateTimeKind.Utc);
+            if (failedAt < lastCounted || (failedAt == lastCounted && string.Equals(runId, row.LastCountedRunId, StringComparison.Ordinal)))
+                return new CronFailureNoticeClaim(false, 0, AlreadyCounted: true);
             row.LastCountedUtc = failedAt;
+            row.LastCountedRunId = runId;
             if (nowUtc - DateTime.SpecifyKind(row.LastSentUtc, DateTimeKind.Utc) < Window)
             {
                 row.HeldBack++;
@@ -234,10 +242,12 @@ public sealed class ScheduleFailureNotifier : IDisposable
         if (failure is null)
             return false;
 
-        var claim = _notices.Claim(tenant, job.Id, failure.Cause, run.ResultUtc ?? run.FiredUtc, now);
+        var claim = _notices.Claim(tenant, job.Id, failure.Cause, run.ResultUtc ?? run.FiredUtc, now, run.RunId);
         if (!claim.Send)
         {
-            FileLog.Write($"[ScheduleFailureNotifier] run={run.RunId}, job={job.Id}, cause={failure.Cause}: held back, a notice of this cause went out inside the hour");
+            FileLog.Write(claim.AlreadyCounted
+                ? $"[ScheduleFailureNotifier] run={run.RunId}, job={job.Id}, cause={failure.Cause}: already counted (read again after a restart)"
+                : $"[ScheduleFailureNotifier] run={run.RunId}, job={job.Id}, cause={failure.Cause}: held back, a notice of this cause went out inside the hour");
             return false;
         }
 

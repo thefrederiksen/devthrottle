@@ -116,6 +116,7 @@ def test_get_prints_the_last_run_and_the_default_note_in_the_gateways_words():
         "cronExpression": "0 0 * * *",
         "timeZoneId": "UTC",
         "notifyOn": "failure",
+        "notifyText": "When a run fails",
         "lastRunText": "Last run failed: The folder '/Users/you/site' does not exist on studio-mac (a Mac).",
         "notifyNote": "Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default.",
     }
@@ -125,7 +126,7 @@ def test_get_prints_the_last_run_and_the_default_note_in_the_gateways_words():
         result = runner.invoke(app, ["schedule", "get", "cj_abc123"], env={"COLUMNS": "300"})
     assert result.exit_code == 0
     lines = result.output.splitlines()
-    assert "  Notify:     on failure" in lines
+    assert "  Notify:     When a run fails" in lines
     assert "  Last run:   Last run failed: The folder '/Users/you/site' does not exist on studio-mac (a Mac)." in lines
     assert any(line.startswith("  Note:       Failure notifications were switched on") for line in lines)
 

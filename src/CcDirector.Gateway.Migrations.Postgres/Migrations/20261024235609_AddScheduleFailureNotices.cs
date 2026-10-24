@@ -35,7 +35,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     Cause = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false, collation: "C"),
                     LastSentUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     HeldBack = table.Column<int>(type: "integer", nullable: false),
-                    LastCountedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    LastCountedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    LastCountedRunId = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {

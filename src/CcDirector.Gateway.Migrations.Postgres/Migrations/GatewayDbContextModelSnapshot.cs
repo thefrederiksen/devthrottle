@@ -398,6 +398,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<int>("HeldBack")
                         .HasColumnType("integer");
 
+                    b.Property<string>("LastCountedRunId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("LastCountedUtc")
                         .HasColumnType("timestamp with time zone");
 

@@ -33,7 +33,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     Cause = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
                     LastSentUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     HeldBack = table.Column<int>(type: "INTEGER", nullable: false),
-                    LastCountedUtc = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    LastCountedUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    LastCountedRunId = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {

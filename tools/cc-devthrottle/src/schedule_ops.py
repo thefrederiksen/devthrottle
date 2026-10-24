@@ -270,11 +270,9 @@ def _runs_label(job: dict) -> str:
 
 
 def _notify_label(job: dict) -> str:
-    policy = (job.get("notifyOn") or NOTIFY_DEFAULT).lower()
-    if policy == NOTIFY_NONE:
-        return "off"
+    # The Gateway's own words for the policy (issue #4436 review); an older Gateway sends none, and the policy is shown.
+    base = job.get("notifyText") or (job.get("notifyOn") or NOTIFY_DEFAULT)
     webhook = job.get("notifyWebhookUrl")
-    base = "always (success + failure)" if policy == NOTIFY_ALWAYS else "on failure"
     return f"{base} + webhook {webhook}" if webhook else base
 
 

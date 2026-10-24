@@ -225,11 +225,28 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         store.Claim(tenant, "cj_a", folder, _now.AddMinutes(5), _now.AddMinutes(5));
 
         // Both read again after a restart: neither is counted twice.
-        Assert.False(store.Claim(tenant, "cj_a", folder, _now, _now.AddMinutes(10)).Send);
-        Assert.False(store.Claim(tenant, "cj_a", folder, _now.AddMinutes(5), _now.AddMinutes(10)).Send);
+        Assert.Equal(new CronFailureNoticeClaim(false, 0, AlreadyCounted: true), store.Claim(tenant, "cj_a", folder, _now, _now.AddMinutes(10)));
+        Assert.Equal(new CronFailureNoticeClaim(false, 0, AlreadyCounted: true), store.Claim(tenant, "cj_a", folder, _now.AddMinutes(5), _now.AddMinutes(10)));
 
         // An hour on, the next new failure stands for itself and the one held back: two, not four.
         Assert.Equal(new CronFailureNoticeClaim(true, 2), store.Claim(tenant, "cj_a", folder, _now.AddMinutes(61), _now.AddMinutes(61)));
+    }
+
+    [Fact]
+    public void Claim_SeveralRunsRecordedAtOneInstant_AreEachCounted()
+    {
+        // A late sweep records every run it skipped with ONE result time (the #4436 review, second round, finding A).
+        var store = new CronFailureNoticeStore(_db);
+        var tenant = TenantId.Local;
+        const string late = ScheduleFailureCauses.ReachedLate;
+
+        Assert.True(store.Claim(tenant, "cj_a", late, _now, _now, "run-1").Send);
+        Assert.Equal(new CronFailureNoticeClaim(false, 0), store.Claim(tenant, "cj_a", late, _now, _now, "run-2"));
+        Assert.Equal(new CronFailureNoticeClaim(false, 0), store.Claim(tenant, "cj_a", late, _now, _now, "run-3"));
+        // The last one counted, read again, is not counted twice.
+        Assert.True(store.Claim(tenant, "cj_a", late, _now, _now, "run-3").AlreadyCounted);
+
+        Assert.Equal(new CronFailureNoticeClaim(true, 3), store.Claim(tenant, "cj_a", late, _now.AddMinutes(61), _now.AddMinutes(61), "run-4"));
     }
 
     [Fact]

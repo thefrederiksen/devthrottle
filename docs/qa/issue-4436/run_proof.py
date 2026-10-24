@@ -485,7 +485,7 @@ def prove():
     check(job["notifyOn"] == "failure", "the schedule was created with no --notify-on and notifies on failure")
     check(job.get("notifyNote") is None, "a schedule made after the change carries no note about the change of default")
     r = cli(["schedule", "get", job_id])
-    check("  Notify:     on failure + webhook " in r.stdout, "schedule get says it notifies on failure")
+    check("  Notify:     When a run fails + webhook " in r.stdout, "schedule get says, in the Gateway's words, that it notifies on failure")
 
     section("2. Run now: the run reads as one plain sentence, the Director's words only as the detail", "")
     r = cli(["schedule", "run", job_id])
