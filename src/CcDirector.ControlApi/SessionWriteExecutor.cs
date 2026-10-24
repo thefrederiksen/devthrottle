@@ -217,11 +217,14 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
     {
         if (!Guid.TryParse(command.SessionId, out var id)) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
         var request = SessionCommandExecutor.Deserialize<TerminalKeyRequest>(command.PayloadJson);
-        if (request is null || !Enum.TryParse<TerminalKey>(request.Key, true, out var key)) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "key is unknown");
+        if (request is null || string.IsNullOrWhiteSpace(request.Key) || !Enum.GetNames<TerminalKey>().Any(name => string.Equals(name, request.Key, StringComparison.OrdinalIgnoreCase)))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "key is unknown");
+        var key = Enum.Parse<TerminalKey>(request.Key, ignoreCase: true);
         var session = sessionManager.GetSession(id);
         if (session is null) return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
         var modifiers = (request.Shift ? TerminalKeyModifiers.Shift : 0) | (request.Alt ? TerminalKeyModifiers.Alt : 0) | (request.Control ? TerminalKeyModifiers.Control : 0);
-        return SessionCommandExecutor.Answer(session.SendInput(KeyEncoder.Encode(key, modifiers, session.ApplicationCursorKeys), null, SubmissionProvenance.Typed("remote-terminal", "owner")));
+        try { return SessionCommandExecutor.Answer(session.SendInput(KeyEncoder.Encode(key, modifiers, session.ApplicationCursorKeys), InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))); }
+        catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
     internal static DirectorCommandResult TerminalPaste(SessionManager sessionManager, DirectorCommand command)
@@ -231,8 +234,11 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (request is null) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "text is required");
         var session = sessionManager.GetSession(id);
         if (session is null) return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
-        var bytes = TerminalInputEncoder.Paste(request.Text, session.BracketedPasteEnabled, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend), TerminalInputEncoder.PasteChunkBytes).SelectMany(x => x).ToArray();
-        return SessionCommandExecutor.Answer(session.SendInput(bytes, null, SubmissionProvenance.Typed("remote-terminal", "owner")));
+        var text = request.Text.TrimEnd('\r', '\n');
+        if (text.Length == 0) return SessionCommandExecutor.Answer(InputAnswer.Written);
+        var bytes = TerminalInputEncoder.Paste(text, session.BracketedPasteEnabled, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend), TerminalInputEncoder.PasteChunkBytes).SelectMany(x => x).ToArray();
+        try { return SessionCommandExecutor.Answer(session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))); }
+        catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
     internal static DirectorCommandResult TerminalMouse(SessionManager sessionManager, DirectorCommand command)
@@ -240,13 +246,14 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         if (!Guid.TryParse(command.SessionId, out var id)) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
         var request = SessionCommandExecutor.Deserialize<TerminalMouseRequest>(command.PayloadJson);
         var session = sessionManager.GetSession(id);
-        if (request is null || request.Column <= 0 || request.Row <= 0) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "button, column and row are required");
+        if (request is null || string.IsNullOrWhiteSpace(request.Button) || request.Column <= 0 || request.Row <= 0) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "button, column and row are required");
         if (session is null) return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
         if (!session.MouseReportingEnabled) return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "the terminal application has not enabled mouse reporting");
         var button = request.Button.ToLowerInvariant() switch { "left" => 0, "middle" => 1, "right" => 2, "wheelup" => MouseReportEncoder.WheelUp, "wheeldown" => MouseReportEncoder.WheelDown, _ => -1 };
         if (button < 0) return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "button is unknown");
-        var bytes = session.MouseSgrCoordinates ? MouseReportEncoder.EncodeSgr(request.Release ? 3 : button, request.Column, request.Row) : MouseReportEncoder.EncodeX10(request.Release ? 3 : button, request.Column, request.Row);
-        return SessionCommandExecutor.Answer(session.SendInput(bytes, null, SubmissionProvenance.Typed("remote-terminal", "owner")));
+        var bytes = session.MouseSgrCoordinates ? MouseReportEncoder.EncodeSgr(button, request.Column, request.Row, request.Release) : MouseReportEncoder.EncodeX10(request.Release ? 3 : button, request.Column, request.Row);
+        try { return SessionCommandExecutor.Answer(session.SendInput(bytes, InputOrigin.DesktopTyped, SubmissionProvenance.Typed("gateway-terminal", "device"))); }
+        catch (TerminalWriteFailedException ex) { return SessionCommandExecutor.Answer(InputAnswer.Refused(ex.Message)); }
     }
 
     /// <summary>
