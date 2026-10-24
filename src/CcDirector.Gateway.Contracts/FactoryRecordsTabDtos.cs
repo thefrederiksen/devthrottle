@@ -204,7 +204,7 @@ public sealed class FactoryRecordsDocumentHistoryViewDto
     /// <summary>"The newest versions of outreach/ledger.json".</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>"3 versions. Only the newest 3 versions of a document are kept."</summary>
+    /// <summary>"3 versions. A document keeps its newest 3 versions, and the one the one-time upload stored."</summary>
     public string SummaryText { get; set; } = "";
 
     public List<string> Columns { get; set; } = new();

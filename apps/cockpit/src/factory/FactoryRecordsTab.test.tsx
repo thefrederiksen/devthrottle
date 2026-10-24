@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 //   * the tab is the Gateway's - it appears because the fold offers it, and /factories/<id>/records opens it;
 //   * every word drawn is the Gateway's, including what an empty section says;
 //   * Read opens the journal of exactly the seat on the card, and the factory's own journal with no seat;
-//   * a document opens at its newest version, History lists every version, and Open on a row reads that version;
+//   * a document opens at its newest version, History lists the versions kept, and Open on a row reads that version;
 //   * Download fetches the address the Gateway gave.
 // Only the Gateway calls are replaced.
 

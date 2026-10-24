@@ -21,7 +21,7 @@ import { ToneChip } from "./FactoryParts";
 const SURFACE = "cockpit-factory-records";
 
 // The factory page's Records tab (Factory Definition mission, phase 6, sections 5.6 and 5.7), beside Memory: what the
-// factory produced, held on the Gateway - each seat's journal, the working documents with every version, and the
+// factory produced, held on the Gateway - each seat's journal, the working documents with their newest versions, and the
 // attachments.
 //
 // Rule 7: every word is the Gateway's (FactoryRecordsTabFold). This file lays the fields out and opens what a button
