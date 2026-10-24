@@ -2793,6 +2793,16 @@ public sealed class Session : IDisposable
         }
     }
 
+    /// <summary>True when the terminal application requested application cursor-key mode (DECCKM, ?1).</summary>
+    public bool ApplicationCursorKeys
+    {
+        get
+        {
+            lock (_screenLock)
+                return _screenParser?.ApplicationCursorKeys ?? false;
+        }
+    }
+
     /// <summary>
     /// Like <see cref="SnapshotScreenRows"/> but also returns the live cursor cell
     /// (0-based grid row/col). The grid text and the cursor are captured under the
