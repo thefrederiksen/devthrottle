@@ -35,7 +35,11 @@ public static class CronRunEndingFold
     /// <paramref name="endings"/> holds the work-history facts of the runs' sessions, as
     /// <see cref="SessionHistoryStore.EndingsOf"/> returns them.
     /// </summary>
-    public static void Stamp(IEnumerable<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc)
+    /// <param name="machineOsOf">The system a run's machine last reported (<see cref="DirectorOs"/>), or null when it is
+    /// not known: a run that did not start because its folder was missing names that system in its words (issue #4421).
+    /// Null as a whole when the caller cannot read the machines; those words then name only the machine.</param>
+    public static void Stamp(IEnumerable<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc,
+        Func<string, string?>? machineOsOf = null)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(endings);
@@ -43,7 +47,12 @@ public static class CronRunEndingFold
         {
             var (ending, endedUtc) = EndingOf(run, endings);
             run.Ending = ending;
-            run.EndingText = TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
+            // A run that did not start because its folder was missing says so in plain words (issue #4421), not as the
+            // Director's "repoPath does not exist", which the run table never showed at all.
+            run.EndingText = ending == CronRunEndings.NoSession
+                && ScheduleFolderWords.DidNotRunText(run.ResultReason, run.Machine, machineOsOf?.Invoke(run.Machine)) is { } folderText
+                    ? folderText
+                    : TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
             run.TaskStatus = TaskStatusOf(run);
             run.InfraTone = ToneOf(run.InfraStatus);
         }

@@ -483,6 +483,11 @@
   font-family: "Cascadia Mono", Consolas, Menlo, monospace;
 }
 
+/* The chosen machine's repositories, above the free-text folder box (issue #4421). */
+.sched-fld select.sched-repo-pick {
+  margin-bottom: 6px;
+}
+
 .sched-fld input:focus,
 .sched-fld select:focus,
 .sched-fld textarea:focus {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createCronJob,
+  getFolderChoices,
   getSeatChoices,
   updateCronJob,
+  type CronFolderChoices,
   type CronJob,
   type CronSeatChoices,
 } from "@devthrottle/client-core/schedule/scheduleClient";
@@ -189,6 +191,26 @@ export function ScheduleEditor({
     return () => abort.abort();
   }, []);
   const chosenFactory = seatChoices?.factories.find((c) => c.factory === form.factory);
+
+  // The folder choices for the chosen machine (issue #4421): its known repositories, an example folder in its own
+  // shape, and a note when a save cannot check the folder. Read again whenever the machine changes; the save checks
+  // the folder on the machine either way.
+  const [folderChoices, setFolderChoices] = useState<CronFolderChoices | null>(null);
+  const [folderChoicesError, setFolderChoicesError] = useState<string | null>(null);
+  const chosenMachine = form.machine.trim();
+  useEffect(() => {
+    setFolderChoices(null);
+    setFolderChoicesError(null);
+    if (chosenMachine.length === 0) return;
+    const abort = new AbortController();
+    getFolderChoices(chosenMachine, abort.signal)
+      .then(setFolderChoices)
+      .catch((err: unknown) => {
+        if (!abort.signal.aborted)
+          setFolderChoicesError(`Could not read ${chosenMachine}'s repositories: ${describeAndReport(SURFACE, "read the folder choices", err)}`);
+      });
+    return () => abort.abort();
+  }, [chosenMachine]);
 
   const loadDirectors = useCallback(async () => {
     try {
@@ -503,13 +525,36 @@ export function ScheduleEditor({
                 </div>
 
                 <div className="sched-fld sched-fld-wide">
-                  <label className="sched-fld-label">Repository path</label>
+                  <label className="sched-fld-label" htmlFor="sched-repo-path">Repository path</label>
+                  {/* The machine's own repositories, in the Gateway's order (issue #4421): picking one fills the box,
+                      which stays free text for a folder the Gateway does not know. */}
+                  {folderChoices !== null && folderChoices.repositories.length > 0 && (
+                    <select
+                      aria-label={`${folderChoices.machine}'s repositories`}
+                      className="sched-repo-pick"
+                      value={folderChoices.repositories.some((r) => r.path === form.repoPath) ? form.repoPath : ""}
+                      onChange={(e) => {
+                        const path = e.target.value;
+                        if (path.length > 0) setForm((f) => ({ ...f, repoPath: path }));
+                      }}
+                    >
+                      <option value="">{`Choose one of ${folderChoices.machine}'s repositories...`}</option>
+                      {folderChoices.repositories.map((r) => (
+                        <option key={r.path} value={r.path}>
+                          {`${r.name} - ${r.path}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <input
+                    id="sched-repo-path"
                     className={`mono${formErrors.repoPath ? " invalid" : ""}`}
                     value={form.repoPath}
-                    placeholder="C:\repos\devthrottle"
+                    placeholder={folderChoices?.placeholder ?? (chosenMachine.length === 0 ? "Choose the machine first" : "")}
                     onChange={(e) => setForm((f) => ({ ...f, repoPath: e.target.value }))}
                   />
+                  {folderChoices?.note && <div className="sched-statepick-hint">{folderChoices.note}</div>}
+                  {folderChoicesError !== null && <div className="sched-fld-err">{folderChoicesError}</div>}
                   {formErrors.repoPath && <div className="sched-fld-err">{formErrors.repoPath}</div>}
                 </div>
 

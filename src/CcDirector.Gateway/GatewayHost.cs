@@ -6340,7 +6340,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // Factory Memory mission (phase 1): a schedule may name the factory its sessions are born into, and only a
         // person or a session already in that factory may name it - read through the history row like everywhere else.
         // Each run's ending, from the run history and the session work history (the owner, 2026-10-09).
-        var cronRunRecords = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf);
+        // Issue #4421: a schedule's folder is checked on its machine when it is saved, through a Director that is
+        // connected now; the system each machine last reported words the refusal and the run table's did-not-run.
+        var folderCheck = new Running.ScheduleFolderCheck(
+            t => Registry.ListDirectors(t),
+            (t, directorId) => PushedSessions.GetActiveConnectionId(t, directorId) is not null,
+            SendCommandAsync);
+        var cronRunRecords = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf,
+            machine => _tenantPass.Current is { } tenant ? folderCheck.OsOf(tenant, machine) : null);
         CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf,
             // Issue #3650: a schedule's factory and seat must be in the calling account's registry.
             findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
@@ -6351,7 +6358,17 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Definition, phase 4: a defined factory's schedules are written by its publish, never by these
             // routes. An account this request has no tenant for holds no definition.
             isDefined: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
-                && FactoryDefinitions.IsDefined(tenant, factory));
+                && FactoryDefinitions.IsDefined(tenant, factory),
+            // A request with no account has no machines to ask, so its folder is saved unchecked and says so.
+            checkFolder: (ctx, machine, path, ct) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+                ? folderCheck.CheckAsync(tenant, machine, path, ct)
+                : Task.FromResult(Running.ScheduleFolderVerdict.Unchecked(
+                    $"The folder '{path}' could not be checked: this request has no account. It is checked again when the schedule first runs.")));
+        // The schedule editor's folder choices (issue #4421): the machine's known repositories and its system's shape.
+        Api.CronFolderChoicesEndpoint.Map(_app, (ctx, machine) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+            ? new Api.CronFolderChoicesEndpoint.MachineFolders(folderCheck.OsOf(tenant, machine), folderCheck.IsOnline(tenant, machine),
+                _knownRepositories.ReadForMachine(tenant, machine))
+            : null);
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)

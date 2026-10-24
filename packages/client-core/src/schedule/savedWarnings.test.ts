@@ -13,4 +13,11 @@ describe("savedWarnings", () => {
     );
     expect(savedWarnings({ shiftWarning: "Ends after its shift." })).toBe("Ends after its shift.");
   });
+
+  it("puts the folder warning first, verbatim (issue #4421)", () => {
+    expect(
+      savedWarnings({ folderWarning: "STUDIO_MAC is offline, so the folder could not be checked.", loadWarning: "Busy at 06:00." }),
+    ).toBe("STUDIO_MAC is offline, so the folder could not be checked. Busy at 06:00.");
+    expect(savedWarnings({ folderWarning: "Not checked." })).toBe("Not checked.");
+  });
 });

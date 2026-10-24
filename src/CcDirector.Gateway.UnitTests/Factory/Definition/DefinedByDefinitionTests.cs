@@ -229,6 +229,8 @@ public sealed class DefinedByDefinitionTests : IDisposable
         nameof(CronJobDto.RemainingToday), nameof(CronJobDto.Lifecycle), nameof(CronJobDto.StateLabel),
         nameof(CronJobDto.ToggleLabel), nameof(CronJobDto.RunRecord), nameof(CronJobDto.FactoryTitle),
         nameof(CronJobDto.FactoryHref), nameof(CronJobDto.ShortName), nameof(CronJobDto.LoadWarning),
+        // Set on a write's answer only when the folder could not be checked (issue #4421); never stored, never read from a body.
+        nameof(CronJobDto.FolderWarning),
         nameof(CronJobDto.Shifts), nameof(CronJobDto.ShiftText), nameof(CronJobDto.ShiftWarning), nameof(CronJobDto.ShiftRule),
         nameof(CronJobDto.DefinedByDefinition),
         // Stamped with DefinedByDefinition on every answer (phase 5, QA finding 5); never stored, never read from a body.
