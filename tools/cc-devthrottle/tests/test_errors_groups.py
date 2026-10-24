@@ -161,7 +161,7 @@ def test_all_accounts_sends_the_admin_token_to_the_admin_route(calls, monkeypatc
     assert "account=acct-1" in calls[0]["path"]
     assert calls[0]["bearer"] == "admin-secret"
     assert calls[0]["base_url"] == "https://gw.example"
-    assert "scope: every account" in result.output
+    assert "scope: account acct-1," in result.output
 
 
 def test_empty_answer_is_definitive(calls):
@@ -283,3 +283,22 @@ def test_website_token_an_answer_without_a_token_is_a_failure(calls, monkeypatch
 
     assert result.exit_code == 1
     assert "holds no token" in result.output
+
+
+@pytest.mark.parametrize(
+    "args, scope",
+    [
+        (["--email", "robert@example.com"], "scope: account robert@example.com,"),
+        (["--account", "tenant-42"], "scope: account tenant-42,"),
+        (["--all-accounts"], "scope: every account,"),
+        ([], "scope: this account,"),
+    ],
+)
+def test_scope_line_names_what_was_read(calls, monkeypatch, args, scope):
+    # Issue #4428: a filtered administrator read must name the account, not claim every account.
+    monkeypatch.setenv("ADMIN_SERVICE_TOKEN", "admin-secret")
+
+    result = runner.invoke(app, ["errors", "groups", *args])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0].startswith(scope)
