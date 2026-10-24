@@ -354,6 +354,9 @@ internal static class ControlEndpoints
             LastPromptDeliveryFailureAtUtc = deliveryTally.LastFailureAtUtc,
             LastPromptDeliveryFailureReason = deliveryTally.LastFailureReason,
             PromptDeliveryUnresolved = deliveryTally.Unresolved,
+            // The first prompt's own fact (issue #3392): a schedule reads it to tell a seed that never arrived.
+            FirstPromptFailedAtUtc = s.FirstPromptFailedAtUtc,
+            FirstPromptFailureReason = s.FirstPromptFailureReason,
             PendingDeletion = s.PendingDeletion,
             DeletionReason = s.DeletionReason,
             WingmanEnabled = s.WingmanEnabled,

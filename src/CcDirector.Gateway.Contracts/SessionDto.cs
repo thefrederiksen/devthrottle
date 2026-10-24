@@ -347,6 +347,16 @@ public sealed class SessionDto
     public bool PromptDeliveryUnresolved { get; set; }
 
     /// <summary>
+    /// When this session's FIRST prompt - a schedule's seed, a spawn's prompt, a restore - was found not delivered (UTC),
+    /// or null (issue #3392). Unlike <see cref="LastPromptDeliveryFailureAtUtc"/> it is about that one prompt only, never
+    /// a later send. Reported by the owning Director; null from a Director too old to say.
+    /// </summary>
+    public DateTime? FirstPromptFailedAtUtc { get; set; }
+
+    /// <summary>Why the first prompt was not delivered, in the Director's words; null with <see cref="FirstPromptFailedAtUtc"/>.</summary>
+    public string? FirstPromptFailureReason { get; set; }
+
+    /// <summary>
     /// Gateway-owned plain-English notice that this session lost a prompt, or null when there is nothing to
     /// say. Folded once by <c>SessionOrdering.PromptDeliveryNotice</c> from the Director-reported facts
     /// above and rendered VERBATIM by every client (CLAUDE.md rule 7). Always null in Director-local

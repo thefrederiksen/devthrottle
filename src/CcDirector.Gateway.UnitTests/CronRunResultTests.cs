@@ -379,9 +379,8 @@ public sealed class CronRunResultTests : IDisposable
         // Still open, deep inside its shift: before this it read as started until the shift ended.
         _sessions[("dir-1", "s1")] = new SessionDto
         {
-            SessionId = "s1", PromptDeliveryUnresolved = true, FailedPromptDeliveries = 1,
-            LastPromptDeliveryFailureAtUtc = fired.AddMinutes(10),
-            LastPromptDeliveryFailureReason = "The first prompt was not typed: the composer was not drawn in 600 seconds.",
+            SessionId = "s1", FirstPromptFailedAtUtc = fired.AddMinutes(10),
+            FirstPromptFailureReason = "The first prompt was not typed: the composer was not drawn in 600 seconds.",
         };
         _now = fired.AddMinutes(11);
 
@@ -395,35 +394,40 @@ public sealed class CronRunResultTests : IDisposable
     }
 
     [Fact]
-    public void Sweep_APromptFailureFromBeforeTheRunFired_IsNotThisRunsProblem()
+    public void Sweep_ALaterSendThatFailed_DoesNotCondemnARunWhoseFirstPromptArrived()
     {
+        // The #3392 review, finding 1: the seed arrived, the agent worked for an hour, then a send from the phone failed.
+        // The session's row says a delivery is unresolved - but not its first prompt - so the run is left running.
         var (service, runs, _) = Build();
         Job("cj_a");
         var fired = TorontoTime(2026, 10, 10, 9);
         runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
         _sessions[("dir-1", "s1")] = new SessionDto
         {
-            SessionId = "s1", PromptDeliveryUnresolved = true, LastPromptDeliveryFailureAtUtc = fired.AddMinutes(-5),
-            LastPromptDeliveryFailureReason = "an older failure",
+            SessionId = "s1", PromptDeliveryUnresolved = true, FailedPromptDeliveries = 1,
+            LastPromptDeliveryFailureAtUtc = fired.AddMinutes(60), LastPromptDeliveryFailureReason = "the composer did not echo",
+            FirstPromptFailedAtUtc = null,
         };
-        _now = fired.AddMinutes(11);
+        _now = fired.AddMinutes(61);
 
         Assert.Equal(0, service.Sweep(TenantId.Local));
         Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
     }
 
     [Fact]
-    public void Sweep_ASessionWhosePromptArrived_IsLeftRunning()
+    public void Sweep_AFirstPromptFailureTheDirectorStampedBeforeTheGatewaysFireTime_IsStillThisRunsProblem()
     {
+        // The #3392 review, finding 2: the Director's clock, or a run adopted after a start whose outcome was not known,
+        // can put the failure before the Gateway's FiredUtc. The session is the run's own, so its first prompt is this run's.
         var (service, runs, _) = Build();
         Job("cj_a");
         var fired = TorontoTime(2026, 10, 10, 9);
         runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
-        _sessions[("dir-1", "s1")] = new SessionDto { SessionId = "s1", PromptDeliveryUnresolved = false };
-        _now = fired.AddMinutes(11);
+        _sessions[("dir-1", "s1")] = new SessionDto { SessionId = "s1", FirstPromptFailedAtUtc = fired.AddSeconds(-2) };
+        _now = fired.AddMinutes(1);
 
-        Assert.Equal(0, service.Sweep(TenantId.Local));
-        Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+        Assert.Equal(CronRunProblems.PromptNotDelivered, runs.List("cj_a").Single().Problem);
     }
 
     [Fact]
@@ -434,10 +438,7 @@ public sealed class CronRunResultTests : IDisposable
         Job("cj_a");
         var fired = TorontoTime(2026, 10, 10, 9);
         runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
-        _sessions[("dir-1", "s1")] = new SessionDto
-        {
-            SessionId = "s1", PromptDeliveryUnresolved = true, LastPromptDeliveryFailureAtUtc = fired.AddMinutes(1),
-        };
+        _sessions[("dir-1", "s1")] = new SessionDto { SessionId = "s1", FirstPromptFailedAtUtc = fired.AddMinutes(1) };
         _now = fired.AddMinutes(2);
         service.Sweep(TenantId.Local);
 
