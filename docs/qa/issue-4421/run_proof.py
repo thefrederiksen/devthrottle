@@ -60,8 +60,11 @@ OS_ID, OS_NAME, A_COMPUTER, EXAMPLE = (("macos", "Mac", "a Mac", "/Users/<you>/D
 CLI_DIR = REPO / "tools" / "cc-devthrottle"
 USER_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
 USER_BIN = USER_HOME / ".local" / "bin"
-OWNER_TOOLS = USER_HOME / ".local" / "share" / "cc-director" / "pyenv" / "bin"
-OWNER_INSTANCE = USER_HOME / ".local" / "share" / "cc-director" / "instances" / "default"
+# The owner's DevThrottle data folder: ~/Library/Application Support on a Mac, ~/.local/share on Linux.
+OWNER_DATA = (USER_HOME / "Library" / "Application Support" / "cc-director" if sys.platform == "darwin"
+              else USER_HOME / ".local" / "share" / "cc-director")
+OWNER_TOOLS = OWNER_DATA / "pyenv" / "bin"
+OWNER_INSTANCE = OWNER_DATA / "instances" / "default"
 PYENV_PYTHON = OWNER_TOOLS / "python"
 # The name the Director reports (Environment.MachineName), read once it has joined; the host name until then. On a Mac
 # the host name may carry ".local", which the Director's name does not.
@@ -475,6 +478,11 @@ def main():
         start_gateway()
         start_director()
         prove()
+    except BaseException as ex:
+        # A run that stopped part way is a failed run, and the transcript says where and why.
+        FAILURES.append(f"the run stopped before its last check: {type(ex).__name__}: {ex}")
+        TRANSCRIPT.append(f"\nSTOPPED: {shown(type(ex).__name__)}: {shown(ex)}\n")
+        raise
     finally:
         if STATE.get("dir_proc") is not None:
             stop_director()
@@ -489,7 +497,8 @@ def main():
         header = (f"Issue #4421 proof - a throwaway Gateway and a test Director built from this tree, on {MACHINE} ({OS_NAME})\n"
                   f"started {started}, finished {utc()}\n"
                   f"commit {subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=REPO, capture_output=True, text=True).stdout.strip()}"
-                  " (plus the uncommitted change under review)\n"
+                  + (" (with uncommitted changes)" if subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
+                     capture_output=True, text=True).stdout.strip() else " (a clean tree)") + "\n"
                   f"result: {'PASS' if not FAILURES else 'FAIL: ' + '; '.join(FAILURES)}\n")
         (HERE / ("transcript-mac.txt" if ON_MAC else "transcript.txt")).write_text(header + "".join(TRANSCRIPT), encoding="utf-8")
         print(f"result: {'PASS' if not FAILURES else 'FAIL'}", flush=True)
