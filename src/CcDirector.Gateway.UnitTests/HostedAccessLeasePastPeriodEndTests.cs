@@ -19,7 +19,7 @@ namespace CcDirector.Gateway.Tests;
 /// database again. On production one account in this state cost about 13 reads a second.
 ///
 /// HOW THESE FAIL ON PURPOSE: put back the old clip (expire at the period end whenever it is earlier than the ttl)
-/// and the two "is not read again" tests go RED - the second request reads the changed row. The future-end and
+/// and four of these go RED - the second request reads the changed row, and the account holds no live lease. The future-end and
 /// sweep tests stay green in both versions, which is what proves the change did not loosen the paid boundary.
 /// </summary>
 public sealed class HostedAccessLeasePastPeriodEndTests : IDisposable
