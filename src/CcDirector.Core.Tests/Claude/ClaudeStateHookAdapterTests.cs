@@ -70,6 +70,22 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.Contains(".tmp", script, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, "report-state.sh", "$sequence.state.json", "$path.$$.tmp")]
+    [InlineData(true, "report-state.ps1", "+ '.state.json'", "$path + '.' + $PID + '.tmp'")]
+    public void EnsureInstalled_StateScript_UsesOneSharedCounterAndTemporaryNamesCannotMatchEventFiles(
+        bool forWindows, string scriptName, string eventFileName, string temporaryFileName)
+    {
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var script = File.ReadAllText(Path.Combine(_directory, scriptName));
+
+        Assert.Contains(".claude-sequence", script, StringComparison.Ordinal);
+        Assert.Contains(eventFileName, script, StringComparison.Ordinal);
+        Assert.Contains(temporaryFileName, script, StringComparison.Ordinal);
+        Assert.DoesNotContain(".state.json.tmp", script, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EnsureInstalled_PowerShellStateScript_MalformedPayloadBecomesUnsupportedAndUsesInvariantTimestamp()
     {
