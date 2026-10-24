@@ -20,8 +20,10 @@ namespace CcDirector.Gateway.Data;
 /// </summary>
 internal sealed class CredentialTableWriteInterceptor : DbCommandInterceptor
 {
-    /// <summary>Every table <see cref="Pairing.DeviceRegistry.ResolveCredential"/> reads, matched case-insensitively.</summary>
-    private static readonly string[] TheCredentialTables = { "device_credentials", "tenants", "team_members" };
+    /// <summary>Every table <see cref="Pairing.DeviceRegistry.ResolveCredential"/> reads, matched case-insensitively - and
+    /// <c>teams</c>, because deleting a team removes its <c>team_members</c> rows by a database cascade whose command
+    /// names only <c>teams</c>.</summary>
+    private static readonly string[] TheCredentialTables = { "device_credentials", "tenants", "team_members", "teams" };
 
     /// <summary>A write verb as a keyword: not inside a quoted or longer name ("UpdatedAtUtc"), followed by space or a
     /// line break. A read with FOR UPDATE also matches, which only costs a re-check.</summary>
@@ -41,7 +43,8 @@ internal sealed class CredentialTableWriteInterceptor : DbCommandInterceptor
         return ValueTask.FromResult(result);
     }
 
-    /// <summary>SaveChanges on PostgreSQL sends an insert or update that returns columns through the reader path.</summary>
+    /// <summary>SaveChanges sends its inserts and updates through the reader path on both providers (they return columns,
+    /// or <c>RETURNING 1</c> on SQLite).</summary>
     public override DbDataReader ReaderExecuted(DbCommand command, CommandExecutedEventData eventData, DbDataReader result)
     {
         Observe(command, eventData.Context);

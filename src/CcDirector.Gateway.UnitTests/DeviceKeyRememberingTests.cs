@@ -147,6 +147,7 @@ public sealed class DeviceKeyRememberingTests : IDisposable
     [InlineData("UPDATE gateway.device_credentials AS d\nSET \"Status\" = @p0", true)]
     [InlineData("INSERT INTO gateway.tenants (\"Id\", \"AccountSubject\") VALUES (@p0, @p1) RETURNING \"CreatedAtUtc\"", true)]
     [InlineData("DELETE FROM gateway.team_members AS t WHERE t.\"TeamId\" = @p0", true)]
+    [InlineData("DELETE FROM \"teams\" WHERE \"TeamId\" = @p0 RETURNING 1;", true)]
     [InlineData("UPDATE\ndevice_credentials SET \"Status\" = 'revoked'", true)]
     [InlineData("SELECT d.\"DeviceId\", d.\"UpdatedAtUtc\" FROM gateway.device_credentials AS d WHERE d.\"DeviceKeyHash\" = @p0", false)]
     [InlineData("SELECT EXISTS (SELECT 1 FROM gateway.tenants AS t WHERE t.\"Id\" = @p0)", false)]
