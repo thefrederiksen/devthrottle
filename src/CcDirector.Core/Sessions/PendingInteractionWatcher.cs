@@ -34,14 +34,22 @@ namespace CcDirector.Core.Sessions;
 public sealed class PendingInteractionWatcher : IDisposable
 {
     private readonly SessionManager _sessionManager;
+    private readonly Action<Action> _dispatch;
     private readonly ConcurrentDictionary<Guid, Action<ActivityState, ActivityState>> _handlers = new();
     private bool _started;
     private int _disposed;
 
     public PendingInteractionWatcher(SessionManager sessionManager)
+        : this(sessionManager, work => Task.Run(work))
+    {
+    }
+
+    internal PendingInteractionWatcher(SessionManager sessionManager, Action<Action> dispatch)
     {
         ArgumentNullException.ThrowIfNull(sessionManager);
+        ArgumentNullException.ThrowIfNull(dispatch);
         _sessionManager = sessionManager;
+        _dispatch = dispatch;
     }
 
     public void Start()
@@ -68,13 +76,13 @@ public sealed class PendingInteractionWatcher : IDisposable
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
         {
             _ = oldState; // only the state we moved INTO matters here
-            if (newState != ActivityState.WaitingForInput) return;
+            if (!ActivityStateFacts.IsTurnEnd(newState)) return;
             // The generation is read HERE, on the event thread, so the refresh below can tell whether
             // the session has moved on while it was reading the transcript. See Refresh.
             var generation = session.ActivityGeneration;
             // Off the event thread: reading and parsing a transcript must not stall the detector or the
             // interface.
-            Task.Run(() => Refresh(session, generation));
+            _dispatch(() => Refresh(session, generation));
         };
         _handlers[session.Id] = handler;
         session.OnActivityStateChanged += handler;
@@ -83,10 +91,10 @@ public sealed class PendingInteractionWatcher : IDisposable
         // restart, which is precisely the case this mission is about - would otherwise carry nothing
         // until it happened to end another turn, and a session waiting on a question will not end one.
         // This is one read at wire-up, not a poll.
-        if (session.ActivityState == ActivityState.WaitingForInput)
+        if (ActivityStateFacts.IsTurnEnd(session.ActivityState))
         {
             var generation = session.ActivityGeneration;
-            _ = Task.Run(() => Refresh(session, generation));
+            _dispatch(() => Refresh(session, generation));
         }
     }
 

@@ -197,7 +197,7 @@ public static class StateMatrix
     /// <summary>Judge the samples against the truth. Pure, so it is tested without an agent.</summary>
     internal static StateResult Judge(string agent, StateCase c, double trueWaitAt, IReadOnlyList<(double At, ActivityState State)> samples, string timeline)
     {
-        static bool Waiting(ActivityState s) => s is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.Idle;
+        static bool Waiting(ActivityState s) => s is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen or ActivityState.Idle;
         double? toWorking = samples.FirstOrDefault(s => s.State == ActivityState.Working) is var w && w.State == ActivityState.Working ? w.At : null;
         var falseWaiting = 0.0;
         if (c.Kind != "menu")

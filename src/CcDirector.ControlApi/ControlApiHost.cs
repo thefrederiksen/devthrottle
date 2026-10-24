@@ -1925,7 +1925,7 @@ public sealed class ControlApiHost : IAsyncDisposable
                     Core.Sessions.ActivityState.Exited when _exitAnnounced.TryAdd(session.Id, 0)
                         => DoorbellEvents.SessionExited,
                     Core.Sessions.ActivityState.WaitingForInput or Core.Sessions.ActivityState.WaitingForPerm
-                        => DoorbellEvents.PromptDetected,
+                        or Core.Sessions.ActivityState.MenuOpen => DoorbellEvents.PromptDetected,
                     _ => null,
                 };
                 _gatewayClient?.NotifySessionState(session.Id.ToString(), newState.ToString(), eventName);
@@ -1936,6 +1936,7 @@ public sealed class ControlApiHost : IAsyncDisposable
                 var turnEnded = oldState is Core.Sessions.ActivityState.Working
                                 && newState is Core.Sessions.ActivityState.WaitingForInput
                                     or Core.Sessions.ActivityState.WaitingForPerm
+                                    or Core.Sessions.ActivityState.MenuOpen
                                     or Core.Sessions.ActivityState.Idle;
                 if (turnEnded || newState is Core.Sessions.ActivityState.Exited)
                     _turnPusher?.Trigger(session.Id);

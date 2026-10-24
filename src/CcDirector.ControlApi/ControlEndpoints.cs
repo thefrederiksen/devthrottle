@@ -270,6 +270,26 @@ internal static class ControlEndpoints
             PrimaryRepoPath = s.PrimaryRepoPath,
             Status = s.Status.ToString(),
             ActivityState = s.ActivityState.ToString(),
+            ActivityStateSource = s.ActivityStateSource,
+            ActivityStateIsFallback = s.ActivityStateIsFallback,
+            StateDisagreements = s.StateDisagreements.Select(d => new SessionStateDisagreementDto
+            {
+                RecordedAtUtc = d.RecordedAtUtc.UtcDateTime,
+                ReportedState = d.ReportedState.ToString(),
+                ReportedSource = d.ReportedSource,
+                ReportedAtUtc = d.ReportedAtUtc.UtcDateTime,
+                SelectedState = d.SelectedState.ToString(),
+                SelectedSource = d.SelectedSource,
+            }).ToList(),
+            StateDiagnostics = s.StateDiagnostics.Select(d => new SessionStateDiagnosticDto
+            {
+                RecordedAtUtc = d.RecordedAtUtc.UtcDateTime,
+                EventId = d.EventId.ToString(),
+                Sequence = d.Sequence,
+                Agent = d.Agent,
+                RawType = d.RawType,
+                CliVersion = d.CliVersion,
+            }).ToList(),
             // Issue #959: the raw crash fact. ActivityState says only "Exited", so without this the fold
             // cannot tell a crash from a clean exit. This ONE mapper feeds both the Gateway wire and the
             // desktop rail's own fold input, so stamping it here restores the deep-red on the rail, the

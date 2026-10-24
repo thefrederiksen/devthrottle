@@ -202,6 +202,10 @@ public sealed class SessionManager : IDisposable
     /// (<see cref="Claude.ClaudeHookInstaller.DefaultDirectory"/>); a test points it at a scratch folder.</summary>
     public string? ClaudeHooksDirectory { get; init; }
 
+    /// <summary>Where the Director-carried Pi lifecycle extension goes. Null is the real storage root
+    /// (<see cref="Storage.CcStorage.PiExtensions"/>); a test points it at a scratch folder.</summary>
+    public string? PiExtensionsDirectory { get; init; }
+
     /// <summary>Where a session's maintained preamble file goes. Null is the real storage root
     /// (<see cref="Storage.CcStorage.SessionPreambles"/>); a test points it at a scratch folder.</summary>
     public string? SessionPreambleDirectory { get; init; }
@@ -1158,6 +1162,24 @@ public sealed class SessionManager : IDisposable
                 }
             }
 
+            // Every supported agent writes state facts to the same capability-protected drop box.
+            // Adapter hooks are installed separately; the intake contract remains agent-neutral.
+            if (agent.Kind is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi)
+            {
+                try
+                {
+                    var stateEventDirectory = SessionHookFiles.StateEventDirectoryFor(id, session.PointerDropToken, SessionPointerDirectory);
+                    Directory.CreateDirectory(stateEventDirectory);
+                    envVars[SessionHookFiles.StateEventDirectoryEnvVar] = stateEventDirectory;
+                    envVars[SessionHookFiles.StateEventTokenEnvVar] = session.PointerDropToken;
+                }
+                catch (Exception ex)
+                {
+                    _log?.Invoke($"The state-event drop box could not be prepared: {ex.Message}");
+                    FileLog.Write($"[SessionManager] state-event drop box FAILED (session still launching): {ex}");
+                }
+            }
+
             // Session Rules part 2, phase 1: the rules file the before-a-command hook reads and the
             // directory it writes each decision into. Claude Code alone - it is the only agent whose
             // before-a-command hook is registered in phase 1 (ruling P9). The decision directory carries
@@ -1232,6 +1254,15 @@ public sealed class SessionManager : IDisposable
             // builds the preamble locally from the session's known identity.
             if (agent.Kind == AgentKind.Pi)
             {
+                var stateExtension = PiExtensionsDirectory is { } extensionDirectory
+                    ? CcDirector.Core.Pi.PiStateExtensionInstaller.EnsureInstalled(extensionDirectory)
+                    : CcDirector.Core.Pi.PiStateExtensionInstaller.EnsureInstalled();
+                args = CcDirector.Core.Pi.PiStateExtensionInstaller.AppendLaunchArgument(args, stateExtension);
+                if (stateExtension is not null)
+                    _log?.Invoke("Installed the Pi lifecycle extension and passed it via --extension.");
+                else
+                    _log?.Invoke("The Pi lifecycle extension could not be installed; this session cannot report its own working or waiting state.");
+
                 // Issue #800: route the display-name fallback through the single composer so a
                 // session never identifies itself by the bare folder name.
                 var piName = SessionName.DisplayName(

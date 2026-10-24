@@ -61,7 +61,7 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
     public bool DirectorSaysWorking => _session.ActivityState is ActivityState.Working or ActivityState.Starting;
     public bool HasTerminalGrid => _session.BackendType is SessionBackendType.ConPty;
     public TimeSpan? DirectorSettledFor =>
-        _session.ActivityState == ActivityState.WaitingForInput && _session.WaitingSince is { } since
+        ActivityStateFacts.IsTurnEnd(_session.ActivityState) && _session.WaitingSince is { } since
             ? DateTime.UtcNow - since
             : null;
     public bool ProductMayHaveLeftText => _session.ProductMayHaveLeftComposerText;
