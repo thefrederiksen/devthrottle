@@ -28,9 +28,10 @@ public sealed record ScheduleFolderVerdict(string? Refusal, string? Warning)
 /// reads. Every sentence names the machine and, where the Gateway knows it, its system, so a person on a Mac who typed a
 /// Windows path is told exactly that.
 ///
-/// The SHAPE of a path is read here too. A drive letter (<c>C:</c>) or a backslash is a Windows path: on a Mac or a
-/// Linux computer it cannot be a folder anyone meant, so it is refused from the shape alone - which works while the
-/// machine is offline. The reverse is NOT refused from the shape: on Windows, <c>/Users/you</c> is read against the
+/// The SHAPE of a path is read here too. A drive letter (<c>C:</c>), or a backslash in a path that does not start with
+/// <c>/</c> or <c>~</c>, is a Windows path: on a Mac or a Linux computer it cannot be a folder anyone meant, so it is
+/// refused from the shape alone - which works while the machine is offline. A path that starts the Mac and Linux way
+/// may have a backslash in a folder's name, so it is judged by the machine's own answer. The reverse is NOT refused from the shape: on Windows, <c>/Users/you</c> is read against the
 /// current drive and may really exist, so a path like that on a Windows computer is judged by the machine's own answer,
 /// and only a missing one is told it looks like a Mac or Linux path.
 /// </summary>
@@ -42,18 +43,27 @@ public static class ScheduleFolderWords
     /// <summary>The placeholder when the machine's system is not known.</summary>
     public const string UnknownPlaceholder = "the full path of the folder on that machine";
 
+    /// <summary>The placeholder before a machine is chosen (issue #4421 review, finding 5: the Gateway's words, not the form's).</summary>
+    public const string NoMachinePlaceholder = "Choose the machine first";
+
     private static readonly Regex DriveLetter = new(@"^[A-Za-z]:", RegexOptions.CultureInvariant);
 
     /// <summary>The words the Director's session create refuses a missing folder with ("repoPath does not exist: X").</summary>
     private const string DirectorMissing = "repoPath does not exist: ";
 
-    /// <summary>True when the path is in the Windows shape: a drive letter, or a backslash anywhere.</summary>
+    /// <summary>
+    /// True when the path is in the Windows shape: a drive letter, or a backslash in a path that does not start the Mac
+    /// and Linux way. A path that starts with <c>/</c> or <c>~</c> is a Mac or Linux path even with a backslash in it -
+    /// a folder there may have one in its name (issue #4421 review, finding 4) - so it is judged by the machine's own
+    /// answer, never refused from its shape.
+    /// </summary>
     public static bool IsWindowsShaped(string path) =>
-        !string.IsNullOrEmpty(path) && (DriveLetter.IsMatch(path) || path.Contains('\\'));
+        !string.IsNullOrEmpty(path)
+        && (DriveLetter.IsMatch(path) || (path.Contains('\\') && path[0] != '/' && path[0] != '~'));
 
     /// <summary>True when the path is in the Mac or Linux shape: it starts with a forward slash or a tilde.</summary>
     public static bool IsUnixShaped(string path) =>
-        !string.IsNullOrEmpty(path) && !IsWindowsShaped(path) && (path[0] == '/' || path[0] == '~');
+        !string.IsNullOrEmpty(path) && (path[0] == '/' || path[0] == '~');
 
     /// <summary>"a Mac", "a Windows computer", "a Linux computer"; null when the system is not known.</summary>
     public static string? AComputer(string? os) => os switch
@@ -232,6 +242,16 @@ internal sealed class ScheduleFolderCheck
 
     private IReadOnlyList<DirectorDto> OnMachine(TenantId tenant, string machine) =>
         _directorsOf(tenant).Where(d => string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>
+    /// The system a machine last reported, read from an account's registered Directors, or null when none there said:
+    /// what a run that did not start because its folder was missing is worded with, wherever its runs are read.
+    /// </summary>
+    public static string? ReportedOs(IEnumerable<DirectorDto> directors, string machine)
+    {
+        ArgumentNullException.ThrowIfNull(directors);
+        return OsOf(directors.Where(d => string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList());
+    }
 
     // A running Director's report wins over one that said goodbye; the most recently seen wins among either.
     private static string? OsOf(IReadOnlyList<DirectorDto> onMachine) => onMachine
