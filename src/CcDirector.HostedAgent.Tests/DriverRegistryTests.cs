@@ -102,12 +102,13 @@ public class DriverRegistryTests : IDisposable
     }
 
     [Fact]
-    public void PiDriver_DeclaresCancelClearContextContextUsageModelReportAndCompactContext()
+    public void PiDriver_DeclaresCancelClearContextTranscriptReadContextUsageModelReportTokenUsageAndCompactContext()
     {
         var caps = new PiDriver().Capabilities;
         Assert.Equal(
-            DriverCapabilities.Cancel | DriverCapabilities.ClearContext | DriverCapabilities.ContextUsage
-            | DriverCapabilities.ModelReport | DriverCapabilities.CompactContext,
+            DriverCapabilities.Cancel | DriverCapabilities.ClearContext | DriverCapabilities.TranscriptRead
+            | DriverCapabilities.ContextUsage | DriverCapabilities.ModelReport | DriverCapabilities.TokenUsage
+            | DriverCapabilities.CompactContext,
             caps);
     }
 
