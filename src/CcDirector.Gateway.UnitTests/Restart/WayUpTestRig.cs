@@ -47,7 +47,11 @@ public sealed class WayUpTestRig
     /// <param name="nowUtc">The moment the engine reads as now. <see cref="Now"/> by default, which is when
     /// every record in this rig was shut down, so nothing is too old unless a test says so.</param>
     public IDirectorWayUp WayUp(string? directorName = ThisDirector, DateTime? nowUtc = null)
-        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName, () => nowUtc ?? Now);
+        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName, () => nowUtc ?? Now,
+            crashSeatReopened: (recordId, seatId) => CrashSeatsReopened.Add((recordId, seatId)));
+
+    /// <summary>Every crash record seat the engine reported reopened, so its journal row can go (issue #4120).</summary>
+    public List<(string RecordId, string SeatId)> CrashSeatsReopened { get; } = new();
 
     /// <summary>A record of a smart shutdown belonging to this Director on this machine.</summary>
     /// <param name="id">The workspace slug.</param>

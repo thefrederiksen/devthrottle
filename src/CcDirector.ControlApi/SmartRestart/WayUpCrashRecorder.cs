@@ -21,9 +21,10 @@ namespace CcDirector.ControlApi.SmartRestart;
 /// pending journal is sent, not only the ones claimed now: a send that failed last time is sent again, and one that
 /// worked is answered "already recorded", because the record id is derived from the dead process.
 ///
-/// ONE PLACE OFFERS A DEAD SESSION BACK (review finding 1). Once the Gateway holds the record - written now, or already
-/// there - the journal is marked as recorded on disk, so the Interrupted sessions list stops listing it and the record
-/// is the only offer. A mark that fails leaves the journal pending, and the next start-up sends and marks it again.
+/// TWO DOORS, ONE DEAD SESSION (review rounds 1 and 2). The journal stays listed in the Interrupted sessions list - the
+/// door a person or an agent away from this machine has - and the record is the door on this Director's screen. Each
+/// marks the other: a reopen from the record removes the row from the journal (<see cref="CrashJournalRows"/>), and a
+/// restore from the Interrupted sessions list claims the record's seat on the Gateway before it starts anything.
 ///
 /// NEVER THROWS. A journal that cannot be sent is logged and the rest are still sent; the start-up offer of a smart
 /// shutdown must not be lost because a crash record could not be written.
@@ -35,16 +36,12 @@ public sealed class WayUpCrashRecorder
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IWayUpGateway _gateway;
-    private readonly Func<DirectorCrashJournalData, string, bool> _markRecorded;
 
     /// <summary>Create the recorder.</summary>
     /// <param name="gateway">The Gateway seam the way up already uses.</param>
-    /// <param name="markRecorded">Notes on the journal's file that the Gateway keeps it as the named record. Defaults to
-    /// <see cref="DirectorCrashJournal.MarkRecorded"/> in this Director's own crash-journal folder.</param>
-    public WayUpCrashRecorder(IWayUpGateway gateway, Func<DirectorCrashJournalData, string, bool>? markRecorded = null)
+    public WayUpCrashRecorder(IWayUpGateway gateway)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-        _markRecorded = markRecorded ?? ((journal, id) => DirectorCrashJournal.MarkRecorded(journal.DirectorId, journal.Pid, id));
     }
 
     /// <summary>What happened to each journal: written, already there, or not sent and why.</summary>
@@ -71,8 +68,7 @@ public sealed class WayUpCrashRecorder
                 id = WorkspaceCrashRecords.IdFor(dto);
                 if (await _gateway.RecordCrashAsync(dto, ct).ConfigureAwait(false)) recorded++;
                 else already++;
-                _markRecorded(journal, id);
-                FileLog.Write($"[WayUpCrashRecorder] {id}: {journal.Sessions.Count} session(s) of Director {journal.DirectorId} (process {journal.Pid}) are on the Gateway, and the journal is marked recorded");
+                FileLog.Write($"[WayUpCrashRecorder] {id}: {journal.Sessions.Count} session(s) of Director {journal.DirectorId} (process {journal.Pid}) are on the Gateway");
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {

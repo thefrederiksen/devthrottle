@@ -70,14 +70,6 @@ public sealed class DirectorCrashJournalData
     public DateTimeOffset StartedAtUtc { get; set; }
     public DateTimeOffset LastUpdatedUtc { get; set; }
     public List<DirectorCrashJournalSession> Sessions { get; set; } = new();
-
-    /// <summary>
-    /// The restart record the Gateway keeps for this journal, once it has one (issue #4120, review finding 1). From then
-    /// on the record is the ONE place its sessions are offered back, so a recorded journal is no longer listed as
-    /// pending: the Interrupted sessions list and the crash record must not offer the same dead session twice. The file
-    /// itself is kept - its session ids still protect the seats' kit folders from the start-up sweep until it ages out.
-    /// </summary>
-    public string? RecordedAsWorkspaceId { get; set; }
 }
 
 /// <summary>A crash journal left behind by a Director that died without a clean shutdown.</summary>
@@ -450,8 +442,7 @@ public sealed class DirectorCrashJournal
             try
             {
                 var data = JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions);
-                // A journal the Gateway keeps as a restart record is offered back there and nowhere else.
-                if (data is not null && data.LastUpdatedUtc >= cutoff && data.RecordedAsWorkspaceId is null) result.Add(data);
+                if (data is not null && data.LastUpdatedUtc >= cutoff) result.Add(data);
             }
             catch (Exception ex)
             {
@@ -459,30 +450,6 @@ public sealed class DirectorCrashJournal
             }
         }
         return result.OrderByDescending(d => d.LastUpdatedUtc).ToList();
-    }
-
-    /// <summary>
-    /// Note on a claimed dirty journal that the Gateway keeps it as the restart record <paramref name="workspaceId"/>
-    /// (issue #4120), so it stops being listed as pending (<see cref="ListPendingRecoveries"/>). The file is rewritten in
-    /// place, atomically, and kept. Returns false when there is no such dirty journal, or when it already names that
-    /// record. Throws when the file cannot be read or written: a journal left unmarked would be offered twice.
-    /// </summary>
-    public static bool MarkRecorded(string directorId, int pid, string workspaceId, string? directory = null)
-    {
-        var dir = directory ?? DefaultDirectory;
-        var path = Path.Combine(dir, $"{directorId}.{pid}.dirty.json");
-        if (!File.Exists(path)) return false;
-
-        var data = JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions)
-                   ?? throw new InvalidOperationException($"the crash journal {path} is empty");
-        if (string.Equals(data.RecordedAsWorkspaceId, workspaceId, StringComparison.Ordinal)) return false;
-
-        data.RecordedAsWorkspaceId = workspaceId;
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(data, JsonOptions));
-        File.Move(tmp, path, overwrite: true);
-        FileLog.Write($"[DirectorCrashJournal] MarkRecorded: {path} is kept on the Gateway as {workspaceId}; no longer listed as pending");
-        return true;
     }
 
     /// <summary>

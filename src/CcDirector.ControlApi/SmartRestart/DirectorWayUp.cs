@@ -52,6 +52,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
     private readonly string _machine;
     private readonly Func<string?> _directorName;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Action<string, string> _crashSeatReopened;
 
     /// <summary>Create the engine.</summary>
     /// <param name="gateway">The Gateway seam. Throws when the Gateway cannot be reached, which becomes a
@@ -65,12 +66,16 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// <param name="nowUtc">Reads the time now, in universal time. A seam rather than a call to the clock,
     /// because <see cref="OfferedForDays"/> is a rule about age and a rule about age is only provable against
     /// a clock a test can set. Defaults to the real clock.</param>
+    /// <param name="crashSeatReopened">Told the record id and the seat once a seat of a CRASH record has been reopened, so
+    /// the crash journal it came from stops offering it (issue #4120, review round 2). Defaults to
+    /// <see cref="CrashJournalRows.RemoveReopened"/> in this Director's own crash-journal folder.</param>
     public DirectorWayUp(
         IWayUpGateway gateway,
         IWayUpRestore restore,
         string machine,
         Func<string?> directorName,
-        Func<DateTime>? nowUtc = null)
+        Func<DateTime>? nowUtc = null,
+        Action<string, string>? crashSeatReopened = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _restore = restore ?? throw new ArgumentNullException(nameof(restore));
@@ -79,6 +84,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             : machine;
         _directorName = directorName ?? throw new ArgumentNullException(nameof(directorName));
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
+        _crashSeatReopened = crashSeatReopened ?? ((recordId, seatId) => CrashJournalRows.RemoveReopened(recordId, seatId));
     }
 
     /// <summary>
@@ -333,6 +339,11 @@ public sealed class DirectorWayUp : IDirectorWayUp
                               $"but which session took it could not be recorded: {recorded.Reason}");
 
             FileLog.Write($"[DirectorWayUp] ReopenAsync: seat={seat.SessionId} reopened as {created.SessionId}");
+
+            // ONE DEAD SESSION, TWO DOORS (issue #4120, review round 2): a crash record's seat is also offered by the
+            // Interrupted sessions list, which reads the crash journal. Take it out of the journal now it is back.
+            if (string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal))
+                _crashSeatReopened(doc.Id, SeatId(seat));
             return new WayUpReopenResult(true, created.SessionId,
                 $"{seat.Name} was opened again as {DrainPaths.ShortId(created.SessionId)}. {offer.What}");
         }

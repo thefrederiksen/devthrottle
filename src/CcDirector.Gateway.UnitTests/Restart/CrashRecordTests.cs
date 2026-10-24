@@ -185,7 +185,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
             var rig = new WayUpTestRig();
 
             // Act - what the start-up does: send the pending journals, then look for the offer.
-            var sent = await new WayUpCrashRecorder(rig.Gateway, (j, id) => DirectorCrashJournal.MarkRecorded(j.DirectorId, j.Pid, id, dir)).RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
+            var sent = await new WayUpCrashRecorder(rig.Gateway).RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
             var offer = await rig.WayUp(nowUtc: DateTime.UtcNow).FindOfferAsync(CancellationToken.None);
 
             // Assert
@@ -212,7 +212,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
     {
         // Arrange
         var rig = new WayUpTestRig();
-        await new WayUpCrashRecorder(rig.Gateway, (_, _) => true).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
+        await new WayUpCrashRecorder(rig.Gateway).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
         var wayUp = rig.WayUp();
         var offer = await wayUp.FindOfferAsync(CancellationToken.None);
 
@@ -226,7 +226,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
         Assert.Contains("stopped without shutting down", started.PrePrompt);
 
         // The next start-up sends the journal again: already recorded, and the used record is not offered again.
-        var again = await new WayUpCrashRecorder(rig.Gateway, (_, _) => true).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
+        var again = await new WayUpCrashRecorder(rig.Gateway).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
         Assert.Equal(1, again.AlreadyRecorded);
         Assert.Equal(WayUpOfferState.NothingWaiting, (await rig.WayUp().FindOfferAsync(CancellationToken.None)).State);
     }
@@ -247,7 +247,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
         }));
 
         // Act
-        var sent = await new WayUpCrashRecorder(rig.Gateway, (_, _) => true).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
+        var sent = await new WayUpCrashRecorder(rig.Gateway).RecordAsync(new[] { JournalOnDisk() }, CancellationToken.None);
         var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
 
         // Assert
@@ -263,7 +263,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
         var empty = JournalOnDisk();
         empty.Sessions.Clear();
 
-        var sent = await new WayUpCrashRecorder(rig.Gateway, (_, _) => true).RecordAsync(new[] { empty }, CancellationToken.None);
+        var sent = await new WayUpCrashRecorder(rig.Gateway).RecordAsync(new[] { empty }, CancellationToken.None);
 
         Assert.Empty(rig.Gateway.CrashJournalsSent);
         Assert.Equal(0, sent.Recorded);
@@ -288,7 +288,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
     {
         // Arrange - the first crash is recorded and its one seat reopened, so its record is used.
         var rig = new WayUpTestRig();
-        var recorder = new WayUpCrashRecorder(rig.Gateway, (_, _) => true);
+        var recorder = new WayUpCrashRecorder(rig.Gateway);
         var first = JournalOnDisk();
         await recorder.RecordAsync(new[] { first }, CancellationToken.None);
         var firstOffer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
@@ -306,37 +306,62 @@ public sealed class CrashRecordTests : IAsyncLifetime
         Assert.Equal(WorkspaceCrashRecords.IdFor(DeadDirector, DeadPid, second.StartedAtUtc), offer.Record!.WorkspaceId);
     }
 
-    // Review finding 1: once the Gateway holds the record, the journal is no longer listed as pending, so the Interrupted
-    // sessions list and the crash record cannot both offer - and both start - the same dead session. The file is kept.
+    // Review rounds 1 and 2: the journal stays listed in the Interrupted sessions list - the door away from the machine -
+    // and a seat reopened from the crash record is taken out of it, so that list stops offering a session already back.
     [Fact]
-    public async Task RecordedJournal_IsNoLongerPendingButIsKeptOnDisk()
+    public async Task ReopenFromACrashRecord_TakesTheSeatOutOfTheCrashJournal()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-crash-record-" + Guid.NewGuid().ToString("N"));
         try
         {
-            // Arrange
+            // Arrange - recorded, and still listed by the Interrupted sessions list.
             var journal = new DirectorCrashJournal(DeadDirector, DeadPid, WayUpTestRig.ThisMachine, "someone", DeadStartedAt, dir);
-            journal.Update(new[] { new DirectorCrashJournalSession { SessionId = Lead, Name = "Lead", RepoPath = "/repos/app", Agent = "ClaudeCode", ClaudeSessionId = "conv-lead" } });
+            journal.Update(new[]
+            {
+                new DirectorCrashJournalSession { SessionId = Lead, Name = "Lead", RepoPath = "/repos/app", Agent = "ClaudeCode", ClaudeSessionId = "conv-lead" },
+                new DirectorCrashJournalSession { SessionId = Worker, Name = "Worker", RepoPath = "/repos/app", Agent = "ClaudeCode", ClaudeSessionId = "conv-worker" },
+            });
             Assert.Single(DirectorCrashJournal.DetectAndClaim(Environment.ProcessId, dir));
             var rig = new WayUpTestRig();
-            var recorder = new WayUpCrashRecorder(rig.Gateway, (j, id) => DirectorCrashJournal.MarkRecorded(j.DirectorId, j.Pid, id, dir));
+            await new WayUpCrashRecorder(rig.Gateway).RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
+            Assert.Equal(2, DirectorCrashJournal.ListPendingRecoveries(dir).Single().Sessions.Count);
+            var offer = await rig.WayUp(nowUtc: DateTime.UtcNow).FindOfferAsync(CancellationToken.None);
 
-            // Act
-            var sent = await recorder.RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
+            // Act - reopen the worker from the record, and hand the engine's report to the journal, as the Director does.
+            var reopened = await rig.WayUp(nowUtc: DateTime.UtcNow).ReopenAsync(new WayUpReopenRequest(offer.Record!.WorkspaceId, Worker), CancellationToken.None);
+            var (recordId, seatId) = Assert.Single(rig.CrashSeatsReopened);
+            var removed = CrashJournalRows.RemoveReopened(recordId, seatId, dir);
 
-            // Assert - recorded, no longer pending, and the next start-up sends nothing again.
-            Assert.Equal(1, sent.Recorded);
-            Assert.Empty(DirectorCrashJournal.ListPendingRecoveries(dir));
-            var again = await recorder.RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
-            Assert.Equal(0, again.Recorded + again.AlreadyRecorded);
-            Assert.Single(rig.Gateway.CrashJournalsSent);
-            // Kept: its session ids still protect the seat's kit folder from the start-up sweep.
-            Assert.Contains(Lead, DirectorCrashJournal.SessionIdsInEveryJournal(dir));
+            // Assert - the Interrupted sessions list now offers only the lead.
+            Assert.True(reopened.Started, reopened.Message);
+            Assert.Equal(offer.Record.WorkspaceId, recordId);
+            Assert.True(removed);
+            var left = Assert.Single(DirectorCrashJournal.ListPendingRecoveries(dir)).Sessions;
+            Assert.Equal(Lead, Assert.Single(left).SessionId);
         }
         finally
         {
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ReopenFromASmartShutdownRecord_DoesNotTouchACrashJournal()
+    {
+        var rig = new WayUpTestRig();
+        rig.Gateway.With(WayUpTestRig.Record("restart-20260920-1236-devthrottle-1", WayUpTestRig.Now, new[]
+        {
+            new WorkspaceSeat
+            {
+                SessionId = Lead, Name = "Lead", Agent = "ClaudeCode", RepoPath = "/repos/app", ClaudeSessionId = "conv-lead",
+                DrainState = WorkspaceDrainStates.EndedAtLimit, Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
+            },
+        }));
+
+        var reopened = await rig.WayUp().ReopenAsync(new WayUpReopenRequest("restart-20260920-1236-devthrottle-1", Lead), CancellationToken.None);
+
+        Assert.True(reopened.Started, reopened.Message);
+        Assert.Empty(rig.CrashSeatsReopened);
     }
 
     // Review finding 3: a factory seat's agent finds its saved conversation by the folder it runs in, so the reopen of a
@@ -354,7 +379,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
         seat.FactoryKitDirectory = "/kits/acme/writer-22222222";
         seat.MissionId = missionId.ToString();
         seat.MissionName = "Mission";
-        await new WayUpCrashRecorder(rig.Gateway, (_, _) => true).RecordAsync(new[] { journal }, CancellationToken.None);
+        await new WayUpCrashRecorder(rig.Gateway).RecordAsync(new[] { journal }, CancellationToken.None);
         var offer = await rig.WayUp().FindOfferAsync(CancellationToken.None);
 
         // Act

@@ -689,6 +689,61 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Null(_directorDoorSaw!.ConnectionMode);
     }
 
+    // ---- one dead session, two doors (issue #4120, review round 2) ---------------------------------------------------
+    // A crashed Director's journal is also kept as a crash record, whose seat the Director's window offers to reopen.
+    // The Interrupted restore claims that seat first, so the two doors can never start two agents for one dead session.
+
+    [Fact]
+    public async Task RestoreInterrupted_SeatAlreadyReopenedFromItsCrashRecord_Is409AndNothingIsStarted()
+    {
+        // Arrange - the seat was reopened from the crash record's window; its journal row is still listed.
+        await StartAsync();
+        var row = JournalApiModeSeat(connectionMode: null);
+        var recordId = KeepAsCrashRecord();
+        _workspaces!.RecordRestoreMark(recordId, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Reopened, SeatSessionId = row.SessionId, ReopenedSessionId = "reopened-from-the-window",
+        }, DateTime.UtcNow);
+
+        // Act
+        using var response = await RestoreAsync(row);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("already been brought back from its crash record", await response.Content.ReadAsStringAsync());
+        Assert.Null(_directorDoorSaw);
+    }
+
+    [Fact]
+    public async Task RestoreInterrupted_SeatOfACrashRecord_ClaimsTheRecordsSeatWithTheContinuation()
+    {
+        // Arrange
+        await StartAsync();
+        var row = JournalApiModeSeat(connectionMode: null);
+        var recordId = KeepAsCrashRecord();
+
+        // Act
+        using var response = await RestoreAsync(row);
+
+        // Assert - started once, and the record's window no longer offers it.
+        Assert.True(response.IsSuccessStatusCode, $"restore answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var continuation = body.GetProperty("targetSession").GetProperty("sessionId").GetString();
+        var seat = _workspaces!.Get(recordId)!.Seats.Single(s => s.SessionId == row.SessionId);
+        Assert.NotNull(seat.Restore!.ReopenedAtUtc);
+        Assert.Equal(continuation, seat.Restore.ReopenedSessionId);
+    }
+
+    /// <summary>Keep the journal the reporting Director serves as the crash record the Gateway would have written.</summary>
+    private string KeepAsCrashRecord()
+    {
+        var journal = JsonSerializer.Deserialize<List<CrashJournalDto>>(_journalsJson, Web)!.Single();
+        var id = WorkspaceCrashRecords.IdFor(journal);
+        _workspaces!.Create(WorkspaceCrashRecords.Build(
+            new WorkspaceCrashRecordRequest { Id = id, DirectorId = DirectorId, Journal = journal }, "tester", "2.31.0", Machine), DateTime.UtcNow);
+        return id;
+    }
+
     private const string DeadDirector = "director-that-died";
     private const int DeadPid = 4242;
 
