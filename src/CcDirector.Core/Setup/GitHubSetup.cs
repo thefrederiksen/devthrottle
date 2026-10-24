@@ -53,7 +53,7 @@ public sealed record ToolProbe(string? Path, int ExitCode, string Output);
 ///
 /// On a Mac /usr/bin/git always exists, and when Apple's command line tools are missing, running it opens a system
 /// "install the developer tools" window. A probe that runs every time Home opens must never do that, so /usr/bin/git is
-/// only counted when <c>xcode-select -p</c> says the tools are installed.
+/// only counted when <c>xcode-select --print-path</c> says the tools are installed.
 /// </summary>
 public static class GitHubSetupProbe
 {
@@ -214,7 +214,7 @@ public static class GitHubSetupProbe
         if (platform != OSPlatform.OSX || !File.Exists("/usr/bin/git")) return null;
 
         // Only with the command line tools installed; otherwise running it opens Apple's install window.
-        var tools = await ProcessRunner.RunAsync("/usr/bin/xcode-select", new[] { "-p" }, null, ct).ConfigureAwait(false);
+        var tools = await ProcessRunner.RunAsync("/usr/bin/xcode-select", new[] { "--print-path" }, null, ct).ConfigureAwait(false);
         return tools.Started && tools.ExitCode == 0 ? "/usr/bin/git" : null;
     }
 
