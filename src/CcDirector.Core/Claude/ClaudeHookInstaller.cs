@@ -126,16 +126,17 @@ public static class ClaudeHookInstaller
         "$ErrorActionPreference = 'SilentlyContinue'\r\n" +
         "try {\r\n" +
         "    $eventName = $args[0]\r\n" +
+        "    $detail = $null\r\n" +
         "    if ($eventName -in @('tool_started','tool_finished','notification')) {\r\n" +
-        "        $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\n" +
-        "        $detail = $null\r\n" +
+        "        try { $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json }\r\n" +
+        "        catch { $eventName = 'unsupported'; $detail = $args[0] }\r\n" +
         "        if ($eventName -eq 'notification') {\r\n" +
         "            if ($payload.notification_type -eq 'permission_prompt') { $eventName = 'permission_requested' }\r\n" +
         "            elseif ($payload.notification_type -eq 'idle_prompt') { $eventName = 'turn_ended' }\r\n" +
         "            else { $eventName = 'unsupported'; $detail = [string]$payload.notification_type; if (-not $detail) { $detail = 'Notification' } }\r\n" +
         "        }\r\n" +
-        "        elseif ($payload.tool_name -eq 'AskUserQuestion' -and $eventName -eq 'tool_started') { $eventName = 'menu_opened' }\r\n" +
-        "        else { $eventName = 'turn_started' }\r\n" +
+        "        elseif ($eventName -eq 'tool_started') { if ($payload.tool_name -eq 'AskUserQuestion') { $eventName = 'menu_opened' } else { $eventName = 'turn_started' } }\r\n" +
+        "        elseif ($eventName -eq 'tool_finished') { $eventName = 'turn_started' }\r\n" +
         "    }\r\n" +
         "    $dir = $env:CC_STATE_EVENT_DIR\r\n" +
         "    $token = $env:CC_STATE_EVENT_TOKEN\r\n" +
@@ -154,18 +155,24 @@ public static class ClaudeHookInstaller
         "        [System.IO.File]::WriteAllText($versionPath, $version)\r\n" +
         "    }\r\n" +
         "    $version = [System.IO.File]::ReadAllText($versionPath)\r\n" +
-        "    $counter = [System.IO.Path]::Combine($dir, '.claude-sequence')\r\n" +
-        "    [long]$sequence = 0\r\n" +
-        "    if ([System.IO.File]::Exists($counter) -and (-not [long]::TryParse([System.IO.File]::ReadAllText($counter), [ref]$sequence) -or $sequence -lt 0)) { exit 0 }\r\n" +
-        "    $sequence++\r\n" +
-        "    $counterTmp = $counter + '.' + $PID + '.tmp'\r\n" +
-        "    [System.IO.File]::WriteAllText($counterTmp, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture))\r\n" +
-        "    Move-Item -LiteralPath $counterTmp -Destination $counter -Force\r\n" +
-        "    $record = [ordered]@{ version=1; eventId=[Guid]::NewGuid().ToString(); sessionId=$session.ToString(); sequence=$sequence; occurredAtUtc=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); event=$eventName; source='agent'; agent='claude'; detail=$detail; cliVersion=$version }\r\n" +
-        "    $path = [System.IO.Path]::Combine($dir, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture) + '.state.json')\r\n" +
-        "    $tmp = $path + '.' + $PID + '.tmp'\r\n" +
-        "    [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json -Compress))\r\n" +
-        "    Move-Item -LiteralPath $tmp -Destination $path -Force\r\n" +
+        "    $lockPath = [System.IO.Path]::Combine($dir, '.claude-sequence.lock')\r\n" +
+        "    $lock = $null\r\n" +
+        "    for ($attempt = 0; $attempt -lt 500 -and -not $lock; $attempt++) { try { $lock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None) } catch { Start-Sleep -Milliseconds 10 } }\r\n" +
+        "    if (-not $lock) { exit 0 }\r\n" +
+        "    try {\r\n" +
+        "        $counter = [System.IO.Path]::Combine($dir, '.claude-sequence')\r\n" +
+        "        [long]$sequence = 0\r\n" +
+        "        if ([System.IO.File]::Exists($counter) -and (-not [long]::TryParse([System.IO.File]::ReadAllText($counter), [ref]$sequence) -or $sequence -lt 0)) { exit 0 }\r\n" +
+        "        $sequence++\r\n" +
+        "        $counterTmp = $counter + '.' + $PID + '.tmp'\r\n" +
+        "        [System.IO.File]::WriteAllText($counterTmp, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture))\r\n" +
+        "        Move-Item -LiteralPath $counterTmp -Destination $counter -Force\r\n" +
+        "        $record = [ordered]@{ version=1; eventId=[Guid]::NewGuid().ToString(); sessionId=$session.ToString(); sequence=$sequence; occurredAtUtc=[DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [Globalization.CultureInfo]::InvariantCulture); event=$eventName; source='agent'; agent='claude'; detail=$detail; cliVersion=$version }\r\n" +
+        "        $path = [System.IO.Path]::Combine($dir, $sequence.ToString([Globalization.CultureInfo]::InvariantCulture) + '.state.json')\r\n" +
+        "        $tmp = $path + '.' + $PID + '.tmp'\r\n" +
+        "        [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json -Compress))\r\n" +
+        "        Move-Item -LiteralPath $tmp -Destination $path -Force\r\n" +
+        "    } finally { $lock.Dispose() }\r\n" +
         "} catch { }\r\n" +
         "exit 0\r\n";
 
@@ -175,8 +182,7 @@ public static class ClaudeHookInstaller
         "event_name=$1\n" +
         "detail=\n" +
         "case \"$event_name\" in\n" +
-        "  tool_started|tool_finished) raw=$(cat 2>/dev/null || true); if [ \"$event_name\" = tool_started ] && printf '%s' \"$raw\" | grep -Eq '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then event_name=menu_opened; else event_name=turn_started; fi ;;\n" +
-        "  notification) raw=$(cat 2>/dev/null || true); notification_type=$(printf '%s' \"$raw\" | sed -n 's/.*\"notification_type\"[[:space:]]*:[[:space:]]*\"\\([A-Za-z0-9_.:-]*\\)\".*/\\1/p' | head -n 1); case \"$notification_type\" in permission_prompt) event_name=permission_requested ;; idle_prompt) event_name=turn_ended ;; *) event_name=unsupported; detail=${notification_type:-Notification} ;; esac ;;\n" +
+        "  tool_started|tool_finished|notification) raw=$(cat 2>/dev/null || true); compact=$(printf '%s' \"$raw\" | tr -d '\\r\\n'); case \"$compact\" in \\{*\\}) ;; *) case \"$event_name\" in tool_started) detail=PreToolUse ;; tool_finished) detail=PostToolUse ;; *) detail=Notification ;; esac; event_name=unsupported ;; esac; if [ \"$event_name\" = notification ]; then notification_type=$(printf '%s' \"$raw\" | sed -n 's/.*\"notification_type\"[[:space:]]*:[[:space:]]*\"\\([A-Za-z0-9_.:-]*\\)\".*/\\1/p' | head -n 1); case \"$notification_type\" in permission_prompt) event_name=permission_requested ;; idle_prompt) event_name=turn_ended ;; *) event_name=unsupported; detail=${notification_type:-Notification} ;; esac; elif [ \"$event_name\" = tool_started ]; then if printf '%s' \"$raw\" | grep -Eq '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then event_name=menu_opened; else event_name=turn_started; fi; elif [ \"$event_name\" = tool_finished ]; then event_name=turn_started; fi ;;\n" +
         "  turn_started|turn_ended|permission_requested|menu_opened|menu_closed) ;;\n" +
         "  *) exit 0 ;;\n" +
         "esac\n" +
@@ -190,6 +196,10 @@ public static class ClaudeHookInstaller
         "version_path=\"$CC_STATE_EVENT_DIR/.claude-version\"\n" +
         "if [ ! -f \"$version_path\" ]; then version=$(claude --version 2>/dev/null | head -n 1 | tr -cd '[:alnum:].,_+() /:-' | cut -c 1-200); [ -n \"$version\" ] || version=unavailable; printf '%s' \"$version\" > \"$version_path\" 2>/dev/null || exit 0; fi\n" +
         "version=$(cat \"$version_path\" 2>/dev/null || printf unavailable)\n" +
+        "lock=\"$CC_STATE_EVENT_DIR/.claude-sequence.lock\"\n" +
+        "attempt=0\n" +
+        "until mkdir \"$lock\" 2>/dev/null; do attempt=$((attempt + 1)); [ \"$attempt\" -lt 500 ] || exit 0; sleep 0.01; done\n" +
+        "trap 'rmdir \"$lock\" 2>/dev/null || true' EXIT\n" +
         "counter=\"$CC_STATE_EVENT_DIR/.claude-sequence\"\n" +
         "sequence=0\n" +
         "if [ -f \"$counter\" ]; then sequence=$(cat \"$counter\" 2>/dev/null) || exit 0; fi\n" +

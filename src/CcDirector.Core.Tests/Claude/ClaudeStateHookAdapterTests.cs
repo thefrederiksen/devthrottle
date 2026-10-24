@@ -98,6 +98,74 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
     }
 
     [Fact]
+    public void UnixStateHook_ConcurrentInvocations_EmitEverySequence()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows: false, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var sessionId = Guid.NewGuid();
+        var token = "0123456789abcdef0123456789abcdef";
+        var stateDirectory = Path.Combine(_directory, sessionId + "." + token);
+        var script = Path.Combine(_directory, "report-state.sh");
+        EnsureFakeClaude(script);
+
+        var processes = Enumerable.Range(0, 8)
+            .Select(_ => StartUnixHook(script, "tool_started", sessionId, token, stateDirectory, "{\"tool_name\":\"Bash\"}"))
+            .Append(StartUnixHook(script, "permission_requested", sessionId, token, stateDirectory, "{}"))
+            .ToArray();
+        foreach (var process in processes)
+        {
+            Assert.True(process.WaitForExit(10_000));
+            Assert.Equal(0, process.ExitCode);
+            process.Dispose();
+        }
+
+        var sequences = Directory.GetFiles(stateDirectory, "*.state.json")
+            .Select(path => long.Parse(Path.GetFileNameWithoutExtension(path).Split('.')[0]))
+            .OrderBy(sequence => sequence)
+            .ToArray();
+        Assert.Equal(Enumerable.Range(1, 9).Select(value => (long)value), sequences);
+        Assert.Contains(Directory.GetFiles(stateDirectory, "*.state.json"), path =>
+            JsonDocument.Parse(File.ReadAllText(path)).RootElement.GetProperty("event").GetString() == "permission_requested");
+    }
+
+    [Fact]
+    public void PowerShellStateHook_MalformedPayload_EmitsUnsupportedDiagnostic()
+    {
+        var powerShell = FindPowerShell();
+        if (powerShell is null) return;
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows: true, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var sessionId = Guid.NewGuid();
+        var token = "0123456789abcdef0123456789abcdef";
+        var stateDirectory = Path.Combine(_directory, sessionId + "." + token);
+
+        RunPowerShellHook(powerShell, Path.Combine(_directory, "report-state.ps1"), "notification", sessionId, token, stateDirectory,
+            "{\"notification_type\":\"permission");
+
+        var file = Assert.Single(Directory.GetFiles(stateDirectory, "*.state.json"));
+        AssertEvent(file, sessionId, 1, "unsupported", "notification");
+    }
+
+    [Fact]
+    public void PowerShellStateHook_FinnishCulture_EmitsIsoTimestamp()
+    {
+        var powerShell = FindPowerShell();
+        if (powerShell is null) return;
+        var settingsPath = ClaudeHookInstaller.EnsureInstalled(_directory, forWindows: true, ruleHook: null);
+        Assert.NotNull(settingsPath);
+        var sessionId = Guid.NewGuid();
+        var token = "0123456789abcdef0123456789abcdef";
+        var stateDirectory = Path.Combine(_directory, sessionId + "." + token);
+
+        RunPowerShellHook(powerShell, Path.Combine(_directory, "report-state.ps1"), "turn_started", sessionId, token, stateDirectory, "{}", "fi-FI");
+
+        var file = Assert.Single(Directory.GetFiles(stateDirectory, "*.state.json"));
+        using var document = JsonDocument.Parse(File.ReadAllText(file));
+        Assert.Matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$", document.RootElement.GetProperty("occurredAtUtc").GetString());
+    }
+
+    [Fact]
     public void UnixStateHook_MismatchedSessionCapabilityDirectory_EmitsNothing()
     {
         if (OperatingSystem.IsWindows()) return;
@@ -130,6 +198,14 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
     private static void RunUnixHook(
         string script, string fact, Guid sessionId, string token, string stateDirectory, string standardInput)
     {
+        using var process = StartUnixHook(script, fact, sessionId, token, stateDirectory, standardInput);
+        Assert.True(process.WaitForExit(10_000));
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    private static Process StartUnixHook(
+        string script, string fact, Guid sessionId, string token, string stateDirectory, string standardInput)
+    {
         if (OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("This helper executes the Unix hook.");
         var start = new ProcessStartInfo("/bin/sh")
         {
@@ -142,12 +218,69 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         start.ArgumentList.Add(fact);
         var scriptDirectory = Path.GetDirectoryName(script);
         Assert.NotNull(scriptDirectory);
-        var fakeClaude = Path.Combine(scriptDirectory, "claude");
-        if (!File.Exists(fakeClaude))
+        EnsureFakeClaude(script);
+        start.Environment["PATH"] = scriptDirectory + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? "");
+        start.Environment["CC_SESSION_ID"] = sessionId.ToString();
+        start.Environment["CC_STATE_EVENT_TOKEN"] = token;
+        start.Environment["CC_STATE_EVENT_DIR"] = stateDirectory;
+        var process = Process.Start(start);
+        Assert.NotNull(process);
+        process.StandardInput.Write(standardInput);
+        process.StandardInput.Close();
+        return process;
+    }
+
+    private static void EnsureFakeClaude(string script)
+    {
+        var scriptDirectory = Path.GetDirectoryName(script);
+        Assert.NotNull(scriptDirectory);
+        if (OperatingSystem.IsWindows())
         {
-            File.WriteAllText(fakeClaude, "#!/bin/sh\nprintf '2.1.302 (test fixture)\\n'\n");
-            File.SetUnixFileMode(fakeClaude, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var fakeClaude = Path.Combine(scriptDirectory, "claude.cmd");
+            if (!File.Exists(fakeClaude))
+                File.WriteAllText(fakeClaude, "@echo 2.1.302 (test fixture)\r\n");
+            return;
         }
+
+        var unixFakeClaude = Path.Combine(scriptDirectory, "claude");
+        if (!File.Exists(unixFakeClaude))
+        {
+            File.WriteAllText(unixFakeClaude, "#!/bin/sh\nprintf '2.1.302 (test fixture)\\n'\n");
+            File.SetUnixFileMode(unixFakeClaude, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static string? FindPowerShell()
+    {
+        var path = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
+        return path.Select(directory => Path.Combine(directory, OperatingSystem.IsWindows() ? "powershell.exe" : "pwsh"))
+            .FirstOrDefault(File.Exists);
+    }
+
+    private static void RunPowerShellHook(string powerShell, string script, string fact, Guid sessionId, string token, string stateDirectory, string standardInput, string? culture = null)
+    {
+        var start = new ProcessStartInfo(powerShell)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("-NoProfile");
+        if (culture is null)
+        {
+            start.ArgumentList.Add("-File");
+            start.ArgumentList.Add(script);
+            start.ArgumentList.Add(fact);
+        }
+        else
+        {
+            start.ArgumentList.Add("-Command");
+            start.ArgumentList.Add($"[Threading.Thread]::CurrentThread.CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo('{culture}'); & '{script.Replace("'", "''", StringComparison.Ordinal)}' '{fact}'");
+        }
+        var scriptDirectory = Path.GetDirectoryName(script);
+        Assert.NotNull(scriptDirectory);
+        EnsureFakeClaude(script);
         start.Environment["PATH"] = scriptDirectory + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? "");
         start.Environment["CC_SESSION_ID"] = sessionId.ToString();
         start.Environment["CC_STATE_EVENT_TOKEN"] = token;
@@ -156,7 +289,7 @@ public sealed class ClaudeStateHookAdapterTests : IDisposable
         Assert.NotNull(process);
         process.StandardInput.Write(standardInput);
         process.StandardInput.Close();
-        Assert.True(process.WaitForExit(10_000));
+        Assert.True(process.WaitForExit(10_000), process.StandardError.ReadToEnd());
         Assert.Equal(0, process.ExitCode);
     }
 
