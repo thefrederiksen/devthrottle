@@ -64,6 +64,20 @@ public sealed class TerminalCopyMenuTests
         Dispatcher.UIThread.RunJobs();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         Dispatcher.UIThread.RunJobs();
+        if (withSession)
+        {
+            // Attach replays the session's output on a pool thread and hands the grid over on the screen thread.
+            // Until that handover the screen is empty - no text to select and no link to click - so wait for it
+            // rather than hope the pool thread was quick. The time limit only stops a hang; it never decides.
+            var handedOver = SpinWait.SpinUntil(() =>
+            {
+                Dispatcher.UIThread.RunJobs();
+                return !terminal.HarnessReplayPending;
+            }, TimeSpan.FromSeconds(30));
+            Assert.True(handedOver, "the terminal never finished replaying the session's output");
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
         return (terminal, window);
     }
 
