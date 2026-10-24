@@ -427,7 +427,7 @@ public sealed class FakeWayUpGateway : IWayUpGateway
         CrashJournalsSent.Add(journal);
         if (RefuseCrashRecords is not null) throw new InvalidOperationException(RefuseCrashRecords);
 
-        var id = WorkspaceCrashRecords.IdFor(journal.DirectorId, journal.Pid);
+        var id = WorkspaceCrashRecords.IdFor(journal);
         if (_records.Any(d => string.Equals(d.Id, id, StringComparison.Ordinal))) return Task.FromResult(false);
 
         var doc = WorkspaceCrashRecords.Build(

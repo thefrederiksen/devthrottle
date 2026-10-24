@@ -203,7 +203,7 @@ public sealed class GatewayClientWayUp : IWayUpGateway
     public Task<bool> RecordCrashAsync(CrashJournalDto journal, CancellationToken ct)
         => Required().RecordCrashAsync(new WorkspaceCrashRecordRequest
         {
-            Id = WorkspaceCrashRecords.IdFor(journal.DirectorId, journal.Pid),
+            Id = WorkspaceCrashRecords.IdFor(journal),
             DirectorId = _directorId,
             Journal = journal,
         }, ct);

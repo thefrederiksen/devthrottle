@@ -1127,7 +1127,7 @@ public sealed class WorkspaceSecretFinding
 /// </summary>
 public sealed class WorkspaceCrashRecordRequest
 {
-    /// <summary>The record's id. The Director derives it from the dead process (<see cref="WorkspaceCrashRecords.IdFor"/>),
+    /// <summary>The record's id. The Director derives it from the dead process (<see cref="WorkspaceCrashRecords.IdFor(CrashJournalDto)"/>),
     /// so a journal sent at every start-up is recorded once and the second send is answered "already recorded".</summary>
     public string Id { get; set; } = "";
 
@@ -1144,13 +1144,23 @@ public sealed class WorkspaceCrashRecordRequest
 public static class WorkspaceCrashRecords
 {
     /// <summary>
-    /// The record id for one dead Director process: its identifier's first eight letters and digits and its process id.
-    /// The same dead process always gives the same id, which is what makes sending it again harmless.
+    /// The record id for one dead Director PROCESS: its identifier's first eight letters and digits, its process id, and
+    /// the moment it started. The same dead process always gives the same id, which is what makes sending it again
+    /// harmless. The start time is in it because a process id is not a process (review finding 2): an instance keeps
+    /// its Director id across restarts and an operating system reuses process ids, so without it a second crash that
+    /// drew a past crash's process id would be answered "already recorded" and its sessions never offered.
     /// </summary>
-    public static string IdFor(string deadDirectorId, int deadPid)
+    public static string IdFor(string deadDirectorId, int deadPid, DateTimeOffset deadStartedAtUtc)
     {
         var letters = new string((deadDirectorId ?? "").ToLowerInvariant().Where(char.IsAsciiLetterOrDigit).Take(8).ToArray());
-        return $"crash-{(letters.Length == 0 ? "director" : letters)}-{deadPid}";
+        return $"crash-{(letters.Length == 0 ? "director" : letters)}-{deadPid}-{deadStartedAtUtc.UtcDateTime:yyyyMMddHHmmss}";
+    }
+
+    /// <summary>The record id for this journal - <see cref="IdFor(string, int, DateTimeOffset)"/> of its process.</summary>
+    public static string IdFor(CrashJournalDto journal)
+    {
+        ArgumentNullException.ThrowIfNull(journal);
+        return IdFor(journal.DirectorId, journal.Pid, journal.StartedAtUtc);
     }
 
     /// <summary>The reason a crash record gives, in the owner's words on the offer and in the restart history.</summary>
@@ -1188,6 +1198,17 @@ public static class WorkspaceCrashRecords
                 FactoryKit = string.IsNullOrWhiteSpace(s.FactoryKit) ? null : s.FactoryKit,
                 LaunchModel = string.IsNullOrWhiteSpace(s.LaunchModel) ? null : s.LaunchModel,
                 ConnectionMode = s.ConnectionMode == ConnectionModes.Api ? ConnectionModes.Api : null,
+                // Where the seat ran and on what mission, so a reopen starts it in the folder its saved conversation is
+                // found by, on the same mission (review finding 3).
+                FactoryKitDirectory = string.IsNullOrWhiteSpace(s.FactoryKitDirectory) ? null : s.FactoryKitDirectory,
+                FactoryHome = s.FactoryHome == true ? true : null,
+                Mission = string.IsNullOrWhiteSpace(s.MissionId) && string.IsNullOrWhiteSpace(s.MissionName)
+                    ? null
+                    : new WorkspaceMissionRef
+                    {
+                        Id = string.IsNullOrWhiteSpace(s.MissionId) ? null : s.MissionId,
+                        Name = string.IsNullOrWhiteSpace(s.MissionName) ? null : s.MissionName,
+                    },
                 SortOrder = index,
                 ClaudeSessionId = string.IsNullOrWhiteSpace(s.ClaudeSessionId) ? null : s.ClaudeSessionId,
                 CreatedAt = s.CreatedAtUtc.UtcDateTime,
@@ -1202,7 +1223,7 @@ public static class WorkspaceCrashRecords
             SchemaVersion = 1,
             Id = request.Id,
             Name = $"Crash of {(string.IsNullOrWhiteSpace(directorName) ? "the Director" : directorName)} on {(string.IsNullOrWhiteSpace(machine) ? journal.MachineName : machine)}",
-            Description = $"Built from the crash journal of Director {journal.DirectorId} (process {journal.Pid}), found by the next Director on that machine.",
+            Description = $"Built from the crash journal of Director {journal.DirectorId} (process {journal.Pid}, started {journal.StartedAtUtc.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z), found by the next Director on that machine.",
             Origin = WorkspaceOrigins.Captured,
             Machine = string.IsNullOrWhiteSpace(machine) ? journal.MachineName : machine.Trim(),
             DirectorId = request.DirectorId,

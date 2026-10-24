@@ -534,8 +534,8 @@ internal static class WorkspaceEndpoints
             if (req.Journal.Sessions.Count == 0)
                 return Results.Json(new { error = "the crash journal holds no session, so there is nothing to record" },
                     statusCode: StatusCodes.Status400BadRequest);
-            if (!string.Equals(req.Id, WorkspaceCrashRecords.IdFor(req.Journal.DirectorId, req.Journal.Pid), StringComparison.Ordinal))
-                return Results.Json(new { error = $"a crash record's id is derived from the dead process: expected '{WorkspaceCrashRecords.IdFor(req.Journal.DirectorId, req.Journal.Pid)}', got '{req.Id}'" },
+            if (!string.Equals(req.Id, WorkspaceCrashRecords.IdFor(req.Journal), StringComparison.Ordinal))
+                return Results.Json(new { error = $"a crash record's id is derived from the dead process: expected '{WorkspaceCrashRecords.IdFor(req.Journal)}', got '{req.Id}'" },
                     statusCode: StatusCodes.Status400BadRequest);
 
             if (!callerIsDirector(ctx, req.DirectorId))

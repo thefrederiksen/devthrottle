@@ -21,6 +21,10 @@ namespace CcDirector.ControlApi.SmartRestart;
 /// pending journal is sent, not only the ones claimed now: a send that failed last time is sent again, and one that
 /// worked is answered "already recorded", because the record id is derived from the dead process.
 ///
+/// ONE PLACE OFFERS A DEAD SESSION BACK (review finding 1). Once the Gateway holds the record - written now, or already
+/// there - the journal is marked as recorded on disk, so the Interrupted sessions list stops listing it and the record
+/// is the only offer. A mark that fails leaves the journal pending, and the next start-up sends and marks it again.
+///
 /// NEVER THROWS. A journal that cannot be sent is logged and the rest are still sent; the start-up offer of a smart
 /// shutdown must not be lost because a crash record could not be written.
 /// </summary>
@@ -31,12 +35,16 @@ public sealed class WayUpCrashRecorder
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IWayUpGateway _gateway;
+    private readonly Func<DirectorCrashJournalData, string, bool> _markRecorded;
 
     /// <summary>Create the recorder.</summary>
     /// <param name="gateway">The Gateway seam the way up already uses.</param>
-    public WayUpCrashRecorder(IWayUpGateway gateway)
+    /// <param name="markRecorded">Notes on the journal's file that the Gateway keeps it as the named record. Defaults to
+    /// <see cref="DirectorCrashJournal.MarkRecorded"/> in this Director's own crash-journal folder.</param>
+    public WayUpCrashRecorder(IWayUpGateway gateway, Func<DirectorCrashJournalData, string, bool>? markRecorded = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+        _markRecorded = markRecorded ?? ((journal, id) => DirectorCrashJournal.MarkRecorded(journal.DirectorId, journal.Pid, id));
     }
 
     /// <summary>What happened to each journal: written, already there, or not sent and why.</summary>
@@ -55,14 +63,16 @@ public sealed class WayUpCrashRecorder
         var failures = new List<string>();
         foreach (var journal in journals.Where(j => j.Sessions.Count > 0))
         {
-            var id = WorkspaceCrashRecords.IdFor(journal.DirectorId, journal.Pid);
+            var id = $"the journal of Director {journal.DirectorId} (process {journal.Pid})";
             try
             {
                 var dto = JsonSerializer.Deserialize<CrashJournalDto>(JsonSerializer.Serialize(journal, Json), Json)
                           ?? throw new InvalidOperationException("the journal could not be read back as the Gateway's shape");
+                id = WorkspaceCrashRecords.IdFor(dto);
                 if (await _gateway.RecordCrashAsync(dto, ct).ConfigureAwait(false)) recorded++;
                 else already++;
-                FileLog.Write($"[WayUpCrashRecorder] {id}: {journal.Sessions.Count} session(s) of Director {journal.DirectorId} (process {journal.Pid}) are on the Gateway");
+                _markRecorded(journal, id);
+                FileLog.Write($"[WayUpCrashRecorder] {id}: {journal.Sessions.Count} session(s) of Director {journal.DirectorId} (process {journal.Pid}) are on the Gateway, and the journal is marked recorded");
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
