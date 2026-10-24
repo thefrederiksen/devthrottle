@@ -91,6 +91,18 @@ public sealed class TerminalCopyMenuTests
     }
 
     [AvaloniaFact]
+    public async Task RightClickMenu_WithSelectionButNoSession_IsJustCopy_WithNoTrailingSeparator()
+    {
+        var (terminal, window) = Open(withSession: false);
+        terminal.HarnessSetSelection(0, 0, Line.Length - 1, 0);
+
+        var menu = await terminal.HarnessBuildRightClickMenuAsync();
+
+        Assert.Equal(new[] { "Copy" }, Headers(menu));
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public async Task RightClickMenu_WithoutSelection_HasNoCopy()
     {
         var (terminal, window) = Open(withSession: true);

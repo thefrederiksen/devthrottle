@@ -1583,19 +1583,20 @@ public class TerminalControl : Control
         }
 
         var menu = new ContextMenu();
-        AddSelectionCopyItem(menu);
+        AddSelectionCopyItem(menu, separatorAfter: _session != null);
         if (_session != null)
             AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
         return menu;
     }
 
     /// <summary>
-    /// With text selected, puts <b>Copy</b> first in <paramref name="menu"/>, followed by a separator (issue #2810). The
+    /// With text selected, puts <b>Copy</b> first in <paramref name="menu"/>, followed by a separator when other items follow
+    /// (issue #2810). The
     /// text is read when the menu opens, so Copy puts exactly what was highlighted on the clipboard even if the screen
     /// scrolls while the menu is open. It belongs to the terminal, like the paste items, not to the shared
     /// <see cref="LinkContextMenuBuilder"/> the History tab also uses.
     /// </summary>
-    private void AddSelectionCopyItem(ContextMenu menu)
+    private void AddSelectionCopyItem(ContextMenu menu, bool separatorAfter)
     {
         if (!_hasSelection) return;
         var text = GetSelectedText();
@@ -1617,7 +1618,8 @@ public class TerminalControl : Control
             }
         };
         menu.Items.Add(copyItem);
-        menu.Items.Add(new Separator());
+        if (separatorAfter)
+            menu.Items.Add(new Separator());
     }
 
     private void AddPasteItems(ContextMenu menu, bool hasClipboardText = true)
@@ -2539,7 +2541,7 @@ public class TerminalControl : Control
         _linkContextMenu = new ContextMenu();
         // Selected text comes first, before the link's own items (issue #2810): a person who selected a whole command
         // line and clicked the path inside it wants the line, not the path.
-        AddSelectionCopyItem(_linkContextMenu);
+        AddSelectionCopyItem(_linkContextMenu, separatorAfter: true);
 
         LinkContextMenuBuilder.PopulateLinkItems(_linkContextMenu, new LinkMenuContext
         {

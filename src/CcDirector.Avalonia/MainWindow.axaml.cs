@@ -5126,10 +5126,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The Mac Edit menu (issue #4425). On a Mac its key equivalents take Cmd+C, Cmd+V and Cmd+A before any control
-    /// sees them, so this is the one path those keys run. It acts on whatever has focus in the window that is in front:
-    /// a text box keeps its own clipboard behaviour, and the session terminal runs the same command its keys run. With
-    /// focus anywhere else it does nothing - a Cmd+V typed into a dialog must never land in the agent's terminal.
+    /// The Mac Edit menu (issue #4425). On a Mac its key equivalents take Cmd+C, Cmd+V and Cmd+A before any control sees
+    /// them, so this is the one path those keys run. It acts on whatever has focus in the window that is in front - see
+    /// <see cref="EditCommandRouter"/>: the terminal runs the command, any other control gets the platform's own key.
     /// </summary>
     private void RunEditCommand(TerminalClipboardCommand command)
     {
@@ -5137,27 +5136,8 @@ public partial class MainWindow : Window
             as global::Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
         var front = lifetime?.Windows.FirstOrDefault(w => w.IsActive) ?? this;
         var focused = front.FocusManager?.GetFocusedElement();
-        FileLog.Write($"[MainWindow] RunEditCommand: {command}, window={front.GetType().Name}, focused={focused?.GetType().Name ?? "(none)"}");
-
-        switch (EditCommandTarget.For(focused, TerminalHost))
-        {
-            case EditCommandTarget.Kind.TextBox:
-                var box = (TextBox)focused!;
-                switch (command)
-                {
-                    case TerminalClipboardCommand.Copy: box.Copy(); break;
-                    case TerminalClipboardCommand.Paste: box.Paste(); break;
-                    case TerminalClipboardCommand.SelectAll: box.SelectAll(); break;
-                    default: throw new ArgumentOutOfRangeException(nameof(command), command, "unknown edit command");
-                }
-                break;
-            case EditCommandTarget.Kind.Terminal:
-                TerminalHost.RunClipboardCommand(command);
-                break;
-            case EditCommandTarget.Kind.Nothing:
-                FileLog.Write($"[MainWindow] RunEditCommand: {command} ignored - focus is neither a text box nor the terminal");
-                break;
-        }
+        var route = EditCommandRouter.Run(command, focused, TerminalHost, front.PlatformSettings?.HotkeyConfiguration);
+        FileLog.Write($"[MainWindow] RunEditCommand: {command}, window={front.GetType().Name}, focused={focused?.GetType().Name ?? "(none)"}, route={route}");
     }
 
     // ==================== TOP APP BAR ====================
