@@ -20,9 +20,18 @@
 #
 # Produces:  <output-dir>/cc-director-mac-arm64.zip  (contains "Director.app")
 #
+# --display-name gives the app the name a person SEES - in the Finder, Spotlight, Launchpad, the
+# Dock and the menu bar - while the bundle keeps its folder name (issue #4427). The Director ships
+# as "Director.app" with the display name "DevThrottle": every installer, updater and launcher
+# path names the folder, so the folder stays, and what a person searches for is DevThrottle.
+# macOS shows the localized display name only while the folder name matches the non-localized
+# CFBundleDisplayName, so Info.plist keeps the folder name there and en.lproj/InfoPlist.strings
+# carries the name shown.
+#
 set -euo pipefail
 
 APP_NAME="Director"
+DISPLAY_NAME=""                        # the name shown; defaults to APP_NAME
 BIN_NAME="cc-director"                 # CFBundle binary name (matches AssemblyName)
 BID="com.devthrottle.ccdirector"
 ZIP_NAME="cc-director-mac-arm64.zip"
@@ -36,6 +45,7 @@ while [[ $# -gt 0 ]]; do
         --out)    OUT_DIR="$2"; shift 2 ;;
         --dmg-name) DMG_NAME="$2"; shift 2 ;;   # also produce a drag-to-Applications DMG
         --app-name) APP_NAME="$2"; shift 2 ;;   # e.g. "CC Director Setup"
+        --display-name) DISPLAY_NAME="$2"; shift 2 ;;   # e.g. "DevThrottle" (shown; the folder keeps APP_NAME)
         --bin-name) BIN_NAME="$2"; shift 2 ;;    # the binary inside the bundle (matches AssemblyName)
         --zip-name) ZIP_NAME="$2"; shift 2 ;;    # output asset name
         --bid)      BID="$2"; shift 2 ;;          # CFBundleIdentifier (distinct per app)
@@ -47,6 +57,7 @@ done
 [[ -n "$BINARY" ]]  || { echo "ERROR: --binary is required" >&2; exit 1; }
 [[ -n "$OUT_DIR" ]] || { echo "ERROR: --out is required" >&2; exit 1; }
 [[ -f "$BINARY" ]]  || { echo "ERROR: binary not found: $BINARY" >&2; exit 1; }
+[[ -n "$DISPLAY_NAME" ]] || DISPLAY_NAME="$APP_NAME"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -134,6 +145,21 @@ sed -i.bak "s#@BIN@#$BIN_NAME#" "$APP/Contents/MacOS/launch" && rm -f "$APP/Cont
 chmod +x "$APP/Contents/MacOS/launch"
 
 # ----------------------------------------------------------------------------
+# The name shown (--display-name). When it differs from the folder name, Info.plist
+# says the bundle has a localized name and en.lproj carries it; English is the
+# development region, so every language without its own folder shows it too.
+# ----------------------------------------------------------------------------
+LOCALIZED_KEYS=""
+if [[ "$DISPLAY_NAME" != "$APP_NAME" ]]; then
+    mkdir -p "$APP/Contents/Resources/en.lproj"
+    cat > "$APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
+CFBundleName = "$DISPLAY_NAME";
+CFBundleDisplayName = "$DISPLAY_NAME";
+STRINGS
+    LOCALIZED_KEYS="    <key>LSHasLocalizedDisplayName</key><true/>"
+fi
+
+# ----------------------------------------------------------------------------
 # Info.plist. Native arm64 only (matches the build RID); telling LaunchServices
 # the bundle is native avoids the spurious "install Rosetta" prompt.
 # ----------------------------------------------------------------------------
@@ -142,8 +168,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>            <string>$APP_NAME</string>
+    <key>CFBundleName</key>            <string>$DISPLAY_NAME</string>
     <key>CFBundleDisplayName</key>     <string>$APP_NAME</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+$LOCALIZED_KEYS
     <key>CFBundleIdentifier</key>      <string>$BID</string>
     <key>CFBundleExecutable</key>      <string>launch</string>
 $ICON_KEY
@@ -151,7 +179,7 @@ $ICON_KEY
     <key>CFBundleVersion</key>         <string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>DevThrottle Director uses the microphone for dictation: what you say is transcribed into the prompt box.</string>
+    <string>DevThrottle uses the microphone for dictation: what you say is transcribed into the prompt box.</string>
     <key>NSHighResolutionCapable</key> <true/>
     <key>LSMinimumSystemVersion</key>  <string>11.0</string>
     <key>LSRequiresNativeExecution</key><true/>
@@ -187,7 +215,7 @@ if [[ -n "$DMG_NAME" ]]; then
     ditto "$APP" "$DMG_STAGE/$APP_NAME.app"
     ln -s /Applications "$DMG_STAGE/Applications"
     rm -f "$DMG_PATH"
-    hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$DMG_STAGE" \
+    hdiutil create -quiet -volname "$DISPLAY_NAME $VERSION" -srcfolder "$DMG_STAGE" \
         -fs HFS+ -format UDZO "$DMG_PATH"
     rm -rf "$DMG_STAGE"
     echo "Packaged $APP_NAME v$VERSION -> $DMG_PATH"
@@ -195,4 +223,4 @@ fi
 
 rm -rf "$STAGE"
 
-echo "Packaged $APP_NAME v$VERSION -> $ZIP_PATH"
+echo "Packaged $APP_NAME (shown as $DISPLAY_NAME) v$VERSION -> $ZIP_PATH"
