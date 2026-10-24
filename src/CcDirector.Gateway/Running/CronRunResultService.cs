@@ -45,6 +45,7 @@ public sealed class CronRunResultService
     private readonly Func<TenantId, string, string, IReadOnlyList<string>> _scheduleSessionsByName;
     private readonly Func<string, DateTime, string, bool> _settleLastStatus;
     private readonly MailDesk.MailDeskProblemSource _mailDesk;
+    private readonly Func<TenantId, string, string, SessionDto?> _lastKnownSession;
 
     /// <summary>
     /// The least time a start whose outcome was not known is given for its session to appear, however near the end of
@@ -73,6 +74,9 @@ public sealed class CronRunResultService
     /// <param name="mailDesk">The Mail Desk's mailboxes and spend, the problems list's third source (Mail Desk mission,
     /// phase 3, section 6.2). REQUIRED, so a wiring line that forgot it fails to compile rather than leaving every failed
     /// mailbox off the Open problems card and the 08:00 email.</param>
+    /// <param name="lastKnownSession">The session row a Director last pushed - (account, Director id, session id) - or null
+    /// when it reported none: how a run whose prompt never reached the agent is found (issue #3392). REQUIRED, so a
+    /// wiring line that forgot it fails to compile rather than leaving every such run reading as started.</param>
     public CronRunResultService(
         CronRunHistoryStore runs,
         Func<string, CronJobDto?> jobById,
@@ -84,8 +88,10 @@ public sealed class CronRunResultService
         Factory.Triggers.TriggerStore triggers,
         Func<TenantId, string, string, IReadOnlyList<string>> scheduleSessionsByName,
         Func<string, DateTime, string, bool> settleLastStatus,
-        MailDesk.MailDeskProblemSource mailDesk)
+        MailDesk.MailDeskProblemSource mailDesk,
+        Func<TenantId, string, string, SessionDto?> lastKnownSession)
     {
+        _lastKnownSession = lastKnownSession ?? throw new ArgumentNullException(nameof(lastKnownSession));
         _mailDesk = mailDesk ?? throw new ArgumentNullException(nameof(mailDesk));
         _scheduleSessionsByName = scheduleSessionsByName ?? throw new ArgumentNullException(nameof(scheduleSessionsByName));
         _settleLastStatus = settleLastStatus ?? throw new ArgumentNullException(nameof(settleLastStatus));
@@ -370,8 +376,14 @@ public sealed class CronRunResultService
         {
             var (ending, endedUtc) = CronRunEndingFold.EndingOf(p.Run, endings);
             var shift = WorkShifts.ShiftOf(CronRunResultFold.ShiftInstantOf(p.Run), zone);
-            var problem = CronRunResultFold.GatewayProblemFor(p.Run, ending,
-                CronRunEndingFold.TextOf(ending, p.Run.FiredUtc, endedUtc, now), shift, now);
+            // A session whose Director says its prompt never reached the agent did no work, however long it stays open
+            // (issue #3392): that is told first, from the session row, rather than at the end of the shift.
+            var session = string.IsNullOrWhiteSpace(p.Run.SessionId) || string.IsNullOrWhiteSpace(p.Run.TargetDirectorId)
+                ? null
+                : _lastKnownSession(tenant, p.Run.TargetDirectorId, p.Run.SessionId);
+            var problem = CronRunResultFold.PromptNotDeliveredProblem(p.Run, session)
+                ?? CronRunResultFold.GatewayProblemFor(p.Run, ending,
+                    CronRunEndingFold.TextOf(ending, p.Run.FiredUtc, endedUtc, now), shift, now);
             if (problem is null) continue;
 
             // Only while it is STILL pending: a session that reported in the meantime keeps its own result.

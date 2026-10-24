@@ -2836,7 +2836,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
             settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status),
             // The third source (Mail Desk phase 3, section 6.2): a mailbox that could not be checked, and the spend limit.
-            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf));
+            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf),
+            // Issue #3392: the session row its Director last pushed says when a run's prompt never reached the agent.
+            // Assigned further down this constructor, before the first sweep or request can call this.
+            lastKnownSession: (tenant, directorId, sessionId) => PushedSessions.GetLastKnown(tenant, directorId).Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
