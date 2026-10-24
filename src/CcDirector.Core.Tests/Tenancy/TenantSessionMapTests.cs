@@ -326,12 +326,18 @@ public sealed class TenantSessionMapTests
         // concurrent dictionary's own get-or-add with a flag set inside the factory breaks this, because it
         // may run the factory in several racing callers while keeping only one value - so several callers
         // are told they were first.
-        const int rounds = 500;
+        //
+        // The contention is forced, not hoped for: the factory holds every caller until all of them are inside
+        // it, so no caller can add the entry before every other caller has already missed it. Every round
+        // therefore runs the factory once per worker, whatever the scheduler does. Left to chance, a fast
+        // caller could finish its add before the others looked, and a round would test nothing.
+        const int rounds = 100;
         var workers = Math.Max(4, Environment.ProcessorCount);
         var map = new TenantSessionMap<int>();
         var key = TenantSessionKey.For(TenantA, "sess-seed");
 
         using var barrier = new Barrier(workers);
+        using var allInFactory = new CountdownEvent(workers);
         var winners = new int[rounds];
         var factoryRuns = new int[rounds];
 
@@ -343,23 +349,27 @@ public sealed class TenantSessionMapTests
                 map.GetOrAdd(key, _ =>
                 {
                     Interlocked.Increment(ref factoryRuns[round]);
+                    allInFactory.Signal();
+                    // A guard against a hang, never a verdict: on correct code every worker arrives at once.
+                    if (!allInFactory.Wait(TimeSpan.FromSeconds(30)))
+                        throw new InvalidOperationException("not every caller reached the value factory");
                     return worker;
                 }, out var added);
                 if (added) Interlocked.Increment(ref winners[round]);
                 barrier.SignalAndWait();
 
-                if (worker == 0) map.Remove(key); // reset for the next round
+                if (worker == 0)
+                {
+                    map.Remove(key); // reset for the next round
+                    allInFactory.Reset();
+                }
                 barrier.SignalAndWait();
             }
         })).ToArray();
 
         await Task.WhenAll(tasks);
 
-        // The witness: at least one round genuinely contended, meaning more than one caller reached the
-        // factory. Without this, a serialized run would report a clean pass having tested nothing.
-        Assert.True(factoryRuns.Any(runs => runs > 1),
-            "no round ever ran the value factory more than once, so the callers never actually contended " +
-            "for the same key and this test proved nothing");
+        Assert.All(factoryRuns, runs => Assert.Equal(workers, runs));
         Assert.All(winners, w => Assert.Equal(1, w));
     }
 
