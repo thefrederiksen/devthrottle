@@ -83,6 +83,14 @@ public sealed class FleetMachineDto
     /// <summary>Start the installed Director.</summary>
     public FleetActionDto Start { get; set; } = new();
 
+    /// <summary>
+    /// True when this machine's launcher and every running Director on it are on the newest release (or newer) -
+    /// what an update is for. A client clears the answer it is still showing for an update once this turns true,
+    /// so a stale error does not sit beside a row that says the update worked (issue #4423). False whenever the
+    /// newest release, the launcher or a running Director's version is not known.
+    /// </summary>
+    public bool UpToDate { get; set; }
+
     public List<FleetDirectorDto> Directors { get; set; } = new();
 }
 

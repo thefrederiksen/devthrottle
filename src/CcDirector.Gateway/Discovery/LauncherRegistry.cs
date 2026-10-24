@@ -46,6 +46,13 @@ public sealed class LauncherRegistry
 
     private readonly ConcurrentDictionary<LauncherKey, Entry> _launchers = new();
 
+    // THE LAST STREAM CLOSE PER MACHINE, KEPT APART FROM THE ROWS (issue #4423, review finding 1). A launcher that quits
+    // cleanly - which is how both update paths restart it - closes its stream and then DELETEs its registration, and
+    // the new process registers before it opens its own stream. Held on the row, the close went with the DELETE and the
+    // new launcher read as too old. Held here, Remove does not touch it and Upsert hands it to the new row. One entry
+    // per machine an account has ever streamed from, so it is bounded by the machines, not by time.
+    private readonly ConcurrentDictionary<LauncherKey, DateTime> _streamClosedAt = new();
+
     private Timer? _sweepTimer;
 
     /// <summary>
@@ -55,6 +62,10 @@ public sealed class LauncherRegistry
     public LauncherDto Upsert(TenantId tenant, LauncherRegistrationRequest req)
     {
         var now = DateTime.UtcNow;
+        // A RE-REGISTRATION CARRIES THE STREAM'S LAST CLOSE (issue #4423). A launcher restarting into a new version
+        // registers BEFORE it opens its stream, and that window is exactly when "heartbeating, no stream" must
+        // read as restarting rather than too old - so the evidence must survive the new process's registration,
+        // and the old one's DELETE before it (see _streamClosedAt).
         var dto = new LauncherDto
         {
             MachineName = req.MachineName,
@@ -62,6 +73,8 @@ public sealed class LauncherRegistry
             Version = req.Version,
             StartedAt = req.StartedAt,
             LastSeenAt = now,
+            RegisteredAt = now,
+            StreamClosedAt = _streamClosedAt.TryGetValue(Key(tenant, req.MachineName), out var closedAt) ? closedAt : null,
         };
 
         _launchers[Key(tenant, req.MachineName)] = new Entry
@@ -91,6 +104,20 @@ public sealed class LauncherRegistry
         entry.Dto.LastSeenAt = now;
         FileLog.Write($"[LauncherRegistry] Heartbeat: tenant={tenant.Value}, machine={machineName}");
         return true;
+    }
+
+    /// <summary>
+    /// Record that the calling tenant's launcher for that machine closed its command stream at
+    /// <paramref name="closedAtUtc"/>. Called when the stream connection registry clears that machine's live
+    /// stream. Kept whether or not the machine has a registration row right now, because a launcher that quits
+    /// cleanly may delete its row before or after its stream is seen to close, and the next registration reads it.
+    /// </summary>
+    public void NoteStreamClosed(TenantId tenant, string machineName, DateTime closedAtUtc)
+    {
+        _streamClosedAt[Key(tenant, machineName)] = closedAtUtc;
+        if (_launchers.TryGetValue(Key(tenant, machineName), out var entry))
+            entry.Dto.StreamClosedAt = closedAtUtc;
+        FileLog.Write($"[LauncherRegistry] NoteStreamClosed: tenant={tenant.Value}, machine={machineName}, at={closedAtUtc:o}, registered={entry is not null}");
     }
 
     /// <summary>

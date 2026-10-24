@@ -188,6 +188,22 @@ internal static class MachineRestartCapability
                     + $"Gateway {dto.QuietForSeconds}s ago - and yet holds no command stream, so it predates "
                     + "the command stream and cannot be told anything. Update the launcher on that machine. "
                     + "Its network connection is not the problem.");
+
+            case LauncherReach.Reconnecting:
+                // NOT THE CASE ABOVE (issue #4423). This Gateway watched it hold a stream, so it is restarting or
+                // reconnecting. Unknown rather than unavailable: whether it can be restarted is a question for the
+                // moment its stream is back, and "update the launcher" would be the wrong fix.
+                return new Route(CapabilityState.Unknown,
+                    $"its launcher (version {Version(dto)}) is registered and heartbeating - it reached this "
+                    + $"Gateway {dto.QuietForSeconds}s ago - and is reconnecting its command stream, which was up "
+                    + "until recently. It is restarting or reconnecting, not too old. Ask again in a minute.");
+
+            case LauncherReach.StreamDown:
+                return new Route(CapabilityState.Unavailable,
+                    $"its launcher (version {Version(dto)}) is registered and heartbeating - it reached this "
+                    + $"Gateway {dto.QuietForSeconds}s ago - but the command stream this Gateway saw it hold has been "
+                    + "down longer than a restart takes, so it cannot be told anything. Restart the launcher on that "
+                    + "machine. It is not too old.");
         }
 
         if (dto.Declaration == LauncherDeclarationState.DeclaredNothing)

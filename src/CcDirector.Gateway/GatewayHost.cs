@@ -2138,7 +2138,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // deletion records above it first - the two that were removed were removed because their guard could
         // not be made atomic with their destruction, and the tests will redden if they come back.
         Registry.OnDirectorRemoved += removal => PushedSessions.ForgetIfDisconnected(removal.Tenant, removal.DirectorId);
-        LauncherConnections = new Streaming.LauncherConnectionRegistry();
+        LauncherConnections = new Streaming.LauncherConnectionRegistry
+        {
+            // A launcher's closed stream is written onto its registration, so "heartbeating, no stream" can be read
+            // as restarting rather than too old when this Gateway has seen that machine stream (issue #4423).
+            StreamClosed = (tenant, machine, closedAt) => Launchers.NoteStreamClosed(tenant, machine, closedAt),
+        };
         // Gateway Cleanup: the tunnel is mandatory; the streamMode parameter is ignored and retained only for existing test call sites (removed with the test rewrite).
         _streamStaleAfter = TimeSpan.FromSeconds(gatewayConfig.StreamStaleAfterSeconds);
         AuthEnabled = ResolveAuthEnabled(authEnabled);
@@ -7890,7 +7895,7 @@ public sealed class GatewayHost : IAsyncDisposable
             return LauncherCommandResult.Refuse(refusal);
         }
         FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}, connection={connection.ConnectionId}");
-        return await hub.Clients.Client(connection.ConnectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
+        return await Api.LauncherCommandRouter.InvokeDownStreamAsync(hub, connection.ConnectionId, machineName, command, ct);
     }
 
     public async Task StopAsync()

@@ -29,6 +29,17 @@ public enum LauncherReach
 
     /// <summary>The launcher holds a live command stream. A command can be delivered.</summary>
     Connected,
+
+    /// <summary>Registered AND heartbeating, holding no command stream right now - and this Gateway saw it hold
+    /// one, which it closed recently. It is restarting (an update restarts it) or reconnecting, not too old.
+    /// Wait a minute and look again. Issue #4423: this used to be read as <see cref="NotStreamCapable"/>, and
+    /// told the owner to update a launcher that had just been updated.</summary>
+    Reconnecting,
+
+    /// <summary>Registered AND heartbeating, and its command stream - which this Gateway saw it hold - has been down
+    /// for longer than a restart takes. It is not too old and it is not merely reconnecting: it is reaching this
+    /// Gateway and not taking commands from it. Restart the launcher on that machine (issue #4423, review finding 2).</summary>
+    StreamDown,
 }
 
 /// <summary>

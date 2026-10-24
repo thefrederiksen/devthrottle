@@ -23,6 +23,13 @@ namespace CcDirector.Gateway.Api;
 internal static class LauncherReachability
 {
     /// <summary>
+    /// How long after its stream closed a heartbeating launcher is still called reconnecting. A launcher restarting
+    /// into a new version is back within seconds to a minute; past this it is not coming back by itself, and saying
+    /// "look again in a minute" for ever would hide a launcher that cannot be commanded (issue #4423, review finding 2).
+    /// </summary>
+    public static readonly TimeSpan ReconnectWindow = TimeSpan.FromMinutes(5);
+
+    /// <summary>
     /// Classify a launcher's reach.
     ///
     /// A LIVE STREAM IS THE WHOLE ANSWER WHEN IT IS THERE, and it outranks the registration row
@@ -39,14 +46,38 @@ internal static class LauncherReachability
         if (streamConnected) return LauncherReach.Connected;
         if (registered is null) return LauncherReach.NoLauncher;
 
-        // Heartbeating and yet unreachable. The two facts together are the evidence: it can talk TO this
-        // Gateway and this Gateway cannot talk to it, which is exactly what a launcher predating the
-        // command stream looks like. It expected the Gateway to dial its own listener, and that relay is
-        // deleted.
         var quietFor = nowUtc - registered.LastSeenAt;
-        return quietFor < LauncherRegistry.HeartbeatTimeout
-            ? LauncherReach.NotStreamCapable
-            : LauncherReach.NotConnected;
+        if (quietFor >= LauncherRegistry.HeartbeatTimeout)
+            return LauncherReach.NotConnected;
+
+        // Heartbeating and yet unreachable - and this Gateway WATCHED IT HOLD A STREAM. A launcher that has held
+        // a stream is not too old for one; it is restarting into a new version or reconnecting (issue #4423).
+        // This is checked before the too-old inference because it is evidence, and that is a guess.
+        //
+        // THE WINDOW RUNS FROM WHICHEVER IS LATER, THE CLOSE OR THIS REGISTRATION (review round 2). The close is kept for
+        // good, so it is usually old: a machine that was off overnight closed its stream last night, and when its
+        // launcher registers this morning it is starting, not "not taking commands", for the moment until its stream
+        // opens. A launcher that registered long ago and lost its stream long ago is the one that is not coming back.
+        if (registered.StreamClosedAt is { } closedAt)
+        {
+            var since = closedAt > registered.RegisteredAt ? closedAt : registered.RegisteredAt;
+            return nowUtc - since <= ReconnectWindow ? LauncherReach.Reconnecting : LauncherReach.StreamDown;
+        }
+
+        // Heartbeating and yet unreachable, with no stream ever seen. The two facts together are the evidence:
+        // it can talk TO this Gateway and this Gateway cannot talk to it, which is exactly what a launcher
+        // predating the command stream looks like. It expected the Gateway to dial its own listener, and that
+        // relay is deleted.
+        return LauncherReach.NotStreamCapable;
+    }
+
+    /// <summary>How long ago that launcher's command stream closed, in whole seconds, or 0 when no close has
+    /// been seen. Clock skew is reported as 0, the same way <see cref="QuietForSeconds"/> reports it.</summary>
+    public static int StreamClosedForSeconds(LauncherDto? registered, DateTime nowUtc)
+    {
+        if (registered?.StreamClosedAt is not { } closedAt) return 0;
+        var closedFor = nowUtc - closedAt;
+        return closedFor < TimeSpan.Zero ? 0 : (int)closedFor.TotalSeconds;
     }
 
     /// <summary>How long since that launcher last registered or heartbeated, in whole seconds. 0 when no
