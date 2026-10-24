@@ -505,9 +505,8 @@ public class TerminalView : Control
 
     private static byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
     {
-        if (key is >= Key.A and <= Key.Z && (modifiers & (KeyModifiers.Control | KeyModifiers.Alt)) == 0) return null;
-        var name = key == Key.Back ? nameof(TerminalKey.Backspace) : key.ToString();
-        if (!Enum.TryParse(name, ignoreCase: false, out TerminalKey terminalKey)) return null;
+        if (TerminalKeyInputPolicy.ShouldLeaveToTextInput(key, modifiers, OperatingSystem.IsWindows())) return null;
+        if (!TerminalKeyInputPolicy.TryMap(key, out TerminalKey terminalKey)) return null;
         var terminalModifiers =
             (modifiers.HasFlag(KeyModifiers.Shift) ? TerminalKeyModifiers.Shift : TerminalKeyModifiers.None) |
             (modifiers.HasFlag(KeyModifiers.Alt) ? TerminalKeyModifiers.Alt : TerminalKeyModifiers.None) |

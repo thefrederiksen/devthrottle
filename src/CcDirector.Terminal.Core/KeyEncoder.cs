@@ -34,10 +34,14 @@ public static class KeyEncoder
         var modifierParameter = ModifierParameter(modifiers);
         var plain = modifierParameter == 1;
 
-        if ((modifiers & TerminalKeyModifiers.Control) != 0 && key is >= TerminalKey.A and <= TerminalKey.Z)
+        if ((modifiers & TerminalKeyModifiers.Control) != 0)
         {
-            var control = (byte)(key - TerminalKey.A + 1);
-            return PrefixAlt([control], modifiers);
+            if (key is >= TerminalKey.A and <= TerminalKey.Z)
+            {
+                var control = (byte)(key - TerminalKey.A + 1);
+                return PrefixAlt([control], modifiers);
+            }
+            if (key == TerminalKey.Space) return PrefixAlt([0x00], modifiers);
         }
 
         if (key is >= TerminalKey.A and <= TerminalKey.Z)

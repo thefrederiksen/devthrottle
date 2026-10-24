@@ -2507,10 +2507,8 @@ public class TerminalControl : Control
 
     private byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
     {
-        // Avalonia delivers ordinary printable letters again through OnTextInput.
-        // Only chords are terminal key events; forwarding plain letters here would type them twice.
-        if (key is >= Key.A and <= Key.Z && (modifiers & (KeyModifiers.Control | KeyModifiers.Alt)) == 0) return null;
-        if (!TryMapTerminalKey(key, out var terminalKey)) return null;
+        if (TerminalKeyInputPolicy.ShouldLeaveToTextInput(key, modifiers, OperatingSystem.IsWindows())) return null;
+        if (!TerminalKeyInputPolicy.TryMap(key, out var terminalKey)) return null;
         return KeyEncoder.Encode(terminalKey, ToTerminalModifiers(modifiers), _session?.ApplicationCursorKeys ?? false);
     }
 
@@ -2519,9 +2517,4 @@ public class TerminalControl : Control
         (modifiers.HasFlag(KeyModifiers.Alt) ? TerminalKeyModifiers.Alt : TerminalKeyModifiers.None) |
         (modifiers.HasFlag(KeyModifiers.Control) ? TerminalKeyModifiers.Control : TerminalKeyModifiers.None);
 
-    private static bool TryMapTerminalKey(Key key, out TerminalKey terminalKey)
-    {
-        var name = key == Key.Back ? nameof(TerminalKey.Backspace) : key.ToString();
-        return Enum.TryParse(name, ignoreCase: false, out terminalKey);
-    }
 }
