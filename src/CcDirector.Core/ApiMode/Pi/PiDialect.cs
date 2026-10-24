@@ -171,7 +171,26 @@ public sealed class PiDialect
     /// <summary>A <c>get_last_assistant_text</c> command.</summary>
     public PiCommand BuildGetLastAssistantText() => BuildSimple("get_last_assistant_text");
 
-    /// <summary>The one cancellation Pi accepts for any extension dialog (event model, section 3.6).</summary>
+    /// <summary>An answer to a pending extension dialog, in the shape Pi requires for that method.</summary>
+    public PiCommand BuildExtensionUiAnswer(string requestId, string method, string answer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        ArgumentNullException.ThrowIfNull(answer);
+        var line = new JsonObject { ["type"] = "extension_ui_response", ["id"] = requestId };
+        if (method == "confirm")
+            line["confirmed"] = answer.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                                || answer.Equals("true", StringComparison.OrdinalIgnoreCase)
+                                || answer.Equals("confirm", StringComparison.OrdinalIgnoreCase);
+        else if (method is "select" or "input" or "editor")
+            line["value"] = answer;
+        else
+            throw new ArgumentOutOfRangeException(nameof(method), method, "Unknown Pi extension dialog method.");
+        FileLog.Write($"[PiDialect] BuildExtensionUiAnswer: session={_sessionId}, request={requestId}, method={method}");
+        return new PiCommand(requestId, "extension_ui_response", line.ToJsonString());
+    }
+
+    /// <summary>The cancellation Pi accepts for any extension dialog.</summary>
     public PiCommand BuildExtensionUiCancellation(string requestId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
@@ -784,9 +803,23 @@ public sealed class PiDialect
         var method = record.GetProperty("method").GetString()!;
         if (DialogMethods.Contains(method))
         {
-            // No dialog may hang an API-mode turn: cancel it at once (event model, section 3.6).
-            FileLog.Write($"[PiDialect] Cancelling extension dialog: session={_sessionId}, request={requestId}, method={method}");
-            step.Commands.Add(BuildExtensionUiCancellation(requestId));
+            var title = OptionalString(record, "title") ?? method;
+            var message = OptionalString(record, "message") ?? OptionalString(record, "placeholder")
+                ?? OptionalString(record, "prefill") ?? "";
+            var prompt = string.IsNullOrWhiteSpace(message) ? title : $"{title}\n{message}";
+            var options = record.TryGetProperty("options", out var optionElement)
+                          && optionElement.ValueKind == JsonValueKind.Array
+                ? optionElement.EnumerateArray()
+                    .Where(option => option.ValueKind == JsonValueKind.String)
+                    .Select(option => option.GetString()!)
+                    .ToList()
+                : method == "confirm" ? ["Yes", "No"] : [];
+            FileLog.Write($"[PiDialect] Extension dialog pending: session={_sessionId}, request={requestId}, method={method}");
+            step.Events.Add(new InteractionRequested
+            {
+                SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
+                RequestId = requestId, Method = method, Prompt = prompt, Options = options,
+            });
             return;
         }
         if (FireAndForgetMethods.Contains(method))
@@ -830,6 +863,9 @@ public sealed class PiDialect
         FileLog.Write($"[PiDialect] DEFECT: session={_sessionId}, {defect}");
         step.Defects.Add(defect);
     }
+
+    private static string? OptionalString(JsonElement record, string name) =>
+        record.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     private static string Truncate(string text) => text.Length <= 300 ? text : text[..300] + "...";
 

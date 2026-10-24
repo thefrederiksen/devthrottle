@@ -33,6 +33,7 @@ namespace CcDirector.Gateway.Contracts.ApiMode;
 [JsonDerivedType(typeof(ToolCallFinished), nameof(ToolCallFinished))]
 [JsonDerivedType(typeof(TurnEnded), nameof(TurnEnded))]
 [JsonDerivedType(typeof(PermissionRequested), nameof(PermissionRequested))]
+[JsonDerivedType(typeof(InteractionRequested), nameof(InteractionRequested))]
 [JsonDerivedType(typeof(ConnectionReady), nameof(ConnectionReady))]
 [JsonDerivedType(typeof(ConnectionEnded), nameof(ConnectionEnded))]
 public abstract record SessionEvent
@@ -249,6 +250,23 @@ public sealed record PermissionRequested : SessionTurnEvent
 
     [JsonPropertyName("options")]
     public required IReadOnlyList<PermissionOption> Options { get; init; }
+}
+
+/// <summary>An agent extension opened a structured dialog and is waiting for the person using the session.
+/// Unlike a tool permission, this can be a choice, confirmation, one-line input, or editor input.</summary>
+public sealed record InteractionRequested : SessionEvent
+{
+    [JsonPropertyName("requestId")]
+    public required string RequestId { get; init; }
+
+    [JsonPropertyName("method")]
+    public required string Method { get; init; }
+
+    [JsonPropertyName("prompt")]
+    public required string Prompt { get; init; }
+
+    [JsonPropertyName("options")]
+    public required IReadOnlyList<string> Options { get; init; }
 }
 
 /// <summary>The agent process is up and named its conversation. Take the wheel needs the agent's own id

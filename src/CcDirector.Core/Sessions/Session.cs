@@ -3811,7 +3811,19 @@ public sealed class Session : IDisposable
         // the first keystroke: the prompt verb checked the age at receipt, and a prompt that then waits in the host's
         // queue - behind a running turn, or while Pi starts - is written however long it waited, by design; the queue IS
         // where it is meant to wait.
-        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
+        if (_apiMode is { } apiMode)
+        {
+            if (PendingInteraction is { AgentRequestId: { } requestId, AgentRequestMethod: { } method })
+            {
+                FileLog.Write($"[Session] SendTextAsync: answering Pi interaction session={Id}, request={requestId}, method={method}");
+                if (!await apiMode.Host.AnswerInteractionAsync(requestId, method, text, CancellationToken.None))
+                    return TextSendOutcome.RefusedBeforeTyping("Pi is not running, so its pending interaction could not be answered.");
+                PendingInteraction = null;
+                SetActivityState(ActivityState.Working);
+                return TextSendOutcome.Delivered;
+            }
+            return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
+        }
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
@@ -5176,6 +5188,18 @@ public sealed class Session : IDisposable
                     break;
                 case Gateway.Contracts.ApiMode.TurnStarted:
                     SetActivityState(ActivityState.Working);
+                    break;
+                case Gateway.Contracts.ApiMode.InteractionRequested interaction:
+                    PendingInteraction = new PendingInteraction
+                    {
+                        Kind = PendingInteractionKind.Question,
+                        CreatedAt = interaction.At,
+                        Prompt = interaction.Prompt,
+                        Options = interaction.Options.Select(option => new PendingInteractionOption { Label = option }).ToList(),
+                        AgentRequestId = interaction.RequestId,
+                        AgentRequestMethod = interaction.Method,
+                    };
+                    SetActivityState(ActivityState.WaitingForInput);
                     break;
             }
         }
