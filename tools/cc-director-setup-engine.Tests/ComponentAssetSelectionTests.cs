@@ -98,13 +98,16 @@ public sealed class ComponentAssetSelectionTests
     [Fact]
     public void EveryLinuxAssetIsOneTheReleaseWorkflowPublishes()
     {
-        // The six assets the create-release job copies for Linux. The two Python bundle tarballs are
-        // asserted in PythonToolsBundleAssetTests; the setup wizard and the setup command line are
-        // not Components (the installer never installs itself).
+        // The six assets the create-release job copies for Linux. The setup wizard and the setup command
+        // line are not Components (the installer never installs itself), and cc-python-linux-x64.tar.gz
+        // is the runtime the tools bundle is unpacked beside rather than a Component of its own - both
+        // are asserted in PythonToolsBundleAssetTests. The tools bundle IS a Component now, so its
+        // tarball belongs here: release.yml copies it at the same step as the other two.
         var published = new HashSet<string>(StringComparer.Ordinal)
         {
             "cc-director-linux-x64",
             "cc-launcher-linux-x64",
+            "cc-tools-pyenv-linux-x64.tar.gz",
         };
 
         foreach (var component in ComponentRegistry.Apps)

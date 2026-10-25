@@ -38,6 +38,18 @@ public static class UpdatePlanner
         var items = new List<PlanItem>();
         foreach (var c in components)
         {
+            // The tools bundle has its own install step. Account for it, never act on it - and decide
+            // that on the KIND, not on a missing asset: its asset names are real, and the macOS and
+            // Linux ones are .tar.gz, which the generic runner does not skip the way it skips a .zip.
+            if (c.Kind == ComponentKind.ToolsBundle)
+            {
+                installed.TryGetValue(c.Id, out var bundleState);
+                items.Add(new PlanItem(
+                    c.Id, PlanItemKind.InstalledByTheToolsStep, c.AssetFor(host) ?? "",
+                    bundleState?.Version, null, ""));
+                continue;
+            }
+
             var assetName = c.AssetFor(host);
 
             // A Tool with no asset for this platform is not a hole in the release: there is no standalone
@@ -112,7 +124,8 @@ public static class UpdatePlanner
                         $"{items.Count(i => i.Kind == PlanItemKind.Install)} install, " +
                         $"{items.Count(i => i.Kind == PlanItemKind.Update)} update, " +
                         $"{items.Count(i => i.Kind == PlanItemKind.MissingAsset)} missing-asset, " +
-                        $"{items.Count(i => i.Kind == PlanItemKind.ProvidedByToolsBundle)} in-tools-bundle.");
+                        $"{items.Count(i => i.Kind == PlanItemKind.ProvidedByToolsBundle)} in-tools-bundle, " +
+                        $"{items.Count(i => i.Kind == PlanItemKind.InstalledByTheToolsStep)} own-install-step.");
 
         return new UpdatePlan { Items = items };
     }
