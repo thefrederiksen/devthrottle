@@ -121,7 +121,11 @@ public static class TerminalSubmit
     /// a text short enough to be typed is typed alone: the lead exists only so a paste does not arrive with nothing typed
     /// beside it. One line, no control characters.</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
-    /// carries it, after the lead when there is one. That is what the agent's records will hold.</returns>
+    /// carries it, after the lead when there is one. That is what the agent's records will hold. A PASTE IS RETURNED
+    /// WITHOUT ITS LEAD: Claude Code records a paste inside its own pasted-content marker, so the record reads lead,
+    /// marker, paste. The arrival proof looks for the first letters of what this returns anywhere in the record; the lead
+    /// and the paste together are never in it unbroken, and the paste alone always is (found on a real agent, issue
+    /// #3967).</returns>
     public static async Task<string> SharedSubmitAsync(
         ISessionBackend backend,
         string text,
@@ -295,8 +299,9 @@ public static class TerminalSubmit
             {
                 await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText, typedLead);
                 ComposerRetention.Clear(backend);
-                // What the composer holds: the paste carries no Escape (TerminalInputEncoder.WithoutEscapes).
-                return WithLead(typedLead, TerminalInputEncoder.WithoutEscapes(pasted));
+                // What the composer holds: the paste carries no Escape (TerminalInputEncoder.WithoutEscapes). The paste
+                // alone, without a lead: see the returns note on SharedSubmitAsync.
+                return TerminalInputEncoder.WithoutEscapes(pasted);
             }
         }
         else if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -337,7 +342,7 @@ public static class TerminalSubmit
             {
                 await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText, typedLead);
                 ComposerRetention.Clear(backend);
-                return WithLead(typedLead, textForCheck);
+                return textForCheck;
             }
 
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))

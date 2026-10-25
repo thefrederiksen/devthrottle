@@ -99,8 +99,8 @@ public sealed class TerminalSubmitPasteTests : IDisposable
     /// <summary>
     /// The scheduled run in issue #3967: its long seed reached Claude Code as a paste with nothing typed beside it, and
     /// the agent asked for a go-ahead nobody was there to give. The lead is typed first, in the same composer, the seed
-    /// is pasted unchanged, and ONE Enter after the paste submits both - and the send returns the lead and the seed, which
-    /// is what the agent's records will hold.
+    /// is pasted unchanged, and ONE Enter after the paste submits both. The send returns the seed alone, the part the
+    /// agent's records hold unbroken.
     /// </summary>
     [Fact]
     public async Task SharedSubmit_LongSeedWithATypedLead_TypesTheLeadThenPastesTheSeedThenOneEnter()
@@ -119,7 +119,28 @@ public sealed class TerminalSubmitPasteTests : IDisposable
         Assert.DoesNotContain('\r', all[..pasteAt]);
         Assert.True(all.IndexOf('\r', StringComparison.Ordinal) > all.IndexOf("\u001b[201~", StringComparison.Ordinal),
             "an Enter was pressed before the paste ended");
-        Assert.Equal(Lead + " " + seed, typed);
+        Assert.Equal(seed, typed);
+    }
+
+    /// <summary>
+    /// The arrival proof finds a leaded paste in the record Claude Code really writes for it: the lead, then the paste
+    /// inside the agent's own pasted-content marker. Taken from a scheduled run on a real agent (issue #3967), where the
+    /// proof kept waiting while the agent was already at work, because the send returned the lead and the paste as one
+    /// text and the marker's letters sit between them in the record.
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_LongSeedWithATypedLead_ReturnsWhatTheArrivalProofFindsInTheAgentsRecord()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+        var seed = "Weekly usage report - scheduled run.\n\nNo person is watching this run. Nobody will read your answers while it runs.\n"
+                   + "1. Create a file named weekly-report.txt in this folder.";
+        var record = Lead + " \n\n<pasted_content id=\"81fb\">\n" + seed + "\n</pasted_content id=\"81fb\">";
+
+        var typed = await SendAsync(terminal, clock, seed, "ClaudeCode", Lead);
+
+        Assert.Contains(PromptArrival.Fingerprint(typed), PromptArrival.Loose(record), StringComparison.Ordinal);
+        Assert.DoesNotContain(PromptArrival.Fingerprint(Lead + " " + seed), PromptArrival.Loose(record), StringComparison.Ordinal);
     }
 
     /// <summary>A first prompt short enough to be typed is the person's own typing already: the lead is not added.</summary>
