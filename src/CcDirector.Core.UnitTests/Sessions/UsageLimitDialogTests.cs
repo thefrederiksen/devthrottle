@@ -1,6 +1,7 @@
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Terminal.Core;
 using Xunit;
 
 namespace CcDirector.Core.UnitTests.Sessions;
@@ -627,6 +628,26 @@ public sealed class UsageLimitDialogTests
 
         Assert.Equal(InputAnswer.Written, answer);
         Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
+    }
+
+    /// <summary>
+    /// Review of pull request 4420, finding 1: the remote <c>/keys</c> dispatch identifies the owner as a person
+    /// at the terminal. Its encoded Down key reaches the usage-limit dialog and is answered written, rather than being
+    /// dropped as automatic input.
+    /// </summary>
+    [Fact]
+    public void SendInput_RemoteKeyWhileTheDialogShows_IsWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+        var bytes = KeyEncoder.Encode(TerminalKey.Down);
+
+        var answer = session.SendInput(bytes, InputOrigin.DesktopTyped,
+            SubmissionProvenance.Typed(SubmissionRoutes.GatewayTerminal, SubmissionIdentityKinds.Device));
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Equal(new[] { bytes }, backend.Writes);
     }
 
     /// <summary>The Cockpit pane's keys travel as prompt text without an Enter: they reach the dialog (decision 10).</summary>
