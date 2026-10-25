@@ -1,61 +1,61 @@
 Issue #4436 proof - a throwaway Gateway and a test Director built from this tree, on devlinux (Linux)
-started 2026-10-24T23:05:47Z, finished 2026-10-24T23:13:48Z
-commit 49c3f7d8d14e242c24697c5eb5e52025c7be71e7 (a clean tree)
+started 2026-10-24T23:58:56Z, finished 2026-10-25T00:07:00Z
+commit 04ffbcbccdbd17bc1b1bbc3270796810507e078b (a clean tree)
 result: PASS
 
 ====================================================================================================
 == 1. A new schedule notifies its owner on failure without any setting changed
 ====================================================================================================
 machine: devlinux
-$ cc-devthrottle schedule create --name "morning report" --machine devlinux --repo /tmp/issue-4436-rig/projects/site --cron "* * * * *" --tz UTC --seed /help --notify-webhook http://127.0.0.1:54841/hook
+$ cc-devthrottle schedule create --name "morning report" --machine devlinux --repo /tmp/issue-4436-rig/projects/site --cron "* * * * *" --tz UTC --seed /help --notify-webhook http://127.0.0.1:46897/hook
 Created schedule.
-  Id:        cj_7fb7ab
+  Id:        cj_4bca87
   Name:      morning report
   Schedule:  cron * * * * *
-  Next run:  2026-10-24T23:07:00Z UTC
+  Next run:  2026-10-25T00:00:00Z UTC
   Seat:      none (a plain job in no factory)
-  Gateway:   http://127.0.0.1:48405
-  WARNING:   devlinux will have 30 scheduled sessions open at once while this one runs from 23:07, over its capacity of 6 (1433 of its runs in the next 24 hours are). The quietest hour is 23:00 (30 open) - see cc-devthrottle schedule load --machine devlinux.
+  Gateway:   http://127.0.0.1:44071
+  WARNING:   devlinux will have 30 scheduled sessions open at once while this one runs from 00:00, over its capacity of 6 (1380 of its runs in the next 24 hours are). The quietest hour is 23:00 (30 open) - see cc-devthrottle schedule load --machine devlinux.
 help[3]:
-  cc-devthrottle schedule get cj_7fb7ab
-  cc-devthrottle schedule run cj_7fb7ab
-  cc-devthrottle schedule disable cj_7fb7ab
+  cc-devthrottle schedule get cj_4bca87
+  cc-devthrottle schedule run cj_4bca87
+  cc-devthrottle schedule disable cj_4bca87
 [exit 0]
 CHECK PASS: schedule create saves a schedule whose folder is there
-$ GET /cron/jobs/cj_7fb7ab      (raw HTTP, as the rig's person)
+$ GET /cron/jobs/cj_4bca87      (raw HTTP, as the rig's person)
   status: 200
-  answer: {"id":"cj_7fb7ab","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:54841/hook","createdUtc":"2026-10-24T23:06:05.1311461Z","lastFiredUtc":null,"nextRunUtc":"2026-10-24T23:07:00Z","lastStatus":null,"scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+  answer: {"id":"cj_4bca87","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:46897/hook","createdUtc":"2026-10-24T23:59:11.5456184Z","lastFiredUtc":null,"nextRunUtc":"2026-10-25T00:00:00Z","lastStatus":null,"scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sun 25 Oct at 07:30 starts in the last 30 minutes of the night shift, which ends at 08:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
 CHECK PASS: the schedule was created with no --notify-on and notifies on failure
 CHECK PASS: a schedule made after the change carries no note about the change of default
-$ cc-devthrottle schedule get cj_7fb7ab
-morning report  (cj_7fb7ab)
+$ cc-devthrottle schedule get cj_4bca87
+morning report  (cj_4bca87)
   Enabled:    yes
   Machine:    devlinux
   Runs:       skill /help
   Schedule:   cron * * * * *  (UTC)
-  Notify:     on failure + webhook http://127.0.0.1:54841/hook
+  Notify:     When a run fails + webhook http://127.0.0.1:46897/hook
   Seat:       none (a plain job in no factory)
-  Next run:   2026-10-24T23:07:00Z UTC
+  Next run:   2026-10-25T00:00:00Z UTC
   Last fired: -  (-)
-  Created:    2026-10-24T23:06:05.1311461Z UTC
+  Created:    2026-10-24T23:59:11.5456184Z UTC
 [exit 0]
-CHECK PASS: schedule get says it notifies on failure
+CHECK PASS: schedule get says, in the Gateway's words, that it notifies on failure
 
 ====================================================================================================
 == 2. Run now: the run reads as one plain sentence, the Director's words only as the detail
 ====================================================================================================
 
-$ cc-devthrottle schedule run cj_7fb7ab
+$ cc-devthrottle schedule run cj_4bca87
 Fired the schedule.
-  Fired:   2026-10-24T23:06:06.55686Z UTC
-  Target:  1353aaec-e895-47be-b6db-df8e9f7ada4c
+  Fired:   2026-10-24T23:59:13.0491801Z UTC
+  Target:  67b86f18-3db2-40c8-b654-b8523ccd39e1
   Session: -
   Infra:   not-started
   Task:    unknown
   Ending:  did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.
   Detail:  it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site
 help[2]:
-  cc-devthrottle schedule runs cj_7fb7ab
+  cc-devthrottle schedule runs cj_4bca87
   cc-devthrottle session buffer <session-id>
 [exit 0]
 CHECK PASS: schedule run prints the plain sentence as how the run ended
@@ -67,104 +67,109 @@ CHECK PASS: 'BadRequest' is not in anything schedule run prints above the detail
 ====================================================================================================
 
 # the notices the webhook received
-  2026-10-24T23:06:19Z: {"jobId": "cj_7fb7ab", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:06:06.55686Z"}
+  2026-10-24T23:59:28Z: {"jobId": "cj_4bca87", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:59:13.0491801Z"}
 CHECK PASS: the notice's reason is the plain sentence
 CHECK PASS: the notice carries the Director's own words as its detail
 CHECK PASS: the notice names the schedule, says it failed, and gives the cause
 # the Gateway's notices - the throwaway Gateway's log, lines naming ['ScheduleFailureNotifier', 'ScheduleFailurePushNotifier']
-  2026-10-24 23:05:49.726 [ScheduleFailureNotifier] reading failed runs from 2026-10-24T22:50:49.7267869Z
-  2026-10-24 23:05:49.727 [ScheduleFailureNotifier] Start: telling owners of failed runs every 30s
-  2026-10-24 23:06:19.896 [ScheduleFailureNotifier] telling the owner: tenant=local, job=cj_7fb7ab, run=55200cfe-96d4-414d-967d-36509098bc5b, cause=folder-missing, occurrences=1
-  2026-10-24 23:06:19.963 [ScheduleFailurePushNotifier] NotifyAsync: no phone is subscribed, tenant=local
-  2026-10-24 23:06:19.966 [ScheduleFailureNotifier] email not sent: job=cj_7fb7ab: this self-hosted Gateway has no DevThrottle account to email
-  2026-10-24 23:06:19.967 [ScheduleFailureNotifier] ScanAsync: considered 1 failed run(s) since 2026-10-24T22:48:49.7267869Z, sent 1 notice(s)
+  2026-10-24 23:58:58.264 [ScheduleFailureNotifier] reading failed runs from 2026-10-24T23:43:58.2641561Z
+  2026-10-24 23:58:58.264 [ScheduleFailureNotifier] Start: telling owners of failed runs every 30s
+  2026-10-24 23:59:28.338 [ScheduleFailureNotifier] telling the owner: tenant=local, job=cj_4bca87, run=f9022c42-bea3-4a0d-8fa5-9619eddf2b8e, cause=folder-missing, occurrences=1
+  2026-10-24 23:59:28.396 [ScheduleFailurePushNotifier] NotifyAsync: no phone is subscribed, tenant=local
+  2026-10-24 23:59:28.399 [ScheduleFailureNotifier] email not sent: job=cj_4bca87: this self-hosted Gateway has no DevThrottle account to email
+  2026-10-24 23:59:28.400 [ScheduleFailureNotifier] ScanAsync: considered 1 failed run(s) since 2026-10-24T23:41:58.2641561Z, sent 1 notice(s)
 
 ====================================================================================================
 == 4. A schedule firing every minute keeps failing: still one notice inside the hour
 ====================================================================================================
 
-$ GET /cron/jobs/cj_7fb7ab/runs      (raw HTTP, as the rig's person)
+$ GET /cron/jobs/cj_4bca87/runs      (raw HTTP, as the rig's person)
   status: 200
-  answer: {"jobId":"cj_7fb7ab","runs":[{"scheduledUtc":"2026-10-24T23:09:00Z","firedUtc":"2026-10-24T23:09:59.3425221Z","machine":"devlinux","targetDirectorId":"1353aaec-e895-47be-b6db-df8e9f7ada4c","sessionId":null,"sessionName":"morning report - 2026-10-24 23:09","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"4de2f40f-9f22-4977-b243-a3137fc23e32","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:09:59.3425221Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:08:00Z","firedUtc":"2026-10-24T23:08:59.3393975Z","machine":"devlinux","targetDirectorId":"1353aaec-e895-47be-b6db-df8e9f7ada4c","sessionId":null,"sessionName":"morning report - 2026-10-24 23:08","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"1cb8fcf6-ff66-40be-b148-ccd43f00a363","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:08:59.3393975Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:07:00Z","firedUtc":"2026-10-24T23:07:59.3461026Z","machine":"devlinux","targetDirectorId":"1353aaec-e895-47be-b6db-df8e9f7ada4c","sessionId":null,"sessionName":"morning report - 2026-10-24 23:07","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"a99a2d6f-f508-41f3-ba7b-08f22371c09f","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:07:59.3461026Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:06:06.4890186Z","firedUtc":"2026-10-24T23:06:06.55686Z","machine":"devlinux","targetDirectorId":"1353aaec-e895-47be-b6db-df8e9f7ada4c","sessionId":null,"sessionName":"morning report - 2026-10-24 23:06","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"55200cfe-96d4-414d-967d-36509098bc5b","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:06:06.55686Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null}]}
-CHECK PASS: the schedule failed 4 times by now, on its own every-minute fires and the Run now
+  answer: {"jobId":"cj_4bca87","runs":[{"scheduledUtc":"2026-10-25T00:03:00Z","firedUtc":"2026-10-25T00:03:06.8215914Z","machine":"devlinux","targetDirectorId":"67b86f18-3db2-40c8-b654-b8523ccd39e1","sessionId":null,"sessionName":"morning report - 2026-10-25 00:03","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"night shift, Sun 25 Oct, 00:00-08:00","runId":"61f934d4-b941-45d3-a9e2-65805847ffd3","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-25T00:03:06.8215914Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-25T00:02:00Z","firedUtc":"2026-10-25T00:02:06.8232295Z","machine":"devlinux","targetDirectorId":"67b86f18-3db2-40c8-b654-b8523ccd39e1","sessionId":null,"sessionName":"morning report - 2026-10-25 00:02","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"night shift, Sun 25 Oct, 00:00-08:00","runId":"302a5bb0-8ea7-4059-9e8a-31fd8393428c","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-25T00:02:06.8232295Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-25T00:01:00Z","firedUtc":"2026-10-25T00:01:06.8230465Z","machine":"devlinux","targetDirectorId":"67b86f18-3db2-40c8-b654-b8523ccd39e1","sessionId":null,"sessionName":"morning report - 2026-10-25 00:01","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"night shift, Sun 25 Oct, 00:00-08:00","runId":"c37a8d8b-6257-4b43-af52-27443420cb19","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-25T00:01:06.8230465Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-25T00:00:00Z","firedUtc":"2026-10-25T00:00:06.8472695Z","machine":"devlinux","targetDirectorId":"67b86f18-3db2-40c8-b654-b8523ccd39e1","sessionId":null,"sessionName":"morning report - 2026-10-25 00:00","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"night shift, Sun 25 Oct, 00:00-08:00","runId":"d1f17fe8-d9f2-43bd-80a6-5f9bb2b0f30e","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-25T00:00:06.8472695Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null},{"scheduledUtc":"2026-10-24T23:59:12.9756618Z","firedUtc":"2026-10-24T23:59:13.0491801Z","machine":"devlinux","targetDirectorId":"67b86f18-3db2-40c8-b654-b8523ccd39e1","sessionId":null,"sessionName":"morning report - 2026-10-24 23:59","infraStatus":"not-started","infraTone":"err","taskStatus":"unknown","ending":"no-session","endingText":"did not start a session: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureText":"The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","failureCause":"folder-missing","shiftText":"evening shift, Sat 24 Oct, 16:00-24:00","runId":"f9022c42-bea3-4a0d-8fa5-9619eddf2b8e","result":"problem","problem":"did-not-run","resultReason":"it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site","resultUtc":"2026-10-24T23:59:13.0491801Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":null,"seat":null,"jobName":null,"missedNotListed":0,"briefVersion":null,"briefVersionKind":null,"checkCount":null,"checkedUtc":null}]}
+CHECK PASS: the schedule failed 5 times by now, on its own every-minute fires and the Run now
 CHECK PASS: every failed run carries the same plain sentence
 CHECK PASS: no failed run's sentence or ending holds 'BadRequest'
 CHECK PASS: the webhook received 1 notice(s) for those failures: one
 # the failures held back inside the hour - the throwaway Gateway's log, lines naming ['held back, a notice of this cause went out inside the hour']
-  2026-10-24 23:08:19.750 [ScheduleFailureNotifier] run=a99a2d6f-f508-41f3-ba7b-08f22371c09f, job=cj_7fb7ab, cause=folder-missing: held back, a notice of this cause went out inside the hour
-  2026-10-24 23:09:19.745 [ScheduleFailureNotifier] run=1cb8fcf6-ff66-40be-b148-ccd43f00a363, job=cj_7fb7ab, cause=folder-missing: held back, a notice of this cause went out inside the hour
-  2026-10-24 23:10:19.747 [ScheduleFailureNotifier] run=4de2f40f-9f22-4977-b243-a3137fc23e32, job=cj_7fb7ab, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-25 00:00:28.282 [ScheduleFailureNotifier] run=d1f17fe8-d9f2-43bd-80a6-5f9bb2b0f30e, job=cj_4bca87, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-25 00:01:28.285 [ScheduleFailureNotifier] run=c37a8d8b-6257-4b43-af52-27443420cb19, job=cj_4bca87, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-25 00:02:28.276 [ScheduleFailureNotifier] run=302a5bb0-8ea7-4059-9e8a-31fd8393428c, job=cj_4bca87, cause=folder-missing: held back, a notice of this cause went out inside the hour
+  2026-10-25 00:03:28.277 [ScheduleFailureNotifier] run=61f934d4-b941-45d3-a9e2-65805847ffd3, job=cj_4bca87, cause=folder-missing: held back, a notice of this cause went out inside the hour
 CHECK PASS: the Gateway says it held back the later failures of the same cause
-$ cc-devthrottle schedule runs cj_7fb7ab
+$ cc-devthrottle schedule runs cj_4bca87
 +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 | Scheduled (UTC)              | Fired (UTC)                  | Target                               | Session | Infra       | How it ended                                           | What went wrong                                        | Task    |
 |------------------------------+------------------------------+--------------------------------------+---------+-------------+--------------------------------------------------------+--------------------------------------------------------+---------|
-| 2026-10-24T23:09:00Z         | 2026-10-24T23:09:59.3425221Z | 1353aaec-e895-47be-b6db-df8e9f7ada4c | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
+| 2026-10-25T00:03:00Z         | 2026-10-25T00:03:06.8215914Z | 67b86f18-3db2-40c8-b654-b8523ccd39e1 | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
 |                              |                              |                                      |         |             | '/tmp/issue-4436-rig/projects/site' does not exist on  | not exist on devlinux (a Linux computer). Choose a     |         |
 |                              |                              |                                      |         |             | devlinux (a Linux computer). Choose a folder that      | folder that exists on devlinux. Then edit the          |         |
 |                              |                              |                                      |         |             | exists on devlinux. Then edit the schedule.            | schedule.                                              |         |
-| 2026-10-24T23:08:00Z         | 2026-10-24T23:08:59.3393975Z | 1353aaec-e895-47be-b6db-df8e9f7ada4c | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
+| 2026-10-25T00:02:00Z         | 2026-10-25T00:02:06.8232295Z | 67b86f18-3db2-40c8-b654-b8523ccd39e1 | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
 |                              |                              |                                      |         |             | '/tmp/issue-4436-rig/projects/site' does not exist on  | not exist on devlinux (a Linux computer). Choose a     |         |
 |                              |                              |                                      |         |             | devlinux (a Linux computer). Choose a folder that      | folder that exists on devlinux. Then edit the          |         |
 |                              |                              |                                      |         |             | exists on devlinux. Then edit the schedule.            | schedule.                                              |         |
-| 2026-10-24T23:07:00Z         | 2026-10-24T23:07:59.3461026Z | 1353aaec-e895-47be-b6db-df8e9f7ada4c | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
+| 2026-10-25T00:01:00Z         | 2026-10-25T00:01:06.8230465Z | 67b86f18-3db2-40c8-b654-b8523ccd39e1 | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
 |                              |                              |                                      |         |             | '/tmp/issue-4436-rig/projects/site' does not exist on  | not exist on devlinux (a Linux computer). Choose a     |         |
 |                              |                              |                                      |         |             | devlinux (a Linux computer). Choose a folder that      | folder that exists on devlinux. Then edit the          |         |
 |                              |                              |                                      |         |             | exists on devlinux. Then edit the schedule.            | schedule.                                              |         |
-| 2026-10-24T23:06:06.4890186Z | 2026-10-24T23:06:06.55686Z   | 1353aaec-e895-47be-b6db-df8e9f7ada4c | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
+| 2026-10-25T00:00:00Z         | 2026-10-25T00:00:06.8472695Z | 67b86f18-3db2-40c8-b654-b8523ccd39e1 | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
+|                              |                              |                                      |         |             | '/tmp/issue-4436-rig/projects/site' does not exist on  | not exist on devlinux (a Linux computer). Choose a     |         |
+|                              |                              |                                      |         |             | devlinux (a Linux computer). Choose a folder that      | folder that exists on devlinux. Then edit the          |         |
+|                              |                              |                                      |         |             | exists on devlinux. Then edit the schedule.            | schedule.                                              |         |
+| 2026-10-24T23:59:12.9756618Z | 2026-10-24T23:59:13.0491801Z | 67b86f18-3db2-40c8-b654-b8523ccd39e1 | -       | not-started | did not start a session: The folder                    | The folder '/tmp/issue-4436-rig/projects/site' does    | unknown |
 |                              |                              |                                      |         |             | '/tmp/issue-4436-rig/projects/site' does not exist on  | not exist on devlinux (a Linux computer). Choose a     |         |
 |                              |                              |                                      |         |             | devlinux (a Linux computer). Choose a folder that      | folder that exists on devlinux. Then edit the          |         |
 |                              |                              |                                      |         |             | exists on devlinux. Then edit the schedule.            | schedule.                                              |         |
 +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 [exit 0]
 CHECK PASS: schedule runs shows what went wrong in plain words, and not 'BadRequest'
-$ cc-devthrottle schedule get cj_7fb7ab
-morning report  (cj_7fb7ab)
+$ cc-devthrottle schedule get cj_4bca87
+morning report  (cj_4bca87)
   Enabled:    yes
   Machine:    devlinux
   Runs:       skill /help
   Schedule:   cron * * * * *  (UTC)
-  Notify:     on failure + webhook http://127.0.0.1:54841/hook
+  Notify:     When a run fails + webhook http://127.0.0.1:46897/hook
   Seat:       none (a plain job in no factory)
-  Next run:   2026-10-24T23:10:00Z UTC
-  Last fired: 2026-10-24T23:09:59.3425221Z  (not-started)
+  Next run:   2026-10-25T00:04:00Z UTC
+  Last fired: 2026-10-25T00:03:06.8215914Z  (not-started)
   Last run:   Last run failed: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.
-  Created:    2026-10-24T23:06:05.1311461Z UTC
+  Created:    2026-10-24T23:59:11.5456184Z UTC
 [exit 0]
 CHECK PASS: schedule get prints the last run's state in words
 $ GET /cron/jobs?include=random,window      (raw HTTP, as the rig's person)
   status: 200
-  answer: {"jobs":[{"id":"cj_7fb7ab","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:54841/hook","createdUtc":"2026-10-24T23:06:05.1311461Z","lastFiredUtc":"2026-10-24T23:09:59.3425221Z","nextRunUtc":"2026-10-24T23:10:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":{"verdict":"bad","text":"0 of 4 closed itself - 4 did not start","runs":4},"factoryTitle":null,"factoryHref":null,"shortName":"morning report","loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}]}
+  answer: {"jobs":[{"id":"cj_4bca87","name":"morning report","enabled":true,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:46897/hook","createdUtc":"2026-10-24T23:59:11.5456184Z","lastFiredUtc":"2026-10-25T00:03:06.8215914Z","nextRunUtc":"2026-10-25T00:04:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":{"verdict":"bad","text":"0 of 5 closed itself - 5 did not start","runs":5},"factoryTitle":null,"factoryHref":null,"shortName":"morning report","loadWarning":null,"folderWarning":null,"shifts":["night","morning","evening"],"shiftText":"Night, morning and evening shifts","shiftWarning":"Starts close to the end of its shift: the run on Sun 25 Oct at 07:30 starts in the last 30 minutes of the night shift, which ends at 08:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.","shiftRule":"The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.","definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}]}
 CHECK PASS: the schedule's row in the list carries the last run's state in words, for the Cockpit
 
 ====================================================================================================
 == 5. A schedule whose owner turned notifications off is not told
 ====================================================================================================
 
-$ cc-devthrottle schedule create --name "quiet one" --machine devlinux --repo /tmp/issue-4436-rig/projects/quiet --cron "0 3 1 1 *" --tz UTC --seed /help --notify-on none --notify-webhook http://127.0.0.1:54841/hook
+$ cc-devthrottle schedule create --name "quiet one" --machine devlinux --repo /tmp/issue-4436-rig/projects/quiet --cron "0 3 1 1 *" --tz UTC --seed /help --notify-on none --notify-webhook http://127.0.0.1:46897/hook
 Created schedule.
-  Id:        cj_d1e38f
+  Id:        cj_79b549
   Name:      quiet one
   Schedule:  cron 0 3 1 1 *
   Next run:  2027-01-01T03:00:00Z UTC
   Seat:      none (a plain job in no factory)
-  Gateway:   http://127.0.0.1:48405
+  Gateway:   http://127.0.0.1:44071
 help[3]:
-  cc-devthrottle schedule get cj_d1e38f
-  cc-devthrottle schedule run cj_d1e38f
-  cc-devthrottle schedule disable cj_d1e38f
+  cc-devthrottle schedule get cj_79b549
+  cc-devthrottle schedule run cj_79b549
+  cc-devthrottle schedule disable cj_79b549
 [exit 0]
-$ cc-devthrottle schedule run cj_d1e38f
+$ cc-devthrottle schedule run cj_79b549
 Fired the schedule.
-  Fired:   2026-10-24T23:10:23.1504273Z UTC
-  Target:  1353aaec-e895-47be-b6db-df8e9f7ada4c
+  Fired:   2026-10-25T00:03:31.2285286Z UTC
+  Target:  67b86f18-3db2-40c8-b654-b8523ccd39e1
   Session: -
   Infra:   not-started
   Task:    unknown
   Ending:  did not start a session: The folder '/tmp/issue-4436-rig/projects/quiet' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.
   Detail:  it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/quiet
 help[2]:
-  cc-devthrottle schedule runs cj_d1e38f
+  cc-devthrottle schedule runs cj_79b549
   cc-devthrottle session buffer <session-id>
 [exit 0]
 CHECK PASS: its run failed for the same cause
@@ -175,22 +180,22 @@ CHECK PASS: no notice was sent for a schedule whose Notify is off
 ====================================================================================================
 
 # the test Director asked to stop by its lifecycle request file
-  request: /tmp/issue-4436-rig/director-root/config/lifecycle-signals/cc-director-shutdown-1353aaec-e895-47be-b6db-df8e9f7ada4c.request
-  pid 1200587 exited: True (exit code 0)
+  request: /tmp/issue-4436-rig/director-root/config/lifecycle-signals/cc-director-shutdown-67b86f18-3db2-40c8-b654-b8523ccd39e1.request
+  pid 1499216 exited: True (exit code 0)
 # the notices the webhook received
-  2026-10-24T23:06:19Z: {"jobId": "cj_7fb7ab", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:06:06.55686Z"}
-  2026-10-24T23:12:19Z: {"jobId": "cj_7fb7ab", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "devlinux was not reachable: DevThrottle was not running there and could not be started. Switch devlinux on and open DevThrottle on it; the next run starts as usual.", "detail": "it did not start a session: no Director on 'devlinux' and the launcher could not start one", "cause": "machine-offline", "occurrences": 1, "firedUtc": "2026-10-24T23:11:59.3490028Z"}
+  2026-10-24T23:59:28Z: {"jobId": "cj_4bca87", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "The folder '/tmp/issue-4436-rig/projects/site' does not exist on devlinux (a Linux computer). Choose a folder that exists on devlinux. Then edit the schedule.", "detail": "it did not start a session: director returned BadRequest: repoPath does not exist: /tmp/issue-4436-rig/projects/site", "cause": "folder-missing", "occurrences": 1, "firedUtc": "2026-10-24T23:59:13.0491801Z"}
+  2026-10-25T00:05:28Z: {"jobId": "cj_4bca87", "jobName": "morning report", "succeeded": false, "infraStatus": "not-started", "taskStatus": "unknown", "machine": "devlinux", "sessionId": null, "sessionLink": "", "reason": "devlinux was not reachable: DevThrottle was not running there and could not be started. Switch devlinux on and open DevThrottle on it; the next run starts as usual.", "detail": "it did not start a session: no Director on 'devlinux' and the launcher could not start one", "cause": "machine-offline", "occurrences": 1, "firedUtc": "2026-10-25T00:05:06.8306104Z"}
 CHECK PASS: the second notice is for the machine being offline
 CHECK PASS: it says so in a plain sentence naming the machine
 CHECK PASS: the resolver's own words ('the launcher could not start one') are only the detail
 CHECK PASS: the offline machine's later failures inside the hour were held back: one notice for that cause
 # the email leg on a self-hosted Gateway - the throwaway Gateway's log, lines naming ['email not sent', 'emailed the account owner']
-  2026-10-24 23:06:19.966 [ScheduleFailureNotifier] email not sent: job=cj_7fb7ab: this self-hosted Gateway has no DevThrottle account to email
-  2026-10-24 23:12:19.748 [ScheduleFailureNotifier] email not sent: job=cj_7fb7ab: this self-hosted Gateway has no DevThrottle account to email
-$ PUT /cron/jobs/cj_7fb7ab      (raw HTTP, as the rig's person)
-  body: {"id": "cj_7fb7ab", "name": "morning report", "enabled": false, "scheduleKind": "recurring", "cronExpression": "* * * * *", "runAt": null, "timeZoneId": "UTC", "factory": null, "seat": null, "target": {"machine": "devlinux"}, "action": {"repoPath": "/tmp/issue-4436-rig/projects/site", "seed": "/help", "workListName": null, "autoDismiss": true}, "preventOverlap": true, "notifyOn": "failure", "notifyDefaultedUtc": null, "notifyNote": null, "notifyText": "When a run fails", "lastRunText": "Last run failed: devlinux was not reachable: DevThrottle was not running there and could not be started. Switch devlinux on and open DevThrottle on it; the next run starts as usual.", "lastRunTone": "err", "notifyWebhookUrl": "http://127.0.0.1:54841/hook", "createdUtc": "2026-10-24T23:06:05.1311461Z", "lastFiredUtc": "2026-10-24T23:12:59.3368185Z", "nextRunUtc": "2026-10-24T23:13:00Z", "lastStatus": "not-started", "scheduleText": null, "remainingToday": null, "lifecycle": "active", "stateLabel": "Active", "toggleLabel": "Pause", "runRecord": null, "factoryTitle": null, "factoryHref": null, "shortName": null, "loadWarning": null, "folderWarning": null, "shifts": ["night", "morning", "evening"], "shiftText": "Night, morning and evening shifts", "shiftWarning": "Starts close to the end of its shift: the run on Sat 24 Oct at 23:30 starts in the last 30 minutes of the evening shift, which ends at 00:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.", "shiftRule": "The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.", "definedByDefinition": false, "pathText": null, "checkPath": null, "checkSecrets": null, "definitionVersion": null}
+  2026-10-24 23:59:28.399 [ScheduleFailureNotifier] email not sent: job=cj_4bca87: this self-hosted Gateway has no DevThrottle account to email
+  2026-10-25 00:05:28.305 [ScheduleFailureNotifier] email not sent: job=cj_4bca87: this self-hosted Gateway has no DevThrottle account to email
+$ PUT /cron/jobs/cj_4bca87      (raw HTTP, as the rig's person)
+  body: {"id": "cj_4bca87", "name": "morning report", "enabled": false, "scheduleKind": "recurring", "cronExpression": "* * * * *", "runAt": null, "timeZoneId": "UTC", "factory": null, "seat": null, "target": {"machine": "devlinux"}, "action": {"repoPath": "/tmp/issue-4436-rig/projects/site", "seed": "/help", "workListName": null, "autoDismiss": true}, "preventOverlap": true, "notifyOn": "failure", "notifyDefaultedUtc": null, "notifyNote": null, "notifyText": "When a run fails", "lastRunText": "Last run failed: devlinux was not reachable: DevThrottle was not running there and could not be started. Switch devlinux on and open DevThrottle on it; the next run starts as usual.", "lastRunTone": "err", "notifyWebhookUrl": "http://127.0.0.1:46897/hook", "createdUtc": "2026-10-24T23:59:11.5456184Z", "lastFiredUtc": "2026-10-25T00:06:06.8493419Z", "nextRunUtc": "2026-10-25T00:07:00Z", "lastStatus": "not-started", "scheduleText": null, "remainingToday": null, "lifecycle": "active", "stateLabel": "Active", "toggleLabel": "Pause", "runRecord": null, "factoryTitle": null, "factoryHref": null, "shortName": null, "loadWarning": null, "folderWarning": null, "shifts": ["night", "morning", "evening"], "shiftText": "Night, morning and evening shifts", "shiftWarning": "Starts close to the end of its shift: the run on Sun 25 Oct at 07:30 starts in the last 30 minutes of the night shift, which ends at 08:00, and this schedule has no finished run to measure yet. 630 of its 10080 runs in the next 7 days do this.", "shiftRule": "The rule: a run belongs to the shift it starts in, and a run still going when that shift ends is a problem. This warns when the schedule's typical run - the middle length of its recent finished runs - would not end before its shift ends. A schedule with no finished run yet is warned about when it starts in the last 30 minutes of a shift.", "definedByDefinition": false, "pathText": null, "checkPath": null, "checkSecrets": null, "definitionVersion": null}
   status: 200
-  answer: {"id":"cj_7fb7ab","name":"morning report","enabled":false,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:54841/hook","createdUtc":"2026-10-24T23:06:05.1311461Z","lastFiredUtc":"2026-10-24T23:12:59.3368185Z","nextRunUtc":"2026-10-24T23:14:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"paused","stateLabel":"Paused","toggleLabel":"Resume","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+  answer: {"id":"cj_4bca87","name":"morning report","enabled":false,"scheduleKind":"recurring","cronExpression":"* * * * *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/site","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":"http://127.0.0.1:46897/hook","createdUtc":"2026-10-24T23:59:11.5456184Z","lastFiredUtc":"2026-10-25T00:06:06.8493419Z","nextRunUtc":"2026-10-25T00:07:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"paused","stateLabel":"Paused","toggleLabel":"Resume","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
 CHECK PASS: the every-minute schedule is switched off
 
 ====================================================================================================
@@ -198,28 +203,28 @@ CHECK PASS: the every-minute schedule is switched off
 ====================================================================================================
 
 # the database put back as it was before this change
-  migration removed: 20261024225657_AddScheduleFailureNotices
-  cron_jobs (Id, NotifyOn): [('cj_7fb7ab', 'failure'), ('cj_d1e38f', 'none')]
+  migration removed: 20261024235507_AddScheduleFailureNotices
+  cron_jobs (Id, NotifyOn): [('cj_4bca87', 'failure'), ('cj_79b549', 'none')]
 # the migration - the throwaway Gateway's log, lines naming ['AddScheduleFailureNotices', 'pending migration']
   (none)
-$ GET /cron/jobs/cj_d1e38f      (raw HTTP, as the rig's person)
+$ GET /cron/jobs/cj_79b549      (raw HTTP, as the rig's person)
   status: 200
-  answer: {"id":"cj_d1e38f","name":"quiet one","enabled":true,"scheduleKind":"recurring","cronExpression":"0 3 1 1 *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/quiet","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":"2026-10-24T23:13:44Z","notifyNote":"Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.","notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/tmp/issue-4436-rig/projects/quiet' does not exist on devlinux. Choose a folder that exists on devlinux. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:54841/hook","createdUtc":"2026-10-24T23:10:22.6689841Z","lastFiredUtc":"2026-10-24T23:10:23.1504273Z","nextRunUtc":"2027-01-01T03:00:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
-CHECK PASS: after 20261024225657_AddScheduleFailureNotices, a schedule that was on 'none' notifies on failure
+  answer: {"id":"cj_79b549","name":"quiet one","enabled":true,"scheduleKind":"recurring","cronExpression":"0 3 1 1 *","runAt":null,"timeZoneId":"UTC","factory":null,"seat":null,"target":{"machine":"devlinux"},"action":{"repoPath":"/tmp/issue-4436-rig/projects/quiet","seed":"/help","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":"2026-10-25T00:06:56Z","notifyNote":"Failure notifications were switched on for this schedule on 25 Oct 2026, when they became the default. To stop them, set Notify to Off.","notifyText":"When a run fails","lastRunText":"Last run failed: The folder '/tmp/issue-4436-rig/projects/quiet' does not exist on devlinux. Choose a folder that exists on devlinux. Then edit the schedule.","lastRunTone":"err","notifyWebhookUrl":"http://127.0.0.1:46897/hook","createdUtc":"2026-10-25T00:03:30.7933234Z","lastFiredUtc":"2026-10-25T00:03:31.2285286Z","nextRunUtc":"2027-01-01T03:00:00Z","lastStatus":"not-started","scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":false,"pathText":null,"checkPath":null,"checkSecrets":null,"definitionVersion":null}
+CHECK PASS: after 20261024235507_AddScheduleFailureNotices, a schedule that was on 'none' notifies on failure
 CHECK PASS: and says so, with how to turn it off
-$ cc-devthrottle schedule get cj_d1e38f
-quiet one  (cj_d1e38f)
+$ cc-devthrottle schedule get cj_79b549
+quiet one  (cj_79b549)
   Enabled:    yes
   Machine:    devlinux
   Runs:       skill /help
   Schedule:   cron 0 3 1 1 *  (UTC)
-  Notify:     on failure + webhook http://127.0.0.1:54841/hook
+  Notify:     When a run fails + webhook http://127.0.0.1:46897/hook
   Seat:       none (a plain job in no factory)
   Next run:   2027-01-01T03:00:00Z UTC
-  Last fired: 2026-10-24T23:10:23.1504273Z  (not-started)
+  Last fired: 2026-10-25T00:03:31.2285286Z  (not-started)
   Last run:   Last run failed: The folder '/tmp/issue-4436-rig/projects/quiet' does not exist on devlinux. Choose a folder that exists on devlinux. Then edit the schedule.
-  Note:       Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.
-  Created:    2026-10-24T23:10:22.6689841Z UTC
+  Note:       Failure notifications were switched on for this schedule on 25 Oct 2026, when they became the default. To stop them, set Notify to Off.
+  Created:    2026-10-25T00:03:30.7933234Z UTC
 [exit 0]
 CHECK PASS: schedule get prints the note
 CHECK PASS: ~/.local/bin still points at the owner's tools
