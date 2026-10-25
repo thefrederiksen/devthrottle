@@ -52,6 +52,13 @@ public sealed class SessionDto
     public string? FactoryKitDirectory { get; set; }
 
     /// <summary>
+    /// The settings files in the folder this session started in that hold deny rules, read by the Director at launch
+    /// (the owner's ruling of 24 October 2026). Empty for a folder with none and for every agent but Claude Code, whose
+    /// files these are. The factory's page says them in words; nothing changes the files.
+    /// </summary>
+    public List<FolderDenyRulesDto> FolderDenyRules { get; set; } = new();
+
+    /// <summary>
     /// True for a seat with no repository, which works in its kit's work/ folder (Factory Definition mission, phase 5),
     /// or null. A birth fact: it rides the roster so a capture keeps it and the restore hands it back
     /// (<see cref="NewSessionRequest.FactoryHome"/>).
@@ -1280,6 +1287,7 @@ public sealed class SessionDto
         copy.DriverCapabilities = new List<string>(DriverCapabilities);
         copy.StateDisagreements = new List<SessionStateDisagreementDto>(StateDisagreements);
         copy.StateDiagnostics = new List<SessionStateDiagnosticDto>(StateDiagnostics);
+        copy.FolderDenyRules = new List<FolderDenyRulesDto>(FolderDenyRules);
         return copy;
     }
 }

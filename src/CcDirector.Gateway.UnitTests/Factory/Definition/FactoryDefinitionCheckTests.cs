@@ -27,9 +27,13 @@ public sealed class FactoryDefinitionCheckTests
         Assert.Equal(new[]
         {
             "rules/base.json:3: allow rules are not applied when the seat starts: a definition only adds limits.",
+            // The boss and outreach have starts and name rule sets that ask: each is told, once, that its run stops
+            // until a person answers.
+            "seats/boss.yaml:10: " + FactoryDefinitionCheck.AskStopsAnUnattendedRun,
             "seats/outreach.yaml:5: No Director on SOREN_SOUTH is connected now, so it could not be confirmed.",
             "seats/outreach.yaml:8: Whether SOREN_SOUTH knows the repository 'devthrottle' is not checked yet.",
             "seats/outreach.yaml:14: Whether SOREN_SOUTH holds 'outreach-imap-password' is not checked yet.",
+            "seats/outreach.yaml:17: " + FactoryDefinitionCheck.AskStopsAnUnattendedRun,
             "seats/outreach.yaml:18: Whether SOREN_SOUTH holds 'outreach-smtp-password' is not checked yet.",
             "skills/mail-voice/SKILL.md:0: The factory skill 'mail-voice' is not named by any seat.",
         }, notices);
@@ -42,14 +46,35 @@ public sealed class FactoryDefinitionCheckTests
     {
         // An allow list, even an empty one, gets the notice on its own line; a rule set with none gets nothing.
         var content = Valid();
-        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(rm:*)\"],\n    \"allow\": []\n  }\n}\n";
-        content["rules/quiet.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(curl:*)\"]\n  }\n}\n";
+        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"ask\": [\"Bash(rm:*)\"],\n    \"allow\": []\n  }\n}\n";
+        content["rules/quiet.json"] = "{\n  \"permissions\": {\n    \"ask\": [\"Bash(curl:*)\"]\n  }\n}\n";
 
         var allow = Check(content).Findings.Where(f => f.Message == FactoryDefinitionCheck.AllowNotApplied)
             .Select(f => $"{f.File}:{f.Line}:{f.Severity}").ToList();
 
         Assert.Equal(new[] { "rules/base.json:3:notice", "rules/outreach.json:4:notice" }, allow);
         Assert.Equal("allow rules are not applied when the seat starts: a definition only adds limits.", FactoryDefinitionCheck.AllowNotApplied);
+    }
+
+    [Fact]
+    public void Check_EveryDenyRuleOfARuleSet_IsAnErrorOnItsOwnLine_ThatSaysTheFix()
+    {
+        // The owner's ruling of 24 October 2026: a deny rule refuses with no prompt, so the owner could never approve
+        // what it blocks. Each rule is refused on its own line, at a save as at a publish, and the definition is not
+        // built; an empty deny list holds no rule and is no error.
+        var content = Valid();
+        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"deny\": [\n      \"Bash(cc-gmail:*)\",\n      \"Edit(.claude/settings.json)\"\n    ],\n    \"ask\": [\"Bash(rm:*)\"]\n  }\n}\n";
+        content["rules/base.json"] = "{\n  \"permissions\": {\n    \"deny\": [],\n    \"ask\": [\"Bash(git push:*)\"]\n  }\n}\n";
+
+        var result = Check(content);
+        var errors = result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line}: {f.Message}").ToList();
+
+        Assert.Equal(new[]
+        {
+            "rules/outreach.json:4: The rule 'Bash(cc-gmail:*)' is a deny rule, and a factory may not hold one: make it an ask rule: the owner must always be able to approve.",
+            "rules/outreach.json:5: The rule 'Edit(.claude/settings.json)' is a deny rule, and a factory may not hold one: make it an ask rule: the owner must always be able to approve.",
+        }, errors);
+        Assert.Null(result.Definition);
     }
 
     [Fact]
@@ -68,7 +93,8 @@ public sealed class FactoryDefinitionCheckTests
         Assert.Equal(new[] { "boss", "outreach", "writer" }, d.Seats.Select(s => s.Seat));
         Assert.Equal(new[] { "base", "outreach" }, d.RuleSets.Select(r => r.Name));
         Assert.Equal(new[] { "Bash(git status)" }, d.RuleSets[0].Allow);
-        Assert.Equal(new[] { "Bash(rm:*)" }, d.RuleSets[1].Deny);
+        Assert.Equal(new[] { "Bash(rm:*)" }, d.RuleSets[1].Ask);
+        Assert.Empty(d.RuleSets[1].Deny);
         Assert.Equal(new[] { "files/outreach_send.py" }, d.Files);
         Assert.Equal(new[] { "checks/new_mail.py" }, d.Checks);
         var skill = Assert.Single(d.Skills);
@@ -150,7 +176,7 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_JsonThatDoesNotParse_IsAnErrorOnTheParsersLine()
     {
-        var result = Check(Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"],", "\"deny\": [\"Bash(git push:*)\" ,,"));
+        var result = Check(Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"Bash(git push:*)\" ,,"));
 
         var error = AssertOneError(result, "rules/base.json", 4, "rules/base.json is not valid JSON:");
         Assert.DoesNotContain("LineNumber", error.Message);
@@ -159,9 +185,9 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_JsonWithATrailingComma_IsRefused()
     {
-        var result = Check(Edit("rules/base.json", "\"ask\": []", "\"ask\": [],"));
+        var result = Check(Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"Bash(git push:*)\"],"));
 
-        AssertOneError(result, "rules/base.json", 6, "is not valid JSON");
+        AssertOneError(result, "rules/base.json", 5, "is not valid JSON");
     }
 
     [Fact]
@@ -183,9 +209,9 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_DuplicateJsonKey_IsAnErrorOnTheSecondKeysLine()
     {
-        var result = Check(Edit("rules/base.json", "\"ask\": []", "\"ask\": [],\n    \"allow\": []"));
+        var result = Check(Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"Bash(git push:*)\"],\n    \"allow\": []"));
 
-        AssertOneError(result, "rules/base.json", 6, "The key 'allow' appears twice", "first on line 3");
+        AssertOneError(result, "rules/base.json", 5, "The key 'allow' appears twice", "first on line 3");
     }
 
     [Fact]
@@ -413,9 +439,9 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_EmptyRule_IsTooShort()
     {
-        var result = Check(Edit("rules/base.json", "\"ask\": []", "\"ask\": [\"\"]"));
+        var result = Check(Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"\"]"));
 
-        AssertOneError(result, "rules/base.json", 5, "Item 1 of 'ask' must not be empty.");
+        AssertOneError(result, "rules/base.json", 4, "Item 1 of 'ask' must not be empty.");
     }
 
     [Fact]
@@ -992,7 +1018,7 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_RuleWithAOneSlashPath_IsRefusedOnItsOwnLineInABlockList()
     {
-        var result = Check(With("rules/base.json", "{\n  \"permissions\": {\n    \"deny\": [\n      \"Bash(git push:*)\",\n      \"Edit(/etc/hosts)\"\n    ]\n  }\n}\n"));
+        var result = Check(With("rules/base.json", "{\n  \"permissions\": {\n    \"ask\": [\n      \"Bash(git push:*)\",\n      \"Edit(/etc/hosts)\"\n    ]\n  }\n}\n"));
 
         AssertOneError(result, "rules/base.json", 5, "'Edit(/etc/hosts)' starts with one slash", "Write ./etc/hosts for the start folder, or //etc/hosts");
     }
@@ -1004,7 +1030,7 @@ public sealed class FactoryDefinitionCheckTests
     [InlineData("Bash(/usr/bin/x)")]
     public void Check_RulePathsThatAreAlreadyExact_AreNotTouched(string entry)
     {
-        var result = Check(Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", $"\"deny\": [\"Bash(git push:*)\", \"{entry}\"]"));
+        var result = Check(Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", $"\"ask\": [\"Bash(git push:*)\", \"{entry}\"]"));
 
         Assert.False(result.HasErrors,
             string.Join("\n", result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));

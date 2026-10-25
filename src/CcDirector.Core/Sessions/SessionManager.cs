@@ -952,6 +952,19 @@ public sealed class SessionManager : IDisposable
         session.FactoryKitDirectory = kitDirectory;
         session.FactoryHome = factoryKit?.Home == true;
 
+        // DENY RULES IN THE FOLDER (the owner's ruling of 24 October 2026): a deny rule an agent wrote into the folder's
+        // own settings refuses with no prompt, so the owner cannot approve what it blocks. Said in the launch log and
+        // carried to the Gateway for the factory's page; the files are left exactly as they are.
+        if (agent.Kind == AgentKind.ClaudeCode)
+        {
+            session.FolderDenyRules = Claude.FolderDenyRules.Read(workingDirectory);
+            if (Claude.FolderDenyRules.LogLine(session.FolderDenyRules) is { } denyLine)
+            {
+                _log?.Invoke(denyLine);
+                FileLog.Write($"[SessionManager] CreateSession: session={id}: {denyLine}");
+            }
+        }
+
         // Pre-launch stamps (Workflows mission, phase 5b): applied BEFORE the per-agent launch
         // channels below read the session (Pi's preamble file is written from it) and BEFORE the
         // process starts (a startup hook can fetch the preamble the instant the agent boots).

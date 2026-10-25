@@ -97,6 +97,11 @@ export function FactoryView() {
               <Link to={page.leftOpenHref}>{page.leftOpenText}</Link>
             </p>
           )}
+          {page.folderDenyTexts.map((text) => (
+            <p key={text} className="fa-left-open dt-private" data-testid="fa-page-folder-deny">
+              {text}
+            </p>
+          ))}
           {tab !== "seats" && <GoalLine page={page} />}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.bossText}</span>

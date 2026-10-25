@@ -86,7 +86,8 @@ public static class FactorySeatStart
             Agent = agent,
             Model = model,
             Name = name,
-            PrePrompt = prePrompt,
+            // Every seat is told the owner's word is final, however it was started (the owner's ruling of 24 October 2026).
+            PrePrompt = Talk.FactorySeatOpening.WithOwnerWord(prePrompt),
             Factory = definition.Factory,
             FactorySeat = seat.Seat,
             FactoryDefinitionVersion = published.Version,

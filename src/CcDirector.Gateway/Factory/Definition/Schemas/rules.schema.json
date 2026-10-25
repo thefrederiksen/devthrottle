@@ -23,7 +23,7 @@
           }
         },
         "deny": {
-          "description": "Tool rules that are refused.",
+          "description": "Not allowed in a factory: the check refuses every deny rule, because the owner must always be able to approve. Write the rule under ask instead.",
           "type": "array",
           "items": {
             "description": "One rule, such as Bash(git push:*). Must not be empty.",
@@ -32,7 +32,7 @@
           }
         },
         "ask": {
-          "description": "Tool rules that are asked about each time.",
+          "description": "Tool rules that stop the seat and ask a person each time. This is how a factory restricts a seat.",
           "type": "array",
           "items": {
             "description": "One rule. Must not be empty.",

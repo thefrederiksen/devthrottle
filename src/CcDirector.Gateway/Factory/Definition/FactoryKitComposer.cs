@@ -45,8 +45,9 @@ public sealed record FactoryKitSource(
 ///
 ///   kit.json                  factory, seat, version, kind, built at, the seat's secret names (seat kit only), and for
 ///                             each file where it came from
-///   rules.json                the seat's rule sets merged: deny and ask unioned in rule-set order, duplicates removed,
-///                             allow NEVER (a definition only adds limits, R13)
+///   rules.json                the seat's rule sets merged into one ask list in rule-set order, duplicates removed;
+///                             deny NEVER (the owner must always be able to approve), allow NEVER (a definition only
+///                             adds limits, R13)
 ///   brief.md                  seat kit only
 ///   grants.md                 seat kit only: each grant the seat uses, what it allows, its limits
 ///   files/...                 seat kit only: the definition files the seat names, as stored
@@ -133,36 +134,35 @@ public static class FactoryKitComposer
     }
 
     /// <summary>
-    /// The seat's rule sets merged: <c>deny</c> and <c>ask</c> unioned in the order the seat names its rule sets, each
-    /// rule kept where it first appears, and <c>allow</c> left out (see <see cref="FactoryDefinitionCheck.AllowNotApplied"/>).
+    /// The seat's rule sets merged into ONE <c>ask</c> list, in the order the seat names its rule sets, each rule kept
+    /// where it first appears, and <c>allow</c> left out (see <see cref="FactoryDefinitionCheck.AllowNotApplied"/>).
+    /// A kit never carries a <c>deny</c> rule (the owner's ruling of 24 October 2026: the owner must always be able to
+    /// approve). The check refuses a deny rule in a new version; a version published before that ruling may still hold
+    /// one, and its deny rules are carried as ask rules, after the set's own ask rules, so the limit still stops the
+    /// seat and the owner can still say yes.
     /// </summary>
     internal static string Rules(FactoryDefinition definition, SeatDefinition seat)
     {
-        var deny = new List<string>();
         var ask = new List<string>();
-        var seenDeny = new HashSet<string>(StringComparer.Ordinal);
-        var seenAsk = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in seat.Rules)
         {
             var set = definition.RuleSets.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal))
                 ?? throw new ArgumentException($"The seat names the rule set '{name}', which this version does not hold.");
-            foreach (var rule in set.Deny)
-                if (seenDeny.Add(rule)) deny.Add(rule);
-            foreach (var rule in set.Ask)
-                if (seenAsk.Add(rule)) ask.Add(rule);
+            foreach (var rule in set.Ask.Concat(set.Deny))
+                if (seen.Add(rule)) ask.Add(rule);
         }
         var doc = new Dictionary<string, object>
         {
-            ["permissions"] = new Dictionary<string, object> { ["deny"] = deny, ["ask"] = ask },
+            ["permissions"] = new Dictionary<string, object> { ["ask"] = ask },
         };
         return JsonSerializer.Serialize(doc, JsonOpts) + "\n";
     }
 
+    /// <summary>The seat's brief as published, then the standing paragraph every seat is given
+    /// (<see cref="Talk.FactorySeatOpening.OwnerWordIsFinal"/>).</summary>
     private static string Brief(SeatDefinition seat)
-    {
-        var text = seat.Brief.ReplaceLineEndings("\n");
-        return text.EndsWith('\n') ? text : text + "\n";
-    }
+        => Talk.FactorySeatOpening.WithOwnerWord(seat.Brief.ReplaceLineEndings("\n")) + "\n";
 
     private static string Grants(FactoryDefinition definition, SeatDefinition seat)
     {

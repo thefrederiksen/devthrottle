@@ -82,6 +82,33 @@ public static class FactorySeatOpening
         "and a change to the Boss's own seat needs the owner's approval.";
 
     /// <summary>
+    /// THE OWNER'S WORD IS FINAL (the owner's ruling of 24 October 2026: "If I say so, directly, it can ask me for
+    /// approval. But if I approve, it has to do it."). One standing paragraph the Gateway gives EVERY seat - a talk, a
+    /// scheduled run, a check's start and the kit's brief.md - so it is never left to each factory's author to write, and
+    /// no brief can leave it out.
+    /// </summary>
+    public const string OwnerWordIsFinal =
+        "THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant "
+        + "or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval "
+        + "prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once "
+        + "the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the "
+        + "owner can always approve.";
+
+    /// <summary>
+    /// <paramref name="prompt"/> with <see cref="OwnerWordIsFinal"/> as its last paragraph, or unchanged when it already
+    /// holds it: a talk's text passes through the seat start too, and the paragraph is said once. Only line ends at the
+    /// prompt's very end are dropped; the paragraph follows one blank line written with <paramref name="newLine"/>.
+    /// </summary>
+    public static string WithOwnerWord(string prompt, string newLine = "\n")
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        ArgumentNullException.ThrowIfNull(newLine);
+        if (prompt.Contains(OwnerWordIsFinal, StringComparison.Ordinal)) return prompt;
+        var trimmed = prompt.TrimEnd('\r', '\n');
+        return trimmed.Length == 0 ? OwnerWordIsFinal : trimmed + newLine + newLine + OwnerWordIsFinal;
+    }
+
+    /// <summary>
     /// The brief as the session reads it: its text between two lines that say which version it is. The text is given
     /// whole and unchanged; only line ends at its very end are dropped, so the closing line always starts a line.
     /// </summary>

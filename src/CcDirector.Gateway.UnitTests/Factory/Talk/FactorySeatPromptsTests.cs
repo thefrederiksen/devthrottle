@@ -122,6 +122,8 @@ public sealed class FactorySeatPromptsTests
            cc-devthrottle factory record --factory warmforward --agent <the item's seat> --outcome done --corrects <the item's row id> --what "Handled: <the evidence>"
            Then tell the owner the word the factory ends on.
 
+        THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
+
         """;
 
     private const string UndefinedTalkBriefVersion = """
@@ -162,6 +164,8 @@ public sealed class FactorySeatPromptsTests
            cc-devthrottle factory record --factory warmforward --agent <the item's seat> --outcome done --corrects <the item's row id> --what "Handled: <the evidence>"
            Then tell the owner the word the factory ends on.
 
+        THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
+
         """;
 
     private const string UndefinedRunNoSeat = """
@@ -182,6 +186,8 @@ public sealed class FactorySeatPromptsTests
         Do the morning run. When done, run cc-devthrottle session done.
 
         When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+        THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
         """;
 
     private const string DefinedTalk = """
@@ -226,6 +232,8 @@ public sealed class FactorySeatPromptsTests
            cc-devthrottle factory record --factory warmforward --agent <the item's seat> --outcome done --corrects <the item's row id> --what "Handled: <the evidence>"
            Then tell the owner the word the factory ends on.
 
+        THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
+
         """;
 
     private const string DefinedRun = """
@@ -244,5 +252,7 @@ public sealed class FactorySeatPromptsTests
         Do the morning run. When done, run cc-devthrottle session done.
 
         When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+        THE OWNER'S WORD IS FINAL. When the owner tells you directly to do something, do it. If a permission rule, a grant or your brief stands in the way, do not refuse and do not tell the owner to do it themselves: put the approval prompt in front of the owner - run the step, so the permission question appears for the owner to answer - and once the owner says yes, carry it out. Never write a deny rule into a settings file: restrict with an ask rule, so the owner can always approve.
         """;
 }

@@ -129,7 +129,7 @@ When you have finished, the last thing you do is report how this scheduled run w
 
         var seed = FactoryTalkSeed.Compose(f, f.Seats[0], "cj_a721e6", MorningRun, brief: null);
 
-        Assert.Equal(OneLineEnd(TodaysTalkToTheBoss) + "\n", OneLineEnd(seed));
+        Assert.Equal(OneLineEnd(TodaysTalkToTheBoss) + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal + "\n", OneLineEnd(seed));
         Assert.Equal(seed, FactoryTalkSeed.Compose(f, f.Seats[0], "cj_a721e6", MorningRun));
     }
 
@@ -140,7 +140,7 @@ When you have finished, the last thing you do is report how this scheduled run w
 
         var seed = FactoryTalkSeed.Compose(f, f.Seats[1], scheduleId: null, scheduleSeed: null, brief: null);
 
-        Assert.Equal(OneLineEnd(TodaysTalkToASeat) + "\n", OneLineEnd(seed));
+        Assert.Equal(OneLineEnd(TodaysTalkToASeat) + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal + "\n", OneLineEnd(seed));
     }
 
     [Fact]
@@ -246,7 +246,7 @@ When you have finished, the last thing you do is report how this scheduled run w
             .Replace(" --agent boss --version 3 --outcome talked", " --agent boss --outcome talked")
             .Replace("   Keep --version 3 exactly as written: it records which version of your brief this talk was given.\n", "");
 
-        Assert.Equal(OneLineEnd(TodaysTalkToTheBoss) + "\n", withoutIt);
+        Assert.Equal(OneLineEnd(TodaysTalkToTheBoss) + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal + "\n", withoutIt);
     }
 
     [Fact]
@@ -321,7 +321,8 @@ When you have finished, the last thing you do is report how this scheduled run w
             + "comes what this schedule asks of this run.\n\n"
             + "--- your brief, version 3 ---\n" + BriefOne + "\n--- end of your brief, version 3 ---\n\n"
             + MorningRun + "\n\n"
-            + ScheduledRunClosingInstruction.Text,
+            + ScheduledRunClosingInstruction.Text + "\n\n"
+            + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal,
             given);
     }
 
@@ -334,7 +335,8 @@ When you have finished, the last thing you do is report how this scheduled run w
 
         var given = ScheduledRunOpening.PromptFor("/mail-desk\n\n", "Mail Desk", "cj_mail", seat);
 
-        Assert.Equal("/mail-desk\n\n" + ScheduledRunOpening.Opening("Mail Desk", "cj_mail", seat) + "\n\n" + ScheduledRunClosingInstruction.Text, given);
+        Assert.Equal("/mail-desk\n\n" + ScheduledRunOpening.Opening("Mail Desk", "cj_mail", seat) + "\n\n" + ScheduledRunClosingInstruction.Text
+            + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, given);
     }
 
     [Fact]
@@ -343,12 +345,12 @@ When you have finished, the last thing you do is report how this scheduled run w
         var f = WarmForward();
         // The brief names the command; the schedule's prompt does not. The run is still told to report.
         var briefNamesIt = new ScheduledRunSeat(f, f.Seats[0], new FactoryGivenBrief(1, "In a talk, never run cc-devthrottle run result."));
-        Assert.EndsWith("\n\n" + ScheduledRunClosingInstruction.Text, ScheduledRunOpening.PromptFor(MorningRun, "n", "cj_1", briefNamesIt));
+        Assert.EndsWith("\n\n" + ScheduledRunClosingInstruction.Text + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, ScheduledRunOpening.PromptFor(MorningRun, "n", "cj_1", briefNamesIt));
 
         // The schedule's prompt names the command: the owner's own wording wins, and nothing is added after it.
         const string ownersWording = "Sort the inbox. When done: cc-devthrottle run result ok";
         var plain = new ScheduledRunSeat(f, f.Seats[0], new FactoryGivenBrief(1, BriefOne));
-        Assert.EndsWith("\n\n" + ownersWording, ScheduledRunOpening.PromptFor(ownersWording, "n", "cj_1", plain));
+        Assert.EndsWith("\n\n" + ownersWording + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, ScheduledRunOpening.PromptFor(ownersWording, "n", "cj_1", plain));
     }
 
     [Fact]

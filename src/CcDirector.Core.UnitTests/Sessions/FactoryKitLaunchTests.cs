@@ -27,9 +27,13 @@ public sealed class FactoryKitLaunchTests : IDisposable
     private string HooksDirectory => Path.Combine(_scratch, "claude-hooks");
 
     private const string RuledRules =
-        "{\n  \"permissions\": {\n    \"deny\": [\n      \"Read(./kit-denied.txt)\",\n      \"Bash(git push:*)\"\n    ],\n    \"ask\": [\n      \"Bash(git tag:*)\"\n    ]\n  }\n}\n";
+        "{\n  \"permissions\": {\n    \"ask\": [\n      \"Bash(git tag:*)\",\n      \"Read(./kit-asked.txt)\",\n      \"Bash(git push:*)\"\n    ]\n  }\n}\n";
 
-    private const string NoRules = "{\n  \"permissions\": {\n    \"deny\": [],\n    \"ask\": []\n  }\n}\n";
+    // What a Gateway older than the owner's ruling of 24 October 2026 composed: a deny list beside the ask list.
+    private const string RulesFromAnOlderGateway =
+        "{\n  \"permissions\": {\n    \"deny\": [\n      \"Read(./kit-denied.txt)\",\n      \"Bash(git push:*)\"\n    ],\n    \"ask\": [\n      \"Bash(git tag:*)\",\n      \"Bash(git push:*)\"\n    ]\n  }\n}\n";
+
+    private const string NoRules = "{\n  \"permissions\": {\n    \"ask\": []\n  }\n}\n";
 
     /// <summary>A kit folder as FactoryRunKit writes it, with the given rules.json, kit.json and optional plugin.</summary>
     private string Kit(string rules, string kitJson = "{\"kind\": \"seat\", \"secrets\": []}\n", bool plugin = false)
@@ -76,6 +80,23 @@ public sealed class FactoryKitLaunchTests : IDisposable
         Assert.Equal(sharedBefore, File.ReadAllBytes(shared));
         Assert.DoesNotContain("permissions", File.ReadAllText(shared));
         Assert.DoesNotContain("git push", File.ReadAllText(shared));
+    }
+
+    [Fact]
+    public void PlanFor_AKitFromAnOlderGateway_WritesItsDenyRulesAsAskRules_AndNoDenyReachesTheAgent()
+    {
+        // The owner's ruling of 24 October 2026: the owner must always be able to approve. A kit an older Gateway wrote
+        // still says deny; the seat's settings carry those rules as ask rules, after the kit's own, each once.
+        var kit = Kit(RulesFromAnOlderGateway);
+
+        var contents = FactoryKitLaunch.Read(kit);
+        var plan = FactoryKitLaunch.PlanFor(AgentKind.ClaudeCode, kit, contents, HooksDirectory, forWindows: true);
+
+        var permissions = JsonNode.Parse(File.ReadAllText(plan.SettingsPath!))!["permissions"]!.AsObject();
+        Assert.Equal(new[] { "Bash(git tag:*)", "Bash(git push:*)", "Read(./kit-denied.txt)" },
+            permissions["ask"]!.AsArray().Select(r => r!.GetValue<string>()));
+        Assert.False(permissions.ContainsKey("deny"));
+        Assert.True(contents.HasRules);
     }
 
     [Fact]
@@ -175,7 +196,7 @@ public sealed class FactoryKitLaunchTests : IDisposable
 
         var ex = Assert.Throws<InvalidOperationException>(() => FactoryKitLaunch.Read(kit));
 
-        Assert.Equal("the kit's rules.json has the key 'allow', and a kit carries only 'deny' and 'ask' rules, so its rules cannot be read", ex.Message);
+        Assert.Equal("the kit's rules.json has the key 'allow', and a kit carries only 'ask' rules, so its rules cannot be read", ex.Message);
     }
 
     [Fact]

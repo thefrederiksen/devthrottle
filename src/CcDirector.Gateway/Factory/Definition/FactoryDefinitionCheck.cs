@@ -60,11 +60,19 @@ public static class FactoryDefinitionCheck
 
     /// <summary>
     /// The notice on every <c>allow</c> list of a rule set (Factory Definition, phase 5, design section 4). A seat's kit
-    /// carries only <c>deny</c> and <c>ask</c>: an <c>allow</c> rule could approve what the repository itself would ask
-    /// about, and a definition only ever adds limits (R13). The list stays valid; it is said out loud that it does nothing.
+    /// carries only <c>ask</c>: an <c>allow</c> rule could approve what the repository itself would ask about, and a
+    /// definition only ever adds limits (R13). The list stays valid; it is said out loud that it does nothing.
     /// </summary>
     public const string AllowNotApplied =
         "allow rules are not applied when the seat starts: a definition only adds limits.";
+
+    /// <summary>
+    /// The error on every rule in a rule set's <c>deny</c> list (the owner's ruling of 24 October 2026: "if I approve, it
+    /// has to do it"). A deny rule refuses with no prompt, so the owner has no way to approve what it blocks; a factory
+    /// restricts with <c>ask</c>, which stops the seat and puts the question in front of a person.
+    /// </summary>
+    public static string DenyNotAllowed(string rule) =>
+        $"The rule '{rule}' is a deny rule, and a factory may not hold one: make it an ask rule: the owner must always be able to approve.";
 
     /// <summary>
     /// The notice on a seat with starts that names a rule set with an <c>ask</c> rule (Factory Definition, phase 5, QA
@@ -452,6 +460,7 @@ public static class FactoryDefinitionCheck
             foreach (var (seatId, seat) in _p.Seats) CheckSeat(seatId, seat, named);
             CheckGrants();
             AllowLists();
+            DenyLists();
             CheckHeaders();
             Unused(named);
         }
@@ -462,6 +471,15 @@ public static class FactoryDefinitionCheck
             foreach (var (_, file) in _p.RuleSets)
                 if (file.Map.Find("permissions")?.Value is DefinitionMap permissions && permissions.Find("allow") is { } allow)
                     Notice(_findings, file.Path, allow.KeyLine, AllowNotApplied);
+        }
+
+        /// <summary>An error on each rule of each rule set's <c>deny</c> list, on its own line (<see cref="DenyNotAllowed"/>).</summary>
+        private void DenyLists()
+        {
+            foreach (var (_, file) in _p.RuleSets)
+                if (file.Map.Find("permissions")?.Value is DefinitionMap permissions && permissions.Find("deny") is { } deny)
+                    foreach (var (rule, line) in Items(deny))
+                        Error(_findings, file.Path, line, DenyNotAllowed(rule));
         }
 
         // A CHECK WHOSE HEADER NEVER CLOSES CAN NEVER RUN (phase 5b): the Director's runner refuses it on the header
@@ -638,9 +656,10 @@ public static class FactoryDefinitionCheck
 
         // AN ASK RULE ON A SEAT NOBODY WATCHES (Factory Definition mission, phase 5, QA finding 4): an ask rule binds
         // even under the Director's permission flag, so a seat started by one of its starts - a schedule or a check,
-        // with nobody there - waits at the question until a person answers it. Said on the seat's line naming each rule
-        // set whose ask list is not empty, as a notice: the rule may be meant. A seat with no starts is only ever
-        // started by a person, who is there to answer, and gets none.
+        // with nobody there - waits at the question until a person answers it. Said once, on the seat's line naming the
+        // first rule set whose ask list is not empty, as a notice: the rule is meant, and stopping until the owner answers
+        // is what an ask rule is for (the owner's ruling of 24 October 2026). A seat with no starts is only ever started
+        // by a person, who is there to answer, and gets none.
         private void AskRulesWithNobodyThere(string path, DefinitionMap seat, DefinitionEntry rules)
         {
             if (seat.Find("starts") is not { Value: DefinitionList { Items.Count: > 0 } }) return;
@@ -650,7 +669,12 @@ public static class FactoryDefinitionCheck
                     && file.Map.Find("permissions")?.Value is DefinitionMap permissions
                     && permissions.Find("ask") is { } ask
                     && Items(ask).Count > 0)
+                {
+                    // Said once for the seat, on the first rule set that asks: the sentence is about the seat, and now
+                    // that every limit is an ask rule a seat naming two such sets would otherwise be told it twice.
                     Notice(_findings, path, line, AskStopsAnUnattendedRun);
+                    return;
+                }
             }
         }
 

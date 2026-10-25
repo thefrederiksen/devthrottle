@@ -197,6 +197,10 @@ public sealed class Session : IDisposable
     private readonly List<SessionStateDiagnostic> _stateDiagnostics = new();
     private long _lastStateEventSequence;
     private DateTimeOffset _selectedStateFactAtUtc = DateTimeOffset.MinValue;
+    // When input last reached this session's terminal by any route - a person's keys, a prompt, a driver's keys. A
+    // permission prompt is answered by input, so terminal output clears an agent-reported prompt only after some arrived.
+    // Held as UTC ticks and read and written with Volatile, so the input paths never take the state lock.
+    private long _lastInputAtUtcTicks = DateTimeOffset.MinValue.UtcTicks;
 
     /// <summary>If this session was created as part of a group (issue #225), the shared
     /// group identity its members travel by; null for a solo session. Members of the same
@@ -345,6 +349,13 @@ public sealed class Session : IDisposable
     /// the folder it ran in, because its agent finds its conversation by that folder.
     /// </summary>
     public string? FactoryKitDirectory { get; internal set; }
+
+    /// <summary>
+    /// The settings files of the folder this session started in that hold deny rules, read once at launch
+    /// (<see cref="Claude.FolderDenyRules"/>). Empty for a folder with none and for every agent but Claude Code.
+    /// </summary>
+    public IReadOnlyList<CcDirector.Gateway.Contracts.FolderDenyRulesDto> FolderDenyRules { get; internal set; } =
+        Array.Empty<CcDirector.Gateway.Contracts.FolderDenyRulesDto>();
 
     /// <summary>
     /// True for a seat with no repository, which works in its kit's work/ folder (Factory Definition mission, phase 5).
@@ -3356,13 +3367,14 @@ public sealed class Session : IDisposable
     /// </summary>
     private void WriteRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
         if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin, provenance.Route) && !UsageLimitInputGuard.PromptPassesTheDialog(origin))
-        {
             _backend.Write(data);
-            return;
-        }
-        using (UsageLimitInputGuard.PersonAtTheTerminal())
-            _backend.Write(data);
+        else
+            using (UsageLimitInputGuard.PersonAtTheTerminal())
+                _backend.Write(data);
+        // Stamped once the bytes went out, never for a write the usage-limit guard dropped (review finding 3).
+        if (!refusals.Refused) StampInput();
     }
 
     /// <summary>Where the usage-limit verdict was last taken: the screen's byte count then, and what it said.</summary>
@@ -4801,6 +4813,8 @@ public sealed class Session : IDisposable
                     WorkingOrigin = priorOrigin;
                     return refusedAtTheKeystroke;
                 }
+                // Input is reaching the terminal from here on; a send refused above typed nothing and answered nothing.
+                StampInput();
                 var proof = BeginArrivalProof(target, text);
                 // A LINE THE AGENT TAKES AS A COMMAND IS ENTERED ONCE (issue #4380): see TerminalSubmit's commandLine.
                 var leadingMode = Driver.LeadingCharacterMode(text.TrimEnd('\r', '\n'));
@@ -4872,6 +4886,7 @@ public sealed class Session : IDisposable
                     WorkingOrigin = priorOrigin;
                     return refusedAtTheKeystroke;
                 }
+                StampInput();
                 await target.SendTextAsync(text);
             }
         }
@@ -5067,6 +5082,7 @@ public sealed class Session : IDisposable
         {
             if (key.PauseBefore > TimeSpan.Zero) await Task.Delay(key.PauseBefore, Clock);
             _backend.Write(key.Bytes);
+            if (!refusals.Refused) StampInput();
         }
         var keysAnswer = refusals.Refused
             ? InputAnswer.Refused($"the usage-limit dialog is showing, and only Escape reaches it; {input} did not all reach the terminal")
@@ -5568,6 +5584,9 @@ public sealed class Session : IDisposable
     internal void ApplyWingmanActivityState(ActivityState newState) =>
         ApplyResolvedActivityState(newState, SessionStateSources.Wingman, Clock.GetUtcNow(), isFallback: false);
 
+    /// <summary>Record that input is reaching the terminal now (see <see cref="_lastInputAtUtcTicks"/>).</summary>
+    private void StampInput() => Volatile.Write(ref _lastInputAtUtcTicks, Clock.GetUtcNow().UtcTicks);
+
     private void ApplyResolvedActivityState(
         ActivityState reportedState,
         string reportedSource,
@@ -5600,9 +5619,21 @@ public sealed class Session : IDisposable
         // Permission is an edge, not a permanent latch. Some agents do not report the matching
         // approval-completed edge, so any later fact that says the session is no longer at that
         // permission gate supersedes it even when that fact comes from a lower-priority source.
+        //
+        // EXCEPT TERMINAL OUTPUT AFTER THE AGENT'S OWN PERMISSION FACT (the owner's ruling of 24 October 2026: a seat on
+        // a permission prompt must show as needs-you). The agent's hook fires BEFORE the dialog is drawn, so the bytes
+        // that draw the dialog arrive after it - "output, therefore working" would clear every agent-reported prompt the
+        // moment it appeared, and a status line that keeps redrawing would hold it blue for as long as the prompt sat
+        // there. Only Claude Code reports permission_requested, and it reports the way out of the gate itself (the tool
+        // finishing, the turn ending, the next prompt), and an interrupt shows the idle composer on the screen.
+        // So output clears it only once input has reached the terminal since the prompt was raised: the prompt is
+        // answered by a key, and the tool it approved may then run for minutes before the agent reports again.
+        var outputNobodyAnswered = ActivityStateSource == SessionStateSources.Agent
+            && reportedSource == SessionStateSources.TerminalOutput
+            && Volatile.Read(ref _lastInputAtUtcTicks) <= _selectedStateFactAtUtc.UtcTicks;
         var clearsPermission = ActivityState == ActivityState.WaitingForPerm
             && isLater
-            && (reportedState == ActivityState.Working
+            && ((reportedState == ActivityState.Working && !outputNobodyAnswered)
                 || (reportedSource == SessionStateSources.Screen
                     && reportedState == ActivityState.WaitingForInput));
         // Silence after terminal output is the other half of that detector's own work cycle. It

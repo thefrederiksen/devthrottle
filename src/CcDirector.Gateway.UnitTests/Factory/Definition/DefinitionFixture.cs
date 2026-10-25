@@ -156,16 +156,14 @@ internal static class DefinitionFixture
     // 1 {
     // 2   "permissions": {
     // 3     "allow": ["Bash(git status)"],
-    // 4     "deny": ["Bash(git push:*)"],
-    // 5     "ask": []
-    // 6   }
-    // 7 }
+    // 4     "ask": ["Bash(git push:*)"]
+    // 5   }
+    // 6 }
     public const string BaseRules = """
         {
           "permissions": {
             "allow": ["Bash(git status)"],
-            "deny": ["Bash(git push:*)"],
-            "ask": []
+            "ask": ["Bash(git push:*)"]
           }
         }
         """;
@@ -173,7 +171,7 @@ internal static class DefinitionFixture
     public const string OutreachRules = """
         {
         	"permissions": {
-        		"deny": ["Bash(rm:*)"]
+        		"ask": ["Bash(rm:*)"]
         	}
         }
         """;

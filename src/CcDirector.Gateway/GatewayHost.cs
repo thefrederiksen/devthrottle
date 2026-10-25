@@ -5764,7 +5764,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // its newest draft.
             Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions),
             // Pause everything (issue #3910): while it is on, the list shows no next start.
-            SchedulerPaused: _cronPause.IsPaused);
+            SchedulerPaused: _cronPause.IsPaused,
+            // The live sessions, for the deny rules their folders held at launch (the owner's ruling of 24 October 2026).
+            LiveSessions: tenant => PushedSessions.SnapshotFresh(tenant, _streamStaleAfter).Select(p => p.Session).ToList());
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,

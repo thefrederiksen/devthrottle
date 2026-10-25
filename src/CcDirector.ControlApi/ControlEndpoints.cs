@@ -261,6 +261,9 @@ internal static class ControlEndpoints
             // in the folder it ran in. Null for every session that is not a seat of a defined factory or a child of one.
             FactoryKitDirectory = s.FactoryKitDirectory,
             FactoryHome = s.FactoryHome ? true : null,
+            // The deny rules the folder's own settings held at launch (the owner's ruling of 24 October 2026), for the
+            // factory's page to say in words.
+            FolderDenyRules = s.FolderDenyRules.ToList(),
             // The repository this session's folder is a linked worktree OF, resolved on this machine
             // when the session was created (the one-repository-list mission, "a worktree is not a
             // repository"). Only this machine can read it, so it has to travel: without it the Gateway's

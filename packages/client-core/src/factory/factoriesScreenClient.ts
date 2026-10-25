@@ -366,6 +366,9 @@ export interface FactoryPageView {
   leftOpenText: string | null;
   /** The Seats tab; null with no flag. */
   leftOpenHref: string | null;
+  /** Deny rules in the folders this factory's live sessions started in, one finished sentence per settings file
+   *  (the owner's ruling of 24 October 2026). Empty when there are none. Rendered verbatim. */
+  folderDenyTexts: string[];
   /** "runs on SOREN_NORTH". */
   computerText: string;
   talk: FactoryTalkTarget | null;

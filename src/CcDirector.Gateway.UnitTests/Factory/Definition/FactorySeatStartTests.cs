@@ -48,7 +48,8 @@ public sealed class FactorySeatStartTests : IDisposable
         Assert.Equal(4, req.FactoryDefinitionVersion);
         Assert.Equal(FactoryKits.Seat, req.FactoryKit);
         Assert.Equal("DevThrottle - Outreach - run", req.Name);
-        Assert.Equal("Go.", req.PrePrompt);
+        // Every seat start is told the owner's word is final (the owner's ruling of 24 October 2026).
+        Assert.Equal("Go.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
         Assert.Null(req.FactoryStartOverride);
         Assert.True(CcDirector.Gateway.Api.SpawnFactory.StartsWithoutAFolder(req));
     }
