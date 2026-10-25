@@ -1588,6 +1588,43 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>
+    /// Settle the folder trust of a scheduled Claude Code session before it starts (issue #3469), or return why it may
+    /// not start. Null when the folder is already trusted (by itself, a parent, or its main checkout), when it is one
+    /// of this machine's registered repositories - which is then marked trusted - or when this Director marks no
+    /// folders. The refusal starts "not started: " and names the folder and the machine, so the run record reads as a
+    /// sentence a person acts on.
+    /// </summary>
+    internal static string? ScheduledFolderTrustRefusal(string? folder, IReadOnlyList<RepositoryConfig>? registered,
+        CcDirector.Core.Claude.ClaudeFolderTrust? trust, string machine)
+    {
+        if (trust is null || string.IsNullOrWhiteSpace(folder)) return null;
+        if (trust.Covers(folder)) return null;
+        var full = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // The same rule the repository registry decides "the same repository" by (RepositoryRegistry.TryAdd).
+        var comparison = StringComparison.OrdinalIgnoreCase;
+        var isRepository = registered?.Any(r => !string.IsNullOrWhiteSpace(r.Path) && string.Equals(
+            Path.GetFullPath(r.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), full, comparison)) == true;
+        if (!isRepository)
+            return $"not started: the folder '{folder}' is not one of the repositories of {machine}, and Claude Code has never been told to trust it, " +
+                   $"so the scheduled session would wait at the folder-trust question with nobody to answer it. Add the folder as a repository of {machine}, " +
+                   "or open it (or the repository it is in) once in DevThrottle and answer the question; the next run then starts.";
+        try
+        {
+            trust.Trust(full);
+        }
+        catch (CcDirector.Core.Claude.ClaudeFolderTrustException ex)
+        {
+            // Its message is worded for a factory seat; the run's record gets a sentence of its own, and the log the detail.
+            FileLog.Write($"[SessionCommandExecutor] ScheduledFolderTrustRefusal: marking {full} trusted FAILED: {ex.Message}");
+            return $"not started: the folder '{folder}' is a repository of {machine}, but Claude Code's configuration there could not be " +
+                   "read or written to record it as trusted, so the scheduled session would wait at the folder-trust question. " +
+                   $"Open the folder once in DevThrottle on {machine} and answer the question; the next run then starts.";
+        }
+        FileLog.Write($"[SessionCommandExecutor] marked {full} trusted for Claude Code: a scheduled session in a repository of this machine");
+        return null;
+    }
+
+    /// <summary>
     /// THE SEAT'S START, SETTLED BEFORE THE CREATE (Factory Definition mission, phase 5, design sections 2 and 4): which
     /// kit the Director downloads and writes before the agent starts, and where the seat works. Returns the refusal, in
     /// one sentence, or null. A create that names no part of a seat settles nothing and is exactly what it was.
@@ -1930,6 +1967,18 @@ internal static class SessionCommandExecutor
                               $"(repo=\"{carried.Repo}\", slot=\"{carried.Slot}\", path=\"{carried.Path}\", " +
                               $"lease present={!string.IsNullOrWhiteSpace(carried.Lease)}); it is ignored");
             }
+        }
+
+        // A SCHEDULED CLAUDE CODE SESSION NEVER WAITS ON THE FOLDER-TRUST QUESTION (issue #3469). Nobody is there to
+        // answer it, so the first-prompt gate held the seed for ten minutes and then dropped it. A folder the owner has
+        // registered as one of this machine's repositories is marked trusted before the agent starts; any other folder
+        // the owner never trusted is refused here, at once, in words the run record carries.
+        if (kind == AgentKind.ClaudeCode && factoryKit is null && origin.Kind == SessionOriginKinds.Schedule
+            && ScheduledFolderTrustRefusal(req.RepoPath, services?.Repositories?.Repositories, sessionManager.ClaudeFolderTrust,
+                Environment.MachineName) is { } trustRefusal)
+        {
+            FileLog.Write($"[SessionCommandExecutor] create REFUSED: {trustRefusal}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, trustRefusal);
         }
 
         Session session;
