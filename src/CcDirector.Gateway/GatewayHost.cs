@@ -4153,26 +4153,38 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     private void OnScheduledTurnEnd(TenantId tenant, string directorId, string sessionId)
     {
-        var started = PushedSessions.GetLastKnown(tenant, directorId).Sessions.FirstOrDefault(s =>
-            string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
-        if (started is null || _seatLimitScreen is not { } screen || _cronRunResults is not { } results
-            || !string.Equals(started.OriginSurface, Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal))
-            return;
-        _ = Task.Run(async () =>
+        try
         {
-            try
+            // Only a session a schedule started, and only while its run waits for its result, costs a screen read (the
+            // #3907 review, finding 3): the roster row is read alone, and the run is looked up before the screen is.
+            var started = PushedSessions.TryGetLastKnownSession(tenant, sessionId);
+            if (started is null || _seatLimitScreen is not { } screen || _cronRunResults is not { } results
+                || !string.Equals(started.Value.Session.OriginSurface, Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal))
+                return;
+            bool pending;
+            using (_tenantBoundary.EnterScope(tenant))
+                pending = results.IsPendingScheduledRun(tenant, sessionId);
+            if (!pending) return;
+            _ = Task.Run(async () =>
             {
-                using (_tenantBoundary.EnterScope(tenant))
+                try
                 {
-                    var rows = await screen.ReadScreenRowsAsync(tenant, directorId, sessionId, CancellationToken.None).ConfigureAwait(false);
-                    results.RecordSeatLimitFromScreen(tenant, sessionId, rows);
+                    using (_tenantBoundary.EnterScope(tenant))
+                    {
+                        var rows = await screen.ReadScreenRowsAsync(tenant, directorId, sessionId, CancellationToken.None).ConfigureAwait(false);
+                        results.RecordSeatLimitFromScreen(tenant, sessionId, rows);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayHost] scheduled turn end FAILED: sid={sessionId}: {ex.Message}");
-            }
-        });
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayHost] scheduled turn end FAILED: sid={sessionId}: {ex.Message}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] scheduled turn end FAILED before the screen read: sid={sessionId}: {ex.Message}");
+        }
     }
 
     private Supervision.GatewaySupervisorEnvironment BuildSupervisorEnvironment()
@@ -4340,8 +4352,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The session supervisor (issue #915). It hangs off the SAME turn-end boundary as the voice refresh
         // below, deliberately: that event is the only thing that can wake it, so a Working session is out of
         // its reach by construction rather than by a rule somebody has to remember.
-        _sessionSupervisor ??= new Supervision.SessionSupervisor(BuildSupervisorEnvironment());
+        // One supervisor environment, shared: the seat-limit read (issue #3907) borrows only its screen read.
         _seatLimitScreen ??= BuildSupervisorEnvironment();
+        _sessionSupervisor ??= new Supervision.SessionSupervisor(_seatLimitScreen);
         FileLog.Write("[GatewayHost] StartAsync: session supervisor armed (auto-recovery on a transient transport fault)");
 
         // The rule evaluator (Session Rules mission, phase 2). It hangs off the SAME turn-end boundary, so

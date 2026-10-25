@@ -498,6 +498,65 @@ public sealed class CronRunResultTests : IDisposable
     }
 
     [Fact]
+    public void RecordSeatLimitFromScreen_AHealthyReplyThatQuotesALimit_IsNotABlock()
+    {
+        // The #3907 review, finding 1: a Boss reporting on another seat quotes the block; this run is healthy.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+        var screen = new[]
+        {
+            "> Write the nightly summary.",
+            "",
+            "● Nightly summary: Scout stopped at \"You've hit your weekly limit · resets Mon 9am\" and did nothing.",
+            "  Mail Warmer sent 40 emails.",
+            "╭──────────────╮",
+            "│ >            │",
+            "╰──────────────╯",
+        };
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", screen));
+        Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
+    }
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_ASeedThatNamesTheWording_IsNotABlock()
+    {
+        // The #3907 review, finding 2: the echoed seed tells the agent what to do if it sees the limit; it replied fine.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+        var screen = new[]
+        {
+            "> If you see \"You've hit your weekly limit\", stop and report it.",
+            "  Otherwise answer every email.",
+            "● Done: three emails answered.",
+            "│ >            │",
+        };
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", screen));
+    }
+
+    [Fact]
+    public void IsPendingScheduledRun_OnlyARunStillWaitingForItsResult()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+
+        Assert.True(service.IsPendingScheduledRun(TenantId.Local, "s1"));
+        Assert.False(service.IsPendingScheduledRun(TenantId.Local, "not-a-run"));
+        service.Report(TenantId.Local, "s1", "ok", null);
+        Assert.False(service.IsPendingScheduledRun(TenantId.Local, "s1"));
+    }
+
+    [Fact]
     public void RecordSeatLimitFromScreen_ARunThatAlreadyReported_IsLeftAsItIs()
     {
         var (service, runs, _) = Build();
