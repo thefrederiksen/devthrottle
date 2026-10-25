@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using System.Threading;
 using CcDirector.Setup.Engine;
 using Xunit;
@@ -11,8 +10,10 @@ namespace CcDirector.Setup.Engine.Tests;
 /// Python before it can replace a working one, and the cross-process install lock. These are the guards that
 /// stop a redundant or interrupted install (a running Director holding a .pyd open) from stripping the shared
 /// Python of its standard library and breaking every cc-* tool.
+///
+/// On every system: where Windows and Unix differ - an open file blocks a directory rename only on Windows - the test
+/// asserts each side, and the release is staged in this system's shape (<see cref="PlatformBundle"/>).
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class PythonToolsCrashSafeTests : IDisposable
 {
     private readonly string _dir;
@@ -74,9 +75,18 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
 
         bool ok;
         string err;
-        using (new FileStream(Path.Combine(live, "locked.pyd"), FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var runningTool = new FileStream(Path.Combine(live, "locked.pyd"), FileMode.Open, FileAccess.Read, FileShare.None))
         {
             ok = PythonToolsInstaller.SetDirAside(live, backup, out err);
+            if (!OperatingSystem.IsWindows())
+            {
+                // macOS and Linux do not refuse the rename: the whole tree moves aside intact, and the running tool
+                // keeps reading the file it opened - so a rebuild can still be put back, and nothing was stripped.
+                Assert.True(ok, err);
+                Assert.Equal("original", File.ReadAllText(Path.Combine(backup, "keep.txt")));
+                Assert.Equal("held by a running tool", new StreamReader(runningTool, leaveOpen: true).ReadToEnd());
+                return;
+            }
         }
 
         Assert.False(ok);
@@ -128,7 +138,7 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
         File.WriteAllText(sentinel, "do-not-delete");
 
         var release = StageIncompletePythonRelease("9.9.9", "cc-pdf");
-        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, new ReleaseSource());
+        var result = await new PythonToolsInstaller(_layout, InterpreterCannotImportItsStandardLibrary()).InstallAsync(release, new ReleaseSource());
 
         Assert.False(result.Success);
         Assert.Contains("standard library", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -204,6 +214,20 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
     }
 
     /// <summary>
+    /// A runner that answers as an incomplete interpreter does: the standard-library probe fails. It unpacks archives in
+    /// this process (macOS and Linux), and any other run fails the test - the install must stop at the probe. No real
+    /// program is started, on any system.
+    /// </summary>
+    private static RunProcess InterpreterCannotImportItsStandardLibrary() => (exe, arguments, _, _) =>
+    {
+        if (PlatformBundle.TryUnpack(exe, arguments, out var unpacked)) return unpacked;
+        if (arguments == PythonRuntimeProbe.ProbeArguments)
+            return (1, "Fatal Python error: init_fs_encoding: failed to get the Python codec of the filesystem encoding\n"
+                       + "ModuleNotFoundError: No module named 'encodings'");
+        throw new InvalidOperationException($"unexpected run of {exe} {arguments}");
+    };
+
+    /// <summary>
     /// Stage a local release whose assets are real, SHA-matching zips, but whose "python.exe" is a non-PE
     /// text file - so InstallAsync gets past download/extract and fails at the runtime verify of the STAGED
     /// Python (BasePythonRuns), before any swap. The tools bundle carries a minimal manifest + wheelhouse.
@@ -217,10 +241,11 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
         // Python asset: a "python.exe" that is NOT a valid executable, so launching it throws and the runtime
         // probe reports the interpreter as dead (exactly the "missing standard library" shape from the field).
         var pyStage = Path.Combine(work, "py");
-        Directory.CreateDirectory(pyStage);
-        File.WriteAllText(Path.Combine(pyStage, "python.exe"), "not a real interpreter");
+        var stagedInterpreter = Path.Combine(pyStage, PlatformBundle.InterpreterInAsset);
+        Directory.CreateDirectory(Path.GetDirectoryName(stagedInterpreter)!);
+        File.WriteAllText(stagedInterpreter, "not a real interpreter");
         var pyZip = Path.Combine(releaseDir, PythonToolsInstaller.PythonAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(pyStage, pyZip);
+        PlatformBundle.Pack(pyStage, pyZip);
 
         // Tools asset: tools-manifest.json + an (empty) wheelhouse so the bundle parses.
         var toolsStage = Path.Combine(work, "tools");
@@ -229,13 +254,10 @@ public sealed class PythonToolsCrashSafeTests : IDisposable
         File.WriteAllText(Path.Combine(toolsStage, "tools-manifest.json"),
             $"{{\"bundleVersion\":\"{version}\",\"tools\":[{toolsArr}]}}");
         var toolsZip = Path.Combine(releaseDir, PythonToolsInstaller.ToolsAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(toolsStage, toolsZip);
+        PlatformBundle.Pack(toolsStage, toolsZip);
 
-        var json =
-            "{\"version\":\"" + version + "\",\"assets\":{" +
-            "\"cc-python-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + Hashing.Sha256OfFile(pyZip) + "\",\"platform\":\"windows\",\"size\":" + new FileInfo(pyZip).Length + "}," +
-            "\"cc-tools-pyenv-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + Hashing.Sha256OfFile(toolsZip) + "\",\"platform\":\"windows\",\"size\":" + new FileInfo(toolsZip).Length + "}" +
-            "}}";
+        var json = "{\"version\":\"" + version + "\",\"assets\":{" +
+                   PlatformBundle.AssetEntry(pyZip, version) + "," + PlatformBundle.AssetEntry(toolsZip, version) + "}}";
         File.WriteAllText(Path.Combine(releaseDir, "release-manifest.json"), json);
         return ReleaseSource.LoadLocalReleaseDir(releaseDir);
     }

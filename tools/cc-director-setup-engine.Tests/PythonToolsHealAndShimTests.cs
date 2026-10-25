@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.Versioning;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -9,8 +8,11 @@ namespace CcDirector.Setup.Engine.Tests;
 /// Fast, offline tests for the issue #577 self-healing pieces that do NOT require a real bundle install:
 /// the venv health probe, the heal-on-unhealthy update gate, the version-record gating, the no-stale-shim
 /// sequencing, and the self-checking Windows shim body.
+///
+/// On every system: the shims are the ones the product writes THERE (a <c>.cmd</c> and a bare bash launcher on
+/// Windows, a symbolic link on macOS and Linux), written by the product itself, and the release is in that system's
+/// shape (<see cref="PlatformBundle"/>).
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class PythonToolsHealAndShimTests : IDisposable
 {
     private readonly string _dir;
@@ -31,19 +33,32 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     /// <summary>Create the venv Scripts dir and place a fake console-script exe for each given script name.</summary>
     private void PlaceVenvScripts(params string[] scripts)
     {
-        Directory.CreateDirectory(_layout.PyenvScriptsDir);
+        Directory.CreateDirectory(_layout.PyenvBinDir);
         foreach (var s in scripts)
             File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, s), "fake-exe");
     }
 
+    /// <summary>The folder the product writes this system's shims in.</summary>
+    private string ShimDir => OperatingSystem.IsWindows() ? _layout.BinDir : _layout.ToolShimDir;
+
+    /// <summary>The shims the product itself writes for <paramref name="name"/> on this system, written by the product.</summary>
+    private List<string> ProductShimsFor(string name)
+    {
+        new PythonToolsInstaller(_layout).WriteShims(new[] { name });
+        return OperatingSystem.IsWindows()
+            ? new List<string> { Path.Combine(_layout.BinDir, $"{name}.cmd"), Path.Combine(_layout.BinDir, name) }
+            : new List<string> { Path.Combine(_layout.ToolShimDir, name) };
+    }
+
+    /// <summary>Is anything at <paramref name="path"/> - a file, or a symbolic link even when its target is gone.</summary>
+    private static bool Present(string path) => File.Exists(path) || new FileInfo(path).LinkTarget is not null;
+
     private static ResolvedRelease ReleaseWithBundle(string version)
     {
-        var json = """
-        {"version":"VER","assets":{
-          "cc-python-win-x64.zip":{"version":"VER","sha256":"a","platform":"windows","size":1},
-          "cc-tools-pyenv-win-x64.zip":{"version":"VER","sha256":"b","platform":"windows","size":1}
-        }}
-        """.Replace("VER", version);
+        var json = "{\"version\":\"VER\",\"assets\":{" +
+                   PlatformBundle.AssetEntry(PythonToolsInstaller.PythonAsset, "VER", "a", 1) + "," +
+                   PlatformBundle.AssetEntry(PythonToolsInstaller.ToolsAsset, "VER", "b", 1) + "}}";
+        json = json.Replace("VER", version);
         return new ResolvedRelease(ReleaseManifest.Parse(json), new Dictionary<string, string>());
     }
 
@@ -59,12 +74,10 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         Directory.CreateDirectory(releaseDir);
         foreach (var asset in new[] { PythonToolsInstaller.PythonAsset, PythonToolsInstaller.ToolsAsset })
             File.WriteAllText(Path.Combine(releaseDir, asset), "not-a-real-zip");
-        var json = """
-        {"version":"VER","assets":{
-          "cc-python-win-x64.zip":{"version":"VER","sha256":"0000000000000000000000000000000000000000000000000000000000000000","platform":"windows","size":13},
-          "cc-tools-pyenv-win-x64.zip":{"version":"VER","sha256":"1111111111111111111111111111111111111111111111111111111111111111","platform":"windows","size":13}
-        }}
-        """.Replace("VER", version);
+        var json = ("{\"version\":\"VER\",\"assets\":{" +
+                    PlatformBundle.AssetEntry(PythonToolsInstaller.PythonAsset, "VER", new string('0', 64), 13) + "," +
+                    PlatformBundle.AssetEntry(PythonToolsInstaller.ToolsAsset, "VER", new string('1', 64), 13) + "}}")
+                   .Replace("VER", version);
         File.WriteAllText(Path.Combine(releaseDir, "release-manifest.json"), json);
         return ReleaseSource.LoadLocalReleaseDir(releaseDir);
     }
@@ -84,10 +97,11 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         // Python asset: a placeholder "python.exe". The installer checks the file is there and then runs it
         // through the injected runner, so its contents never matter.
         var pyStage = Path.Combine(work, "py");
-        Directory.CreateDirectory(pyStage);
-        File.WriteAllText(Path.Combine(pyStage, "python.exe"), "placeholder interpreter");
+        var stagedInterpreter = Path.Combine(pyStage, PlatformBundle.InterpreterInAsset);
+        Directory.CreateDirectory(Path.GetDirectoryName(stagedInterpreter)!);
+        File.WriteAllText(stagedInterpreter, "placeholder interpreter");
         var pyZip = Path.Combine(releaseDir, PythonToolsInstaller.PythonAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(pyStage, pyZip);
+        PlatformBundle.Pack(pyStage, pyZip);
 
         // Tools asset: tools-manifest.json + a (possibly empty) wheelhouse so the bundle parses.
         var toolsStage = Path.Combine(work, "tools");
@@ -96,17 +110,10 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         File.WriteAllText(Path.Combine(toolsStage, "tools-manifest.json"),
             $"{{\"bundleVersion\":\"{version}\",\"tools\":[{toolsArr}]}}");
         var toolsZip = Path.Combine(releaseDir, PythonToolsInstaller.ToolsAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(toolsStage, toolsZip);
+        PlatformBundle.Pack(toolsStage, toolsZip);
 
-        var pySha = Hashing.Sha256OfFile(pyZip);
-        var toolsSha = Hashing.Sha256OfFile(toolsZip);
-        var pySize = new FileInfo(pyZip).Length;
-        var toolsSize = new FileInfo(toolsZip).Length;
-        var json =
-            "{\"version\":\"" + version + "\",\"assets\":{" +
-            "\"cc-python-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + pySha + "\",\"platform\":\"windows\",\"size\":" + pySize + "}," +
-            "\"cc-tools-pyenv-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + toolsSha + "\",\"platform\":\"windows\",\"size\":" + toolsSize + "}" +
-            "}}";
+        var json = "{\"version\":\"" + version + "\",\"assets\":{" +
+                   PlatformBundle.AssetEntry(pyZip, version) + "," + PlatformBundle.AssetEntry(toolsZip, version) + "}}";
         File.WriteAllText(Path.Combine(releaseDir, "release-manifest.json"), json);
         return ReleaseSource.LoadLocalReleaseDir(releaseDir);
     }
@@ -194,7 +201,7 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         var liveScript = PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf");
         File.WriteAllText(liveScript, "installed console script");
         new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
-        var shim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
+        var shim = PlatformBundle.ShimPath(_layout, "cc-pdf");
 
         var release = StageVenvFailRelease("9.9.9", "cc-pdf");
         var runs = new List<string>();
@@ -219,6 +226,7 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     /// </summary>
     private static RunProcess StdlibProbePassesVenvFails(List<string> runs) => (exe, arguments, _, _) =>
     {
+        if (PlatformBundle.TryUnpack(exe, arguments, out var unpacked)) return unpacked;
         runs.Add(arguments);
         if (arguments == PythonRuntimeProbe.ProbeArguments) return (0, "");
         if (arguments.StartsWith("-m venv", StringComparison.Ordinal)) return (1, "venv create refused by the test runner");
@@ -300,23 +308,15 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         // WRITTEN WITH THE PRODUCT'S OWN SHIM BODIES, not a stub, because the purge now requires a file
         // to prove the product wrote it before deleting it. A stub body would leave every one of these
         // standing and this test would report a purge that never happened.
-        Directory.CreateDirectory(_layout.BinDir);
         var orphans = new List<string>();
         foreach (var name in PythonToolsInstaller.LegacyAliasShimNames)
-        {
-            var cmd = Path.Combine(_layout.BinDir, $"{name}.cmd");
-            var bare = Path.Combine(_layout.BinDir, name);
-            File.WriteAllText(cmd, PythonToolsInstaller.BuildWindowsShimBody(name));
-            File.WriteAllText(bare, PythonToolsInstaller.BuildWindowsBashShimBody(name));
-            orphans.Add(cmd);
-            orphans.Add(bare);
-        }
+            orphans.AddRange(ProductShimsFor(name));
 
         var result = await new PythonToolsInstaller(_layout).InstallAsync(StageBadShaRelease("1.0.0"), new ReleaseSource());
 
         Assert.False(result.Success); // bad-SHA download fails the install, but the purge already ran
         foreach (var path in orphans)
-            Assert.False(File.Exists(path), $"orphaned legacy alias shim survived the install: {path}");
+            Assert.False(Present(path), $"orphaned legacy alias shim survived the install: {path}");
     }
 
     [Fact]
@@ -324,17 +324,14 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     {
         // The purge must remove ONLY the retired alias names. A live tool's shim (cc-pdf) sitting in bin\
         // must survive - purging it would break a working command. cc-send (a retired alias) is removed.
-        Directory.CreateDirectory(_layout.BinDir);
-        var liveShim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
-        var legacyShim = Path.Combine(_layout.BinDir, "cc-send.cmd");
-        File.WriteAllText(liveShim, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
-        File.WriteAllText(legacyShim, PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
+        var liveShim = ProductShimsFor("cc-pdf")[0];
+        var legacyShim = ProductShimsFor("cc-send")[0];
 
         var result = await new PythonToolsInstaller(_layout).InstallAsync(StageBadShaRelease("1.0.0"), new ReleaseSource());
 
         Assert.False(result.Success);
-        Assert.True(File.Exists(liveShim), "purge wrongly removed a live tool shim (cc-pdf.cmd)");
-        Assert.False(File.Exists(legacyShim), "purge failed to remove a retired alias shim (cc-send.cmd)");
+        Assert.True(Present(liveShim), $"purge wrongly removed a live tool shim ({liveShim})");
+        Assert.False(Present(legacyShim), $"purge failed to remove a retired alias shim ({legacyShim})");
     }
 
     /// <summary>
@@ -372,22 +369,23 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     [Fact]
     public void AHandWrittenLauncherForAListedNameIsKept_AndTheProductsOwnShimIsRemoved()
     {
-        Directory.CreateDirectory(_layout.BinDir);
+        Directory.CreateDirectory(ShimDir);
 
         // Measured on the owner's machine: this is what his cc-linkedin.cmd actually says. cc-docgen is
-        // on the list (registry-known, unshipped) and he runs it by hand.
-        var handWritten = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
-        File.WriteAllText(handWritten, "py -3.11 \"D:\\ReposFred\\cc-docgen\\cc_docgen.py\" %*\r\n");
+        // on the list (registry-known, unshipped) and he runs it by hand. Elsewhere, the same thing as a script.
+        var handWritten = OperatingSystem.IsWindows() ? Path.Combine(_layout.BinDir, "cc-docgen.cmd") : Path.Combine(ShimDir, "cc-docgen");
+        File.WriteAllText(handWritten, OperatingSystem.IsWindows()
+            ? "py -3.11 \"D:\\ReposFred\\cc-docgen\\cc_docgen.py\" %*\r\n"
+            : "#!/bin/sh\nexec python3 \"$HOME/repos/cc-docgen/cc_docgen.py\" \"$@\"\n");
 
-        var ourShim = Path.Combine(_layout.BinDir, "cc-comm-queue.cmd");
-        File.WriteAllText(ourShim, PythonToolsInstaller.BuildWindowsShimBody("cc-comm-queue"));
+        var ourShim = ProductShimsFor("cc-comm-queue")[0];
 
         var installer = new PythonToolsInstaller(_layout);
         installer.RemoveLegacyAliasShims();
 
-        Assert.True(File.Exists(handWritten),
+        Assert.True(Present(handWritten),
             "the purge removed a launcher the product did not write, and could never put back");
-        Assert.False(File.Exists(ourShim),
+        Assert.False(Present(ourShim),
             "the purge left a shim the product itself wrote for a tool it no longer ships");
     }
 
@@ -398,13 +396,23 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         // to cc-pdf is somebody's own wrapper, not our shim for cc-docgen, and deleting it on the
         // strength of a pyenv path that names a different tool would be exactly the too-wide rule the
         // content test replaced.
-        Directory.CreateDirectory(_layout.BinDir);
-        var wrapper = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
-        File.WriteAllText(wrapper, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
+        Directory.CreateDirectory(ShimDir);
+        string wrapper;
+        if (OperatingSystem.IsWindows())
+        {
+            wrapper = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
+            File.WriteAllText(wrapper, PythonToolsInstaller.BuildWindowsShimBody("cc-pdf"));
+        }
+        else
+        {
+            // The macOS and Linux form of the same thing: a link named cc-docgen that points at cc-pdf's console script.
+            wrapper = Path.Combine(ShimDir, "cc-docgen");
+            File.CreateSymbolicLink(wrapper, PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf"));
+        }
 
         new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
 
-        Assert.True(File.Exists(wrapper));
+        Assert.True(Present(wrapper));
     }
 
     /// <summary>
@@ -420,15 +428,19 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     [Fact]
     public void ALauncherNamingTheVenvExecutableByABSOLUTEPathIsKept()
     {
-        Directory.CreateDirectory(_layout.BinDir);
+        Directory.CreateDirectory(ShimDir);
 
-        var windowsForm = Path.Combine(_layout.BinDir, "cc-docgen.cmd");
-        File.WriteAllText(windowsForm,
-            "@echo off\r\n\"C:\\Users\\soren\\AppData\\Local\\cc-director\\pyenv\\Scripts\\cc-docgen.exe\" %*\r\n");
+        // On macOS and Linux the product's own shim is a link, so a launcher that is a FILE naming the venv executable
+        // by absolute path is somebody's own on its face; on Windows it is the .cmd and bash forms below.
+        var windowsForm = OperatingSystem.IsWindows() ? Path.Combine(_layout.BinDir, "cc-docgen.cmd") : Path.Combine(ShimDir, "cc-docgen");
+        File.WriteAllText(windowsForm, OperatingSystem.IsWindows()
+            ? "@echo off\r\n\"C:\\Users\\soren\\AppData\\Local\\cc-director\\pyenv\\Scripts\\cc-docgen.exe\" %*\r\n"
+            : $"#!/bin/sh\nexec \"{PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-docgen")}\" \"$@\"\n");
 
-        var bashForm = Path.Combine(_layout.BinDir, "cc-excel");
-        File.WriteAllText(bashForm,
-            "#!/bin/sh\nexec \"/c/Users/soren/AppData/Local/cc-director/pyenv/Scripts/cc-excel.exe\" \"$@\"\n");
+        var bashForm = OperatingSystem.IsWindows() ? Path.Combine(_layout.BinDir, "cc-excel") : Path.Combine(ShimDir, "cc-excel");
+        File.WriteAllText(bashForm, OperatingSystem.IsWindows()
+            ? "#!/bin/sh\nexec \"/c/Users/soren/AppData/Local/cc-director/pyenv/Scripts/cc-excel.exe\" \"$@\"\n"
+            : $"#!/bin/sh\nexec \"{PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-excel")}\" \"$@\"\n");
 
         new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
 
@@ -450,22 +462,14 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     [Fact]
     public void BothFormsTheProductWritesAreStillPurged()
     {
-        Directory.CreateDirectory(_layout.BinDir);
         var written = new List<string>();
         foreach (var name in new[] { "cc-playwright", "cc-comm-queue" })
-        {
-            var cmd = Path.Combine(_layout.BinDir, $"{name}.cmd");
-            var bare = Path.Combine(_layout.BinDir, name);
-            File.WriteAllText(cmd, PythonToolsInstaller.BuildWindowsShimBody(name));
-            File.WriteAllText(bare, PythonToolsInstaller.BuildWindowsBashShimBody(name));
-            written.Add(cmd);
-            written.Add(bare);
-        }
+            written.AddRange(ProductShimsFor(name));
 
         new PythonToolsInstaller(_layout).RemoveLegacyAliasShims();
 
         foreach (var path in written)
-            Assert.False(File.Exists(path), $"a launcher the product itself wrote survived the purge: {path}");
+            Assert.False(Present(path), $"a launcher the product itself wrote survived the purge: {path}");
     }
 
     /// <summary>The tool names in tools/registry.json, found the same way the shipped manifest is.</summary>

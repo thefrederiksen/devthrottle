@@ -360,19 +360,32 @@ public class UninstallerTests : IDisposable
         Assert.Contains(steps, s => s.Contains("removed Tailscale Serve front-door mapping"));
     }
 
-    [WindowsOnlyTheory("persisting a PATH change is Windows-only - elsewhere the shell profile owns PATH - "
-                       + "and these expectations are drive-letter, semicolon and case-insensitive shaped")]
-    [InlineData(@"C:\a;C:\b", @"C:\cc\bin", @"C:\a;C:\b;C:\cc\bin")]   // appended
-    [InlineData(@"C:\a;C:\cc\bin;C:\b", @"C:\cc\bin", @"C:\a;C:\cc\bin;C:\b")] // already present -> unchanged
-    [InlineData(@"C:\a;c:\CC\BIN\", @"C:\cc\bin", @"C:\a;c:\CC\BIN\")] // case/trailing-slash insensitive -> unchanged
-    [InlineData("", @"C:\cc\bin", @"C:\cc\bin")]                       // empty -> just the dir
-    public void TheInstallersPathStep_AppendsTheMasterUnlessItIsAlreadyThere(string input, string dir, string expected)
+    // The cases are written with placeholders and turned into THIS system's path - its separator, and folders rooted in
+    // its temporary folder - so the rule is checked on every system. (It was Windows only, with drive-letter data,
+    // and skipped everywhere else; the rule itself uses the system's separator and is the same rule everywhere.)
+    // ";" is the separator; {a} and {b} are other folders; {cc} is the master; {CC/} is the master in another letter
+    // case with a trailing separator.
+    [Theory]
+    [InlineData("{a};{b}", "{a};{b};{cc}")]          // appended
+    [InlineData("{a};{cc};{b}", "{a};{cc};{b}")]     // already present -> unchanged
+    [InlineData("{a};{CC/}", "{a};{CC/}")]           // case/trailing-separator insensitive -> unchanged
+    [InlineData("", "{cc}")]                         // empty -> just the dir
+    public void TheInstallersPathStep_AppendsTheMasterUnlessItIsAlreadyThere(string input, string expected)
     {
         // The install's path step used to be a plain append and nothing else. It is now the shared
         // rewrite rule, so these four cases moved with it rather than being deleted: appending the
         // master, and leaving a path that already carries it alone whatever its spelling, are still
         // exactly what an ordinary install must do.
-        Assert.Equal(expected, CcDirector.Core.Setup.FleetToolPathRepair.RewriteForInstall(input, dir).Path);
+        var root = Path.Combine(Path.GetTempPath(), "cc-path-step-" + Guid.NewGuid().ToString("N"));
+        var master = Path.Combine(root, "cc", "bin");
+        string Expand(string shape) => shape
+            .Replace("{a}", Path.Combine(root, "a"))
+            .Replace("{b}", Path.Combine(root, "b"))
+            .Replace("{cc}", master)
+            .Replace("{CC/}", Path.Combine(root, "CC", "BIN") + Path.DirectorySeparatorChar)
+            .Replace(';', Path.PathSeparator);
+
+        Assert.Equal(Expand(expected), CcDirector.Core.Setup.FleetToolPathRepair.RewriteForInstall(Expand(input), master).Path);
     }
 
     [Fact]

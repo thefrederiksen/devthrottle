@@ -7,14 +7,19 @@ namespace CcDirector.Setup.Engine.Tests;
 
 public class InstalledRoleDetectorTests
 {
-    private static readonly InstallLayout Layout = new(@"C:\root");
+    // A rooted path on every system (a Windows drive path is relative on macOS and Linux, and the layout refuses it).
+    // Nothing here touches it: the reader below answers every existence question.
+    private static readonly InstallLayout Layout = new(Path.Combine(Path.GetTempPath(), "cc-role-detector-root"));
+
+    /// <summary>The pre-rename Gateway file name, spelled out per system: <c>.exe</c> only on Windows.</summary>
+    private static readonly string LegacyGatewayName = OperatingSystem.IsWindows() ? "cc-director-gateway.exe" : "cc-director-gateway";
     private static readonly string GatewayExe = Layout.PathFor(ComponentRegistry.Gateway);
 
     // The pre-rename Gateway name, asserted as a LITERAL to PIN the historical spelling. Deriving it
     // from LegacyAliasesFor (the very method under guard) would let a wrong alias spelling still pass:
     // production and the expectation would drift together. Spelled out here, a misspelled alias in
     // LegacyAliasesFor makes Detect_OnlyLegacyGatewayExePresent_IsGateway go red.
-    private static readonly string LegacyGatewayExe = Path.Combine(Layout.GatewayDir, "cc-director-gateway.exe");
+    private static readonly string LegacyGatewayExe = Path.Combine(Layout.GatewayDir, LegacyGatewayName);
 
     /// <summary>
     /// Build a reader whose file-existence answers we control, with no disk access. The same predicate
@@ -48,14 +53,11 @@ public class InstalledRoleDetectorTests
         // Workstation that merely has a DIRECTORY named gateway\cc-director-gateway.exe is NOT misread
         // as a Gateway host. The renamed Gateway is only ever a file; the one component that is a
         // directory (the macOS .app bundle) is the Director, never the Gateway. Real filesystem, default
-        // reader - this exercises the actual File.Exists vs Directory.Exists distinction. Windows-only:
-        // the pre-rename name only ever existed on Windows.
-        if (!OperatingSystem.IsWindows())
-            return;
-
+        // reader - this exercises the actual File.Exists vs Directory.Exists distinction, on every system with that
+        // system's legacy name (it used to return early off Windows, and so checked nothing there).
         var root = Path.Combine(Path.GetTempPath(), "cc-d1-" + Guid.NewGuid().ToString("N"));
         var layout = new InstallLayout(root);
-        var legacyDir = Path.Combine(layout.GatewayDir, "cc-director-gateway.exe");
+        var legacyDir = Path.Combine(layout.GatewayDir, LegacyGatewayName);
         try
         {
             Directory.CreateDirectory(legacyDir); // a DIRECTORY sharing the legacy exe's name

@@ -97,8 +97,8 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>
-    /// Run the interpreter, the venv create and pip through <paramref name="run"/> instead of starting real
-    /// processes, so a test can fix what each step answers.
+    /// Run the interpreter, the venv create, pip and - on macOS and Linux - the archive extraction through
+    /// <paramref name="run"/> instead of starting real processes, so a test can fix what each step answers.
     /// </summary>
     internal PythonToolsInstaller(InstallLayout layout, RunProcess run)
     {
@@ -962,7 +962,7 @@ public sealed class PythonToolsInstaller
     }
 
     /// <summary>Extract an archive: ZipFile on Windows; tar on macOS/Unix (preserves +x bits and symlinks).</summary>
-    private static (bool ok, string output) Extract(string archive, string destDir)
+    private (bool ok, string output) Extract(string archive, string destDir)
     {
         Directory.CreateDirectory(destDir);
         if (OperatingSystem.IsWindows())
@@ -970,9 +970,17 @@ public sealed class PythonToolsInstaller
             try { ZipFile.ExtractToDirectory(archive, destDir, overwriteFiles: true); return (true, ""); }
             catch (Exception ex) { return (false, ex.Message); }
         }
-        var (exit, output) = ProcessRunner.Run("/usr/bin/tar", $"-xzf \"{archive}\" -C \"{destDir}\"");
+        // Through the injected runner, like every other process this installer starts, so a test drives the macOS and
+        // Linux install without starting tar. In production the runner is ProcessRunner.Run, as before.
+        var (exit, output) = _run(TarPath, TarArguments(archive, destDir), null, ProcessRunner.DefaultTimeout);
         return (exit == 0, output);
     }
+
+    /// <summary>The program that unpacks a bundle on macOS and Linux.</summary>
+    internal const string TarPath = "/usr/bin/tar";
+
+    /// <summary>The arguments that unpack <paramref name="archive"/> into <paramref name="destDir"/>.</summary>
+    internal static string TarArguments(string archive, string destDir) => $"-xzf \"{archive}\" -C \"{destDir}\"";
 
     private static void ResetDir(string dir)
     {

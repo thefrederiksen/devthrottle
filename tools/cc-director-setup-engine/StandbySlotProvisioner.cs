@@ -209,10 +209,13 @@ public sealed class StandbySlotProvisioner
         {
             files.AddRange(Directory.GetDirectories(instancesRoot).Select(StateFileUnder));
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException) when (!File.Exists(instancesRoot))
         {
             // No named instances at all: only the shared root's own file.
         }
+        // A FILE WHERE THE INSTANCES FOLDER GOES IS UNREADABLE, NOT ABSENT. Linux answers listing it with "directory
+        // not found", which the catch above used to read as "no named instances" - so the gate said Clear about
+        // instances it could not see. Windows answers with a different error and was always Unreadable here.
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             FileLog.Write($"[StandbySlotProvisioner] named instances could not be listed FAILED: {instancesRoot}: {ex.Message}");
