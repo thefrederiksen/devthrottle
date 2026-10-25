@@ -25,9 +25,6 @@ public sealed class CronNotifyTests : IDisposable
     private GatewayDatabase Db => _db ??= _h.Open();
 
     private CronJobStore NewJobStore() => new(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".json"));
-    /// <summary>The one moment these tests run at: the engine's clock, the failure notifier's "now" and every fire time.</summary>
-    private static readonly DateTime Now = new(2026, 10, 24, 8, 0, 0, DateTimeKind.Utc);
-
     private CronRunHistoryStore NewHistory() => new(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
 
     public void Dispose()
@@ -36,7 +33,7 @@ public sealed class CronNotifyTests : IDisposable
     }
 
     private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, ICronNotifier notifier) =>
-        new(store, history, starter, new UnusedWorkListRunner(), notifier, new FakeClock(Now));
+        new(store, history, starter, new UnusedWorkListRunner(), notifier, new FakeClock(DateTime.UtcNow));
 
     private static CronJobDto SeedJob(string notifyOn, string? webhook = null, bool enabled = true) => new()
     {
@@ -85,7 +82,7 @@ public sealed class CronNotifyTests : IDisposable
     private ScheduleFailureNotifier FailureNotifier(CronJobStore store, CronRunHistoryStore history, ICronNotifier fleet) =>
         new(history, new CronFailureNoticeStore(Db), (_, id) => store.Get(id), (_, _) => null, fleet,
             (_, _, _) => Task.CompletedTask, (_, _, _, _) => Task.FromResult<string?>("no account to email in this test"),
-            _ => new NoScope(), () => Now);
+            _ => new NoScope(), () => DateTime.UtcNow);
 
     [Fact]
     public async Task NotifyAlways_FailedFire_IsToldByTheFailureNotifier_WithAPlainSentence()
@@ -230,7 +227,7 @@ public sealed class CronNotifyTests : IDisposable
             Machine = "workstation-A",
             SessionId = "sid-1",
             SessionLink = notifier.BuildSessionLink("sid-1"),
-            FiredUtc = Now,
+            FiredUtc = DateTime.UtcNow,
         };
 
         await notifier.NotifyRunCompletedAsync(job, "director-1", payload, CancellationToken.None);
@@ -276,7 +273,7 @@ public sealed class CronNotifyTests : IDisposable
             Machine = "workstation-A",
             SessionId = null,
             Reason = "no director",
-            FiredUtc = Now,
+            FiredUtc = DateTime.UtcNow,
         };
 
         await notifier.NotifyRunCompletedAsync(job, "", payload, CancellationToken.None);
@@ -302,7 +299,7 @@ public sealed class CronNotifyTests : IDisposable
         {
             JobId = "cj_nohook", JobName = "y", Succeeded = true,
             InfraStatus = "started", TaskStatus = "unknown", Machine = "m", SessionId = "sid-9",
-            FiredUtc = Now,
+            FiredUtc = DateTime.UtcNow,
         };
 
         await notifier.NotifyRunCompletedAsync(job, "director-1", payload, CancellationToken.None);

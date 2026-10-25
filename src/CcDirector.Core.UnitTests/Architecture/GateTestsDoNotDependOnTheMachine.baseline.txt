@@ -165,6 +165,7 @@ npgsql | src/CcDirector.Gateway.Tests/Architecture/NoSqliteOnHostedArchitectureT
 real-clock | src/CcDirector.Gateway.Tests/CensusRouteTenancyProbeTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/CockpitSpawnIntoAFactoryTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/CronNotifyTests.cs | 3
+real-clock | src/CcDirector.Gateway.Tests/CronNotifyTests.cs | 4
 real-clock | src/CcDirector.Gateway.Tests/CrossTenantDuplicateDirectorIdTests.cs | 2
 npgsql | src/CcDirector.Gateway.Tests/Data/EntitlementSchemaQualificationTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/DictationOmittedTenantBoundaryTests.cs | 1
