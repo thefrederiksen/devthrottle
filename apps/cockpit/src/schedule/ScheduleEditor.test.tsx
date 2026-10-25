@@ -271,3 +271,18 @@ describe("ScheduleEditor folder choices", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 });
+
+// Issue #4436: a failed run tells its owner by default.
+describe("ScheduleEditor notifications", () => {
+  it("starts a new schedule on notify-when-a-run-fails", async () => {
+    render(<ScheduleEditor request={{ kind: "create", timeZone: "UTC" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("When a run fails (the default)")).toBeTruthy();
+  });
+
+  it("keeps an owner's choice of off", async () => {
+    openOn({ ...personal, notifyOn: "none" });
+
+    expect(await screen.findByDisplayValue("Off (no notification)")).toBeTruthy();
+  });
+});

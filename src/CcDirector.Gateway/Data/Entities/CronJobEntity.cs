@@ -41,8 +41,12 @@ public sealed class CronJobEntity : TenantScopedEntity
     public CronJobAction Action { get; set; } = new();
 
     public bool PreventOverlap { get; set; } = true;
-    public string NotifyOn { get; set; } = CronNotify.None;
+    public string NotifyOn { get; set; } = CronNotify.Default;
     public string? NotifyWebhookUrl { get; set; }
+
+    /// <summary>When the change of default (issue #4436) switched this schedule from <c>none</c> to <c>failure</c>, or
+    /// null when the owner chose its notifications or it was made after the change. Written once, by that migration.</summary>
+    public DateTime? NotifyDefaultedUtc { get; set; }
 
     // ---- Factory Definition, phase 5b: a timed start WITH A CHECK. Null on every schedule without one. ----
 

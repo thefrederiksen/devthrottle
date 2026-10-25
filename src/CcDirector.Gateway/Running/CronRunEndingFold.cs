@@ -47,12 +47,15 @@ public static class CronRunEndingFold
         {
             var (ending, endedUtc) = EndingOf(run, endings);
             run.Ending = ending;
-            // A run that did not start because its folder was missing says so in plain words (issue #4421), not as the
-            // Director's "repoPath does not exist", which the run table never showed at all.
-            run.EndingText = ending == CronRunEndings.NoSession
-                && ScheduleFolderWords.DidNotRunText(run.ResultReason, run.Machine, machineOsOf?.Invoke(run.Machine)) is { } folderText
-                    ? folderText
-                    : TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
+            // A failed run says what went wrong in one plain sentence (issue #4436; the folder case first, #4421), never
+            // in the Director's words, which stay in ResultReason as the detail. A run that did not start reads as that
+            // sentence in the run table, where it used to read "did not start a session" and nothing else.
+            var failure = ScheduleFailureWords.Of(run, machineOsOf?.Invoke(run.Machine));
+            run.FailureText = failure?.Headline;
+            run.FailureCause = failure?.Cause;
+            run.EndingText = ending == CronRunEndings.NoSession && failure is not null
+                ? $"did not start a session: {failure.Headline}"
+                : TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
             run.TaskStatus = TaskStatusOf(run);
             run.InfraTone = ToneOf(run.InfraStatus);
         }

@@ -4606,9 +4606,9 @@ def schedule_create(
     seed: Optional[str] = typer.Option(None, "--seed", help="Skill or prompt the session runs."),
     worklist: Optional[str] = typer.Option(None, "--worklist", help="Named work list to drain."),
     notify_on: str = typer.Option(
-        schedule_ops.NOTIFY_NONE,
+        schedule_ops.NOTIFY_DEFAULT,
         "--notify-on",
-        help="Run-complete notification: none, always, or failure.",
+        help="Tell the owner: failure (the default: when a run fails), always (every run), or none (off).",
     ),
     notify_webhook: Optional[str] = typer.Option(
         None,

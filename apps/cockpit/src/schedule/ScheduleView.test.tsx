@@ -256,3 +256,83 @@ describe("Schedule page: a schedule's folder", () => {
     expect(await screen.findByText(plain)).toBeTruthy();
   });
 });
+
+// Issue #4436: a failed schedule says what went wrong in the Gateway's plain words - on its row without opening it, and
+// in its run table with the run's own reason only as the detail.
+describe("Schedule page: a failed schedule says what went wrong", () => {
+  const LAST = "Last run failed: STUDIO_MAC was not reachable: DevThrottle was not running there and could not be started.";
+
+  it("shows the newest run's failure on the schedule's row, in the Gateway's words and tone", async () => {
+    cronClient.getCronJobs.mockResolvedValue([
+      job("cj_bad", "Mac sweep", { lastFiredUtc: "2026-10-24T06:00:00Z", lastStatus: "not-started", lastRunText: LAST, lastRunTone: "err" }),
+    ]);
+    renderPage();
+
+    const text = await screen.findByTestId("sched-lastrun-text-cj_bad");
+    expect(text.textContent).toBe(LAST);
+    expect(text.className).toBe("sched-lastrun-text err");
+    // One verdict on the row: the Gateway's sentence, not a chip the page worked out from the status.
+    expect(screen.queryByText("not-started")).toBeNull();
+  });
+
+  it("shows no failure on the row of a schedule whose newest run went fine", async () => {
+    cronClient.getCronJobs.mockResolvedValue([job("cj_ok", "Fine sweep", { lastFiredUtc: "2026-10-24T06:00:00Z", lastStatus: "started" })]);
+    renderPage();
+
+    await screen.findByText("Fine sweep");
+    expect(screen.queryByTestId("sched-lastrun-text-cj_ok")).toBeNull();
+  });
+
+  it("shows what went wrong with a run that started, with its own reason as the detail", async () => {
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep")]);
+    cronClient.getCronRuns.mockResolvedValue([
+      {
+        scheduledUtc: "2026-10-24T06:00:00Z", firedUtc: "2026-10-24T06:00:00Z", machine: "SOREN_NORTH", targetDirectorId: "d1",
+        sessionId: "s1", infraStatus: "started", infraTone: "ok", taskStatus: "unknown", ending: "closed-itself",
+        endingText: "closed itself after 6 min",
+        failureText: "The run's session on SOREN_NORTH ended without reporting how the run went. Open the session to see what it did.",
+        resultReason: "its session ended without reporting how the run went (closed itself after 6 min)",
+      },
+    ] as never);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Own morning sweep"));
+
+    expect((await screen.findByTestId("sched-run-failure")).textContent)
+      .toBe("The run's session on SOREN_NORTH ended without reporting how the run went. Open the session to see what it did.");
+    expect(screen.getByTestId("sched-run-detail").textContent)
+      .toBe("Details: its session ended without reporting how the run went (closed itself after 6 min)");
+  });
+
+  it("does not say a run's failure twice when its ending already says it", async () => {
+    const sentence = "STUDIO_MAC was not reachable: DevThrottle was not running there and could not be started.";
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep")]);
+    cronClient.getCronRuns.mockResolvedValue([
+      {
+        scheduledUtc: "2026-10-24T06:00:00Z", firedUtc: "2026-10-24T06:00:00Z", machine: "STUDIO_MAC", targetDirectorId: "",
+        infraStatus: "not-started", infraTone: "err", taskStatus: "unknown", ending: "no-session",
+        endingText: "did not start a session: " + sentence, failureText: sentence,
+        resultReason: "it did not start a session: no Director on 'STUDIO_MAC' and the launcher could not start one",
+      },
+    ] as never);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Own morning sweep"));
+
+    expect(await screen.findByText("did not start a session: " + sentence)).toBeTruthy();
+    expect(screen.queryByTestId("sched-run-failure")).toBeNull();
+    expect(screen.getByTestId("sched-run-detail").textContent)
+      .toBe("Details: it did not start a session: no Director on 'STUDIO_MAC' and the launcher could not start one");
+  });
+
+  it("shows the note that failure notifications became the default", async () => {
+    const note = "Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default. To stop them, set Notify to Off.";
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { notifyOn: "failure", notifyText: "When a run fails", notifyNote: note })]);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Own morning sweep"));
+
+    expect((await screen.findByTestId("sched-notify-note")).textContent).toBe(note);
+    expect(screen.getByText("When a run fails")).toBeTruthy();
+  });
+});

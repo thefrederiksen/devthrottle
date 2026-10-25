@@ -364,11 +364,13 @@ public sealed class CronEngine
                 FileLog.Write($"[CronEngine] fire start error: job={job.Id}: {error}");
             FileLog.Write($"[CronEngine] fired: job={job.Id}, manual={isManual}, infra={infraStatus}, sid={sessionId}");
 
-            // Issue #622: deliver the per-job run-complete notification when the job opts in. This is
-            // the terminal event a supervisor wants to be told about - it rides the existing fleet
-            // channel (and an optional webhook). Best-effort and isolated: a notification failure must
-            // never affect the fire, whose outcome is already in run history above.
-            await NotifyIfOptedInAsync(job, record, started, error, resolvedDirectorId, ct);
+            // Issue #622: a run that STARTED is told here when the job asks to hear of every run. A run that failed is
+            // not told here (issue #4436): every failure - this fire's, a missed run's, a start that lapsed, a session
+            // that ended with a problem - is told by ScheduleFailureNotifier from the run history, once per cause an
+            // hour, so there is one path for failures and none is told twice. Best-effort and isolated: a notification
+            // failure must never affect the fire, whose outcome is already in run history above.
+            if (started)
+                await NotifyStartedIfAskedAsync(job, record, resolvedDirectorId, ct);
 
             return new CronRunNowResult(CronFireOutcome.Fired, record);
         }
@@ -526,29 +528,27 @@ public sealed class CronEngine
         Factory.FactoryAgentsAnswer.On(Factory.FactoryAgentsGrant.MachineSwitch, tier: null, "no factory decision was given to this engine");
 
     /// <summary>
-    /// Deliver the run-complete notification when <paramref name="job"/> opts in via its
-    /// <see cref="CronJobDto.NotifyOn"/> policy (issue #622). Builds the payload - job name, outcome
-    /// (infra-status vs task-status), machine, session id, and a deep link to the session - and hands
-    /// it to the notifier, which rides the existing fleet channel and the optional webhook. The
-    /// notifier is best-effort and swallows its own delivery failures, so this never disturbs the fire.
+    /// Deliver the run-complete notification of a run that STARTED when <paramref name="job"/> asks to hear of every run
+    /// (<see cref="CronNotify.Always"/>, issue #622). Builds the payload - job name, outcome (infra-status vs
+    /// task-status), machine, session id, and a deep link to the session - and hands it to the notifier, which rides the
+    /// existing fleet channel and the optional webhook. A failed run is told by <see cref="ScheduleFailureNotifier"/>.
+    /// The notifier is best-effort and swallows its own delivery failures, so this never disturbs the fire.
     /// </summary>
-    private async Task NotifyIfOptedInAsync(
-        CronJobDto job, CronRunRecord record, bool started, string? error, string? directorId, CancellationToken ct)
+    private async Task NotifyStartedIfAskedAsync(CronJobDto job, CronRunRecord record, string? directorId, CancellationToken ct)
     {
-        if (!CronNotify.ShouldNotify(job.NotifyOn, started))
+        if (!CronNotify.ShouldNotify(job.NotifyOn, succeeded: true))
             return;
 
         var payload = new CronRunCompletedPayload
         {
             JobId = job.Id,
             JobName = job.Name,
-            Succeeded = started,
+            Succeeded = true,
             InfraStatus = record.InfraStatus,
             TaskStatus = record.TaskStatus,
             Machine = record.Machine,
             SessionId = record.SessionId,
             SessionLink = _notifier.BuildSessionLink(record.SessionId),
-            Reason = started ? null : (error ?? "the scheduled run did not start"),
             FiredUtc = record.FiredUtc,
         };
 
