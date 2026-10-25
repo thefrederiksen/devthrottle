@@ -31,10 +31,34 @@ public static class WindowsRuleSet
     {
         FileLog.Write("[WindowsRuleSet] ForThisMachine: entry");
 
-        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-        var commonApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        var rules = For(new WindowsMachineFolders(
+            LocalApplicationData: Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            UserProfile: Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Windows: Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            CommonApplicationData: Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            Temp: Path.GetTempPath(),
+            FixedVolumeRoots: DriveInfo.GetDrives()
+                .Where(drive => drive.DriveType == DriveType.Fixed)
+                .Select(drive => drive.Name)
+                .ToList()));
+
+        FileLog.Write($"[WindowsRuleSet] ForThisMachine done: rules={rules.Count}");
+        return rules;
+    }
+
+    /// <summary>
+    /// The Windows rule set for the machine <paramref name="machine"/> describes. <see cref="ForThisMachine"/> is
+    /// this, given the folders and fixed volumes of the machine it runs on - and production never calls anything
+    /// else. It exists so the structure of the set (which places its rules look in, and what they are named) can be
+    /// checked on any platform: on macOS and Linux the machine has no Windows folder to read, and a test that could
+    /// only ask the machine it runs on would have nothing to check there.
+    /// </summary>
+    internal static IReadOnlyList<IReclaimRule> For(WindowsMachineFolders machine)
+    {
+        var localApplicationData = machine.LocalApplicationData;
+        var userProfile = machine.UserProfile;
+        var windows = machine.Windows;
+        var commonApplicationData = machine.CommonApplicationData;
 
         var rules = new List<IReclaimRule>
         {
@@ -74,7 +98,7 @@ public static class WindowsRuleSet
                 "nothing but the time for the next build to restore its packages again, which for a large " +
                 "solution is minutes rather than seconds; the exact time is not known here"),
 
-            new TestScratchFoldersRule(Path.GetTempPath()),
+            new TestScratchFoldersRule(machine.Temp),
 
             new ComponentStoreRule(
                 new DismComponentStoreAnalysis(),
@@ -90,13 +114,21 @@ public static class WindowsRuleSet
 
         // One recycle bin rule and one Disk Cleanup rule per fixed volume. The bin is a place on
         // each volume, and Windows' own Disk Cleanup is opened against one volume at a time.
-        foreach (var drive in DriveInfo.GetDrives().Where(drive => drive.DriveType == DriveType.Fixed))
+        foreach (var volumeRoot in machine.FixedVolumeRoots)
         {
-            rules.Add(new DiskCleanupRule(new WindowsRegistryDiskCleanupSource(), drive.Name));
-            rules.Add(new RecycleBinRule(Path.Combine(drive.Name, "$RECYCLE.BIN")));
+            rules.Add(new DiskCleanupRule(new WindowsRegistryDiskCleanupSource(), volumeRoot));
+            rules.Add(new RecycleBinRule(Path.Combine(volumeRoot, "$RECYCLE.BIN")));
         }
 
-        FileLog.Write($"[WindowsRuleSet] ForThisMachine done: rules={rules.Count}");
         return rules;
     }
 }
+
+/// <summary>The folders and fixed volumes of a Windows machine, which are all <see cref="WindowsRuleSet"/> reads of it.</summary>
+internal sealed record WindowsMachineFolders(
+    string LocalApplicationData,
+    string UserProfile,
+    string Windows,
+    string CommonApplicationData,
+    string Temp,
+    IReadOnlyList<string> FixedVolumeRoots);
