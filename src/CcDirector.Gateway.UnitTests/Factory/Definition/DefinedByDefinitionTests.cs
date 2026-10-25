@@ -185,7 +185,7 @@ public sealed class DefinedByDefinitionTests : IDisposable
     [Fact]
     public void DiffersOnlyInEnabled_NotifyOnSpelledAnotherWay_IsTheSamePolicy()
     {
-        Assert.True(DefinedByDefinition.DiffersOnlyInEnabled(Stored(), Resent(b => b.NotifyOn = "")));
+        Assert.True(DefinedByDefinition.DiffersOnlyInEnabled(Stored(), Resent(b => b.NotifyOn = "  NONE ")));
     }
 
     /// <summary>Every field the store writes from a body, each changed on its own, with Enabled flipped too.</summary>
@@ -239,6 +239,10 @@ public sealed class DefinedByDefinitionTests : IDisposable
         // schedule routes (CronJobStore.ApplyDefinition never copies it), so no route can change it.
         nameof(CronJobDto.CheckPath), nameof(CronJobDto.CheckSecrets), nameof(CronJobDto.DefinitionVersion),
         nameof(CronJobDto.HasCheck),
+        // Issue #4436: when the change of default switched notifications on, its note, and the newest run in words -
+        // stamped on every read, never read from a body.
+        nameof(CronJobDto.NotifyDefaultedUtc), nameof(CronJobDto.NotifyNote), nameof(CronJobDto.NotifyText),
+        nameof(CronJobDto.LastRunText), nameof(CronJobDto.LastRunTone),
     };
 
     /// <summary>Every definition field of a schedule, READ FROM <see cref="CronJobDto"/> itself: its properties minus

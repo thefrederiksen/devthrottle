@@ -42,6 +42,22 @@ public sealed class DirectorCrashJournalSession
     /// is also how a journal written before the field existed reads. Recorded so a session continued from the Interrupted
     /// list after this Director crashes comes back in API mode rather than as a terminal session.</summary>
     public string? ConnectionMode { get; set; }
+
+    /// <summary>The seat's kit folder, or null (issue #4120, review finding 3). A factory seat's agent finds its saved
+    /// conversation by the folder it runs in, so a crashed seat reopened from its crash record must be started in the
+    /// same folder - which only the journal can say once the Director is gone. Null in a journal written before.</summary>
+    public string? FactoryKitDirectory { get; set; }
+
+    /// <summary>True when the seat runs in the factory's home rather than a kit folder of its own; null when not, or in
+    /// a journal written before the field existed.</summary>
+    public bool? FactoryHome { get; set; }
+
+    /// <summary>The mission the session was attached to, so a crashed seat comes back on it; null when none, or in a
+    /// journal written before the field existed.</summary>
+    public string? MissionId { get; set; }
+
+    /// <summary>The mission's name, read with <see cref="MissionId"/>.</summary>
+    public string? MissionName { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

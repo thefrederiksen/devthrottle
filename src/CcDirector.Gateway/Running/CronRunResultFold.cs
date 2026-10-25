@@ -83,6 +83,26 @@ public static class CronRunResultFold
     }
 
     /// <summary>
+    /// A STARTED RUN WHOSE PROMPT NEVER REACHED THE AGENT (issue #3392). The session started, so the run read as started
+    /// and pending - for over an hour on 25 September 2026, while the agent sat with no prompt - and no failure was ever
+    /// recorded. The Director reports on the session's row when its FIRST prompt was not delivered
+    /// (<see cref="SessionDto.FirstPromptFailedAtUtc"/>, with why) - that one prompt only, never a later send, so a send
+    /// an hour into a working run that fails cannot condemn it (review, finding 1). A pending run whose session reports
+    /// that is a problem from the moment the Gateway reads it; null otherwise.
+    /// </summary>
+    public static GatewayRecordedProblem? PromptNotDeliveredProblem(CronRunRecord run, SessionDto? session)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        if (run.Result != CronRunResults.Pending || session?.FirstPromptFailedAtUtc is null) return null;
+        var why = (session.FirstPromptFailureReason ?? "").Trim().TrimEnd('.');
+        var reason = why.Length == 0
+            ? "its session started, but the prompt it was given never reached the agent"
+            : $"its session started, but the prompt it was given never reached the agent: {why}";
+        return new GatewayRecordedProblem(CronRunProblems.PromptNotDelivered,
+            reason.Length <= MaxReasonChars ? reason : reason[..MaxReasonChars]);
+    }
+
+    /// <summary>
     /// The refusal for a one-line reason, or null when it may be stored. <paramref name="required"/> says whether an
     /// empty one is refused.
     /// </summary>

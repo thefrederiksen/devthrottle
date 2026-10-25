@@ -10,7 +10,7 @@ import { useNow } from "@devthrottle/client-core/polling/useNow";
 import { relativeTime } from "./format";
 import { MachineActions, type ActionOutcome } from "./MachineActions";
 import { VersionPill } from "./MachinesPanel";
-import { machineOf, toneClass } from "./machinesFormat";
+import { machineOf, outcomeStillShown, toneClass } from "./machinesFormat";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-director-update";
@@ -45,6 +45,7 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
   // The Gateway says whether this launcher can be asked at all; an older one is never sent the question, so the
   // card does not carry an error line for a launcher that is simply older than the command.
   const canReport = machine?.canReportUpdateStatus === true;
+  const shownOutcome = outcomeStillShown(outcome, machine) ? outcome : null;
 
   const refreshStatus = useCallback(async () => {
     if (!canReport) return;
@@ -116,8 +117,8 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
               void refreshStatus();
             }}
           />
-          {outcome !== null && <div className={`fm-result ${toneClass(outcome.tone)}`}>{outcome.text}</div>}
-          {status !== null && (outcome === null || status.inProgress) && (
+          {shownOutcome !== null && <div className={`fm-result ${toneClass(shownOutcome.tone)}`}>{shownOutcome.text}</div>}
+          {status !== null && (shownOutcome === null || status.inProgress) && (
             <div className={`fm-result ${toneClass(status.tone)}`}>
               {status.headline}
               {(status.lastResultAt ?? null) !== null && !status.inProgress && (

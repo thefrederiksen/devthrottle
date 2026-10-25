@@ -135,13 +135,20 @@ public static class ScheduleFolderWords
     /// </summary>
     public static string? DidNotRunText(string? reason, string machine, string? os)
     {
+        if (MissingFolderIn(reason) is not { } path) return null;
+        var on = string.IsNullOrWhiteSpace(machine) ? "its machine" : machine;
+        return $"did not start a session: {Missing(path, on, os)} Then edit the schedule.";
+    }
+
+    /// <summary>The folder a run's reason says its machine does not have ("repoPath does not exist: X"), or null when the
+    /// reason is some other one.</summary>
+    public static string? MissingFolderIn(string? reason)
+    {
         if (string.IsNullOrEmpty(reason)) return null;
         var at = reason.IndexOf(DirectorMissing, StringComparison.Ordinal);
         if (at < 0) return null;
         var path = reason[(at + DirectorMissing.Length)..].Trim();
-        if (path.Length == 0) return null;
-        var on = string.IsNullOrWhiteSpace(machine) ? "its machine" : machine;
-        return $"did not start a session: {Missing(path, on, os)} Then edit the schedule.";
+        return path.Length == 0 ? null : path;
     }
 
     /// <summary>The last name in a path of either shape, or <see cref="ExampleFolder"/> when it has none.</summary>

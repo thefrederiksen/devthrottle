@@ -218,7 +218,9 @@ public sealed class GatewayStatsStore : IDisposable
     /// Gateway.</param>
     /// <param name="hosted">Whether this is a hosted Gateway - the owning host's <see cref="GatewayHost.Hosted"/>.
     /// REQUIRED (see <see cref="GatewayHostOptions"/>). A hosted Gateway NEVER opens a statistics file.</param>
-    public static GatewayStatsStore FromEnvironment(bool hosted, string? sqlitePath = null)
+    /// <param name="time">The clock the startup deadline and the reopen backoff wait on - the owning host's
+    /// <see cref="GatewayHostOptions.StatsClock"/>. Null is the system clock.</param>
+    public static GatewayStatsStore FromEnvironment(bool hosted, string? sqlitePath = null, TimeProvider? time = null)
     {
         var path = string.IsNullOrWhiteSpace(sqlitePath)
             ? Path.Combine(CcStorage.Root(), "gateway-stats.db")
@@ -238,7 +240,7 @@ public sealed class GatewayStatsStore : IDisposable
             isHosted,
             path);
 
-        return new GatewayStatsStore(choice);
+        return new GatewayStatsStore(choice, time);
     }
 
     /// <summary>

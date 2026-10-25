@@ -38,6 +38,8 @@ public sealed class CronRunResultTests : IDisposable
     private int _failuresAfterTheWrite;
     // The sessions each Director reports, by exact name, with a schedule's origin, in roster order (the heal by name).
     private readonly Dictionary<(string Director, string Name), List<string>> _named = new();
+    // The session rows each Director last pushed, by (Director, session) (issue #3392).
+    private readonly Dictionary<(string Director, string SessionId), SessionDto> _sessions = new();
     // Every schedule last status the service corrected: (schedule, its fire, the status).
     private readonly List<(string JobId, DateTime FiredUtc, string Status)> _settled = new();
 
@@ -86,7 +88,8 @@ public sealed class CronRunResultTests : IDisposable
             },
             mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
                 new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
-                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
+                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend),
+            lastKnownSession: (_, director, sid) => _sessions.TryGetValue((director, sid), out var s) ? s : null);
         return (service, runs, activity);
     }
 
@@ -362,6 +365,86 @@ public sealed class CronRunResultTests : IDisposable
         Assert.Equal(CronRunResults.Problem, run.Result);
         Assert.Equal(CronRunProblems.DidNotReport, run.Problem);
         Assert.Contains("ended without reporting", run.ResultReason);
+    }
+
+    // ---- issue #3392: a run whose prompt never reached the agent ---------------------------------------------
+
+    [Fact]
+    public void Sweep_ASessionWhosePromptNeverReachedTheAgent_IsAProblemAtOnce_InsideItsShift()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        // Still open, deep inside its shift: before this it read as started until the shift ended.
+        _sessions[("dir-1", "s1")] = new SessionDto
+        {
+            SessionId = "s1", FirstPromptFailedAtUtc = fired.AddMinutes(10),
+            FirstPromptFailureReason = "The first prompt was not typed: the composer was not drawn in 600 seconds.",
+        };
+        _now = fired.AddMinutes(11);
+
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+
+        var run = runs.List("cj_a").Single();
+        Assert.Equal(CronRunResults.Problem, run.Result);
+        Assert.Equal(CronRunProblems.PromptNotDelivered, run.Problem);
+        Assert.Equal("its session started, but the prompt it was given never reached the agent: " +
+                     "The first prompt was not typed: the composer was not drawn in 600 seconds", run.ResultReason);
+    }
+
+    [Fact]
+    public void Sweep_ALaterSendThatFailed_DoesNotCondemnARunWhoseFirstPromptArrived()
+    {
+        // The #3392 review, finding 1: the seed arrived, the agent worked for an hour, then a send from the phone failed.
+        // The session's row says a delivery is unresolved - but not its first prompt - so the run is left running.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = new SessionDto
+        {
+            SessionId = "s1", PromptDeliveryUnresolved = true, FailedPromptDeliveries = 1,
+            LastPromptDeliveryFailureAtUtc = fired.AddMinutes(60), LastPromptDeliveryFailureReason = "the composer did not echo",
+            FirstPromptFailedAtUtc = null,
+        };
+        _now = fired.AddMinutes(61);
+
+        Assert.Equal(0, service.Sweep(TenantId.Local));
+        Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
+    }
+
+    [Fact]
+    public void Sweep_AFirstPromptFailureTheDirectorStampedBeforeTheGatewaysFireTime_IsStillThisRunsProblem()
+    {
+        // The #3392 review, finding 2: the Director's clock, or a run adopted after a start whose outcome was not known,
+        // can put the failure before the Gateway's FiredUtc. The session is the run's own, so its first prompt is this run's.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = new SessionDto { SessionId = "s1", FirstPromptFailedAtUtc = fired.AddSeconds(-2) };
+        _now = fired.AddMinutes(1);
+
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+        Assert.Equal(CronRunProblems.PromptNotDelivered, runs.List("cj_a").Single().Problem);
+    }
+
+    [Fact]
+    public void Report_ASessionReportsAfterItsPromptWasRecordedAsLost_IsToldItIsAlreadyAProblem()
+    {
+        // The session's report comes after the Gateway recorded the problem: the problem stands (a run cannot erase it).
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 10, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = new SessionDto { SessionId = "s1", FirstPromptFailedAtUtc = fired.AddMinutes(1) };
+        _now = fired.AddMinutes(2);
+        service.Sweep(TenantId.Local);
+
+        service.Report(TenantId.Local, "s1", "ok", null);
+
+        Assert.Equal(CronRunProblems.PromptNotDelivered, runs.List("cj_a").Single().Problem);
     }
 
     [Fact]

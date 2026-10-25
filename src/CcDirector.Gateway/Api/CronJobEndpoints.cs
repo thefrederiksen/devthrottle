@@ -154,7 +154,7 @@ internal static class CronJobEndpoints
                 .Where(j => includeWindow || !CronSchedule.IsWindow(j.ScheduleKind))
                 .Select(j => Describe(CronSchedule.StampDisplay(j, now), names))
                 .ToList();
-            var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
+            var (records, lastRuns) = runRecords.RecordsOf(jobs.Select(j => j.Id).ToList(), now);
             // The registered factories, one registry read per factory named rather than per schedule.
             var factories = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
                 .Distinct(StringComparer.Ordinal)
@@ -165,6 +165,8 @@ internal static class CronJobEndpoints
                 job.RunRecord = records.TryGetValue(job.Id, out var record)
                     ? record
                     : new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
+                // The newest run's state in words when it went wrong (issue #4436), shown on the row without opening it.
+                (job.LastRunText, job.LastRunTone) = lastRuns.TryGetValue(job.Id, out var last) ? (last.Text, last.Tone) : ((string?)null, (string?)null);
                 job.FactoryTitle = string.IsNullOrWhiteSpace(job.Factory) ? null : factories[job.Factory]?.Title;
                 job.FactoryHref = FactoryHrefOf(job.Factory, registered);
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
@@ -333,6 +335,9 @@ internal static class CronJobEndpoints
                 return Results.NotFound(new { error = "no such cron job", id });
             var now = DateTime.UtcNow;
             var stamped = Describe(CronSchedule.StampDisplay(job, now));
+            // The newest run's state in words when it went wrong (issue #4436): `schedule get` prints it.
+            if (runRecords.RecordsOf(new[] { job.Id }, now).LastRuns.TryGetValue(job.Id, out var last))
+                (stamped.LastRunText, stamped.LastRunTone) = last;
             StampShifts(ctx, new[] { stamped }, now);
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);

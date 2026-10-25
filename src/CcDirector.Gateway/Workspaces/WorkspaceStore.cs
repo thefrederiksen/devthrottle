@@ -684,6 +684,32 @@ public sealed class WorkspaceStore
     public static readonly TimeSpan RefusedReopenClaimWindow = TimeSpan.FromMinutes(10);
 
     /// <summary>
+    /// GIVE BACK A REOPEN CLAIM WHOSE START IS KNOWN NOT TO HAVE HAPPENED (issue #4120, review round 3). The Interrupted
+    /// restore claims a crash record's seat before it sends the create; when the create could not be sent, or the
+    /// Director answered it with a failure, nothing was started, and the claim would only hide the seat from every door.
+    /// Released only when the claim is <paramref name="directorId"/>'s and names no session yet - so a claim that another
+    /// door won, or that a started session has filled in, is never touched. Returns true when one was given back.
+    /// </summary>
+    public bool ReleaseUnstartedReopenClaim(string id, string seatSessionId, string directorId, DateTime nowUtc)
+    {
+        var released = false;
+        MutateStored(id, nowUtc.ToUniversalTime(), doc =>
+        {
+            var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, seatSessionId, StringComparison.OrdinalIgnoreCase));
+            if (seat?.Restore is not { ReopenedAtUtc: not null } restore
+                || !string.IsNullOrWhiteSpace(restore.ReopenedSessionId)
+                || !string.Equals(restore.ReopenedByDirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                return false;
+            restore.ReopenedAtUtc = null;
+            restore.ReopenedByDirectorId = null;
+            released = true;
+            return true;
+        });
+        FileLog.Write($"[WorkspaceStore] ReleaseUnstartedReopenClaim: id={id}, seat={seatSessionId}, director={directorId}, released={released}");
+        return released;
+    }
+
+    /// <summary>
     /// GIVE BACK THE REOPEN CLAIM OF AN API-MODE SEAT WHOSE CREATE THE GATEWAY REFUSED (the #4257 review, finding 2). A
     /// released v2.23 or v2.24 Director claims a seat on the record before it sends the reopen's create, and never gives
     /// the claim back. When the API mode guard refuses that create, nothing was started, so the claim would only hide the

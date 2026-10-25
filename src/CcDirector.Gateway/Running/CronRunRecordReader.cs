@@ -49,13 +49,28 @@ public sealed class CronRunRecordReader
 
     /// <summary>The run record of each of these schedules, keyed by job id. A schedule that never ran is absent.</summary>
     public IReadOnlyDictionary<string, CronRunRecordSummaryDto> SummariesOf(IReadOnlyCollection<string> jobIds, DateTime nowUtc)
+        => RecordsOf(jobIds, nowUtc).Summaries;
+
+    /// <summary>
+    /// The run record of each of these schedules, and the words of each one's newest run when it went wrong (issue
+    /// #4436, <see cref="ScheduleFailureWords.LastRunWords"/>) - read together, from one read of the run history. A
+    /// schedule that never ran is absent from both; one whose newest run did not go wrong is absent from the second.
+    /// </summary>
+    public (IReadOnlyDictionary<string, CronRunRecordSummaryDto> Summaries,
+        IReadOnlyDictionary<string, (string Text, string Tone)> LastRuns) RecordsOf(IReadOnlyCollection<string> jobIds, DateTime nowUtc)
     {
         var byJob = _runs.RecentByJob(jobIds, CronRunEndingFold.SummaryRuns);
         var endings = StampAll(byJob, _endingsOf, nowUtc, _machineOsOf);
-        var result = new Dictionary<string, CronRunRecordSummaryDto>(StringComparer.Ordinal);
+        var summaries = new Dictionary<string, CronRunRecordSummaryDto>(StringComparer.Ordinal);
+        var lastRuns = new Dictionary<string, (string Text, string Tone)>(StringComparer.Ordinal);
         foreach (var (jobId, runs) in byJob)
-            result[jobId] = CronRunEndingFold.Summarize(runs, endings, nowUtc);
-        return result;
+        {
+            summaries[jobId] = CronRunEndingFold.Summarize(runs, endings, nowUtc);
+            var newest = runs.Count == 0 ? null : runs[0];
+            if (ScheduleFailureWords.LastRunWords(newest, newest is null ? null : _machineOsOf?.Invoke(newest.Machine)) is { } words)
+                lastRuns[jobId] = words;
+        }
+        return (summaries, lastRuns);
     }
 
     /// <summary>

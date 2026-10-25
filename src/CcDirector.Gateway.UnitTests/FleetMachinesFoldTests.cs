@@ -28,6 +28,7 @@ public sealed class FleetMachinesFoldTests
         Pid = 10,
         Version = version,
         StartedAt = Now.AddHours(-1),
+        RegisteredAt = Now.AddHours(-1),
         LastSeenAt = Now - (quiet ?? TimeSpan.FromSeconds(5)),
     };
 
@@ -207,5 +208,85 @@ public sealed class FleetMachinesFoldTests
 
         Assert.Equal(label, state.Label);
         Assert.Equal(behind, state.Behind);
+    }
+
+    // Issue #4423: a launcher restarting into a new version heartbeats with no stream for a moment. It used to be
+    // labelled "Too old for commands" in that moment; this Gateway saw its stream close, so it is reconnecting.
+    [Fact]
+    public void Fold_HeartbeatingWithNoStreamAfterAStreamClosed_IsReconnectingNotTooOld()
+    {
+        var launcher = Launcher("STUDIO_MAC");
+        launcher.StreamClosedAt = Now.AddSeconds(-20);
+
+        var view = Fold(new[] { launcher }, new(), new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        var machine = Assert.Single(view.Machines);
+        Assert.Equal(LauncherReach.Reconnecting, machine.Reach);
+        Assert.Equal("Launcher reconnecting", machine.ReachLabel);
+        Assert.DoesNotContain(view.Highlights, h => h.Text.Contains("too old"));
+    }
+
+    // Review finding 2: "reconnecting" has a limit. Past it the launcher is not coming back by itself.
+    [Fact]
+    public void Fold_StreamDownLongerThanARestartTakes_IsNotTakingCommandsNotReconnecting()
+    {
+        var launcher = Launcher("STUDIO_MAC");
+        launcher.StreamClosedAt = Now - LauncherReachability.ReconnectWindow - TimeSpan.FromSeconds(1);
+
+        var view = Fold(new[] { launcher }, new(), new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        var machine = Assert.Single(view.Machines);
+        Assert.Equal(LauncherReach.StreamDown, machine.Reach);
+        Assert.Equal("Not taking commands", machine.ReachLabel);
+        Assert.Contains("Restart the launcher", machine.ReachDetail);
+    }
+
+    [Fact]
+    public void Fold_StreamClosedJustInsideTheWindow_IsReconnecting()
+    {
+        var launcher = Launcher("STUDIO_MAC");
+        launcher.StreamClosedAt = Now - LauncherReachability.ReconnectWindow;
+
+        var view = Fold(new[] { launcher }, new(), new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        Assert.Equal(LauncherReach.Reconnecting, Assert.Single(view.Machines).Reach);
+    }
+
+    [Fact]
+    public void Fold_HeartbeatingWithNoStreamEverSeen_IsStillTooOld()
+    {
+        var view = Fold(new[] { Launcher("OLD_BOX", "1.9.8") }, new(), new[] { Director("d1", "OLD_BOX", "2.1.4") });
+
+        Assert.Equal(LauncherReach.NotStreamCapable, Assert.Single(view.Machines).Reach);
+    }
+
+    // Issue #4423: the Cockpit drops an update's stale answer once the machine is up to date - that verdict is folded here.
+    [Fact]
+    public void Fold_LauncherAndRunningDirectorCurrent_IsUpToDate()
+    {
+        var view = Fold(new[] { Launcher("STUDIO_MAC", "2.1.4") }, new() { ["STUDIO_MAC"] = Stream(ModernCommands) },
+            new[] { Director("d1", "STUDIO_MAC", "2.1.4") });
+
+        Assert.True(Assert.Single(view.Machines).UpToDate);
+    }
+
+    [Theory]
+    [InlineData("2.1.3", "2.1.4")] // launcher behind
+    [InlineData("2.1.4", "2.1.3")] // Director behind
+    public void Fold_LauncherOrDirectorBehind_IsNotUpToDate(string launcherVersion, string directorVersion)
+    {
+        var view = Fold(new[] { Launcher("STUDIO_MAC", launcherVersion) }, new() { ["STUDIO_MAC"] = Stream(ModernCommands) },
+            new[] { Director("d1", "STUDIO_MAC", directorVersion) });
+
+        Assert.False(Assert.Single(view.Machines).UpToDate);
+    }
+
+    [Fact]
+    public void Fold_NewestReleaseNotKnown_IsNotUpToDate()
+    {
+        var view = Fold(new[] { Launcher("STUDIO_MAC", "2.1.4") }, new() { ["STUDIO_MAC"] = Stream(ModernCommands) },
+            new[] { Director("d1", "STUDIO_MAC", "2.1.4") }, newest: new NewestReleaseSnapshot(null, null, null));
+
+        Assert.False(Assert.Single(view.Machines).UpToDate);
     }
 }

@@ -52,6 +52,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
     private readonly string _machine;
     private readonly Func<string?> _directorName;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Action<string, string> _crashSeatReopened;
 
     /// <summary>Create the engine.</summary>
     /// <param name="gateway">The Gateway seam. Throws when the Gateway cannot be reached, which becomes a
@@ -65,12 +66,16 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// <param name="nowUtc">Reads the time now, in universal time. A seam rather than a call to the clock,
     /// because <see cref="OfferedForDays"/> is a rule about age and a rule about age is only provable against
     /// a clock a test can set. Defaults to the real clock.</param>
+    /// <param name="crashSeatReopened">Told the record id and the seat once a seat of a CRASH record has been reopened, so
+    /// the crash journal it came from stops offering it (issue #4120, review round 2). Defaults to
+    /// <see cref="CrashJournalRows.RemoveReopened"/> in this Director's own crash-journal folder.</param>
     public DirectorWayUp(
         IWayUpGateway gateway,
         IWayUpRestore restore,
         string machine,
         Func<string?> directorName,
-        Func<DateTime>? nowUtc = null)
+        Func<DateTime>? nowUtc = null,
+        Action<string, string>? crashSeatReopened = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _restore = restore ?? throw new ArgumentNullException(nameof(restore));
@@ -79,6 +84,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             : machine;
         _directorName = directorName ?? throw new ArgumentNullException(nameof(directorName));
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
+        _crashSeatReopened = crashSeatReopened ?? ((recordId, seatId) => CrashJournalRows.RemoveReopened(recordId, seatId));
     }
 
     /// <summary>
@@ -140,7 +146,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
                 var record = BuildRecord(offered);
                 FileLog.Write($"[DirectorWayUp] FindOfferAsync: offering {offered.Id}, shut down " +
                               $"{ShutdownAtUtc(offered):u}, owed={record.SeatsOwed}, rows={record.Rows.Count}");
-                return new WayUpOffer(WayUpOfferState.Offered, WayUpWords.Headline, record);
+                return new WayUpOffer(WayUpOfferState.Offered, record.Headline, record);
             }
 
             FileLog.Write($"[DirectorWayUp] FindOfferAsync: nothing waiting ({read} record(s) read)");
@@ -333,6 +339,11 @@ public sealed class DirectorWayUp : IDirectorWayUp
                               $"but which session took it could not be recorded: {recorded.Reason}");
 
             FileLog.Write($"[DirectorWayUp] ReopenAsync: seat={seat.SessionId} reopened as {created.SessionId}");
+
+            // ONE DEAD SESSION, TWO DOORS (issue #4120, review round 2): a crash record's seat is also offered by the
+            // Interrupted sessions list, which reads the crash journal. Take it out of the journal now it is back.
+            if (string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal))
+                _crashSeatReopened(doc.Id, SeatId(seat));
             return new WayUpReopenResult(true, created.SessionId,
                 $"{seat.Name} was opened again as {DrainPaths.ShortId(created.SessionId)}. {offer.What}");
         }
@@ -533,7 +544,10 @@ public sealed class DirectorWayUp : IDirectorWayUp
     internal static bool HasSomethingToActOn(WorkspaceDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        return string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
+        // A CRASH RECORD IS OFFERED LIKE A SMART SHUTDOWN (issue #4120): every one of its seats died with the
+        // Director, which is the operating-system-shutdown case below with even less warning.
+        return (string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.SmartShutdown, StringComparison.Ordinal)
+                || string.Equals(doc.ShutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal))
                && doc.CancelledAtUtc is null
                && (OwedSeats(doc).Count > 0 || ReopenableSeats(doc).Count > 0);
     }
@@ -598,8 +612,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
             WorkspaceId: doc.Id,
             ShutdownAtUtc: at,
             ShutdownAtLocal: local,
-            Headline: WayUpWords.Headline,
-            WhenLabel: WayUpWords.WhenLabel(local),
+            Headline: WayUpWords.HeadlineFor(doc.ShutdownKind),
+            WhenLabel: WayUpWords.WhenLabel(local, doc.ShutdownKind),
             Reason: doc.Reason,
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
             SeatsOwed: owed.Count,
@@ -645,7 +659,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             WorkspaceId: doc.Id,
             AtUtc: at,
             AtLocal: local,
-            WhenLabel: WayUpWords.WhenLabel(local),
+            WhenLabel: WayUpWords.WhenLabel(local, doc.ShutdownKind),
             KindLabel: WayUpWords.KindLabel(doc.ShutdownKind),
             Reason: doc.Reason,
             ReasonLabel: WayUpWords.ReasonLabel(doc.Reason),
@@ -833,7 +847,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
            && seat.Restore?.ReopenedAtUtc is null
            && seat.Restore is not { Decision: WorkspaceRestoreDecisions.Restore }
            && (string.Equals(seat.DrainState, WorkspaceDrainStates.EndedAtLimit, StringComparison.Ordinal)
-               || string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal));
+               || string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal)
+               || string.Equals(seat.DrainState, WorkspaceDrainStates.DiedWithDirector, StringComparison.Ordinal));
 
     /// <summary>
     /// The seat at the top of this seat's reporting chain inside the record. A chain that leaves the record,
@@ -1021,7 +1036,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             Name = seat.Name,
             Role = string.IsNullOrWhiteSpace(seat.Role) ? null : seat.Role,
             ResumeSessionId = string.IsNullOrWhiteSpace(seat.ClaudeSessionId) ? null : seat.ClaudeSessionId,
-            PrePrompt = WayUpWords.ReopenPrompt(ToLocal(ShutdownAtUtc(doc))),
+            PrePrompt = WayUpWords.ReopenPrompt(ToLocal(ShutdownAtUtc(doc)), doc.ShutdownKind),
             // The reopened seat CONTINUES the session it was captured from, so it keeps that session's starter:
             // a mission seat reopened after a restart is not one the owner started (Your Throttle, 2026-09-27).
             // A seat captured before the starter was recorded is reopened by the owner, as before.

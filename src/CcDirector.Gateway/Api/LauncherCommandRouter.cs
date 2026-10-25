@@ -1,6 +1,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using Microsoft.AspNetCore.SignalR;
 
 namespace CcDirector.Gateway.Api;
 
@@ -37,5 +38,47 @@ internal static class LauncherCommandRouter
         var result = await sendCommand(tenant, machineName, command, ct);
         FileLog.Write($"[LauncherCommandRouter] {command.Verb} tenant={tenant.Value} machine={machineName}: {(result is null ? "no stream connection - undeliverable" : $"stream status={result.Status}")}");
         return result;
+    }
+
+    /// <summary>
+    /// Push one command down one launcher connection and wait for its answer. The Gateway host's send hook calls
+    /// this once it has found the connection.
+    ///
+    /// THE STREAM CAN GO WHILE THE COMMAND IS IN FLIGHT (issue #4423). SignalR answers a client result whose
+    /// connection closed - or had already closed between the caller's lookup and the send - with an
+    /// <see cref="IOException"/>. That is not a server fault: the launcher had the command and may have done it,
+    /// and an update does exactly this when it restarts the launcher into the new version. It is thrown as
+    /// <see cref="LauncherStreamLostException"/> so the relay can say what happened.
+    /// </summary>
+    public static async Task<LauncherCommandResult> InvokeDownStreamAsync(
+        IHubContext<Streaming.LauncherHub> hub, string connectionId, string machineName, LauncherCommand command, CancellationToken ct)
+    {
+        try
+        {
+            return await hub.Clients.Client(connectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
+        }
+        catch (IOException ex)
+        {
+            FileLog.Write($"[LauncherCommandRouter] InvokeDownStreamAsync: machine={machineName}, verb={command.Verb}: the stream closed before the launcher answered: {ex.Message}");
+            throw new LauncherStreamLostException(machineName, command.Verb, ex);
+        }
+    }
+}
+
+/// <summary>
+/// The command was delivered down a launcher's stream, and that stream closed BEFORE the launcher answered, so
+/// the answer is lost (issue #4423). It is not the same as an undeliverable command: the launcher had the
+/// command, and may well have done it. The commonest cause is the command itself - an update restarts the
+/// launcher into the new version, and the old process goes before it can reply.
+///
+/// Thrown by the Gateway host's send hook, which is the only place that can tell this from any other fault,
+/// and turned into its own outcome by <see cref="LauncherLifecycleRelay"/>, so the reader is told what
+/// happened rather than handed a server fault or a guess about the launcher's age.
+/// </summary>
+internal sealed class LauncherStreamLostException : Exception
+{
+    public LauncherStreamLostException(string machineName, string verb, Exception inner)
+        : base($"the launcher on '{machineName}' closed its command stream before answering '{verb}'", inner)
+    {
     }
 }

@@ -300,6 +300,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Cron run history (<c>cron_runs</c>), one row per fire.</summary>
     public DbSet<CronRunEntity> CronRuns => Set<CronRunEntity>();
 
+    /// <summary>When each schedule's owner was last told it failed, per cause (<c>cron_failure_notices</c>, issue #4436).</summary>
+    public DbSet<CronFailureNoticeEntity> CronFailureNotices => Set<CronFailureNoticeEntity>();
+
     /// <summary>Named work lists (<c>worklists</c>).</summary>
     public DbSet<WorkListEntity> WorkLists => Set<WorkListEntity>();
 
@@ -753,6 +756,14 @@ public sealed class GatewayDbContext : DbContext
             // Factory Definition, phase 5b: a timed start's check and the version it was written from.
             b.Property(e => e.CheckPath).HasMaxLength(256);
             b.Property(e => e.CheckSecretsJson).HasMaxLength(4096);
+        });
+
+        modelBuilder.Entity<CronFailureNoticeEntity>(b =>
+        {
+            b.ToTable("cron_failure_notices");
+            b.HasKey(e => new { e.TenantId, e.JobId, e.Cause });
+            b.Property(e => e.JobId).HasMaxLength(64);
+            b.Property(e => e.Cause).HasMaxLength(64);
         });
 
         modelBuilder.Entity<CronRunEntity>(b =>
@@ -2579,6 +2590,7 @@ public sealed class GatewayDbContext : DbContext
         // entity that derives from TenantScopedEntity, so future stores inherit it by deriving from the base.
         ApplyTenantScope<CronJobEntity>(modelBuilder);
         ApplyTenantScope<CronRunEntity>(modelBuilder);
+        ApplyTenantScope<CronFailureNoticeEntity>(modelBuilder);
         ApplyTenantScope<WorkListEntity>(modelBuilder);
         ApplyTenantScope<WorkListItemEntity>(modelBuilder);
         ApplyTenantScope<WorkflowEntity>(modelBuilder);
@@ -2698,6 +2710,9 @@ public sealed class GatewayDbContext : DbContext
             //    stores do is done in .NET, not the database. So no assumption that these keys are ASCII is
             //    needed - mission_notes.Key in particular is only trimmed and lower-cased, not restricted.)
             modelBuilder.Entity<SnoozeEntity>().Property(e => e.SessionId).UseCollation("C");
+            // cron_failure_notices: the schedule id and the cause are exact keys, compared byte-ordinally (issue #4436).
+            modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.JobId).UseCollation("C");
+            modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");

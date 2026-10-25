@@ -631,6 +631,35 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
     }
 
     /// <summary>
+    /// Send the crash journal of the Director that ran before this one to <c>POST /gateway/workspaces/crash-records</c>,
+    /// on this Director's own credential, so the Gateway keeps it as a restart record (issue #4120). Answers true when
+    /// the record was written and false when it was already there - the id is derived from the dead process, so the
+    /// same journal sent at every start-up is recorded once. Throws with the Gateway's reason on any other answer.
+    /// </summary>
+    /// <param name="request">The journal and the record id.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<bool> RecordCrashAsync(WorkspaceCrashRecordRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; a crash record is kept on the Gateway.");
+
+        const string route = "POST /gateway/workspaces/crash-records";
+        FileLog.Write($"[GatewayClient] RecordCrashAsync: {route}, id={request.Id}, sessions={request.Journal.Sessions.Count}");
+        using var resp = await _http.PostAsJsonAsync("gateway/workspaces/crash-records", request, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            FileLog.Write($"[GatewayClient] RecordCrashAsync: '{request.Id}' was already recorded");
+            return false;
+        }
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        FileLog.Write($"[GatewayClient] RecordCrashAsync: '{request.Id}' recorded");
+        return true;
+    }
+
+    /// <summary>
     /// Write what a restore did to one seat (the Message Load mission, inspection 7, ruling 1) through
     /// <c>POST /gateway/workspaces/{id}/restore/marks</c>, on this Director's own credential. Returns the stored
     /// document. Throws with the Gateway's reason when the mark is not written - notably when this Director does

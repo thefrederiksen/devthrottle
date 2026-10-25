@@ -47,7 +47,11 @@ public sealed class WayUpTestRig
     /// <param name="nowUtc">The moment the engine reads as now. <see cref="Now"/> by default, which is when
     /// every record in this rig was shut down, so nothing is too old unless a test says so.</param>
     public IDirectorWayUp WayUp(string? directorName = ThisDirector, DateTime? nowUtc = null)
-        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName, () => nowUtc ?? Now);
+        => new DirectorWayUp(Gateway, Restore, ThisMachine, () => directorName, () => nowUtc ?? Now,
+            crashSeatReopened: (recordId, seatId) => CrashSeatsReopened.Add((recordId, seatId)));
+
+    /// <summary>Every crash record seat the engine reported reopened, so its journal row can go (issue #4120).</summary>
+    public List<(string RecordId, string SeatId)> CrashSeatsReopened { get; } = new();
 
     /// <summary>A record of a smart shutdown belonging to this Director on this machine.</summary>
     /// <param name="id">The workspace slug.</param>
@@ -411,6 +415,33 @@ public sealed class FakeWayUpGateway : IWayUpGateway
     /// <summary>The Director this fake stamps a reopen claim with. The real seam reads it from the Director
     /// itself, which is why the engine never supplies it.</summary>
     public string MarkingDirectorId { get; set; } = "director-after-the-restart";
+
+    /// <summary>Every crash journal this fake was sent (issue #4120).</summary>
+    public List<CrashJournalDto> CrashJournalsSent { get; } = new();
+
+    /// <summary>When set, a crash journal is refused with this reason, as a Gateway too old for the route refuses.</summary>
+    public string? RefuseCrashRecords { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>Built with the same rule the Gateway's route uses, stamped with this rig's Director and machine, so the
+    /// record the engine then reads is the one the Gateway would have written.</remarks>
+    public Task<bool> RecordCrashAsync(CrashJournalDto journal, CancellationToken ct)
+    {
+        if (Unreachable is not null) throw new HttpRequestException(Unreachable);
+        CrashJournalsSent.Add(journal);
+        if (RefuseCrashRecords is not null) throw new InvalidOperationException(RefuseCrashRecords);
+
+        var id = WorkspaceCrashRecords.IdFor(journal);
+        if (_records.Any(d => string.Equals(d.Id, id, StringComparison.Ordinal))) return Task.FromResult(false);
+
+        var doc = WorkspaceCrashRecords.Build(
+            new WorkspaceCrashRecordRequest { Id = id, DirectorId = MarkingDirectorId, Journal = journal },
+            WayUpTestRig.ThisDirector, "2.31.0", WayUpTestRig.ThisMachine);
+        doc.CreatedUtc = WayUpTestRig.Now;
+        doc.UpdatedUtc = WayUpTestRig.Now;
+        _records.Add(doc);
+        return Task.FromResult(true);
+    }
 }
 
 /// <summary>The restore seam, faked. It records the order it was handed and answers what the test sets.</summary>

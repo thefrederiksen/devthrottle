@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
@@ -59,8 +61,33 @@ public static class ComponentRegistry
         MacAsset: "cc-launcher-mac-arm64",
         LinuxAsset: "cc-launcher-linux-x64");
 
-    /// <summary>The fixed app components (Director, Gateway, Launcher).</summary>
-    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Launcher];
+    /// <summary>
+    /// The shared Python tools bundle: one download holding every cc-* tool.
+    ///
+    /// It exists here so that <c>components</c>, <c>status</c> and <c>plan</c> can SEE it. Before this
+    /// the bundle was the only thing the tools install actually downloads, versions and records - its
+    /// version is in installed.json under this id - and it was the one thing none of those three
+    /// commands mentioned, while they all reported three individual tools that have no asset, no
+    /// version and no install action of their own (#4291).
+    ///
+    /// The asset names are the real ones, for display and diagnostics. They are NOT a download
+    /// instruction: this component is installed by PythonToolsInstaller as its own install step, and
+    /// the planner refuses to make it actionable on the strength of its KIND rather than on an absent
+    /// asset - see UpdatePlanner. That distinction matters, because the macOS and Linux bundles are
+    /// .tar.gz, and the generic UpdateRunner only skips .zip: left actionable, it would have downloaded
+    /// a tarball and placed it as though it were a single executable.
+    /// </summary>
+    public static readonly Component PythonTools = new(
+        Id: PythonToolsInstaller.ComponentId,
+        Kind: ComponentKind.ToolsBundle,
+        DisplayName: "Python tools bundle",
+        WindowsAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.Windows),
+        Roles: BothRoles,
+        MacAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.OSX),
+        LinuxAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.Linux));
+
+    /// <summary>The fixed app components (Director, Gateway, Launcher) and the shared tools bundle.</summary>
+    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Launcher, PythonTools];
 
     /// <summary>
     /// A conservative default tool set (the tools the release pipeline ships
@@ -71,10 +98,18 @@ public static class ComponentRegistry
 
     /// <summary>
     /// Build a tool component from its id. Tools have NO macOS and NO Linux asset, and that is not
-    /// an omission: the standalone per-executable delivery is Windows-only, and every cc-* tool
-    /// reaches macOS and Linux inside the shared Python tools bundle instead. So
-    /// <see cref="Component.AssetFor"/> answers null off Windows, which callers render as "ships in
-    /// the Python tools bundle" rather than as a missing download.
+    /// an omission: every cc-* tool reaches those platforms inside the shared Python tools bundle
+    /// instead. So <see cref="Component.AssetFor"/> answers null off Windows, and a caller must render
+    /// that as "ships in the Python tools bundle" rather than as a missing download - which is what
+    /// <see cref="PlanItemKind.ProvidedByToolsBundle"/> is for.
+    ///
+    /// NOTE, and it is worth checking before relying on this type: the release no longer ships a
+    /// per-tool <c>-win-x64.exe</c> for ANY tool either. Every <c>*-win-x64.exe</c> in the live manifest
+    /// is on <see cref="DiscoverToolIds"/>'s exclusion list, so that method answers an EMPTY list on
+    /// every platform, Windows included, and the tools now reach Windows through the same Python bundle.
+    /// Whether Tool components should therefore be retired, or re-pointed at the bundle's real contents,
+    /// is an open decision - see the discussion on #4291. Until it is taken, the only tool ids any
+    /// caller sees are <see cref="DefaultToolIds"/>, a fixed list of three that predates the change.
     /// </summary>
     public static Component ToolComponent(string id)
     {

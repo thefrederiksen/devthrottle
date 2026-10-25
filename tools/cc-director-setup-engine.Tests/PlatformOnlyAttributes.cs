@@ -39,3 +39,39 @@ public sealed class UnixOnlyFactAttribute : FactAttribute
             Skip = "macOS/Linux-only: " + because;
     }
 }
+
+/// <summary>
+/// A fact that needs a real zsh to run, which SKIPS - visibly, with a stated reason - where there is
+/// none, rather than reporting a pass for a test that never exercised a shell. The same discipline as
+/// <see cref="WindowsOnlyTheoryAttribute"/>.
+///
+/// It exists because the defect in #4292 was ENTIRELY about which start-up file zsh reads for which
+/// kind of shell. No assertion about the list of file names can catch that; only running zsh can. So
+/// where zsh is absent this must say it did not run, and never quietly agree.
+/// </summary>
+public sealed class ZshOnlyFactAttribute : FactAttribute
+{
+    public ZshOnlyFactAttribute(string because)
+    {
+        if (!File.Exists("/bin/zsh"))
+            Skip = "needs /bin/zsh: " + because;
+    }
+}
+
+/// <summary>
+/// A fact about behaviour only macOS has, which SKIPS - visibly, with a stated reason - everywhere
+/// else, rather than failing for a platform it was never about. The same discipline as
+/// <see cref="WindowsOnlyTheoryAttribute"/>.
+///
+/// For a test that genuinely needs the real macOS: one that shells out to <c>plutil</c>, say. A test
+/// that merely ASSERTS ABOUT macOS should name the platform and run everywhere instead - see
+/// MacInstallLocationTests, which does exactly that.
+/// </summary>
+public sealed class MacOnlyFactAttribute : FactAttribute
+{
+    public MacOnlyFactAttribute(string because)
+    {
+        if (!OperatingSystem.IsMacOS())
+            Skip = "macOS-only: " + because;
+    }
+}
