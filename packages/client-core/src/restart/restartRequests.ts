@@ -95,22 +95,11 @@ export async function declineRestartRequest(machine: string, id: string, reason?
   return (await res.json()) as DirectorRestartRequest;
 }
 
-/** How long a CLOSED request stays on the screen, so the owner sees the outcome of what he accepted or
- *  what a session asked, without a card lingering for the Gateway's whole day of retention. */
-export const CLOSED_REQUEST_VISIBLE_MS = 30 * 60 * 1000;
-
 /**
- * Which requests a screen shows: every one that is still open (pending, or accepted and running), and
- * every closed one for thirty minutes after it closed. A closed request whose close time cannot be
- * parsed is SHOWN, not hidden - hiding on an unreadable timestamp would make a request the owner should
- * see vanish because of a formatting difference.
+ * Which requests a screen shows: only the ones still waiting for the owner's answer. An accepted request
+ * is the Director's work now, and a closed one is history - neither is shown as a card, because a card
+ * the owner cannot act on and cannot clear only takes his screen away from his sessions.
  */
-export function visibleRestartRequests(requests: DirectorRestartRequest[], nowMs: number): DirectorRestartRequest[] {
-  return requests.filter((r) => {
-    if (r.state === "Pending" || r.state === "Accepted") return true;
-    if (!r.closedAtUtc) return true;
-    const closed = Date.parse(r.closedAtUtc);
-    if (Number.isNaN(closed)) return true;
-    return nowMs - closed < CLOSED_REQUEST_VISIBLE_MS;
-  });
+export function visibleRestartRequests(requests: DirectorRestartRequest[]): DirectorRestartRequest[] {
+  return requests.filter((r) => r.state === "Pending");
 }
