@@ -86,10 +86,10 @@ public class MacBundleVersionReadTests : IDisposable
             : (1, $"{plist}: Could not extract value, error: No value at that key path or invalid key path: {match.Groups["key"].Value}\n");
     }
 
-    /// <summary>Write a Director.app whose Info.plist carries <paramref name="version"/>.</summary>
-    private void WriteBundle(string version)
+    /// <summary>Write a bundle (Director.app unless named) whose Info.plist carries <paramref name="version"/>.</summary>
+    private void WriteBundle(string version, string bundleName = "Director.app")
     {
-        var contents = Path.Combine(_appsDir, "Director.app", "Contents");
+        var contents = Path.Combine(_appsDir, bundleName, "Contents");
         Directory.CreateDirectory(contents);
         File.WriteAllText(Path.Combine(contents, "Info.plist"),
             $"""
@@ -119,6 +119,20 @@ public class MacBundleVersionReadTests : IDisposable
         Assert.Equal("2.28.0", state.FileVersion);
         // The version came from the bundle's own Info.plist, asked of plutil once.
         Assert.Equal(new[] { Path.Combine(_appsDir, "Director.app", "Contents", "Info.plist") }, _plutilReads);
+    }
+
+    [Fact]
+    public void ABundleUnderItsPreRenameName_IsReadThroughTheMacAlias()
+    {
+        // A Mac that still carries the bundle under its old name (issue #1821) is an install: the reader finds it through
+        // the macOS legacy aliases - asked for the reader's platform, not the machine's - and reads its version.
+        WriteBundle("2.25.0", bundleName: "CC Director.app");
+
+        var state = MacReader(InstalledManifest.Empty()).Read(ComponentRegistry.Director);
+
+        Assert.True(state.Present);
+        Assert.Equal("2.25.0", state.Version);
+        Assert.Equal(new[] { Path.Combine(_appsDir, "CC Director.app", "Contents", "Info.plist") }, _plutilReads);
     }
 
     [Fact]

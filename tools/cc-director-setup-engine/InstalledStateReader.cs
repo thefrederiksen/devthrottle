@@ -59,13 +59,20 @@ public sealed class InstalledStateReader
     internal static bool DefaultExists(string path) => File.Exists(path) || Directory.Exists(path);
 
     /// <summary>
-    /// Default presence check for a legacy alias (issue #1821). A pre-rename alias is only ever a
-    /// FILE - the renamed component is a Windows exe, never a bundle - so this probes File.Exists
-    /// only. It deliberately does NOT accept a directory (unlike <see cref="DefaultExists"/>), or a
-    /// Workstation that merely happened to have a DIRECTORY named gateway\cc-director-gateway.exe
-    /// would falsely read as a Gateway host.
+    /// Default presence check for a legacy alias (issue #1821). The Gateway's pre-rename alias is only
+    /// ever a FILE, so it is probed with File.Exists only: a Workstation that merely happened to have a
+    /// DIRECTORY named gateway\cc-director-gateway.exe must not read as a Gateway host.
+    /// <para>
+    /// THE ONE DIRECTORY AN ALIAS CAN BE IS A MACOS .APP BUNDLE. The Director's older bundle names
+    /// (<see cref="InstallLayout.LegacyAliasesFor(Component)"/>: "CC Director.app", and Director.app in the
+    /// user's own Applications folder) are bundles, which are directories - so a file-only probe never found
+    /// them, and a Mac carrying the Director under an older name read as not installed, although those shapes
+    /// are listed precisely so that they read as installs. A path ending in ".app" is therefore accepted as a
+    /// directory; no Gateway alias ends in ".app", so the #1821 guard is untouched.
+    /// </para>
     /// </summary>
-    internal static bool DefaultAliasExists(string path) => File.Exists(path);
+    internal static bool DefaultAliasExists(string path) =>
+        File.Exists(path) || (path.EndsWith(".app", StringComparison.OrdinalIgnoreCase) && Directory.Exists(path));
 
     /// <summary>Inspect one component.</summary>
     public InstalledComponent Read(Component component)
@@ -121,17 +128,14 @@ public sealed class InstalledStateReader
     }
 
     /// <summary>
-    /// Default version reader: the Windows product-version stamp on the exe, or the
-    /// CFBundleShortVersionString of a macOS .app bundle. A macOS single-file binary
-    /// carries neither, so it reads as null ("present but version unknown", which the
-    /// planner answers by re-applying the release so the version gets recorded).
-    /// </summary>
-
-    /// <summary>
     /// The version a build on disk declares about ITSELF, for any path - not only a component's
     /// installed location. Public because a build that has been downloaded but not yet installed has
     /// no manifest entry to be looked up in, and the file's own stamp is then the only thing that can
     /// say what it is (the staged launcher <see cref="LauncherUpdateOwner"/> is about to install).
+    /// It is the Windows product-version stamp on the exe, or the CFBundleShortVersionString of a
+    /// macOS .app bundle. A macOS single-file binary carries neither, so it reads as null ("present
+    /// but version unknown", which the planner answers by re-applying the release so the version gets
+    /// recorded). This is also the reader's default version read.
     /// </summary>
     public static string? ReadVersionFromDisk(string path) => ReadVersionFromDisk(path, HostPlatform.Current, ProcessRunner.Run);
 
