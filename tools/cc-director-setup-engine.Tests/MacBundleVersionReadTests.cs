@@ -86,10 +86,10 @@ public class MacBundleVersionReadTests : IDisposable
             : (1, $"{plist}: Could not extract value, error: No value at that key path or invalid key path: {match.Groups["key"].Value}\n");
     }
 
-    /// <summary>Write a bundle (Director.app unless named) whose Info.plist carries <paramref name="version"/>.</summary>
-    private void WriteBundle(string version, string bundleName = "Director.app")
+    /// <summary>Write a Director.app whose Info.plist carries <paramref name="version"/>.</summary>
+    private void WriteBundle(string version)
     {
-        var contents = Path.Combine(_appsDir, bundleName, "Contents");
+        var contents = Path.Combine(_appsDir, "Director.app", "Contents");
         Directory.CreateDirectory(contents);
         File.WriteAllText(Path.Combine(contents, "Info.plist"),
             $"""
@@ -119,20 +119,6 @@ public class MacBundleVersionReadTests : IDisposable
         Assert.Equal("2.28.0", state.FileVersion);
         // The version came from the bundle's own Info.plist, asked of plutil once.
         Assert.Equal(new[] { Path.Combine(_appsDir, "Director.app", "Contents", "Info.plist") }, _plutilReads);
-    }
-
-    [Fact]
-    public void ABundleUnderItsPreRenameName_IsReadThroughTheMacAlias()
-    {
-        // A Mac that still carries the bundle under its old name (issue #1821) is an install: the reader finds it through
-        // the macOS legacy aliases - asked for the reader's platform, not the machine's - and reads its version.
-        WriteBundle("2.25.0", bundleName: "CC Director.app");
-
-        var state = MacReader(InstalledManifest.Empty()).Read(ComponentRegistry.Director);
-
-        Assert.True(state.Present);
-        Assert.Equal("2.25.0", state.Version);
-        Assert.Equal(new[] { Path.Combine(_appsDir, "CC Director.app", "Contents", "Info.plist") }, _plutilReads);
     }
 
     [Fact]
@@ -199,5 +185,37 @@ public class MacBundleVersionReadTests : IDisposable
 
         Assert.True(state.Present);
         Assert.Equal("2.26.0", state.Version);
+    }
+}
+
+/// <summary>
+/// The reader lays a machine out as the platform it was GIVEN, not the machine it runs on - its legacy aliases
+/// included. The Gateway's pre-rename name differs by platform (".exe" only on Windows), so a reader for Windows on
+/// any other machine finds the Windows alias only if it asks the layout for Windows's aliases.
+/// </summary>
+public class InstalledStateReaderPlatformTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-reader-platform-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public void AReaderForWindows_FindsTheGatewayUnderItsWindowsPreRenameName_OnAnyMachine()
+    {
+        var layout = new InstallLayout(_root);
+        var legacy = Path.Combine(layout.GatewayDir, "cc-director-gateway.exe");
+        Directory.CreateDirectory(layout.GatewayDir);
+        File.WriteAllText(legacy, "the pre-rename Gateway");
+        var reader = new InstalledStateReader(layout, OSPlatform.Windows,
+            (exe, arguments, _, _) => throw new InvalidOperationException($"no program may be started: {exe} {arguments}"),
+            readVersion: _ => null, installed: InstalledManifest.Empty());
+
+        var state = reader.Read(ComponentRegistry.Gateway);
+
+        Assert.True(state.Present);
+        Assert.Equal(layout.PathFor(ComponentRegistry.Gateway, OSPlatform.Windows), state.Path);
     }
 }
