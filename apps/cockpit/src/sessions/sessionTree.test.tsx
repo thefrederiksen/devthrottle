@@ -156,32 +156,49 @@ describe("the Cockpit roster is the ownership tree", () => {
     ]);
   });
 
-  it("nests a Worker on another Director under its Architect in My order, and says which machine it is on", () => {
+  it("shows a Worker on another Director under its own machine in My order, with a placeholder in its Architect's crew", () => {
+    // Owner ruling, 2026-10-25: every machine shows every session on it. The tree is unchanged, so the crew counts it once.
     const remote = session({ sessionId: "R", name: "Rule Factory - Worker - remote", sortOrder: 0, controllerSessionId: "108", directorId: "d2", machineName: "SORENLAPTOP" });
     const { container } = renderRoster([alone, architect, remote], "my-order");
 
-    // One Director group only: the remote Worker is not a top-level row of its own machine.
-    expect(Array.from(container.querySelectorAll(".roster-group-name")).map((el) => el.textContent)).toEqual(["SOREN_NORTH"]);
-    expect(rowNames(container)).toEqual(["Rule Factory - Architect", "devthrottle_internal - wingman"]);
+    expect(Array.from(container.querySelectorAll(".roster-group-name")).map((el) => el.textContent)).toEqual(["SOREN_NORTH", "SORENLAPTOP"]);
+    expect(rowNames(container)).toEqual(["Rule Factory - Architect", "devthrottle_internal - wingman", "Rule Factory - Worker - remote"]);
     fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Architect/ }));
     const kids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
-    expect(rowNames(kids)).toEqual(["Rule Factory - Worker - remote"]);
-    expect(within(kids).getByText("SORENLAPTOP")).toBeTruthy();
-    // The same answer in the Attention view.
+    expect(within(kids).getByTestId("roster-ghost").textContent).toContain("runs on SORENLAPTOP");
+    // The Attention view does not group by machine: the Worker stays in its crew, saying which machine it is on.
     cleanup();
     resetCrewExpandedForTests();
     const att = renderRoster([alone, architect, remote], "attention");
     expect(rowNames(att.container)).toEqual(["Rule Factory - Architect", "devthrottle_internal - wingman"]);
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Architect/ }));
+    const attKids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
+    expect(rowNames(attKids)).toEqual(["Rule Factory - Worker - remote"]);
+    expect(within(attKids).getByText("SORENLAPTOP")).toBeTruthy();
   });
 
-  it("labels every machine crossing against the row's own parent, not the crew's root", () => {
+  it("labels every machine crossing against the row's own parent, not the crew's root (Attention view)", () => {
+    const manager = session({ sessionId: "M", name: "Rule Factory - Manager", sortOrder: 6, controllerSessionId: "108", directorId: "d2", machineName: "SORENLAPTOP" });
+    const deep = session({ sessionId: "D", name: "Rule Factory - Worker - deep", sortOrder: 7, controllerSessionId: "M" });
+    const { container } = renderRoster([architect, manager, deep], "attention");
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under Rule Factory - Architect/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Manager/ }));
+    // The top-level card always says its machine in this view; under it, the Manager crosses to the laptop and the
+    // deep Worker crosses back, each labelled against the row directly above it.
+    const machines = Array.from(container.querySelectorAll(".roster-machine")).map((el) => el.textContent);
+    expect(machines).toEqual(["SOREN_NORTH", "SORENLAPTOP", "SOREN_NORTH"]);
+  });
+
+  it("links each crossing to its own parent in My order: a grandchild back on the root's machine says who started it", () => {
     const manager = session({ sessionId: "M", name: "Rule Factory - Manager", sortOrder: 6, controllerSessionId: "108", directorId: "d2", machineName: "SORENLAPTOP" });
     const deep = session({ sessionId: "D", name: "Rule Factory - Worker - deep", sortOrder: 7, controllerSessionId: "M" });
     const { container } = renderRoster([architect, manager, deep], "my-order");
-    fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under Rule Factory - Architect/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Manager/ }));
-    const machines = Array.from(container.querySelectorAll(".roster-machine")).map((el) => el.textContent);
-    expect(machines).toEqual(["SORENLAPTOP", "SOREN_NORTH"]);
+    expect(container.querySelectorAll("[data-linked-row]")).toHaveLength(2);
+    // In machine order: the deep Worker under SOREN_NORTH, started by the Manager; the Manager under SORENLAPTOP.
+    expect(Array.from(container.querySelectorAll('[data-testid="roster-started-by"]')).map((el) => el.textContent)).toEqual([
+      "started by Rule Factory - Manager on SORENLAPTOP",
+      "started by Rule Factory - Architect on SOREN_NORTH",
+    ]);
   });
 
   it("renders both members of an ownership loop as top-level rows", () => {

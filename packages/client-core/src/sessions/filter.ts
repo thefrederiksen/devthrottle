@@ -73,9 +73,29 @@ export function sessionMatchesFilter(s: SessionDto, f: SessionFilter): boolean {
 
 // The roster narrowed to the sessions that match the filter, preserving input order (the caller has
 // already ordered it). An inactive filter returns the roster unchanged.
+//
+// A CREW IS NEVER SPLIT BY THE REPO FACET. A session started by another session passes the repo facet when any session
+// above it does: the Mac investigator a devthrottle_internal session started in the Mac's home folder is part of that
+// crew, and a filter that dropped it showed the crew one member short (2026-10-25, session 113). The machine facet
+// stays each session's own, so a filter to one machine still shows only that machine.
 export function applyFilter(sessions: SessionDto[], f: SessionFilter): SessionDto[] {
   if (!filterIsActive(f)) return sessions;
-  return sessions.filter((s) => sessionMatchesFilter(s, f));
+  if (f.repos.length === 0) return sessions.filter((s) => sessionMatchesFilter(s, f));
+  const byId = new Map<string, SessionDto>();
+  for (const s of sessions) byId.set(String(s.sessionId ?? "").trim(), s);
+  const repoMatchesUp = (s: SessionDto): boolean => {
+    const seen = new Set<string>();
+    let cur: SessionDto | undefined = s;
+    while (cur) {
+      if (f.repos.includes(repoOf(cur))) return true;
+      const id = String(cur.sessionId ?? "").trim();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      cur = byId.get(String(cur.controllerSessionId ?? "").trim());
+    }
+    return false;
+  };
+  return sessions.filter((s) => (f.machines.length === 0 || f.machines.includes(machineName(s))) && repoMatchesUp(s));
 }
 
 // The distinct machine values in the roster with per-value counts, sorted by name. Built from the full

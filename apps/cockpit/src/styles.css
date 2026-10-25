@@ -9,6 +9,8 @@
   --text: #e6e9f2;
   --text-dim: #99a0b8;
   --accent: #3b82f6;
+  /* A session whose parent is on another machine: its placeholder, its linked row and the dashed line between them. */
+  --cross-machine: #a78bfa;
   --attention: #f14c4c;
   /* Brief accents (issue #973): warning yellow, an inset code/tail surface, and the tinted
      needs-you panel. Tokens so the Brief hard-codes no color outside this file. */
@@ -512,6 +514,7 @@ body {
 
 /* ---- the roster rail (left) ---- */
 .roster-rail {
+  position: relative;
   border-right: 1px solid var(--border);
   background: var(--surface);
   overflow-y: auto;
@@ -3949,4 +3952,56 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
+}
+
+/* ---- a child on another machine than its parent (owner ruling, 2026-10-25) ----
+   In "My order" its full row sits under its own machine with a dashed violet outline and a "started by" line; its crew
+   keeps a dashed placeholder; a dashed line in the rail's left margin joins the two. */
+.roster-row-linked {
+  box-shadow: inset 0 0 0 1px var(--cross-machine);
+  outline: 1px dashed var(--cross-machine);
+  outline-offset: -1px;
+}
+
+.roster-row-linked.roster-row-selected {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.roster-started-by {
+  align-self: flex-start;
+  color: var(--cross-machine);
+  border: 1px dashed var(--cross-machine);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.roster-row-ghost {
+  border: 1px dashed var(--cross-machine);
+  border-left: 3px dashed var(--cross-machine);
+  color: var(--text-dim);
+  padding: 5px 24px 5px 9px;
+}
+
+.roster-row-ghost .roster-name-text {
+  color: var(--cross-machine);
+  font-weight: 500;
+}
+
+.roster-cross-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+.roster-cross-lines path {
+  fill: none;
+  stroke: var(--cross-machine);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
 }

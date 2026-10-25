@@ -62,6 +62,28 @@ describe("applyFilter", () => {
     expect(out.map((s) => s.sessionId)).toEqual(["a"]);
   });
 
+  it("keeps a session whose own folder fails the repo facet when a session above it passes - a crew is never split", () => {
+    const parent = { sessionId: "p", machineName: "devlinux", repoPath: "/home/soren/ReposFred/devthrottle_internal" } as unknown as SessionDto;
+    const child = { sessionId: "c", machineName: "mac-mini", repoPath: "/Users/soren", controllerSessionId: "p" } as unknown as SessionDto;
+    const grandchild = { sessionId: "g", machineName: "mac-mini", repoPath: "/tmp/x", controllerSessionId: "c" } as unknown as SessionDto;
+    const stranger = { sessionId: "s", machineName: "mac-mini", repoPath: "/Users/soren" } as unknown as SessionDto;
+    const out = applyFilter([parent, child, grandchild, stranger], { machines: [], repos: ["devthrottle_internal"] });
+    expect(out.map((s) => s.sessionId)).toEqual(["p", "c", "g"]);
+  });
+
+  it("still applies the machine facet to each session's own machine when a crew rides along", () => {
+    const parent = { sessionId: "p", machineName: "devlinux", repoPath: "/home/soren/ReposFred/devthrottle_internal" } as unknown as SessionDto;
+    const child = { sessionId: "c", machineName: "mac-mini", repoPath: "/Users/soren", controllerSessionId: "p" } as unknown as SessionDto;
+    const out = applyFilter([parent, child], { machines: ["devlinux"], repos: ["devthrottle_internal"] });
+    expect(out.map((s) => s.sessionId)).toEqual(["p"]);
+  });
+
+  it("does not loop on a malformed ownership loop", () => {
+    const a = { sessionId: "a", repoPath: "/x/one", controllerSessionId: "b" } as unknown as SessionDto;
+    const b = { sessionId: "b", repoPath: "/x/two", controllerSessionId: "a" } as unknown as SessionDto;
+    expect(applyFilter([a, b], { machines: [], repos: ["three"] })).toEqual([]);
+  });
+
   it("preserves the input ordering", () => {
     const reversed = [...roster].reverse();
     const out = applyFilter(reversed, { machines: [], repos: ["devthrottle"] });
