@@ -50,6 +50,10 @@ from .session_ops import (
     interrupt_session,
     list_my_workers,
     press_key,
+    terminal_keys,
+    terminal_paste,
+    terminal_resize,
+    terminal_screen,
     list_sessions,
     mark_done,
     prompt_session,
@@ -3295,6 +3299,35 @@ def session_enter(
     """
     press_key(target, "enter")
 
+
+@session_app.command()
+def keys(target: str = typer.Argument(...), combo: str = typer.Argument(...)) -> None:
+    """Send a named terminal key chord, for example ctrl+c or alt+f.
+
+    Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
+    """
+    console.print_json(json.dumps(terminal_keys(target, combo)))
+
+@session_app.command()
+def paste(target: str = typer.Argument(...), text: str = typer.Argument(...)) -> None:
+    """Paste text into a session using its live terminal paste mode.
+
+    Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
+    """
+    console.print_json(json.dumps(terminal_paste(target, text)))
+
+@session_app.command()
+def resize(target: str = typer.Argument(...), cols: int = typer.Argument(...), rows: int = typer.Argument(...)) -> None:
+    """Resize a session terminal grid.
+
+    Requires an owner credential. A session credential is refused because an agent cannot change a terminal.
+    """
+    console.print_json(json.dumps(terminal_resize(target, cols, rows)))
+
+@session_app.command()
+def screen(target: str = typer.Argument(...)) -> None:
+    """Read the resolved terminal screen."""
+    console.print_json(json.dumps(terminal_screen(target)))
 
 @session_app.command(name="escape")
 def session_escape(

@@ -2,6 +2,7 @@ using System.Text;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
@@ -21,6 +22,8 @@ public sealed class TerminalTextEntryTests
     private sealed class RecordingBackend : ISessionBackend
     {
         public List<byte[]> Writes { get; } = new();
+        public Action? FirstWriteRecorded { get; set; }
+        private int _writeCount;
         public int ProcessId => 1;
         public string Status => "Test";
         public bool IsRunning => true;
@@ -31,7 +34,12 @@ public sealed class TerminalTextEntryTests
         public event Action<int>? ProcessExited;
 #pragma warning restore CS0067
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
-        public void Write(byte[] data) { lock (Writes) Writes.Add(data.ToArray()); }
+        public void Write(byte[] data)
+        {
+            lock (Writes) Writes.Add(data.ToArray());
+            if (Interlocked.Increment(ref _writeCount) == 1)
+                FirstWriteRecorded?.Invoke();
+        }
         public Task SendTextAsync(string text) => Task.CompletedTask;
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) { }
@@ -149,6 +157,55 @@ public sealed class TerminalTextEntryTests
 
     /// <summary>A program that never asked for bracketed paste (a shell, a sign-in prompt) gets the text as a terminal
     /// sends it - no markers, at the keystroke pace that sign-in prompts need.</summary>
+    [AvaloniaFact]
+    public async Task Finding4_Paste_TrimsTrailingNewlineBeforeUnframedWrite()
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: false);
+
+        await terminal.HarnessPasteAsync("yes\r\n");
+
+        Assert.Equal("yes", Encoding.UTF8.GetString(backend.All()));
+        window.Close();
+    }
+
+    /// <summary>
+    /// Cancel Paste must stop the active paced write before another paste can use the terminal. The
+    /// first write is deliberately held until the cancellation is requested, so the test controls
+    /// the order rather than hoping the 15 millisecond production delay creates a useful race.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task CancelPaste_ActiveUnframedPaste_StopsBeforeTheNextPasteWrites()
+    {
+        var (terminal, backend, window) = Open(AgentKind.ClaudeCode, agentAskedForBracketedPaste: false);
+        var firstChunkWritten = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstChunk = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        backend.FirstWriteRecorded = () =>
+        {
+            firstChunkWritten.TrySetResult();
+            releaseFirstChunk.Task.GetAwaiter().GetResult();
+        };
+
+        try
+        {
+            var firstPaste = Task.Run(() => terminal.HarnessPasteAsync(new string('a', 32)));
+            await firstChunkWritten.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var menu = await terminal.HarnessBuildRightClickMenuAsync();
+            var cancel = Assert.Single(menu.Items.OfType<MenuItem>(), item => Equals(item.Header, "Cancel Paste"));
+            cancel.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            releaseFirstChunk.TrySetResult();
+            var secondPaste = terminal.HarnessPasteAsync("second");
+            await Task.WhenAll(firstPaste, secondPaste).WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal("aaaaaaaasecond", Encoding.UTF8.GetString(backend.All()));
+        }
+        finally
+        {
+            releaseFirstChunk.TrySetResult();
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public async Task Paste_ProgramNeverAskedForBracketedPaste_GoesUnframed()
     {

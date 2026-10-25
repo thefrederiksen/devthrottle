@@ -36,6 +36,7 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --newline-keys claude [--newline-candidates ctrl-j,alt-enter]   (which keystroke makes a new line in the agent's composer; issue #4379)
 ///   CcDirector.DeliveryQualification --rates [--ledger FILE]   (the success rate per product commit, agent and scenario, from the ledger)
 ///   CcDirector.DeliveryQualification --echo [--routes all|r,r] [--texts all|t,t] [--agents claude,codex,pi]   (the parity texts on every route, sent to the free byte-echo agent; issue #4378)
+///   CcDirector.DeliveryQualification --remote-route-echo   (compare desktop key and paste bytes with the remote dispatches; issue #4382)
 ///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
 ///   CcDirector.DeliveryQualification --text-matrix [--routes ...] [--texts ...] [--agents claude,codex,pi] [--max-turns 240] [--cpu-load 24]   (the same to real agents, judged character for character)
 ///   CcDirector.DeliveryQualification --condition-matrix [--conditions mid-turn,owner-draft,menu-open,usage-limit] [--routes ...] [--agents ...]   (a send into a busy, drafted, menu or dialog state)
@@ -201,6 +202,9 @@ public static class Program
 
         if (opts.Echo)
             return await EchoLayer.RunAsync(manager, opts);
+
+        if (opts.RemoteRouteEcho)
+            return await RemoteRouteEcho.RunAsync(manager, opts);
 
         if (opts.TextMatrix)
             return await AgentMatrix.RunAsync(manager, agentOptions, opts);
@@ -444,6 +448,7 @@ public sealed class Options
     public short CaptureRows { get; private set; } = 30;
     public int ThawWaitSeconds { get; private set; } = 8;
     public bool Echo { get; private set; }
+    public bool RemoteRouteEcho { get; private set; }
     public bool TextMatrix { get; private set; }
     public bool StateMatrix { get; private set; }
     public bool ConditionMatrix { get; private set; }
@@ -506,6 +511,7 @@ public sealed class Options
                 case "--repeat": o._repeat = int.Parse(Next()); break;
                 case "--rates": o.Rates = true; break;
                 case "--echo": o.Echo = true; break;
+                case "--remote-route-echo": o.RemoteRouteEcho = true; break;
                 case "--text-matrix": o.TextMatrix = true; break;
                 case "--state-matrix": o.StateMatrix = true; break;
                 case "--condition-matrix": o.ConditionMatrix = true; break;

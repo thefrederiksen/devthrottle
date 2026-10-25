@@ -43,6 +43,9 @@ internal sealed class TunnelCatchAllDispatch
     {
         ["turns"] = "turns",
         ["buffer/html"] = "buffer-html",
+        // The resolved grid is the remote screen read: rows, cursor and alternate-screen state
+        // come from the Director's one parser, not a client reconstruction.
+        ["screen"] = "screen-grid",
         ["usage"] = "usage",
         ["context"] = "context",
         // "history" is NOT here any more. The conversation is served from the Gateway's own store by
@@ -56,6 +59,9 @@ internal sealed class TunnelCatchAllDispatch
     private static readonly Dictionary<string, string> BodyWrites = new(StringComparer.OrdinalIgnoreCase)
     {
         ["POST resize"] = "resize",
+        ["POST keys"] = "terminal-keys",
+        ["POST paste"] = "terminal-paste",
+        ["POST mouse"] = "terminal-mouse",
         ["POST clear-context"] = "clear-context",
         ["POST history-picker"] = "history-picker",
         ["POST mobile-mode"] = "mobile-mode",

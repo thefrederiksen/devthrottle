@@ -23,11 +23,14 @@ public static class MouseReportEncoder
     /// <c>ESC [ &lt; button ; col ; row M</c>. Column and row are 1-based. The
     /// trailing <c>M</c> marks a button press; wheel events have no release.
     /// </summary>
-    public static byte[] EncodeSgr(int button, int col, int row)
+    public static byte[] EncodeSgr(int button, int col, int row) => EncodeSgr(button, col, row, release: false);
+
+    /// <summary>Encodes an SGR mouse press or release. An SGR release retains its button code and ends in lowercase <c>m</c>.</summary>
+    public static byte[] EncodeSgr(int button, int col, int row, bool release)
     {
         int c = Math.Max(col, 1);
         int r = Math.Max(row, 1);
-        return Encoding.ASCII.GetBytes($"\x1b[<{button};{c};{r}M");
+        return Encoding.ASCII.GetBytes($"\x1b[<{button};{c};{r}{(release ? 'm' : 'M')}");
     }
 
     /// <summary>

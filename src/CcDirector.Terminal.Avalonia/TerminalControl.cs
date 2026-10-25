@@ -160,6 +160,7 @@ public class TerminalControl : Control
     // Paste state. Read on the background paste thread, set on the UI thread (the
     // Cancel Paste menu item), so it is volatile to guarantee the cancel is seen.
     private volatile bool _isPasting;
+    private CancellationTokenSource? _pasteCancellation;
 
     // Paste pacing. Clipboard text is sent to the agent TUI in small chunks with a
     // short delay between them so interactive prompts (claude /login) do not drop
@@ -1107,6 +1108,13 @@ public class TerminalControl : Control
     internal Task HarnessPasteAsync(string text) =>
         _session is { } session && !_isPasting ? PasteTextAsync(session, text) : Task.CompletedTask;
 
+    /// <summary>Test seam for the Cancel Paste menu action.</summary>
+    internal void HarnessCancelPaste()
+    {
+        _isPasting = false;
+        _pasteCancellation?.Cancel();
+    }
+
     /// <summary>Harness: force the grid dimensions (when not driven by layout).</summary>
     internal void HarnessSetGrid(int cols, int rows)
     {
@@ -1639,6 +1647,7 @@ public class TerminalControl : Control
             {
                 FileLog.Write("[TerminalControl] Paste cancelled by user");
                 _isPasting = false;
+                _pasteCancellation?.Cancel();
             };
             menu.Items.Add(cancelItem);
         }
@@ -2449,27 +2458,24 @@ public class TerminalControl : Control
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        // Strip trailing newlines - user can press Enter themselves
-        text = text.TrimEnd('\r', '\n');
-
-        // ONE BRACKETED PASTE WHEN THE AGENT ASKED FOR ONE (issue #4379). The paste used to go as plain keystrokes, so
-        // every line break in it was an Enter that submitted the text in pieces, and every tab was the Tab key. Inside
-        // the brackets a line break and a tab are text. The writes come from the one platform encoder the Director's own
-        // send uses. Without brackets it goes at the old keystroke pace, which interactive prompts (claude /login) need.
         var bracketed = session.BracketedPasteEnabled;
-        var writes = TerminalInputEncoder.Paste(text, bracketed, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend),
-            bracketed ? TerminalInputEncoder.PasteChunkBytes : PasteChunkSize).ToList();
-        var pause = bracketed ? TerminalInputEncoder.PasteChunkPause : TimeSpan.FromMilliseconds(PasteChunkDelayMs);
-
-        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}, writes={writes.Count}");
+        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}");
         _isPasting = true;
+        using var cancellation = new CancellationTokenSource();
+        _pasteCancellation = cancellation;
 
         try
         {
             // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
             // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
-            await PaceChunksAsync(writes, pause, bracketed, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
+            await TerminalPasteExecutor.PasteAsync(text, bracketed, session.Backend,
+                bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor), cancellation.Token).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // not-an-error: the person cancelled this paste.
+            FileLog.Write("[TerminalControl] PasteToTerminalAsync: cancelled");
         }
         catch (Exception ex)
         {
@@ -2477,7 +2483,11 @@ public class TerminalControl : Control
         }
         finally
         {
-            _isPasting = false;
+            if (ReferenceEquals(_pasteCancellation, cancellation))
+            {
+                _pasteCancellation = null;
+                _isPasting = false;
+            }
         }
     }
 

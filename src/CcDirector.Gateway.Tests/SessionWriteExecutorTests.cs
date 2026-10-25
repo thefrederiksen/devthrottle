@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -783,8 +784,110 @@ public sealed class SessionWriteExecutorTests
         finally { sm.Dispose(); }
     }
 
+    /// <summary>
+    /// Review of pull request 4420, finding 6: every remote terminal-input shape reports a stopped or disposed
+    /// terminal as refused. No exception may escape the command dispatcher and leave the caller without an answer.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "never started")]
+    [InlineData(true, "disposed")]
+    public async Task Finding6_TerminalWrites_StoppedOrDisposedTerminalAreRefused(bool dispose, string reason)
+    {
+        using var terminal = new ConPtyBackend();
+        var session = new Session(Guid.NewGuid(), Path.GetTempPath(), Path.GetTempPath(), null, terminal, SessionBackendType.ConPty);
+        session.MarkRunning();
+        terminal.Buffer!.Write("\x1b[?1000h"u8.ToArray());
+        Assert.True(session.MouseReportingEnabled);
+        if (dispose) terminal.Dispose();
+
+        var sessions = new SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        try
+        {
+            var commands = new (string Verb, object Payload)[]
+            {
+                ("terminal-keys", new TerminalKeyRequest { Key = "Down" }),
+                ("terminal-paste", new TerminalPasteRequest { Text = "x" }),
+                ("terminal-mouse", new TerminalMouseRequest { Button = "left", Column = 1, Row = 1 }),
+            };
+
+            foreach (var command in commands)
+            {
+                var result = await SessionCommandExecutor.DispatchAsync(sessions, "dir-A",
+                    Command(command.Verb, session.Id.ToString(), command.Payload));
+
+                Assert.Equal(DirectorCommandStatus.Conflict, result.Status);
+                Assert.Contains(reason, result.Error, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        finally { sessions.Dispose(); }
+    }
+
     // Pin CC_DIRECTOR_ROOT into a fresh temp dir so the crash-journal folder is controlled; returns the pinned
     // root and the previous value so RestoreRoot can put it back and delete the temp tree.
+    /// <summary>
+    /// Review of pull request 4420, finding 1: a remote key reaches the actual terminal-keys
+    /// dispatcher, whose origin must identify the person at the terminal while the limit dialog shows.
+    /// </summary>
+    [Fact]
+    public async Task Finding1_TerminalKeys_UsageLimitDialog_WritesKey()
+    {
+        var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        var backend = new ExecuteActionTestBackend();
+        var session = new Session(Guid.NewGuid(), Path.GetTempPath(), Path.GetTempPath(), null, backend, SessionBackendType.ConPty);
+        session.MarkRunning();
+        sm.AdoptSession(session);
+        try
+        {
+            backend.Buffer!.Write("\u001b[2J\u001b[28;1HWhat do you want to do?\r\n  1. Stop and wait for limit to reset\r\n  Enter to confirm · Esc to cancel"u8.ToArray());
+            Assert.True(session.UsageLimitDialogMayShow());
+
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-keys", session.Id.ToString(), new TerminalKeyRequest { Key = "Down" }));
+
+            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            Assert.Equal(1, backend.TextsSent);
+        }
+        finally { sm.Dispose(); }
+    }
+
+    /// <summary>
+    /// Review of pull request 4420, finding 4: terminal-paste owns its input normalization. The
+    /// remote route must trim a clipboard's trailing newline before its unframed terminal write.
+    /// </summary>
+    [Fact]
+    public async Task Finding4_TerminalPaste_TrimsTrailingNewlineBeforeUnframedWrite()
+    {
+        var (sm, session, backend) = NewSession();
+        var writes = new List<byte[]>();
+        backend.Buffer!.OnBytesWritten += bytes => writes.Add(bytes.ToArray());
+        try
+        {
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-paste", session.Id.ToString(), new TerminalPasteRequest { Text = "yes\r\n" }));
+
+            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            Assert.Equal("yes", Encoding.UTF8.GetString(writes.SelectMany(bytes => bytes).ToArray()));
+        }
+        finally { sm.Dispose(); }
+    }
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("5")]
+    [InlineData("up,down")]
+    public async Task Finding3_TerminalKeys_NonNamedKeyIsBadRequest(string key)
+    {
+        var (sm, session, _) = NewSession();
+        try
+        {
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-keys", session.Id.ToString(), new TerminalKeyRequest { Key = key, Shift = false, Alt = false, Control = false }));
+            Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        }
+        finally { sm.Dispose(); }
+    }
+
     private static (string root, string? prev) PinRoot()
     {
         var prev = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
