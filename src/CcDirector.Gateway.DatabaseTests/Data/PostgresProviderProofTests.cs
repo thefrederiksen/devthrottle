@@ -188,6 +188,9 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
+            // What the owner has seen and cleared of each alert (the Alerts mission): the alert id is half of the primary
+            // key, so the two providers must agree on what counts as the same alert.
+            ("alert_marks", "AlertId"),
             // The durable conversation of an API mode session (mission #4070): the session, the item and the turn are
             // exact keys - the session and the item make the primary key, and the turn ties an item to its receipt.
             ("api_mode_conversation_items", "ItemId"),
