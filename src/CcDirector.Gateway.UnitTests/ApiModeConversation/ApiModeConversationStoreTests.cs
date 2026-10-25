@@ -212,6 +212,24 @@ public sealed class ApiModeConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public void DatabaseWorkCounter_AnotherTestsInMemoryDatabase_IsNotCountedAndDoesNotThrow()
+    {
+        // Arrange: the counter watches this test's file, while another test migrates an in-memory database, as
+        // GatewayHostBootSmokeTests does. The counter once threw "The path is empty" inside that other test.
+        using var database = new DatabaseWorkCounter(_harness.DbPath);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        using var ctx = new CcDirector.Gateway.Data.GatewayDbContext(
+            new DbContextOptionsBuilder<CcDirector.Gateway.Data.GatewayDbContext>().UseSqlite(connection).Options);
+
+        // Act
+        ctx.Database.ExecuteSqlRaw("SELECT 1");
+
+        // Assert
+        Assert.Equal((0, 0, 0), database.Work);
+    }
+
+    [Fact]
     public void Record_AnOpenReplyAfterAGatewayRestart_CostsOneQueryThenNothing()
     {
         // Arrange: the reply is streaming when the Gateway restarts, so the new process does not know its row exists.
@@ -398,8 +416,11 @@ internal sealed class DatabaseWorkCounter : IObserver<DiagnosticListener>, IObse
             Interlocked.Increment(ref _commands);
     }
 
+    // An in-memory database has no file, so its DataSource is empty. It is never ours, and it must not throw: this
+    // listener sees every test's database work, and a throw here fails whichever test happens to be running.
     private bool Ours(System.Data.Common.DbConnection? connection)
-        => connection is not null && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
+        => connection is not null && !string.IsNullOrEmpty(connection.DataSource)
+           && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
 
     public void OnCompleted() { }
     public void OnError(Exception error) { }
