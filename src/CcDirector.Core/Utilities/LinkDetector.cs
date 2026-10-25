@@ -144,6 +144,14 @@ public static class LinkDetector
                         if (repoPath == null || pathExistsCheck == null || !pathExistsCheck(ResolvePath(path, repoPath)))
                             continue;
                     }
+                    // An absolute POSIX path in quotes is held to the same rule as one outside quotes (4b): a link
+                    // only when it exists, if existence can be checked. Otherwise every quoted '/items' or "/api"
+                    // in code on a Mac or Linux screen was underlined as a file that is not there.
+                    else if (posixPaths && path.StartsWith('/') && pathExistsCheck != null
+                             && !pathExistsCheck(ResolvePath(path, repoPath)))
+                    {
+                        continue;
+                    }
 
                     // Underline covers inner path only (not quotes)
                     matches.Add(new LinkMatch(span.InnerStart, span.InnerStart + path.Length, path, LinkType.Path));
