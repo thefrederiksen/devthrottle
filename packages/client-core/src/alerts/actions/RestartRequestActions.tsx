@@ -16,7 +16,9 @@ const SURFACE = "restart-requests";
 
 export interface RestartRequestActionsProps {
   request: DirectorRestartRequest;
-  /** Called after an accept or a decline landed, so the list is read again without waiting for the poll. */
+  /** Called after an accept or a decline landed, or was refused, so the list is read again without waiting for the poll.
+   *  A refused accept is an answer too: the Gateway re-checks the machine on accept and, when it can no longer be
+   *  restarted, closes the request with its own sentence - the alert must leave "Needs you" at once, not after a poll. */
   onAnswered?: () => void;
 }
 
@@ -38,7 +40,11 @@ export function RestartRequestActions({ request, onAnswered }: RestartRequestAct
       onAnswered?.();
     } catch (err) {
       // The Gateway's own sentence, verbatim - a refusal on accept names what changed on the machine.
-      if (mounted.current) setFailure(describeAndReport(SURFACE, which === "accept" ? "accept the restart" : "decline the restart", err));
+      if (mounted.current) {
+        setFailure(describeAndReport(SURFACE, which === "accept" ? "accept the restart" : "decline the restart", err));
+        setConfirming(false);
+      }
+      onAnswered?.();
     } finally {
       if (mounted.current) setBusy(null);
     }

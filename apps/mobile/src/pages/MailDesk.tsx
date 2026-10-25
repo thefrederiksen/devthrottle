@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { MailDeskPage, type MailDeskFrameProps } from "@devthrottle/client-core/maildesk/MailDeskPage";
 import { PageNotFound } from "../components/StaleShellRecovery";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // The phone's Mail Desk screen (Mail Desk mission, phase 7). The SAME page the Cockpit shows, from the same client-core
 // component (rule 8); this file is only the phone's frame - the screen, the Back link and the app bar title - and the
@@ -13,6 +14,8 @@ function PhoneFrame({ title, children }: MailDeskFrameProps) {
           Back
         </Link>
         {title !== null && <h1>{title}</h1>}
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
       {children}
     </div>

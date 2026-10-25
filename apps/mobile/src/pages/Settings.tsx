@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { SettingsTabPanel, SettingsTabStrip } from "@devthrottle/client-core/settings/SettingsTabs";
 import { tabFromParam, type TabId } from "@devthrottle/client-core/settings/tabs";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // The mobile Settings screen.
 //
@@ -39,6 +40,8 @@ export function Settings() {
           Back
         </Link>
         <h1>Settings</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       <SettingsTabStrip active={tab} onSelect={choose} surface="mobile" />

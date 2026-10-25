@@ -21,6 +21,8 @@ const navigateMock = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
   useParams: () => ({ sessionId: "9c41e7a2-0000-4000-8000-000000000000" }),
+  // The alerts bell in the app bar reads the address for its ?alert= deep link.
+  useLocation: () => ({ pathname: "/session/9c41e7a2-0000-4000-8000-000000000000", search: "", hash: "", state: null, key: "default" }),
 }));
 
 import { SessionAppBar } from "./SessionAppBar";

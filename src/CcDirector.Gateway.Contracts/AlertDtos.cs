@@ -20,6 +20,9 @@ public static class AlertKinds
 
     /// <summary>The alert id of a source record: <c>"{kind}:{sourceId}"</c>.</summary>
     public static string IdOf(string kind, string sourceId) => kind + ":" + sourceId;
+
+    /// <summary>The phone app's address that opens the Alerts tray on this alert: where its push notification lands.</summary>
+    public static string PhoneUrlOf(string alertId) => "/mobile/?alert=" + System.Uri.EscapeDataString(alertId);
 }
 
 /// <summary>

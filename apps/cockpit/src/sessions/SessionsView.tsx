@@ -8,8 +8,7 @@ import { needsYouBadgeCount } from "@devthrottle/client-core/sessions/ordering";
 import { reconcileBadge } from "@devthrottle/client-core/push/register";
 import { SessionRoster, type RosterView } from "./SessionRoster";
 import { NewSessionDialog } from "./NewSessionDialog";
-import { LinkRequestsProvider } from "./LinkRequests";
-import { SecretTransfersProvider } from "@devthrottle/client-core/secrets/SecretTransfers";
+import { COCKPIT_TITLE, setPageTitle } from "../alerts/documentTitle";
 import { filterSearchOf, filteredDocumentTitle } from "@devthrottle/client-core/sessions/filter";
 import { useRosterFilter } from "./useRosterFilter";
 
@@ -23,7 +22,6 @@ const VIEW_STORAGE_KEY = "cockpit.rosterView";
 
 // The browser tab's own title (apps/cockpit/index.html). A saved filter's name goes in front of it, so several Cockpit
 // tabs, each on its own filter, can be told apart in the tab strip (issue #4009).
-const COCKPIT_TITLE = "DevThrottle Cockpit";
 
 // The default ordering is "My order" (the session-rail ordering decision): attention-first is opt-in,
 // never automatic. Read the last choice back so the toggle is sticky per browser, defaulting to
@@ -63,9 +61,9 @@ export function SessionsView() {
     rosterFilter.resolved.status === "active" ? (rosterFilter.resolved.saved?.name ?? null) : null;
 
   useEffect(() => {
-    document.title = filteredDocumentTitle(COCKPIT_TITLE, savedName);
+    setPageTitle(filteredDocumentTitle(COCKPIT_TITLE, savedName));
     return () => {
-      document.title = COCKPIT_TITLE;
+      setPageTitle(COCKPIT_TITLE);
     };
   }, [savedName]);
 
@@ -137,37 +135,30 @@ export function SessionsView() {
 
   const context: SessionsOutletContext = { sessions, rosterError: error, directors, refreshNow };
 
-  // Requests to talk to another session (issue #3631) are read once here and shown on the session that asked - its
-  // roster card and its header - never as a band above the detail. Secret transfers waiting for the owner (issue
-  // #2943) are read once here too: their cards sit above the roster, and a badge on the session that asked.
   return (
-    <SecretTransfersProvider>
-      <LinkRequestsProvider sessions={sessions}>
-        <div className="sessions-screen">
-          <SessionRoster
-            sessions={sessions}
-            directors={directors}
-            portByDirector={portByDirector}
-            selectedId={selectedId}
-            view={view}
-            onView={onView}
-            error={error}
-            onNewSession={() => setShowNew(true)}
-            rosterFilter={rosterFilter}
-          />
-          <div className="sessions-detail">
-            <Outlet context={context} />
-          </div>
-          {showNew && (
-            <NewSessionDialog
-              onClose={() => setShowNew(false)}
-              onCreated={onCreated}
-              filterRepos={rosterFilter.resolved.status === "active" ? rosterFilter.resolved.filter.repos : []}
-            />
-          )}
-        </div>
-      </LinkRequestsProvider>
-    </SecretTransfersProvider>
+    <div className="sessions-screen">
+      <SessionRoster
+        sessions={sessions}
+        directors={directors}
+        portByDirector={portByDirector}
+        selectedId={selectedId}
+        view={view}
+        onView={onView}
+        error={error}
+        onNewSession={() => setShowNew(true)}
+        rosterFilter={rosterFilter}
+      />
+      <div className="sessions-detail">
+        <Outlet context={context} />
+      </div>
+      {showNew && (
+        <NewSessionDialog
+          onClose={() => setShowNew(false)}
+          onCreated={onCreated}
+          filterRepos={rosterFilter.resolved.status === "active" ? rosterFilter.resolved.filter.repos : []}
+        />
+      )}
+    </div>
   );
 }
 

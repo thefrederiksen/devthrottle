@@ -13,6 +13,7 @@ import {
   type NetDiagPeer,
 } from "@devthrottle/client-core/api/client";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const ECHO_READ = "read the connection check";
 
@@ -129,6 +130,8 @@ export function Diagnostics() {
           Back
         </Link>
         <h1>Diagnostics</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       {echoError !== null && (

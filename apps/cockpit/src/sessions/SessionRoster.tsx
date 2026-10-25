@@ -27,7 +27,6 @@ import {
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
 import { RosterLinkBadge, RosterLinkLine } from "./LinkRequests";
 import { RosterSecretBadge } from "./SecretTransferChip";
-import { SecretTransfersPanel } from "@devthrottle/client-core/secrets/SecretTransfers";
 import { splitPinned, type PinnedSplit } from "@devthrottle/client-core/sessions/pinning";
 import {
   DELIVERY_BADGE_TEXT,
@@ -52,7 +51,6 @@ import {
 import { showsSupervision, showsTags, useDensity } from "@devthrottle/client-core/sessions/density";
 import { SessionMenu } from "./SessionMenu";
 import { CrewLine } from "./CrewLine";
-import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 import {
   applyFilter,
   emptyFilterMessage,
@@ -187,15 +185,6 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           total={total}
         />
       )}
-
-      {/* A Director restart a session has asked for (issue #2725): the owner's one accept, above the
-          roster where "Needs you" lives. The same shared component the phone mounts; this shell only
-          tunes its layout. Renders nothing while no request exists. */}
-      <RestartRequestsPanel />
-
-      {/* A secret transfer waiting for the owner's one approval (Secret Handoff, issue #2943): the same shared card
-          the phone mounts, answered here "in the Cockpit". Renders nothing while none waits. */}
-      <SecretTransfersPanel where="cockpit" />
 
       {error !== null && (
         // error-reported-by: createPollingStore

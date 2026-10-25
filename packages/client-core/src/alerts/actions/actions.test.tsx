@@ -81,6 +81,20 @@ describe("RestartRequestActions", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("can no longer be accepted"));
   });
 
+  // Found in the Phase 4 QA run: the Gateway re-checks the machine on accept and, when it can no longer be restarted,
+  // closes the request. The opened alert kept saying Waiting and offering "Yes, restart it" until the next poll.
+  it("a refused accept reads the list again at once and leaves the confirmation", async () => {
+    fakeGateway(409, { code: "cannot_restart_now", error: "on accept the machine was checked again and can no longer be restarted." });
+    const onAnswered = vi.fn();
+    render(<RestartRequestActions request={restartRequest()} onAnswered={onAnswered} />);
+    fireEvent.click(screen.getByText("Accept"));
+    fireEvent.click(screen.getByText("Yes, restart it"));
+
+    await waitFor(() => expect(onAnswered).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Yes, restart it")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("can no longer be restarted");
+  });
+
   it("declines with one tap to the decline route", async () => {
     fakeGateway(200, { ...restartRequest(), state: "Declined", canAccept: false });
     const answered = vi.fn();

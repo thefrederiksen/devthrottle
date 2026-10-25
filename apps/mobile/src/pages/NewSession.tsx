@@ -13,6 +13,7 @@ import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 import ConnectionChoiceRow from "@devthrottle/client-core/sessions/ConnectionChoiceRow";
 import { connectionToSend } from "@devthrottle/client-core/sessions/connectionChoice";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const SURFACE = "mobile-new-session";
 
@@ -322,6 +323,8 @@ export function NewSession() {
       <header className="app-bar newsession-app-bar">
         <Link className="back-link" to="/">&larr; Roster</Link>
         <h1>Start a session</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       <div className="newsession-steps">

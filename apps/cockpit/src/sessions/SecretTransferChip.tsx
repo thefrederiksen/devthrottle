@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { SecretTransferCard, useSecretTransfers } from "@devthrottle/client-core/secrets/SecretTransfers";
+import { useAlerts } from "@devthrottle/client-core/alerts/AlertsProvider";
+import { AskChip } from "./AskChip";
 
 // A session that asked for a secret transfer (Secret Handoff, issue #2943, phase 5) carries it ON ITSELF, the way a
 // session asking to talk to another does (LinkRequests.tsx): an amber key on its roster card, and a chip in its own
-// header that opens the shared approval card. An answer given from here is recorded as "from the badge". The card
-// and its words are the shared client-core component; this file is only the Cockpit's badge and popover around it.
+// header that opens the transfer as the Alerts tray shows it. The transfers are read from the shared Alerts list (the
+// Alerts mission); this file is only the Cockpit's badge and chip around them.
 
 function KeyIcon() {
   return (
@@ -17,7 +17,7 @@ function KeyIcon() {
 
 /** The amber key on the asking session's roster card, with how many transfers wait. Nothing when none do. */
 export function RosterSecretBadge({ sessionId }: { sessionId: string }) {
-  const mine = useSecretTransfers().waitingFrom(sessionId);
+  const mine = useAlerts().waitingFrom(sessionId, "secret-transfer");
   if (mine.length === 0) return null;
   const title = mine.length === 1 ? "Asks for a secret from another machine" : `Asks for ${mine.length} secrets from other machines`;
   return (
@@ -28,50 +28,19 @@ export function RosterSecretBadge({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** The chip in the open session's header and its popover: the approval card for each transfer the session asked for. */
+/** The chip in the open session's header and its popover: each transfer the session asked for, ready to answer. */
 export function SecretTransferChip({ sessionId }: { sessionId: string }) {
-  const mine = useSecretTransfers().waitingFrom(sessionId);
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  if (mine.length === 0) return null;
-  const label = mine.length === 1 ? `Asks for ${mine[0].entry}` : `Asks for ${mine.length} secrets`;
+  const mine = useAlerts().waitingFrom(sessionId, "secret-transfer");
+  const first = mine[0];
+  const label =
+    mine.length === 1 && first.kind === "secret-transfer" ? `Asks for ${first.detail.entry}` : `Asks for ${mine.length} secrets`;
   return (
-    <span className="link-ask-wrap" ref={wrapRef}>
-      <button
-        type="button"
-        className="link-ask-chip"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onClick={() => setOpen((o) => !o)}
-        data-testid="secret-transfer-chip"
-      >
-        <KeyIcon />
-        {label}
-      </button>
-      {open && (
-        <div className="link-ask-pop secret-transfer-pop" role="dialog" aria-label="Secret transfers this session asked for">
-          {mine.map((t) => (
-            <SecretTransferCard key={t.transferId} transfer={t} where="badge" />
-          ))}
-        </div>
-      )}
-    </span>
+    <AskChip
+      alerts={mine}
+      label={label}
+      icon={<KeyIcon />}
+      dialogLabel="Secret transfers this session asked for"
+      testId="secret-transfer-chip"
+    />
   );
 }

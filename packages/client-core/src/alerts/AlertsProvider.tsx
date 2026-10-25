@@ -81,10 +81,13 @@ export interface AlertsProviderProps {
   children: ReactNode;
   /** The clock, injectable for tests. Defaults to Date.now. */
   now?: () => number;
+  /** False reads nothing: a shell whose page on screen is not the owner's whole app (a team's pages only) has no
+   *  alerts to show. Defaults to true. */
+  enabled?: boolean;
 }
 
 /** The alerts for everything inside it to read. Mount once, at the shell's root. */
-export function AlertsProvider({ children, now }: AlertsProviderProps) {
+export function AlertsProvider({ children, now, enabled = true }: AlertsProviderProps) {
   const [alerts, setAlerts] = useState<AlertDto[]>([]);
   const [needsAnswerCount, setNeedsAnswerCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -95,6 +98,9 @@ export function AlertsProvider({ children, now }: AlertsProviderProps) {
   // Reads can overlap (a poll and a read after an answer). Only the newest one started may land, so an older answer
   // can never put an alert back that a newer one already took away.
   const readSeq = useRef(0);
+  // What the last read said about each alert needing an answer, so a read can tell an alert that was ANSWERED (it
+  // needed an answer, now it does not) from one that simply sits in Earlier.
+  const lastNeedsAnswer = useRef<Map<string, boolean>>(new Map());
   const clock = now ?? Date.now;
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -102,6 +108,21 @@ export function AlertsProvider({ children, now }: AlertsProviderProps) {
     try {
       const list = await listAlerts(signal);
       if (seq !== readSeq.current) return;
+      // A clear's refusal ("This still needs your answer") describes the alert at the moment it was refused. Once the
+      // alert is answered - a read lists it as no longer needing an answer, after one that said it did - or once it
+      // leaves the list, the sentence is no longer true and goes. A failure on an alert that was already in Earlier and
+      // still is (the Gateway could not be reached, say) is not touched: nothing about that alert has changed.
+      const before = lastNeedsAnswer.current;
+      const after = new Map(list.alerts.map((a) => [a.id, a.needsAnswer] as const));
+      lastNeedsAnswer.current = after;
+      // error-report-exempt: only REMOVES sentences already reported when they were shown; it shows nothing new
+      setClearErrors((errors) => {
+        const stale = Object.keys(errors).filter((id) => !after.has(id) || (after.get(id) === false && before.get(id) === true));
+        if (stale.length === 0) return errors;
+        const kept = { ...errors };
+        for (const id of stale) delete kept[id];
+        return kept;
+      });
       setAlerts(newestFirst(list.alerts));
       setNeedsAnswerCount(list.needsAnswerCount);
       setLoaded(true);
@@ -114,7 +135,7 @@ export function AlertsProvider({ children, now }: AlertsProviderProps) {
     }
   }, []);
 
-  useVisiblePolling(load, ALERTS_POLL_MS);
+  useVisiblePolling(load, ALERTS_POLL_MS, enabled);
 
   const refresh = useCallback(() => load(), [load]);
 

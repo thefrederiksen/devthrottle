@@ -14,6 +14,7 @@ import {
 } from "@devthrottle/client-core/stats/statsClient";
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // Your Throttle on the phone: a compact dashboard of the MAIN stats, not the whole desktop page - many
 // people drive the fleet mostly from their phone, so this is a clean, glanceable view of how they work. It
@@ -96,6 +97,8 @@ export function YourThrottle() {
           Back
         </Link>
         <h1>Your Throttle</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       {error !== null && (

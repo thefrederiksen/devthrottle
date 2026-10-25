@@ -7,6 +7,7 @@
 // link, the app bar, and the route that "Add account" leads to.
 import { Link, useNavigate } from "react-router-dom";
 import { AccountsPanel } from "@devthrottle/client-core/auth/AccountsPanel";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 export function Account() {
   const navigate = useNavigate();
@@ -18,6 +19,8 @@ export function Account() {
           Back
         </Link>
         <h1>Account</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       <section className="account-screen" aria-label="Accounts on this phone">

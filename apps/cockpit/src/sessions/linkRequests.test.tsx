@@ -1,45 +1,57 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import type { SessionDto } from "@devthrottle/client-core/api/client";
 
-// A session asking to talk to another, shown on the session that asked (issue #3631). What these tests hold down: the
-// asking session's card carries the amber badge and the "wants to talk to" line, and no other session's does; the open
-// session's chip opens a popover that says what the session asked for; Approve sends { approve: true } and Deny sends
+// A session asking to talk to another, shown on the session that asked (issue #3631). The requests are read from the
+// shared Alerts list now (the Alerts mission). What these tests hold down: the asking session's card carries the amber
+// badge and the "wants to talk to" line in the Gateway's name for the other session, and no other session's card does;
+// the open session's chip opens the request as the Alerts tray shows it; Approve sends { approve: true } and Deny sends
 // { decline: true } for that request, and an answered request leaves; a refusal shows in the Gateway's words; and with
 // nothing waiting nothing is drawn.
 
 const INVESTIGATOR = "11111111-2222-3333-4444-555555555555";
 const COORDINATOR = "66666666-7777-8888-9999-000000000000";
 
-function session(id: string, name: string): SessionDto {
-  return { sessionId: id, name } as unknown as SessionDto;
-}
-
-const SESSIONS = [session(INVESTIGATOR, "Investigator"), session(COORDINATOR, "Coordinator")];
-
-const REQUEST = {
-  requestId: "fedcba9876543210fedcba9876543210",
-  requesterSessionId: INVESTIGATOR,
-  targetSessionId: COORDINATOR,
-  reason: "I need the open tickets list",
-  requestedAmount: "ongoing",
-  status: "pending",
-  askedAtUtc: "2026-10-05T10:00:00Z",
-};
-
-const { listMessageLinkRequests, answerMessageLinkRequest } = vi.hoisted(() => ({
-  listMessageLinkRequests: vi.fn(),
+const { listAlerts, answerMessageLinkRequest } = vi.hoisted(() => ({
+  listAlerts: vi.fn(),
   answerMessageLinkRequest: vi.fn(),
 }));
 
+vi.mock("@devthrottle/client-core/alerts/alertsClient", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/alerts/alertsClient");
+  return { ...actual, listAlerts };
+});
 vi.mock("@devthrottle/client-core/fleet/messageLinksClient", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/fleet/messageLinksClient");
-  return { ...actual, listMessageLinkRequests, answerMessageLinkRequest };
+  return { ...actual, answerMessageLinkRequest };
 });
 
-import { LinkRequestChip, LinkRequestsProvider, RosterLinkBadge, RosterLinkLine } from "./LinkRequests";
+import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
+import { messageAlert } from "@devthrottle/client-core/alerts/alertsFixtures.testkit";
 import { GatewayError } from "@devthrottle/client-core/api/client";
+import { LinkRequestChip, RosterLinkBadge, RosterLinkLine } from "./LinkRequests";
+
+const REQUEST_ID = "fedcba9876543210fedcba9876543210";
+
+function waiting() {
+  return messageAlert(
+    { id: `message-request:${REQUEST_ID}` },
+    {
+      requestId: REQUEST_ID,
+      requesterSessionId: INVESTIGATOR,
+      targetSessionId: COORDINATOR,
+      requesterLabel: "121 Investigator",
+      targetLabel: "125 Coordinator",
+      reason: "I need the open tickets list",
+      requestedAmount: "ongoing",
+    },
+  );
+}
+
+function answered() {
+  const a = waiting();
+  return { ...a, needsAnswer: false, status: "Allowed", detail: { ...a.detail, status: "allowed" } };
+}
 
 function Card({ id }: { id: string }) {
   return (
@@ -52,17 +64,17 @@ function Card({ id }: { id: string }) {
 
 function renderScreen(openSession: string = INVESTIGATOR) {
   return render(
-    <LinkRequestsProvider sessions={SESSIONS}>
+    <AlertsProvider>
       <Card id={INVESTIGATOR} />
       <Card id={COORDINATOR} />
       <LinkRequestChip sessionId={openSession} />
-    </LinkRequestsProvider>,
+    </AlertsProvider>,
   );
 }
 
 describe("link requests on the asking session", () => {
   beforeEach(() => {
-    listMessageLinkRequests.mockReset().mockResolvedValue([REQUEST]);
+    listAlerts.mockReset().mockResolvedValue({ alerts: [waiting()], needsAnswerCount: 1 });
     answerMessageLinkRequest.mockReset();
   });
   afterEach(() => cleanup());
@@ -71,33 +83,32 @@ describe("link requests on the asking session", () => {
     renderScreen();
     await waitFor(() => expect(screen.getByTestId(`card-${INVESTIGATOR}`).textContent).toContain("wants to talk to"));
     const asker = screen.getByTestId(`card-${INVESTIGATOR}`);
-    expect(asker.textContent).toContain("wants to talk to Coordinator (66666666)");
+    expect(asker.textContent).toContain("wants to talk to 125 Coordinator");
     expect(asker.querySelector("[data-testid=roster-link-badge]")?.textContent).toBe("1");
     expect(screen.getByTestId(`card-${COORDINATOR}`).textContent).toBe("");
   });
 
-  it("the chip opens a popover with the reason and what the session asked for", async () => {
+  it("the chip opens the request as the Alerts tray shows it, with the reason and what the session asked for", async () => {
     renderScreen();
     fireEvent.click(await screen.findByTestId("link-ask-chip"));
-    const item = screen.getByRole("group");
-    expect(item.textContent).toContain('"I need the open tickets list"');
-    expect(item.textContent).toContain("Asks for: as much as they need");
-    expect(screen.queryByRole("button", { name: "One message" })).toBeNull();
+    const detail = screen.getByTestId("alert-detail");
+    expect(detail.textContent).toContain('"I need the open tickets list"');
+    expect(detail.textContent).toContain("Asks for: as much as they need");
   });
 
   it.each([
     ["Approve", { approve: true }],
     ["Deny", { decline: true }],
   ])("'%s' sends that answer for that request, and the request leaves", async (label, answer) => {
-    answerMessageLinkRequest.mockResolvedValue({ request: { ...REQUEST, status: "allowed" } });
+    answerMessageLinkRequest.mockResolvedValue({ request: answered().detail, note: "Done." });
     renderScreen();
     fireEvent.click(await screen.findByTestId("link-ask-chip"));
     const button = screen.getByRole("button", { name: label });
 
-    listMessageLinkRequests.mockResolvedValue([{ ...REQUEST, status: "allowed" }]);
+    listAlerts.mockResolvedValue({ alerts: [answered()], needsAnswerCount: 0 });
     fireEvent.click(button);
 
-    await waitFor(() => expect(answerMessageLinkRequest).toHaveBeenCalledWith(REQUEST.requestId, answer));
+    await waitFor(() => expect(answerMessageLinkRequest).toHaveBeenCalledWith(REQUEST_ID, answer));
     await waitFor(() => expect(screen.queryByTestId("link-ask-chip")).toBeNull());
     expect(screen.getByTestId(`card-${INVESTIGATOR}`).textContent).toBe("");
   });
@@ -114,15 +125,14 @@ describe("link requests on the asking session", () => {
 
   it("the session that was asked for gets no chip", async () => {
     renderScreen(COORDINATOR);
-    await waitFor(() => expect(listMessageLinkRequests).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId(`card-${INVESTIGATOR}`).textContent).toContain("wants to talk to"));
     expect(screen.queryByTestId("link-ask-chip")).toBeNull();
   });
 
   it("draws nothing when no request waits", async () => {
-    listMessageLinkRequests.mockResolvedValue([]);
+    listAlerts.mockResolvedValue({ alerts: [answered()], needsAnswerCount: 0 });
     renderScreen();
-    await waitFor(() => expect(listMessageLinkRequests).toHaveBeenCalled());
+    await waitFor(() => expect(listAlerts).toHaveBeenCalled());
     expect(screen.queryByTestId("link-ask-chip")).toBeNull();
     expect(screen.queryByTestId("roster-link-badge")).toBeNull();
   });

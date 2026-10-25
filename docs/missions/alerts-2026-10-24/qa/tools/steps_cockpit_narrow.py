@@ -1,0 +1,15 @@
+# The Cockpit at phone width: the rail becomes a bar; the bell must still be on screen and its tray must fit.
+bh(f'''
+new_tab("about:blank")
+phone()
+enrol("{BASE}/sessions", "{KEY}")
+wait_js("document.querySelector('[data-testid=alerts-badge]')")
+time.sleep(1)
+print("bell box:", js("JSON.stringify(document.querySelector('[data-testid=alerts-bell]').getBoundingClientRect())"))
+shot("cockpit-390-bell")
+click('[data-testid=alerts-bell]')
+wait_js("document.querySelector('[data-testid=alerts-row]')")
+time.sleep(0.6)
+print("tray box:", js("JSON.stringify(document.querySelector('.alerts-tray').getBoundingClientRect())"), "overflow:", overflow())
+shot("cockpit-390-tray")
+''')

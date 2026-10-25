@@ -1,0 +1,14 @@
+Roster guard after Phase 4 (this branch) - expected to PASS
+
+
+ RUN  v2.1.8 packages/client-core
+
+ ok src/alerts/rosterGuard.test.ts > the roster guard > SessionLists_MountNoRequestPanel_OnThePhoneOrInTheCockpit
+ ok src/alerts/rosterGuard.test.ts > the roster guard > requestPanelsIn_SeesEveryShapeOfRequestCard
+ ok src/alerts/rosterGuard.test.ts > the roster guard > requestPanelsIn_LeavesTheRowBadgesAlone
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  09:21:08
+   Duration  3.61s (transform 44ms, setup 17ms, collect 40ms, tests 3ms, environment 0ms, prepare 106ms)
+

@@ -19,6 +19,8 @@ import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskE
 import { useBoxesSwitch } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
 import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
+import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
+import { AlertsTitleCount, RailAlertsBell } from "./alerts/CockpitAlerts";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -320,7 +322,13 @@ function ShellFrame() {
     // Only a change of what is on screen moves the person; a change of address alone never does.
   }, [teamPages, wholeApp, team.current]);
 
+  // ALERTS (the Alerts mission): the ONE poller and store for everything that needs the owner - a restart request, a
+  // secret transfer, a message request - mounted here, above every page, so the bell in the rail head, the count in the
+  // tab's title and the amber icons on the sessions that asked all read the same list. Only while the whole app is on
+  // screen: a team's pages only have no alerts to show, and read none.
   return (
+    <AlertsProvider enabled={wholeApp}>
+    {wholeApp && <AlertsTitleCount />}
     <StopSessionProvider>
       <div className="shell-frame">
       {/* The notice has its own row above the whole frame, including at phone width. Only the height left after
@@ -330,6 +338,9 @@ function ShellFrame() {
         <nav className="rail rail-left" aria-label="Primary">
           <div className="rail-head">
             {!collapsed && <div className="brand">DevThrottle</div>}
+            {/* The bell: a red count of what needs the owner, the tray beside it. Collapsed, it stays in reach with its
+                badge, above the control that expands the rail. */}
+            {wholeApp && <RailAlertsBell />}
             {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
                 is the one row still in reach, pointing the way back. */}
             {!shortRail && (
@@ -397,6 +408,7 @@ function ShellFrame() {
       </div>
       </div>
     </StopSessionProvider>
+    </AlertsProvider>
   );
 }
 

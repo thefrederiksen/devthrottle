@@ -1,0 +1,46 @@
+Roster guard against origin/main 6b0decd48 (before Phase 4) - expected to FAIL
+
+
+ RUN  v2.1.8 packages/client-core
+
+ > src/alerts/rosterGuard.test.ts (3 tests | 1 failed) 25ms
+   x the roster guard > SessionLists_MountNoRequestPanel_OnThePhoneOrInTheCockpit 23ms
+     -> expected [ ?(10) ] to deeply equal []
+
+--- Failed Tests 1 ---
+
+ FAIL  src/alerts/rosterGuard.test.ts > the roster guard > SessionLists_MountNoRequestPanel_OnThePhoneOrInTheCockpit
+AssertionError: expected [ ?(10) ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "apps/mobile/src/pages/Home.tsx: <RestartRequestsPanel>",
++   "apps/mobile/src/pages/Home.tsx: <SecretTransfersPanel>",
++   "apps/mobile/src/pages/Home.tsx: <LinkRequestsPanel>",
++   "apps/mobile/src/pages/Home.tsx: imports restart/RestartRequestsPanel",
++   "apps/mobile/src/pages/Home.tsx: imports secrets/SecretTransfers",
++   "apps/mobile/src/pages/Home.tsx: imports fleet/LinkRequestsPanel",
++   "apps/cockpit/src/sessions/SessionRoster.tsx: <RestartRequestsPanel>",
++   "apps/cockpit/src/sessions/SessionRoster.tsx: <SecretTransfersPanel>",
++   "apps/cockpit/src/sessions/SessionRoster.tsx: imports restart/RestartRequestsPanel",
++   "apps/cockpit/src/sessions/SessionRoster.tsx: imports secrets/SecretTransfers",
++ ]
+
+ > src/alerts/rosterGuard.test.ts:38:19
+     36|   it("SessionLists_MountNoRequestPanel_OnThePhoneOrInTheCockpit", () =?
+     37|     const found = ROSTERS.flatMap((file) => requestPanelsIn(file, read?
+     38|     expect(found).toEqual([]);
+       |                   ^
+     39|   });
+     40| 
+
+---[1/1]---
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  09:01:04
+   Duration  4.95s (transform 83ms, setup 25ms, collect 31ms, tests 25ms, environment 0ms, prepare 203ms)
+

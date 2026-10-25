@@ -1,6 +1,6 @@
 // A request to restart a Director - issue #2725 (restart epic, Phase 6). A session ASKS, the Gateway
-// scrutinises, and the owner ACCEPTS once on a device he holds. These are the typed calls both shells
-// make and the ONE rule for which requests a screen shows.
+// scrutinises, and the owner ACCEPTS once on a device he holds. These are the typed calls both shells make to
+// answer one; the request itself reaches a screen as an alert (the Alerts mission, client-core/src/alerts).
 //
 // EVERY SENTENCE ON A REQUEST IS WRITTEN ON THE GATEWAY. The card renders `title`, `askedBySentence`,
 // `liveSessionsSentence`, the capability's own `reason` and `guardedRestartReason`, `stateReason` and
@@ -11,7 +11,7 @@
 // The types are hand-written rather than taken from the generated schema for the reason recorded on
 // `ModelDisplay` in api/client.ts: the committed schema predates this route, and regenerating it is not a
 // clean addition. Delete these when the schema is next regenerated properly.
-import { authHeaders, GatewayError, gatewayFetch, POLL_TIMEOUT_MS } from "../api/client";
+import { authHeaders, GatewayError, gatewayFetch } from "../api/client";
 
 /** Where a request stands. Serialised as its name by the Gateway. */
 export type RestartRequestState = "Pending" | "Accepted" | "Declined" | "Expired" | "Abandoned" | "Completed";
@@ -53,24 +53,6 @@ export interface DirectorRestartRequest {
   canAccept: boolean;
 }
 
-/** GET /gateway/director-restart-requests - every request in the account, newest first. */
-export async function listRestartRequests(signal?: AbortSignal): Promise<DirectorRestartRequest[]> {
-  const res = await gatewayFetch("/gateway/director-restart-requests", {
-    method: "GET",
-    headers: { Accept: "application/json", ...authHeaders() },
-    signal,
-  }, { timeoutMs: POLL_TIMEOUT_MS });
-  if (!res.ok) throw await GatewayError.from(res, "load the restart requests");
-  const body = (await res.json()) as { requests?: unknown };
-  // A successful body that does not carry the array is NOT an empty list. Reading it as one would clear
-  // a pending approval off the screen while telling the owner nothing is needed - a malformed answer
-  // must reach the screen as an error and leave the last-known list standing.
-  if (!Array.isArray(body.requests)) {
-    throw new GatewayError(res.status, "The Gateway answered the restart-request list without a 'requests' array; showing the last-known list.");
-  }
-  return body.requests as DirectorRestartRequest[];
-}
-
 /** POST .../accept - the owner's one accept. The Gateway re-checks the machine and hands the cycle to the
  *  Director; a refusal comes back as the Gateway's own sentence. */
 export async function acceptRestartRequest(machine: string, id: string, signal?: AbortSignal): Promise<DirectorRestartRequest> {
@@ -93,13 +75,4 @@ export async function declineRestartRequest(machine: string, id: string, reason?
   });
   if (!res.ok) throw await GatewayError.from(res, "decline the restart");
   return (await res.json()) as DirectorRestartRequest;
-}
-
-/**
- * Which requests a screen shows: only the ones still waiting for the owner's answer. An accepted request
- * is the Director's work now, and a closed one is history - neither is shown as a card, because a card
- * the owner cannot act on and cannot clear only takes his screen away from his sessions.
- */
-export function visibleRestartRequests(requests: DirectorRestartRequest[]): DirectorRestartRequest[] {
-  return requests.filter((r) => r.state === "Pending");
 }

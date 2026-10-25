@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { holdPillLabel } from "@devthrottle/client-core/sessions/snoozeAction";
 import type { SessionManage } from "./useSessionManage";
 import { NotDeliveredIndicator } from "@devthrottle/client-core/sessions/NotDeliveredIndicator";
+import { AppBarAlerts } from "./AppBarAlerts";
 
 // The ONE app bar shared by every per-session screen: Chat, Terminal and Voice mode (owner design
 // review, "Option A"). It replaces the old SessionManageBar row, which mixed navigation (back to the
@@ -170,6 +171,9 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
             spacers with the network status pill centred between them; the pill is gone (see
             ConnectionBanner) and row 1 is now just Back and the menu button. */}
         <div className="session-bar-spacer" />
+
+        {/* The alerts bell, the same one every phone app bar carries (AppBarAlerts). */}
+        <AppBarAlerts />
 
         <div className="session-menu-wrap" ref={menuRef}>
           <button

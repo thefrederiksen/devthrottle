@@ -15,8 +15,6 @@ import { Diagnostics } from "./pages/Diagnostics";
 import { YourThrottle } from "./pages/YourThrottle";
 import { Repos } from "./pages/Repos";
 import { Account } from "./pages/Account";
-import { SecretTransfers } from "./pages/SecretTransfers";
-import { LinkRequests } from "./pages/LinkRequests";
 import { SignIn } from "@devthrottle/client-core/auth/SignIn";
 import { DeviceCallback } from "@devthrottle/client-core/auth/DeviceCallback";
 import { RequireDeviceKey } from "./components/RequireDeviceKey";
@@ -29,6 +27,8 @@ import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
 import { resumePendingRecordingUploads } from "@devthrottle/client-core/recorder/ingestUpload";
 import { RouteRecoveryBoundary, RootLayout } from "./components/StaleShellRecovery";
+import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
+import { CloseAnsweredLinkRequestNotifications } from "./components/LinkRequestNotifications";
 
 // THE PHONE'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
 //
@@ -76,8 +76,12 @@ function GatedLayout() {
   // almost every second of its life while making every screen with a top-right control work around it.
   // A route list of "which screens suppress the pill" no longer exists, so a new screen cannot get this
   // wrong: add a route and it inherits the banner, which is the whole story.
+  // Alerts (the Alerts mission): the ONE poller and store for everything that needs the owner, mounted here so the bell
+  // in the roster's app bar and anything else that reads alerts share it, and it outlives every navigation. A message
+  // request's notification is closed from here too, on every screen, once the Gateway lists the request as answered.
   return (
-    <>
+    <AlertsProvider>
+      <CloseAnsweredLinkRequestNotifications />
       <ConnectionBanner />
       {/* The voice-mode banner is mounted HERE, beside the connection banner, for one reason: it has to be
           on every screen. While auto-speak is running you are on the roster for three seconds at a time and
@@ -94,7 +98,7 @@ function GatedLayout() {
           screen and the app could not be used. The alarms still reach the phone as a push, and the Cockpit's
           Licenses page shows them. */}
       <Outlet />
-    </>
+    </AlertsProvider>
   );
 }
 
@@ -152,10 +156,12 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // between logins, adding one, and signing out. Mirrors the Cockpit's Account destination -
           // the phone had none, which is why it had no way to sign out either.
           { path: "/account", element: <Account /> },
-          // A secret transfer waiting for the owner's approval (issue #2943): where its push notification lands.
-          { path: "/secret-transfers", element: <SecretTransfers /> },
-          // A session asking to message another it may not reach (issue #4373): where its push notification lands.
-          { path: "/link-requests", element: <LinkRequests /> },
+          // A secret transfer (issue #2943) and a message request (issue #4373) each had a page of their own, where
+          // their push notifications landed. They are alerts now (the Alerts mission): a notification opens the roster on
+          // ?alert={id} and the tray on that alert. These keep an older notification or bookmark landing on the roster,
+          // where the bell carries the count, rather than on a dead route.
+          { path: "/secret-transfers", element: <Navigate to="/" replace /> },
+          { path: "/link-requests", element: <Navigate to="/" replace /> },
           { path: "/about", element: <About /> },
           // Diagnostics (auto-network-switching mission): a phone-side connection tester - route
           // (direct LAN vs Tailscale relay), latency, and download/upload throughput, with a verdict.
