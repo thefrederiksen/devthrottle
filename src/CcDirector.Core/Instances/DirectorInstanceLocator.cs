@@ -531,8 +531,14 @@ public sealed class DirectorInstanceLocator
     }
 
     /// <summary>
-    /// The image a process is running, or "" when it will not say. Windows reads the main module; macOS
-    /// and Linux ask /bin/ps, because MainModule is unreliable there.
+    /// The image a process is running, or "" when it will not say. Windows reads the main module; Linux
+    /// reads the kernel's /proc/&lt;pid&gt;/exe link; macOS asks /bin/ps, because MainModule is unreliable
+    /// there.
+    ///
+    /// WHY LINUX DOES NOT ASK /bin/ps. On Linux "ps -o comm=" prints the kernel's short command name -
+    /// at most fifteen characters and never a path ("bash", not "/usr/bin/bash") - so it could never equal
+    /// the installed path, and every Director on Linux resolved as <see cref="DirectorResolution.NotSupervised"/>:
+    /// the launcher there could never stop, restart or update its own Director.
     /// </summary>
     private static string ExecutablePathOf(Process process)
     {
@@ -544,6 +550,23 @@ public sealed class DirectorInstanceLocator
             }
             catch (Exception ex)
             {
+                FileLog.Write($"[DirectorInstanceLocator] image read FAILED: pid={process.Id} would not say what image it is "
+                              + $"running: {ex.Message}");
+                return "";
+            }
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                var link = File.ResolveLinkTarget($"/proc/{process.Id}/exe", returnFinalTarget: false);
+                return LinuxImageFromProcLink(link?.FullName);
+            }
+            catch (Exception ex)
+            {
+                // Another user's process, or one that exited a moment ago: it will not say, so it is
+                // unreadable - which the callers refuse on, never read as "not the install".
                 FileLog.Write($"[DirectorInstanceLocator] image read FAILED: pid={process.Id} would not say what image it is "
                               + $"running: {ex.Message}");
                 return "";
@@ -574,6 +597,23 @@ public sealed class DirectorInstanceLocator
             FileLog.Write($"[DirectorInstanceLocator] pid={process.Id} image path could not be read FAILED: {ex.Message}");
             return "";
         }
+    }
+
+    /// <summary>
+    /// The image path held in a Linux /proc/&lt;pid&gt;/exe link, or "" when there is none.
+    ///
+    /// When the file a process was started from has since been replaced - which is exactly what an update
+    /// does to a running Director - the kernel reports the old path with " (deleted)" appended. The process
+    /// is still the one started from the installed path, so the suffix is removed: leaving it would make
+    /// the Director being updated read as "not the install", and the launcher would refuse to stop it.
+    /// </summary>
+    internal static string LinuxImageFromProcLink(string? linkTarget)
+    {
+        const string replacedSuffix = " (deleted)";
+        if (string.IsNullOrEmpty(linkTarget)) return "";
+        return linkTarget.EndsWith(replacedSuffix, StringComparison.Ordinal)
+            ? linkTarget[..^replacedSuffix.Length]
+            : linkTarget;
     }
 
     /// <summary>
@@ -633,6 +673,13 @@ public sealed class DirectorInstanceLocator
             try
             {
                 files = Directory.GetFiles(dir, "*.json");
+            }
+            catch (DirectoryNotFoundException) when (File.Exists(dir))
+            {
+                // NOT ABSENT: something that is not a directory sits where the directory belongs. Windows
+                // reports this as a failure to list; Linux and macOS report it as "directory not found",
+                // which would have read as an empty instance home on those two platforms only.
+                listingFailure = $"the registration directory {dir} exists and could not be listed: it is a file, not a directory";
             }
             catch (DirectoryNotFoundException)
             {

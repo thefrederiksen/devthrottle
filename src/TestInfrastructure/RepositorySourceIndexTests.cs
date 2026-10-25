@@ -28,7 +28,12 @@ public sealed class RepositorySourceIndexTests
         var file = RepositorySourceIndex.Files.First();
         Assert.True(Path.IsPathRooted(file), file);
         Assert.StartsWith(RepositorySourceIndex.Root, file, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(Path.AltDirectorySeparatorChar, file.Substring(RepositorySourceIndex.Root.Length));
+        // On macOS and Linux the "alternative" separator IS the separator, so "no alternative separator"
+        // would forbid every path; the platform's separators are proven there by the path naming a real
+        // file. On Windows git writes "/", and the index must have turned every one into "\".
+        Assert.True(File.Exists(file), file);
+        if (Path.AltDirectorySeparatorChar != Path.DirectorySeparatorChar)
+            Assert.DoesNotContain(Path.AltDirectorySeparatorChar, file.Substring(RepositorySourceIndex.Root.Length));
     }
 
     [Fact]

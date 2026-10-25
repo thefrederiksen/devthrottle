@@ -79,12 +79,29 @@ public sealed class WorktreePoolSettingsTests : IDisposable
     }
 
     [Fact]
-    public void For_IgnoresHowThePathWasTyped()
+    public void For_IgnoresWhichSeparatorWasTypedAndATrailingOne()
     {
         WorktreePoolSettings.Save(Repo, new WorktreePoolSetting(Enabled: true, PoolSize: 4));
 
-        Assert.True(WorktreePoolSettings.For(@"d:/repos/pooledrepo").Enabled);
+        Assert.True(WorktreePoolSettings.For(@"D:/Repos/PooledRepo").Enabled);
         Assert.True(WorktreePoolSettings.For(Repo + @"\").Enabled);
+        Assert.True(WorktreePoolSettings.For(Repo + "/").Enabled);
+    }
+
+    /// <summary>
+    /// Letter case is ignored on Windows only, where the file system ignores it too. On Linux two
+    /// spellings that differ in case are two different folders, so they are two repositories with two
+    /// settings - folding them would hand one repository the other's pool. On macOS the key keeps its
+    /// case as well: a repository opened under a differently cased spelling reads as not configured,
+    /// which is OFF, the answer this setting gives whenever it is unsure. The key is the one
+    /// BrowserDefaultStore uses, and the two must stay the same.
+    /// </summary>
+    [Fact]
+    public void For_IgnoresLetterCaseOnlyOnWindows()
+    {
+        WorktreePoolSettings.Save(Repo, new WorktreePoolSetting(Enabled: true, PoolSize: 4));
+
+        Assert.Equal(OperatingSystem.IsWindows(), WorktreePoolSettings.For(@"d:/repos/pooledrepo").Enabled);
     }
 
     [Fact]

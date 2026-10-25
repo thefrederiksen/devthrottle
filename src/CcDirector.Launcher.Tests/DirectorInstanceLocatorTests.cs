@@ -262,17 +262,19 @@ public sealed class DirectorInstanceLocatorTests : IDisposable
     [Fact]
     public void TwoClaimantsRunningDIFFERENTImages_ResolveToTheInstalledOne_AndStillReportTheConflict()
     {
-        using var foreign = new ForeignProcess();
+        var locator = Locator(installedDirectorPath: InstalledImage);
+        ClaimantRunning(locator, InstalledImage, developmentBuild: DevelopmentBuildImage);
 
-        // This process stands in for the development build; the foreign one for the install.
+        // This process stands in for the development build; the second claimant for the install.
         WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000015");
         WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000016",
-            port: 7880, pid: foreign.Id);
+            port: 7880, pid: SecondClaimantPid);
 
-        var lookup = Locator(installedDirectorPath: foreign.ExecutablePath).Resolve();
+        var lookup = locator.Resolve();
 
         Assert.Equal(DirectorResolution.Running, lookup.Outcome);
-        Assert.Equal(foreign.Id, lookup.Director!.Pid);
+        Assert.Equal(SecondClaimantPid, lookup.Director!.Pid);
+        Assert.Equal(InstalledImage, lookup.Director.ExecutablePath);
         Assert.NotNull(lookup.Conflict);
         Assert.Contains("claim the instance", lookup.Conflict);
     }
@@ -291,16 +293,14 @@ public sealed class DirectorInstanceLocatorTests : IDisposable
     [Fact]
     public void AClaimantWhoseImageCannotBeRead_ForcesARefusal()
     {
-        using var foreign = new ForeignProcess();
-        WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000017");
-        WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000018",
-            port: 7880, pid: foreign.Id);
-
-        var locator = Locator(installedDirectorPath: foreign.ExecutablePath);
+        var locator = Locator(installedDirectorPath: InstalledImage);
         // Everything answers as usual EXCEPT this process, which will not say what it is running. Without
         // the guard the remaining claimant is the install and the tie-break would resolve happily.
-        locator.ReadExecutablePath = process =>
-            process.Id == Environment.ProcessId ? "" : foreign.ExecutablePath;
+        ClaimantRunning(locator, InstalledImage, developmentBuild: "");
+
+        WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000017");
+        WriteRegistration(InstanceDirectory("default"), "aaaa0001-0000-0000-0000-000000000018",
+            port: 7880, pid: SecondClaimantPid);
 
         var lookup = locator.Resolve();
 
@@ -313,60 +313,48 @@ public sealed class DirectorInstanceLocatorTests : IDisposable
     private static string NotThisProcessPath =>
         Path.Combine(Path.GetTempPath(), "definitely-not-the-installed-director.exe");
 
+    /// <summary>The image the tie-break tests call the installed application.</summary>
+    private static string InstalledImage => Path.Combine(Path.GetTempPath(), "installed", "cc-director");
+
+    /// <summary>The image the tie-break tests call a development build.</summary>
+    private static string DevelopmentBuildImage => Path.Combine(Path.GetTempPath(), "slot-build", "cc-director");
+
+    /// <summary>A process id no registration but the second claimant's names.</summary>
+    private const int SecondClaimantPid = int.MaxValue - 15;
+
     /// <summary>
-    /// A live process running a DIFFERENT image from this test process, so the tie-break has two things
-    /// it can genuinely tell apart. Killed on dispose - a test that leaves a process behind is a test
-    /// that poisons the next run.
+    /// Make <see cref="SecondClaimantPid"/> a live claimant running <paramref name="image"/>, and this
+    /// process a claimant running <paramref name="developmentBuild"/> ("" for one that will not say).
+    ///
+    /// Through the locator's seams rather than a second real process: what these tests pin is the
+    /// TIE-BREAK, and a helper process made them wait on the machine - it had to be polled until the
+    /// operating system reported its image, and on Linux /bin/sh is a link to another shell, so the image
+    /// read back was never the one the test had named. Reading a real process's image is pinned by the
+    /// single-claimant tests above, which run against this process. The second claimant is this process
+    /// again under another id, so its start time is a real one that fits its registration.
     /// </summary>
-    private sealed class ForeignProcess : IDisposable
+    private static void ClaimantRunning(DirectorInstanceLocator locator, string image, string developmentBuild)
     {
-        private readonly Process _process;
+        var second = Process.GetCurrentProcess();
+        var inspect = locator.InspectProcess;
+        locator.InspectProcess = pid => pid == SecondClaimantPid ? (second, null) : inspect(pid);
+        locator.ReadExecutablePath = process => ReferenceEquals(process, second) ? image : developmentBuild;
+    }
 
-        public ForeignProcess()
-        {
-            // A FULL path, not a bare name, so what this test calls "the install" is exactly the string
-            // the locator will read back out of the running process.
-            ExecutablePath = OperatingSystem.IsWindows()
-                ? Path.Combine(Environment.SystemDirectory, "cmd.exe")
-                : "/bin/sh";
-            var psi = OperatingSystem.IsWindows()
-                ? new ProcessStartInfo(ExecutablePath, "/c ping -n 60 127.0.0.1")
-                : new ProcessStartInfo(ExecutablePath, "-c \"sleep 60\"");
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.RedirectStandardOutput = true;
-            _process = Process.Start(psi) ?? throw new InvalidOperationException("could not start a helper process");
-            Assert.NotEqual(Environment.ProcessPath, ExecutablePath);
-
-            // A process that has only just been created has not loaded its main module yet, so asking
-            // what image it is running answers "" for a moment - and Windows can even answer with a
-            // TRANSIENT WRONG module (ntdll.dll was observed) before the real one is loaded. Both are
-            // REAL properties the locator has to live with, and both would make this test flaky rather
-            // than proving anything - so wait until the answer IS the expected image, and only assert at
-            // the deadline. Waiting merely for a non-empty answer was itself a race: the ntdll moment is
-            // non-empty and wrong.
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (DateTime.UtcNow < deadline
-                   && !string.Equals(ImageOf(_process), ExecutablePath, StringComparison.OrdinalIgnoreCase))
-                Thread.Sleep(50);
-            Assert.Equal(ExecutablePath, ImageOf(_process), ignoreCase: true);
-        }
-
-        public int Id => _process.Id;
-        public string ExecutablePath { get; }
-
-        private static string ImageOf(Process process)
-        {
-            if (!OperatingSystem.IsWindows()) return "/bin/sh";
-            try { return process.MainModule?.FileName ?? ""; }
-            catch { return ""; }
-        }
-
-        public void Dispose()
-        {
-            try { if (!_process.HasExited) _process.Kill(entireProcessTree: true); } catch { }
-            _process.Dispose();
-        }
+    /// <summary>
+    /// An update replaces the file a running Director was started from, and Linux then reports that
+    /// process's image as the old path with " (deleted)" appended. It is still the installed Director -
+    /// the one the update has to stop - so the suffix must not make it read as something else.
+    /// </summary>
+    [Theory]
+    [InlineData("/opt/cc-director/app/cc-director", "/opt/cc-director/app/cc-director")]
+    [InlineData("/opt/cc-director/app/cc-director (deleted)", "/opt/cc-director/app/cc-director")]
+    [InlineData("/opt/cc-director/app/cc-director (deleted) (deleted)", "/opt/cc-director/app/cc-director (deleted)")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void LinuxImageFromProcLink_RemovesOnlyTheKernelsReplacedFileSuffix(string? link, string expected)
+    {
+        Assert.Equal(expected, DirectorInstanceLocator.LinuxImageFromProcLink(link));
     }
 
     /// <summary>
