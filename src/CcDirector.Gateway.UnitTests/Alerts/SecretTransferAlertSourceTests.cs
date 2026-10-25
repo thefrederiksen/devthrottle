@@ -131,6 +131,19 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
     }
 
     [Fact]
+    public void TheDetail_SerialisesWithTheFieldNamesTheClientsSecretTransferTypeReads()
+    {
+        Ask();
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Only(T0.AddMinutes(1)),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"detail\":{\"transferId\":", json);
+        Assert.Contains("\"canAnswer\":true", json);
+        Assert.Contains("\"askedBySessionId\":\"aaaaaaaa-0000-0000-0000-000000000001\"", json);
+    }
+
+    [Fact]
     public void AnotherAccountsTransfer_IsNeverListed()
     {
         Ask(Other);

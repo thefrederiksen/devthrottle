@@ -162,6 +162,35 @@ public sealed class AlertRoutesTenantIsolationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ClearOne_AnIdWithItsColonUrlEncoded_AsTheClientSendsIt_Clears()
+    {
+        var closedA = SeedDeclinedRestart(_tenantA, "mac-a2");
+
+        var resp = await Send(HttpMethod.Post, $"gateway/alerts/{Uri.EscapeDataString(closedA)}/clear", _keyA);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Empty((await List(_keyA)).Alerts);
+    }
+
+    [Fact]
+    public async Task List_TheDetailIsTheRestartRecord_InTheSameJsonTheRestartRouteServes()
+    {
+        SeedPendingRestart(_tenantA, "mac-a");
+
+        var alerts = await Send(HttpMethod.Get, "gateway/alerts", _keyA);
+        var own = await Send(HttpMethod.Get, "gateway/director-restart-requests", _keyA);
+        using var alertDoc = System.Text.Json.JsonDocument.Parse(await alerts.Content.ReadAsStringAsync());
+        using var ownDoc = System.Text.Json.JsonDocument.Parse(await own.Content.ReadAsStringAsync());
+
+        var detail = alertDoc.RootElement.GetProperty("alerts")[0].GetProperty("detail");
+        var record = ownDoc.RootElement.GetProperty("requests")[0];
+        // Field for field, the detail is what the restart route itself serves, so the client's existing type reads it.
+        Assert.Equal(record.GetRawText(), detail.GetRawText());
+        Assert.True(detail.GetProperty("canAccept").GetBoolean());
+        Assert.Equal("Pending", detail.GetProperty("state").GetString());
+    }
+
+    [Fact]
     public async Task ClearAll_ClearsEverythingThatNeedsNoAnswer_SaysHowMany_AndTouchesNoOtherAccount()
     {
         var restartA = SeedPendingRestart(_tenantA, "mac-a");

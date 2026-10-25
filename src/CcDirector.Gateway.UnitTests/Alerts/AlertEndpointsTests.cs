@@ -148,6 +148,29 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
         Assert.Empty((await List(Alice)).Alerts);
     }
 
+    [Fact]
+    public async Task ClearOne_AnIdWithItsColonUrlEncoded_AsTheClientSendsIt_Clears()
+    {
+        var id = Declined(Alice, "mac-a");
+
+        var resp = await Send(HttpMethod.Post, $"/gateway/alerts/{Uri.EscapeDataString(id)}/clear", Alice);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Contains("%3A", Uri.EscapeDataString(id));
+        Assert.Empty((await List(Alice)).Alerts);
+    }
+
+    [Fact]
+    public async Task ARefusal_CarriesItsSentenceInTheErrorField()
+    {
+        var id = "restart-request:" + Pending(Alice);
+
+        var resp = await Send(HttpMethod.Post, $"/gateway/alerts/{Uri.EscapeDataString(id)}/clear", Alice);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal(AlertsService.NeedsAnswerSentence, doc.RootElement.GetProperty("error").GetString());
+    }
+
     [Theory]
     [InlineData("restart%3Aabc")]
     [InlineData("nonsense")]

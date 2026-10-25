@@ -129,6 +129,19 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
     }
 
     [Fact]
+    public void TheDetail_SerialisesWithTheFieldNamesTheClientsMessageLinkRequestTypeReads()
+    {
+        Ask();
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Only(T0.AddMinutes(1)),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"detail\":{\"requestId\":", json);
+        Assert.Contains("\"status\":\"pending\"", json);
+        Assert.Contains($"\"requesterSessionId\":\"{Requester}\"", json);
+    }
+
+    [Fact]
     public void AnotherAccountsRequest_IsNeverListed()
     {
         Ask(Other);
