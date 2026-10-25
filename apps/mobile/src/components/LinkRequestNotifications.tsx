@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useLinkRequests } from "@devthrottle/client-core/fleet/LinkRequestsPanel";
+import { useEffect, useMemo } from "react";
+import { useAlerts } from "@devthrottle/client-core/alerts/AlertsProvider";
 
 /** The tag prefix of a message link request's notification. The Gateway writes it
  *  (MessageLinkRequestPushNotifier.TagPrefix); the two must stay the same. */
@@ -10,10 +10,17 @@ export const LINK_REQUEST_TAG_PREFIX = "devthrottle-link-request-";
  * Director or in the Cockpit must not stay on the phone's lock screen asking for a tap that can no longer do anything.
  * Closes on POSITIVE evidence only - a listed row that is no longer pending - never on a request missing from the list,
  * because a read that left just before a new request was made would otherwise close its fresh notification. Runs on
- * every read of the list, inside a LinkRequestsPanelProvider. Renders nothing.
+ * every read of the alerts, inside the AlertsProvider the gated layout mounts. Renders nothing.
  */
 export function CloseAnsweredLinkRequestNotifications() {
-  const { answeredIds } = useLinkRequests();
+  const { alerts } = useAlerts();
+  const answeredIds = useMemo(
+    () =>
+      new Set(
+        alerts.flatMap((a) => (a.kind === "message-request" && a.detail.status !== "pending" ? [a.detail.requestId] : [])),
+      ),
+    [alerts],
+  );
   useEffect(() => {
     if (answeredIds.size === 0) return;
     void closeAnsweredNotifications(answeredIds);

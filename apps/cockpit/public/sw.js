@@ -25,7 +25,7 @@ var NOTIFICATION_ICON = '/mobile/icon-192.png';
 // A secret transfer waiting for the owner's answer (the Secret Handoff mission, issue #2943). The Gateway wrote the
 // title and the body - the entry and the two machines, never a value - and this only shows them. It is its own
 // notification, tagged per transfer, so it never replaces or clears the "needs you" one; clicking it opens the
-// Cockpit's sessions screen, where the approval card waits.
+// Cockpit on the alert it names (the Alerts mission): the Alerts tray, open on that transfer.
 var SECRET_TRANSFER_KIND = 'secret-transfer';
 
 function showSecretTransfer(payload) {
@@ -36,7 +36,7 @@ function showSecretTransfer(payload) {
     requireInteraction: true,
     icon: NOTIFICATION_ICON,
     badge: NOTIFICATION_ICON,
-    data: { url: '/sessions', fixedUrl: true }
+    data: { url: '/sessions?alert=' + encodeURIComponent(String(payload.alertId)), fixedUrl: true }
   });
 }
 

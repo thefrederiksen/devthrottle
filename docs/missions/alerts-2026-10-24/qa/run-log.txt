@@ -1,0 +1,109 @@
+[qa] READY port=7993
+phone bell: Alerts
+phone badge: none
+SHOT phone-bell-zero
+desktop bell: Alerts
+desktop title: ? DevThrottle Cockpit
+SHOT desktop-bell-zero
+[qa] host stopped
+[qa] READY port=7993
+phone bell: Alerts, 1 needs you
+phone badge: 1
+SHOT phone-bell-one
+desktop bell: Alerts, 1 needs you
+desktop title: ? (1) DevThrottle Cockpit
+SHOT desktop-bell-one
+[qa] host stopped
+[qa] READY port=7993
+phone bell: Alerts, 12 need you
+phone badge: 9+
+SHOT phone-bell-twelve
+desktop bell: Alerts, 12 need you
+desktop title: (12) DevThrottle Cockpit
+SHOT desktop-bell-twelve
+collapsed badge: 9+
+SHOT desktop-bell-twelve-collapsed-rail
+[qa] host stopped
+[qa] READY port=7993
+cards in the session list: 0
+badge: 3
+SHOT phone-session-list-no-cards
+tray: Needs you: Restart the Director on mac-mini? | Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT phone-tray-needs-you-and-earlier
+opened: restart-request
+SHOT phone-opened-restart
+opened: secret-transfer
+SHOT phone-opened-secret-transfer
+opened: message-request
+SHOT phone-opened-message-request
+SHOT phone-accept-restart-step-1-confirm
+after accept, detail status: Stopped
+SHOT phone-accept-restart-step-2-answered
+badge before: 3 after: 2
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT phone-accept-restart-step-3-moved-to-earlier
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT phone-cleared-one
+list read held
+[qa] host: REOPENED True
+refusal: This still needs your answer; it leaves when you answer it or when it expires.
+SHOT phone-clear-refused-needs-an-answer
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+clear all still offered: False
+SHOT phone-cleared-all
+[qa] host: DOWN finished=True
+failure line: Could not load the alerts: Can't reach the Gateway - retrying. / This still needs your answer; it leaves when you answer it or when it expires.
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+SHOT phone-gateway-unreachable
+[qa] host stopped
+[qa] READY port=7993
+cards in the session list: 0
+badge: 3
+SHOT desktop-session-list-no-cards
+tray: Needs you: Restart the Director on mac-mini? | Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT desktop-tray-needs-you-and-earlier
+opened: restart-request
+SHOT desktop-opened-restart
+opened: secret-transfer
+SHOT desktop-opened-secret-transfer
+opened: message-request
+SHOT desktop-opened-message-request
+SHOT desktop-accept-restart-step-1-confirm
+after accept, detail status: Stopped
+SHOT desktop-accept-restart-step-2-answered
+badge before: 3 after: 2
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT desktop-accept-restart-step-3-moved-to-earlier
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+SHOT desktop-cleared-one
+list read held
+[qa] host: REOPENED True
+refusal: This still needs your answer; it leaves when you answer it or when it expires.
+SHOT desktop-clear-refused-needs-an-answer
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+clear all still offered: False
+SHOT desktop-cleared-all
+[qa] host: DOWN finished=True
+failure line: Could not load the alerts: Can't reach the Gateway - retrying. / This still needs your answer; it leaves when you answer it or when it expires.
+tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+SHOT desktop-gateway-unreachable
+[qa] host stopped
+[qa] READY port=7993
+phone 360 list tray width: 344 overflow: {"width":360,"bad":[]}
+SHOT phone-360-overflow-list
+phone 360 restart tray width: 344 overflow: {"width":360,"bad":[]}
+SHOT phone-360-overflow-restart-details
+SHOT phone-360-overflow-restart-details-scrolled
+phone 360 secret tray width: 344 overflow: {"width":360,"bad":[]}
+SHOT phone-360-overflow-secret-details
+desktop 280 list tray width: 280 overflow: {"width":1440,"bad":[]}
+SHOT desktop-280-popover-overflow-list
+desktop 280 restart tray width: 280 overflow: {"width":1440,"bad":[]}
+SHOT desktop-280-popover-overflow-restart-details
+[qa] host stopped
+[qa] READY port=7993
+bell box: {"x":141,"y":16,"width":32,"height":32,"top":16,"right":173,"bottom":48,"left":141}
+SHOT cockpit-390-bell
+tray box: {"x":8,"y":54,"width":374,"height":510,"top":54,"right":382,"bottom":564,"left":8} overflow: {"width":390,"bad":[]}
+SHOT cockpit-390-tray
+[qa] host stopped

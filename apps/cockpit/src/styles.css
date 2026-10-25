@@ -135,6 +135,19 @@ body {
   border-color: var(--border);
 }
 
+/* Alerts in the rail head (the Alerts mission): the shared client-core bell (packages/client-core/src/alerts/alerts.css).
+   The Cockpit sets ONLY the variables that stylesheet documents. The rail scrolls, so a tray placed inside it would be
+   cut off at the rail's edge; it is placed on the page instead, at the bell's corner, which RailAlertsBell measures and
+   sets as --alerts-tray-top and --alerts-tray-left when it opens. Width and height are the stylesheet's own popover
+   defaults: 380px, at most 70% of the window's height. */
+.rail-alerts {
+  flex: none;
+  display: inline-flex;
+  --alerts-tray-position: fixed;
+  --alerts-tray-right: auto;
+  --alerts-tray-bottom: auto;
+}
+
 /* ===== THE COLLAPSED RAIL (issue #3074) =====
    The same list, with the words hidden - not a different navigation. The rail keeps every destination, in
    the same order, found by the icon shapes that were drawn for exactly this (see NavIcon). It gives back
@@ -151,6 +164,8 @@ body {
 .shell-rail-collapsed .rail-head {
   justify-content: center;
   padding-bottom: 12px;
+  /* The bell and the expand control do not fit side by side in 40px: the bell sits above, with its badge. */
+  flex-direction: column;
 }
 
 .shell-rail-collapsed .nav-link {
@@ -3438,6 +3453,9 @@ body {
 }
 .link-ask-pop {
   position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   top: calc(100% + 6px);
   right: 0;
   z-index: 50;
@@ -3451,33 +3469,10 @@ body {
   color: var(--text);
   font-size: 13px;
 }
-.link-ask-item + .link-ask-item {
+/* Each alert the session asked for, as the Alerts tray opens it (the shared AlertDetail), one under another. */
+.link-ask-pop > article + article {
   border-top: 1px solid var(--border);
-  margin-top: 10px;
   padding-top: 10px;
-}
-.link-ask-reason {
-  color: var(--text-dim);
-  font-style: italic;
-  margin: 4px 0 6px;
-}
-.link-ask-amount {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
-.link-ask-amount-words {
-  color: var(--warn);
-  font-weight: 600;
-}
-.link-ask-actions {
-  display: flex;
-  gap: 6px;
-}
-.link-ask-approve {
-  background: #1f6f3a;
-  border-color: #2e8b4a;
-  color: #fff;
 }
 
 /* "Let this session talk to..." (issue #3548). */
@@ -3606,49 +3601,6 @@ body {
   font-size: 10.5px;
   font-weight: 600;
 }
-
-/* ---- A Director restart a session asked for (issue #2725) - the shared client-core card, tuned for
-   the roster rail. Every sentence on it is the Gateway's; this only lays them out. ---- */
-.restart-requests { display: flex; flex-direction: column; gap: 8px; }
-.restart-request {
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.restart-request-pending { border-color: rgba(241, 76, 76, 0.55); }
-.restart-request-running { border-color: rgba(59, 130, 246, 0.55); }
-.restart-request-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.restart-request-title { font-weight: 700; font-size: 13px; color: var(--text); }
-.restart-request-state { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-dim); }
-.restart-request-pending .restart-request-state { color: var(--attention); }
-.restart-request-line { margin: 0; font-size: 12px; line-height: 1.4; color: var(--text); }
-.restart-request-capability, .restart-request-dim { color: var(--text-dim); }
-.restart-request-progress { color: var(--accent); }
-.restart-request-outcome { font-weight: 600; }
-.restart-request-error { margin: 0; font-size: 12px; color: var(--attention); }
-.restart-request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
-.restart-request-btn {
-  background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
-  padding: 6px 12px; font-size: 12px; cursor: pointer;
-}
-.restart-request-btn:hover { filter: brightness(1.12); }
-.restart-request-btn:disabled { opacity: 0.5; cursor: default; }
-.restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
-/* Nothing on the card may push past the screen edge: the Gateway's sentences carry long unbroken strings
-   (a launcher version, a machine name), so every line wraps anywhere and every flex child may shrink. */
-.restart-request, .restart-request-head, .restart-request-title, .restart-request-state,
-.restart-request-line, .restart-request-error, .restart-request-details, .restart-request-actions { min-width: 0; overflow-wrap: anywhere; }
-.restart-request-head { flex-wrap: wrap; }
-.restart-request-details > p { margin-top: 4px; }
-.restart-request-details > summary { cursor: pointer; }
-
-/* ---- A secret transfer waiting for the owner's approval (Secret Handoff, issue #2943) - the shared client-core
-   card (packages/client-core/src/secrets/secrets.css), tuned for the roster rail and for the session chip's popover.
-   Every sentence on it is the Gateway's; this only lays them out. ---- */
-.secret-transfer { background: var(--surface-2); border-radius: 8px; }
-.secret-transfer-pop { display: flex; flex-direction: column; gap: 10px; }
-.secret-transfer-pop .secret-transfer { background: none; border: none; padding: 0; }
-.secret-transfer-pop .secret-transfer + .secret-transfer { border-top: 1px solid var(--border); padding-top: 10px; }
 
 /* ---- The ownership tree (owner ruling, 2026-09-14): a parent row carries a chevron in the gutter,
    a crew line while collapsed, and its children as a nested list while expanded. The gutter is

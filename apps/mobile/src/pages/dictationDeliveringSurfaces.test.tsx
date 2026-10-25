@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
@@ -27,19 +27,6 @@ function openNotDelivered(): HTMLElement {
 //   - Too old: the words come back with "Send anyway" and the age wording.
 //   - Could not confirm (phase 2, change 1): the words come back with the label and Dismiss only, because the
 //     Gateway says a second copy might double them.
-
-vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
-  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
-  SecretTransfersPanel: () => null,
-}));
-vi.mock("@devthrottle/client-core/fleet/LinkRequestsPanel", () => ({
-  LinkRequestsPanelProvider: ({ children }: { children: unknown }) => children,
-  LinkRequestsPanel: () => null,
-  useLinkRequests: () => ({ answeredIds: new Set() }),
-}));
-vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
-  RestartRequestsPanel: () => null,
-}));
 
 afterEach(() => {
   cleanup();

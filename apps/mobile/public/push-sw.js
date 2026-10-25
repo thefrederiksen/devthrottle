@@ -21,7 +21,7 @@ var NEEDS_YOU_TAG = 'devthrottle-needs-you';
 // A secret transfer waiting for the owner's answer (the Secret Handoff mission, issue #2943). The Gateway wrote the
 // title, the body (the entry and the two machines, never a value), the per-transfer tag and the page to open; this
 // only shows them. It is a separate notification that BUZZES - the agent that asked is waiting - and it never touches
-// the "needs you" dot. Tapping it opens the approval card (see notificationclick).
+// the "needs you" dot. Tapping it opens the Alerts tray on that transfer (see notificationclick).
 var SECRET_TRANSFER_KIND = 'secret-transfer';
 
 // A license alarm that just opened (License Switching phase 6). The same shape as a secret transfer: the Gateway wrote
@@ -31,7 +31,7 @@ var LICENSE_ALARM_KIND = 'license-alarm';
 
 // A session asking to message another it may not reach (issue #4373). The same shape again: the Gateway wrote the
 // title, the body (the two session numbers, never the reason or a name), the per-request tag and the page to open - the
-// phone's Message requests card. It buzzes, and it never touches the "needs you" dot. The app closes it by its tag once
+// phone's Alerts tray, open on that request. It buzzes, and it never touches the "needs you" dot. The app closes it by its tag once
 // the Gateway lists the request as answered anywhere.
 var LINK_REQUEST_KIND = 'link-request';
 

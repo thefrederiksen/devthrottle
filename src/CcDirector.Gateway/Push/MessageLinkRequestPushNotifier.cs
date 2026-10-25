@@ -22,9 +22,6 @@ namespace CcDirector.Gateway.Push;
 /// </summary>
 public sealed class MessageLinkRequestPushNotifier : IDisposable
 {
-    /// <summary>The path the phone app opens when the notification is tapped: the waiting requests.</summary>
-    public const string CardUrl = "/mobile/link-requests";
-
     /// <summary>The <c>kind</c> the service worker reads to tell this push from the "needs you" dot.</summary>
     public const string Kind = "link-request";
 
@@ -54,6 +51,8 @@ public sealed class MessageLinkRequestPushNotifier : IDisposable
     public static string BuildPayload(string requestId, int? requesterNumber, int? targetNumber)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
+        // The alert this push announces (the Alerts mission): a tap opens the phone's Alerts tray on it.
+        var alertId = AlertKinds.IdOf(AlertKinds.MessageRequest, requestId);
         return JsonSerializer.Serialize(new MessageLinkRequestPayload
         {
             Kind = Kind,
@@ -61,9 +60,8 @@ public sealed class MessageLinkRequestPushNotifier : IDisposable
             Body = Body(requesterNumber, targetNumber),
             // One notification per request: two waiting at once must not replace each other. The id is not secret.
             Tag = TagPrefix + requestId,
-            Url = CardUrl,
-            // The alert this push announces (the Alerts mission), so a tap can open the Alerts tray on it.
-            AlertId = AlertKinds.IdOf(AlertKinds.MessageRequest, requestId),
+            Url = AlertKinds.PhoneUrlOf(alertId),
+            AlertId = alertId,
         }, PayloadJson);
     }
 

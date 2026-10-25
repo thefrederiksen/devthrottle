@@ -12,19 +12,6 @@ import {
 import { emptyRetentionCache, mergeRosterRetention } from "@devthrottle/client-core/fleet/rosterRetention";
 import { Home, SessionRow } from "./Home";
 
-vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
-  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
-  SecretTransfersPanel: () => null,
-}));
-vi.mock("@devthrottle/client-core/fleet/LinkRequestsPanel", () => ({
-  LinkRequestsPanelProvider: ({ children }: { children: unknown }) => children,
-  LinkRequestsPanel: () => null,
-  useLinkRequests: () => ({ answeredIds: new Set() }),
-}));
-vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
-  RestartRequestsPanel: () => null,
-}));
-
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

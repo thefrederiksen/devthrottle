@@ -81,10 +81,13 @@ export interface AlertsProviderProps {
   children: ReactNode;
   /** The clock, injectable for tests. Defaults to Date.now. */
   now?: () => number;
+  /** False reads nothing: a shell whose page on screen is not the owner's whole app (a team's pages only) has no
+   *  alerts to show. Defaults to true. */
+  enabled?: boolean;
 }
 
 /** The alerts for everything inside it to read. Mount once, at the shell's root. */
-export function AlertsProvider({ children, now }: AlertsProviderProps) {
+export function AlertsProvider({ children, now, enabled = true }: AlertsProviderProps) {
   const [alerts, setAlerts] = useState<AlertDto[]>([]);
   const [needsAnswerCount, setNeedsAnswerCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -114,7 +117,7 @@ export function AlertsProvider({ children, now }: AlertsProviderProps) {
     }
   }, []);
 
-  useVisiblePolling(load, ALERTS_POLL_MS);
+  useVisiblePolling(load, ALERTS_POLL_MS, enabled);
 
   const refresh = useCallback(() => load(), [load]);
 

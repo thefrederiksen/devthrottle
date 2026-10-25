@@ -34,10 +34,7 @@ import { voiceRowState } from "@devthrottle/client-core/voice/voiceRowState";
 import { voiceQueueFor } from "@devthrottle/client-core/voice/voiceQueue";
 import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
-import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
-import { SecretTransfersPanel, SecretTransfersProvider } from "@devthrottle/client-core/secrets/SecretTransfers";
-import { LinkRequestsPanel, LinkRequestsPanelProvider } from "@devthrottle/client-core/fleet/LinkRequestsPanel";
-import { CloseAnsweredLinkRequestNotifications } from "../components/LinkRequestNotifications";
+import { AlertsBell } from "@devthrottle/client-core/alerts/AlertsBell";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
 import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useSessionFilter } from "../hooks/useSessionFilter";
@@ -158,6 +155,19 @@ export function Home() {
       (location.state as { tab?: string } | null)?.tab === "voice" ? "voice" : "all";
     setTab(historyTab);
   }, [location.key, location.state]);
+  // The alert a push notification opened the app on (?alert={id}). The tray opens on it; closing the tray takes the
+  // parameter out of the address, in the same render, so the tray can never reopen on a link already used.
+  const deepLinkAlert = new URLSearchParams(location.search).get("alert");
+  const onAlertsOpenChange = useCallback(
+    (open: boolean) => {
+      if (open || deepLinkAlert === null) return;
+      const params = new URLSearchParams(location.search);
+      params.delete("alert");
+      const search = params.toString();
+      navigate({ pathname: location.pathname, search: search ? `?${search}` : "" }, { replace: true, state: location.state });
+    },
+    [deepLinkAlert, location.pathname, location.search, location.state, navigate],
+  );
   // The All tab's order switch, sticky per device (see RosterOrder above).
   const [order, setOrderState] = useState<RosterOrder>(initialOrder);
   const setOrder = (next: RosterOrder) => {
@@ -332,6 +342,11 @@ export function Home() {
         {/* The spacer pushes the filter button to the right end of the bar. It used to be two spacers
             with the network status pill centred between them; the pill is gone (see ConnectionBanner). */}
         <div className="app-bar-spacer" />
+        {/* Alerts (the Alerts mission): the bell with the red count of what needs the owner - a restart request, a
+            secret transfer, a message request. They used to be cards stacked above the sessions; they live in the tray
+            now, and nothing that asks the owner for something is drawn in this list. A push notification opens the
+            app on ?alert={id}, which opens the tray on that alert; closing the tray takes the link away. */}
+        <AlertsBell where="phone" openAlertId={deepLinkAlert} onOpenChange={onAlertsOpenChange} />
         {/* The funnel opens the full-screen filter panel and doubles as the "filter active" indicator
             (a dot appears when a machine/repo filter is applied), so it is both the one-tap entry point
             and the status light - no separate menu item needed. */}
@@ -527,28 +542,6 @@ export function Home() {
             Clear filter
           </button>
         </p>
-      )}
-
-      {/* A Director restart a session has asked for (issue #2725): the owner's one accept, at the top of
-          the roster where "Needs you" lives. The same shared component the Cockpit mounts; this shell
-          only tunes its layout under .screen. Renders nothing while no request exists. */}
-      {tab === "all" && <RestartRequestsPanel />}
-
-      {/* A secret transfer waiting for the owner's one approval (Secret Handoff, issue #2943): the same shared card the
-          Cockpit mounts, answered here "on the phone". Renders nothing while none waits. */}
-      {tab === "all" && (
-        <SecretTransfersProvider>
-          <SecretTransfersPanel where="phone" />
-        </SecretTransfersProvider>
-      )}
-
-      {/* A session asking to message another it may not reach (issue #4373): the owner approves or refuses here, through
-          the same Gateway call as the Director and the Cockpit. Renders nothing while none waits. */}
-      {tab === "all" && (
-        <LinkRequestsPanelProvider>
-          <CloseAnsweredLinkRequestNotifications />
-          <LinkRequestsPanel />
-        </LinkRequestsPanelProvider>
       )}
 
       {tab === "all" && tree !== null && split !== null && split.pinned.length > 0 && (

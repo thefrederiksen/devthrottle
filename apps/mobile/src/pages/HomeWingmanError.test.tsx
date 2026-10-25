@@ -9,19 +9,6 @@ import { SessionRow } from "./Home";
 // The component is proved in client-core; this proves the MOUNT - the same block the Cockpit shows, on a session
 // that is not in voice mode, outside the card's link - and that an unstamped card shows none.
 
-vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
-  SecretTransfersProvider: ({ children }: { children: unknown }) => children,
-  SecretTransfersPanel: () => null,
-}));
-vi.mock("@devthrottle/client-core/fleet/LinkRequestsPanel", () => ({
-  LinkRequestsPanelProvider: ({ children }: { children: unknown }) => children,
-  LinkRequestsPanel: () => null,
-  useLinkRequests: () => ({ answeredIds: new Set() }),
-}));
-vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
-  RestartRequestsPanel: () => null,
-}));
-
 afterEach(() => {
   cleanup();
   vi.useRealTimers();

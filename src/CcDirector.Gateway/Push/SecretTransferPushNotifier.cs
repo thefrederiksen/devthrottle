@@ -21,9 +21,6 @@ namespace CcDirector.Gateway.Push;
 /// </summary>
 public sealed class SecretTransferPushNotifier : IDisposable
 {
-    /// <summary>The path the phone app opens when the notification is tapped: the waiting approvals.</summary>
-    public const string CardUrl = "/mobile/secret-transfers";
-
     /// <summary>The <c>kind</c> the service worker reads to tell this push from the "needs you" dot.</summary>
     public const string Kind = "secret-transfer";
 
@@ -46,6 +43,8 @@ public sealed class SecretTransferPushNotifier : IDisposable
     public static string BuildPayload(SecretTransferDto transfer)
     {
         ArgumentNullException.ThrowIfNull(transfer);
+        // The alert this push announces (the Alerts mission): a tap opens the phone's Alerts tray on it.
+        var alertId = AlertKinds.IdOf(AlertKinds.SecretTransfer, transfer.TransferId);
         return JsonSerializer.Serialize(new SecretTransferPayload
         {
             Kind = Kind,
@@ -53,9 +52,8 @@ public sealed class SecretTransferPushNotifier : IDisposable
             Body = Body(transfer.Entry, transfer.FromMachine, transfer.ToMachine),
             // One notification per transfer: two waiting at once must not replace each other. The id is not secret.
             Tag = "devthrottle-secret-transfer-" + transfer.TransferId,
-            Url = CardUrl,
-            // The alert this push announces (the Alerts mission), so a tap can open the Alerts tray on it.
-            AlertId = AlertKinds.IdOf(AlertKinds.SecretTransfer, transfer.TransferId),
+            Url = AlertKinds.PhoneUrlOf(alertId),
+            AlertId = alertId,
         }, PayloadJson);
     }
 

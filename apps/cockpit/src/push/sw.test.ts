@@ -225,7 +225,8 @@ describe("cockpit push service worker", () => {
     title: "Secret transfer waiting",
     body: "Approve sending vercel-bypass from SOREN_NORTH to devthrottle-mac-mini?",
     tag: "devthrottle-secret-transfer-tr-1",
-    url: "/mobile/secret-transfers",
+    url: "/mobile/?alert=secret-transfer%3Atr-1",
+    alertId: "secret-transfer:tr-1",
   };
 
   it("a secret transfer push draws its own notification in the Gateway's words", async () => {
@@ -245,11 +246,11 @@ describe("cockpit push service worker", () => {
     expect(w.self.navigator.clearAppBadge).not.toHaveBeenCalled();
   });
 
-  it("clicking a secret transfer notification opens the Cockpit's sessions screen, not the phone page", async () => {
+  it("clicking a secret transfer notification opens the Cockpit on that alert, not the phone page", async () => {
     const w = loadWorker({});
     await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
     await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
     expect(w.fetchStub).not.toHaveBeenCalled();
-    expect(w.openedWindows).toEqual(["/sessions"]);
+    expect(w.openedWindows).toEqual(["/sessions?alert=secret-transfer%3Atr-1"]);
   });
 });

@@ -145,6 +145,16 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual
   }),
 }));
 
+// Alerts (the Alerts mission): the shell mounts the one provider, so its read is answered here.
+const alertsRead = vi.hoisted(() => ({ calls: 0, count: 0 }));
+vi.mock("@devthrottle/client-core/alerts/alertsClient", async (importActual) => ({
+  ...(await importActual<typeof import("@devthrottle/client-core/alerts/alertsClient")>()),
+  listAlerts: vi.fn(async () => {
+    alertsRead.calls++;
+    return { alerts: [], needsAnswerCount: alertsRead.count };
+  }),
+}));
+
 import { act, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
@@ -915,5 +925,72 @@ describe("Cockpit license alarm banner", () => {
     expect(banner.textContent).toBe("2 license problems - Open Licenses");
     expect(within(banner).queryAllByTestId("license-alarm-line")).toHaveLength(0);
     expect(screen.getByTestId("routed-page").contains(banner)).toBe(false);
+  });
+});
+
+// Alerts in the rail head (the Alerts mission, section 5.5): the bell sits in the rail's top row beside the name, stays
+// in reach with its badge when the rail is collapsed, and a team's pages only - which have no alerts - read none.
+describe("Cockpit rail head alerts", () => {
+  beforeEach(() => {
+    cleanup();
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+    myTeams.held = null;
+    alertsRead.calls = 0;
+    alertsRead.count = 0;
+    window.localStorage.clear();
+  });
+
+  it("puts the bell in the rail head, with the Gateway's count", async () => {
+    alertsRead.count = 3;
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const head = document.querySelector(".rail-head")!;
+    await waitFor(() => expect(within(head as HTMLElement).getByTestId("alerts-badge").textContent).toBe("3"));
+    expect(head.contains(screen.getByTestId("alerts-bell"))).toBe(true);
+  });
+
+  it("keeps the bell and its badge in the collapsed rail", async () => {
+    alertsRead.count = 12;
+    window.localStorage.setItem("cockpit.railCollapsed", "true");
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    expect(document.querySelector(".shell")!.classList.contains("shell-rail-collapsed")).toBe(true);
+    const head = document.querySelector(".rail-head") as HTMLElement;
+    await waitFor(() => expect(within(head).getByTestId("alerts-badge").textContent).toBe("9+"));
+  });
+
+  it("draws no bell and reads no alerts while a team's pages only are on screen", async () => {
+    const collaboratorTeam = {
+      id: "team-dt",
+      name: "DevThrottle",
+      role: "Collaborator",
+      memberCount: 5,
+      people: "5 people",
+      app: {
+        full: false,
+        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
+        landing: "/questions",
+        elsewhere: "This page is not available to Collaborators.",
+      },
+    } as unknown as TeamSummary;
+    myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
+    window.localStorage.setItem(currentTeamStorageKey(), collaboratorTeam.id);
+    render(
+      <MemoryRouter initialEntries={["/questions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(document.querySelector(".shell")!.classList.contains("shell-team-pages")).toBe(true));
+    expect(screen.queryByTestId("alerts-bell")).toBeNull();
+    expect(alertsRead.calls).toBe(0);
   });
 });
