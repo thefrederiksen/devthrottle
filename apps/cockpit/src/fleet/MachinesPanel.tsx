@@ -4,7 +4,7 @@ import type { FleetMachines, FleetVersionState } from "@devthrottle/client-core/
 import { useNow } from "@devthrottle/client-core/polling/useNow";
 import { relativeTime } from "./format";
 import { MachineActions, type ActionOutcome } from "./MachineActions";
-import { toneClass } from "./machinesFormat";
+import { outcomeStillShown, toneClass } from "./machinesFormat";
 
 // The Machines tab (fleet maintenance, devthrottle_internal#2026): one row per machine with its launcher, and
 // the Directors on it nested underneath - including a machine whose Director is stopped while its launcher still
@@ -66,7 +66,7 @@ export function MachinesPanel({
             </thead>
             <tbody>
               {view.machines.map((m) => {
-                const outcome = outcomes[m.machine];
+                const outcome = outcomeStillShown(outcomes[m.machine], m) ? outcomes[m.machine] : undefined;
                 return (
                   <Fragment key={m.machine}>
                     <tr className="fm-machine-row">

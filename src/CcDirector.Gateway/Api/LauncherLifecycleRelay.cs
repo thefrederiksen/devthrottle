@@ -70,6 +70,26 @@ internal static class LauncherLifecycleRelay
         /// demonstrably working. The answer here is to update that machine's launcher.
         /// </summary>
         NotStreamCapable,
+
+        /// <summary>
+        /// The launcher is registered and heartbeating, holds no stream right now, and THIS GATEWAY SAW IT HOLD
+        /// ONE - it closed <see cref="LauncherRelayOutcome.StreamClosedForSeconds"/> ago. It is restarting or
+        /// reconnecting, so it is not too old and must not be told to update (issue #4423).
+        /// </summary>
+        Reconnecting,
+
+        /// <summary>
+        /// The command went down the stream and the stream closed before the launcher answered (issue #4423).
+        /// The launcher had the command and may have done it - an update restarts the launcher, and this is
+        /// what that looks like from here - so this is neither a refusal nor an undelivered command.
+        /// </summary>
+        StreamLost,
+
+        /// <summary>
+        /// Registered and heartbeating, and the stream this Gateway saw it hold has been down longer than a restart
+        /// takes (<see cref="LauncherReachability.ReconnectWindow"/>). Not too old, not reconnecting: restart it.
+        /// </summary>
+        StreamDown,
     }
 
     /// <summary>The result of one relay attempt.</summary>
@@ -80,12 +100,15 @@ internal static class LauncherLifecycleRelay
     /// WHICH build is not accepting commands rather than only that something is not.</param>
     /// <param name="QuietForSeconds">How long since that launcher last heartbeated. It is the fact that
     /// separates "too old to stream" from "stopped talking", so it travels on the answer.</param>
+    /// <param name="StreamClosedForSeconds">For <see cref="RelayOutcomeKind.Reconnecting"/>: how long since that
+    /// launcher's stream closed - the evidence that it is not too old.</param>
     internal sealed record LauncherRelayOutcome(
         RelayOutcomeKind Kind,
         int RelayStatus = 0,
         string? Payload = null,
         string? LauncherVersion = null,
-        int QuietForSeconds = 0)
+        int QuietForSeconds = 0,
+        int StreamClosedForSeconds = 0)
     {
         /// <summary>True when the launcher answered AND its answer was a success. This is the whole question
         /// the in-process auto-launcher asks.</summary>
@@ -305,7 +328,16 @@ internal static class LauncherLifecycleRelay
         LauncherRegistry launchers, LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand,
         CancellationToken ct)
     {
-        var streamResult = await LauncherCommandRouter.TrySendAsync(sendLauncherCommand, tenant, machine, streamCommand, ct);
+        LauncherCommandResult? streamResult;
+        try
+        {
+            streamResult = await LauncherCommandRouter.TrySendAsync(sendLauncherCommand, tenant, machine, streamCommand, ct);
+        }
+        catch (LauncherStreamLostException ex)
+        {
+            FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb} tenant={tenant.Value} machine={machine}: {ex.Message} - answering that the answer was lost");
+            return new LauncherRelayOutcome(RelayOutcomeKind.StreamLost, LauncherVersion: launchers.Get(tenant, machine)?.Version);
+        }
         if (streamResult is not null)
         {
             var streamStatus = streamResult.Status switch
@@ -368,6 +400,24 @@ internal static class LauncherLifecycleRelay
                               + "this Gateway but opens no stream is too old to accept stream commands; update it.");
                 return new LauncherRelayOutcome(RelayOutcomeKind.NotStreamCapable, LauncherVersion: registered.Version,
                     QuietForSeconds: quietForSeconds);
+
+            // Heartbeating, no stream - and this Gateway watched it hold one. Restarting or reconnecting, NOT too
+            // old: the evidence outranks the inference above (issue #4423).
+            case LauncherReach.Reconnecting:
+                var closedForSeconds = LauncherReachability.StreamClosedForSeconds(registered, DateTime.UtcNow);
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
+                              + $"({quietForSeconds}s ago) with no command stream, which closed {closedForSeconds}s ago, "
+                              + $"for tenant={tenant.Value}, machine={machine} - refused as reconnecting, not too old");
+                return new LauncherRelayOutcome(RelayOutcomeKind.Reconnecting, LauncherVersion: registered!.Version,
+                    QuietForSeconds: quietForSeconds, StreamClosedForSeconds: closedForSeconds);
+
+            case LauncherReach.StreamDown:
+                var downForSeconds = LauncherReachability.StreamClosedForSeconds(registered, DateTime.UtcNow);
+                FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
+                              + $"({quietForSeconds}s ago) and its command stream has been down {downForSeconds}s, "
+                              + $"for tenant={tenant.Value}, machine={machine} - refused");
+                return new LauncherRelayOutcome(RelayOutcomeKind.StreamDown, LauncherVersion: registered!.Version,
+                    QuietForSeconds: quietForSeconds, StreamClosedForSeconds: downForSeconds);
 
             case LauncherReach.NotConnected:
                 FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered but silent for "

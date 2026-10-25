@@ -8,6 +8,22 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 internal static class DirectorUpdateViewFold
 {
+    /// <summary>
+    /// The view for an update whose launcher closed its stream before it answered (issue #4423): it took the update and
+    /// restarted into the new version, which is what an update that replaces the launcher does. Warn, not bad: nothing
+    /// failed, and what is not known yet is only whether the new versions are up, which the version column shows.
+    /// </summary>
+    public static DirectorUpdateViewDto RestartedBeforeAnswering(string machine) => new()
+    {
+        Machine = machine,
+        Headline = $"The launcher on {machine} took the update and restarted before it could answer, which is what an "
+                   + "update that replaces the launcher does. Check the version column in a minute: the new versions "
+                   + "appear there when the launcher and the Director are back.",
+        Tone = FleetTone.Warn,
+        InProgress = false,
+        Downloaded = "Not known while the launcher restarts",
+    };
+
     public static DirectorUpdateViewDto Fold(string machine, LauncherDirectorUpdateReport report)
     {
         var view = new DirectorUpdateViewDto

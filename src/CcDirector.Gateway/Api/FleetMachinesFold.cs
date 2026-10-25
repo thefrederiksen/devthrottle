@@ -96,6 +96,12 @@ internal static class FleetMachinesFold
             LauncherReach.NotStreamCapable => ("Too old for commands", FleetTone.Bad,
                 "The launcher is running but is older than remote commands, so nothing can be sent to it. Update it once "
                 + "on the machine; after that it can be reached from here."),
+            LauncherReach.Reconnecting => ("Launcher reconnecting", FleetTone.Warn,
+                "The launcher is running and its command stream was up until recently. It is restarting - an update "
+                + "restarts it - or reconnecting. Look again in a minute."),
+            LauncherReach.StreamDown => ("Not taking commands", FleetTone.Bad,
+                "The launcher is running and reaching this Gateway, but its command stream has been down for longer than "
+                + "a restart takes. Restart the launcher on the machine."),
             LauncherReach.NotConnected => ("Launcher offline", FleetTone.Idle,
                 "The launcher has stopped talking to this Gateway. Start it on the machine to manage it from here."),
             _ => ("No launcher", FleetTone.Idle,
@@ -137,6 +143,12 @@ internal static class FleetMachinesFold
             : Offered("Start Director", "Starts the installed Director on this machine.");
 
         machine.CanReportUpdateStatus = connected && Declares(LauncherCapabilities.DirectorUpdateStatus);
+
+        // An Ok tone is "current" or "newer than release"; behind, unreadable and nothing-to-compare are not Ok.
+        machine.UpToDate = parts.Launcher is not null
+            && machine.LauncherVersionState.Tone == FleetTone.Ok
+            && running.Count > 0
+            && running.All(d => d.VersionState.Tone == FleetTone.Ok);
 
         return machine;
     }
