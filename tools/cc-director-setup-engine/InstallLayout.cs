@@ -119,7 +119,15 @@ public sealed class InstallLayout
     public string PyenvScriptsDir => Path.Combine(PyenvDir, "Scripts");
 
     /// <summary>The shared venv's executables dir: "Scripts" on Windows, "bin" on macOS/Unix.</summary>
-    public string PyenvBinDir => Path.Combine(PyenvDir, OperatingSystem.IsWindows() ? "Scripts" : "bin");
+    public string PyenvBinDir => PyenvBinDirFor(HostPlatform.Current);
+
+    /// <summary>
+    /// The same folder for a stated platform. The platform is a parameter for the same reason it is one
+    /// on <see cref="PathFor(Component, OSPlatform)"/>: a property that reads the environment can only
+    /// ever be tested for the platform the test run happens to be on.
+    /// </summary>
+    public string PyenvBinDirFor(OSPlatform platform) =>
+        Path.Combine(PyenvDir, platform == OSPlatform.Windows ? "Scripts" : "bin");
 
     /// <summary>
     /// macOS: the Applications folder the Director .app is placed in, so its icon is where a Mac user
@@ -290,7 +298,7 @@ public sealed class InstallLayout
             return component.Kind switch
             {
                 ComponentKind.Director => Path.Combine(AppDir, "cc-director"),
-                ComponentKind.Tool => Path.Combine(BinDir, component.Id),
+                ComponentKind.Tool => Path.Combine(PyenvBinDirFor(platform), component.Id),
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
@@ -303,12 +311,19 @@ public sealed class InstallLayout
         // it swaps the bundle the running process is inside (UpdateInstaller.InstallTarget), so it follows
         // the install wherever it is. Tools carry no .exe extension. Gateway/Launcher are Windows-only
         // roles and are never placed on mac.
+        //
+        // A TOOL is a Python console script in the shared venv, NOT a file in <root>/bin. There is no
+        // standalone per-tool executable off Windows - every cc-* tool arrives inside the Python tools
+        // bundle (see ComponentRegistry.ToolComponent) - and <root>/bin holds only the ptyshim binary.
+        // While this answered <root>/bin, a healthy install reported every tool as "not installed" and
+        // status exited 0 while saying it (#4290). ~/.local/bin holds a SHIM that points here, so this
+        // is the real file and the shim is the alias.
         if (platform == OSPlatform.OSX)
         {
             return component.Kind switch
             {
                 ComponentKind.Director => Path.Combine(MacAppsDir, "Director.app"),
-                ComponentKind.Tool => Path.Combine(BinDir, component.Id),
+                ComponentKind.Tool => Path.Combine(PyenvBinDirFor(platform), component.Id),
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
