@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -13,9 +12,8 @@ namespace CcDirector.Setup.Engine.Tests;
 /// integration, or a tool spawned by another program. Every tool was installed, every tool ran, and an
 /// unattended shell could not find one of them.
 ///
-/// The file-name tests take the home folder as a parameter so they run on any platform, which is the
-/// discipline the rest of this engine's macOS branches follow. The behavioural test runs a real zsh,
-/// because no assertion about a list of names could have caught this defect.
+/// Every test takes the home folder as a parameter and starts no program, so it runs on any platform - the
+/// discipline the rest of this engine's macOS branches follow.
 /// </summary>
 public class MacPathOnUnattendedShellTests
 {
@@ -60,110 +58,56 @@ public class MacPathOnUnattendedShellTests
             Assert.Contains(file, cleaned);
     }
 
-    [ZshOnlyFactAttribute("the whole defect is about which start-up file zsh reads for which shell")]
-    public void TheToolFolderIsOnPathForANonInteractiveShell_WhichIsWhatCronAndLaunchdGet()
+    // ---- Which files zsh reads, and so whether the block reaches each kind of shell ---------------------------------
+    //
+    // THESE USED TO RUN A REAL ZSH, and so they ran only where there was one (skipped everywhere else) and let a real
+    // process decide a gate test, which the test standard forbids. What zsh reads for which kind of shell is a fact
+    // about zsh, documented in zsh(1) under STARTUP/SHUTDOWN FILES - not something this code decides - so it is stated
+    // here once, as data, and the install's choice of files is checked against it for every kind of shell. The
+    // defect (#4292) was exactly a write list that no unattended shell reads, and the negative control below shows
+    // that the old list fails this check.
+
+    /// <summary>The start-up files zsh reads, by kind of shell (zsh(1), STARTUP/SHUTDOWN FILES; .zshenv always).</summary>
+    private static readonly (string Kind, string[] Reads)[] ZshReads =
     {
-        var home = Path.Combine(Path.GetTempPath(), "ccd-zshenv-" + Guid.NewGuid().ToString("N"));
-        var localBin = Path.Combine(home, ".local", "bin");
-        Directory.CreateDirectory(localBin);
-        try
-        {
-            // A stand-in for a tool shim, so the assertion is that a TOOL is reachable - not merely that
-            // a string appears in PATH.
-            var shim = WriteProbe(localBin);
+        ("unattended: a script, cron, launchd, a spawned tool (zsh -c)", new[] { ".zshenv" }),
+        ("interactive (zsh -i)", new[] { ".zshenv", ".zshrc" }),
+        ("interactive login (zsh -i -l, a terminal window)", new[] { ".zshenv", ".zprofile", ".zshrc", ".zlogin" }),
+    };
 
-            // Exactly what the install appends, in the file the install now appends it to.
-            File.WriteAllText(Path.Combine(home, ".zshenv"), InstallFinalizer.MacPathBlock());
-
-            // -c with no -i and no -l: a shell nobody is sitting in front of. This is cron, launchd, a
-            // script, and a tool spawned by another program.
-            var found = RunZsh(home, NonInteractive, "command -v cc-probe");
-            Assert.Equal(shim, found.Trim());
-
-            // And it is genuinely runnable, not just a path that resolved.
-            Assert.Equal("probe-ran", RunZsh(home, NonInteractive, "cc-probe").Trim());
-        }
-        finally
-        {
-            try { Directory.Delete(home, recursive: true); } catch { /* best effort */ }
-        }
+    /// <summary>The kinds of shell that read NONE of <paramref name="written"/> - each one a shell with no cc-* tool on PATH.</summary>
+    private static IReadOnlyList<string> ShellsThatMissTheBlock(IEnumerable<string> written)
+    {
+        var names = written.Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+        return ZshReads.Where(shell => !shell.Reads.Any(names.Contains)).Select(shell => shell.Kind).ToList();
     }
 
-    [ZshOnlyFactAttribute("proves the test above would have caught the defect instead of passing anyway")]
-    public void TheSameProbeFailsWhenTheBlockIsInZshrc_WhichIsTheDefectThisFixIsFor()
+    [Fact]
+    public void EveryKindOfZshReadsAFileTheBlockIsWrittenTo_IncludingTheUnattendedOnesCronAndLaunchdGet()
     {
-        // The negative control. Without it the test above could pass for a reason that has nothing to do
-        // with .zshenv - a tool already on the machine's PATH, or an inherited environment - and would
-        // then certify the very defect it is meant to rule out.
-        var home = Path.Combine(Path.GetTempPath(), "ccd-zshrc-" + Guid.NewGuid().ToString("N"));
-        var localBin = Path.Combine(home, ".local", "bin");
-        Directory.CreateDirectory(localBin);
-        try
-        {
-            var shim = WriteProbe(localBin);
-
-            // The old behaviour: the block in .zshrc, and nothing in .zshenv.
-            File.WriteAllText(Path.Combine(home, ".zshrc"), InstallFinalizer.MacPathBlock());
-
-            Assert.Equal("", RunZsh(home, NonInteractive, "command -v cc-probe").Trim());
-
-            // An interactive login shell DOES find it, which is why the defect looked like nothing was
-            // wrong to anyone typing at a terminal.
-            Assert.Equal(shim, RunZsh(home, InteractiveLogin, "command -v cc-probe").Trim());
-        }
-        finally
-        {
-            try { Directory.Delete(home, recursive: true); } catch { /* best effort */ }
-        }
+        Assert.Empty(ShellsThatMissTheBlock(InstallFinalizer.MacPathWriteFiles(Home)));
     }
 
-    /// <summary>
-    /// A stand-in tool shim, made executable with chmod rather than File.SetUnixFileMode: that call is
-    /// annotated unsupported on Windows, and this file compiles for every platform even though these
-    /// tests only RUN where there is a zsh.
-    /// </summary>
-    private static string WriteProbe(string localBin)
+    [Fact]
+    public void TheOldWriteListLeavesTheUnattendedShellWithoutTheBlock_WhichIsTheDefectThisFixIsFor()
     {
-        var shim = Path.Combine(localBin, "cc-probe");
-        File.WriteAllText(shim, "#!/bin/sh\necho probe-ran\n");
-        using var chmod = Process.Start("/bin/chmod", ["+x", shim])
-                          ?? throw new InvalidOperationException("could not start chmod");
-        chmod.WaitForExit(30_000);
-        Assert.Equal(0, chmod.ExitCode);
-        return shim;
+        // The negative control: the block in .zshrc alone - the behaviour before #4292 - reaches an interactive shell
+        // and no unattended one. Without this, the check above could pass for a reason that has nothing to do with
+        // .zshenv.
+        var missed = ShellsThatMissTheBlock(new[] { Path.Combine(Home, ".zshrc") });
+
+        Assert.Equal(new[] { ZshReads[0].Kind }, missed);
     }
 
-    /// <summary>
-    /// Run zsh with an EMPTY environment but for HOME and TERM, so the machine's own PATH cannot leak in
-    /// and answer for the start-up file under test.
-    /// </summary>
-    /// <summary>A shell nobody is sitting in front of: cron, launchd, a script, a spawned tool.</summary>
-    private static readonly string[] NonInteractive = [];
-
-    /// <summary>What a person at a terminal gets, and the only kind that ever read .zshrc.</summary>
-    private static readonly string[] InteractiveLogin = ["-i", "-l"];
-
-    private static string RunZsh(string home, string[] interactivityFlags, string command)
+    [Fact]
+    public void TheBlockPutsTheToolFolderFirstOnPath_OnceOnly()
     {
-        var psi = new ProcessStartInfo("/usr/bin/env")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add("-i");
-        psi.ArgumentList.Add("HOME=" + home);
-        psi.ArgumentList.Add("TERM=xterm");
-        psi.ArgumentList.Add("/bin/zsh");
-        foreach (var flag in interactivityFlags) psi.ArgumentList.Add(flag);
-        // -c LAST and always: with a bare operand instead, zsh reads the argument as the name of a
-        // SCRIPT FILE and finds nothing, which looks exactly like a PATH that was never set.
-        psi.ArgumentList.Add("-c");
-        psi.ArgumentList.Add(command);
+        // What the block does once a shell reads it: put ~/.local/bin (where every cc-* shim lives) at the front of
+        // PATH, and only when it is not already there, so a shell that reads more than one start-up file does not
+        // repeat it.
+        var block = InstallFinalizer.MacPathBlock();
 
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("could not start zsh");
-        var stdout = p.StandardOutput.ReadToEnd();
-        p.WaitForExit(30_000);
-        return stdout;
+        Assert.Contains("export PATH=\"$HOME/.local/bin:$PATH\"", block);
+        Assert.Contains("case \":$PATH:\" in *\":$HOME/.local/bin:\"*) ;;", block);
     }
 }
