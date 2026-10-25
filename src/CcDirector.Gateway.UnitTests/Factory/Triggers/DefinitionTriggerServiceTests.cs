@@ -138,7 +138,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal(TriggerRunOutcome.Started, run.Outcome);
         var (machine, request) = Assert.Single(_starts);
         Assert.Equal("SOREN_NORTH", machine);
-        Assert.Equal("New mail: 2. from ada@example.com, bo@example.com", request.PrePrompt);
+        Assert.Equal("New mail: 2. from ada@example.com, bo@example.com\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
         Assert.Equal(Director, request.Director);
         Assert.Equal(Factory, request.Factory);
     }
@@ -159,7 +159,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal(("ClaudeCode", "claude-sonnet-5-5"), (request.Agent, request.Model));
         Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
         Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
-        Assert.Equal("New mail: 2. from ada@example.com", request.PrePrompt);
+        Assert.Equal("New mail: 2. from ada@example.com\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
         Assert.Null(request.FactoryStartOverride);
     }
 
@@ -208,7 +208,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
 
         await Send(service, t, Report("""{"count": 1}"""));
 
-        Assert.Equal("New mail: 1. ", Assert.Single(_starts).request.PrePrompt);
+        Assert.Equal("New mail: 1. \n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, Assert.Single(_starts).request.PrePrompt);
     }
 
     [Fact]

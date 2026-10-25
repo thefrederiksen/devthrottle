@@ -323,47 +323,47 @@ public sealed class FactoryDefinitionChangesTests
     // ---------------------------------------------------------------------------------------------------------------
 
     [Fact]
-    public void Compare_DenyAdded_IsTightened()
+    public void Compare_AskAddedBesideAnother_IsTightened()
     {
-        var dto = Changes(DefinitionFixture.Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", "\"deny\": [\"Bash(git push:*)\", \"Bash(curl:*)\"]"));
+        var dto = Changes(DefinitionFixture.Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"Bash(git push:*)\", \"Bash(curl:*)\"]"));
 
         var rule = Assert.Single(dto.Rules);
         Assert.Equal("base", rule.RuleSet);
         Assert.Null(rule.Seat);
         Assert.Equal("tightened", rule.Direction);
-        Assert.Equal("Rule set base tightened: deny Bash(curl:*) added.", rule.Sentence);
+        Assert.Equal("Rule set base tightened: ask Bash(curl:*) added.", rule.Sentence);
         Assert.Equal("Rules tightened on base.", dto.Summary);
     }
 
     [Fact]
     public void Compare_AskAdded_IsTightened()
     {
-        var dto = Changes(DefinitionFixture.Edit("rules/base.json", "\"ask\": []", "\"ask\": [\"Bash(npm publish:*)\"]"));
+        var dto = Changes(DefinitionFixture.Edit("rules/outreach.json", "\"ask\": [\"Bash(rm:*)\"]", "\"ask\": [\"Bash(rm:*)\", \"Bash(npm publish:*)\"]"));
 
-        Assert.Equal("Rule set base tightened: ask Bash(npm publish:*) added.", Assert.Single(dto.Rules).Sentence);
+        Assert.Equal("Rule set outreach tightened: ask Bash(npm publish:*) added.", Assert.Single(dto.Rules).Sentence);
     }
 
     [Fact]
-    public void Compare_DenyRemoved_IsLoosened()
+    public void Compare_TheOnlyAskRemoved_IsLoosened()
     {
-        var dto = Changes(DefinitionFixture.Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", "\"deny\": []"));
+        var dto = Changes(DefinitionFixture.Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": []"));
 
         var rule = Assert.Single(dto.Rules);
         Assert.Equal("loosened", rule.Direction);
-        Assert.Equal("Rule set base loosened: deny Bash(git push:*) removed.", rule.Sentence);
+        Assert.Equal("Rule set base loosened: ask Bash(git push:*) removed.", rule.Sentence);
         Assert.Equal("Rules loosened on base.", dto.Summary);
     }
 
     [Fact]
     public void Compare_AskRemoved_IsLoosened()
     {
-        var before = DefinitionFixture.Edit("rules/base.json", "\"ask\": []", "\"ask\": [\"Bash(npm publish:*)\"]");
+        var before = DefinitionFixture.Edit("rules/outreach.json", "\"ask\": [\"Bash(rm:*)\"]", "\"ask\": [\"Bash(rm:*)\", \"Bash(npm publish:*)\"]");
 
         var dto = FactoryDefinitionChanges.Compare(before, Valid());
 
         var rule = Assert.Single(dto.Rules);
         Assert.Equal("loosened", rule.Direction);
-        Assert.Equal("Rule set base loosened: ask Bash(npm publish:*) removed.", rule.Sentence);
+        Assert.Equal("Rule set outreach loosened: ask Bash(npm publish:*) removed.", rule.Sentence);
     }
 
     [Fact]
@@ -385,14 +385,14 @@ public sealed class FactoryDefinitionChangesTests
     }
 
     [Fact]
-    public void Compare_DenyAddedAndAllowAdded_ReportsBothDirections()
+    public void Compare_AskAddedAndAllowAdded_ReportsBothDirections()
     {
-        var after = DefinitionFixture.Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", "\"deny\": [\"Bash(git push:*)\", \"Bash(curl:*)\"]");
+        var after = DefinitionFixture.Edit("rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": [\"Bash(git push:*)\", \"Bash(curl:*)\"]");
         Edit(after, "rules/base.json", "\"allow\": [\"Bash(git status)\"]", "\"allow\": [\"Bash(git status)\", \"Bash(git log)\"]");
 
         var dto = Changes(after);
 
-        Assert.Equal(new[] { "Rule set base tightened: deny Bash(curl:*) added.", "Rule set base loosened: allow Bash(git log) added." },
+        Assert.Equal(new[] { "Rule set base tightened: ask Bash(curl:*) added.", "Rule set base loosened: allow Bash(git log) added." },
             dto.Rules.Select(r => r.Sentence));
         Assert.Equal("Rules tightened on base, rules loosened on base.", dto.Summary);
     }
@@ -672,7 +672,7 @@ public sealed class FactoryDefinitionChangesTests
     public void Compare_SameInputs_GiveTheSameOutputWhateverTheMapOrder()
     {
         var after = DefinitionFixture.Edit("seats/outreach.yaml", "machine: SOREN_SOUTH", "machine: devlinux");
-        Edit(after, "rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", "\"deny\": []");
+        Edit(after, "rules/base.json", "\"ask\": [\"Bash(git push:*)\"]", "\"ask\": []");
         after["files/new.txt"] = "hello\n";
         var reversed = after.Reverse().ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
         var publishedReversed = Valid().Reverse().ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);

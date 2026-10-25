@@ -17,11 +17,14 @@ public sealed class FactoryDefinitionCheckAskNoticeTests
         {
           "permissions": {
             "allow": ["Bash(git status)"],
-            "deny": ["Bash(git push:*)"],
             "ask": ["Bash(git --version)"]
           }
         }
         """;
+
+    // Rule sets that ask about nothing: a set may hold only allow rules, or no rules at all.
+    private const string BaseAskingNothing = "{\n  \"permissions\": {\n    \"allow\": [\"Bash(git status)\"]\n  }\n}\n";
+    private const string OutreachAskingNothing = "{\n  \"permissions\": {}\n}\n";
 
     private static List<string> AskNotices(IReadOnlyDictionary<string, string> content)
         => Check(content).Findings.Where(f => f.Message == FactoryDefinitionCheck.AskStopsAnUnattendedRun)
@@ -66,15 +69,19 @@ public sealed class FactoryDefinitionCheckAskNoticeTests
     [Fact]
     public void Check_ASeatWithStarts_WhoseRuleSetsAskNothing_GetsNoNotice()
     {
-        // The valid definition's base has an empty ask list and outreach's rules have none.
-        Assert.Empty(AskNotices(Valid()));
+        var content = Valid();
+        content["rules/base.json"] = BaseAskingNothing;
+        content["rules/outreach.json"] = OutreachAskingNothing;
+
+        Assert.Empty(AskNotices(content));
     }
 
     [Fact]
     public void Check_ARuleSetWithAnAskRule_NamedOnlyByOneSeatWithStarts_GetsTheNoticeOnThatSeatAlone()
     {
         var content = Valid();
-        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(rm:*)\"],\n    \"ask\": [\"Bash(git push:*)\"]\n  }\n}\n";
+        content["rules/base.json"] = BaseAskingNothing;
+        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"ask\": [\"Bash(rm:*)\", \"Bash(git push:*)\"]\n  }\n}\n";
 
         Assert.Equal(new[] { "seats/outreach.yaml:17:notice" }, AskNotices(content));
     }

@@ -82,7 +82,7 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
                 Files = new List<FactoryKitFileDto>
                 {
                     new() { Path = "kit.json", Text = "{\"files\":[{\"path\":\"brief.md\"},{\"path\":\"rules.json\"}]}\n" },
-                    new() { Path = "rules.json", Text = "{\"permissions\":{\"deny\":[],\"ask\":[]}}\n" },
+                    new() { Path = "rules.json", Text = "{\"permissions\":{\"ask\":[]}}\n" },
                     new() { Path = "brief.md", Text = $"Brief of version {kit.Version}.\n" },
                 },
             };

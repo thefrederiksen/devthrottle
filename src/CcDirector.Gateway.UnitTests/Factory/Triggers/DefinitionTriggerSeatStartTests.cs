@@ -85,7 +85,7 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
         Assert.Equal(("ClaudeCode", "claude-sonnet-5-5", Factory), (request.Agent, request.Model, request.Factory));
         Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
         Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
-        Assert.Equal("New mail: 2. from ada@example.com", request.PrePrompt);
+        Assert.Equal("New mail: 2. from ada@example.com\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
         // What the check found reaches the agent as check.json: the outreach seat's first start, from version 1.
         var check = request.FactoryCheck!;
         Assert.Equal(("checks/new_mail.py", 2, "from ada@example.com"), (check.CheckPath, check.Count, check.Context));

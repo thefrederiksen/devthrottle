@@ -446,12 +446,17 @@ public static class SessionOrdering
     /// supervised session that has exited reads Exited - or Crashed, which is the one thing on this whole
     /// ladder nobody may ever quieten.
     ///
+    /// A PERMISSION PROMPT IS EXCLUDED (the owner's ruling of 24 October 2026: "If I say so, directly, it can ask me
+    /// for approval. But if I approve, it has to do it."). A permission prompt is a question only a PERSON may answer -
+    /// an ask rule exists precisely so that no agent approves it - so the session that owns this one cannot answer it,
+    /// and a prompt snoozed away from the owner is a silent block by another name. It reads red and needs-you.
+    ///
     /// WORKING IS EXCLUDED BY THE CALLERS, not here, because every caller already answers it first: nothing
     /// outranks working. Do NOT add a working check to this method - a second answer to that question is
     /// exactly the defect this file's history is made of.
     /// </summary>
     private static bool IsSupervisedAndStopped(SessionDto s) =>
-        IsSupervised(s) && !Is(s.ActivityState, "Exited");
+        IsSupervised(s) && !Is(s.ActivityState, "Exited") && !Is(s.ActivityState, "WaitingForPerm");
 
     /// <summary>Case-insensitive activity-state comparison, shared by every reader of the field in this
     /// file. Named once here because a second, ordinal copy six lines from a case-insensitive one is how

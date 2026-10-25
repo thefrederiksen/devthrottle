@@ -335,6 +335,13 @@ public sealed class FactoryPageViewDto
     /// <summary>The Seats tab, where each seat shows its marker. Null with no flag.</summary>
     public string? LeftOpenHref { get; set; }
 
+    /// <summary>
+    /// Deny rules in the folders this factory's live sessions started in (the owner's ruling of 24 October 2026), one
+    /// finished sentence per settings file, naming the machine, the file and its rules. Empty when there are none. Drawn
+    /// amber in the page header: a deny rule refuses with no prompt, so the owner cannot approve what it blocks.
+    /// </summary>
+    public List<string> FolderDenyTexts { get; set; } = new();
+
     /// <summary>"runs on SOREN_NORTH".</summary>
     public string ComputerText { get; set; } = "";
 

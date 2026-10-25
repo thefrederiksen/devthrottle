@@ -11,8 +11,9 @@ namespace CcDirector.Core.Sessions;
 /// What a written kit holds that changes how its agent is started: the seat's rules, its secret names, and whether it
 /// carries factory skills. Read from the kit folder by <see cref="FactoryKitLaunch.Read"/>.
 /// </summary>
-/// <param name="Permissions">The <c>permissions</c> object of <c>rules.json</c>, exactly as the Gateway composed it.</param>
-/// <param name="HasRules">True when it holds at least one <c>deny</c> or <c>ask</c> rule.</param>
+/// <param name="Permissions">The <c>permissions</c> object the seat's settings file carries: one <c>ask</c> list (see
+/// <see cref="FactoryKitLaunch.Read"/> for a kit from a Gateway older than the owner's ruling of 24 October 2026).</param>
+/// <param name="HasRules">True when it holds at least one <c>ask</c> rule.</param>
 /// <param name="Secrets">The secret names in <c>kit.json</c>; empty for a rules-only kit.</param>
 /// <param name="HasPlugin">True when the kit holds the <c>claude-plugin/</c> folder of factory skills.</param>
 public sealed record FactoryKitContents(JsonObject Permissions, bool HasRules, IReadOnlyList<string> Secrets, bool HasPlugin);
@@ -142,9 +143,13 @@ public static class FactoryKitLaunch
         return args;
     }
 
-    // rules.json is {"permissions": {"deny": [...], "ask": [...]}} (FactoryKitComposer.Rules). Only those two keys: a
-    // definition only adds limits (R13), so an 'allow' - or any other key Claude Code would act on - is refused here too,
-    // not passed through. Every list must be a list of strings; anything else is a kit this Director cannot honour.
+    // rules.json is {"permissions": {"ask": [...]}} (FactoryKitComposer.Rules). A definition only adds limits (R13), so an
+    // 'allow' - or any other key Claude Code would act on - is refused here, not passed through. Every list must be a list
+    // of strings; anything else is a kit this Director cannot honour.
+    //
+    // NO DENY REACHES THE AGENT (the owner's ruling of 24 October 2026: "if I approve, it has to do it"). A Gateway older
+    // than that ruling wrote a 'deny' list beside 'ask'; its rules are written into the seat's settings as ask rules, after
+    // the kit's own ask rules, so the limit still stops the seat and the owner can still approve it.
     private static JsonObject ReadPermissions(string text)
     {
         JsonNode? root;
@@ -158,11 +163,20 @@ public static class FactoryKitLaunch
         foreach (var (key, value) in permissions)
         {
             if (key is not ("deny" or "ask"))
-                throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has the key '{key}', and a kit carries only 'deny' and 'ask' rules, so its rules cannot be read");
+                throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has the key '{key}', and a kit carries only 'ask' rules, so its rules cannot be read");
             if (value is not JsonArray list || list.Any(r => r is not JsonValue v || v.GetValueKind() != JsonValueKind.String))
                 throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has a '{key}' that is not a list of rules, so its rules cannot be read");
         }
-        return permissions;
+
+        var ask = new JsonArray();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in new[] { "ask", "deny" })
+            if (permissions[key] is JsonArray list)
+                foreach (var rule in list.Select(r => r!.GetValue<string>()))
+                    if (seen.Add(rule)) ask.Add(rule);
+        if (permissions["deny"] is JsonArray { Count: > 0 } denied)
+            FileLog.Write($"[FactoryKitLaunch] ReadPermissions: {denied.Count} deny rule(s) from an older Gateway written as ask rules");
+        return new JsonObject { ["ask"] = ask };
     }
 
     // kit.json carries "secrets" on a seat kit only; a rules-only kit has none.

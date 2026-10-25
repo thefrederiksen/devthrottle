@@ -19,8 +19,8 @@ public sealed class FactoryKitComposerTests
     private static readonly DateTime Built = new(2026, 10, 15, 9, 30, 0, DateTimeKind.Utc);
 
     /// <summary>
-    /// The fixture's outreach seat, also naming the factory skill, with a third rule set that repeats one deny rule
-    /// and asks about two things - so the merge has a duplicate to drop and an order to keep.
+    /// The fixture's outreach seat, also naming the factory skill, with a third rule set that repeats one ask rule of
+    /// another set and one of its own - so the merge has duplicates to drop and an order to keep.
     /// </summary>
     private static Dictionary<string, string> Content(string? outreachAgent = null)
     {
@@ -35,7 +35,6 @@ public sealed class FactoryKitComposerTests
             {
               "permissions": {
                 "allow": ["Bash(ls:*)"],
-                "deny": ["Bash(git push:*)", "Bash(curl:*)"],
                 "ask": ["Bash(gh pr merge:*)", "Bash(git push:*)", "Bash(gh pr merge:*)"]
               }
             }
@@ -108,27 +107,50 @@ public sealed class FactoryKitComposerTests
     // ---------- the rules ----------
 
     [Fact]
-    public void Rules_DenyAndAskUnionedInRuleSetOrder_DuplicatesRemoved_AllowNever()
+    public void Rules_AskUnionedInRuleSetOrder_DuplicatesRemoved_NoDenyAndNoAllow()
     {
-        // The seat names [outreach, base, review]: outreach denies rm, base denies git push (and allows git status),
-        // review denies git push again and curl, asks about merge twice and git push once, and allows ls.
+        // The seat names [outreach, base, review]: outreach asks about rm, base about git push (and allows git status),
+        // review about merge twice and git push again, and allows ls.
         var rules = Json(Compose(Source(Content(), "outreach", FactoryKits.Seat))["rules.json"]);
 
         var permissions = rules.GetProperty("permissions");
-        Assert.Equal(new[] { "Bash(rm:*)", "Bash(git push:*)", "Bash(curl:*)" }, Strings(permissions.GetProperty("deny")));
-        Assert.Equal(new[] { "Bash(gh pr merge:*)", "Bash(git push:*)" }, Strings(permissions.GetProperty("ask")));
+        Assert.Equal(new[] { "Bash(rm:*)", "Bash(git push:*)", "Bash(gh pr merge:*)" }, Strings(permissions.GetProperty("ask")));
+        Assert.False(permissions.TryGetProperty("deny", out _));
         Assert.False(permissions.TryGetProperty("allow", out _));
         Assert.DoesNotContain("git status", rules.GetRawText());
         Assert.DoesNotContain("Bash(ls:*)", rules.GetRawText());
     }
 
     [Fact]
-    public void Rules_ASeatWithNoRuleSets_HasEmptyListsAndNoAllow()
+    public void Rules_AVersionPublishedBeforeTheRuling_CarriesItsDenyRulesAsAskRules()
+    {
+        // The owner's ruling of 24 October 2026: a kit never carries a deny rule. A version published before it may hold
+        // one; the kit carries it as an ask rule, after its own set's ask rules, so the limit still stops the seat and
+        // the owner can still approve it.
+        var source = Source(Content(), "outreach", FactoryKits.Seat);
+        var legacy = source.Definition with
+        {
+            RuleSets = source.Definition.RuleSets
+                .Select(r => r.Name == "review"
+                    ? r with { Deny = new[] { "Bash(git push:*)", "Bash(curl:*)" } }
+                    : r)
+                .ToList(),
+        };
+
+        var permissions = Json(Compose(source with { Definition = legacy })["rules.json"]).GetProperty("permissions");
+
+        Assert.Equal(new[] { "Bash(rm:*)", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(curl:*)" },
+            Strings(permissions.GetProperty("ask")));
+        Assert.False(permissions.TryGetProperty("deny", out _));
+    }
+
+    [Fact]
+    public void Rules_ASeatWithNoRuleSets_HasAnEmptyAskListAndNothingElse()
     {
         var rules = Json(Compose(Source(Content(), "writer", FactoryKits.Seat))["rules.json"]).GetProperty("permissions");
 
-        Assert.Empty(Strings(rules.GetProperty("deny")));
         Assert.Empty(Strings(rules.GetProperty("ask")));
+        Assert.False(rules.TryGetProperty("deny", out _));
         Assert.False(rules.TryGetProperty("allow", out _));
     }
 
@@ -188,12 +210,13 @@ public sealed class FactoryKitComposerTests
     }
 
     [Fact]
-    public void Compose_TheBriefAndTheFiles_AreTheDefinitionsTextAsStored()
+    public void Compose_TheBriefAndTheFiles_AreTheDefinitionsTextAsStored_TheBriefThenTheOwnersWord()
     {
         var content = Content();
         var kit = Compose(Source(content, "outreach", FactoryKits.Seat));
 
-        Assert.Equal("Find prospects.\n", kit["brief.md"]);
+        // The brief as stored, then the one paragraph the Gateway gives every seat (the owner's ruling of 24 October 2026).
+        Assert.Equal("Find prospects.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal + "\n", kit["brief.md"]);
         Assert.Equal(content["files/outreach_send.py"], kit["files/outreach_send.py"]);
     }
 

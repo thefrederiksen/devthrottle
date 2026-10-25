@@ -181,7 +181,7 @@ public static class FactoryTalkSeed
           .AppendLine(" --agent <the item's seat> --outcome done --corrects <the item's row id> --what \"Handled: <the evidence>\"");
         sb.AppendLine("   Then tell the owner the word the factory ends on.");
 
-        return sb.ToString();
+        return FactorySeatOpening.WithOwnerWord(sb.ToString(), Environment.NewLine) + Environment.NewLine;
     }
 
     /// <summary>The <c>--version</c> a talk records, as it is pasted: a definition version holds a space, so it is quoted.</summary>

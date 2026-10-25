@@ -1064,6 +1064,27 @@ describe("Seats that do not close themselves (Factory Control, step 2)", () => {
     expect(screen.queryByTestId("fa-page-left-open")).toBeNull();
   });
 
+  it("says each deny rule the factory's folders hold, verbatim, in the page header", async () => {
+    // The owner's ruling of 24 October 2026: a deny rule refuses with no prompt. The Gateway words each settings file
+    // that holds one; the page renders the sentences as they come, one line each, and none when it sends none.
+    const texts = [
+      "On devlinux, /home/soren/cpmc-factory/.claude/settings.json holds 1 deny rule: Bash(cc-gmail:*). (fixture)",
+      "On devlinux, /home/soren/cpmc-factory/.claude/settings.local.json holds 1 deny rule: Write(*). (fixture)",
+    ];
+    screenClient.getFactoryPage.mockResolvedValue({ ...FACTORY_PAGE, folderDenyTexts: texts });
+    renderAt("/factories/warmforward");
+
+    const lines = await screen.findAllByTestId("fa-page-folder-deny");
+    expect(lines.map((l) => l.textContent)).toEqual(texts);
+  });
+
+  it("says no deny rule when the Gateway sends none", async () => {
+    renderAt("/factories/warmforward");
+
+    await screen.findByTestId("fa-overview");
+    expect(screen.queryByTestId("fa-page-folder-deny")).toBeNull();
+  });
+
   it("gives each seat its marker verbatim, coloured by the Gateway's tone", async () => {
     // Seats are named by role words; the boss's seat id here is "boss", never a person's name.
     // The Seats tab renders the Gateway's shift groups, so the seats are given there: the boss under night, the

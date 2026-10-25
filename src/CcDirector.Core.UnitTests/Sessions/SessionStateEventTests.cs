@@ -53,18 +53,66 @@ public sealed class SessionStateEventTests : IDisposable
     }
 
     [Fact]
-    public void ApplyAgentStateEvent_PermissionThenWorkResumes_LaterWorkClearsPermission()
+    public void ApplyAgentStateEvent_PermissionThenTheDialogIsDrawn_PermissionRemainsSelected()
     {
+        // The owner's ruling of 24 October 2026: a seat on a permission prompt must show as needs-you. Claude Code's
+        // hook fires BEFORE it draws the dialog, so the bytes that draw it - and a status line that keeps redrawing -
+        // arrive after the permission fact. Nobody has answered: the session is still at the gate.
         Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
         Assert.Equal(ActivityState.WaitingForPerm, _session.ActivityState);
 
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyTerminalActivityState(ActivityState.Working);
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        _session.ApplyTerminalActivityState(ActivityState.Working);
+
+        Assert.Equal(ActivityState.WaitingForPerm, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Agent, _session.ActivityStateSource);
+        Assert.Equal(2, _session.StateDisagreements.Count);
+    }
+
+    [Fact]
+    public void ApplyAgentStateEvent_PermissionAnsweredThenWorkResumes_LaterOutputClearsPermission()
+    {
+        // The owner pressed a key at the prompt; the tool it approved may then run for minutes before the agent reports
+        // again, and its output is the evidence the session is working.
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
+
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.True(_session.SendInput("1"u8.ToArray(), InputOrigin.DesktopTyped, SessionTestDoors.TestDoor).Kind == InputAnswerKind.Written);
         _clock.Advance(TimeSpan.FromSeconds(1));
         _session.ApplyTerminalActivityState(ActivityState.Working);
 
         Assert.Equal(ActivityState.Working, _session.ActivityState);
         Assert.Equal(SessionStateSources.TerminalOutput, _session.ActivityStateSource);
         Assert.False(_session.ActivityStateIsFallback);
-        Assert.Single(_session.StateDisagreements);
+    }
+
+    [Fact]
+    public void ApplyAgentStateEvent_InputBeforeThePromptWasRaised_DoesNotLetOutputClearIt()
+    {
+        // Input typed before the agent asked is not an answer to the question it asked afterwards.
+        Assert.True(_session.SendInput("go"u8.ToArray(), InputOrigin.DesktopTyped, SessionTestDoors.TestDoor).Kind == InputAnswerKind.Written);
+        _clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _session.ApplyTerminalActivityState(ActivityState.Working);
+
+        Assert.Equal(ActivityState.WaitingForPerm, _session.ActivityState);
+    }
+
+    [Fact]
+    public void ApplyAgentStateEvent_PermissionThenTheAgentReportsWork_AgentWorkClearsPermission()
+    {
+        // Claude Code reports the way out of the gate itself: the approved tool finishing is a turn_started fact.
+        Assert.True(_session.ApplyAgentStateEvent(Event(1, "permission_requested")));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.True(_session.ApplyAgentStateEvent(Event(2, "turn_started")));
+
+        Assert.Equal(ActivityState.Working, _session.ActivityState);
+        Assert.Equal(SessionStateSources.Agent, _session.ActivityStateSource);
     }
 
     [Fact]

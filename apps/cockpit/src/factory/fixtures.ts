@@ -354,6 +354,7 @@ export const FACTORY_PAGE: FactoryPageView = {
   seatCountText: "4 seats",
   leftOpenText: "Does not close itself: Boss - stayed open 3 of its last 7 runs (fixture)",
   leftOpenHref: "/factories/warmforward/seats",
+  folderDenyTexts: [],
   computerText: "runs on SOREN_NORTH",
   talk: { label: "Talk to the boss", busyLabel: "Starting the talk with the boss (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
   tabs: [

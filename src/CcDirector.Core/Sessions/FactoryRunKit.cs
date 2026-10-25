@@ -54,7 +54,7 @@ public static class FactoryRunKit
     /// <summary>The kit's description: factory, seat, version, kind, and on a seat kit the seat's secret names.</summary>
     public const string KitFileName = "kit.json";
 
-    /// <summary>The seat's rules, merged: <c>{"permissions": {"deny": [...], "ask": [...]}}</c>.</summary>
+    /// <summary>The seat's rules, merged: <c>{"permissions": {"ask": [...]}}</c>. A kit never carries a deny rule.</summary>
     public const string RulesFileName = "rules.json";
 
     /// <summary>The folder of a Claude Code seat's factory skills, a plugin passed with <c>--plugin-dir</c>.</summary>

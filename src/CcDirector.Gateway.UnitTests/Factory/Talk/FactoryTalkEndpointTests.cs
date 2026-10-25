@@ -385,7 +385,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     /// <summary>A rule set for the boss seat, so an agent that cannot take rules is refused it.</summary>
     private static readonly IReadOnlyDictionary<string, string> BaseRules = new Dictionary<string, string>
     {
-        ["rules/base.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(git push:*)\"]\n  }\n}\n",
+        ["rules/base.json"] = "{\n  \"permissions\": {\n    \"ask\": [\"Bash(git push:*)\"]\n  }\n}\n",
     };
 
     [Fact]

@@ -32,7 +32,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     private ProcessRunner.Result _secretList = new(0, "{\"entries\": []}", "", Started: true);
 
     // What the faked Gateway puts in the kit.
-    private string _rules = "{\"permissions\":{\"deny\":[],\"ask\":[]}}\n";
+    private string _rules = "{\"permissions\":{\"ask\":[]}}\n";
     private string _kitJson = "{\"kind\":\"seat\",\"secrets\":[]}\n";
     private bool _plugin;
 
@@ -146,7 +146,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     public void CreateSession_ACodexSeatWhoseKitCarriesRules_IsRefusedWithTheRulesTablesReason()
     {
         using var manager = Manager();
-        _rules = "{\"permissions\":{\"deny\":[\"Bash(git push:*)\"],\"ask\":[]}}\n";
+        _rules = "{\"permissions\":{\"ask\":[\"Bash(git push:*)\"]}}\n";
 
         var ex = Assert.Throws<FactorySeatRefusedException>(() => Create(manager, Codex(), Seat()));
 
@@ -159,7 +159,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     public void CreateSession_ACodexChildWhoseRulesOnlyKitCarriesRules_IsRefusedWithTheRulesTablesReason()
     {
         using var manager = Manager();
-        _rules = "{\"permissions\":{\"deny\":[],\"ask\":[\"Bash(git tag:*)\"]}}\n";
+        _rules = "{\"permissions\":{\"ask\":[\"Bash(git tag:*)\"]}}\n";
         _kitJson = "{\"kind\":\"rules-only\"}\n";
 
         var ex = Assert.Throws<FactorySeatRefusedException>(() => Create(manager, Codex(), Seat(FactoryKits.RulesOnly)));
@@ -254,7 +254,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     {
         using var manager = Manager();
         // Whatever a kit would carry, a session with no kit request never reads one.
-        _rules = "{\"permissions\":{\"deny\":[\"Bash(git push:*)\"],\"ask\":[]}}\n";
+        _rules = "{\"permissions\":{\"ask\":[\"Bash(git push:*)\"]}}\n";
         _kitJson = "{\"kind\":\"seat\",\"secrets\":[\"smtp-password\"]}\n";
 
         var session = Create(manager, RawCli(), kit: null);
@@ -268,7 +268,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     public void CreateSession_AClaudeCodeSeatWhoseKitCarriesRules_StartsWithOneSettingsNamingItsOwnFile()
     {
         using var manager = Manager();
-        _rules = "{\"permissions\":{\"deny\":[\"Bash(git push:*)\"],\"ask\":[]}}\n";
+        _rules = "{\"permissions\":{\"ask\":[\"Bash(git push:*)\"]}}\n";
 
         var session = Create(manager, ClaudeCode(), Seat());
 
@@ -298,7 +298,7 @@ public sealed class FactorySeatAtStartTests : IDisposable
     public void CreateSession_AClaudeCodeChildWhoseRulesOnlyKitCarriesRules_HasItsOwnSettingsAndNoPluginDir()
     {
         using var manager = Manager();
-        _rules = "{\"permissions\":{\"deny\":[],\"ask\":[\"Bash(git tag:*)\"]}}\n";
+        _rules = "{\"permissions\":{\"ask\":[\"Bash(git tag:*)\"]}}\n";
         _kitJson = "{\"kind\":\"rules-only\"}\n";
 
         var session = Create(manager, ClaudeCode(), Seat(FactoryKits.RulesOnly));

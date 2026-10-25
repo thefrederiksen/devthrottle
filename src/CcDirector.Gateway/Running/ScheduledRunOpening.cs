@@ -49,9 +49,9 @@ public static class ScheduledRunOpening
         var opening = Opening(scheduleName, scheduleId, seat);
         var own = storedPrompt.Trim();
         var given = own.StartsWith('/') ? own + "\n\n" + opening : opening + "\n\n" + own;
-        return ScheduledRunClosingInstruction.AlreadyTellsItsRunToReport(storedPrompt)
+        return FactorySeatOpening.WithOwnerWord(ScheduledRunClosingInstruction.AlreadyTellsItsRunToReport(storedPrompt)
             ? given
-            : given + "\n\n" + ScheduledRunClosingInstruction.Text;
+            : given + "\n\n" + ScheduledRunClosingInstruction.Text);
     }
 
     /// <summary>

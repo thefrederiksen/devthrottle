@@ -30,7 +30,8 @@ internal sealed record FactoriesScreenSources(
     Func<TenantId, string, CronRunProblemsDto> Problems,
     Func<TenantId, string, FactoryEmailsDto> Emails,
     Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null,
-    Func<TenantId, bool>? SchedulerPaused = null);
+    Func<TenantId, bool>? SchedulerPaused = null,
+    Func<TenantId, IReadOnlyList<SessionDto>>? LiveSessions = null);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -447,7 +448,11 @@ internal static class FactoriesScreenEndpoints
             .SelectMany(f => f.Seats).SelectMany(s => s.Schedules)
             .Distinct(StringComparer.Ordinal).ToList();
         var runs = sources.ScheduleRuns(tenant, seatSchedules, now);
-        return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks, runs);
+        // Only a factory's page says what deny rules its sessions' folders hold (the owner's ruling of 24 October 2026).
+        var sessions = factory is null || sources.LiveSessions is null
+            ? null
+            : sources.LiveSessions(tenant);
+        return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks, runs, Sessions: sessions);
     }
 
     /// <summary>How many of a seat's rows after its newest start are read to tell how that run ended.</summary>

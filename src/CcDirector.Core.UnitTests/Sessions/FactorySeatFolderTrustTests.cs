@@ -89,7 +89,7 @@ public sealed class FactorySeatFolderTrustTests : IDisposable
         Files = new List<FactoryKitFileDto>
         {
             new() { Path = "kit.json", Text = "{\"kind\":\"seat\",\"secrets\":[]}\n" },
-            new() { Path = "rules.json", Text = "{\"permissions\":{\"deny\":[],\"ask\":[]}}\n" },
+            new() { Path = "rules.json", Text = "{\"permissions\":{\"ask\":[]}}\n" },
             new() { Path = "brief.md", Text = "Brief.\n" },
         },
     };

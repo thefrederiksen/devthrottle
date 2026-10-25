@@ -28,7 +28,8 @@ public sealed record FactoriesScreenInputs(
     IReadOnlyList<FactoryActivityDto> Talks,
     IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> ScheduleRuns,
     IReadOnlyList<FactoryActivityDto>? LastRunRows = null,
-    bool SchedulerPaused = false);
+    bool SchedulerPaused = false,
+    IReadOnlyList<SessionDto>? Sessions = null);
 
 /// <summary>
 /// THE FACTORIES SCREEN, FOLDED ONCE (Factories screen mission, phase B; critical rule 7). The list of factories, one
@@ -255,6 +256,7 @@ public static class FactoriesScreenFold
             SeatCountText = Count(factory.Seats.Count, "seat"),
             LeftOpenText = leftOpen,
             LeftOpenHref = leftOpen is null ? null : SeatsHref(factory.Factory),
+            FolderDenyTexts = FolderDenyTexts(factory, input.Sessions ?? Array.Empty<SessionDto>()),
             ComputerText = $"runs on {factory.Computer}",
             Talk = BossTalk(factory),
             Tabs = PageTabs(factory.Seats.Count),
@@ -282,6 +284,45 @@ public static class FactoriesScreenFold
                 input.Activity.Triggers.Where(t => SameId(t.Factory, factory.Factory)).Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList(),
                 open.Count),
         };
+    }
+
+    /// <summary>The sentence that ends every deny-rule line on a factory's page.</summary>
+    public const string FolderDenyAdvice =
+        "A deny rule refuses with no prompt, so you cannot approve what it blocks: change each one to an ask rule in that file.";
+
+    /// <summary>
+    /// DENY RULES IN THE FACTORY'S FOLDERS (the owner's ruling of 24 October 2026: "if I approve, it has to do it"). One
+    /// sentence per settings file that held deny rules when one of this factory's live sessions started - a session born
+    /// into the factory, or one started in the factory's own folder on its computer - naming the machine, the file and
+    /// its rules, in the order the sessions are listed and each file once. The Director read the file and left it alone;
+    /// this only says what is there.
+    /// </summary>
+    public static List<string> FolderDenyTexts(RegisteredFactoryDto factory, IReadOnlyList<SessionDto> sessions)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(sessions);
+        var texts = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in sessions.Where(s => InFactory(factory, s)))
+        {
+            foreach (var file in s.FolderDenyRules)
+            {
+                if (!seen.Add(s.MachineName + "|" + file.File)) continue;
+                texts.Add(file.Problem is null
+                    ? $"On {s.MachineName}, {file.File} holds {Count(file.Rules.Count, "deny rule")}: {string.Join(", ", file.Rules)}. {FolderDenyAdvice}"
+                    : $"On {s.MachineName}, {file.File} could not be checked for deny rules: {file.Problem}.");
+            }
+        }
+        return texts;
+    }
+
+    // A session of the factory: born into it, or started in the factory's own folder on the factory's computer.
+    private static bool InFactory(RegisteredFactoryDto factory, SessionDto s)
+    {
+        if (SameId(s.Factory, factory.Factory)) return true;
+        if (string.IsNullOrWhiteSpace(factory.Folder) || string.IsNullOrWhiteSpace(s.RepoPath)) return false;
+        return string.Equals(s.MachineName, factory.Computer, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(s.RepoPath.TrimEnd('/', '\\'), factory.Folder.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
