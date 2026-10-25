@@ -203,6 +203,12 @@ public static class CronRunProblems
     /// <summary>The run was due and never started a session.</summary>
     public const string DidNotRun = "did-not-run";
 
+    /// <summary>
+    /// The run started its session, and the prompt it was given never reached the agent (issue #3392): the Director
+    /// reported on the session that its first prompt was not delivered. Nothing ran, though the session is open.
+    /// </summary>
+    public const string PromptNotDelivered = "prompt-not-delivered";
+
     /// <summary>The run's check broke its contract (Factory Definition, phase 5b); the reason is the contract's, quoted.
     /// Also the kind of a definition trigger's failed check on the problems list.</summary>
     public const string CheckFailed = "check-failed";
@@ -235,6 +241,7 @@ public static class CronRunProblems
         DidNotReport => "did not report",
         RanPastShift => "ran past its shift",
         DidNotRun => "did not run",
+        PromptNotDelivered => "its prompt never reached the agent",
         CheckFailed => "check failed",
         CheckNotRun => "check did not run",
         MailboxFailed => "mailbox could not be checked",

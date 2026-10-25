@@ -2684,6 +2684,42 @@ public sealed class Session : IDisposable
     public async Task DeliverPrePromptAsync(string text, TimeSpan wait)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        try
+        {
+            await DeliverPrePromptCoreAsync(text, wait);
+        }
+        catch (Exception ex)
+        {
+            // A first prompt that throws was not delivered (TextSendOutcome: a send that throws is known not submitted).
+            // That fact is the session's own, apart from every later send (issue #3392 review, finding 1), so a schedule
+            // can tell "its seed never arrived" from "a send an hour later failed". Recorded, then rethrown untouched.
+            RecordFirstPromptFailure(ex is Drivers.ComposerNotAcceptingInputException
+                ? PromptDeliveryFailures.Tally(Id).LastFailureReason ?? ex.Message
+                : ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>When this session's first prompt was found not delivered (UTC), or null when it was delivered, is still
+    /// being delivered, or there was none (issue #3392). Set once, by <see cref="DeliverPrePromptAsync"/>; a later send's
+    /// failure never sets it.</summary>
+    public DateTime? FirstPromptFailedAtUtc { get; private set; }
+
+    /// <summary>Why this session's first prompt was not delivered, in the Director's words; null with
+    /// <see cref="FirstPromptFailedAtUtc"/>.</summary>
+    public string? FirstPromptFailureReason { get; private set; }
+
+    internal void RecordFirstPromptFailure(string reason)
+    {
+        if (FirstPromptFailedAtUtc is not null) return;
+        FirstPromptFailureReason = string.IsNullOrWhiteSpace(reason) ? "the first prompt was not delivered" : reason.Trim();
+        FirstPromptFailedAtUtc = DateTime.UtcNow;
+        FileLog.Write($"[Session] first prompt NOT delivered: session={Id}: {FirstPromptFailureReason}");
+        RaisePromptDeliveryChanged();
+    }
+
+    private async Task DeliverPrePromptCoreAsync(string text, TimeSpan wait)
+    {
         // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
         var provenance = SubmissionProvenance.FrameworkText();
         // API mode (issue #4070, phase 1 review finding 2): there is no screen to watch for readiness, and no need - the

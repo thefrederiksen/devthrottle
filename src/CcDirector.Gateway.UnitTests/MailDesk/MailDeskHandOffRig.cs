@@ -115,7 +115,8 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
             triggers: TriggerStore,
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
             settleLastStatus: (_, _, _) => false,
-            mailDesk: new MailDeskProblemSource(Switch.IsOn, Channels, Checks, t => MailDeskSpend.Of(t, Decisions, Settings)));
+            mailDesk: new MailDeskProblemSource(Switch.IsOn, Channels, Checks, t => MailDeskSpend.Of(t, Decisions, Settings)),
+            lastKnownSession: (_, _, _) => null);
     }
 
     public async ValueTask DisposeAsync()

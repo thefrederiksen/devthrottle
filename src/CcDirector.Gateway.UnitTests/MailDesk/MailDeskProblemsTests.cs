@@ -61,7 +61,8 @@ public sealed class MailDeskProblemsTests : IDisposable
             triggers: new CcDirector.Gateway.Factory.Triggers.TriggerStore(_db),
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
             settleLastStatus: (_, _, _) => false,
-            mailDesk: new MailDeskProblemSource(_switch.IsOn, _channels, _checks, _ => _spend));
+            mailDesk: new MailDeskProblemSource(_switch.IsOn, _channels, _checks, _ => _spend),
+            lastKnownSession: (_, _, _) => null);
     }
 
     public void Dispose() => _h.Dispose();
