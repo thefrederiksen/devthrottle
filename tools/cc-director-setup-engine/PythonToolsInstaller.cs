@@ -665,8 +665,11 @@ public sealed class PythonToolsInstaller
             .SelectMany(name => LegacyAliasShimPaths(name).Select(path => (Name: name, Path: path)))
             .Where(candidate => File.Exists(candidate.Path) && !IsShimTheProductWrote(candidate.Path, candidate.Name))
             .Select(candidate => (candidate.Path,
-                Reason: $"it does not carry the product's own relative forwarding line for {candidate.Name}, "
-                        + "so the product did not write it"))
+                Reason: OperatingSystem.IsWindows()
+                    ? $"it does not carry the product's own relative forwarding line for {candidate.Name}, "
+                      + "so the product did not write it"
+                    : $"it is not a symlink to this install's own pyenv bin for {candidate.Name}, "
+                      + "so the product did not write it"))
             .ToList();
 
     /// <summary>
@@ -701,17 +704,20 @@ public sealed class PythonToolsInstaller
     /// would make the purge inert on every bare-name bash shim, which is the form both of the launchers
     /// this purge exists to remove are written in on the machine that prompted the work.
     ///
-    /// ON macOS AND LINUX THIS PURGE IS STRUCTURALLY INERT, AND THAT IS SAID HERE RATHER THAN DISCOVERED.
+    /// ON macOS AND LINUX THE PROOF IS WHERE THE LINK POINTS, NOT WHAT THE FILE SAYS (#3147).
     /// <see cref="LegacyAliasShimPaths"/> offers exactly one candidate per name off Windows: the
-    /// <c>~/.local/bin/&lt;name&gt;</c> SYMLINK that <see cref="WriteUnixShims"/> writes. Reading a
-    /// symlink to a venv console script reads the console script - a binary - and a dangling symlink
-    /// cannot be read at all, so neither can ever contain a forwarding line and this method answers
-    /// false for every one of them. The widened purge therefore removes NOTHING on those platforms, and
-    /// <see cref="ToolReconciler"/> reports no orphaned-shim drift there either. That is disk rather than
-    /// a safety problem - it leans to keeping - but it is inert by construction and not merely unwatched.
-    /// Giving the symlink branch its own positive test (a link whose target resolves inside this
-    /// install's own pyenv) is a real change to what gets deleted on a platform nobody here can run, and
-    /// it belongs in its own work item with someone on a Mac, not in this one.
+    /// <c>~/.local/bin/&lt;name&gt;</c> SYMLINK that <see cref="WriteUnixShims"/> writes. A symlink has no
+    /// forwarding line to carry - reading one reads its target, a venv console script - so the two text
+    /// shapes below can never match there, and this purge removed NOTHING on either platform until now.
+    /// The positive test for a link is <see cref="IsOurToolSymlink"/>: it points at
+    /// <c>&lt;this install's pyenv bin&gt;/&lt;name&gt;</c>, the exact path <see cref="WriteUnixShims"/>
+    /// composes. Confirmed against a real install before it was trusted (#3147): every <c>cc-*</c> entry
+    /// in <c>~/.local/bin</c> on a Mac is such a link, and the entries in that same directory that the
+    /// product did NOT write point elsewhere, so the target is what tells them apart.
+    ///
+    /// A LINK IS STILL JUDGED BY ITS TARGET PATH AND NEVER BY WHETHER THE TARGET EXISTS. A shim whose
+    /// venv exe is already gone is precisely what this purge is for, and a dangling link still reports
+    /// its <c>LinkTarget</c>, so it is removed on the same proof as a live one.
     ///
     /// IT NARROWS THE OLD PURGE AND THAT IS DELIBERATE. A <c>bin\&lt;name&gt;.exe</c> left by a
     /// PyInstaller-era install carries no such line and is no longer deleted. That file is dead weight;
@@ -719,8 +725,14 @@ public sealed class PythonToolsInstaller
     /// cannot be told apart from the outside. Leaving it costs disk. Removing the wrong one costs a tool
     /// the owner uses and cannot get back from us.
     /// </summary>
-    internal static bool IsShimTheProductWrote(string path, string name)
+    internal bool IsShimTheProductWrote(string path, string name)
     {
+        // Off Windows the product writes a symlink, never a text shim, so the text test below cannot
+        // speak about it at all. Answer on the link's target instead - a different positive proof of the
+        // same thing, not a relaxation of this one.
+        if (!OperatingSystem.IsWindows())
+            return IsOurToolSymlink(path, name);
+
         string body;
         try
         {
@@ -737,6 +749,67 @@ public sealed class PythonToolsInstaller
 
         return body.Contains($@"%~dp0..\pyenv\Scripts\{name}.exe", StringComparison.OrdinalIgnoreCase)
             || body.Contains($"$(dirname \"$0\")/../pyenv/Scripts/{name}.exe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Did THIS install write THIS symlink as the shim for THIS name? The macOS and Linux half of
+    /// <see cref="IsShimTheProductWrote"/> (#3147).
+    ///
+    /// THE PROOF IS A PRESENCE, NOT THE ABSENCE OF A REASON TO STOP. The link must point at
+    /// <c>&lt;this install's pyenv bin&gt;/&lt;name&gt;</c> - the exact target
+    /// <see cref="WriteUnixShims"/> composes for that name, under the layout this installer was handed.
+    /// Anything else is kept: a link into another install, a link a person made to their own build, a
+    /// link to a wrapper script, and anything that is not a link at all.
+    ///
+    /// WHY NOT "IS A SYMLINK IN ~/.local/bin". That directory is shared. On the Mac this was confirmed on
+    /// it also held links the product did not write, pointing at a language runtime and a shell, both
+    /// installed by hand - so "it is a link" and "it is in our shim directory" are both true of files no
+    /// install could put back. Only the target is specific to us. The retired-name list cannot carry that
+    /// weight either: it names tools the owner runs by hand, which is the whole reason the second
+    /// condition exists on Windows.
+    ///
+    /// The target is compared as a PATH and the comparison is exact. A dangling link is judged the same
+    /// way as a live one - that a venv exe is already gone is the fault being cleaned up, not a reason to
+    /// keep its shim - and a near-miss that differs only in case is KEPT, because this leans to keeping
+    /// and an exact match is what the product's own composition produces.
+    /// </summary>
+    private bool IsOurToolSymlink(string path, string name)
+    {
+        string? target;
+        try
+        {
+            target = new FileInfo(path).LinkTarget;
+        }
+        catch (Exception ex)
+        {
+            // Unreadable is not permission, exactly as in the text half.
+            EngineLog.Write($"[PythonToolsInstaller] keeping {path} FAILED: its link target could not be read "
+                            + $"({ex.Message}), so it cannot be shown to be a shim this product wrote");
+            return false;
+        }
+
+        if (target is null)
+        {
+            EngineLog.Write($"[PythonToolsInstaller] keeping {path}: it is not a symlink, and off Windows "
+                            + "the product only ever writes a symlink here");
+            return false;
+        }
+
+        // LinkTarget is stored verbatim and may be relative to the link's own directory.
+        var linkDir = Path.GetDirectoryName(path);
+        var resolved = Path.GetFullPath(Path.IsPathRooted(target) || linkDir is null
+            ? target
+            : Path.Combine(linkDir, target));
+        var ours = Path.GetFullPath(Path.Combine(_layout.PyenvBinDir, name));
+
+        if (!string.Equals(resolved, ours, StringComparison.Ordinal))
+        {
+            EngineLog.Write($"[PythonToolsInstaller] keeping {path}: it points at {resolved}, not at this "
+                            + $"install's own {ours}, so the product did not write it");
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
