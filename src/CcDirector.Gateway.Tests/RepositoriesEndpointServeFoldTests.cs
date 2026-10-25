@@ -125,7 +125,11 @@ public sealed class RepositoriesEndpointServeFoldTests
                 // resolves Local - behaviour identical to the null it used to state.
                 tenantBoundary: new CcDirector.Gateway.Tenancy.HostedTenantBoundary(
                     new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false),
-                pushedRepositories: store, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+                pushedRepositories: store, aiGate: CcDirector.Gateway.Tenancy.TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+                // These tests prove the serve fold, not freshness. The snapshot is pushed before the host starts, and
+                // with the 20-second default a slow host start (23 seconds on a busy runner) made it stale, so the
+                // route served nothing and the test failed on correct code.
+                streamStaleAfter: TimeSpan.FromDays(1));
             await app.StartAsync();
             var port = BoundPort.Of(app);
             started = true;
