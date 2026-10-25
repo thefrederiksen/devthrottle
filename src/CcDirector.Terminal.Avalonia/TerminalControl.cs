@@ -2474,6 +2474,7 @@ public class TerminalControl : Control
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            // not-an-error: the person cancelled this paste.
             FileLog.Write("[TerminalControl] PasteToTerminalAsync: cancelled");
         }
         catch (Exception ex)
