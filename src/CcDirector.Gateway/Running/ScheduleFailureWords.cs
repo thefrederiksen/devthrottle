@@ -38,6 +38,8 @@ public static class ScheduleFailureCauses
     public const string CheckFailed = "check-failed";
     public const string CheckNotRun = "check-not-run";
     public const string SeatLimit = "seat-limit";
+    public const string PromptNotDelivered = "prompt-not-delivered";
+    public const string FolderNotTrusted = "folder-not-trusted";
     public const string Other = "other";
 }
 
@@ -106,6 +108,9 @@ public static class ScheduleFailureWords
                 // The agent's own words about its limit are the detail (issue #3907).
                 CronRunProblems.SeatLimit => (ScheduleFailureCauses.SeatLimit,
                     $"The run's session on {machine} started, but its agent's seat is at its usage or spend limit, so no work was done. Raise the limit or wait for it to reset; the agent's own words are in the details."),
+                // Why the Director could not type it is the detail (issue #3392).
+                CronRunProblems.PromptNotDelivered => (ScheduleFailureCauses.PromptNotDelivered,
+                    $"The run's session on {machine} started, but its prompt never reached the agent, so no work was done. Open the session to see where it stopped; the details say why the prompt was not typed."),
                 _ => (ScheduleFailureCauses.Other, $"This run on {machine} went wrong. The details below say what happened."),
             };
         return new ScheduleFailure(cause, headline, detail);
@@ -198,7 +203,10 @@ public static class ScheduleFailureWords
         if (reason.StartsWith(NotStarted, StringComparison.Ordinal) || reason.Contains(": " + NotStarted, StringComparison.Ordinal))
         {
             var refusal = reason[(reason.IndexOf(NotStarted, StringComparison.Ordinal) + NotStarted.Length)..].Trim();
-            var cause = refusal.Contains(" is archived", StringComparison.Ordinal) ? ScheduleFailureCauses.FactoryArchived : ScheduleFailureCauses.FactorySetup;
+            // A folder Claude Code was never told to trust is refused before the session starts (issue #3469).
+            var cause = refusal.Contains(" is archived", StringComparison.Ordinal) ? ScheduleFailureCauses.FactoryArchived
+                : refusal.Contains("never been told to trust it", StringComparison.Ordinal) ? ScheduleFailureCauses.FolderNotTrusted
+                : ScheduleFailureCauses.FactorySetup;
             return (cause, $"This run did not start: {Sentence(refusal)}");
         }
 
