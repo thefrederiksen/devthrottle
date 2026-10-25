@@ -3364,13 +3364,14 @@ public sealed class Session : IDisposable
     /// </summary>
     private void WriteRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
         if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin, provenance.Route) && !UsageLimitInputGuard.PromptPassesTheDialog(origin))
-        {
             _backend.Write(data);
-            return;
-        }
-        using (UsageLimitInputGuard.PersonAtTheTerminal())
-            _backend.Write(data);
+        else
+            using (UsageLimitInputGuard.PersonAtTheTerminal())
+                _backend.Write(data);
+        // Stamped once the bytes went out, never for a write the usage-limit guard dropped (review finding 3).
+        if (!refusals.Refused) StampInput();
     }
 
     /// <summary>Where the usage-limit verdict was last taken: the screen's byte count then, and what it said.</summary>
@@ -3443,7 +3444,6 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(provenance);
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("SendInput");
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
-        StampInput();
         bool submits;
         using var refusals = UsageLimitInputGuard.WatchRefusals();
         // Under the input lock, and counted as input. While a guarded send holds the input, the keystroke is held and
@@ -4764,7 +4764,6 @@ public sealed class Session : IDisposable
         // in the command's context and keeps its correlation id; a send typed on the desktop has this one alone.
         using var errorContext = ErrorReports.ErrorContext.Begin(sessionId: Id.ToString());
         ErrorReports.ErrorContext.WithholdPrompt(text);
-        StampInput();
         var outcome = TextSendOutcome.Delivered;
         long ownerTextBefore;
         lock (_inputLock) ownerTextBefore = _ownerTextCount;
@@ -4811,6 +4810,8 @@ public sealed class Session : IDisposable
                     WorkingOrigin = priorOrigin;
                     return refusedAtTheKeystroke;
                 }
+                // Input is reaching the terminal from here on; a send refused above typed nothing and answered nothing.
+                StampInput();
                 var proof = BeginArrivalProof(target, text);
                 // A LINE THE AGENT TAKES AS A COMMAND IS ENTERED ONCE (issue #4380): see TerminalSubmit's commandLine.
                 var leadingMode = Driver.LeadingCharacterMode(text.TrimEnd('\r', '\n'));
@@ -4882,6 +4883,7 @@ public sealed class Session : IDisposable
                     WorkingOrigin = priorOrigin;
                     return refusedAtTheKeystroke;
                 }
+                StampInput();
                 await target.SendTextAsync(text);
             }
         }
@@ -5060,7 +5062,6 @@ public sealed class Session : IDisposable
     private async Task<InputAnswer> TypeDriverInputAsync(Drivers.DriverInput input, string verb)
     {
         FileLog.Write($"[Session] TypeDriverInputAsync: session={Id}, verb={verb}, driver={Driver.Kind}, input={input}");
-        StampInput();
         if (input.Command is { } command)
         {
             // Framework, not Agent or UserInput: the product's own command for a verb somebody asked for. It must not clear
@@ -5078,6 +5079,7 @@ public sealed class Session : IDisposable
         {
             if (key.PauseBefore > TimeSpan.Zero) await Task.Delay(key.PauseBefore, Clock);
             _backend.Write(key.Bytes);
+            if (!refusals.Refused) StampInput();
         }
         var keysAnswer = refusals.Refused
             ? InputAnswer.Refused($"the usage-limit dialog is showing, and only Escape reaches it; {input} did not all reach the terminal")

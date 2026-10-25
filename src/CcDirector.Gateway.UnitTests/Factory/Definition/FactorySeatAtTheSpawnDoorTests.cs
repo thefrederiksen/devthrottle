@@ -92,6 +92,18 @@ public sealed class FactorySeatAtTheSpawnDoorTests
     }
 
     [Fact]
+    public void TryEstablish_ChildOfASeat_IsToldTheOwnersWordIsFinal_AfterTheCallersPrompt()
+    {
+        // A rules-only kit carries no brief, so the standing paragraph (owner ruling 2026-10-24) rides on the prompt.
+        var req = Body();
+        req.PrePrompt = "Find ten leads.";
+
+        Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", ASeat(), out _));
+
+        Assert.Equal("Find ten leads.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
+    }
+
+    [Fact]
     public void TryEstablish_GrandchildOfASeat_InheritsTheSameSeatFromItsParentsRow()
     {
         // The child's own row carries the inherited seat with a rules-only kit; its child reads THAT row, never the

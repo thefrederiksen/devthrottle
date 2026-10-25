@@ -73,6 +73,19 @@ public sealed class FolderDenyRulesTests : IDisposable
     }
 
     [Fact]
+    public void Read_AKeyWrittenTwice_IsReadAsTheAgentReadsIt_TheLastOneWinning_NeverThrown()
+    {
+        // Found in review: a JsonNode object throws on a duplicated key, which escaped the launch and refused a session
+        // the agent itself would have started.
+        Write("settings.json", "{\"permissions\": {\"deny\": [\"Bash(rm:*)\"]}, \"permissions\": {\"deny\": [\"Bash(a:*)\"], \"deny\": [\"Bash(b:*)\"]}}");
+        Write("settings.local.json", "{\"permissions\": {\"deny\": [\"Bash(rm:*)\"]}, \"permissions\": {\"ask\": []}}");
+
+        var found = Assert.Single(FolderDenyRules.Read(_folder));
+
+        Assert.Equal(new[] { "Bash(b:*)" }, found.Rules);
+    }
+
+    [Fact]
     public void Read_NeverChangesTheFiles()
     {
         var text = "{\"permissions\": {\"deny\": [\"Bash(cc-gmail:*)\"]}}";

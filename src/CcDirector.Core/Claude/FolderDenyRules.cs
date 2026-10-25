@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -52,18 +51,33 @@ public static class FolderDenyRules
     /// <summary>The deny rules of one settings file's text, or null when it holds none. Pure.</summary>
     internal static FolderDenyRulesDto? Parse(string path, string text)
     {
-        JsonNode? root;
-        try { root = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }); }
+        // JsonDocument, not JsonNode: a key written twice (a merge or a hand edit) is read the way the agent reads it,
+        // the last one winning, where a JsonNode object throws on the duplicate and would refuse the launch.
+        JsonDocument document;
+        try { document = JsonDocument.Parse(text, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }); }
         catch (JsonException ex)
         {
             return new FolderDenyRulesDto { File = path, Problem = $"it is not JSON, so whether it holds a deny rule could not be read ({ex.Message})" };
         }
-        if (root is not JsonObject doc || doc["permissions"] is not JsonObject permissions || permissions["deny"] is not { } deny)
-            return null;
-        if (deny is not JsonArray list || list.Any(r => r is not JsonValue v || v.GetValueKind() != JsonValueKind.String))
-            return new FolderDenyRulesDto { File = path, Problem = "its permissions.deny is not a list of rules" };
-        if (list.Count == 0) return null;
-        return new FolderDenyRulesDto { File = path, Rules = list.Select(r => r!.GetValue<string>()).ToList() };
+        using (document)
+        {
+            if (LastProperty(document.RootElement, "permissions") is not { ValueKind: JsonValueKind.Object } permissions
+                || LastProperty(permissions, "deny") is not { } deny)
+                return null;
+            if (deny.ValueKind != JsonValueKind.Array || deny.EnumerateArray().Any(r => r.ValueKind != JsonValueKind.String))
+                return new FolderDenyRulesDto { File = path, Problem = "its permissions.deny is not a list of rules" };
+            var rules = deny.EnumerateArray().Select(r => r.GetString()!).ToList();
+            return rules.Count == 0 ? null : new FolderDenyRulesDto { File = path, Rules = rules };
+        }
+    }
+
+    private static JsonElement? LastProperty(JsonElement element, string name)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return null;
+        JsonElement? found = null;
+        foreach (var property in element.EnumerateObject())
+            if (property.NameEquals(name)) found = property.Value;
+        return found;
     }
 
     /// <summary>The launch log's line for what <see cref="Read"/> found, or null when it found nothing.</summary>

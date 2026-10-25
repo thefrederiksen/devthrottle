@@ -111,6 +111,32 @@ public sealed class FactoryBossStartAtTheSpawnDoorTests
         Assert.Null(req.FactoryKit);
     }
 
+    [Fact]
+    public void TryEstablish_TheBoss_IsToldTheOwnersWordIsFinal_WithOrWithoutAPublishedDefinition()
+    {
+        // The Boss started by the owner's own session has no brief (a rules-only kit, or none): it is told on its prompt.
+        foreach (var published in new int?[] { ThePublished, null })
+        {
+            var req = Body();
+            req.PrePrompt = "Remove the cc-gmail rule.";
+
+            Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", InNoFactory, out _, NoRules, Boss(published: published)));
+
+            Assert.Equal("Remove the cc-gmail rule.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
+        }
+    }
+
+    [Fact]
+    public void TryEstablish_ARefusedBossStart_LeavesThePromptAsItWas()
+    {
+        var req = Body(seat: "finder");
+        req.PrePrompt = "Go.";
+
+        Assert.False(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", InNoFactory, out _, NoRules, Boss()));
+
+        Assert.Equal("Go.", req.PrePrompt);
+    }
+
     // ---------- refused ----------
 
     [Fact]
