@@ -179,6 +179,32 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("activity_events", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.AlertMarkEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("AlertId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClearedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SeenVersionUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TouchedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "AlertId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("alert_marks", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeConversationItemEntity", b =>
                 {
                     b.Property<string>("TenantId")

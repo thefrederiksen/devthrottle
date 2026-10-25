@@ -303,6 +303,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>When each schedule's owner was last told it failed, per cause (<c>cron_failure_notices</c>, issue #4436).</summary>
     public DbSet<CronFailureNoticeEntity> CronFailureNotices => Set<CronFailureNoticeEntity>();
 
+    /// <summary>What the owner has seen and cleared of each alert (<c>alert_marks</c>, the Alerts mission).</summary>
+    public DbSet<AlertMarkEntity> AlertMarks => Set<AlertMarkEntity>();
+
     /// <summary>Named work lists (<c>worklists</c>).</summary>
     public DbSet<WorkListEntity> WorkLists => Set<WorkListEntity>();
 
@@ -756,6 +759,13 @@ public sealed class GatewayDbContext : DbContext
             // Factory Definition, phase 5b: a timed start's check and the version it was written from.
             b.Property(e => e.CheckPath).HasMaxLength(256);
             b.Property(e => e.CheckSecretsJson).HasMaxLength(4096);
+        });
+
+        modelBuilder.Entity<AlertMarkEntity>(b =>
+        {
+            b.ToTable("alert_marks");
+            b.HasKey(e => new { e.TenantId, e.AlertId });
+            b.Property(e => e.AlertId).HasMaxLength(128);
         });
 
         modelBuilder.Entity<CronFailureNoticeEntity>(b =>
@@ -2591,6 +2601,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<CronJobEntity>(modelBuilder);
         ApplyTenantScope<CronRunEntity>(modelBuilder);
         ApplyTenantScope<CronFailureNoticeEntity>(modelBuilder);
+        ApplyTenantScope<AlertMarkEntity>(modelBuilder);
         ApplyTenantScope<WorkListEntity>(modelBuilder);
         ApplyTenantScope<WorkListItemEntity>(modelBuilder);
         ApplyTenantScope<WorkflowEntity>(modelBuilder);
@@ -2713,6 +2724,8 @@ public sealed class GatewayDbContext : DbContext
             // cron_failure_notices: the schedule id and the cause are exact keys, compared byte-ordinally (issue #4436).
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.JobId).UseCollation("C");
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
+            // alert_marks: the alert id is an exact key, compared byte-ordinally (the Alerts mission).
+            modelBuilder.Entity<AlertMarkEntity>().Property(e => e.AlertId).UseCollation("C");
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");

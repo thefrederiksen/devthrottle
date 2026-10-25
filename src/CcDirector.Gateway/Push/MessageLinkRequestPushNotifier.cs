@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using Lib.Net.Http.WebPush;
 
 namespace CcDirector.Gateway.Push;
@@ -61,6 +62,8 @@ public sealed class MessageLinkRequestPushNotifier : IDisposable
             // One notification per request: two waiting at once must not replace each other. The id is not secret.
             Tag = TagPrefix + requestId,
             Url = CardUrl,
+            // The alert this push announces (the Alerts mission), so a tap can open the Alerts tray on it.
+            AlertId = AlertKinds.IdOf(AlertKinds.MessageRequest, requestId),
         }, PayloadJson);
     }
 
@@ -128,5 +131,6 @@ public sealed class MessageLinkRequestPushNotifier : IDisposable
         [JsonPropertyName("body")] public string Body { get; set; } = "";
         [JsonPropertyName("tag")] public string Tag { get; set; } = "";
         [JsonPropertyName("url")] public string Url { get; set; } = "";
+        [JsonPropertyName("alertId")] public string AlertId { get; set; } = "";
     }
 }
