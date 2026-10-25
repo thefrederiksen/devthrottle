@@ -1237,7 +1237,7 @@ public static class TerminalSubmit
     /// paste. A busy agent that echoed the lead only after the paste bytes were written gave it both - the lead's echo
     /// was the repaint, and the agent was quiet while it still read the paste - and the Enter was pressed into a paste
     /// still being read (the #3290 hazard). So the lead must be seen first: the composer showing its words, or, with no
-    /// reader, the terminal answering it and going quiet for <see cref="PasteQuiet"/>. An agent that shows neither has
+    /// reader, the terminal echoing it and going quiet for <see cref="PasteQuiet"/>. An agent that shows neither has
     /// not read the lead yet, so it is waited for up to <see cref="PasteTakenInLimit"/>, as a paste is; at the limit the
     /// send goes on and the records decide, as the paste wait does.
     /// </summary>
@@ -1248,6 +1248,7 @@ public static class TerminalSubmit
         var notice = new SendWaitNotice(driverTag, $"the agent to take in the {lead.Length}-character lead before the paste",
             $"{PasteTakenInLimit.TotalSeconds:F0}s", Clock);
         var leadLetters = PromptArrival.Loose(lead);
+        var leadEcho = NormalizeForEcho(lead);
         var started = Now;
         var lastTotal = beforeLead;
         var lastChange = started;
@@ -1269,9 +1270,12 @@ public static class TerminalSubmit
                     return;
                 }
             }
-            if (total != beforeLead && now - lastChange >= PasteQuiet)
+            // THE OUTPUT MUST BE THE LEAD'S OWN ECHO (second review of issue #3967): a status-line repaint just after the
+            // lead was typed, then a quiet second, ended this wait while the lead itself was still unread - and its late
+            // echo then passed for the paste's repaint. So the bytes since the lead must hold its letters.
+            if (total != beforeLead && now - lastChange >= PasteQuiet && EchoSeen(buffer, beforeLead, leadEcho))
             {
-                notice.End("the terminal answered the lead and went quiet - pasting");
+                notice.End("the terminal echoed the lead and went quiet - pasting");
                 return;
             }
             if (now - started >= PasteTakenInLimit)

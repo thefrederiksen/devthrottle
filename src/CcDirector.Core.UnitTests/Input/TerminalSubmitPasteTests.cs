@@ -29,11 +29,20 @@ public sealed class TerminalSubmitPasteTests : IDisposable
     private sealed class ComposerTerminal(VirtualClock clock) : ISessionBackend
     {
         private bool _inPaste;
-        private readonly List<byte> _unread = new();
+        private readonly List<ITimer> _timers = new();
 
-        /// <summary>A busy agent: it echoes typed text only once the paste's end marker arrives, and never repaints the
-        /// paste (the review of issue #3967).</summary>
-        public bool ReadsTypingOnlyAtPasteEnd { get; init; }
+        /// <summary>A busy agent (the review of issue #3967): typed text is echoed this long after it was written, and
+        /// the paste is never repainted. Null echoes at once and repaints the paste at once.</summary>
+        public TimeSpan? TypingEchoDelay { get; init; }
+
+        /// <summary>An unrelated status-line repaint this long after typed text was written, or null for none.</summary>
+        public TimeSpan? StatusLineAfterTyping { get; init; }
+
+        /// <summary>The fake time the paste's start marker was written.</summary>
+        public DateTimeOffset? PasteAt { get; private set; }
+
+        private void WriteLater(TimeSpan delay, byte[] bytes) =>
+            _timers.Add(clock.CreateTimer(_ => Buffer!.Write(bytes), null, delay, Timeout.InfiniteTimeSpan));
 
         public List<byte[]> Writes { get; } = new();
         public DateTimeOffset? EnterAt { get; private set; }
@@ -66,17 +75,11 @@ public sealed class TerminalSubmitPasteTests : IDisposable
         public void Write(byte[] data)
         {
             Writes.Add(data.ToArray());
-            if (data.SequenceEqual(TerminalInputEncoder.PasteStart)) { _inPaste = true; return; }
+            if (data.SequenceEqual(TerminalInputEncoder.PasteStart)) { _inPaste = true; PasteAt ??= clock.GetUtcNow(); return; }
             if (data.SequenceEqual(TerminalInputEncoder.PasteEnd))
             {
                 _inPaste = false;
-                if (ReadsTypingOnlyAtPasteEnd)
-                {
-                    Buffer!.Write(_unread.ToArray());
-                    _unread.Clear();
-                    return;
-                }
-                Buffer!.Write(Encoding.UTF8.GetBytes("\r\n[Pasted text]\r\n> "));
+                if (TypingEchoDelay is null) Buffer!.Write(Encoding.UTF8.GetBytes("\r\n[Pasted text]\r\n> "));
                 return;
             }
             if (data.Length == 1 && data[0] == 0x0D)
@@ -86,7 +89,8 @@ public sealed class TerminalSubmitPasteTests : IDisposable
                 return;
             }
             if (_inPaste) return;
-            if (ReadsTypingOnlyAtPasteEnd) _unread.AddRange(data);
+            if (StatusLineAfterTyping is { } status) WriteLater(status, Encoding.UTF8.GetBytes("\u001b[s 12% context \u001b[u"));
+            if (TypingEchoDelay is { } delay) WriteLater(delay, data.ToArray());
             else Buffer!.Write(data);
         }
 
@@ -95,7 +99,11 @@ public sealed class TerminalSubmitPasteTests : IDisposable
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) { }
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
-        public void Dispose() => Buffer!.Dispose();
+        public void Dispose()
+        {
+            foreach (var timer in _timers) timer.Dispose();
+            Buffer!.Dispose();
+        }
     }
 
     private static Task<string> SendAsync(ComposerTerminal terminal, VirtualClock clock, string text, string agent, string? typedLead = null) =>
@@ -157,23 +165,51 @@ public sealed class TerminalSubmitPasteTests : IDisposable
     }
 
     /// <summary>
-    /// THE LEAD'S ECHO IS NOT THE PASTE'S REPAINT (review of issue #3967). A busy agent that echoes the lead only once the
-    /// paste has been written, and never repaints the paste, ended the paste wait at once: the lead's echo looked like the
-    /// repaint, and the Enter went into a paste still being read. Without a lead the same agent holds the Enter for the
-    /// whole limit; with one it must hold it at least as long.
+    /// THE LEAD'S ECHO IS NOT THE PASTE'S REPAINT (review of issue #3967). A busy agent echoed the lead two seconds late,
+    /// after the paste had been written, and never repainted the paste: the lead's echo passed for the repaint and the
+    /// Enter went into a paste still being read. The send now waits for the lead's echo before it pastes, so the paste
+    /// wait sees no repaint and holds the Enter its whole limit, as it does for a paste with no lead.
     /// </summary>
     [Fact]
-    public async Task SharedSubmit_ALeadEchoedOnlyAfterThePaste_DoesNotEndThePasteWaitEarly()
+    public async Task SharedSubmit_ALeadEchoedLate_IsWaitedForAndDoesNotEndThePasteWaitEarly()
     {
         var clock = VirtualTime.NewClock();
-        using var terminal = new ComposerTerminal(clock) { ReadsTypingOnlyAtPasteEnd = true };
+        using var terminal = new ComposerTerminal(clock) { TypingEchoDelay = TimeSpan.FromSeconds(2) };
         var started = clock.GetUtcNow();
 
         await SendAsync(terminal, clock, "No person is watching this run.\nRead the inbox and answer every customer email.", "ClaudeCode", Lead);
 
+        Assert.NotNull(terminal.PasteAt);
         Assert.NotNull(terminal.EnterAt);
-        Assert.True(terminal.EnterAt!.Value - started >= TerminalSubmit.PasteTakenInLimit,
-            $"the Enter came {(terminal.EnterAt.Value - started).TotalSeconds:F1}s after the send began");
+        Assert.InRange(terminal.PasteAt!.Value - started, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10));
+        Assert.True(terminal.EnterAt!.Value - terminal.PasteAt.Value >= TerminalSubmit.PasteTakenInLimit,
+            $"the Enter came {(terminal.EnterAt.Value - terminal.PasteAt.Value).TotalSeconds:F1}s after the paste");
+    }
+
+    /// <summary>
+    /// OTHER OUTPUT IS NOT THE LEAD'S ECHO (second review of issue #3967). A status-line repaint 0.3 seconds after the lead
+    /// was typed, then a quiet second, ended the lead wait while the lead was still unread; its echo five seconds later
+    /// then passed for the paste's repaint. Only the lead's own letters end the wait.
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_AStatusRepaintBeforeTheLeadsLateEcho_DoesNotEndTheLeadWait()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock)
+        {
+            TypingEchoDelay = TimeSpan.FromSeconds(5),
+            StatusLineAfterTyping = TimeSpan.FromMilliseconds(300),
+        };
+        var started = clock.GetUtcNow();
+
+        await SendAsync(terminal, clock, "No person is watching this run.\nRead the inbox and answer every customer email.", "ClaudeCode", Lead);
+
+        Assert.NotNull(terminal.PasteAt);
+        Assert.NotNull(terminal.EnterAt);
+        Assert.True(terminal.PasteAt!.Value - started >= TimeSpan.FromSeconds(5),
+            $"the paste was written {(terminal.PasteAt.Value - started).TotalSeconds:F1}s after the send began, before the lead's echo");
+        Assert.True(terminal.EnterAt!.Value - terminal.PasteAt.Value >= TerminalSubmit.PasteTakenInLimit,
+            $"the Enter came {(terminal.EnterAt.Value - terminal.PasteAt.Value).TotalSeconds:F1}s after the paste");
     }
 
     /// <summary>An agent that echoes the lead at once is not held: the lead, the paste and the Enter follow in seconds.</summary>
