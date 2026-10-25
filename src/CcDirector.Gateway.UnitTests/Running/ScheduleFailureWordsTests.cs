@@ -94,6 +94,12 @@ public sealed class ScheduleFailureWordsTests
             ScheduleFailureCauses.FactoryArchived, "This run did not start: Website Factory is archived" },
         new object[] { "it did not start a session: not started: the seat 'scout' of 'site' is not registered as its definition says, so no session was started. Publish the definition again.",
             ScheduleFailureCauses.FactorySetup, "Publish the definition again." },
+        // A folder Claude Code was never told to trust, refused by the Director before the session started (issue #3469):
+        // the refusal's own sentence, under its own cause, so it is not limited together with a factory's setup.
+        new object[] { "it did not start a session: director returned BadRequest: not started: the folder '/home/you/repos/site' is not one of the repositories of devlinux, and Claude Code has never been told to trust it, so the scheduled session would wait at the folder-trust question with nobody to answer it. Add the folder as a repository of devlinux, or open it (or the repository it is in) once in DevThrottle and answer the question; the next run then starts.",
+            ScheduleFailureCauses.FolderNotTrusted, "This run did not start: The folder '/home/you/repos/site' is not one of the repositories of devlinux" },
+        new object[] { "it did not start a session: director returned BadRequest: not started: the folder '/home/you/repos/site' is a repository of devlinux, but Claude Code's configuration there could not be read or written to record it as trusted, so the scheduled session would wait at the folder-trust question. Open the folder once in DevThrottle on devlinux and answer the question; the next run then starts.",
+            ScheduleFailureCauses.FolderNotTrusted, "This run did not start: The folder '/home/you/repos/site' is a repository of devlinux, but" },
         new object[] { "it did not start a session: " + DirectorCronSessionStarter.BriefNotRead + ": database is locked",
             ScheduleFailureCauses.BriefNotRead, "brief could not be read" },
         // The work-list runner said no (CronEngine.DidNotStartReason over CronWorkListOutcome).
@@ -163,6 +169,10 @@ public sealed class ScheduleFailureWordsTests
         new object[] { CronRunProblems.SeatLimit,
             "its session started on studio-mac, but the agent answered that its seat is at a limit (\"You've hit your monthly spend limit · contact your admin to raise it\"), so the work could not be done",
             ScheduleFailureCauses.SeatLimit, "its agent's seat is at its usage or spend limit, so no work was done" },
+        // A prompt that never reached the agent (issue #3392): why the Director could not type it is only the detail.
+        new object[] { CronRunProblems.PromptNotDelivered,
+            "its session started, but the prompt it was given never reached the agent: The first prompt was not typed: the composer was not drawn in 600 seconds",
+            ScheduleFailureCauses.PromptNotDelivered, "started, but its prompt never reached the agent, so no work was done" },
     };
 
     [Theory]
