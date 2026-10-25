@@ -334,7 +334,7 @@ internal static class MachineEndpoints
                 directors.ListDirectors(tenant),
                 sessionsByDirector,
                 newestRelease.Current(),
-                DateTime.UtcNow);
+                launchers.UtcNow);
 
             FileLog.Write($"[MachineEndpoints] GET /machines tenant={tenant.Value}: machines={view.Machines.Count}, "
                           + $"newest={view.NewestRelease.Label}, updatable={view.Machines.Count(m => m.Update.Offered)}");
@@ -411,7 +411,7 @@ internal static class MachineEndpoints
                 machine,
                 launchers.Get(tenant, machine),
                 launcherConnections.GetActiveConnection(tenant, machine),
-                DateTime.UtcNow);
+                launchers.UtcNow);
 
             FileLog.Write($"[MachineEndpoints] restart-capability tenant={tenant.Value} machine={machine}: "
                           + $"verdict={answer.Verdict}, reach={answer.Reach}, declaration={answer.Declaration}, "
