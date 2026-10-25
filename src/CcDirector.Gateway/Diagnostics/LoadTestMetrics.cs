@@ -133,6 +133,13 @@ public static class LoadTestMetrics
     /// <summary>A DirectorHub connection closed.</summary>
     public static void HubConnectionClosed() => Interlocked.Decrement(ref _hubConnections);
 
+    /// <summary>The worker pool's floor, so the hosted host's MinThreads setting (issue #4400) can be confirmed live.</summary>
+    private static int MinWorkerThreads()
+    {
+        ThreadPool.GetMinThreads(out var workers, out _);
+        return workers;
+    }
+
     /// <summary>A hub push handler (PushSnapshot/PushDelta) is starting. Returns the timestamp to hand to
     /// <see cref="HubPushFinished"/>. The in-flight count is the ingress-pressure gauge: SignalR queues
     /// per-connection, so a growing in-flight count means handlers are not keeping up with arrivals.</summary>
@@ -199,6 +206,7 @@ public static class LoadTestMetrics
                 gcTotalPauseMs = GC.GetTotalPauseDuration().TotalMilliseconds,
                 threadPoolThreads = ThreadPool.ThreadCount,
                 threadPoolPendingWorkItems = ThreadPool.PendingWorkItemCount,
+                threadPoolMinWorkers = MinWorkerThreads(),
                 processorCount = Environment.ProcessorCount,
             },
             memory,

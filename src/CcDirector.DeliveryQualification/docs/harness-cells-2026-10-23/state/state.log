@@ -1,0 +1,21 @@
+[state] run 20261023-174012 on product 4b58b3a2381d: 1 cases x 2 agents x 2 runs. Results: /home/soren/ReposFred/_delivery-qa/runs/harness-cells-20261023-1309/state/state-results.jsonl
+[state] claude  approval       run 1 FAIL working-after=1.2s false-waiting=0.0s waiting-after-true-end=never approval-shown=no not shown waiting within 2s of the true end; the approval was never shown as needing approval screen: screens/state-claude-approval-run1.txt
+        WaitingForInput@0.0 Working@1.3
+[state] claude  approval       run 2 FAIL working-after=1.2s false-waiting=0.0s waiting-after-true-end=never approval-shown=no not shown waiting within 2s of the true end; the approval was never shown as needing approval screen: screens/state-claude-approval-run2.txt
+        WaitingForInput@0.0 Working@1.3
+[state] codex   approval       run 1 FAIL working-after=1.2s false-waiting=0.0s waiting-after-true-end=never approval-shown=no not shown waiting within 2s of the true end; the approval was never shown as needing approval screen: screens/state-codex-approval-run1.txt
+        WaitingForInput@0.0 Working@1.3
+[state] codex   approval       run 2 FAIL working-after=1.2s false-waiting=0.0s waiting-after-true-end=never approval-shown=no not shown waiting within 2s of the true end; the approval was never shown as needing approval screen: screens/state-codex-approval-run2.txt
+        WaitingForInput@0.0 Working@1.3
+
+agent    case           run pass  working-after false-waiting waiting-after-end approval-shown
+claude   approval         1 NO             1.2s          0.0s             never no
+claude   approval         2 NO             1.2s          0.0s             never no
+codex    approval         1 NO             1.2s          0.0s             never no
+codex    approval         2 NO             1.2s          0.0s             never no
+0 of 4 case runs correct; 0 case(s) passed on one run and failed on another.
+  claude approval run 1: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-claude-approval-run1.txt)
+  claude approval run 2: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-claude-approval-run2.txt)
+  codex approval run 1: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-codex-approval-run1.txt)
+  codex approval run 2: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-codex-approval-run2.txt)
+

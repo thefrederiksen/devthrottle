@@ -1,0 +1,67 @@
+# menu-open claude prompt ascii run 2: FAILED ComposerNotAcceptingInputException: [ClaudeCode] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again., saved 2026-10-23 18:17:08Z
+00 | 
+01 | 
+02 | ● ACK QABBELIPFEG
+03 | 
+04 | ✻ Baked for 1s · done 2:12 PM
+05 | 
+06 | ❯ Token QOPIPKBEODM, line 1 of 4.
+07 | 
+08 | ● Received: "Token QOPIPKBEODM, line 1 of 4." Waiting for lines 2-4.
+09 | 
+10 | ✻ Cooked for 1s · done 2:12 PM
+11 | 
+12 | ❯ Line 2: the quick brown fox jumps over the lazy dog.
+13 | 
+14 | ❯ Line 3: the quick brown fox jumps over the lazy dog.
+15 | 
+16 | ● Received lines 2 and 3. Waiting for line 4.
+17 | 
+18 | ✻ Crunched for 1s · done 2:12 PM
+19 | 
+20 | ❯ Do not run any tools or read any files. Reply with exactly: ACK QOPIPKBEODM
+21 | 
+22 | ● ACK QOPIPKBEODM
+23 | 
+24 | ✻ Sautéed for 1s · done 2:12 PM
+25 | 
+26 | ❯ Token Q90A34E534F. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+27 |   options Red and Blue. Do nothing else.
+28 | 
+29 | ● User answered Claude's questions:
+30 |   ⎿  · Which colour? → Red
+31 | 
+32 | ● Received: Red. What would you like me to do next?
+33 | 
+34 | ✻ Worked for 3s · done 2:13 PM
+35 | 
+36 | ❯ Token QOMEIANLNPF. Do not run any tools or read any files. Reply with exactly: ACK QOMEIANLNPF
+37 | 
+38 | ● ACK QOMEIANLNPF
+39 | 
+40 | ✻ Baked for 1s · done 2:13 PM
+41 | 
+42 | ❯ Token Q079360C9E2. Use the AskUserQuestion tool right now to ask me one question: "Which colour?" with the two
+43 |   options Red and Blue. Do nothing else.
+44 | 
+45 | ● User answered Claude's questions:
+46 |   ⎿  · Which colour? → en Q4E297EDFFA. Use the AskUserQuestion tool right now to ask me one question: "Which colour?"
+47 |      with the two options Red and Blue. Do nothing else.
+48 | 
+49 | ● User answered Claude's questions:
+50 |   ⎿  · Which colour? → en QB2A73AD59D. Use the AskUserQuestion tool right now to ask me one question: "Which colour?"
+51 |      with the two options Red and Blue. Do nothing else.
+52 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+53 |  ☐ Colour
+54 | 
+55 | Which colour?
+56 | 
+57 | ❯ 1. Red
+58 |      The colour red
+59 |   2. Blue
+60 |      The colour blue
+61 |   3. Type something.
+62 | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+63 |   4. Chat about this
+64 | 
+65 | Enter to select · ↑/↓ to navigate · Esc to cancel

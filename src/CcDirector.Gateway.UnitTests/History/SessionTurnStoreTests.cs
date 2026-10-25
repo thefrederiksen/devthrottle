@@ -254,6 +254,51 @@ public sealed class SessionTurnStoreTests : IDisposable
         Assert.Equal(new[] { "new" }, Texts(store, "s1"));
     }
 
+    /// <summary>
+    /// Issue #4391: retention deletes the turns of the sessions IT expires, and reads no other session's rows. A turn
+    /// row with no head is planted for a session that was never expired; the old whole-account sweep deleted it on
+    /// every pass - by scanning every conversation row the account holds, 39.5 seconds on production, inside the store's
+    /// lock. Now it is left alone, and the expired session still goes whole.
+    /// </summary>
+    [Fact]
+    public void Retention_TouchesOnlyTheSessionsItExpires()
+    {
+        var db = _harness.Open();
+        var store = new SessionTurnStore(db);
+        store.Append("d1", A("old", 0, Turn("User", "a", 0), Turn("Assistant", "b", 1)), Now.AddDays(-100));
+        store.Append("d1", A("planted", 0, Turn("User", "p", 0)), Now);
+        using (var ctx = db.CreateContext())
+            ctx.SessionTurnHeads.Where(h => h.SessionId == "planted").ExecuteDelete();
+
+        Assert.Equal(0, new SessionTurnStore(db).PurgeOlderThan(Now.AddDays(-200)));   // nothing expired: nothing touched
+        var removed = store.PurgeOlderThan(Now.AddDays(-90));
+
+        Assert.Equal(3, removed);                 // the expired head and its two rows
+        Assert.Null(store.ReadCurrent("old"));
+        using (var ctx = db.CreateContext())
+        {
+            Assert.False(ctx.SessionTurns.Any(t => t.SessionId == "old"));
+            Assert.Equal(1, ctx.SessionTurns.Count(t => t.SessionId == "planted"));
+        }
+    }
+
+    /// <summary>More expired sessions than one delete names: every one of them goes, whole.</summary>
+    [Fact]
+    public void Retention_RemovesEveryExpiredSession_PastOneChunk()
+    {
+        var store = Store();
+        for (var i = 0; i < 501; i++)
+            store.Append("d1", A($"old{i}", 0, Turn("User", "a", 0)), Now.AddDays(-100));
+        store.Append("d1", A("fresh", 0, Turn("User", "b", 0)), Now);
+
+        var removed = store.PurgeOlderThan(Now.AddDays(-90));
+
+        Assert.Equal(1002, removed);
+        Assert.Null(store.ReadCurrent("old0"));
+        Assert.Null(store.ReadCurrent("old500"));
+        Assert.Equal(new[] { "b" }, Texts(store, "fresh"));
+    }
+
     // ----- the held conversations (devthrottle_internal#2199): a read asks only for the turns it does not hold -----
 
     /// <summary>

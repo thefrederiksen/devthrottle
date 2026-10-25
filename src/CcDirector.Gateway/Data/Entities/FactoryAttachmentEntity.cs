@@ -11,6 +11,10 @@ namespace CcDirector.Gateway.Data.Entities;
 /// factory's total are capped.
 ///
 /// WRITTEN ONCE. An attachment is never edited; a changed file is a new attachment.
+///
+/// REMOVED, NEVER FORGOTTEN (owner, 2026-10-23: "we don't need to save the applications forever"). A factory may
+/// remove a file it no longer needs: its bytes are deleted and this row stays, with <see cref="RemovedAtUtc"/> and
+/// <see cref="RemovedBy"/>, so a journal entry that named it still says what it was and that it is gone.
 /// </summary>
 public sealed class FactoryAttachmentEntity : GatewayMintedKeyEntity
 {
@@ -43,6 +47,12 @@ public sealed class FactoryAttachmentEntity : GatewayMintedKeyEntity
 
     /// <summary>The one-time upload's own name for the file, or null for an ordinary write. Unique within a factory.</summary>
     public string? ImportKey { get; set; }
+
+    /// <summary>When the file's bytes were removed (UTC), or null while the factory still holds them.</summary>
+    public DateTime? RemovedAtUtc { get; set; }
+
+    /// <summary>Who removed it, as <c>kind:id</c> (<c>session:...</c> or <c>person:...</c>), or null while it is held.</summary>
+    public string? RemovedBy { get; set; }
 }
 
 /// <summary>

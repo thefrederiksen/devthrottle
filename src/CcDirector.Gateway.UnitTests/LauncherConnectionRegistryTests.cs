@@ -125,4 +125,39 @@ public sealed class LauncherConnectionRegistryTests
         Assert.True(registry.IsStreamConnected(CcDirector.Core.Tenancy.TenantId.Local, "machine-B"));
         Assert.Equal("conn-B", registry.GetActiveConnectionId(CcDirector.Core.Tenancy.TenantId.Local, "machine-B"));
     }
+
+    // Issue #4423: the Gateway host writes a cleared stream onto the launcher's registration, so a launcher that is
+    // heartbeating with no stream can be told apart from one that never had a stream.
+    [Fact]
+    public void Unregister_ClearingTheActiveStream_ReportsTheClose()
+    {
+        // Arrange
+        var registry = NewRegistry();
+        var closed = new List<string>();
+        registry.StreamClosed = (_, machine, _) => closed.Add(machine);
+        registry.RegisterConnection(CcDirector.Core.Tenancy.TenantId.Local, "Studio-Mac", "conn-1");
+
+        // Act
+        registry.Unregister("conn-1");
+
+        // Assert
+        Assert.Equal(new[] { "studio-mac" }, closed);
+    }
+
+    [Fact]
+    public void Unregister_SupersededConnection_ReportsNoClose()
+    {
+        // Arrange - the machine still holds a stream, so nothing closed.
+        var registry = NewRegistry();
+        var closed = new List<string>();
+        registry.StreamClosed = (_, machine, _) => closed.Add(machine);
+        registry.RegisterConnection(CcDirector.Core.Tenancy.TenantId.Local, "studio-mac", "conn-1");
+        registry.RegisterConnection(CcDirector.Core.Tenancy.TenantId.Local, "studio-mac", "conn-2");
+
+        // Act
+        registry.Unregister("conn-1");
+
+        // Assert
+        Assert.Empty(closed);
+    }
 }

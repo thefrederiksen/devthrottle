@@ -1,0 +1,22 @@
+agent    case           run pass  working-after false-waiting waiting-after-end approval-shown
+claude   quick            1 yes            1.0s          0.0s              0.3s -
+claude   quick            2 yes            1.0s          0.0s              0.3s -
+claude   long-answer      1 yes            1.2s          0.0s              0.3s -
+claude   long-answer      2 yes            1.2s          0.0s              0.3s -
+claude   tool-40s         1 yes            1.5s          0.0s              0.1s -
+claude   tool-40s         2 yes            1.5s          0.0s              0.2s -
+claude   approval         1 yes            1.2s          0.0s              0.1s yes
+claude   approval         2 yes            1.2s          0.0s              0.3s yes
+claude   question-menu    1 yes            1.0s          0.0s              0.2s yes
+claude   question-menu    2 yes            1.0s          0.0s              0.2s yes
+claude   model-picker     1 yes            0.2s          0.0s              0.0s -
+claude   model-picker     2 yes            0.2s          0.0s              0.0s -
+pi       quick            1 yes            1.0s          0.0s              0.2s -
+pi       quick            2 yes            1.0s          0.0s              0.2s -
+pi       long-answer      1 yes            1.2s          0.0s              0.1s -
+pi       long-answer      2 yes            1.2s          0.0s              0.1s -
+pi       tool-40s         1 yes            1.5s          0.0s              0.1s -
+pi       tool-40s         2 yes            1.5s          0.0s              0.2s -
+pi       model-picker     1 yes            0.2s          0.0s              0.0s -
+pi       model-picker     2 yes            0.2s          0.0s              0.0s -
+20 of 20 case runs correct; 0 case(s) passed on one run and failed on another.

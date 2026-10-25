@@ -205,6 +205,13 @@ public sealed class PromptResponse
     public string? Error { get; set; }
 
     /// <summary>
+    /// What the text's FIRST character made of it in this agent's composer - "a shell command", "a slash command" - or
+    /// null when it went as an ordinary prompt (issue #4380). A prompt is typed exactly as a person would type it, so it
+    /// gets the agent's own behaviour; this says so, so the prompt route never runs a command QUIETLY.
+    /// </summary>
+    public string? LeadingMode { get; set; }
+
+    /// <summary>
     /// Wingman menu guard (issue #2193): true when this prompt was NOT sent because a menu owns the session's
     /// live screen and the caller asked for <see cref="PromptRequest.MenuGuard"/>. Nothing was typed and no
     /// Enter was pressed. This is a REFUSAL, not a failure - it rides a 200 with <see cref="Accepted"/> false,
@@ -339,6 +346,20 @@ public sealed class TerminalInputRequest
     /// the socket, not per frame - one browser holds one identity for the life of its terminal. Null only from
     /// a Gateway older than this field, which the Director records as the unknown it is.</summary>
     public SubmissionProvenanceDto? Provenance { get; set; }
+}
+
+/// <summary>
+/// What became of input sent to a session (issue #4380): every input route answers, never silence. The success body of
+/// the terminal-input, enter, escape, interrupt and history-picker verbs; a REFUSED input is the verb's Conflict, whose
+/// error is the reason.
+/// </summary>
+public sealed class InputAnswerResponse
+{
+    /// <summary>"written" - it reached the terminal; "held" - it is kept and written after the send in front of it.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>Why it was held; null when it was written.</summary>
+    public string? Reason { get; set; }
 }
 
 /// <summary>Body of the git stage/unstage/discard endpoints. Empty paths means "all" (stage/unstage only).</summary>

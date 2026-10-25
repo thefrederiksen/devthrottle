@@ -51,7 +51,7 @@ It uses `curl` on purpose. The wizard is ad-hoc-signed, not notarized by Apple, 
 
 If you already downloaded the zip with a browser and hit that block, either run the command above (recommended), or open **System Settings -> Privacy & Security**, scroll down to the message about "DevThrottle Setup", and choose **Open Anyway**. Removing the quarantine flag with `xattr -dr com.apple.quarantine "DevThrottle Setup.app"` also works, but only on a freshly unzipped copy that has never been launched — macOS remembers a copy it has already blocked.
 
-On macOS the Director installs to `~/Applications`, the `cc-*` tools live in one shared Python environment under `~/Library/Application Support/cc-director`, and the tools are symlinked into `~/.local/bin` (added to your shell `PATH`). Apple Silicon only.
+On macOS the app is called **DevThrottle** and installs to the Applications folder (`/Applications`; `~/Applications` if your account cannot write `/Applications`). Find it with Spotlight: press Command+Space and type DevThrottle. Setup's last screen offers **Open DevThrottle** and **Keep in Dock**. An older install in `~/Applications` moves to `/Applications` the next time DevThrottle starts. The `cc-*` tools live in one shared Python environment under `~/Library/Application Support/cc-director`, and the tools are symlinked into `~/.local/bin` (added to your shell `PATH`). Apple Silicon only.
 
 ## Install from the command line
 
@@ -152,7 +152,7 @@ None of these is needed to install DevThrottle or to start it. They are worth ha
 |---|---|
 | **A coding agent** - Claude Code, Codex, Gemini, Copilot, Cursor, Grok, OpenCode or Pi | Your board has nothing to run. DevThrottle drives all eight; any one of them is enough. |
 | **Git** | The Director cannot read your repositories, so branch names and change counts stay blank. |
-| **GitHub CLI** (`gh`) | The repository picker, pull request lists and merged-pull-request checks are unavailable. Sign in once with `gh auth login`. |
+| **GitHub CLI** (`gh`) | Pull request lists and merged-pull-request checks are unavailable. **Settings > GitHub** installs it and signs it in. |
 | **Python 3.11+** | Only your own scripts. The `cc-*` tools bring their own Python. |
 | **Node.js 20+** | MCP servers and the browser tools. |
 

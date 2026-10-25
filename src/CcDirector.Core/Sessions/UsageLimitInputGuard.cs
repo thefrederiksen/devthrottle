@@ -14,12 +14,16 @@ namespace CcDirector.Core.Sessions;
 /// and every driver it hands its backend to - is behind it, and a writer added later is behind it too without anyone
 /// remembering to check.
 ///
-/// The one exception is a PERSON at the terminal: keystrokes typed into the terminal itself (the session's raw input
-/// with a typed origin), inside <see cref="PersonAtTheTerminal"/>. That person can see the dialog and choose.
+/// The one exception is a PERSON: keystrokes typed or pasted into the desktop terminal itself (the session's raw input
+/// with the desktop's typed origin, <see cref="IsAPersonAtTheTerminal"/>), and the owner's own prompts from the phone or
+/// the Cockpit (<see cref="PromptPassesTheDialog"/>), inside <see cref="PersonAtTheTerminal"/>. That person can see the
+/// dialog and choose. Until issue #4380 a desktop PASTE went with no origin at all, so it was not counted as the person it
+/// is and was dropped.
 ///
 /// A refused write is DROPPED and logged, never thrown: writers run on timer threads where an escaped exception ends
-/// the process. A sender that must not mistake a drop for success - the prompt from the Gateway, which answers the
-/// phone or the Cockpit - opens <see cref="WatchRefusals"/> around its send and answers a refusal when it fired.
+/// the process. Every sender that answers someone opens <see cref="WatchRefusals"/> around its send and answers refused
+/// when it fired (issue #4380: every input route answers - the session's raw input, the terminal socket, the driver keys,
+/// the phone's Enter and the prompt).
 /// </summary>
 internal sealed class UsageLimitInputGuard : ISessionBackend
 {
@@ -37,6 +41,34 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
     }
 
     public ISessionBackend Inner { get; }
+
+    /// <summary>What a sender is told when this guard dropped its input.</summary>
+    internal const string RefusedReason =
+        "the session is showing Claude Code's usage-limit dialog, and only Escape reaches it - Enter there confirms a " +
+        "highlighted option, one of which turns on paid extra usage. Close it with Escape, then send again";
+
+    /// <summary>
+    /// A person at a terminal, whose keys pass the dialog (<see cref="PersonAtTheTerminal"/>): input typed - or pasted -
+    /// into the desktop terminal itself, or keys from a live browser terminal, which arrive by the Gateway's terminal
+    /// route (<see cref="SubmissionRoutes.GatewayTerminal"/>). Both show the person the screen the dialog is on, so both
+    /// are a person typing keys, not a prompt (review of pull request 4394, finding 1; the owner's decision 8). Phone and
+    /// Cockpit PROMPTS pass too, by <see cref="PromptPassesTheDialog"/>.
+    /// </summary>
+    internal static bool IsAPersonAtTheTerminal(InputOrigin? origin, string? route = null) =>
+        origin is { Modality: InputModality.Typed, Surface: InputSurface.Desktop }
+        || route == SubmissionRoutes.GatewayTerminal;
+
+    /// <summary>
+    /// Whether a prompt from <paramref name="origin"/> passes the dialog: one from the phone or the Cockpit, typed or
+    /// spoken - the owner's own prompt, exactly as the desktop's keys pass (the Terminal Parity mission, the owner's
+    /// decision 10, 23 October 2026). That includes the Cockpit pane's keys, which travel as prompts sent without an Enter.
+    /// An agent's send never carries such an origin - the Director builds one only for a person's prompt whose surface the
+    /// Gateway stamped from the verified device key, and a session key's send is agent-driven - so the fleet, the
+    /// schedules, the Gateway's own prompts and the Wingman are still held. A prompt whose device did not resolve
+    /// (<see cref="InputSurface.Unknown"/>) is held too: nothing proves a person sent it.
+    /// </summary>
+    internal static bool PromptPassesTheDialog(InputOrigin? origin) =>
+        origin is { Surface: InputSurface.Phone or InputSurface.Cockpit };
 
     /// <summary>Marks the writes inside the scope as a person's own keystrokes at the terminal.</summary>
     public static IDisposable PersonAtTheTerminal()

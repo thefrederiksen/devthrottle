@@ -107,7 +107,7 @@ public sealed class ConversationIngestor : IDisposable
         Action<ActivityState, ActivityState> handler = (_, @new) =>
         {
             // The single trigger: the agent just finished a turn, so new messages exist to capture.
-            if (@new != ActivityState.WaitingForInput) return;
+            if (!ActivityStateFacts.IsTurnEnd(@new)) return;
             // Off the event thread - reading a transcript and pushing over HTTP must not stall the UI.
             Task.Run(() => IngestAsync(session));
         };

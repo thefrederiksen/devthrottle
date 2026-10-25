@@ -1,0 +1,42 @@
+[keys] codex ctrl-u typed: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys] codex   ctrl-u               typed             before=HoldsText:'alpha beta gamma' after=Empty:'' exited=False
+        BEFORE:   permissions: YOLO mode | › alpha beta gamma |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   tab to queue message
+        AFTER:  › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+[keys] codex ctrl-u pasted-two-lines: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys] codex   ctrl-u               pasted-two-lines  before=HoldsText:'alpha beta\nsecond line delta' after=HoldsText:'alpha beta' exited=False
+        BEFORE: › alpha beta |   second line delta |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+        AFTER:  › alpha beta |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+[keys] codex ctrl-u refused-command: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys]   after Enter on the command: cursorRow=26, cursorCol=2, row='› /Tokenzz alpha beta gamma'
+[keys] codex   ctrl-u               refused-command   before=HoldsText:'/Tokenzz alpha beta gamma' after=HoldsText:'/Tokenzz alpha beta gamma' exited=False
+        BEFORE: • Unrecognized command '/Tokenzz'. Type "/" for a list of supported commands. | › /Tokenzz alpha beta gamma |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+        AFTER:  › /Tokenzz alpha beta gamma |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+[keys] codex ctrl-u empty: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.0s
+[keys] codex   ctrl-u               empty             before=Empty:'' after=Empty:'' exited=False
+        BEFORE:   permissions: YOLO mode | › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+        AFTER:  › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+[keys] codex end-then-ctrl-u typed: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys] codex   end-then-ctrl-u      typed             before=HoldsText:'alpha beta gamma' after=Empty:'' exited=False
+        BEFORE:   permissions: YOLO mode | › alpha beta gamma |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   tab to queue message
+        AFTER:  › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+[keys] codex end-then-ctrl-u pasted-two-lines: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys] codex   end-then-ctrl-u      pasted-two-lines  before=HoldsText:'alpha beta\nsecond line delta' after=HoldsText:'alpha beta' exited=False
+        BEFORE: › alpha beta |   second line delta |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   tab to queue message
+        AFTER:  › alpha beta |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+[keys] codex end-then-ctrl-u refused-command: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.3s
+[keys]   after Enter on the command: cursorRow=26, cursorCol=2, row='› /Tokenzz alpha beta gamma'
+[keys] codex   end-then-ctrl-u      refused-command   before=HoldsText:'/Tokenzz alpha beta gamma' after=Empty:'' exited=False
+        BEFORE: • Unrecognized command '/Tokenzz'. Type "/" for a list of supported commands. | › /Tokenzz alpha beta gamma |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |                                                                                               ⚠ 2 warnings · f2 to view
+        AFTER:  › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+[keys] codex end-then-ctrl-u empty: probe back after gate; 'loading' gone after a further 0.0s
+[keys]   draft fully echoed after 0.0s
+[keys] codex   end-then-ctrl-u      empty             before=Empty:'' after=Empty:'' exited=False
+        BEFORE:   permissions: YOLO mode | › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view
+        AFTER:  › Ask Codex to do anything |   GPT-5.6-Luna low · ~/ReposFred/_delivery-qa/repo-1 |   ? for shortcuts                                                                             ⚠ 2 warnings · f2 to view

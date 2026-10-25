@@ -170,9 +170,9 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
     [Fact]
     public void A_tombstone_held_open_by_another_writer_is_Unreadable_not_Absent()
     {
-        // The locked-file case from the issue. Only Windows enforces a share lock against a reader, so the
-        // claim is only askable there; elsewhere the directory test above covers "could not look".
-        if (!OperatingSystem.IsWindows()) return;
+        // The locked-file case from the issue. It holds on Linux too: .NET takes an advisory lock for a no-sharing
+        // open there, and the store's own open of the same file honours it. (It used to return early off Windows,
+        // which made it pass while checking nothing; run on Linux, it passes with the check made.)
 
         var id = Guid.NewGuid().ToString();
         _store.MarkDelivered(id, submitted: true, movedOn: false, transcript: "said once");
@@ -516,7 +516,7 @@ public sealed class VoiceUploadStoreUnreadableRecordTests : IDisposable
         // a peer process replacing the file) no longer makes OUR read fail - the reader opens
         // ReadWrite-shared, so the writer's own FileShare.Read permits it. What it reads is what it opened,
         // never a guess.
-        if (!OperatingSystem.IsWindows()) return;   // share locks against a reader are a Windows behaviour
+        // Holds on Linux as well as Windows: .NET's share modes are advisory locks there, honoured between its own opens.
         var id = Guid.NewGuid().ToString();
         _store.Register(id);
         _store.MarkPending(id, Guid.NewGuid().ToString());

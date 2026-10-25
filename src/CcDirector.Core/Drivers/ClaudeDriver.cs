@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
@@ -14,10 +14,10 @@ namespace CcDirector.Core.Drivers;
 ///
 ///   - launch: "--dangerously-skip-permissions --session-id &lt;guid&gt;" (preassigned id
 ///     means the JSONL transcript path is known from birth; --resume for resumes)
-///   - submit: backend.SendTextAsync - carries the TUI settle delay, explicit CR, and
+///   - submit: TerminalSubmit.SharedSubmitAsync - carries the TUI settle delay, explicit CR, and
 ///     the large-input @-temp-file trick (multi-line/huge prompts)
 ///   - cancel: a single Esc byte (0x1B) - identical to the Director's POST /escape
-///   - clear: submit "/clear"; claude starts a NEW internal session id and transcript
+///   - clear: the command "/clear", typed by the host; claude starts a NEW internal session id and transcript
 ///     file, which the host re-discovers via ListTranscripts
 ///   - transcripts: the ~/.claude/projects JSONL files, read with the same Core
 ///     parsers the Director uses
@@ -39,8 +39,6 @@ public sealed class ClaudeDriver : IAgentDriver
     /// </summary>
     public const string HeadlessDefaultArgs = AgentToolCatalog.ClaudeSkipPermissionsArg;
 
-    private static readonly byte[] EscapeByte = [0x1B];
-    private static readonly byte[] CtrlC = [0x03];
 
     private readonly ITranscriptReader _transcripts;
     private readonly TimeSpan? _echoTimeout;
@@ -233,21 +231,19 @@ public sealed class ClaudeDriver : IAgentDriver
     /// <summary>Letters, digits and '/' only - the echo comparison alphabet (shared helper).</summary>
     public static string NormalizeForEcho(string s) => TerminalSubmit.NormalizeForEcho(s);
 
-    public Task CancelAsync(ISessionBackend backend)
+    /// <summary>Measured on Claude Code (Terminal Parity baseline, 23 October 2026): a leading "!" opens its bash mode and
+    /// runs the line as a shell command; a leading "/" is a slash command - an unknown one is answered "Unknown command"
+    /// and goes nowhere.</summary>
+    public string? LeadingCharacterMode(string text) => text.Length == 0 ? null : text[0] switch
     {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[ClaudeDriver] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
-    }
+        '!' => "a shell command (Claude Code's bash mode)",
+        '/' => "a slash command",
+        _ => null,
+    };
 
-    public Task InterruptAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[ClaudeDriver] InterruptAsync: sending Ctrl+C");
-        backend.Write(CtrlC);
-        return Task.CompletedTask;
-    }
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
 
     /// <summary>
     /// Claude's double-Esc: with an idle composer, two Esc presses open the Rewind
@@ -256,34 +252,17 @@ public sealed class ClaudeDriver : IAgentDriver
     /// picker appears; 350ms reliably registers as the deliberate double-press
     /// (Director QA DQ-5, docs/features/director-drivers/QA_REPORT.html).
     /// </summary>
-    public async Task ShowHistoryAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[ClaudeDriver] ShowHistoryAsync: sending double-Esc (350ms gap)");
-        backend.Write(EscapeByte);
-        await Task.Delay(TimeSpan.FromMilliseconds(350));
-        backend.Write(EscapeByte);
-    }
+    public DriverInput ShowHistory() =>
+        DriverInput.PressKeys(DriverKey.Escape, DriverKey.Escape.After(TimeSpan.FromMilliseconds(350)));
 
-    public Task ClearContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[ClaudeDriver] ClearContextAsync: submitting /clear");
-        return backend.SendTextAsync("/clear");
-    }
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/clear");
 
     /// <summary>
     /// Claude's <c>/compact</c>: it summarizes the conversation so far and continues from the summary,
-    /// in the SAME agent session. Submitted the same way a person would type it - through the shared
-    /// composer submit, so a composer that is not accepting input fails loud rather than dropping the
-    /// command into the void.
+    /// in the SAME agent session. Typed the way a person would type it - through the host's send path, so a
+    /// composer that is not accepting input fails loud rather than dropping the command into the void.
     /// </summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[ClaudeDriver] CompactContextAsync: submitting /compact");
-        return backend.SendTextAsync("/compact");
-    }
+    public DriverInput CompactContext() => DriverInput.TypeCommand("/compact");
 
     /// <summary>
     /// Has claude finished a compaction since <paramref name="sinceUtc"/>? Read from its own transcript:

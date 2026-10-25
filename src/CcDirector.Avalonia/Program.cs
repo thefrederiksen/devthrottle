@@ -294,6 +294,47 @@ internal static class Program
         if (updateNotice is not null)
             ShowStartupNotice(updateNotice, "Director - Update", MB_ICONWARNING);
 
+        // A MAC INSTALL IN ~/Applications MOVES TO /Applications (issue #4427). Before any session exists, and only
+        // for the installed bundle in the user's own Applications folder when an install would put it in
+        // /Applications - see MacDirectorRelocation for why nothing else moves. Moved: start again from the new
+        // place, through the same wait-for-exit handshake as an update relaunch. Not moved: say where it is, once.
+        if (OperatingSystem.IsMacOS() && RelocateMacBundle() is { } relocation)
+        {
+            if (relocation.Moved)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(
+                        UpdateInstaller.BuildRelaunchStartInfo(relocation.BundlePath, InstanceContext.Slug,
+                            waitForProcessId: Environment.ProcessId, newInstance: true));
+                    FileLog.Write($"[Program] relaunching from {relocation.BundlePath} after the move");
+                    ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
+                    FileLog.Stop();
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    // This process keeps running from where it was loaded; the next start runs from the new place.
+                    FileLog.Write($"[Program] relaunch after the move FAILED: {ex.Message}");
+                }
+            }
+            else
+            {
+                try
+                {
+                    if (MacRelocationNotice.ShouldShow(relocation.BundlePath))
+                    {
+                        ShowStartupNotice(relocation.Message, "DevThrottle - where the app is", MB_ICONWARNING);
+                        MacRelocationNotice.RecordShown(relocation.BundlePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[Program] where-the-app-is notice FAILED: {ex.Message}");
+                }
+            }
+        }
+
         // THE GUARD IS ALREADY HELD. It was claimed near the top of Main, before any update action -
         // see the block there for why it moved and what had to change first. It is NOT re-taken here:
         // the same process claiming its own mutex twice would deadlock on a non-reentrant wait, and a
@@ -395,6 +436,23 @@ internal static class Program
             // The default instance: isolating its home must never stop the app from starting (best effort).
         }
         return null;
+    }
+
+    /// <summary>The Mac move out of ~/Applications (issue #4427). Null when there is nothing to do or say; never
+    /// throws, because where the app sits must not stop it from starting.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static CcDirector.Setup.Engine.MacRelocationResult? RelocateMacBundle()
+    {
+        try
+        {
+            return CcDirector.Setup.Engine.MacDirectorRelocation.TryMove(
+                UpdateInstaller.InstallTarget(), CcDirector.Setup.Engine.InstallLayout.Default(), FileLog.Write);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[Program] RelocateMacBundle FAILED: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>True when <paramref name="slug"/> names an instance other than the default.</summary>

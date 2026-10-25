@@ -220,18 +220,18 @@ public sealed class UnixProcessHost : IDisposable
     /// <summary>Write raw bytes to the process input (PTY master).</summary>
     public void Write(byte[] data)
     {
-        if (_disposed || _hasExited) return;
+        // Every way the bytes can fail to leave is logged and reaches the caller (issue #4380); they used to be dropped
+        // with, at most, a debugger line.
+        if (_disposed || _hasExited)
+            throw Backends.TerminalWriteFailedException.Logged("UnixProcessHost", $"write {data.Length} byte(s)",
+                _disposed ? "the process host has been disposed" : $"the process has exited (pid={ProcessId})");
         try
         {
             _console.Write(data);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            System.Diagnostics.Debug.WriteLine($"[UnixProcessHost Write] IOException: {ex.Message}");
-        }
-        catch (ObjectDisposedException ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[UnixProcessHost Write] ObjectDisposedException: {ex.Message}");
+            throw Backends.TerminalWriteFailedException.Logged("UnixProcessHost", $"write {data.Length} byte(s)", $"the terminal write failed (pid={ProcessId})", ex);
         }
     }
 

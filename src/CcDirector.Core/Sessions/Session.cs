@@ -191,6 +191,13 @@ public sealed class Session : IDisposable
     /// </summary>
     public string PointerDropToken { get; } = SessionHookFiles.NewDropToken();
 
+    private readonly object _stateResolutionGate = new();
+    private readonly HashSet<Guid> _acceptedStateEventIds = new();
+    private readonly List<SessionStateDisagreement> _stateDisagreements = new();
+    private readonly List<SessionStateDiagnostic> _stateDiagnostics = new();
+    private long _lastStateEventSequence;
+    private DateTimeOffset _selectedStateFactAtUtc = DateTimeOffset.MinValue;
+
     /// <summary>If this session was created as part of a group (issue #225), the shared
     /// group identity its members travel by; null for a solo session. Members of the same
     /// group sort adjacently and drag as one unit. Stamped at creation, immutable.</summary>
@@ -923,6 +930,60 @@ public sealed class Session : IDisposable
     /// phase 2.3, and the Director has not painted green since it either.
     /// </summary>
     public ActivityState ActivityState { get; private set; } = ActivityState.WaitingForInput;
+
+    /// <summary>The source whose fact selected <see cref="ActivityState"/>.</summary>
+    public string ActivityStateSource { get; private set; } = SessionStateSources.Initial;
+
+    /// <summary>True only when the selected state came from the last-resort silence timer.</summary>
+    public bool ActivityStateIsFallback { get; private set; }
+
+    /// <summary>A bounded snapshot of lower-priority facts that contradicted the selected fact.</summary>
+    public IReadOnlyList<SessionStateDisagreement> StateDisagreements
+    {
+        get
+        {
+            lock (_stateResolutionGate)
+                return _stateDisagreements.ToArray();
+        }
+    }
+
+    /// <summary>A bounded snapshot of adapter event types the installed command-line program did not support.</summary>
+    public IReadOnlyList<SessionStateDiagnostic> StateDiagnostics
+    {
+        get
+        {
+            lock (_stateResolutionGate)
+                return _stateDiagnostics.ToArray();
+        }
+    }
+
+    internal bool ApplyAgentStateEvent(SessionStateEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        var now = Clock.GetUtcNow();
+        lock (_stateResolutionGate)
+        {
+            if (evt.SessionId != Id || !SessionStateEventContract.MatchesAgent(evt.Agent, AgentKind)) return false;
+            if (evt.Sequence <= _lastStateEventSequence || _acceptedStateEventIds.Contains(evt.EventId)) return false;
+            if (!SessionStateEventContract.IsTimestampAccepted(evt.OccurredAtUtc, now)) return false;
+
+            _lastStateEventSequence = evt.Sequence;
+            _acceptedStateEventIds.Add(evt.EventId);
+            if (evt.Event == "unsupported")
+            {
+                RecordStateDiagnosticLocked(evt, now);
+                return true;
+            }
+
+            ApplyResolvedActivityStateLocked(
+                SessionStateEventContract.StateFor(evt.Event),
+                SessionStateSources.Agent,
+                evt.OccurredAtUtc,
+                isFallback: false,
+                positiveIdleComposer: false);
+            return true;
+        }
+    }
 
     /// <summary>The session_id reported by Claude hooks, used for routing.</summary>
     public string? ClaudeSessionId { get; internal set; }
@@ -1753,8 +1814,8 @@ public sealed class Session : IDisposable
     /// </summary>
     private void RecordSupervisionFacts(ActivityState old, ActivityState @new)
     {
-        var wasWaiting = old is ActivityState.WaitingForInput or ActivityState.WaitingForPerm;
-        var isWaiting = @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm;
+        var wasWaiting = old is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen;
+        var isWaiting = @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen;
 
         if (@new == ActivityState.WaitingForInput)
             _turnCount++;
@@ -2623,6 +2684,42 @@ public sealed class Session : IDisposable
     public async Task DeliverPrePromptAsync(string text, TimeSpan wait)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        try
+        {
+            await DeliverPrePromptCoreAsync(text, wait);
+        }
+        catch (Exception ex)
+        {
+            // A first prompt that throws was not delivered (TextSendOutcome: a send that throws is known not submitted).
+            // That fact is the session's own, apart from every later send (issue #3392 review, finding 1), so a schedule
+            // can tell "its seed never arrived" from "a send an hour later failed". Recorded, then rethrown untouched.
+            RecordFirstPromptFailure(ex is Drivers.ComposerNotAcceptingInputException
+                ? PromptDeliveryFailures.Tally(Id).LastFailureReason ?? ex.Message
+                : ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>When this session's first prompt was found not delivered (UTC), or null when it was delivered, is still
+    /// being delivered, or there was none (issue #3392). Set once, by <see cref="DeliverPrePromptAsync"/>; a later send's
+    /// failure never sets it.</summary>
+    public DateTime? FirstPromptFailedAtUtc { get; private set; }
+
+    /// <summary>Why this session's first prompt was not delivered, in the Director's words; null with
+    /// <see cref="FirstPromptFailedAtUtc"/>.</summary>
+    public string? FirstPromptFailureReason { get; private set; }
+
+    internal void RecordFirstPromptFailure(string reason)
+    {
+        if (FirstPromptFailedAtUtc is not null) return;
+        FirstPromptFailureReason = string.IsNullOrWhiteSpace(reason) ? "the first prompt was not delivered" : reason.Trim();
+        FirstPromptFailedAtUtc = DateTime.UtcNow;
+        FileLog.Write($"[Session] first prompt NOT delivered: session={Id}: {FirstPromptFailureReason}");
+        RaisePromptDeliveryChanged();
+    }
+
+    private async Task DeliverPrePromptCoreAsync(string text, TimeSpan wait)
+    {
         // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
         var provenance = SubmissionProvenance.FrameworkText();
         // API mode (issue #4070, phase 1 review finding 2): there is no screen to watch for readiness, and no need - the
@@ -2790,6 +2887,16 @@ public sealed class Session : IDisposable
         {
             lock (_screenLock)
                 return _screenParser?.BracketedPasteEnabled ?? false;
+        }
+    }
+
+    /// <summary>True when the terminal application requested application cursor-key mode (DECCKM, ?1).</summary>
+    public bool ApplicationCursorKeys
+    {
+        get
+        {
+            lock (_screenLock)
+                return _screenParser?.ApplicationCursorKeys ?? false;
         }
     }
 
@@ -3185,7 +3292,7 @@ public sealed class Session : IDisposable
         foreach (var held in _heldKeystrokes)
         {
             _inputGeneration++;
-            WriteRawInput(held.Data, held.Origin);
+            WriteRawInput(held.Data, held.Origin, held.Provenance);
             released.Add(new ReleasedKeystrokes(held, NoteRawInputLocked(held.Data, held.Provenance)));
         }
         _heldKeystrokes.Clear();
@@ -3237,15 +3344,16 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Writes raw terminal input. Only keystrokes typed on THIS machine's own terminal (typed, on the desktop surface - the
-    /// desktop terminal control is the one sender of those) count as a person at the terminal, and are the one kind
-    /// that reaches Claude Code's usage-limit dialog (<see cref="UsageLimitInputGuard"/>). Typed input from the phone
-    /// or a Cockpit browser arrives through the Gateway as a prompt, and its sender may not be looking at the dialog at
-    /// all - it is refused like any other automatic input (review of pull request 3863, finding 1).
+    /// Writes raw terminal input. Keys a person types into a terminal they are looking at - the desktop terminal, or a
+    /// live browser terminal by the Gateway's terminal route - count as a person at the terminal, and are the kind that
+    /// reaches Claude Code's usage-limit dialog (<see cref="UsageLimitInputGuard.IsAPersonAtTheTerminal"/>). So does text
+    /// from the phone or the Cockpit sent as a prompt without an Enter - the Cockpit pane's keys travel that way - which is
+    /// the owner's own input (<see cref="UsageLimitInputGuard.PromptPassesTheDialog"/>, the owner's decision 10). Anything
+    /// else is refused like any other automatic input (review of pull request 3863, finding 1).
     /// </summary>
-    private void WriteRawInput(byte[] data, InputOrigin? origin)
+    private void WriteRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
-        if (origin is not { Modality: InputModality.Typed, Surface: InputSurface.Desktop })
+        if (!UsageLimitInputGuard.IsAPersonAtTheTerminal(origin, provenance.Route) && !UsageLimitInputGuard.PromptPassesTheDialog(origin))
         {
             _backend.Write(data);
             return;
@@ -3292,6 +3400,9 @@ public sealed class Session : IDisposable
     /// </summary>
     internal bool EscapeUsageLimitDialogIfShowing()
     {
+        // An ended session has no terminal to write to; a write there now throws (issue #4380), and this runs on the
+        // detector's settle timer.
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return false;
         if (!ReadUsageLimitDialog().Showing)
         {
             _usageLimitEscapeSent = false;
@@ -3313,44 +3424,30 @@ public sealed class Session : IDisposable
     /// Reset at each submission. See <see cref="StampSubmission"/>.</summary>
     private int _pendingOriginChars;
 
-    public void SendInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
-        => SendInputCore(data, origin, provenance, refuseWhileSending: false);
-
-    /// <summary>
-    /// One keystroke pressed from outside - an agent's Enter (the owner's ruling, 21 October 2026) - written exactly as
-    /// <see cref="SendInput"/> writes it, unless a send is being typed into the session (<see cref="SendInProgress"/>):
-    /// then nothing is written or held, and it answers false. Decided under the input lock, where a guarded send takes
-    /// the input, so a keystroke is never held while its sender is told it was pressed.
-    /// </summary>
-    internal bool SendKeystrokeUnlessSending(byte[] data, SubmissionProvenance provenance)
-        => SendInputCore(data, origin: null, provenance, refuseWhileSending: true);
-
-    private bool SendInputCore(byte[] data, InputOrigin? origin, SubmissionProvenance provenance, bool refuseWhileSending)
+    /// <returns>Written; held, while a guarded send holds the input, to be written after it in order; or refused, with
+    /// the reason, when the session has ended or the usage-limit guard dropped it (issue #4380: every input route
+    /// answers).</returns>
+    public InputAnswer SendInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
     {
         ArgumentNullException.ThrowIfNull(provenance);
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return false;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("SendInput");
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
+        bool submits;
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
         // Under the input lock, and counted as input. While a guarded send holds the input, the keystroke is held and
         // written after that send, in order; otherwise it is written now and is in flight until its meaning is applied.
-        bool submits;
         lock (_inputLock)
         {
-            if (refuseWhileSending && (_guardedSection is not null || _submitGate.CurrentCount == 0))
-            {
-                FileLog.Write($"[Session] SendInput: session={Id}: a send is being typed into this session; the keystroke is " +
-                              "refused, not held");
-                return false;
-            }
             if (_guardedSection is not null)
             {
                 _heldKeystrokes.Add(new HeldKeystrokes(data.ToArray(), origin, provenance));
                 FileLog.Write($"[Session] SendInput: session={Id}: a guarded send holds the input; keystroke held until it finishes " +
                               $"({_heldKeystrokes.Count} held)");
-                return true;
+                return InputAnswer.Held(HeldWhileSending);
             }
             _inputGeneration++;
             _inputInFlight++;
-            try { WriteRawInput(data, origin); }
+            try { WriteRawInput(data, origin, provenance); }
             catch
             {
                 // Nothing was written, so nothing is in flight: a refused write must not leave the counter raised
@@ -3362,7 +3459,70 @@ public sealed class Session : IDisposable
         }
         try { AfterRawInput(data, origin, provenance, submits); }
         finally { EndInput(); }
-        return true;
+        if (refusals.Refused)
+            return InputAnswer.Refused(UsageLimitInputGuard.RefusedReason);
+        return InputAnswer.Written;
+    }
+
+    /// <summary>The reason a held keystroke carries.</summary>
+    internal const string HeldWhileSending =
+        "a send is being typed into the session; the keystroke is written after it, in the order it was pressed";
+
+    /// <summary>
+    /// One keystroke pressed from outside - the phone's Enter (the owner's ruling, 21 October 2026) - written as
+    /// <see cref="SendInput"/> writes it. While a send is being typed into the session it is HELD and pressed after that
+    /// send, in order, exactly as the desktop's keys are held - never refused (the owner's decision 8, 23 October 2026:
+    /// no gate a person at the terminal does not have) and never written inside the send, where an Enter would submit
+    /// half of it. Decided under the input lock, where a send takes the input, so a keystroke is never written inside a
+    /// send that started a moment before.
+    /// </summary>
+    internal InputAnswer PressKeyAfterAnySend(byte[] data, SubmissionProvenance provenance)
+    {
+        ArgumentNullException.ThrowIfNull(provenance);
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("PressKeyAfterAnySend");
+        lock (_inputLock)
+        {
+            if (_guardedSection is null && _submitGate.CurrentCount == 0)
+            {
+                _keysAfterSend.Add(new HeldKeystrokes(data.ToArray(), null, provenance));
+                FileLog.Write($"[Session] PressKeyAfterAnySend: session={Id}: a send is being typed; the keystroke is held and " +
+                              $"pressed when it ends ({_keysAfterSend.Count} held)");
+                return InputAnswer.Held(HeldWhileSending);
+            }
+        }
+        return SendInput(data, origin: null, provenance);
+    }
+
+    /// <summary>Keystrokes pressed from outside while an ordinary send held the one-at-a-time gate, pressed when it ends.
+    /// Read and written under the input lock.</summary>
+    private readonly List<HeldKeystrokes> _keysAfterSend = new();
+
+    /// <summary>
+    /// End an ordinary send: press the keys held for it (<see cref="PressKeyAfterAnySend"/>), in order, while the gate is
+    /// still held so no other send can start between them, then release the gate. The last check for held keys and the
+    /// release happen under the input lock together, so a key held a moment before the release is never left behind.
+    /// </summary>
+    private void EndSendAndPressHeldKeys()
+    {
+        while (true)
+        {
+            List<HeldKeystrokes> pending;
+            lock (_inputLock)
+            {
+                if (_keysAfterSend.Count == 0)
+                {
+                    _submitGate.Release();
+                    return;
+                }
+                pending = new List<HeldKeystrokes>(_keysAfterSend);
+                _keysAfterSend.Clear();
+            }
+            foreach (var held in pending)
+            {
+                var answer = SendInput(held.Data, held.Origin, held.Provenance);
+                FileLog.Write($"[Session] EndSendAndPressHeldKeys: session={Id}: a key held during the send, {held.Data.Length} byte(s): {answer}");
+            }
+        }
     }
 
     /// <summary>
@@ -3687,7 +3847,19 @@ public sealed class Session : IDisposable
         // the first keystroke: the prompt verb checked the age at receipt, and a prompt that then waits in the host's
         // queue - behind a running turn, or while Pi starts - is written however long it waited, by design; the queue IS
         // where it is meant to wait.
-        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
+        if (_apiMode is { } apiMode)
+        {
+            if (PendingInteraction is { AgentRequestId: { } requestId, AgentRequestMethod: { } method })
+            {
+                FileLog.Write($"[Session] SendTextAsync: answering Pi interaction session={Id}, request={requestId}, method={method}");
+                if (!await apiMode.Host.AnswerInteractionAsync(requestId, method, text, CancellationToken.None))
+                    return TextSendOutcome.RefusedBeforeTyping("Pi is not running, so its pending interaction could not be answered.");
+                PendingInteraction = null;
+                SetActivityState(ActivityState.Working);
+                return TextSendOutcome.Delivered;
+            }
+            return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
+        }
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
@@ -4448,7 +4620,10 @@ public sealed class Session : IDisposable
     /// Enter is a fair witness; for a working agent, whose output proves nothing, the send is still delivering - never
     /// reported delivered, and nothing is cleared or typed again.
     /// </summary>
-    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed)
+    /// <param name="leadingMode">What the text's first character made of it (<see cref="Drivers.IAgentDriver.LeadingCharacterMode"/>),
+    /// or null. A command the agent refused stays in its composer; the refusal then names the mode, so the sender learns why
+    /// (issue #4380).</param>
+    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed, string? leadingMode = null)
     {
         if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
@@ -4468,7 +4643,9 @@ public sealed class Session : IDisposable
             Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
             throw new Drivers.PromptNotSubmittedException(
                 $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
-                $"submitted. It is left there, exactly as typed, and is not typed again. Session={Id}, len={typed.Length}.");
+                $"submitted. It is left there, exactly as typed, and is not typed again." +
+                (leadingMode is null ? "" : $" Its first character makes it {leadingMode} in {AgentKind}, and {AgentKind} did not take it.") +
+                $" Session={Id}, len={typed.Length}.");
         }
         if (!AgentShowsWorking())
         {
@@ -4597,6 +4774,9 @@ public sealed class Session : IDisposable
         // ruling 15). A send that fails puts the previous value back.
         var priorOrigin = WorkingOrigin;
         WorkingOrigin = OriginFor(source, origin);
+        // THE OWNER'S OWN PROMPT FROM THE PHONE OR THE COCKPIT goes through Claude Code's usage-limit dialog as a person at
+        // the terminal does (the Terminal Parity mission, the owner's decision 10).
+        using var remotePerson = UsageLimitInputGuard.PromptPassesTheDialog(origin) ? UsageLimitInputGuard.PersonAtTheTerminal() : null;
         try
         {
             if (BackendType is SessionBackendType.ConPty)
@@ -4619,6 +4799,9 @@ public sealed class Session : IDisposable
                     return refusedAtTheKeystroke;
                 }
                 var proof = BeginArrivalProof(target, text);
+                // A LINE THE AGENT TAKES AS A COMMAND IS ENTERED ONCE (issue #4380): see TerminalSubmit's commandLine.
+                var leadingMode = Driver.LeadingCharacterMode(text.TrimEnd('\r', '\n'));
+                var commandLine = leadingMode is not null;
                 Task<string> Submit(bool clearFirst = false) => Drivers.TerminalSubmit.SharedSubmitAsync(
                     target,
                     text,
@@ -4635,7 +4818,9 @@ public sealed class Session : IDisposable
                     composerText: ComposerTextReader(),
                     composerSeen: ComposerSeen(),
                     composerRegion: ComposerRegionReader(),
-                    clock: Clock);
+                    clock: Clock,
+                    commandLine: commandLine,
+                    writeClearKeys: ReferenceEquals(target, _backend) ? keys => WriteClearKeysUnlessSomeoneTyped(keys, ownerTextBefore) : null);
 
                 string typed;
                 try
@@ -4668,11 +4853,11 @@ public sealed class Session : IDisposable
                 if (proof is not null)
                     outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
                 else if (ReferenceEquals(target, _backend))
-                    outcome = await ConfirmLeftComposerAsync(typed);
+                    outcome = await ConfirmLeftComposerAsync(typed, leadingMode);
                 }
                 finally
                 {
-                    _submitGate.Release();
+                    EndSendAndPressHeldKeys();
                 }
             }
             else
@@ -4734,6 +4919,34 @@ public sealed class Session : IDisposable
         SetActivityState(ActivityState.Working);
         return outcome;
     }
+
+    /// <summary>
+    /// The clear keys for a send's own earlier text, written ONLY if no text has reached the terminal through the
+    /// session's input since the send began (<paramref name="ownerTextBefore"/>), and decided and written under the input
+    /// lock, where every keystroke is written, so none can land between the check and the keys (review of pull request
+    /// 4396, finding 1). Without this a person typing during the clear's wait for quiet had their words erased with the
+    /// line. False when it wrote nothing; the send then clears nothing and types after what is there. A guarded send
+    /// needs none of this: it holds the person's keys until it ends.
+    /// </summary>
+    private bool WriteClearKeysUnlessSomeoneTyped(byte[] keys, long ownerTextBefore)
+    {
+        BeforeClearKeysForTests?.Invoke();
+        lock (_inputLock)
+        {
+            if (_ownerTextCount != ownerTextBefore)
+            {
+                FileLog.Write($"[Session] clear keys NOT pressed: session={Id}: text reached the composer through the session's " +
+                              "input after this send began; its words are kept and the send types after them");
+                return false;
+            }
+            _backend.Write(keys);
+            return true;
+        }
+    }
+
+    /// <summary>Test seam: runs immediately before the clear keys are decided, so a test can type into the session at the
+    /// last moment of the clear's wait. Null in every real session.</summary>
+    internal Action? BeforeClearKeysForTests { get; set; }
 
     /// <summary>
     /// THE PROMPT'S AGE AT THE FIRST KEYSTROKE (Voice Delivery mission, phase 5, QA finding F6): the check the
@@ -4811,15 +5024,59 @@ public sealed class Session : IDisposable
             ? AgentPlugins.AgentPluginRegistry.Get(AgentKind).Driver
             : Drivers.AgentDrivers.For(AgentKind));
 
-    /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
-    public async Task CancelTurnAsync()
+    /// <summary>Soft-stop the current turn (Esc for Claude and pi). Answers written, or refused with the reason.</summary>
+    public async Task<InputAnswer> CancelTurnAsync()
     {
         // API mode (issue #4070): Stop is the agent's own abort, confirmed by the agent ending the turn cancelled.
-        if (_apiMode is not null) { await StopApiModeTurnAsync(); return; }
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_apiMode is not null)
+            return await StopApiModeTurnAsync() is { } refusal ? InputAnswer.Refused(refusal) : InputAnswer.Written;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("cancel");
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.CancelAsync(_backend);
+            return await TypeDriverInputAsync(Driver.Cancel(), "cancel");
+    }
+
+    /// <summary>
+    /// THE ONE PLACE A DRIVER'S INPUT IS TYPED (issue #4380). The driver said what; this types it. A command goes through
+    /// <see cref="SubmitTextAsync"/> - the one-send-at-a-time gate, the look before typing and the check after the Enter
+    /// that every prompt gets - so it cannot be typed into an open menu or a dialog: it is refused there, with nothing
+    /// typed, by <see cref="Drivers.ComposerNotAcceptingInputException"/>. Keys are written through the session's own
+    /// terminal, in order, each after its pause, and answered refused when the usage-limit guard dropped one. Called with
+    /// the session's input begun.
+    /// </summary>
+    private async Task<InputAnswer> TypeDriverInputAsync(Drivers.DriverInput input, string verb)
+    {
+        FileLog.Write($"[Session] TypeDriverInputAsync: session={Id}, verb={verb}, driver={Driver.Kind}, input={input}");
+        if (input.Command is { } command)
+        {
+            // Framework, not Agent or UserInput: the product's own command for a verb somebody asked for. It must not clear
+            // the owner's hold and is nobody's turn in the statistics.
+            var outcome = await SubmitTextAsync(_backend, command, SubmissionProvenance.FrameworkText(), SendSource.Framework,
+                origin: null, allowBracketedPaste: false, sentAtUtc: null);
+            var answer = outcome.NothingTyped ? InputAnswer.Refused(outcome.Reason!) : InputAnswer.Written;
+            FileLog.Write($"[Session] TypeDriverInputAsync done: session={Id}, verb={verb}, {answer}" +
+                          (outcome.Confirmed || outcome.NothingTyped ? "" : $" - still delivering: {outcome.Reason}"));
+            return answer;
+        }
+
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+        foreach (var key in input.Keys)
+        {
+            if (key.PauseBefore > TimeSpan.Zero) await Task.Delay(key.PauseBefore, Clock);
+            _backend.Write(key.Bytes);
+        }
+        var keysAnswer = refusals.Refused
+            ? InputAnswer.Refused($"the usage-limit dialog is showing, and only Escape reaches it; {input} did not all reach the terminal")
+            : InputAnswer.Written;
+        FileLog.Write($"[Session] TypeDriverInputAsync done: session={Id}, verb={verb}, {keysAnswer}");
+        return keysAnswer;
+    }
+
+    /// <summary>The answer for input to a session that has ended.</summary>
+    private InputAnswer NotRunningAnswer(string verb)
+    {
+        FileLog.Write($"[Session] {verb}: session={Id} is {Status}; nothing was typed");
+        return InputAnswer.Refused($"the session has {Status.ToString().ToLowerInvariant()}; nothing was typed");
     }
 
     /// <summary>
@@ -4962,11 +5219,29 @@ public sealed class Session : IDisposable
                     SetActivityState(ActivityState.WaitingForInput);
                     break;
                 case Gateway.Contracts.ApiMode.TurnEnded:
+                    // A Pi extension dialog belongs to the turn that raised it. Pi emits no separate event when the
+                    // dialog times out or is abandoned by Stop, so the turn end is the authoritative end of the ask.
+                    PendingInteraction = null;
                     if (!processEnded)
                         SetActivityState(ActivityState.WaitingForInput);
                     break;
+                case Gateway.Contracts.ApiMode.ConnectionEnded:
+                    PendingInteraction = null;
+                    break;
                 case Gateway.Contracts.ApiMode.TurnStarted:
                     SetActivityState(ActivityState.Working);
+                    break;
+                case Gateway.Contracts.ApiMode.InteractionRequested interaction:
+                    PendingInteraction = new PendingInteraction
+                    {
+                        Kind = PendingInteractionKind.Question,
+                        CreatedAt = interaction.At,
+                        Prompt = interaction.Prompt,
+                        Options = interaction.Options.Select(option => new PendingInteractionOption { Label = option }).ToList(),
+                        AgentRequestId = interaction.RequestId,
+                        AgentRequestMethod = interaction.Method,
+                    };
+                    SetActivityState(ActivityState.WaitingForInput);
                     break;
             }
         }
@@ -4994,21 +5269,21 @@ public sealed class Session : IDisposable
 
     /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
     /// its driver throws because Ctrl+C twice quits pi).</summary>
-    public async Task InterruptAsync()
+    public async Task<InputAnswer> InterruptAsync()
     {
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("interrupt");
         FileLog.Write($"[Session] InterruptAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.InterruptAsync(_backend);
+            return await TypeDriverInputAsync(Driver.Interrupt(), "interrupt");
     }
 
     /// <summary>Open the tool's in-terminal history picker (Claude's double-Esc).</summary>
-    public async Task ShowHistoryAsync()
+    public async Task<InputAnswer> ShowHistoryAsync()
     {
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return NotRunningAnswer("history");
         FileLog.Write($"[Session] ShowHistoryAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
-            await Driver.ShowHistoryAsync(_backend);
+            return await TypeDriverInputAsync(Driver.ShowHistory(), "history");
     }
 
     /// <summary>
@@ -5018,6 +5293,10 @@ public sealed class Session : IDisposable
     /// then re-link via SessionManager.RelinkClaudeSession so the manager's id map and
     /// metadata follow; this closes the stale-relink gap found in the issue #172 spike.
     /// Returns the new id, or null when the tool has no readable transcripts.
+    ///
+    /// The command is typed by <see cref="TypeDriverInputAsync"/>, through the same send path as a prompt (issue #4380):
+    /// with a menu or a dialog on the screen it throws <see cref="Drivers.ComposerNotAcceptingInputException"/> and types
+    /// nothing.
     /// </summary>
     public async Task<string?> ClearContextAsync(CancellationToken ct = default)
     {
@@ -5031,7 +5310,9 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] ClearContextAsync: session={Id}, driver={driver.Kind}, oldAgentSessionId={oldId ?? "(none)"}");
         var t0 = DateTime.UtcNow;
         using (await BeginInputAsync())
-            await driver.ClearContextAsync(_backend);
+            if (await TypeDriverInputAsync(driver.ClearContext(), "clear") is { Kind: InputAnswerKind.Refused } refused)
+                throw new Drivers.ComposerNotAcceptingInputException($"[Session] ClearContextAsync: nothing was typed: {refused.Reason}")
+                { TerminalReacted = false };
 
         if (!driver.Capabilities.HasFlag(Drivers.DriverCapabilities.TranscriptRead) || oldId is null)
         {
@@ -5131,7 +5412,9 @@ public sealed class Session : IDisposable
 
         var t0 = DateTime.UtcNow;
         using (await BeginInputAsync())
-            await driver.CompactContextAsync(_backend);
+            if (await TypeDriverInputAsync(driver.CompactContext(), "compact") is { Kind: InputAnswerKind.Refused } refused)
+                throw new Drivers.ComposerNotAcceptingInputException($"[Session] CompactContextAsync: nothing was typed: {refused.Reason}")
+                { TerminalReacted = false };
         SetActivityState(ActivityState.Working);
 
         if (!canObserve)
@@ -5178,9 +5461,16 @@ public sealed class Session : IDisposable
             "submitted; no follow-up was sent.");
     }
 
-    private void SetActivityState(ActivityState newState)
+    private void SetActivityState(
+        ActivityState newState,
+        string source = SessionStateSources.Core,
+        bool isFallback = false,
+        DateTimeOffset? occurredAtUtc = null)
     {
         var old = ActivityState;
+        ActivityStateSource = source;
+        ActivityStateIsFallback = isFallback;
+        _selectedStateFactAtUtc = occurredAtUtc ?? Clock.GetUtcNow();
         if (old == newState) return;
         ActivityState = newState;
         // NO HOLD EDGES LIVE HERE, AND NONE MAY BE ADDED. Activity does not decide hold. This method used
@@ -5196,15 +5486,15 @@ public sealed class Session : IDisposable
         // A real activity change ends any Wingman "running in the background" overlay: once the
         // terminal produces output again (Working), or the session otherwise leaves the parked
         // turn-end it was judged at, the background-wait verdict is stale. The next turn-end
-        // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+        // briefing re-evaluates from scratch. Only states waiting on the owner preserve it.
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             IsBackgroundRunning = false;
         // The same edge drops any structured ask. The user answered the question box or approved the
         // plan, the session went back to work, and a question box left standing in the Smart shutdown
         // dialog would send the owner hunting for a question nobody is asking. PendingInteraction has
         // documented this clearing since it was written; until the detection that fills it landed
         // (PendingInteractionWatcher) there was nothing to clear, and so no code here saying it.
-        if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
+        if (!ActivityStateFacts.IsTurnEnd(newState))
             PendingInteraction = null;
         // The work that a submission explained is over once the session settles or exits; the next working
         // edge is explained only by the next submission.
@@ -5244,10 +5534,130 @@ public sealed class Session : IDisposable
     // from "blocked on a question" - the thing the detector explicitly refuses to do. See issue #1564.
 
     /// <summary>
-    /// Set ActivityState from the <c>TerminalStateDetector</c> in terminal-driven mode.
-    /// The detector is the single authority for state in that mode; this is its writer.
+    /// Submit the silence detector's last-resort state fact. Agent, screen, and Wingman facts outrank it.
     /// </summary>
-    internal void ApplyTerminalActivityState(ActivityState newState) => SetActivityState(newState);
+    internal void ApplyTerminalActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(
+            newState,
+            newState == ActivityState.Working ? SessionStateSources.TerminalOutput : SessionStateSources.SilenceTimer,
+            Clock.GetUtcNow(),
+            isFallback: newState != ActivityState.Working);
+
+    /// <summary>Submit a positive per-agent screen reading.</summary>
+    internal void ApplyScreenActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(newState, SessionStateSources.Screen, Clock.GetUtcNow(), isFallback: false);
+
+    /// <summary>
+    /// Submit positive evidence that the idle composer is visible with no working marker. This can
+    /// end an agent-selected turn whose adapter missed its interrupt or error-stop event.
+    /// </summary>
+    internal void ApplyIdleComposerActivityState() =>
+        ApplyResolvedActivityState(
+            ActivityState.WaitingForInput,
+            SessionStateSources.Screen,
+            Clock.GetUtcNow(),
+            isFallback: false,
+            positiveIdleComposer: true);
+
+    /// <summary>
+    /// Submit the Wingman interpretation of an already detected unclear stop. This never detects the stop itself.
+    /// </summary>
+    internal void ApplyWingmanActivityState(ActivityState newState) =>
+        ApplyResolvedActivityState(newState, SessionStateSources.Wingman, Clock.GetUtcNow(), isFallback: false);
+
+    private void ApplyResolvedActivityState(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        bool isFallback,
+        bool positiveIdleComposer = false)
+    {
+        lock (_stateResolutionGate)
+            ApplyResolvedActivityStateLocked(reportedState, reportedSource, reportedAtUtc, isFallback, positiveIdleComposer);
+    }
+
+    private void ApplyResolvedActivityStateLocked(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        bool isFallback,
+        bool positiveIdleComposer)
+    {
+        var selectedPriority = SessionStateSources.Priority(ActivityStateSource);
+        var reportedPriority = SessionStateSources.Priority(reportedSource);
+        var disagrees = reportedState != ActivityState;
+
+        // Agreement does not let weaker evidence take ownership of an agent-selected state. If it
+        // did, one output byte would demote agent Working to terminal-output and the next quiet
+        // settle could incorrectly paint a still-running turn as waiting.
+        if (!disagrees && selectedPriority >= reportedPriority)
+            return;
+
+        var isLater = reportedAtUtc > _selectedStateFactAtUtc;
+        // Permission is an edge, not a permanent latch. Some agents do not report the matching
+        // approval-completed edge, so any later fact that says the session is no longer at that
+        // permission gate supersedes it even when that fact comes from a lower-priority source.
+        var clearsPermission = ActivityState == ActivityState.WaitingForPerm
+            && isLater
+            && (reportedState == ActivityState.Working
+                || (reportedSource == SessionStateSources.Screen
+                    && reportedState == ActivityState.WaitingForInput));
+        // Silence after terminal output is the other half of that detector's own work cycle. It
+        // does not advance an agent-selected cycle: only the adapter ends one of those.
+        var advancesTerminalCycle = isLater
+            && ActivityStateSource == SessionStateSources.TerminalOutput
+            && reportedSource == SessionStateSources.SilenceTimer;
+        var clearsUnreportedAgentStop = isLater
+            && positiveIdleComposer
+            && ActivityStateSource == SessionStateSources.Agent
+            && ActivityState is ActivityState.Working or ActivityState.MenuOpen;
+        if (disagrees && selectedPriority > reportedPriority
+            && !clearsPermission
+            && !advancesTerminalCycle
+            && !clearsUnreportedAgentStop)
+        {
+            RecordStateDisagreementLocked(reportedState, reportedSource, reportedAtUtc);
+            FileLog.Write($"[Session] state fact DISAGREED: session={Id}, reported={reportedState}/{reportedSource}, selected={ActivityState}/{ActivityStateSource}");
+            return;
+        }
+
+        if (disagrees && selectedPriority > 0)
+            RecordStateDisagreementLocked(ActivityState, ActivityStateSource, _selectedStateFactAtUtc,
+                reportedState, reportedSource);
+
+        SetActivityState(reportedState, reportedSource, isFallback, reportedAtUtc);
+    }
+
+    private void RecordStateDiagnosticLocked(SessionStateEvent evt, DateTimeOffset recordedAtUtc)
+    {
+        const int maximumDiagnostics = 100;
+        if (_stateDiagnostics.Count == maximumDiagnostics)
+            _stateDiagnostics.RemoveAt(0);
+        var rawType = evt.Detail ?? throw new InvalidOperationException("A validated unsupported event has no detail.");
+        var cliVersion = evt.CliVersion ?? throw new InvalidOperationException("A validated unsupported event has no command-line program version.");
+        _stateDiagnostics.Add(new SessionStateDiagnostic(
+            recordedAtUtc, evt.EventId, evt.Sequence, evt.Agent, rawType, cliVersion));
+        FileLog.Write($"[Session] state adapter UNSUPPORTED: session={Id}, agent={evt.Agent}, rawType={rawType}, cliVersion={cliVersion}, sequence={evt.Sequence}");
+    }
+
+    private void RecordStateDisagreementLocked(
+        ActivityState reportedState,
+        string reportedSource,
+        DateTimeOffset reportedAtUtc,
+        ActivityState? selectedState = null,
+        string? selectedSource = null)
+    {
+        const int maximumDisagreements = 100;
+        if (_stateDisagreements.Count == maximumDisagreements)
+            _stateDisagreements.RemoveAt(0);
+        _stateDisagreements.Add(new SessionStateDisagreement(
+            Clock.GetUtcNow(),
+            reportedState,
+            reportedSource,
+            reportedAtUtc,
+            selectedState ?? ActivityState,
+            selectedSource ?? ActivityStateSource));
+    }
 
     /// <summary>
     /// Refresh Claude session metadata from sessions-index.json.

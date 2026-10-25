@@ -154,6 +154,15 @@ public partial class CompleteStep : UserControl
             SetupLog.Write($"[CompleteStep] warning shown: {text.Replace("\n", " | ")}");
         }
 
+        // On a Mac the app a person looks for is DevThrottle (issue #4427): the button says so, and a panel says
+        // where it is and offers to keep it in the Dock.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && directorInstalled)
+        {
+            LaunchButton.Content = InstallCompletion.MacOpenButtonText;
+            MacPlaceText.Text = InstallCompletion.MacPlaceText(installPath);
+            MacPlacePanel.IsVisible = true;
+        }
+
         SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, warnings={warnings?.Count ?? 0}, directorInstalled={directorInstalled}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
     }
 
@@ -250,6 +259,28 @@ public partial class CompleteStep : UserControl
         catch (Exception ex)
         {
             SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {ex}");
+        }
+    }
+
+    private async void KeepInDockButton_Click(object? sender, RoutedEventArgs e)
+    {
+        SetupLog.Write($"[CompleteStep] KeepInDockButton_Click: {_installPath}");
+        try
+        {
+            KeepInDockButton.IsEnabled = false;
+            KeepInDockResult.Text = "Adding to the Dock...";
+            var path = _installPath;
+            var (ok, message) = await Task.Run(() => OperatingSystem.IsMacOS()
+                ? MacDock.KeepInDock(path, SetupLog.Write)
+                : (false, "The Dock is on a Mac only."));
+            KeepInDockResult.Text = message;
+            KeepInDockButton.IsEnabled = !ok;
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[CompleteStep] KeepInDockButton_Click FAILED: {ex}");
+            KeepInDockResult.Text = $"DevThrottle could not be added to the Dock: {ex.Message}";
+            KeepInDockButton.IsEnabled = true;
         }
     }
 

@@ -22,6 +22,7 @@ const cronClient = vi.hoisted(() => ({
   createCronJob: vi.fn(),
   getCronPause: vi.fn(),
   setCronPause: vi.fn(),
+  getFolderChoices: vi.fn(async (machine: string) => ({ machine, os: "", osName: "Unknown", online: true, placeholder: "", note: null, repositories: [] })),
   getSeatChoices: vi.fn(async () => ({ noneLabel: "No factory (Personal)", factories: [] })),
 }));
 // The write body is the real one: what a tap sends is part of what is proven here.

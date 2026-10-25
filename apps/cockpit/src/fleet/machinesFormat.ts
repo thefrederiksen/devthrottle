@@ -1,4 +1,5 @@
 import type { FleetMachine, FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
+import type { ActionOutcome } from "./MachineActions";
 
 // Layout helpers for the machines view (fleet maintenance, devthrottle_internal#2026). They decide HOW a Gateway
 // verdict is drawn, never what it means: the tone, the label and whether an action is offered all arrive folded.
@@ -30,4 +31,12 @@ export function versionStateByDirector(view: FleetMachines | null) {
   if (view === null) return map;
   for (const m of view.machines) for (const d of m.directors) map.set(d.directorId.toLowerCase(), d.versionState);
   return map;
+}
+
+/** Whether an action's answer is still worth showing. An update's answer is dropped once the Gateway's machine view
+ *  says the machine is up to date (issue #4423): the answer was about a moment that has passed, and a red sentence
+ *  beside a current row reads as a failed update. The verdict is the Gateway's `upToDate`; this only applies it. */
+export function outcomeStillShown(outcome: ActionOutcome | null | undefined, machine: FleetMachine | null): boolean {
+  if (outcome === null || outcome === undefined) return false;
+  return !(outcome.kind === "update" && machine?.upToDate === true);
 }

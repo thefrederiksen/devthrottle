@@ -72,8 +72,8 @@ internal static class FactoryRecordsTabEndpoints
                         statusCode: StatusCodes.Status404NotFound);
                 var entries = page.Entries;
                 // Every file the page's entries name, read at once (review of #4032, finding 5). An entry can name only
-                // a file its factory holds (the journal checks at write) and a file is never removed, so a missing one
-                // is a broken store, said as such - never quietly left out.
+                // a file its factory holds (the journal checks at write), and a removed file keeps its row marked removed,
+                // so a missing one is a broken store, said as such - never quietly left out.
                 var named = entries.ToDictionary(e => e.Id, e => AttachmentIdsOf(e));
                 var files = attachments.Find(tenant, registered.Factory, named.Values.SelectMany(ids => ids).Distinct().ToList());
                 var dto = FactoryRecordsTabFold.Journal(registered, seat, page,
@@ -102,7 +102,7 @@ internal static class FactoryRecordsTabEndpoints
                         return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{versionSent}'" });
                     wanted = documents.Find(tenant, registered.Factory, name, v);
                     if (wanted is null)
-                        return Results.Json(new { error = $"'{name}' has no version {v}; its newest is version {newest.Version}" },
+                        return Results.Json(new { error = $"'{name}' has no version {v}; its newest is version {newest.Version}, and only the newest {FactoryDocumentStore.KeptVersions} are kept" },
                             statusCode: StatusCodes.Status404NotFound);
                 }
                 var dto = FactoryRecordsTabFold.Document(wanted, newest.Version, sources.Activity.TimeZone(tenant), nowUtc());
@@ -153,6 +153,9 @@ internal static class FactoryRecordsTabEndpoints
             {
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var found = attachments.Get(tenant, registered.Factory, id);
+                if (found?.RemovedAtUtc is { } removed)
+                    return Results.Json(new { error = $"{registered.Factory} removed attachment {id} ('{found.Name}') on {removed:yyyy-MM-dd HH:mm} UTC; its bytes are gone" },
+                        statusCode: StatusCodes.Status410Gone);
                 var bytes = found is null ? null : attachments.Content(tenant, registered.Factory, id);
                 if (found is null || bytes is null)
                     return Results.Json(new { error = $"{registered.Factory} has no attachment {id}" }, statusCode: StatusCodes.Status404NotFound);

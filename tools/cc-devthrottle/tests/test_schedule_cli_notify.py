@@ -44,11 +44,12 @@ def _run_create(extra_args):
     return result, posted
 
 
-def test_create_defaults_notify_off():
+def test_create_defaults_notify_on_failure():
+    # Issue #4436: a failed run tells its owner unless the owner turns it off.
     result, posted = _run_create([])
     assert result.exit_code == 0
     assert posted is not None
-    assert posted["notifyOn"] == "none"
+    assert posted["notifyOn"] == "failure"
     assert posted["notifyWebhookUrl"] is None
 
 
@@ -101,3 +102,91 @@ def test_get_renders_notify_policy():
     assert "Notify:" in result.output
     assert "always" in result.output
     assert "https://example.com/hook" in result.output
+
+
+def test_get_prints_the_last_run_and_the_default_note_in_the_gateways_words():
+    # Issue #4436: what went wrong with the newest run, and that the default switched notifications on.
+    job = {
+        "id": "cj_abc123",
+        "name": "nightly",
+        "enabled": True,
+        "target": {"machine": "studio-mac"},
+        "action": {"repoPath": "/Users/you/site", "seed": "/help"},
+        "scheduleKind": "recurring",
+        "cronExpression": "0 0 * * *",
+        "timeZoneId": "UTC",
+        "notifyOn": "failure",
+        "notifyText": "When a run fails",
+        "lastRunText": "Last run failed: The folder '/Users/you/site' does not exist on studio-mac (a Mac).",
+        "notifyNote": "Failure notifications were switched on for this schedule on 24 Oct 2026, when they became the default.",
+    }
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.get_job.return_value = job
+        # Wide enough that the console does not wrap the long sentences.
+        result = runner.invoke(app, ["schedule", "get", "cj_abc123"], env={"COLUMNS": "300"})
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    assert "  Notify:     When a run fails" in lines
+    assert "  Last run:   Last run failed: The folder '/Users/you/site' does not exist on studio-mac (a Mac)." in lines
+    assert any(line.startswith("  Note:       Failure notifications were switched on") for line in lines)
+
+
+def test_get_a_schedule_whose_last_run_went_fine_prints_no_last_run_line():
+    job = {
+        "id": "cj_abc123", "name": "nightly", "enabled": True, "target": {"machine": "m"},
+        "action": {"repoPath": "/r", "seed": "/help"}, "scheduleKind": "recurring", "cronExpression": "0 0 * * *",
+        "timeZoneId": "UTC", "notifyOn": "failure", "lastRunText": None, "notifyNote": None,
+    }
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.get_job.return_value = job
+        result = runner.invoke(app, ["schedule", "get", "cj_abc123"])
+    assert result.exit_code == 0
+    assert "Last run:" not in result.output
+    assert "Note:" not in result.output
+
+
+def test_run_prints_the_plain_problem_and_the_raw_reason_as_the_detail():
+    record = {
+        "firedUtc": "2026-10-24T06:00:00Z", "targetDirectorId": "", "sessionId": None,
+        "infraStatus": "not-started", "taskStatus": "unknown",
+        "endingText": "did not start a session: studio-mac was not reachable.",
+        "failureText": "studio-mac was not reachable.",
+        "resultReason": "it did not start a session: no Director on 'studio-mac' and the launcher could not start one",
+    }
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.run_now.return_value = record
+        result = runner.invoke(app, ["schedule", "run", "cj_abc123"])
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    # The sentence is already the ending, so it is not printed twice; the raw reason is only the detail.
+    assert "  Ending:  did not start a session: studio-mac was not reachable." in lines
+    assert not any(line.startswith("  Problem:") for line in lines)
+    assert "  Detail:  it did not start a session: no Director on 'studio-mac' and the launcher could not start one" in lines
+
+
+def test_run_a_run_that_failed_after_it_started_prints_its_problem_line():
+    record = {
+        "firedUtc": "2026-10-24T06:00:00Z", "targetDirectorId": "d-1", "sessionId": "s-1",
+        "infraStatus": "started", "taskStatus": "unknown", "endingText": "closed itself after 6 min",
+        "failureText": "The run's session on m ended without reporting how the run went.",
+        "resultReason": "its session ended without reporting how the run went (closed itself after 6 min)",
+    }
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.run_now.return_value = record
+        result = runner.invoke(app, ["schedule", "run", "cj_abc123"])
+    assert result.exit_code == 0
+    assert "  Problem: The run's session on m ended without reporting how the run went." in result.output.splitlines()
+
+
+def test_runs_shows_what_went_wrong_in_its_own_column():
+    history = [{
+        "scheduledUtc": "2026-10-24T06:00:00Z", "firedUtc": "2026-10-24T06:00:00Z", "targetDirectorId": "",
+        "sessionId": None, "infraStatus": "not-started", "taskStatus": "unknown",
+        "endingText": "did not start a session: x", "failureText": "TheMachineWasOff.",
+    }]
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.list_runs.return_value = history
+        result = runner.invoke(app, ["schedule", "runs", "cj_abc123"], env={"COLUMNS": "300"})
+    assert result.exit_code == 0
+    assert "What went wrong" in result.output
+    assert "TheMachineWasOff." in result.output

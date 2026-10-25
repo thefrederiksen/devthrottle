@@ -21,6 +21,10 @@ namespace CcDirector.Gateway.Api;
 ///   GET    /cron/jobs/{id}       -> CronJobDto | 404
 ///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
+///
+/// A create or an update checks the schedule's folder on its machine (issue #4421, ScheduleFolderCheck): a folder the
+/// machine does not have, or a Windows path for a Mac, is a 400 naming the machine and its system; a machine that could
+/// not be asked saves the schedule with folderWarning set.
 ///   DELETE /cron/jobs/{id}       -> { id, deleted } | 404
 ///   POST   /cron/jobs/{id}/unlink -> CronUnlinkResultDto | 403 | 404 | 409   (take it off its factory seat)
 ///
@@ -54,13 +58,19 @@ internal static class CronJobEndpoints
         // (FactoryDefinitionStore.IsDefined). A defined factory's schedules are written by a publish, so every route
         // here that would define one another way is refused (DefinedByDefinition). REQUIRED for the same reason as
         // the four above: a wiring line that forgot it would let a schedule edit undo a publish and fail nothing.
-        Func<HttpContext, string?, bool> isDefined)
+        Func<HttpContext, string?, bool> isDefined,
+        // Issue #4421: the schedule's folder, checked on its machine (ScheduleFolderCheck) - a refusal when the machine
+        // does not have it or it is in another system's shape, a warning when it could not be asked. REQUIRED for the
+        // same reason as the five above: a wiring line that forgot it would save every folder unchecked and fail
+        // nothing. A harness with no machines passes `(_, _, _, _) => Task.FromResult(ScheduleFolderVerdict.Fine)`.
+        Func<HttpContext, string, string, CancellationToken, Task<ScheduleFolderVerdict>> checkFolder)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
         ArgumentNullException.ThrowIfNull(accountZoneOf);
         ArgumentNullException.ThrowIfNull(isDefined);
+        ArgumentNullException.ThrowIfNull(checkFolder);
         // Issue #4351: the Boss seat of one of the calling account's factories, read from the same registration a
         // schedule's seat is checked against.
         Func<string, string?> BossOf(HttpContext ctx) => factory => findFactory(ctx, factory)?.BossSeat;
@@ -107,6 +117,13 @@ internal static class CronJobEndpoints
             if (!TrySettleSeat(ctx, findFactory, job, storedFactory: null, storedSeat: null, "POST /cron/jobs", out var seatError))
                 return seatError!;
 
+            // THE FOLDER, checked on its machine before anything is stored (issue #4421).
+            var (folderRefusal, folderWarning) = FolderApplies(job, defined: false)
+                ? await checkFolder(ctx, job.Target.Machine, job.Action.RepoPath, ctx.RequestAborted)
+                : ScheduleFolderVerdict.Fine;
+            if (folderRefusal is not null)
+                return Results.BadRequest(new { error = folderRefusal });
+
             // A WINDOW schedule's minute is chosen here, against the load, before it is stored (the owner, 2026-10-09).
             if (CronSchedule.IsWindow(job.ScheduleKind) && job.Enabled && PlaceWindow(job) is { } placeError)
                 return Results.BadRequest(new { error = placeError });
@@ -114,6 +131,7 @@ internal static class CronJobEndpoints
             var created = store.Create(job);
             var stamped = Describe(CronSchedule.StampDisplay(created, DateTime.UtcNow));
             stamped.LoadWarning = LoadWarningFor(stamped);
+            stamped.FolderWarning = folderWarning;
             StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
@@ -136,7 +154,7 @@ internal static class CronJobEndpoints
                 .Where(j => includeWindow || !CronSchedule.IsWindow(j.ScheduleKind))
                 .Select(j => Describe(CronSchedule.StampDisplay(j, now), names))
                 .ToList();
-            var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
+            var (records, lastRuns) = runRecords.RecordsOf(jobs.Select(j => j.Id).ToList(), now);
             // The registered factories, one registry read per factory named rather than per schedule.
             var factories = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
                 .Distinct(StringComparer.Ordinal)
@@ -147,6 +165,8 @@ internal static class CronJobEndpoints
                 job.RunRecord = records.TryGetValue(job.Id, out var record)
                     ? record
                     : new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
+                // The newest run's state in words when it went wrong (issue #4436), shown on the row without opening it.
+                (job.LastRunText, job.LastRunTone) = lastRuns.TryGetValue(job.Id, out var last) ? (last.Text, last.Tone) : ((string?)null, (string?)null);
                 job.FactoryTitle = string.IsNullOrWhiteSpace(job.Factory) ? null : factories[job.Factory]?.Title;
                 job.FactoryHref = FactoryHrefOf(job.Factory, registered);
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
@@ -315,6 +335,9 @@ internal static class CronJobEndpoints
                 return Results.NotFound(new { error = "no such cron job", id });
             var now = DateTime.UtcNow;
             var stamped = Describe(CronSchedule.StampDisplay(job, now));
+            // The newest run's state in words when it went wrong (issue #4436): `schedule get` prints it.
+            if (runRecords.RecordsOf(new[] { job.Id }, now).LastRuns.TryGetValue(job.Id, out var last))
+                (stamped.LastRunText, stamped.LastRunTone) = last;
             StampShifts(ctx, new[] { stamped }, now);
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);
@@ -419,9 +442,18 @@ internal static class CronJobEndpoints
             if (!TrySettleSeat(ctx, findFactory, incoming, storedFactory, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
                 return seatError!;
 
-            if (store.Get(id) is null)
+            if (store.Get(id) is not { } storedJob)
                 return Results.NotFound(new { error = "no such cron job", id });
             incoming.Id = id;
+
+            // THE FOLDER, checked on its machine (issue #4421) - except on a switch-off that leaves the machine and the
+            // folder as they are, which always lands (as TrySettleSeat's switch-off does): a schedule whose folder went
+            // missing must still be stoppable.
+            var (folderRefusal, folderWarning) = FolderApplies(incoming, isDefined(ctx, incoming.Factory)) && !IsSwitchOffInPlace(storedJob, incoming)
+                ? await checkFolder(ctx, incoming.Target.Machine, incoming.Action.RepoPath, ctx.RequestAborted)
+                : ScheduleFolderVerdict.Fine;
+            if (folderRefusal is not null)
+                return Results.BadRequest(new { error = folderRefusal, id });
             // Only a schedule that will run is placed. A switch-off always lands, even when the schedule it runs after
             // is gone or paused - otherwise it could not be stopped at all; it is placed again when switched back on.
             if (CronSchedule.IsWindow(incoming.ScheduleKind) && incoming.Enabled && PlaceWindow(incoming) is { } placeError)
@@ -434,6 +466,7 @@ internal static class CronJobEndpoints
             var followers = RePlaceDependents(id);
             var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
             stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
+            stamped.FolderWarning = folderWarning;
             StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
             StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);
@@ -574,6 +607,21 @@ internal static class CronJobEndpoints
         job.Seat = seat;
         return true;
     }
+
+    /// <summary>
+    /// Whether a schedule's folder is checked on its machine (issue #4421): it names a machine and a folder, and its run
+    /// starts in that folder - not a defined factory's, whose run is built from its definition in no folder.
+    /// </summary>
+    internal static bool FolderApplies(CronJobDto job, bool defined) =>
+        !defined
+        && !string.IsNullOrWhiteSpace(job.Target?.Machine)
+        && !string.IsNullOrWhiteSpace(job.Action?.RepoPath);
+
+    /// <summary>An update that switches the schedule off and leaves its machine and folder as stored.</summary>
+    internal static bool IsSwitchOffInPlace(CronJobDto stored, CronJobDto incoming) =>
+        !incoming.Enabled
+        && string.Equals(stored.Target?.Machine, incoming.Target?.Machine, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(stored.Action?.RepoPath, incoming.Action?.RepoPath, StringComparison.Ordinal);
 
     /// <summary>True when the list's <c>include</c> query (comma-separated) names the random kind.</summary>
     internal static bool IncludesRandom(string? include) =>

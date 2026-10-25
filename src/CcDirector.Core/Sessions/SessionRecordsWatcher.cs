@@ -67,7 +67,7 @@ public sealed class SessionRecordsWatcher : IDisposable
             _ = oldState; // unused: we only care about the state we transitioned INTO
             // The single trigger: the turn just ended. The agent's records now carry the model that
             // produced it and the tokens it cost.
-            if (newState != ActivityState.WaitingForInput) return;
+            if (!ActivityStateFacts.IsTurnEnd(newState)) return;
             Task.Run(() => RefreshFromRecords(session));
         };
         _handlers[session.Id] = handler;

@@ -153,8 +153,13 @@ public enum FactoryRecordOutcome
 {
     /// <summary>The record was stored.</summary>
     Written,
-    /// <summary>The upload's file was already stored, with the same content: nothing was added, nothing is lost.</summary>
+    /// <summary>The upload's file was already stored, with the same content: nothing was added, nothing is lost. Also the
+    /// answer to any file whose exact bytes the factory already holds: the one it holds is the answer.</summary>
     AlreadyStored,
+    /// <summary>An attachment's bytes were removed; its row stays, marked removed.</summary>
+    Removed,
+    /// <summary>The attachment named is not one the factory holds, or it was removed before.</summary>
+    NotFound,
     /// <summary>The upload's file was stored before with DIFFERENT content. Nothing was changed.</summary>
     ImportConflict,
     /// <summary>A working document's writer stated a version that is not its newest - two writers, or a slow reader.</summary>

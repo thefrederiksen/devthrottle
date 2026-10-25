@@ -88,4 +88,36 @@ public sealed class TerminalDoorTests : IDisposable
         Assert.Equal("git status".Length, row.ContentLength);
         window.Close();
     }
+
+    /// <summary>
+    /// Issue #4380: a PASTE into the desktop terminal is the person at the terminal, as their typing is. It went with no
+    /// origin, so while Claude Code's usage-limit dialog showed it was not counted as a person and the input guard dropped
+    /// it, silently. Pasted through the control's real paste code (the clipboard read is the only part skipped).
+    /// </summary>
+    [AvaloniaFact]
+    public async Task APasteWhileTheUsageLimitDialogShows_ReachesTheTerminal_AsThePersonAtIt()
+    {
+        var backend = new RecordingBackend();
+        var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, backend, SessionBackendType.ConPty);
+        session.MarkRunning();
+        backend.Buffer!.Write(System.Text.Encoding.UTF8.GetBytes("\u001b[2J\u001b[H" + string.Join("\r\n",
+            "  You've hit your session limit - resets 10:20am (UTC)",
+            "  What do you want to do?",
+            "  > 1. Stop and wait for limit to reset",
+            "    2. Add funds to continue with usage credits",
+            "    3. Switch to Team plan",
+            "  Enter to confirm - Esc to cancel")));
+        Assert.True(session.UsageLimitDialogMayShow());
+        var terminal = new TerminalControl();
+        var window = new Window { Width = 800, Height = 600, Content = terminal };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        terminal.Attach(session);
+        backend.Writes.Clear();
+
+        await terminal.HarnessPasteAsync("pasted words");
+
+        Assert.Equal("pasted words", string.Concat(backend.Writes.Select(w => System.Text.Encoding.UTF8.GetString(w))));
+        window.Close();
+    }
 }

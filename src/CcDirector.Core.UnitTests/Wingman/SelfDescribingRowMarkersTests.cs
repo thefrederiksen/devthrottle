@@ -10,7 +10,7 @@ namespace CcDirector.Core.Tests.Wingman;
 /// itself are per-agent knowledge, so they are a driver trait. This mirrors
 /// <c>ContinuousIdleStateTests</c>, which does the same for the other terminal-behaviour trait.
 ///
-/// The interesting assertions here are not "the lists are not empty". They are that every other
+/// The interesting assertions here are not "the lists are not empty". They are that every unmeasured
 /// agent inherits EMPTY - because a guessed list would suppress an agent's real output and nobody
 /// has the evidence to write one - and that each marker actually suppresses the row it was written
 /// for when run through the real rule, which is what stops the list being a collection of strings
@@ -21,7 +21,8 @@ public sealed class SelfDescribingRowMarkersTests
     [Theory]
     [InlineData(AgentKind.ClaudeCode)]
     [InlineData(AgentKind.Codex)]
-    public void The_two_measured_agents_declare_markers(AgentKind kind)
+    [InlineData(AgentKind.Pi)]
+    public void The_measured_agents_declare_markers(AgentKind kind)
     {
         Assert.NotEmpty(AgentDrivers.For(kind).SelfDescribingRowMarkers);
     }
@@ -29,13 +30,12 @@ public sealed class SelfDescribingRowMarkersTests
     [Theory]
     [InlineData(AgentKind.Gemini)]
     [InlineData(AgentKind.OpenCode)]
-    [InlineData(AgentKind.Pi)]
     [InlineData(AgentKind.Copilot)]
     [InlineData(AgentKind.Cursor)]
     [InlineData(AgentKind.Grok)]
     public void Every_other_agent_inherits_the_empty_default(AgentKind kind)
     {
-        // Not an oversight. The evidence behind the two lists above is one machine, where every
+        // Not an oversight. The evidence behind the measured lists above is captured on one machine; every
         // other supported agent had no measured cases at all. An empty list leaves an agent
         // exactly as well off as it is today; a guessed one could swallow its real replies.
         Assert.Empty(AgentDrivers.For(kind).SelfDescribingRowMarkers);
@@ -44,6 +44,7 @@ public sealed class SelfDescribingRowMarkersTests
     [Theory]
     [InlineData(AgentKind.ClaudeCode)]
     [InlineData(AgentKind.Codex)]
+    [InlineData(AgentKind.Pi)]
     public void Markers_are_plain_ascii_and_long_enough_not_to_match_prose(AgentKind kind)
     {
         foreach (var marker in AgentDrivers.For(kind).SelfDescribingRowMarkers)

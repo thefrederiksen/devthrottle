@@ -50,6 +50,15 @@ public sealed class LauncherConnectionRegistry
     private readonly ConcurrentDictionary<MachineKey, LauncherStreamConnection> _byMachine = new();
 
     /// <summary>
+    /// Told when a machine's live stream is CLEARED - not when a superseded connection disconnects late, because
+    /// then the machine still holds a stream. The Gateway host points it at
+    /// <see cref="Discovery.LauncherRegistry.NoteStreamClosed"/>, so a launcher that is heartbeating with no
+    /// stream can be told apart from one that never had a stream (issue #4423). Arguments: the tenant, the
+    /// machine name (canonical, lower case - the launcher registry keys case-insensitively), and when the stream closed.
+    /// </summary>
+    public Action<TenantId, string, DateTime>? StreamClosed { get; set; }
+
+    /// <summary>
     /// Mark <paramref name="connectionId"/> as the active stream connection for the owning tenant's
     /// <paramref name="machineName"/>, superseding any prior connection for that (tenant, machine).
     /// </summary>
@@ -95,7 +104,10 @@ public sealed class LauncherConnectionRegistry
                 continue;
 
             if (((ICollection<KeyValuePair<MachineKey, LauncherStreamConnection>>)_byMachine).Remove(kv))
+            {
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister: tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)} cleared");
+                StreamClosed?.Invoke(kv.Key.Tenant, kv.Key.Machine, DateTime.UtcNow);
+            }
             else
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister IGNORED (superseded): tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)}");
             return;

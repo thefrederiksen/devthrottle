@@ -184,6 +184,18 @@ def _prepare_read(
     return admin, urlencode(params), bearer
 
 
+def _scope_text(admin: bool, account: Optional[str], email: Optional[str]) -> str:
+    """What the first line says the read covered. A filtered administrator read names the account it was filtered
+    to, the way `schedule admin-runs` does - it must never claim every account when it read one (issue #4428)."""
+    if not admin:
+        return "this account"
+    if account:
+        return f"account {axi_output.escape_ascii(account)}"
+    if email:
+        return f"account {axi_output.escape_ascii(email)}"
+    return "every account"
+
+
 def _admin_token(what: str, *next_commands: str) -> str:
     bearer = os.environ.get(ADMIN_TOKEN_VARIABLE, "").strip()
     if not bearer:
@@ -240,7 +252,7 @@ def list_errors(
     by_component = answer.get("by_component") or {}
 
     blocks = [
-        f"scope: {'every account' if admin else 'this account'}, "
+        f"scope: {_scope_text(admin, account, email)}, "
         f"{answer.get('since_utc')} to {answer.get('until_utc')} (kept {answer.get('retention_days')} days)",
         axi_output.format_count(len(rows), total=total),
     ]
@@ -331,7 +343,7 @@ def group_errors(
     rows = [_group_row(g, full) for g in groups]
 
     blocks = [
-        f"scope: {'every account' if admin else 'this account'}, "
+        f"scope: {_scope_text(admin, account, email)}, "
         f"{answer.get('since_utc')} to {answer.get('until_utc')} (kept {answer.get('retention_days')} days)",
         axi_output.format_count(len(rows), total=total),
         f"reports in these problems: {int(answer.get('total_reports') or 0)}",

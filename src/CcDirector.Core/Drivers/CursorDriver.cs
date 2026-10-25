@@ -26,7 +26,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class CursorDriver : IAgentDriver
 {
-    private static readonly byte[] CtrlC = [0x03];
 
     private static readonly JsonDocumentOptions JsonOptions = new()
     {
@@ -61,24 +60,18 @@ public sealed class CursorDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.SharedSubmitAsync(backend, text, "CursorDriver");
 
-    public Task CancelAsync(ISessionBackend backend) =>
+    public DriverInput Cancel() =>
         throw new NotSupportedException(
             "[CursorDriver] cursor-agent's soft-cancel keystroke is not yet live-verified " +
-            "(issue #517 assumption A4). Use InterruptAsync (Ctrl+C) until it is confirmed.");
+            "(issue #517 assumption A4). Use Interrupt (Ctrl+C) until it is confirmed.");
 
-    public Task InterruptAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CursorDriver] InterruptAsync: sending Ctrl+C");
-        backend.Write(CtrlC);
-        return Task.CompletedTask;
-    }
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[CursorDriver] cursor-agent has no verified in-terminal history picker.");
 
-    public Task ClearContextAsync(ISessionBackend backend) =>
+    public DriverInput ClearContext() =>
         throw new NotSupportedException(
             "[CursorDriver] cursor-agent has no verified in-place context-clear command.");
 

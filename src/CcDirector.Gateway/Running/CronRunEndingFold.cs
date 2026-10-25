@@ -35,7 +35,11 @@ public static class CronRunEndingFold
     /// <paramref name="endings"/> holds the work-history facts of the runs' sessions, as
     /// <see cref="SessionHistoryStore.EndingsOf"/> returns them.
     /// </summary>
-    public static void Stamp(IEnumerable<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc)
+    /// <param name="machineOsOf">The system a run's machine last reported (<see cref="DirectorOs"/>), or null when it is
+    /// not known: a run that did not start because its folder was missing names that system in its words (issue #4421).
+    /// Null as a whole when the caller cannot read the machines; those words then name only the machine.</param>
+    public static void Stamp(IEnumerable<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc,
+        Func<string, string?>? machineOsOf = null)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(endings);
@@ -43,7 +47,15 @@ public static class CronRunEndingFold
         {
             var (ending, endedUtc) = EndingOf(run, endings);
             run.Ending = ending;
-            run.EndingText = TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
+            // A failed run says what went wrong in one plain sentence (issue #4436; the folder case first, #4421), never
+            // in the Director's words, which stay in ResultReason as the detail. A run that did not start reads as that
+            // sentence in the run table, where it used to read "did not start a session" and nothing else.
+            var failure = ScheduleFailureWords.Of(run, machineOsOf?.Invoke(run.Machine));
+            run.FailureText = failure?.Headline;
+            run.FailureCause = failure?.Cause;
+            run.EndingText = ending == CronRunEndings.NoSession && failure is not null
+                ? $"did not start a session: {failure.Headline}"
+                : TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
             run.TaskStatus = TaskStatusOf(run);
             run.InfraTone = ToneOf(run.InfraStatus);
         }

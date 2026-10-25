@@ -198,7 +198,7 @@ public sealed class ActivityEventProducer : IDisposable
             return ActivityCauses.Unknown;
         }
 
-        if (wasRunning && @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+        if (wasRunning && @new is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen)
             return ActivityCauses.QuietThreshold;
 
         return ActivityCauses.Unknown;

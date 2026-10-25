@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -7,7 +7,8 @@ namespace CcDirector.DeliveryQualification;
 /// <summary>One line of the ledger: one attempt of one scenario, with what the product and the agent were.</summary>
 public sealed record LedgerEntry(
     string RunId, DateTime AtUtc, string ProductCommit, string Machine, string Os, string Agent, string AgentVersion,
-    string Scenario, int Length, string Director, string Truth, bool Pass, double Seconds, string Detail, string? Screen);
+    string Scenario, int Length, string Director, string Truth, bool Pass, double Seconds, string Detail, string? Screen,
+    string? Route = null, bool? Exact = null, bool? ViaFile = null);
 
 /// <summary>
 /// THE DELIVERY LEDGER. Every scenario attempt of every run is appended to one file, so a delivery success rate can be

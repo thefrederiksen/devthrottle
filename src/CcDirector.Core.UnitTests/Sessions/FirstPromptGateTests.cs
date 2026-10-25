@@ -328,4 +328,22 @@ public sealed class FirstPromptGateTests
         Assert.Contains("first prompt was not typed", tally.LastFailureReason);
         Assert.Contains("not drawn", ex.Message);
     }
+
+    // ---------- issue #3392: the first prompt's own failure, apart from every later send ----------
+
+    [Fact]
+    public void RecordFirstPromptFailure_IsSetOnce_AndNeverBySomethingElse()
+    {
+        var backend = new RecordingBackend();
+        using var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, backend, SessionBackendType.ConPty);
+        Assert.Null(session.FirstPromptFailedAtUtc);
+
+        session.RecordFirstPromptFailure("The first prompt was not typed: the composer was not drawn.");
+        var first = session.FirstPromptFailedAtUtc;
+        session.RecordFirstPromptFailure("a second reason");
+
+        Assert.NotNull(first);
+        Assert.Equal(first, session.FirstPromptFailedAtUtc);
+        Assert.Equal("The first prompt was not typed: the composer was not drawn.", session.FirstPromptFailureReason);
+    }
 }

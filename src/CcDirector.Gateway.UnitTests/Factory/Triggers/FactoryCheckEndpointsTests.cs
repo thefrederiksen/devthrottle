@@ -7,6 +7,7 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
+using CcDirector.Gateway.Factory.Records;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Running;
@@ -46,6 +47,7 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
     private readonly ServiceProvider _services;
     private readonly Routes _routes;
     private readonly FactoryDefinitionStore _definitions;
+    private readonly FactoryDocumentStore _documents;
     private readonly TriggerStore _triggers;
     private readonly CronJobStore _jobs;
     private readonly CronRunHistoryStore _runs;
@@ -57,11 +59,12 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
         _services = new ServiceCollection().AddRouting().AddLogging().BuildServiceProvider();
         _routes = new Routes(_services);
         _definitions = new FactoryDefinitionStore(_db);
+        _documents = new FactoryDocumentStore(_db);
         _triggers = new TriggerStore(_db);
         _jobs = new CronJobStore(_db, _h.LegacyPath("jobs.json"));
         _runs = new CronRunHistoryStore(_db, _h.LegacyPath("runs.json"));
 
-        FactoryCheckEndpoints.Map(_routes, _ => T, directorMachine: (_, id) => Directors.GetValueOrDefault(id), _definitions);
+        FactoryCheckEndpoints.Map(_routes, _ => T, directorMachine: (_, id) => Directors.GetValueOrDefault(id), _definitions, _documents);
 
         var service = new TriggerService(_triggers, new FactoryActivityRecord(_db),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
@@ -287,6 +290,133 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
 
         Assert.Equal(404, status);
         Assert.Equal("factory_not_found", body.GetProperty("code").GetString());
+    }
+
+    // ---------- the check inputs ----------
+
+    /// <summary>One document of the factory's records, written by a session of the factory.</summary>
+    private void Keep(string name, string text, string factory = Factory, int expect = 0)
+        => Assert.True(_documents.Write(T, factory, name, text, expect, FactoryRecordAuthorKinds.Session,
+            "session-1", Now).Ok);
+
+    [Theory]
+    [InlineData("dir-north")]
+    [InlineData("dir-south")]
+    public async Task GetInputs_HandsTheNewestCheckInputsUnderTheRestOfTheirNames_AndNothingElseOfTheRecords(string director)
+    {
+        Seed();
+        Keep("check-inputs/chain.json", "{\"finder\": {}}");
+        Keep("check-inputs/chain.json", "{\"finder\": {\"done\": \"08:01\"}}", expect: 1);
+        Keep("check-inputs/boss/last-review.txt", "2026-10-15");
+        Keep("ledger.json", "{\"people\": {}}");
+        Keep("check-inputs/hold.txt", "another factory's hold", factory: "mindzie");
+
+        var (status, body) = await Send("GET", $"/directors/{director}/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(200, status);
+        var answer = body.Deserialize<FactoryCheckInputsResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(Factory, answer.Factory);
+        Assert.Equal(new[] { "boss/last-review.txt", "chain.json" }, answer.Inputs.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal("{\"finder\": {\"done\": \"08:01\"}}", answer.Inputs["chain.json"]);
+        Assert.Equal("2026-10-15", answer.Inputs["boss/last-review.txt"]);
+    }
+
+    [Fact]
+    public async Task GetInputs_AFactoryThatKeepsNone_AnswersAnEmptySet()
+    {
+        Seed();
+        Keep("ledger.json", "{}");
+
+        var (status, body) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(200, status);
+        Assert.Empty(body.GetProperty("inputs").EnumerateObject());
+    }
+
+    [Fact]
+    public async Task GetInputs_ADirectorWhoseMachineHasNoSeatOfTheFactory_IsRefusedAsItsChecksAre()
+    {
+        Seed();
+        Keep("check-inputs/chain.json", "{}");
+
+        var (status, body) = await Send("GET", $"/directors/dir-elsewhere/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(404, status);
+        Assert.Equal("no_seat_on_machine", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("inputs", out _));
+    }
+
+    [Fact]
+    public async Task GetInputs_AnOlderPublishedVersion_WhoseMachineTheCurrentOneLeftOut_IsRefused()
+    {
+        Seed();
+        var moved = DefinitionFixture.Valid();
+        moved["seats/outreach.yaml"] = moved["seats/outreach.yaml"].Replace("SOREN_SOUTH", "SOREN_NORTH");
+        Assert.True(_definitions.SaveDraft(T, Factory, moved, 1, FactoryMemoryAuthorKinds.Person, "owner", "outreach moves north", Now).Ok);
+        Assert.True(_definitions.Publish(T, Factory, 2, FactoryMemoryAuthorKinds.Person, "owner", Now).Ok);
+        Keep("check-inputs/chain.json", "{}");
+
+        var (status, body) = await Send("GET", $"/directors/dir-south/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(404, status);
+        Assert.Equal("version_not_current", body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("inputs", out _));
+        var (current, _) = await Send("GET", $"/directors/dir-south/factory-check-inputs/{Factory}/2");
+        Assert.Equal(404, current);
+        var (north, _) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/2");
+        Assert.Equal(200, north);
+    }
+
+    [Fact]
+    public async Task GetInputs_ADraftVersion_IsRefused()
+    {
+        Seed(draftVersion2: true);
+        Keep("check-inputs/chain.json", "{}");
+
+        var (status, body) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/2");
+
+        Assert.Equal(404, status);
+        Assert.Equal("version_not_published", body.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task GetInputs_ADirectorThisAccountDoesNotHave_IsRefused()
+    {
+        Seed();
+
+        var (status, body) = await Send("GET", $"/directors/dir-stranger/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(404, status);
+        Assert.Equal("director_not_found", body.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task GetInputs_LargerTogetherThanTheCap_AreRefusedWhole_WithTheSentence()
+    {
+        Seed();
+        var half = TriggerCheckLimits.MaxCheckInputsBytes / 2;
+        Keep("check-inputs/a.txt", new string('a', half));
+        Keep("check-inputs/b.txt", new string('b', half + 1));
+
+        var (status, body) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(413, status);
+        Assert.Equal("check_inputs_too_large", body.GetProperty("code").GetString());
+        Assert.Equal($"the check inputs of devthrottle take {TriggerCheckLimits.MaxCheckInputsBytes + 1} bytes together, and a " +
+                     $"check is handed at most {TriggerCheckLimits.MaxCheckInputsBytes}; make the documents under check-inputs/ smaller",
+            body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task GetInputs_ExactlyAtTheCap_AreHanded()
+    {
+        Seed();
+        Keep("check-inputs/a.txt", new string('a', TriggerCheckLimits.MaxCheckInputsBytes));
+
+        var (status, body) = await Send("GET", $"/directors/dir-north/factory-check-inputs/{Factory}/1");
+
+        Assert.Equal(200, status);
+        Assert.Equal(TriggerCheckLimits.MaxCheckInputsBytes, body.GetProperty("inputs").GetProperty("a.txt").GetString()!.Length);
     }
 
     // ---------- the report body ----------

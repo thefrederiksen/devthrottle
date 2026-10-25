@@ -379,6 +379,42 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("api_mode_receipts", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronFailureNoticeEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<int>("HeldBack")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastCountedRunId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSentUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "JobId", "Cause");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("cron_failure_notices", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -422,6 +458,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("NextRunUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NotifyDefaultedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("NotifyOn")
@@ -1321,6 +1360,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("RemovedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RemovedBy")
+                        .HasMaxLength(230)
+                        .HasColumnType("character varying(230)");
 
                     b.Property<string>("Seat")
                         .HasMaxLength(64)

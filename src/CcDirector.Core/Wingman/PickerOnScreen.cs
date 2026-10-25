@@ -31,9 +31,10 @@ namespace CcDirector.Core.Wingman;
 ///
 /// PROBABLY SUBOPTIMAL FOR EVERY AGENT BUT CLAUDE CODE, AND APPLIED TO THEM ANYWAY (owner ruling, 2026-09-20: "it's
 /// better to have something than nothing ... then we log it"). The signs were written from Claude Code screens, plus
-/// the Codex and Copilot wording seen on a held-out read: Codex writes "Press enter to continue" and marks its selected
-/// row with U+203A. Pi, Gemini, Grok, OpenCode and any agent added later are judged by the SAME list, unverified. The
-/// failure that list can cause is a picker it does not recognise, which then gets no buttons; it cannot press a key,
+/// the Codex, Copilot and Pi wording seen on held-out reads: Codex writes "Press enter to continue" and marks its
+/// selected row with U+203A; Pi writes "Enter to select". Gemini, Grok, OpenCode and any agent added later are judged by
+/// the SAME list, unverified. The failure that list can cause is a picker it does not recognise, which then gets no
+/// buttons; it cannot press a key,
 /// because the send path guards a live picker separately (WaitingScreenReader). <see cref="Calibrated"/> says which
 /// agents the list was checked against, and every caller logs every decision with it, so the misses can be found and
 /// this list adjusted - it is expected to need adjusting as agents change their screens.
@@ -53,11 +54,15 @@ public static class PickerOnScreen
     public const int OptionRowsNear = 3;
 
     /// <summary>The agents whose screens the sign list was checked against. Every other agent is judged by it unverified.</summary>
-    public static readonly IReadOnlyList<string> CalibratedAgents = new[] { "ClaudeCode", "Codex", "Copilot" };
+    public static readonly IReadOnlyList<string> CalibratedAgents = new[] { "ClaudeCode", "Codex", "Copilot", "Pi" };
 
     private static readonly (string Name, Regex Pattern)[] Signs =
     {
         ("enter-to-confirm", new Regex("Enter to (confirm|select|continue)", RegexOptions.CultureInvariant)),
+        // Claude Code 2.1.310 changed the model picker's footer from "Enter to confirm" to this. The whole phrase,
+        // including "default", is the control's own instruction rather than ordinary transcript prose.
+        ("enter-to-set-default", new Regex("Enter to set as default", RegexOptions.CultureInvariant)),
+        ("pi-model-select", new Regex("Ctrl\\+S to set as default · Escape/Ctrl\\+C to cancel", RegexOptions.CultureInvariant)),
         ("tab-to-amend", new Regex("Tab to amend", RegexOptions.CultureInvariant)),
         ("to-navigate", new Regex("to navigate", RegexOptions.CultureInvariant)),
         ("folder-trust", new Regex("Yes, I trust this folder", RegexOptions.CultureInvariant)),
@@ -144,6 +149,10 @@ public static class PickerOnScreen
 /// is the Claude Code list applied unverified, by the owner's ruling, and is logged so its misses can be found.</param>
 public sealed record PickerReading(bool Drawn, bool ScreenRead, IReadOnlyList<string> Signs, string Agent, bool Calibrated)
 {
+    /// <summary>True only for the agent model-picker footers captured from Claude Code and Pi. General permission and
+    /// question pickers remain <see cref="Drawn"/>, but must not be reclassified as model menus by the active-screen poll.</summary>
+    public bool ModelPickerDrawn => Drawn && Signs.Any(s => s is "enter-to-set-default" or "pi-model-select");
+
     /// <summary>One line for the log: the decision, the evidence, the agent and whether the list was checked against it.</summary>
     public string Describe() =>
         !ScreenRead

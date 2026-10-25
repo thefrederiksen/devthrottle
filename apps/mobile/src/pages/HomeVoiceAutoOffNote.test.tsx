@@ -24,6 +24,11 @@ vi.mock("@devthrottle/client-core/secrets/SecretTransfers", () => ({
   SecretTransfersProvider: ({ children }: { children: unknown }) => children,
   SecretTransfersPanel: () => null,
 }));
+vi.mock("@devthrottle/client-core/fleet/LinkRequestsPanel", () => ({
+  LinkRequestsPanelProvider: ({ children }: { children: unknown }) => children,
+  LinkRequestsPanel: () => null,
+  useLinkRequests: () => ({ answeredIds: new Set() }),
+}));
 vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
   RestartRequestsPanel: () => null,
 }));

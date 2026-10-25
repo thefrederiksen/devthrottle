@@ -1,0 +1,16 @@
+# Paste sizes, paste limit lifted, idle
+agent    route           sends pass altered lost partial doubled via-file director-failed
+claude   prompt              4    4       0    0       0       0        0               0
+claude   desktop-paste       4    4       0    0       0       0        0               0
+codex    prompt              4    4       0    0       0       0        0               0
+codex    desktop-paste       4    4       0    0       0       0        0               0
+pi       prompt              4    4       0    0       0       0        0               0
+pi       desktop-paste       4    4       0    0       0       0        0               0
+EVERY TEXT ARRIVED EXACTLY, AS TEXT, ON EVERY ROUTE.
+
+# The same through the send, all 32 cores busy (--cpu-load 32)
+agent    route           sends pass altered lost partial doubled via-file director-failed
+claude   prompt              4    4       0    0       0       0        0               0
+codex    prompt              4    4       0    0       0       0        0               0
+pi       prompt              4    4       0    0       0       0        0               0
+EVERY TEXT ARRIVED EXACTLY, AS TEXT, ON EVERY ROUTE.

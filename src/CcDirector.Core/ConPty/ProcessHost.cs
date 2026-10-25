@@ -289,40 +289,28 @@ public sealed class ProcessHost : IDisposable
     /// </summary>
     public void Write(byte[] data)
     {
+        // Every way the bytes can fail to leave is logged AND reaches the caller (issue #4380): a write that only logged
+        // let the sender report input delivered that never left the Director.
         if (_disposed || _inputStream == null)
-        {
-            FileLog.Write($"[ProcessHost] Write SKIPPED: pid={ProcessId}, bytes={data.Length}, " +
-                          $"disposed={_disposed}, streamNull={_inputStream == null} - the bytes never left the Director");
-            return;
-        }
+            throw Backends.TerminalWriteFailedException.Logged("ProcessHost", $"write {data.Length} byte(s)",
+                $"pid={ProcessId}, disposed={_disposed}, streamNull={_inputStream == null}");
         try
         {
             _inputStream.Write(data, 0, data.Length);
             _inputStream.Flush();
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            FileLog.Write($"[ProcessHost] Write FAILED: pid={ProcessId}, bytes={data.Length}: " +
-                          $"{ex.GetType().Name}: {ex.Message} - the bytes never left the Director");
-        }
-        catch (ObjectDisposedException ex)
-        {
-            FileLog.Write($"[ProcessHost] Write FAILED: pid={ProcessId}, bytes={data.Length}: " +
-                          $"{ex.GetType().Name}: {ex.Message} - the bytes never left the Director");
+            throw Backends.TerminalWriteFailedException.Logged("ProcessHost", $"write {data.Length} byte(s)", $"the write failed (pid={ProcessId})", ex);
         }
     }
 
-    /// <summary>Write raw bytes to the process input (async).</summary>
-    public async Task WriteAsync(byte[] data)
+    /// <summary>Write raw bytes to the process input (async wrapper). A failed write reaches the caller, as
+    /// <see cref="Write"/> does (issue #4380); this used to return quietly, as the Unix host's wrapper never did.</summary>
+    public Task WriteAsync(byte[] data)
     {
-        if (_disposed || _inputStream == null) return;
-        try
-        {
-            await _inputStream.WriteAsync(data);
-            await _inputStream.FlushAsync();
-        }
-        catch (IOException) { }
-        catch (ObjectDisposedException) { }
+        Write(data);
+        return Task.CompletedTask;
     }
 
     /// <summary>

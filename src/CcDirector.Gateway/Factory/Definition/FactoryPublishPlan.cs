@@ -214,7 +214,8 @@ public static class FactoryPublishPlan
             Action = new CronJobAction { RepoPath = "", Seed = start.Prompt },
             // A start with a check always prevents overlap (the check refuses preventOverlap: false beside one).
             PreventOverlap = start.Check is not null || start.PreventOverlap,
-            NotifyOn = CronNotify.None,
+            // A new schedule tells its owner when a run fails, like every new schedule (issue #4436).
+            NotifyOn = CronNotify.Default,
             // Phase 5b: a timed start's check rides on its schedule; the version it is read from is the one published.
             CheckPath = start.Check,
             CheckSecrets = start.Check is null || start.Secrets.Count == 0 ? null : start.Secrets.ToList(),

@@ -100,6 +100,27 @@ public static class SessionConversationFold
         bool directorConnected,
         bool directorPushesTurns)
     {
+        ArgumentNullException.ThrowIfNull(messages);
+        var dto = Fold(sessionId, head, messages.Count, directorId, sessionKnown, directorConnected, directorPushesTurns);
+        dto.Messages = messages;
+        return dto;
+    }
+
+    /// <summary>
+    /// The same fold for a conversation of <paramref name="messageCount"/> messages that are not built yet (issue
+    /// #4387): every field but <c>messages</c>, which is left empty for the caller to fill with the part it sends.
+    /// The verdicts depend on whether there are any messages, never on what they say.
+    /// </summary>
+    public static SessionHistoryDto Fold(
+        string sessionId,
+        SessionTurnHeadEntity? head,
+        int messageCount,
+        string? directorId,
+        bool sessionKnown,
+        bool directorConnected,
+        bool directorPushesTurns)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(messageCount);
         var dto = new SessionHistoryDto
         {
             SessionId = sessionId,
@@ -111,7 +132,7 @@ public static class SessionConversationFold
             IsSupported = head?.IsSupported ?? true,
             IsRawText = head?.IsRawText ?? false,
             HistoryState = head?.HistoryState,
-            Messages = messages,
+            Messages = new List<HistoryMessageDto>(),
         };
 
         // STORED CONTENT WINS OVER EVERYTHING. This is the whole point of holding the conversation: it stays
@@ -123,7 +144,7 @@ public static class SessionConversationFold
         // would answer is not running. So a frozen conversation carries a notice above it saying so - the
         // same defect this mission exists to kill, one screen over, and it does NOT replace the content the
         // way an empty-screen sentence does.
-        if (messages.Count > 0)
+        if (messageCount > 0)
         {
             dto.Status = "ok";
             dto.StaleNotice = !directorConnected ? FrozenOfflineNotice

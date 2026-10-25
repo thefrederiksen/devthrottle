@@ -1,0 +1,17 @@
+{
+  "session_id": "fc93ce6d-aa4b-42d2-b343-d3a5af12374e",
+  "transcript_path": "/home/soren/.claude/projects/-tmp-claude-1000--home-soren-ReposFred-devthrottle-session-rules-p1-hook-e1a0b680-4d60-42c2-a3dd-fbcc57bfdf94-scratchpad-capture/fc93ce6d-aa4b-42d2-b343-d3a5af12374e.jsonl",
+  "cwd": "/tmp/claude-1000/-home-soren-ReposFred-devthrottle-session-rules-p1-hook/e1a0b680-4d60-42c2-a3dd-fbcc57bfdf94/scratchpad/capture",
+  "prompt_id": "87712167-3d68-4781-a67c-bbda5ce69541",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo RULE-PROBE",
+    "description": "Print RULE-PROBE marker"
+  },
+  "tool_use_id": "toolu_01MKy8QwHzZ26tkw5UsWdSkM"
+}

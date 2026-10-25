@@ -69,9 +69,14 @@ public sealed class GatewayDbContext : DbContext
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         GuardRuleWrites();
+        var settingsTenants = SettingsTenantsBeingSaved();
         SavingThroughTheGate = true;
         try { return base.SaveChanges(acceptAllChangesOnSuccess); }
-        finally { SavingThroughTheGate = false; }
+        finally
+        {
+            SavingThroughTheGate = false;
+            SettingsSaved(settingsTenants);
+        }
     }
 
     /// <inheritdoc />
@@ -79,9 +84,66 @@ public sealed class GatewayDbContext : DbContext
         bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         GuardRuleWrites();
+        var settingsTenants = SettingsTenantsBeingSaved();
         SavingThroughTheGate = true;
         try { return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken); }
-        finally { SavingThroughTheGate = false; }
+        finally
+        {
+            SavingThroughTheGate = false;
+            SettingsSaved(settingsTenants);
+        }
+    }
+
+    /// <summary>Accounts whose settings rows this context saved inside a transaction that has not ended yet.</summary>
+    private readonly HashSet<string> _settingsTenantsAwaitingCommit = new(StringComparer.Ordinal);
+
+    /// <summary>The accounts whose <c>tenant_settings</c> rows this save adds, changes or removes.</summary>
+    private List<string>? SettingsTenantsBeingSaved()
+    {
+        List<string>? tenants = null;
+        foreach (var entry in ChangeTracker.Entries<TenantSettingEntity>())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
+            (tenants ??= new List<string>()).Add(entry.Entity.TenantId);
+        }
+        return tenants;
+    }
+
+    /// <summary>
+    /// SETTINGS CHANGED, SO REMEMBERED SETTINGS ARE FORGOTTEN (issue #4405) - see <see cref="Settings.TenantSettingsGenerations"/>.
+    /// Moved whether the save succeeded or not: a failed save changed nothing, and forgetting early only costs a read.
+    /// Inside a transaction the accounts are kept and moved again when it ends (<see cref="TransactionEnded"/>).
+    /// </summary>
+    private void SettingsSaved(List<string>? tenants)
+    {
+        if (tenants is null) return;
+        var inTransaction = Database.CurrentTransaction is not null;
+        foreach (var tenant in tenants)
+        {
+            Settings.TenantSettingsGenerations.Bump(tenant);
+            if (inTransaction) _settingsTenantsAwaitingCommit.Add(tenant);
+        }
+    }
+
+    /// <summary>
+    /// Set by <see cref="CredentialTableWriteInterceptor"/> when a command inside this context's open transaction wrote a
+    /// table a device key check reads (issue #4409); cleared by <see cref="TransactionEnded"/>.
+    /// </summary>
+    internal bool CredentialsWrittenInTransaction { get; set; }
+
+    /// <summary>The transaction this context wrote in has committed or rolled back: move the numbers of what it wrote
+    /// once more, so a remembered setting or key read between the write and the commit is not trusted.</summary>
+    internal void TransactionEnded()
+    {
+        if (CredentialsWrittenInTransaction)
+        {
+            Pairing.DeviceCredentialGeneration.Bump();
+            CredentialsWrittenInTransaction = false;
+        }
+        if (_settingsTenantsAwaitingCommit.Count == 0) return;
+        foreach (var tenant in _settingsTenantsAwaitingCommit)
+            Settings.TenantSettingsGenerations.Bump(tenant);
+        _settingsTenantsAwaitingCommit.Clear();
     }
 
 
@@ -237,6 +299,9 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Cron run history (<c>cron_runs</c>), one row per fire.</summary>
     public DbSet<CronRunEntity> CronRuns => Set<CronRunEntity>();
+
+    /// <summary>When each schedule's owner was last told it failed, per cause (<c>cron_failure_notices</c>, issue #4436).</summary>
+    public DbSet<CronFailureNoticeEntity> CronFailureNotices => Set<CronFailureNoticeEntity>();
 
     /// <summary>Named work lists (<c>worklists</c>).</summary>
     public DbSet<WorkListEntity> WorkLists => Set<WorkListEntity>();
@@ -691,6 +756,14 @@ public sealed class GatewayDbContext : DbContext
             // Factory Definition, phase 5b: a timed start's check and the version it was written from.
             b.Property(e => e.CheckPath).HasMaxLength(256);
             b.Property(e => e.CheckSecretsJson).HasMaxLength(4096);
+        });
+
+        modelBuilder.Entity<CronFailureNoticeEntity>(b =>
+        {
+            b.ToTable("cron_failure_notices");
+            b.HasKey(e => new { e.TenantId, e.JobId, e.Cause });
+            b.Property(e => e.JobId).HasMaxLength(64);
+            b.Property(e => e.Cause).HasMaxLength(64);
         });
 
         modelBuilder.Entity<CronRunEntity>(b =>
@@ -1824,6 +1897,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorKind).HasMaxLength(20);
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ImportKey).HasMaxLength(400);
+            b.Property(e => e.RemovedBy).HasMaxLength(230);
             // The reads: one factory's files (and their total, which the cap counts), or one seat's.
             b.HasIndex(e => new { e.TenantId, e.Factory, e.Seat });
             b.HasIndex(e => new { e.TenantId, e.Factory, e.ImportKey }).IsUnique();
@@ -2516,6 +2590,7 @@ public sealed class GatewayDbContext : DbContext
         // entity that derives from TenantScopedEntity, so future stores inherit it by deriving from the base.
         ApplyTenantScope<CronJobEntity>(modelBuilder);
         ApplyTenantScope<CronRunEntity>(modelBuilder);
+        ApplyTenantScope<CronFailureNoticeEntity>(modelBuilder);
         ApplyTenantScope<WorkListEntity>(modelBuilder);
         ApplyTenantScope<WorkListItemEntity>(modelBuilder);
         ApplyTenantScope<WorkflowEntity>(modelBuilder);
@@ -2635,6 +2710,9 @@ public sealed class GatewayDbContext : DbContext
             //    stores do is done in .NET, not the database. So no assumption that these keys are ASCII is
             //    needed - mission_notes.Key in particular is only trimmed and lower-cased, not restricted.)
             modelBuilder.Entity<SnoozeEntity>().Property(e => e.SessionId).UseCollation("C");
+            // cron_failure_notices: the schedule id and the cause are exact keys, compared byte-ordinally (issue #4436).
+            modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.JobId).UseCollation("C");
+            modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");

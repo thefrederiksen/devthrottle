@@ -50,7 +50,7 @@ public sealed class TurnReviewLogger : IDisposable
         Action<ActivityState, ActivityState> handler = (_, @new) =>
         {
             // The single trigger: we just flipped to "needs you".
-            if (@new != ActivityState.WaitingForInput) return;
+            if (!ActivityStateFacts.IsTurnEnd(@new)) return;
             CaptureAndWrite(session);
         };
         _handlers[session.Id] = handler;

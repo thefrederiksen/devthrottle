@@ -109,7 +109,8 @@ public sealed class FactoryDefinitionExportTests
         var elsewhere = Schedule("cj_boss", "boss");
         elsewhere.Target.Machine = "SOREN_SOUTH";
         elsewhere.Action.RepoPath = @"D:\ReposFred\devthrottle-factory";
-        elsewhere.NotifyOn = CronNotify.Failure;
+        // On failure is the default a start's schedule has (issue #4436); every run is not.
+        elsewhere.NotifyOn = CronNotify.Always;
         elsewhere.Action.AutoDismiss = false;
         elsewhere.PreventOverlap = false;
         var noSeat = Schedule("cj_orphan", "boss");
@@ -130,7 +131,7 @@ public sealed class FactoryDefinitionExportTests
         Reported("seats/boss.yaml", "(cj_list) is not a start here: it drains the work list 'nightly'");
         Reported("seats/boss.yaml", "(cj_boss) is a start here, but it runs on SOREN_SOUTH and the seat on SOREN_NORTH");
         Reported("seats/boss.yaml", @"(cj_boss) is a start here, but its working folder 'D:\ReposFred\devthrottle-factory' is not kept");
-        Reported("seats/boss.yaml", "(cj_boss) is a start here, but its notification ('failure') is not kept");
+        Reported("seats/boss.yaml", "(cj_boss) is a start here, but its notification ('always') is not kept");
         Reported("seats/boss.yaml", "(cj_boss) is a start here, but it keeps its session open");
         Reported("seats/boss.yaml", "The registry lists the schedule 'cj_gone' for this seat, but no schedule of this factory has that id");
         Reported("seats/outreach.yaml", "The seat has no published brief on the Gateway; its brief is the file 'briefs/outreach.md'");

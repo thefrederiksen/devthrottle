@@ -25,35 +25,32 @@ public sealed class DriverContractTests
     }
 
     [Fact]
-    public async Task GenericDriver_ClearContextAsync_ThrowsBecauseCapabilityIsAbsent()
+    public void GenericDriver_ClearContext_ThrowsBecauseCapabilityIsAbsent()
     {
         var driver = new GenericDriver(AgentKind.Codex);
-        var backend = new RecordingSessionBackend();
 
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ClearContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.ClearContext());
     }
 
     [Fact]
-    public async Task GenericDriver_CancelAsync_WritesEscapeByte()
+    public void GenericDriver_Cancel_AsksForEscapeByte()
     {
         var driver = new GenericDriver(AgentKind.Codex);
-        var backend = new RecordingSessionBackend();
 
-        await driver.CancelAsync(backend);
+        var input = driver.Cancel();
 
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal([0x1B], bytes);
     }
 
     [Fact]
-    public async Task GenericDriver_InterruptAsync_WritesControlCByte()
+    public void GenericDriver_Interrupt_AsksForControlCByte()
     {
         var driver = new GenericDriver(AgentKind.Codex);
-        var backend = new RecordingSessionBackend();
 
-        await driver.InterruptAsync(backend);
+        var input = driver.Interrupt();
 
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal([0x03], bytes);
     }
 }
