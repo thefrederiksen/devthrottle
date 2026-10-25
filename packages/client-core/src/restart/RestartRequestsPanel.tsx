@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
+import { RestartRequestActions } from "../alerts/actions/RestartRequestActions";
 import {
-  acceptRestartRequest,
-  declineRestartRequest,
   listRestartRequests,
   visibleRestartRequests,
   type DirectorRestartRequest,
@@ -92,30 +91,8 @@ export interface RestartRequestCardProps {
   onChanged?: () => void;
 }
 
-/** One request. The sentences are the Gateway's; the two actions appear only while `canAccept` is true. */
+/** One request. The sentences are the Gateway's; the answer is the shared block the alert detail also renders. */
 export function RestartRequestCard({ request, onChanged }: RestartRequestCardProps) {
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
-
-  const act = async (which: "accept" | "decline") => {
-    setBusy(which);
-    setFailure(null);
-    try {
-      if (which === "accept") await acceptRestartRequest(request.machine, request.id);
-      else await declineRestartRequest(request.machine, request.id);
-      if (mounted.current) setConfirming(false);
-      onChanged?.();
-    } catch (err) {
-      // The Gateway's own sentence, verbatim - a refusal on accept names what changed on the machine.
-      if (mounted.current) setFailure(describeAndReport(SURFACE, which === "accept" ? "accept the restart" : "decline the restart", err));
-    } finally {
-      if (mounted.current) setBusy(null);
-    }
-  };
-
   const tone = request.state === "Pending" ? "pending" : request.state === "Accepted" ? "running" : "closed";
   return (
     <article className={`restart-request restart-request-${tone}`} data-state={request.state}>
@@ -144,28 +121,7 @@ export function RestartRequestCard({ request, onChanged }: RestartRequestCardPro
       {request.workspaceId && (
         <p className="restart-request-line restart-request-dim">Record: workspace {request.workspaceId}</p>
       )}
-      {failure && <p className="restart-request-error" role="alert">{failure}</p>}
-      {request.canAccept && !confirming && (
-        <div className="restart-request-actions">
-          <button type="button" className="restart-request-btn restart-request-btn-primary" onClick={() => setConfirming(true)} disabled={busy !== null}>
-            Accept
-          </button>
-          <button type="button" className="restart-request-btn" onClick={() => void act("decline")} disabled={busy !== null}>
-            {busy === "decline" ? "Declining..." : "Decline"}
-          </button>
-        </div>
-      )}
-      {request.canAccept && confirming && (
-        <div className="restart-request-actions restart-request-confirm">
-          <span className="restart-request-line">{request.acceptSentence || request.title}</span>
-          <button type="button" className="restart-request-btn restart-request-btn-danger" onClick={() => void act("accept")} disabled={busy !== null}>
-            {busy === "accept" ? "Accepting..." : "Yes, restart it"}
-          </button>
-          <button type="button" className="restart-request-btn" onClick={() => setConfirming(false)} disabled={busy !== null}>
-            Not now
-          </button>
-        </div>
-      )}
+      <RestartRequestActions request={request} onAnswered={onChanged} />
     </article>
   );
 }

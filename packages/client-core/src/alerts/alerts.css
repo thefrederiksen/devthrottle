@@ -1,0 +1,414 @@
+/* Alerts (the Alerts mission, section 5.3) - THE ONE STYLESHEET for the bell, the tray, an opened alert and the three
+ * action blocks, shared by the phone app and the Cockpit.
+ *
+ * Every colour is a theme token both shells define in their own :root (--bg, --surface, --border, --text, --text-dim,
+ * --accent, --attention, --warn); see docs/CockpitVisualStyle.md. Every line of text wraps anywhere and may shrink
+ * (overflow-wrap: anywhere; min-width: 0), so the longest real strings - a 46-character launcher version, a
+ * 300-character reason - can never push the tray wider than the screen.
+ *
+ * A SHELL MAY SET ONLY THESE VARIABLES, never copy or override a rule. The defaults are the Cockpit's popover under
+ * the bell; the phone sets them for a bottom sheet:
+ *
+ *   --alerts-tray-position   absolute (popover) or fixed (sheet)
+ *   --alerts-tray-top / --alerts-tray-right / --alerts-tray-bottom / --alerts-tray-left
+ *   --alerts-tray-width      380px; the tray never exceeds the viewport less 16px whatever this says
+ *   --alerts-tray-max-height 70vh
+ *   --alerts-tray-radius     8px
+ *   --alerts-handle-display  none; block shows the sheet's drag handle
+ *   --alerts-backdrop        transparent; a shade behind a sheet
+ *   --alerts-target          32px; the smallest a button or row may be (44px on a phone)
+ *   --alerts-layer           1000; the stacking level of the backdrop and tray
+ */
+
+.alerts {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* ===== The bell ===== */
+
+.alerts-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--alerts-target, 32px);
+  min-height: var(--alerts-target, 32px);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.alerts-bell:hover,
+.alerts-bell[aria-expanded="true"] {
+  color: var(--text);
+  border-color: var(--border);
+}
+.alerts-bell-needs {
+  color: var(--text);
+}
+.alerts-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--attention);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* ===== The tray ===== */
+
+.alerts-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--alerts-layer, 1000);
+  background: var(--alerts-backdrop, transparent);
+}
+
+.alerts-tray {
+  position: var(--alerts-tray-position, absolute);
+  top: var(--alerts-tray-top, calc(100% + 6px));
+  right: var(--alerts-tray-right, auto);
+  bottom: var(--alerts-tray-bottom, auto);
+  left: var(--alerts-tray-left, 0);
+  z-index: calc(var(--alerts-layer, 1000) + 1);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: var(--alerts-tray-width, 380px);
+  max-width: calc(100vw - 16px);
+  max-height: var(--alerts-tray-max-height, 70vh);
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--alerts-tray-radius, 8px);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.alerts-tray-handle {
+  display: var(--alerts-handle-display, none);
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin: 8px 0 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.alerts-tray-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.alerts-tray-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.alerts-tray-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.alerts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.alerts-section-heading {
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.alerts-empty {
+  color: var(--text-dim);
+}
+
+.alerts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ===== One row ===== */
+
+.alerts-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.alerts-row-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.alerts-row-open {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--alerts-target, 32px);
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.alerts-row-open:hover,
+.alerts-row-open:focus-visible {
+  border-color: var(--border);
+  background: var(--bg);
+}
+.alerts-row-needs .alerts-row-open {
+  border-left: 3px solid var(--attention);
+}
+.alerts-row-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+.alerts-row-dot-unseen {
+  background: var(--accent);
+}
+.alerts-row-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.alerts-row-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.alerts-row-summary {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alerts-row-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+.alerts-row-time {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.alerts-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--alerts-target, 32px);
+  min-height: var(--alerts-target, 32px);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.alerts-icon-btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+.alerts-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.alerts-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ===== An opened alert ===== */
+
+.alert-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.alert-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.alert-detail-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.alert-status {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.alert-status-needs {
+  color: var(--attention);
+}
+
+.alert-line {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.alert-summary {
+  font-size: 13px;
+}
+.alert-dim {
+  color: var(--text-dim);
+}
+.alert-strong {
+  font-weight: 600;
+}
+.alert-quote {
+  font-style: italic;
+}
+.alert-error {
+  color: var(--attention);
+}
+
+.alert-details {
+  min-width: 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.alert-details-summary {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.alert-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.alert-detail-line {
+  color: var(--text-dim);
+}
+.alert-detail-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ===== The action blocks ===== */
+
+.alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+}
+.alert-confirm .alert-line {
+  flex: 1 1 100%;
+}
+.alert-btn {
+  min-height: var(--alerts-target, 32px);
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.alert-btn:hover {
+  filter: brightness(1.12);
+}
+.alert-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.alert-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.alert-btn-danger {
+  background: var(--attention);
+  border-color: var(--attention);
+  color: #fff;
+}

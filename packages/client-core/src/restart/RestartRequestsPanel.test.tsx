@@ -95,40 +95,12 @@ describe("RestartRequestCard", () => {
     expect(screen.getByText("nobody accepted within 30 minutes")).toBeTruthy();
   });
 
-  it("accepts only after the in-card confirmation, and posts to the accept route", async () => {
-    fakeGateway([request()]);
-    const changed = vi.fn();
-    render(<RestartRequestCard request={request()} onChanged={changed} />);
-
-    fireEvent.click(screen.getByText("Accept"));
-    // One tap is not enough: nothing has gone over the wire yet, and the promise shown is the Gateway's.
-    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
-    expect(screen.getByText("Yes, restart it")).toBeTruthy();
-    expect(screen.getByText(/asks its 7 live sessions to write a handover/)).toBeTruthy();
-
-    fireEvent.click(screen.getByText("Yes, restart it"));
-    await waitFor(() => expect(changed).toHaveBeenCalled());
-    expect(calls).toContainEqual({ url: "/machines/SOREN_NORTH/director/restart-requests/req-1/accept", method: "POST" });
-  });
-
-  it("shows the Gateway's refusal sentence when the accept is refused", async () => {
-    fakeGateway([request()], 409, {
-      code: "request_expired",
-      error: "request req-1 expired at 12:30 UTC and can no longer be accepted: an approval that outlives its request could restart a Director nobody currently wants restarted. Ask again.",
-    });
+  // The accept (two steps), the refusal sentence and the decline are the shared action block's, tested with it in
+  // alerts/actions/RestartRequestActions.test.tsx; this proves the card renders that block.
+  it("renders the shared answer block, so Accept leads to the in-place confirmation", () => {
     render(<RestartRequestCard request={request()} />);
     fireEvent.click(screen.getByText("Accept"));
-    fireEvent.click(screen.getByText("Yes, restart it"));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("can no longer be accepted"));
-  });
-
-  it("declines with one tap to the decline route", async () => {
-    fakeGateway([request()]);
-    const changed = vi.fn();
-    render(<RestartRequestCard request={request()} onChanged={changed} />);
-    fireEvent.click(screen.getByText("Decline"));
-    await waitFor(() => expect(changed).toHaveBeenCalled());
-    expect(calls).toContainEqual({ url: "/machines/SOREN_NORTH/director/restart-requests/req-1/decline", method: "POST" });
+    expect(screen.getByText("Yes, restart it")).toBeTruthy();
   });
 
   it("shows the Director's progress line while the cycle runs and its reason when it stopped", () => {
