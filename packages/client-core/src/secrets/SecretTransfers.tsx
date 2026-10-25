@@ -1,12 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
-import {
-  answerSecretTransfer,
-  listSecretTransfers,
-  timeLeftWords,
-  type SecretTransfer,
-  type SecretTransferPlace,
-} from "./secretTransfersClient";
+import { SecretTransferActions } from "../alerts/actions/SecretTransferActions";
+import { listSecretTransfers, timeLeftWords, type SecretTransfer, type SecretTransferPlace } from "./secretTransfersClient";
 import "./secrets.css";
 
 // THE SECRET TRANSFER APPROVAL CARD (Secret Handoff, issue #2943, phase 5). ONE card, written once here and mounted by
@@ -17,12 +12,11 @@ import "./secrets.css";
 // THE CARD DECIDES NOTHING. The Gateway wrote every sentence on a transfer - what moves where (summary), what it
 // replaces (replaceNote), who asked (askedBy), why (reason, in the asker's own words), where it stands (statusText) -
 // and whether it can still be answered (canAnswer). This renders those verbatim and offers Approve and Deny only while
-// canAnswer is true. The only words of this file's own are the button labels, the time left (a formatted expiry
+// canAnswer is true - through SecretTransferActions, the block the alert detail renders too. The only words of this file's own are the Close label, the time left (a formatted expiry
 // time), and the line that says a read failed. A transfer never carries a value, so neither does the card.
 
 const SURFACE = "secret-transfers";
 const READ = "load the secret transfers";
-const ANSWER = "answer the secret transfer";
 
 /** How often the transfers are read again. A transfer expires in 15 minutes and an agent waits on it, so this is
  *  quicker than the message-link requests. */
@@ -35,11 +29,12 @@ interface SecretTransfersValue {
   shown: SecretTransfer[];
   /** Waiting transfers asked by one session, for its badge. */
   waitingFrom: (sessionId: string) => SecretTransfer[];
-  answer: (transfer: SecretTransfer, approve: boolean, where: SecretTransferPlace) => Promise<void>;
+  /** An answer was sent from a card on this screen: keep that card in view so its outcome shows. */
+  answering: (transfer: SecretTransfer) => void;
+  /** An answer landed: hold the transfer as the Gateway now has it, and read the list again. */
+  answered: (transfer: SecretTransfer) => void;
   /** Put an answered card away. */
   dismiss: (transferId: string) => void;
-  busyId: string | null;
-  errors: Readonly<Record<string, string>>;
   listError: string | null;
   now: () => number;
 }
@@ -51,10 +46,9 @@ const NONE: SecretTransfersValue = {
   transfers: [],
   shown: [],
   waitingFrom: () => [],
-  answer: async () => {},
+  answering: () => {},
+  answered: () => {},
   dismiss: () => {},
-  busyId: null,
-  errors: {},
   listError: null,
   now: Date.now,
 };
@@ -65,8 +59,6 @@ const SecretTransfersContext = createContext<SecretTransfersValue>(NONE);
 export function SecretTransfersProvider({ children, now }: { children: ReactNode; now?: () => number }) {
   const [transfers, setTransfers] = useState<SecretTransfer[]>([]);
   const [answeredHere, setAnsweredHere] = useState<ReadonlySet<string>>(new Set());
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [listError, setListError] = useState<string | null>(null);
   const clock = now ?? Date.now;
 
@@ -93,21 +85,14 @@ export function SecretTransfersProvider({ children, now }: { children: ReactNode
     };
   }, [load]);
 
-  const answer = useCallback(
-    async (transfer: SecretTransfer, approve: boolean, where: SecretTransferPlace) => {
-      setBusyId(transfer.transferId);
-      setErrors((e) => ({ ...e, [transfer.transferId]: "" }));
-      setAnsweredHere((s) => new Set(s).add(transfer.transferId));
-      try {
-        const result = await answerSecretTransfer(transfer.transferId, approve, where);
-        setTransfers((ts) => ts.map((t) => (t.transferId === transfer.transferId ? result.transfer : t)));
-      } catch (err) {
-        // The Gateway's own sentence - "This transfer was already approved in the cc-secrets window." - verbatim.
-        setErrors((e) => ({ ...e, [transfer.transferId]: describeAndReport(SURFACE, ANSWER, err) }));
-      } finally {
-        setBusyId(null);
-      }
-      await load();
+  const answering = useCallback((transfer: SecretTransfer) => {
+    setAnsweredHere((s) => new Set(s).add(transfer.transferId));
+  }, []);
+
+  const answered = useCallback(
+    (transfer: SecretTransfer) => {
+      setTransfers((ts) => ts.map((t) => (t.transferId === transfer.transferId ? transfer : t)));
+      void load();
     },
     [load],
   );
@@ -134,8 +119,8 @@ export function SecretTransfersProvider({ children, now }: { children: ReactNode
   );
 
   const value = useMemo<SecretTransfersValue>(
-    () => ({ transfers, shown, waitingFrom, answer, dismiss, busyId, errors, listError, now: clock }),
-    [transfers, shown, waitingFrom, answer, dismiss, busyId, errors, listError, clock],
+    () => ({ transfers, shown, waitingFrom, answering, answered, dismiss, listError, now: clock }),
+    [transfers, shown, waitingFrom, answering, answered, dismiss, listError, clock],
   );
   return <SecretTransfersContext.Provider value={value}>{children}</SecretTransfersContext.Provider>;
 }
@@ -182,8 +167,6 @@ export interface SecretTransferCardProps {
 /** One transfer. The sentences are the Gateway's; Approve and Deny appear only while canAnswer is true. */
 export function SecretTransferCard({ transfer: t, where }: SecretTransferCardProps) {
   const ctx = useSecretTransfers();
-  const busy = ctx.busyId === t.transferId;
-  const error = ctx.errors[t.transferId];
   return (
     <article
       className={`secret-transfer ${t.canAnswer ? "secret-transfer-waiting" : "secret-transfer-closed"}`}
@@ -202,27 +185,8 @@ export function SecretTransferCard({ transfer: t, where }: SecretTransferCardPro
       <p className="secret-transfer-line secret-transfer-status" role="status">
         {t.statusText}
       </p>
-      {error ? (
-        <p className="secret-transfer-error" role="alert">
-          {/* error-reported-by: SecretTransfersProvider */}
-          {error}
-        </p>
-      ) : null}
-      {t.canAnswer ? (
-        <div className="secret-transfer-actions">
-          <button
-            type="button"
-            className="secret-transfer-btn secret-transfer-btn-primary"
-            disabled={busy}
-            onClick={() => void ctx.answer(t, true, where)}
-          >
-            Approve
-          </button>
-          <button type="button" className="secret-transfer-btn" disabled={busy} onClick={() => void ctx.answer(t, false, where)}>
-            Deny
-          </button>
-        </div>
-      ) : (
+      <SecretTransferActions transfer={t} where={where} onAnswering={ctx.answering} onAnswered={ctx.answered} />
+      {t.canAnswer ? null : (
         <div className="secret-transfer-actions">
           <button type="button" className="secret-transfer-btn" onClick={() => ctx.dismiss(t.transferId)}>
             Close
