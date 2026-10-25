@@ -54,6 +54,14 @@ public sealed record GatewayHostOptions
     public Tenancy.PreLaunchGrace RemoteAccessGrace { get; init; } = Tenancy.PreLaunchGrace.NotSet;
 
     /// <summary>
+    /// The clock the statistics store waits on: its startup deadline and its reopen backoff. Production uses the
+    /// system clock, and that is the default. A test whose subject is not those waits passes a clock that stands
+    /// still, so an open that is merely slow on a loaded machine is waited for, no retry fires during the test,
+    /// and the test is decided by what the store did, never by how long the machine took.
+    /// </summary>
+    public TimeProvider StatsClock { get; init; } = TimeProvider.System;
+
+    /// <summary>
     /// The ONE place production reads the host's options from the process environment. Called by the
     /// <see cref="GatewayHost"/> constructor when a caller passes no options, which is what the production entry
     /// points do. Everything a test used to set through <c>Environment.SetEnvironmentVariable</c> is a property on

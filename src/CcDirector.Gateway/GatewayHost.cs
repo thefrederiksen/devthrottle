@@ -2084,7 +2084,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // them could only ever hand them nothing - which is exactly the state this ordering fixes: the store
         // opened PostgreSQL and migrated it successfully, and the observers that should have used it had
         // already decided, two lines earlier, that hosted means no statistics.
-        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted);
+        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted, time: Options.StatsClock);
         if (!StatsStore.IsAvailable)
             FileLog.Write(
                 $"[GatewayHost] statistics are UNAVAILABLE ({StatsStore.Availability.ReasonCode}): " +

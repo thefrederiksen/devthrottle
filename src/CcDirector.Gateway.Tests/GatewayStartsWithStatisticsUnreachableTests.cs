@@ -200,5 +200,29 @@ public sealed class GatewayStartsWithStatisticsUnreachableTests : IDisposable
             snoozePath: Path.Combine(_root, "snooze", "snooze.json"),
             missionsPath: Path.Combine(_root, "missions", "missions.json"),
             streamMode: true,
-            options: new GatewayHostOptions { Hosted = hosted });
+            options: new GatewayHostOptions { Hosted = hosted, StatsClock = new StandingClock() });
+
+    /// <summary>
+    /// A clock that stands still: its timers never fire. The statistics store's startup deadline and its reopen
+    /// backoff both wait on it, so on a loaded machine the open of the dead database is waited for rather than
+    /// timed out (which would record a second failure when the late result arrived), and no retry runs during the
+    /// test. The failure count is then decided by what the store did, not by how fast the machine was. The
+    /// database's own two-second connection timeout still bounds the open.
+    /// </summary>
+    private sealed class StandingClock : TimeProvider
+    {
+        private static readonly DateTimeOffset Fixed = new(2026, 10, 24, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => Fixed;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new NeverFires();
+
+        private sealed class NeverFires : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+            public void Dispose() { }
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
 }
