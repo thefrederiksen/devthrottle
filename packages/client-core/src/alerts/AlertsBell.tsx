@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import type { SecretTransferPlace } from "../secrets/secretTransfersClient";
 import { useAlerts } from "./AlertsProvider";
 import { AlertsTray } from "./AlertsTray";
@@ -7,8 +7,10 @@ import "./alerts.css";
 
 // THE ALERTS BELL (the Alerts mission, section 5.3) - one component, in the phone's app bar and the Cockpit's rail
 // head. A bell with a red count of the alerts that NEED AN ANSWER, and only those: the Gateway's needsAnswerCount,
-// shown as "9+" above nine, with no badge at all at zero. Pressing it opens the tray; closing the tray puts focus back
-// on the bell.
+// shown as "9+" above nine, with no badge at all at zero.
+//
+// In the Cockpit, pressing it opens the popover under it, and closing the popover puts focus back on the bell. On the
+// phone, Alerts is a screen of its own (phase 5): the shell passes `onOpenPage` and the bell goes there instead.
 
 export interface AlertsBellProps {
   /** Where a secret transfer answered in the tray is recorded: "phone" on the phone, "cockpit" on the Cockpit. */
@@ -17,9 +19,13 @@ export interface AlertsBellProps {
   openAlertId?: string | null;
   /** Called when the tray opens or closes, for a shell that tracks it (the deep link is cleared on close). */
   onOpenChange?: (open: boolean) => void;
+  /** Go to the Alerts screen instead of opening the popover - the phone. The bell then draws no popover at all. */
+  onOpenPage?: () => void;
+  /** Forwarded to the button, for a shell that returns focus to it. */
+  buttonRef?: Ref<HTMLButtonElement>;
 }
 
-export function AlertsBell({ where, openAlertId, onOpenChange }: AlertsBellProps) {
+export function AlertsBell({ where, openAlertId, onOpenChange, onOpenPage, buttonRef }: AlertsBellProps) {
   const { needsAnswerCount } = useAlerts();
   const [open, setOpen] = useState(false);
   const bell = useRef<HTMLButtonElement>(null);
@@ -42,6 +48,28 @@ export function AlertsBell({ where, openAlertId, onOpenChange }: AlertsBellProps
   }, [setOpenAndTell]);
 
   const badge = badgeText(needsAnswerCount);
+  const badgeNode = badge ? (
+    <span className="alerts-badge" data-testid="alerts-badge" aria-hidden="true">
+      {badge}
+    </span>
+  ) : null;
+  if (onOpenPage) {
+    return (
+      <div className="alerts">
+        <button
+          ref={buttonRef}
+          type="button"
+          className={`alerts-bell ${badge ? "alerts-bell-needs" : ""}`}
+          aria-label={bellLabel(needsAnswerCount)}
+          data-testid="alerts-bell"
+          onClick={onOpenPage}
+        >
+          <BellIcon />
+          {badgeNode}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="alerts">
       <button
@@ -55,11 +83,7 @@ export function AlertsBell({ where, openAlertId, onOpenChange }: AlertsBellProps
         onClick={() => (open ? close() : setOpenAndTell(true))}
       >
         <BellIcon />
-        {badge ? (
-          <span className="alerts-badge" data-testid="alerts-badge" aria-hidden="true">
-            {badge}
-          </span>
-        ) : null}
+        {badgeNode}
       </button>
       {open ? <AlertsTray onClose={close} where={where} initialAlertId={openAlertId ?? null} /> : null}
     </div>

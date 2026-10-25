@@ -4838,23 +4838,23 @@ a.banner-btn {
   }
 }
 
-/* ---- Alerts (the Alerts mission) - the shared client-core bell and tray (packages/client-core/src/alerts/alerts.css).
-   The phone sets ONLY the position and size variables that stylesheet documents, never a rule of its own: here the
-   tray is a bottom sheet with a drag handle, a shade behind it, at most 85% of the visible height, and every button
-   and row at least 44px tall. The restart, secret transfer and message request cards that used to be styled here are
-   gone with the cards. The variables sit on the app bar and reach the bell inside it. ---- */
+/* ---- Alerts (the Alerts mission) - the shared client-core bell and Alerts content (packages/client-core/src/alerts/
+   alerts.css). The phone sets ONLY the variables that stylesheet documents, never a rule of its own: every button and
+   row at least 44px tall, cards on the surface colour (the screen itself is --bg), and larger text for a thumb and a
+   glance. Alerts is a full screen of its own on the phone (pages/Alerts.tsx), so there is no sheet, handle or shade to
+   size. The variables sit on .screen and on .app-bar, so they reach the Alerts screen and the bell in every app bar,
+   including a session screen's. ---- */
+/* A screen's title takes focus when the screen opens (the Alerts screen does, as a page should), so a screen reader
+   starts there. That focus is programmatic, not a keyboard user's, so it draws no ring. */
+.app-bar h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
+.screen,
 .app-bar {
   --alerts-target: 44px;
-  --alerts-tray-position: fixed;
-  --alerts-tray-top: auto;
-  --alerts-tray-right: auto;
-  --alerts-tray-bottom: 0;
-  --alerts-tray-left: 8px;
-  --alerts-tray-width: calc(100% - 16px);
-  --alerts-tray-max-height: calc(var(--app-vh, 100dvh) * 0.85);
-  --alerts-tray-radius: 16px 16px 0 0;
-  --alerts-handle-display: block;
-  --alerts-backdrop: rgba(0, 0, 0, 0.45);
+  --alerts-card-background: var(--surface);
+  --alerts-text-size: 15px;
 }
 
 /* ---- The ownership tree on the phone (owner ruling, 2026-09-14). A parent card carries a band along

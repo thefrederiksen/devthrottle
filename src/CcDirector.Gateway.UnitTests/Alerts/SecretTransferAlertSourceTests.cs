@@ -34,7 +34,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
     private string Ask(TenantId? tenant = null)
         => _store.Create(tenant ?? Tenant,
             new SecretTransferAsk("devlinux-rdp", "devlinux-rdp", "SOREN_NORTH", "mac-mini", false,
-                "aaaaaaaa-0000-0000-0000-000000000001", "Session 104 \"tests\"", "sudo on the mac"),
+                "aaaaaaaa-0000-0000-0000-000000000001", "Session 104 \"Mac - Tester - sudo checks\"", "sudo on the mac"),
             null, T0)!.TransferId;
 
     private static SecretTransferAnswer Answer(bool approve, string where = SecretTransferPlaces.Phone)
@@ -54,7 +54,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
         Assert.Equal(AlertKinds.SecretTransfer, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
         Assert.Equal("Send the secret devlinux-rdp to mac-mini?", alert.Title);
-        Assert.Equal("Session 104 \"tests\" asks: sudo on the mac", alert.Summary);
+        Assert.Equal("Mac Tester (104) asks: sudo on the mac", alert.Summary);
         Assert.Equal(T0 + SecretTransferStore.ApprovalLifetime, alert.ExpiresAtUtc);
         var detail = Assert.IsType<SecretTransferDto>(alert.Detail);
         Assert.True(detail.CanAnswer);

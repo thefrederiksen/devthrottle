@@ -1,23 +1,25 @@
-/* Alerts (the Alerts mission, section 5.3) - THE ONE STYLESHEET for the bell, the tray, an opened alert and the three
- * action blocks, shared by the phone app and the Cockpit.
+/* Alerts (the Alerts mission, section 5.3 and phase 5) - THE ONE STYLESHEET for the bell, the Alerts content (cards
+ * for what needs the owner, compact rows for what is Earlier), the Cockpit's popover, the phone's Alerts screen and the
+ * three action blocks, shared by the phone app and the Cockpit.
  *
  * Every colour is a theme token both shells define in their own :root (--bg, --surface, --border, --text, --text-dim,
  * --accent, --attention, --warn); see docs/CockpitVisualStyle.md. Every line of text wraps anywhere and may shrink
  * (overflow-wrap: anywhere; min-width: 0), so the longest real strings - a 46-character launcher version, a
- * 300-character reason - can never push the tray wider than the screen.
+ * 300-character reason - can never push a card wider than the screen. Nothing is ellipsised.
  *
  * A SHELL MAY SET ONLY THESE VARIABLES, never copy or override a rule. The defaults are the Cockpit's popover under
- * the bell; the phone sets them for a bottom sheet:
+ * the bell; the phone sets the ones its own screen needs:
  *
- *   --alerts-tray-position   absolute (popover) or fixed (sheet)
+ *   --alerts-tray-position   absolute (popover) or fixed
  *   --alerts-tray-top / --alerts-tray-right / --alerts-tray-bottom / --alerts-tray-left
- *   --alerts-tray-width      380px; the tray never exceeds the viewport less 16px whatever this says
+ *   --alerts-tray-width      380px; the popover never exceeds the viewport less 16px whatever this says
  *   --alerts-tray-max-height 70vh
  *   --alerts-tray-radius     8px
- *   --alerts-handle-display  none; block shows the sheet's drag handle
- *   --alerts-backdrop        transparent; a shade behind a sheet
+ *   --alerts-backdrop        transparent
  *   --alerts-target          32px; the smallest a button or row may be (44px on a phone)
- *   --alerts-layer           1000; the stacking level of the backdrop and tray
+ *   --alerts-layer           1000; the stacking level of the backdrop and popover
+ *   --alerts-card-background --bg; a card's own background (the phone's screen is --bg, so it sets --surface)
+ *   --alerts-text-size       13px; a card's summary and buttons (15px on a phone)
  */
 
 .alerts {
@@ -68,7 +70,7 @@
   pointer-events: none;
 }
 
-/* ===== The tray ===== */
+/* ===== The Cockpit's popover ===== */
 
 .alerts-backdrop {
   position: fixed;
@@ -99,22 +101,12 @@
   overflow: hidden;
 }
 
-.alerts-tray-handle {
-  display: var(--alerts-handle-display, none);
-  align-self: center;
-  width: 36px;
-  height: 4px;
-  margin: 8px 0 2px;
-  border-radius: 2px;
-  background: var(--border);
-}
-
 .alerts-tray-head {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 8px 8px 8px 12px;
+  padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--border);
 }
 .alerts-tray-heading {
@@ -126,25 +118,39 @@
   overflow-wrap: anywhere;
 }
 .alerts-tray-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   min-width: 0;
-  padding: 10px 12px 12px;
+  padding: 12px 14px 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* ===== The phone's Alerts screen: the content below its app bar (the screen sets the side gutters) ===== */
+
+.alerts-page {
+  box-sizing: border-box;
+  min-width: 0;
+  padding-top: 14px;
+}
+
+/* ===== The content ===== */
+
+.alerts-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
 }
 
 .alerts-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
   min-width: 0;
 }
 .alerts-section-heading {
   min-width: 0;
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -152,7 +158,90 @@
   overflow-wrap: anywhere;
 }
 .alerts-empty {
+  font-size: var(--alerts-text-size, 13px);
   color: var(--text-dim);
+}
+
+/* What an answer did, for a few seconds after it. */
+.alerts-answered {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.alerts-answered:empty {
+  display: none;
+}
+.alerts-answered-line {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-size: var(--alerts-text-size, 13px);
+}
+
+/* ===== A card: one alert that needs an answer, with its buttons on it ===== */
+
+.alerts-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.alert-card {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--attention);
+  border-radius: 8px;
+  background: var(--alerts-card-background, var(--bg));
+}
+.alert-card:focus-visible,
+.alerts-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ===== Earlier: collapsed, quieter, one compact row each ===== */
+
+.alerts-earlier {
+  gap: 4px;
+}
+.alerts-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.alerts-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: var(--alerts-target, 32px);
+  padding: 0 4px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.alerts-section-toggle:hover {
+  color: var(--text);
+}
+.alerts-chevron {
+  flex: 0 0 auto;
+}
+.alerts-clear-all {
+  flex: 0 0 auto;
 }
 
 .alerts-list {
@@ -165,12 +254,11 @@
   list-style: none;
 }
 
-/* ===== One row ===== */
-
 .alerts-row {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  border-radius: 6px;
 }
 .alerts-row-main {
   display: flex;
@@ -185,11 +273,11 @@
   gap: 8px;
   min-width: 0;
   min-height: var(--alerts-target, 32px);
-  padding: 6px 8px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: var(--text);
+  color: var(--text-dim);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -198,48 +286,29 @@
 .alerts-row-open:focus-visible {
   border-color: var(--border);
   background: var(--bg);
-}
-.alerts-row-needs .alerts-row-open {
-  border-left: 3px solid var(--attention);
+  color: var(--text);
 }
 .alerts-row-dot {
   flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: transparent;
 }
 .alerts-row-dot-unseen {
   background: var(--accent);
 }
-.alerts-row-text {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
 .alerts-row-title {
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.alerts-row-summary {
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
-  color: var(--text-dim);
   overflow-wrap: anywhere;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .alerts-row-meta {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .alerts-row-time {
@@ -248,6 +317,15 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.alerts-row-more {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 2px 0 8px 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border);
 }
 
 .alerts-icon-btn {
@@ -282,27 +360,20 @@
   white-space: nowrap;
 }
 
-/* ===== An opened alert ===== */
+/* ===== One alert's content (a card, an Earlier row opened in place, a session's ask chip) ===== */
 
 .alert-detail {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.alert-detail-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
   min-width: 0;
 }
 .alert-detail-title {
-  flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  font-size: 14px;
+  font-size: calc(var(--alerts-text-size, 13px) + 2px);
   font-weight: 700;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 .alert-status {
@@ -315,20 +386,17 @@
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
-.alert-status-needs {
-  color: var(--attention);
-}
 
 .alert-line {
   margin: 0;
   min-width: 0;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--text);
   overflow-wrap: anywhere;
 }
 .alert-summary {
-  font-size: 13px;
+  font-size: var(--alerts-text-size, 13px);
 }
 .alert-dim {
   color: var(--text-dim);
@@ -336,32 +404,53 @@
 .alert-strong {
   font-weight: 600;
 }
-.alert-quote {
-  font-style: italic;
-}
 .alert-error {
   color: var(--attention);
 }
 
 .alert-details {
   min-width: 0;
-  margin-top: 4px;
+  margin-top: 2px;
   border-top: 1px solid var(--border);
   padding-top: 6px;
 }
 .alert-details-summary {
   min-width: 0;
+  min-height: var(--alerts-target, 32px);
+  display: flex;
+  align-items: center;
   font-size: 12px;
   color: var(--text-dim);
   cursor: pointer;
   overflow-wrap: anywhere;
+}
+/* The summary is a flex row for its 44px target on a phone, which drops the browser's own marker; this draws one. */
+.alert-details-summary {
+  list-style: none;
+}
+.alert-details-summary::-webkit-details-marker {
+  display: none;
+}
+.alert-details-summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin: 0 10px 2px 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+.alert-details[open] > .alert-details-summary::before {
+  margin-bottom: 4px;
+  transform: rotate(45deg);
 }
 .alert-details-body {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 .alert-detail-line {
   color: var(--text-dim);
@@ -387,8 +476,9 @@
 .alert-btn {
   min-height: var(--alerts-target, 32px);
   padding: 4px 12px;
-  font-size: 12px;
-  border-radius: 4px;
+  font-size: var(--alerts-text-size, 13px);
+  font-weight: 600;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
@@ -411,4 +501,12 @@
   background: var(--attention);
   border-color: var(--attention);
   color: #fff;
+}
+/* On a card the answer buttons share its width, so each is an easy target. */
+.alert-card .alert-actions .alert-btn {
+  flex: 1 1 0;
+}
+.alerts-clear-all.alert-btn {
+  font-size: 12px;
+  font-weight: 400;
 }

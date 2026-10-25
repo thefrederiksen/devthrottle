@@ -1,117 +1,170 @@
+=== python -u qa.py zero steps_count.py
 [qa] READY port=7993
 phone bell: Alerts
 phone badge: none
 SHOT phone-bell-zero
+phone alerts: /mobile/alerts {"cards":0,"empty":true,"earlier":"none"} overflow: {"width":390,"bad":[]}
+SHOT phone-alerts-zero
 desktop bell: Alerts
-desktop title: ? DevThrottle Cockpit
+desktop title: DevThrottle Cockpit
 SHOT desktop-bell-zero
+desktop alerts: {"cards":0,"empty":true,"earlier":"none"} overflow: {"width":1440,"bad":[]}
+SHOT desktop-alerts-zero
 [qa] host stopped
+=== python -u qa.py one steps_count.py
 [qa] READY port=7993
 phone bell: Alerts, 1 needs you
 phone badge: 1
 SHOT phone-bell-one
+phone alerts: /mobile/alerts {"cards":1,"empty":false,"earlier":"none"} overflow: {"width":390,"bad":[]}
+SHOT phone-alerts-one
 desktop bell: Alerts, 1 needs you
 desktop title: ? (1) DevThrottle Cockpit
 SHOT desktop-bell-one
+desktop alerts: {"cards":1,"empty":false,"earlier":"none"} overflow: {"width":1440,"bad":[]}
+SHOT desktop-alerts-one
 [qa] host stopped
+=== python -u qa.py twelve steps_count.py
 [qa] READY port=7993
 phone bell: Alerts, 12 need you
 phone badge: 9+
 SHOT phone-bell-twelve
+phone alerts: /mobile/alerts {"cards":12,"empty":false,"earlier":"none"} overflow: {"width":390,"bad":[]}
+SHOT phone-alerts-twelve
 desktop bell: Alerts, 12 need you
-desktop title: (12) DevThrottle Cockpit
+desktop title: ? (12) DevThrottle Cockpit
 SHOT desktop-bell-twelve
-collapsed badge: 9+
-SHOT desktop-bell-twelve-collapsed-rail
+desktop alerts: {"cards":12,"empty":false,"earlier":"none"} overflow: {"width":1440,"bad":[]}
+SHOT desktop-alerts-twelve
 [qa] host stopped
+=== python -u qa.py mixed steps_mixed.py
 [qa] READY port=7993
-cards in the session list: 0
-badge: 3
-SHOT phone-session-list-no-cards
-tray: Needs you: Restart the Director on mac-mini? | Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
-SHOT phone-tray-needs-you-and-earlier
-opened: restart-request
-SHOT phone-opened-restart
-opened: secret-transfer
-SHOT phone-opened-secret-transfer
-opened: message-request
-SHOT phone-opened-message-request
-SHOT phone-accept-restart-step-1-confirm
-after accept, detail status: Stopped
-SHOT phone-accept-restart-step-2-answered
-badge before: 3 after: 2
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
-SHOT phone-accept-restart-step-3-moved-to-earlier
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
-SHOT phone-cleared-one
-list read held
-[qa] host: REOPENED True
-refusal: This still needs your answer; it leaves when you answer it or when it expires.
-SHOT phone-clear-refused-needs-an-answer
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
-clear all still offered: False
-SHOT phone-cleared-all
-[qa] host: DOWN finished=True
-failure line: Could not load the alerts: Can't reach the Gateway - retrying. / This still needs your answer; it leaves when you answer it or when it expires.
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
-SHOT phone-gateway-unreachable
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\soren\.local\bin\browser-harness.exe\__main__.py", line 10, in <module>
+  File "C:\Users\soren\AppData\Roaming\uv\tools\browser-harness\Lib\site-packages\browser_harness\run.py", line 180, in main
+    exec(code, globals())
+  File "<string>", line 78, in <module>
+  File "<string>", line 27, in wait_js
+RuntimeError: timed out waiting for: document.querySelector('[data-testid=alerts-badge]')
 [qa] host stopped
+Traceback (most recent call last):
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 131, in <module>
+    main()
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 124, in main
+    exec(code, {"host": host, "bh": bh, "KEY": host.key, "PHONE_KEY": host.phone_key, "BASE": BASE, "OUT": OUT, "time": time})
+  File "<string>", line 49, in <module>
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 115, in bh
+    raise RuntimeError("browser-harness failed")
+RuntimeError: browser-harness failed
+=== python -u qa.py mixed steps_mixed.py
 [qa] READY port=7993
 cards in the session list: 0
 badge: 3
 SHOT desktop-session-list-no-cards
-tray: Needs you: Restart the Director on mac-mini? | Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
-SHOT desktop-tray-needs-you-and-earlier
-opened: restart-request
-SHOT desktop-opened-restart
-opened: secret-transfer
-SHOT desktop-opened-secret-transfer
-opened: message-request
-SHOT desktop-opened-message-request
-SHOT desktop-accept-restart-step-1-confirm
-after accept, detail status: Stopped
-SHOT desktop-accept-restart-step-2-answered
+address: /sessions dialog: True shade: True
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":[],"answered":[],"errors":[],"empty":false}
+overflow: {"width":1440,"bad":[]}
+SHOT desktop-alerts-three-need-you-earlier-collapsed
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":["Restarting the Director on linux-rig","Restart of the Director on build-box","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":false}
+SHOT desktop-alerts-earlier-expanded
+row opened: The Director has taken the cycle: it is draining itself and will report here.
+SHOT desktop-alerts-earlier-row-opened
+SHOT desktop-card-restart-details
 badge before: 3 after: 2
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | Restart of the Director on build-box | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
-SHOT desktop-accept-restart-step-3-moved-to-earlier
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Send the secret vercel-bypass to mac-mini?  //  Earlier: Restart of the Director on mac-mini | Restarting the Director on linux-rig | 130 Docs - Writer may message 142 Rig - Developer | Secret posthog-key to linux-rig
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)"],"earlier":"Earlier (5)","rows":[],"answered":["Failed: Secret vercel-bypass to mac-mini"],"errors":[],"empty":false}
+SHOT desktop-answer-secret-transfer-approved
+badge before: 2 after: 1
+state: {"needsYou":["Restart the Director on mac-mini?"],"earlier":"Earlier (6)","rows":[],"answered":["Allowed: Release Manager (121) may message Release Manager (125)"],"errors":[],"empty":false}
+SHOT desktop-answer-message-request-allowed
+confirm: Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.Yes, restart itNot now
+SHOT desktop-answer-restart-step-1-confirm
+badge before: 1 after: none
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":["Stopped: Restart of the Director on mac-mini"],"errors":[],"empty":true}
+SHOT desktop-answer-restart-step-2-answered
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":[],"errors":[],"empty":true}
+SHOT desktop-alerts-nothing-needs-you-earlier-below
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":true}
 SHOT desktop-cleared-one
 list read held
 [qa] host: REOPENED True
-refusal: This still needs your answer; it leaves when you answer it or when it expires.
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":["This still needs your answer; it leaves when you answer it or when it expires."],"empty":true}
 SHOT desktop-clear-refused-needs-an-answer
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":[],"empty":false}
 clear all still offered: False
 SHOT desktop-cleared-all
 [qa] host: DOWN finished=True
-failure line: Could not load the alerts: Can't reach the Gateway - retrying. / This still needs your answer; it leaves when you answer it or when it expires.
-tray: Needs you: Let 121 Release - Manager message 125 Release - Release Manager? | Let 130 Docs - Writer message 142 Rig - Developer? | Send the secret vercel-bypass to mac-mini?
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":["Could not load the alerts: Can't reach the Gateway - retrying."],"empty":false}
 SHOT desktop-gateway-unreachable
 [qa] host stopped
+=== python -u qa.py overflow steps_overflow.py
 [qa] READY port=7993
-phone 360 list tray width: 344 overflow: {"width":360,"bad":[]}
-SHOT phone-360-overflow-list
-phone 360 restart tray width: 344 overflow: {"width":360,"bad":[]}
+phone 360 cards content width: 328 cards: 2 overflow: {"width":360,"bad":[]}
+SHOT phone-360-overflow-cards
+phone 360 details content width: 328 cards: 2 overflow: {"width":360,"bad":[]}
 SHOT phone-360-overflow-restart-details
 SHOT phone-360-overflow-restart-details-scrolled
-phone 360 secret tray width: 344 overflow: {"width":360,"bad":[]}
 SHOT phone-360-overflow-secret-details
-desktop 280 list tray width: 280 overflow: {"width":1440,"bad":[]}
-SHOT desktop-280-popover-overflow-list
-desktop 280 restart tray width: 280 overflow: {"width":1440,"bad":[]}
+desktop 280 cards content width: 280 cards: 2 overflow: {"width":1440,"bad":[]}
+SHOT desktop-280-popover-overflow-cards
+desktop 280 details content width: 280 cards: 2 overflow: {"width":1440,"bad":[]}
 SHOT desktop-280-popover-overflow-restart-details
 [qa] host stopped
+=== python -u qa.py mixed steps_cockpit_narrow.py
 [qa] READY port=7993
 bell box: {"x":141,"y":16,"width":32,"height":32,"top":16,"right":173,"bottom":48,"left":141}
 SHOT cockpit-390-bell
-tray box: {"x":8,"y":54,"width":374,"height":510,"top":54,"right":382,"bottom":564,"left":8} overflow: {"width":390,"bad":[]}
+tray box: {"x":8,"y":54,"width":374,"height":590.796875,"top":54,"right":382,"bottom":644.796875,"left":8} overflow: {"width":390,"bad":[]}
 SHOT cockpit-390-tray
 [qa] host stopped
-
-== review follow-up: the bell on a second phone screen (steps_second_screen.py, scenario mixed) ==
+=== python -u qa.py mixed steps_second_screen.py
 [qa] READY port=7993
 screen: /mobile/settings heading: Settings
 phone badge: 3
 bell in the app bar: True
 SHOT phone-bell-on-settings
+[qa] host stopped
+=== RERUN: QA_APP=phone python -u qa.py mixed steps_mixed.py (the first phone run above timed out at its first step)
+[qa] READY port=7993
+cards in the session list: 0
+badge: 3
+SHOT phone-session-list-no-cards
+address: /mobile/alerts dialog: False shade: False
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":[],"answered":[],"errors":[],"empty":false}
+overflow: {"width":390,"bad":[]}
+SHOT phone-alerts-three-need-you-earlier-collapsed
+SHOT phone-alerts-three-need-you-scrolled
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":["Restarting the Director on linux-rig","Restart of the Director on build-box","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":false}
+SHOT phone-alerts-earlier-expanded
+row opened: The Director has taken the cycle: it is draining itself and will report here.
+SHOT phone-alerts-earlier-row-opened
+SHOT phone-card-restart-details
+badge before: none after: none
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)"],"earlier":"Earlier (5)","rows":[],"answered":["Failed: Secret vercel-bypass to mac-mini"],"errors":[],"empty":false}
+SHOT phone-answer-secret-transfer-approved
+badge before: none after: none
+state: {"needsYou":["Restart the Director on mac-mini?"],"earlier":"Earlier (6)","rows":[],"answered":["Allowed: Release Manager (121) may message Release Manager (125)"],"errors":[],"empty":false}
+SHOT phone-answer-message-request-allowed
+confirm: Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.Yes, restart itNot now
+SHOT phone-answer-restart-step-1-confirm
+badge before: none after: none
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":["Stopped: Restart of the Director on mac-mini"],"errors":[],"empty":true}
+SHOT phone-answer-restart-step-2-answered
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":[],"errors":[],"empty":true}
+SHOT phone-alerts-nothing-needs-you-earlier-below
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":true}
+SHOT phone-cleared-one
+list read held
+[qa] host: REOPENED True
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":["This still needs your answer; it leaves when you answer it or when it expires."],"empty":true}
+SHOT phone-clear-refused-needs-an-answer
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":[],"empty":false}
+clear all still offered: False
+SHOT phone-cleared-all
+address: /mobile/ focus on the bell: alerts-bell
+SHOT phone-back-to-session-list
+[qa] host: DOWN finished=True
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":["Could not load the alerts: Can't reach the Gateway - retrying."],"empty":false}
+SHOT phone-gateway-unreachable
 [qa] host stopped

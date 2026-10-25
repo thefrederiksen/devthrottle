@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, useLocation } from "react-router-dom";
 
 // Alerts in the Cockpit (the Alerts mission, Phase 4): the browser tab's title carries the count of alerts that need an
-// answer and loses it at zero; a notification's deep link (?alert={id}) opens the tray on that alert; closing the tray
+// answer and loses it at zero; a notification's deep link (?alert={id}) opens the popover with focus on that alert; closing it
 // takes the link out of the address; and the tray is placed at the bell's corner, through the position variables only.
 
 const { listAlerts } = vi.hoisted(() => ({ listAlerts: vi.fn() }));
@@ -69,8 +69,8 @@ describe("Alerts in the Cockpit", () => {
     listAlerts.mockResolvedValue({ alerts: [restartAlert(), messageAlert({ id: "message-request:lr-1" })], needsAnswerCount: 2 });
     renderRail("/sessions?alert=message-request%3Alr-1");
 
-    const detail = await screen.findByTestId("alert-detail");
-    expect(detail.getAttribute("data-kind")).toBe("message-request");
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute("data-alert-id")).toBe("message-request:lr-1"));
+    expect(document.activeElement?.querySelector("[data-testid=alert-detail]")?.getAttribute("data-kind")).toBe("message-request");
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/sessions"));

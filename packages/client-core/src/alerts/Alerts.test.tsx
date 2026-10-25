@@ -1,17 +1,21 @@
-// The Alerts bell, tray and opened alert (the Alerts mission, phase 3), rendered against a fake Gateway that answers the
-// four alert routes and the three features' answer routes.
+// The Alerts bell, the Alerts content and the Cockpit's popover (the Alerts mission, phases 3 and 5), rendered against a
+// fake Gateway that answers the four alert routes and the three features' answer routes.
 //
 // What these prove that a Gateway test cannot: the bell shows the Gateway's count of alerts that NEED AN ANSWER and
-// nothing else ("9+" above nine, no badge at zero); the tray puts "Needs you" above "Earlier", newest first; opening it
-// marks what it shows as seen; an X clears one Earlier alert and "Clear all" clears the rest, a refusal is shown in the
-// Gateway's words; a failed read keeps the last-known list on screen; Escape closes, focus stays inside while open and
-// returns to the bell after; and the longest real strings reach the screen inside lines that are allowed to wrap.
+// nothing else ("9+" above nine, no badge at zero), and on the phone goes to the Alerts screen instead of a popover;
+// "Needs you" is a list of cards with each kind's answer ON the card - one tap answers, the restart still asks twice -
+// and an answered card leaves at once with a line in the Gateway's status word; "Earlier" is collapsed, with its count
+// and "Clear all" in its own header, and opens to compact rows that open in place; showing the list marks what it shows
+// as seen; an X clears one Earlier alert and a refusal is shown in the Gateway's words; a failed read keeps the
+// last-known list; a deep link puts focus on its alert; the popover keeps focus inside and returns it to the bell; and
+// the longest real strings reach the screen in full, inside lines that are allowed to wrap.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AlertsProvider, ALERTS_POLL_MS, useAlerts } from "./AlertsProvider";
 import { AlertsBell } from "./AlertsBell";
+import { AlertsList, ANSWERED_LINE_MS } from "./AlertsList";
 import { badgeText, bellLabel, listAlerts, type AlertDto } from "./alertsClient";
 import { LONG_REASON, LONG_VERSION, messageAlert, restartAlert, secretAlert } from "./alertsFixtures.testkit";
 
@@ -60,10 +64,21 @@ function installGateway() {
         state.alerts = state.alerts.filter((a) => a.id !== id);
         return json({});
       }
-      if (url === "/machines/SOREN_NORTH/director/restart-requests/req-1/decline") {
-        state.alerts = state.alerts.map((a) => (a.id === "restart-request:req-1" ? { ...a, needsAnswer: false, status: "Declined" } : a));
+      // The three features' own answer routes: each turns its alert into an answered one, as the Gateway would.
+      const answered = (id: string, status: string, body: unknown = {}) => {
+        state.alerts = state.alerts.map((a) => (a.id === id ? { ...a, needsAnswer: false, status } : a));
         state.needsAnswerCount = state.alerts.filter((a) => a.needsAnswer).length;
-        return json({});
+        return json(body);
+      };
+      if (url === "/machines/SOREN_NORTH/director/restart-requests/req-1/decline") return answered("restart-request:req-1", "Declined");
+      if (url === "/machines/SOREN_NORTH/director/restart-requests/req-1/accept") return answered("restart-request:req-1", "Accepted");
+      if (url === "/gateway/secrets/transfers/tr-1/answer") {
+        const approve = (JSON.parse(String(init?.body)) as { approve?: boolean }).approve === true;
+        return answered("secret-transfer:tr-1", approve ? "Approved" : "Denied", { transfer: {}, note: "" });
+      }
+      if (url === "/fleet/link-requests/lr-1/answer") {
+        const approve = (JSON.parse(String(init?.body)) as { approve?: boolean }).approve === true;
+        return answered("message-request:lr-1", approve ? "Allowed" : "Declined", { request: {}, note: "" });
       }
       throw new Error(`unexpected request: ${method} ${url}`);
     }),
@@ -80,6 +95,15 @@ function renderBell(props: { openAlertId?: string | null } = {}) {
     <AlertsProvider>
       <button type="button">Before the bell</button>
       <AlertsBell where="phone" {...props} />
+    </AlertsProvider>,
+  );
+}
+
+/** The Alerts content on its own, as the phone's Alerts screen mounts it. */
+function renderList(focusAlertId: string | null = null) {
+  return render(
+    <AlertsProvider>
+      <AlertsList where="phone" focusAlertId={focusAlertId} />
     </AlertsProvider>,
   );
 }
@@ -113,7 +137,7 @@ describe("the bell", () => {
     expect(screen.getByTestId("alerts-bell").getAttribute("aria-label")).toBe("Alerts");
     const tray = await openTray();
     expect(await within(tray).findByText("Nothing needs you.")).toBeTruthy();
-    expect(within(tray).queryByText("Earlier")).toBeNull();
+    expect(within(tray).queryByRole("region", { name: "Earlier" })).toBeNull();
     expect(within(tray).queryByRole("button", { name: "Clear all" })).toBeNull();
   });
 
@@ -151,35 +175,136 @@ describe("the bell", () => {
   });
 });
 
-describe("the tray", () => {
-  it("AlertsTray_Many_PutsNeedsYouAboveEarlier_NewestFirst", async () => {
+describe("the bell on the phone", () => {
+  it("AlertsBell_WithOnOpenPage_GoesToTheAlertsScreen_AndDrawsNoPopover", async () => {
+    given([restartAlert()]);
+    const onOpenPage = vi.fn();
+    render(
+      <AlertsProvider>
+        <AlertsBell where="phone" onOpenPage={onOpenPage} />
+      </AlertsProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("alerts-badge").textContent).toBe("1"));
+    const bell = screen.getByTestId("alerts-bell");
+    expect(bell.getAttribute("aria-haspopup")).toBeNull();
+    fireEvent.click(bell);
+    expect(onOpenPage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("alerts-tray")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the list", () => {
+  it("AlertsList_Many_NeedsYouAsCards_ThenEarlierCollapsed_NewestFirst", async () => {
     given([
       secretAlert({ id: "secret-transfer:old", title: "Older question", updatedAtUtc: "2026-10-24T20:00:00Z" }),
       restartAlert({ id: "restart-request:done", title: "Accepted restart", needsAnswer: false, status: "Accepted", updatedAtUtc: "2026-10-24T21:50:00Z" }),
       messageAlert({ id: "message-request:new", title: "Newer question", updatedAtUtc: "2026-10-24T21:00:00Z" }),
       secretAlert({ id: "secret-transfer:denied", title: "Denied transfer", needsAnswer: false, status: "Denied", updatedAtUtc: "2026-10-24T19:00:00Z" }),
     ]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    await within(tray).findByText("Newer question");
-    const titles = within(tray).getAllByTestId("alerts-row").map((r) => r.getAttribute("data-alert-id"));
-    expect(titles).toEqual(["message-request:new", "secret-transfer:old", "restart-request:done", "secret-transfer:denied"]);
-    const needs = within(tray).getByRole("region", { name: "Needs you" });
-    const earlier = within(tray).getByRole("region", { name: "Earlier" });
-    expect(within(needs).getAllByTestId("alerts-row")).toHaveLength(2);
-    expect(within(earlier).getAllByTestId("alerts-row")).toHaveLength(2);
-    // The status word shows on an Earlier row; the X exists only there.
-    expect(within(earlier).getByText("Accepted")).toBeTruthy();
+    renderList();
+    const needs = await screen.findByRole("region", { name: "Needs you" });
+    await within(needs).findByText("Newer question");
+    // Needs you: one card per alert, newest first, each with its answer buttons on it and no X.
+    const cards = within(needs).getAllByTestId("alert-card");
+    expect(cards.map((c) => c.getAttribute("data-alert-id"))).toEqual(["message-request:new", "secret-transfer:old"]);
+    expect(within(cards[0]).getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(within(cards[1]).getByRole("button", { name: "Approve" })).toBeTruthy();
     expect(within(needs).queryByRole("button", { name: /^Clear:/ })).toBeNull();
+    // A card does not carry a status word competing with its question.
+    expect(within(needs).queryByText("Waiting")).toBeNull();
+
+    // Earlier: collapsed by default, its count in the header beside Clear all.
+    const earlier = screen.getByRole("region", { name: "Earlier" });
+    const toggle = within(earlier).getByRole("button", { name: "Earlier (2)" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(earlier).queryAllByTestId("alerts-row")).toHaveLength(0);
+    expect(within(earlier).getByRole("button", { name: "Clear all" })).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const rows = within(earlier).getAllByTestId("alerts-row");
+    expect(rows.map((r) => r.getAttribute("data-alert-id"))).toEqual(["restart-request:done", "secret-transfer:denied"]);
+    expect(within(rows[0]).getByText("Accepted")).toBeTruthy();
     expect(within(earlier).getAllByRole("button", { name: /^Clear:/ })).toHaveLength(2);
   });
 
-  it("AlertsTray_Opening_MarksOnlyTheUnseenAlertsSeen", async () => {
+  it("AlertsList_Card_ShowsTheQuestion_WhoAskedAndWhyOnce_TheExpiry_AndTheButtons", async () => {
+    given([secretAlert({ seen: true, expiresAtUtc: "2026-10-24T22:26:00Z" })]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    expect(within(card).getByRole("heading", { name: "Send the secret vercel-bypass to devthrottle-mac-mini?" })).toBeTruthy();
+    expect(within(card).getByText("Rig Developer (042) asks: The preview deploy needs it")).toBeTruthy();
+    // The reason is in that one sentence; the card never quotes it a second time.
+    expect(card.textContent?.split("The preview deploy needs it")).toHaveLength(2);
+    expect(within(card).getByText(/^Expires /)).toBeTruthy();
+    expect(within(card).getByText("Replaces the entry already on devthrottle-mac-mini.")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Approve" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Deny" })).toBeTruthy();
+    expect(card.querySelector("details")?.open).toBe(false);
+  });
+
+  it("AlertsList_SecretTransfer_ApprovedFromTheCard_LeavesNeedsYou_WithALineSayingSo_ThenTheLineGoes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    given([secretAlert({ seen: true }), restartAlert({ id: "restart-request:old", needsAnswer: false, status: "Declined", seen: true, updatedAtUtc: "2026-10-24T20:00:00Z" })]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
+
+    const line = await screen.findByTestId("alerts-answered");
+    expect(line.textContent).toBe("Approved: Send the secret vercel-bypass to devthrottle-mac-mini?");
+    expect(screen.queryByTestId("alert-card")).toBeNull();
+    expect(screen.getByRole("button", { name: "Earlier (2)" })).toBeTruthy();
+    expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/secrets/transfers/tr-1/answer", method: "POST", body: JSON.stringify({ approve: true, where: "phone" }) }));
+    // It is recorded as answered on the phone, exactly as before.
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ANSWERED_LINE_MS);
+    });
+    expect(screen.queryByTestId("alerts-answered")).toBeNull();
+  });
+
+  it("AlertsList_MessageRequest_DeniedFromTheCard_InOneTap", async () => {
+    given([messageAlert({ seen: true })]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    expect(within(card).getByText("Asks for: one message and a reply")).toBeTruthy();
+    expect(within(card).getByText("Its reason: I need to hand the merge over")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Deny" }));
+    expect((await screen.findByTestId("alerts-answered")).textContent).toBe("Declined: Fix the Release Manager (121) wants to message Release Manager (125)");
+    expect(calls).toContainEqual(expect.objectContaining({ url: "/fleet/link-requests/lr-1/answer", method: "POST" }));
+    expect(screen.queryByTestId("alert-card")).toBeNull();
+  });
+
+  it("AlertsList_Restart_AcceptedFromTheCard_InTwoSteps", async () => {
+    given([restartAlert({ seen: true })]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    expect(within(card).getByText(/holds 7 live sessions/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Accept" }));
+    // The first tap only asks; nothing is sent.
+    expect(within(card).getByText(/^Accept once, and nothing more is asked of you/)).toBeTruthy();
+    expect(calls.some((c) => c.url.endsWith("/accept"))).toBe(false);
+    fireEvent.click(within(card).getByRole("button", { name: "Yes, restart it" }));
+    expect((await screen.findByTestId("alerts-answered")).textContent).toBe("Accepted: Restart the Director on SOREN_NORTH?");
+    expect(calls).toContainEqual(expect.objectContaining({ url: "/machines/SOREN_NORTH/director/restart-requests/req-1/accept", method: "POST" }));
+  });
+
+  it("AlertsList_AnAnswer_ReadsTheListAgain_AndTheCountDropsAtOnce", async () => {
+    given([restartAlert({ seen: true })]);
+    renderBell();
+    await waitFor(() => expect(screen.getByTestId("alerts-badge").textContent).toBe("1"));
+    const tray = await openTray();
+    fireEvent.click(await within(tray).findByRole("button", { name: "Decline" }));
+    await waitFor(() => expect(screen.queryByTestId("alerts-badge")).toBeNull());
+    expect(within(tray).getByText("Declined: Restart the Director on SOREN_NORTH?")).toBeTruthy();
+  });
+
+  it("AlertsList_Showing_MarksOnlyTheUnseenAlertsSeen", async () => {
     given([restartAlert({ seen: false }), secretAlert({ seen: true })]);
     renderBell();
     await loaded();
-    // Nothing is marked seen before the owner opens the tray.
+    // Nothing is marked seen before the owner opens Alerts.
     expect(calls.some((c) => c.url === "/gateway/alerts/seen")).toBe(false);
     await openTray();
     await waitFor(() => expect(calls.some((c) => c.url === "/gateway/alerts/seen")).toBe(true));
@@ -188,48 +313,153 @@ describe("the tray", () => {
     expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ ids: ["restart-request:req-1"] });
   });
 
-  it("AlertsTray_X_ClearsThatEarlierAlert_AndReadsTheListAgain", async () => {
+  it("AlertsList_X_ClearsThatEarlierAlert_AndReadsTheListAgain", async () => {
     given([restartAlert(), secretAlert({ needsAnswer: false, status: "Approved", seen: true })]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByRole("button", { name: "Clear: Move vercel-bypass to devthrottle-mac-mini?" }));
-    await waitFor(() => expect(within(tray).queryByText("Move vercel-bypass to devthrottle-mac-mini?")).toBeNull());
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Earlier (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear: Send the secret vercel-bypass to devthrottle-mac-mini?" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Earlier" })).toBeNull());
     expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/alerts/secret-transfer%3Atr-1/clear", method: "POST" }));
-    expect(within(tray).getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Restart the Director on SOREN_NORTH\?/ })).toBeTruthy();
   });
 
-  it("AlertsTray_ClearAll_ClearsEveryEarlierAlert_AndKeepsWhatNeedsAnAnswer", async () => {
+  it("AlertsList_ClearAll_InEarliersHeader_ClearsEveryEarlierAlert_AndKeepsWhatNeedsAnAnswer", async () => {
     given([
       restartAlert({ seen: true }),
       secretAlert({ needsAnswer: false, status: "Approved", seen: true }),
       messageAlert({ needsAnswer: false, status: "Allowed", seen: true }),
     ]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByRole("button", { name: "Clear all" }));
-    await waitFor(() => expect(within(tray).queryByText("Earlier")).toBeNull());
+    renderList();
+    const earlier = await screen.findByRole("region", { name: "Earlier" });
+    // Clear all is offered without opening the section, and belongs to it.
+    fireEvent.click(within(earlier).getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Earlier" })).toBeNull());
     expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/alerts/clear", method: "POST" }));
-    expect(within(tray).getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy();
-    // With Earlier empty there is nothing left to clear, so the button goes.
-    expect(within(tray).queryByRole("button", { name: "Clear all" })).toBeNull();
+    expect(screen.getByTestId("alert-card")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear all" })).toBeNull();
   });
 
-  it("AlertsTray_ClearRefused_ShowsTheGatewaysSentence", async () => {
+  it("AlertsList_ClearRefused_ShowsTheGatewaysSentence", async () => {
     const sentence = "This still needs your answer; it leaves when you answer it or when it expires.";
     state.clearStatus = 409;
     state.clearBody = { error: sentence };
     given([secretAlert({ needsAnswer: false, status: "Approved", seen: true })]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByRole("button", { name: /^Clear:/ }));
-    expect(await within(tray).findByText(sentence)).toBeTruthy();
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Earlier (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Clear:/ }));
+    expect(await screen.findByText(sentence)).toBeTruthy();
     // The alert stays on screen; a refused clear removed nothing.
-    expect(within(tray).getByTestId("alerts-row")).toBeTruthy();
+    expect(screen.getByTestId("alerts-row")).toBeTruthy();
   });
 
+  it("AlertsList_NothingNeedsYou_SaysSo_AndEarlierIsStillThere", async () => {
+    given([secretAlert({ needsAnswer: false, status: "Delivered", seen: true })]);
+    renderList();
+    expect(await screen.findByText("Nothing needs you.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Earlier (1)" })).toBeTruthy();
+  });
+
+  it("AlertsList_AnEarlierRow_OpensInPlace_ToItsSummaryAndDetails", async () => {
+    given([restartAlert({ needsAnswer: false, status: "Accepted", summary: "Accepted - waiting for the Director.", seen: true }, { state: "Accepted", canAccept: false })]);
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Earlier (1)" }));
+    const row = screen.getByTestId("alerts-row");
+    const open = within(row).getByRole("button", { name: /^Restart the Director on SOREN_NORTH\?/ });
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(open);
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(within(row).getByText("Accepted - waiting for the Director.")).toBeTruthy();
+    expect(row.querySelector("details")).toBeTruthy();
+    // Nothing to answer on an Earlier alert.
+    expect(within(row).queryByRole("button", { name: "Accept" })).toBeNull();
+  });
+
+  it("AlertsList_ReadFails_KeepsTheLastKnownList_AndSaysSo", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    given([restartAlert({ seen: true })]);
+    renderBell();
+    const tray = await openTray();
+    await within(tray).findByRole("heading", { name: /Restart the Director on SOREN_NORTH\?/ });
+
+    state.listStatus = 503;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ALERTS_POLL_MS);
+    });
+
+    expect((await within(tray).findByRole("alert")).textContent).toContain("Could not load the alerts: The Gateway is restarting.");
+    expect(within(tray).getByRole("heading", { name: /Restart the Director on SOREN_NORTH\?/ })).toBeTruthy();
+    expect(screen.getByTestId("alerts-badge").textContent).toBe("1");
+  });
+
+  it("AlertsList_ReadFailsBeforeAnyList_SaysSoAndClaimsNothing", async () => {
+    state.listStatus = 503;
+    renderList();
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not load the alerts");
+    // It does not know that nothing needs the owner, so it must not say so.
+    expect(screen.queryByText("Nothing needs you.")).toBeNull();
+  });
+
+  it("listAlerts_ABodyWithoutTheAlertsArray_IsAnError_NeverAnEmptyList", async () => {
+    state.listBody = { items: [], needsAnswerCount: 0 };
+    await expect(listAlerts()).rejects.toThrow(/without an 'alerts' array/);
+    state.listBody = { alerts: [] };
+    await expect(listAlerts()).rejects.toThrow(/without a 'needsAnswerCount'/);
+  });
+
+  it("AlertsList_DeepLinkToACard_PutsFocusOnIt", async () => {
+    given([restartAlert({ seen: true }), secretAlert({ seen: true, updatedAtUtc: "2026-10-24T21:00:00Z" })]);
+    renderList("secret-transfer:tr-1");
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute("data-alert-id")).toBe("secret-transfer:tr-1"));
+  });
+
+  it("AlertsList_DeepLinkToAnEarlierAlert_OpensTheSectionAndTheRow_AndPutsFocusOnIt", async () => {
+    given([restartAlert({ seen: true }), messageAlert({ needsAnswer: false, status: "Allowed", seen: true })]);
+    renderList("message-request:lr-1");
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute("data-alert-id")).toBe("message-request:lr-1"));
+    expect(screen.getByRole("button", { name: "Earlier (1)" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(screen.getByTestId("alerts-row")).getByTestId("alert-detail").getAttribute("data-kind")).toBe("message-request");
+  });
+
+  it("AlertsTray_DeepLink_OpensThePopoverOnThatAlert", async () => {
+    given([restartAlert({ seen: true }), secretAlert({ seen: true })]);
+    renderBell({ openAlertId: "secret-transfer:tr-1" });
+    const tray = await screen.findByTestId("alerts-tray");
+    await waitFor(() => expect(tray.contains(document.activeElement)).toBe(true));
+    expect((document.activeElement as HTMLElement).getAttribute("data-alert-id")).toBe("secret-transfer:tr-1");
+  });
+
+  it("AlertsList_OverflowFixture_PutsTheLongestStringsInLinesThatWrap", async () => {
+    given([
+      restartAlert(
+        { seen: true, summary: LONG_REASON },
+        { capability: { verdict: "CanRestart", reason: LONG_REASON, guardedRestart: "Available", guardedRestartReason: LONG_REASON, launcherVersion: LONG_VERSION } },
+      ),
+      secretAlert({ needsAnswer: false, status: "Denied", seen: true, title: LONG_REASON }),
+    ]);
+    expect(LONG_VERSION).toHaveLength(46);
+    expect(LONG_REASON).toHaveLength(300);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    // The card holds the 300-character reason in full - never ellipsised.
+    expect(card.querySelector(".alert-summary")?.textContent).toBe(LONG_REASON);
+    const lines = [...card.querySelectorAll(".alert-line")];
+    expect(lines.find((l) => l.textContent?.includes(LONG_VERSION))).toBeTruthy();
+    expect(lines.filter((l) => l.textContent?.includes(LONG_REASON)).length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole("button", { name: "Earlier (1)" }));
+    expect(screen.getByTestId("alerts-row").querySelector(".alerts-row-title")?.textContent).toBe(LONG_REASON);
+    // Every class that holds text must wrap anywhere and be allowed to shrink, and none may cut text off. jsdom does no
+    // layout, so the rule itself is what is checked here; the screenshots at 360 px and 280 px are the QA run's.
+    for (const cls of ["alert-line", "alerts-row-title", "alert-detail-title", "alert-status", "alerts-tray-heading", "alerts-section-heading", "alerts-section-toggle", "alert-details-summary", "alerts-row-time"]) {
+      const rule = cssRule(cls);
+      expect(rule, `.${cls} must wrap anywhere`).toMatch(/overflow-wrap:\s*anywhere/);
+      expect(rule, `.${cls} must be allowed to shrink`).toMatch(/min-width:\s*0/);
+    }
+    const css = readFileSync(join(__dirname, "alerts.css"), "utf8");
+    expect(css).not.toMatch(/text-overflow:\s*ellipsis/);
+  });
+});
+
+describe("the provider", () => {
   // Phase 4 review, observation 1: the refusal describes the alert at the moment it was refused. Once the alert is
   // answered, or leaves the list, the sentence is no longer true and must not sit under an Earlier row.
   describe("a clear's refusal", () => {
@@ -298,128 +528,9 @@ describe("the tray", () => {
       expect(refusal()).toContain("The Gateway is restarting.");
     });
   });
-
-  it("AlertsTray_ReadFails_KeepsTheLastKnownList_AndSaysSo", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    given([restartAlert({ seen: true })]);
-    renderBell();
-    const tray = await openTray();
-    await within(tray).findByText("Restart the Director on SOREN_NORTH?");
-
-    state.listStatus = 503;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(ALERTS_POLL_MS);
-    });
-
-    expect((await within(tray).findByRole("alert")).textContent).toContain("Could not load the alerts: The Gateway is restarting.");
-    expect(within(tray).getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy();
-    expect(screen.getByTestId("alerts-badge").textContent).toBe("1");
-  });
-
-  it("AlertsTray_ReadFailsBeforeAnyList_SaysSoAndClaimsNothing", async () => {
-    state.listStatus = 503;
-    renderBell();
-    const tray = await openTray();
-    expect((await within(tray).findByRole("alert")).textContent).toContain("Could not load the alerts");
-    // It does not know that nothing needs the owner, so it must not say so.
-    expect(within(tray).queryByText("Nothing needs you.")).toBeNull();
-  });
-
-  it("listAlerts_ABodyWithoutTheAlertsArray_IsAnError_NeverAnEmptyList", async () => {
-    state.listBody = { items: [], needsAnswerCount: 0 };
-    await expect(listAlerts()).rejects.toThrow(/without an 'alerts' array/);
-    state.listBody = { alerts: [] };
-    await expect(listAlerts()).rejects.toThrow(/without a 'needsAnswerCount'/);
-  });
 });
 
-describe("an opened alert", () => {
-  it("AlertDetail_Restart_ShowsTheGatewaysWords_TheTwoStepAnswer_AndCollapsedDetails", async () => {
-    given([restartAlert({ seen: true })]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByText("Restart the Director on SOREN_NORTH?"));
-    const detail = await within(tray).findByTestId("alert-detail");
-    expect(within(detail).getByText("Rig Alpha asks: the launcher has a staged update.")).toBeTruthy();
-    expect(within(detail).getByText(/holds 7 live sessions/)).toBeTruthy();
-    expect(within(detail).getByText(/^Expires /)).toBeTruthy();
-    const details = detail.querySelector("details");
-    expect(details?.open).toBe(false);
-    expect(details?.textContent).toContain("declares director/restart:only-if-empty");
-    fireEvent.click(within(detail).getByText("Accept"));
-    expect(within(detail).getByText("Yes, restart it")).toBeTruthy();
-  });
-
-  it("AlertDetail_AnAnswer_ReadsTheListAgain_AndTheCountDropsAtOnce", async () => {
-    given([restartAlert({ seen: true })]);
-    renderBell();
-    await waitFor(() => expect(screen.getByTestId("alerts-badge").textContent).toBe("1"));
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByText("Restart the Director on SOREN_NORTH?"));
-    fireEvent.click(await within(tray).findByText("Decline"));
-    await waitFor(() => expect(screen.queryByTestId("alerts-badge")).toBeNull());
-    expect(within(tray).getByText("Declined")).toBeTruthy();
-  });
-
-  it("AlertDetail_SecretTransfer_And_MessageRequest_RenderTheirOwnAnswerBlocks", async () => {
-    given([secretAlert({ seen: true }), messageAlert({ seen: true, updatedAtUtc: "2026-10-24T21:00:00Z" })]);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    fireEvent.click(await within(tray).findByText("Move vercel-bypass to devthrottle-mac-mini?"));
-    let detail = await within(tray).findByTestId("alert-detail");
-    expect(within(detail).getByText("Replaces the entry already on devthrottle-mac-mini.")).toBeTruthy();
-    expect(within(detail).getByRole("button", { name: "Approve" })).toBeTruthy();
-    expect(within(detail).getByRole("button", { name: "Deny" })).toBeTruthy();
-
-    fireEvent.click(within(tray).getByRole("button", { name: "Back to alerts" }));
-    fireEvent.click(await within(tray).findByText("Let 121 message 125?"));
-    detail = await within(tray).findByTestId("alert-detail");
-    expect(within(detail).getByText("Asks for: one message and a reply")).toBeTruthy();
-    expect(within(detail).getByText('"I need to hand the merge over"')).toBeTruthy();
-  });
-
-  it("AlertsBell_DeepLink_OpensTheTrayOnThatAlert", async () => {
-    given([restartAlert({ seen: true }), secretAlert({ seen: true })]);
-    renderBell({ openAlertId: "secret-transfer:tr-1" });
-    const detail = await screen.findByTestId("alert-detail");
-    expect(within(detail).getByText("Move vercel-bypass to devthrottle-mac-mini?")).toBeTruthy();
-  });
-
-  it("AlertDetail_OverflowFixture_PutsTheLongestStringsInLinesThatWrap", async () => {
-    given([
-      restartAlert(
-        { seen: true, summary: LONG_REASON },
-        { capability: { verdict: "CanRestart", reason: LONG_REASON, guardedRestart: "Available", guardedRestartReason: LONG_REASON, launcherVersion: LONG_VERSION } },
-      ),
-    ]);
-    expect(LONG_VERSION).toHaveLength(46);
-    expect(LONG_REASON).toHaveLength(300);
-    renderBell();
-    await loaded();
-    const tray = await openTray();
-    // The row's one-line summary holds the 300-character reason, ellipsised, in a class that wraps and shrinks.
-    const row = await within(tray).findByTestId("alerts-row");
-    expect(row.querySelector(".alerts-row-summary")?.textContent).toBe(LONG_REASON);
-    fireEvent.click(within(row).getByText("Restart the Director on SOREN_NORTH?"));
-    const detail = await within(tray).findByTestId("alert-detail");
-    const lines = [...detail.querySelectorAll(".alert-line")];
-    const versionLine = lines.find((l) => l.textContent?.includes(LONG_VERSION));
-    const reasonLines = lines.filter((l) => l.textContent?.includes(LONG_REASON));
-    expect(versionLine).toBeTruthy();
-    expect(reasonLines.length).toBeGreaterThanOrEqual(2);
-    // Every class that holds text in the tray must wrap anywhere and be allowed to shrink. jsdom does no layout, so the
-    // rule itself is what is checked here; the screenshots at 360 px and 280 px are phase 4's QA run.
-    for (const cls of ["alert-line", "alerts-row-title", "alerts-row-summary", "alert-detail-title", "alert-status", "alerts-tray-heading", "alerts-section-heading", "alert-details-summary", "alerts-row-time"]) {
-      const rule = cssRule(cls);
-      expect(rule, `.${cls} must wrap anywhere`).toMatch(/overflow-wrap:\s*anywhere/);
-      expect(rule, `.${cls} must be allowed to shrink`).toMatch(/min-width:\s*0/);
-    }
-  });
-});
-
-describe("keyboard and focus", () => {
+describe("keyboard and focus in the Cockpit's popover", () => {
   it("AlertsTray_Opening_MovesFocusIn_TabStaysInside_EscapeClosesAndReturnsFocusToTheBell", async () => {
     given([restartAlert({ seen: true }), secretAlert({ needsAnswer: false, status: "Approved", seen: true })]);
     renderBell();
@@ -427,7 +538,7 @@ describe("keyboard and focus", () => {
     const bell = screen.getByTestId("alerts-bell");
     bell.focus();
     const tray = await openTray();
-    await within(tray).findByText("Restart the Director on SOREN_NORTH?");
+    await within(tray).findByRole("heading", { name: /Restart the Director on SOREN_NORTH\?/ });
     expect(bell.getAttribute("aria-expanded")).toBe("true");
     expect(tray.getAttribute("role")).toBe("dialog");
     expect(tray.contains(document.activeElement)).toBe(true);
@@ -447,13 +558,14 @@ describe("keyboard and focus", () => {
     expect(bell.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("AlertsTray_RowsAreButtons_AndTheCloseButtonReturnsFocusToTheBell", async () => {
-    given([restartAlert({ seen: true })]);
+  it("AlertsTray_AnswersAndToggles_AreButtons_AndTheCloseButtonReturnsFocusToTheBell", async () => {
+    given([restartAlert({ seen: true }), secretAlert({ needsAnswer: false, status: "Approved", seen: true })]);
     renderBell();
     await loaded();
     const tray = await openTray();
-    const row = await within(tray).findByTestId("alerts-row");
-    expect(within(row).getAllByRole("button").length).toBeGreaterThan(0);
+    const card = await within(tray).findByTestId("alert-card");
+    expect(within(card).getByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(within(tray).getByRole("button", { name: "Earlier (1)" })).toBeTruthy();
     fireEvent.click(within(tray).getByRole("button", { name: "Close alerts" }));
     expect(screen.queryByTestId("alerts-tray")).toBeNull();
     expect(document.activeElement).toBe(screen.getByTestId("alerts-bell"));

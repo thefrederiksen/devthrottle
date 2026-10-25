@@ -35,7 +35,7 @@ const REQUEST_ID = "fedcba9876543210fedcba9876543210";
 
 function waiting() {
   return messageAlert(
-    { id: `message-request:${REQUEST_ID}` },
+    { id: `message-request:${REQUEST_ID}`, summary: "Its reason: I need the open tickets list" },
     {
       requestId: REQUEST_ID,
       requesterSessionId: INVESTIGATOR,
@@ -88,11 +88,13 @@ describe("link requests on the asking session", () => {
     expect(screen.getByTestId(`card-${COORDINATOR}`).textContent).toBe("");
   });
 
-  it("the chip opens the request as the Alerts tray shows it, with the reason and what the session asked for", async () => {
+  it("the chip opens the request as the Alerts tray shows it, with the reason once and what the session asked for", async () => {
     renderScreen();
     fireEvent.click(await screen.findByTestId("link-ask-chip"));
     const detail = screen.getByTestId("alert-detail");
-    expect(detail.textContent).toContain('"I need the open tickets list"');
+    // The reason is in the Gateway's one sentence, and never quoted a second time.
+    expect(detail.textContent).toContain("Its reason: I need the open tickets list");
+    expect(detail.textContent?.split("I need the open tickets list")).toHaveLength(2);
     expect(detail.textContent).toContain("Asks for: as much as they need");
   });
 

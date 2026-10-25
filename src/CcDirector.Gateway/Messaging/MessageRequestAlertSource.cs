@@ -38,22 +38,25 @@ public sealed class MessageRequestAlertSource : IAlertSource
             FleetMessageLinkRequestEndpoints.EndIfASessionEnded(tenant, waiting, _requests, _record, _findSession, _notify, nowUtc);
 
         var alerts = _requests.List(tenant, nowUtc - AlertWindow.Earlier)
-            .Select(r => Fold(FleetMessageLinkRequestEndpoints.Labelled(tenant, r, _findSession)))
+            .Select(r => Fold(FleetMessageLinkRequestEndpoints.Labelled(tenant, r, _findSession),
+                Label(_findSession(tenant, r.RequesterSessionId)), Label(_findSession(tenant, r.TargetSessionId))))
             .Where(a => AlertWindow.Keeps(a.NeedsAnswer, a.UpdatedAtUtc, nowUtc))
             .ToList();
         FileLog.Write($"[MessageRequestAlertSource] List: tenant={tenant.ToLogString()}, alerts={alerts.Count}");
         return alerts;
     }
 
-    /// <summary>One request as the owner reads it. The labels are the session numbers and names the Gateway already
-    /// writes for the phone (<see cref="FleetMessageLinkRequestEndpoints.SessionLabel"/>), never an id.</summary>
-    internal static AlertDto Fold(FleetMessageLinkRequestDto r)
+    /// <summary>A session as an alert names it: "Release Manager (121)" (<see cref="AlertWords.SessionLabel"/>), never an
+    /// id.</summary>
+    internal static string Label(SessionDto? session) => AlertWords.SessionLabel(session?.Number, session?.Name);
+
+    /// <summary>One request as the owner reads it, naming the two sessions as <paramref name="from"/> and
+    /// <paramref name="to"/>. The title says who wants what; the summary is the asking session's own reason, once.</summary>
+    internal static AlertDto Fold(FleetMessageLinkRequestDto r, string from, string to)
     {
-        var from = r.RequesterLabel ?? throw new ArgumentException($"request {r.RequestId} is not labelled", nameof(r));
-        var to = r.TargetLabel ?? throw new ArgumentException($"request {r.RequestId} is not labelled", nameof(r));
         var (status, title, summary) = r.Status switch
         {
-            FleetMessageLinkRequestStatuses.Pending => ("Waiting", $"Let {from} message {to}?", $"{from} asks: {r.Reason}"),
+            FleetMessageLinkRequestStatuses.Pending => ("Waiting", $"{from} wants to message {to}", $"Its reason: {r.Reason}"),
             FleetMessageLinkRequestStatuses.Allowed => ("Allowed", $"{from} may message {to}",
                 $"You allowed it: {AmountWords(r.Amount)}."),
             FleetMessageLinkRequestStatuses.Declined => ("Declined", $"{from} asked to message {to}",

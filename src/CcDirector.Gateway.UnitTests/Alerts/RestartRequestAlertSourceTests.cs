@@ -35,7 +35,8 @@ public sealed class RestartRequestAlertSourceTests
             DirectorId = "d-1",
             Reason = "the Mac Tester can run the v2.31.0 checks",
             Title = $"Restart the Director on {machine}?",
-            AskedBySentence = "rob asks: the Mac Tester can run the v2.31.0 checks",
+            RequestedBySessionName = "Release - Release Manager (1512339f)",
+            AskedBySentence = "Release - Release Manager (1512339f) asks: the Mac Tester can run the v2.31.0 checks",
             Capability = new MachineRestartCapabilityDto(),
         };
         Assert.True(_store.TryCreate(tenant ?? Tenant, request, out _));
@@ -56,7 +57,8 @@ public sealed class RestartRequestAlertSourceTests
         Assert.Equal(AlertKinds.RestartRequest, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
         Assert.Equal("Restart the Director on mac-mini?", alert.Title);
-        Assert.Equal("rob asks: the Mac Tester can run the v2.31.0 checks", alert.Summary);
+        // The session is named by its mission and role, never by the short id the request stores beside its name.
+        Assert.Equal("Release Manager asks: the Mac Tester can run the v2.31.0 checks", alert.Summary);
         Assert.Equal(_now + DirectorRestartRequestStore.Expiry, alert.ExpiresAtUtc);
         Assert.Equal(_now, alert.CreatedAtUtc);
         Assert.Equal(_now, alert.UpdatedAtUtc);

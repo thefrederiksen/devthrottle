@@ -45,7 +45,7 @@ public sealed class RestartRequestAlertSource : IAlertSource
         var machine = r.Machine;
         var (status, title, summary) = r.State switch
         {
-            DirectorRestartRequestState.Pending => ("Waiting", $"Restart the Director on {machine}?", r.AskedBySentence),
+            DirectorRestartRequestState.Pending => ("Waiting", $"Restart the Director on {machine}?", AskedBy(r)),
             DirectorRestartRequestState.Accepted => ("Accepted", $"Restarting the Director on {machine}",
                 string.IsNullOrWhiteSpace(r.Progress) ? "Accepted - waiting for the Director." : Sentence(r.Progress)),
             DirectorRestartRequestState.Declined => ("Declined", $"Restart of the Director on {machine}",
@@ -73,6 +73,16 @@ public sealed class RestartRequestAlertSource : IAlertSource
             ExpiresAtUtc = r.State == DirectorRestartRequestState.Pending ? Utc(r.ExpiresAtUtc) : null,
             Detail = r,
         };
+    }
+
+    /// <summary>Who asked and why, in one sentence: "Release Manager asks: the Mac Tester can run the v2.31.0 checks". The
+    /// request's own <see cref="DirectorRestartRequestDto.AskedBySentence"/> names the session with a short id, which
+    /// the owner cannot act on; this names it by its mission and role (<see cref="AlertWords.FromRestartRequester"/>).</summary>
+    private static string AskedBy(DirectorRestartRequestDto r)
+    {
+        if (string.IsNullOrWhiteSpace(r.RequestedBySessionName))
+            throw new InvalidOperationException($"restart request {r.Id} names no requester");
+        return $"{AlertWords.FromRestartRequester(r.RequestedBySessionName)} asks: {r.Reason}";
     }
 
     /// <summary>The Director's progress line as a sentence: it writes "accepted; telling the Director to begin".</summary>

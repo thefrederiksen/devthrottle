@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
-// Alerts on the phone (the Alerts mission, Phase 4): the bell sits in the roster's app bar, left of the filter button,
-// with the Gateway's count; a push notification's deep link (?alert={id}) opens the tray on that alert; and closing the
-// tray takes the link out of the address, so the tray cannot reopen on a link already used.
+// Alerts on the phone (the Alerts mission, Phases 4 and 5): the bell sits in the roster's app bar, left of the filter
+// button, with the Gateway's count; pressing it opens the Alerts screen; a push notification's deep link
+// (?alert={id}) lands on the Alerts screen with that alert, in place of the roster's address, and Back returns to the
+// roster without the link, so it cannot be used twice.
 
 const { listAlerts } = vi.hoisted(() => ({ listAlerts: vi.fn() }));
 
@@ -17,6 +18,7 @@ vi.mock("@devthrottle/client-core/alerts/alertsClient", async () => {
 import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
 import { secretAlert, restartAlert } from "@devthrottle/client-core/alerts/alertsFixtures.testkit";
 import { Home } from "./Home";
+import { Alerts } from "./Alerts";
 
 afterEach(() => {
   cleanup();
@@ -45,7 +47,10 @@ function renderHome(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <AlertsProvider>
-        <Home />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/alerts" element={<Alerts />} />
+        </Routes>
         <LocationProbe />
       </AlertsProvider>
     </MemoryRouter>,
@@ -68,18 +73,34 @@ describe("Alerts on the phone's roster", () => {
     expect(bell.getAttribute("aria-label")).toBe("Alerts, 2 need you");
   });
 
-  it("Home_DeepLink_OpensTheTrayOnThatAlert_AndClosingTakesTheLinkAway", async () => {
+  it("Home_DeepLink_LandsOnTheAlertsScreenOnThatAlert_AndBackReturnsWithoutTheLink", async () => {
     emptyRoster();
     listAlerts.mockResolvedValue({ alerts: [restartAlert(), secretAlert({ id: "secret-transfer:tr-1" })], needsAnswerCount: 2 });
     renderHome("/?alert=secret-transfer%3Atr-1");
 
-    const detail = await screen.findByTestId("alert-detail");
-    expect(detail.getAttribute("data-kind")).toBe("secret-transfer");
-
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-
-    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/alerts?alert=secret-transfer%3Atr-1"));
+    expect(screen.getByRole("heading", { level: 1, name: "Alerts" })).toBeTruthy();
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute("data-alert-id")).toBe("secret-transfer:tr-1"));
     expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
+    expect(await screen.findByRole("button", { name: "Filter sessions" })).toBeTruthy();
+  });
+
+  it("Home_Bell_OpensTheAlertsScreen_AndBackPutsFocusOnTheBellAgain", async () => {
+    emptyRoster();
+    listAlerts.mockResolvedValue({ alerts: [restartAlert()], needsAnswerCount: 1 });
+    renderHome("/");
+
+    fireEvent.click(await screen.findByTestId("alerts-bell"));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/alerts"));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Alerts" }));
+    expect(await screen.findByTestId("alert-card")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("alerts-bell")));
   });
 
   it("Home_TheSessionList_DrawsNoRequestCard_EvenWithAlertsWaiting", async () => {

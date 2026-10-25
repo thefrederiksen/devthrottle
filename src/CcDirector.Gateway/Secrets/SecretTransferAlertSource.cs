@@ -43,7 +43,7 @@ public sealed class SecretTransferAlertSource : IAlertSource
         var what = $"{dto.Entry} to {dto.ToMachine}";
         var (status, title, summary) = dto.State switch
         {
-            SecretTransferStates.Waiting => ("Waiting", $"Send the secret {what}?", $"{dto.AskedBy} asks: {dto.Reason}"),
+            SecretTransferStates.Waiting => ("Waiting", $"Send the secret {what}?", $"{AlertWords.FromSecretAskedBy(dto.AskedBy)} asks: {dto.Reason}"),
             SecretTransferStates.Approved => ("Approved", $"Sending the secret {what}",
                 $"Approved {SecretTransferPlaces.Words(dto.AnsweredWhere)}. Delivering now."),
             SecretTransferStates.Denied => ("Denied", $"Secret {what}", Finished(dto)),

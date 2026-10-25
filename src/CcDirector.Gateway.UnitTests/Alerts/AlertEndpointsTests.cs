@@ -77,7 +77,7 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
 
     private string Pending(TenantId tenant, string machine = "mac-mini")
     {
-        var r = new DirectorRestartRequestDto { Machine = machine, DirectorId = "d", Reason = "x", Title = "t", AskedBySentence = "s" };
+        var r = new DirectorRestartRequestDto { Machine = machine, DirectorId = "d", Reason = "x", Title = "t", AskedBySentence = "s", RequestedBySessionName = "s" };
         Assert.True(_restarts.TryCreate(tenant, r, out _));
         return r.Id;
     }

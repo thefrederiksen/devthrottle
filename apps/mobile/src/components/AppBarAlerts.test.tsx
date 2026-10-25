@@ -3,12 +3,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 // The bell on every phone screen that has the app bar (the Alerts mission, section 5.4). Two things are proved here:
 // every app bar the phone source draws carries the ONE shared AppBarAlerts (so a new screen cannot quietly ship without
 // it), and the shared bell does on any screen what it does on the roster - the Gateway's count, and a deep link that
-// opens the tray and leaves the address when the tray closes.
+// lands on the Alerts screen on that alert. The Alerts screen itself is the one app bar without the bell: it IS Alerts.
 
 const { listAlerts } = vi.hoisted(() => ({ listAlerts: vi.fn() }));
 
@@ -20,6 +20,7 @@ vi.mock("@devthrottle/client-core/alerts/alertsClient", async () => {
 import { AlertsProvider } from "@devthrottle/client-core/alerts/AlertsProvider";
 import { messageAlert, restartAlert } from "@devthrottle/client-core/alerts/alertsFixtures.testkit";
 import { AppBarAlerts } from "./AppBarAlerts";
+import { Alerts } from "../pages/Alerts";
 
 const SRC = join(__dirname, "..");
 
@@ -51,7 +52,8 @@ describe("the bell in every phone app bar", () => {
     const bars = sourceFiles(SRC).flatMap((file) => appBarsIn(readFileSync(file, "utf8")).map((bar) => ({ file: relative(SRC, file), bar })));
     // A presence, never only an absence: the sweep must have found the app bars it exists to check.
     expect(bars.length).toBeGreaterThanOrEqual(15);
-    expect(bars.filter((b) => !b.bar.includes("<AppBarAlerts />")).map((b) => b.file)).toEqual([]);
+    const without = bars.filter((b) => !b.bar.includes("<AppBarAlerts />")).map((b) => b.file.split("\\").join("/"));
+    expect(without).toEqual(["pages/Alerts.tsx"]);
   });
 
   it("appBarsIn_FindsEachBar_AndSeesOneWithoutTheBell", () => {
@@ -62,23 +64,26 @@ describe("the bell in every phone app bar", () => {
     expect(bars.filter((b) => !b.includes("<AppBarAlerts />"))).toHaveLength(1);
   });
 
-  it("OnAnotherScreen_ShowsTheCount_AndADeepLinkOpensTheTray_ClosingTakesTheLinkAway", async () => {
+  it("OnAnotherScreen_ShowsTheCount_AndADeepLinkLandsOnTheAlertsScreen_BackKeepsTheRestOfTheAddress", async () => {
     listAlerts.mockResolvedValue({ alerts: [restartAlert(), messageAlert({ id: "message-request:lr-1" })], needsAnswerCount: 2 });
     render(
       <MemoryRouter initialEntries={["/settings?tab=ai&alert=message-request%3Alr-1"]}>
         <AlertsProvider>
-          <AppBarAlerts />
+          <Routes>
+            <Route path="/settings" element={<AppBarAlerts />} />
+            <Route path="/alerts" element={<Alerts />} />
+          </Routes>
           <LocationProbe />
         </AlertsProvider>
       </MemoryRouter>,
     );
 
-    expect((await screen.findByTestId("alerts-badge")).textContent).toBe("2");
-    const detail = await screen.findByTestId("alert-detail");
-    expect(detail.getAttribute("data-kind")).toBe("message-request");
-
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/settings?tab=ai"));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/alerts?alert=message-request%3Alr-1"));
+    await waitFor(() => expect((document.activeElement as HTMLElement | null)?.getAttribute("data-alert-id")).toBe("message-request:lr-1"));
     expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/settings?tab=ai"));
+    expect((await screen.findByTestId("alerts-badge")).textContent).toBe("2");
   });
 });
