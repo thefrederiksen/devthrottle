@@ -165,7 +165,6 @@ npgsql | src/CcDirector.Gateway.Tests/Architecture/NoSqliteOnHostedArchitectureT
 real-clock | src/CcDirector.Gateway.Tests/CensusRouteTenancyProbeTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/CockpitSpawnIntoAFactoryTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/CronNotifyTests.cs | 3
-real-clock | src/CcDirector.Gateway.Tests/CronNotifyTests.cs | 4
 real-clock | src/CcDirector.Gateway.Tests/CrossTenantDuplicateDirectorIdTests.cs | 2
 npgsql | src/CcDirector.Gateway.Tests/Data/EntitlementSchemaQualificationTests.cs | 2
 real-clock | src/CcDirector.Gateway.Tests/DictationOmittedTenantBoundaryTests.cs | 1
@@ -288,7 +287,6 @@ delay | src/CcDirector.Gateway.UnitTests/HostedCandidateJudgeTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/HostedCandidateJudgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/HostedEntitlementGateTests.cs | 13
 real-clock | src/CcDirector.Gateway.UnitTests/HostedTenancyActivationTests.cs | 3
-real-clock | src/CcDirector.Gateway.UnitTests/LauncherRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/LauncherTenantIsolationTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/MicrophoneRankingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1

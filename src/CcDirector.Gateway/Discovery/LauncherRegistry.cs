@@ -55,13 +55,33 @@ public sealed class LauncherRegistry
 
     private Timer? _sweepTimer;
 
+    private readonly TimeProvider _clock;
+
+    /// <summary>A registry on the system clock - what the Gateway runs.</summary>
+    public LauncherRegistry() : this(TimeProvider.System) { }
+
+    /// <summary>
+    /// A registry whose idea of "now" - the registration and heartbeat stamps, and the sweep's cutoff - comes
+    /// from <paramref name="clock"/>, so a test can fix it instead of reading the machine's clock.
+    /// </summary>
+    public LauncherRegistry(TimeProvider clock)
+    {
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    }
+
+    /// <summary>
+    /// "Now" on this registry's clock: the moment its registration, heartbeat and stream-close stamps are
+    /// judged against. Read from here rather than from the machine, so the judge and the stamps share a clock.
+    /// </summary>
+    public DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
+
     /// <summary>
     /// Register or refresh the calling tenant's launcher. Returns the stored <see cref="LauncherDto"/> for
     /// the 201/200 response body.
     /// </summary>
     public LauncherDto Upsert(TenantId tenant, LauncherRegistrationRequest req)
     {
-        var now = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
         // A RE-REGISTRATION CARRIES THE STREAM'S LAST CLOSE (issue #4423). A launcher restarting into a new version
         // registers BEFORE it opens its stream, and that window is exactly when "heartbeating, no stream" must
         // read as restarting rather than too old - so the evidence must survive the new process's registration,
@@ -99,7 +119,7 @@ public sealed class LauncherRegistry
             return false;
         }
 
-        var now = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
         entry.LastSeenAt = now;
         entry.Dto.LastSeenAt = now;
         FileLog.Write($"[LauncherRegistry] Heartbeat: tenant={tenant.Value}, machine={machineName}");
@@ -158,7 +178,7 @@ public sealed class LauncherRegistry
 
     private void Sweep(object? _)
     {
-        var cutoff = DateTime.UtcNow - HeartbeatTimeout;
+        var cutoff = _clock.GetUtcNow().UtcDateTime - HeartbeatTimeout;
         foreach (var kv in _launchers)
         {
             if (kv.Value.LastSeenAt < cutoff)

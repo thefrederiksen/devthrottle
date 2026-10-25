@@ -705,7 +705,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         _workspaces!.RecordRestoreMark(recordId, new WorkspaceRestoreMark
         {
             DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Reopened, SeatSessionId = row.SessionId, ReopenedSessionId = "reopened-from-the-window",
-        }, DateTime.UtcNow);
+        }, _clock.GetUtcNow().UtcDateTime);
 
         // Act
         using var response = await RestoreAsync(row);
@@ -766,7 +766,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         var journal = JsonSerializer.Deserialize<List<CrashJournalDto>>(_journalsJson, Web)!.Single();
         var id = WorkspaceCrashRecords.IdFor(journal);
         _workspaces!.Create(WorkspaceCrashRecords.Build(
-            new WorkspaceCrashRecordRequest { Id = id, DirectorId = DirectorId, Journal = journal }, "tester", "2.31.0", Machine), DateTime.UtcNow);
+            new WorkspaceCrashRecordRequest { Id = id, DirectorId = DirectorId, Journal = journal }, "tester", "2.31.0", Machine), _clock.GetUtcNow().UtcDateTime);
         return id;
     }
 

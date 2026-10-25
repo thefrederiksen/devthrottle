@@ -1,5 +1,6 @@
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -151,7 +152,7 @@ public sealed class LauncherRegistryTests
             MachineName = machine,
             Pid = pid,
             Version = version,
-            StartedAt = DateTime.UtcNow,
+            StartedAt = new DateTime(2026, 10, 24, 7, 59, 0, DateTimeKind.Utc),
         };
 
     // Issue #4423: the new launcher process registers BEFORE it opens its stream, so the old stream's close must
@@ -208,12 +209,14 @@ public sealed class LauncherRegistryTests
     public void Classify_LauncherStartingAfterALongStop_IsReconnectingNotStreamDown()
     {
         var tenant = CcDirector.Core.Tenancy.TenantId.Local;
-        var reg = new LauncherRegistry();
-        var lastNight = DateTime.UtcNow.AddHours(-10);
+        var thisMorning = new DateTime(2026, 10, 24, 8, 0, 0, DateTimeKind.Utc);
+        var lastNight = thisMorning.AddHours(-10);
+        var clock = new FakeTimeProvider(new DateTimeOffset(lastNight));
+        var reg = new LauncherRegistry(clock);
         reg.Upsert(tenant, MakeReq("studio-mac", pid: 101, version: "2.30.0"));
         reg.NoteStreamClosed(tenant, "studio-mac", lastNight);
         reg.Remove(tenant, "studio-mac");
-        var thisMorning = DateTime.UtcNow;
+        clock.SetUtcNow(new DateTimeOffset(thisMorning));
         reg.Upsert(tenant, MakeReq("studio-mac", pid: 202, version: "2.30.0"));
 
         var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(reg.Get(tenant, "studio-mac"), streamConnected: false, thisMorning.AddSeconds(2));
@@ -224,15 +227,16 @@ public sealed class LauncherRegistryTests
     [Fact]
     public void Classify_RegisteredLongAgoAndStreamLongDown_IsStreamDown()
     {
+        var now = new DateTime(2026, 10, 24, 8, 0, 0, DateTimeKind.Utc);
         var registered = new LauncherDto
         {
             MachineName = "studio-mac",
-            RegisteredAt = DateTime.UtcNow.AddHours(-3),
-            LastSeenAt = DateTime.UtcNow.AddSeconds(-5),
-            StreamClosedAt = DateTime.UtcNow.AddHours(-1),
+            RegisteredAt = now.AddHours(-3),
+            LastSeenAt = now.AddSeconds(-5),
+            StreamClosedAt = now.AddHours(-1),
         };
 
-        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
+        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(registered, streamConnected: false, now);
 
         Assert.Equal(LauncherReach.StreamDown, reach);
     }

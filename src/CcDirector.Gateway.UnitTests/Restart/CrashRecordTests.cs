@@ -28,6 +28,14 @@ public sealed class CrashRecordTests : IAsyncLifetime
     private const string DeadDirector = "4f2a9c1e-0000-0000-0000-000000000000";
     private const int DeadPid = 2_000_000_001;
     private static readonly DateTimeOffset DeadStartedAt = new(WayUpTestRig.Now.AddHours(-30));
+
+    /// <summary>
+    /// The moment the dead Director's journal in <paramref name="dir"/> was last written - the moment it crashed.
+    /// The way up is asked at that moment rather than at the machine's "now", so whether the record is recent
+    /// enough to offer is decided by the record, not by how long the run took.
+    /// </summary>
+    private static DateTime LastWrittenUtc(string dir) =>
+        DirectorCrashJournal.ListPendingRecoveries(dir).Single().LastUpdatedUtc.UtcDateTime;
     private const string Lead = "11111111-1111-1111-1111-111111111111";
     private const string Worker = "22222222-2222-2222-2222-222222222222";
 
@@ -175,7 +183,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
         var dir = Path.Combine(Path.GetTempPath(), "cc-crash-record-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var journal = new DirectorCrashJournal(DeadDirector, DeadPid, WayUpTestRig.ThisMachine, "someone", DateTimeOffset.UtcNow, dir);
+            var journal = new DirectorCrashJournal(DeadDirector, DeadPid, WayUpTestRig.ThisMachine, "someone", DeadStartedAt, dir);
             journal.Update(new[]
             {
                 new DirectorCrashJournalSession { SessionId = Lead, Name = "Mission - Lead", RepoPath = "/repos/app", Agent = "ClaudeCode", ClaudeSessionId = "conv-lead" },
@@ -186,7 +194,7 @@ public sealed class CrashRecordTests : IAsyncLifetime
 
             // Act - what the start-up does: send the pending journals, then look for the offer.
             var sent = await new WayUpCrashRecorder(rig.Gateway).RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
-            var offer = await rig.WayUp(nowUtc: DateTime.UtcNow).FindOfferAsync(CancellationToken.None);
+            var offer = await rig.WayUp(nowUtc: LastWrittenUtc(dir)).FindOfferAsync(CancellationToken.None);
 
             // Assert
             Assert.Equal(1, sent.Recorded);
@@ -325,10 +333,11 @@ public sealed class CrashRecordTests : IAsyncLifetime
             var rig = new WayUpTestRig();
             await new WayUpCrashRecorder(rig.Gateway).RecordAsync(DirectorCrashJournal.ListPendingRecoveries(dir), CancellationToken.None);
             Assert.Equal(2, DirectorCrashJournal.ListPendingRecoveries(dir).Single().Sessions.Count);
-            var offer = await rig.WayUp(nowUtc: DateTime.UtcNow).FindOfferAsync(CancellationToken.None);
+            var crashedAt = LastWrittenUtc(dir);
+            var offer = await rig.WayUp(nowUtc: crashedAt).FindOfferAsync(CancellationToken.None);
 
             // Act - reopen the worker from the record, and hand the engine's report to the journal, as the Director does.
-            var reopened = await rig.WayUp(nowUtc: DateTime.UtcNow).ReopenAsync(new WayUpReopenRequest(offer.Record!.WorkspaceId, Worker), CancellationToken.None);
+            var reopened = await rig.WayUp(nowUtc: crashedAt).ReopenAsync(new WayUpReopenRequest(offer.Record!.WorkspaceId, Worker), CancellationToken.None);
             var (recordId, seatId) = Assert.Single(rig.CrashSeatsReopened);
             var removed = CrashJournalRows.RemoveReopened(recordId, seatId, dir);
 

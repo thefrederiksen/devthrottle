@@ -8,6 +8,7 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tenancy;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
@@ -32,10 +33,19 @@ public sealed class LauncherSelfUpdateStreamLossTests : IAsyncLifetime
 {
     private const string Machine = "studio-mac";
 
-    private readonly LauncherRegistry _launchers = new();
-    private readonly LauncherConnectionRegistry _connections = new();
+    // One fixed clock for both registries: the stream close is stamped on it and the reachability is judged on it.
+    private static readonly DateTime Now = new(2026, 10, 24, 8, 0, 0, DateTimeKind.Utc);
+    private readonly FakeTimeProvider _clock = new(new DateTimeOffset(Now));
+    private readonly LauncherRegistry _launchers;
+    private readonly LauncherConnectionRegistry _connections;
     private readonly TaskCompletionSource _streamClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WebApplication _app = null!;
+
+    public LauncherSelfUpdateStreamLossTests()
+    {
+        _launchers = new LauncherRegistry(_clock);
+        _connections = new LauncherConnectionRegistry { Clock = _clock };
+    }
 
     public async Task InitializeAsync()
     {
@@ -101,7 +111,7 @@ public sealed class LauncherSelfUpdateStreamLossTests : IAsyncLifetime
         MachineName = Machine,
         Pid = version == "2.28.0" ? 101 : 202,
         Version = version,
-        StartedAt = DateTime.UtcNow,
+        StartedAt = Now.AddMinutes(-1),
     });
 
     private Task<LauncherLifecycleRelay.LauncherRelayOutcome> SendUpdateAsync(LauncherCommandRouter.SendLauncherCommandAsync hook)
@@ -170,7 +180,8 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
 {
     private const string Machine = "studio-mac";
 
-    private readonly LauncherRegistry _launchers = new();
+    private static readonly DateTime Now = new(2026, 10, 24, 8, 0, 0, DateTimeKind.Utc);
+    private readonly LauncherRegistry _launchers = new(new FakeTimeProvider(new DateTimeOffset(Now)));
     private LauncherCommandRouter.SendLauncherCommandAsync _send = (_, _, _, _) => Task.FromResult<LauncherCommandResult?>(null);
     private WebApplication _app = null!;
     private HttpClient _http = null!;
@@ -209,7 +220,7 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
         MachineName = Machine,
         Pid = 202,
         Version = version,
-        StartedAt = DateTime.UtcNow,
+        StartedAt = Now.AddMinutes(-1),
     });
 
     private async Task<(HttpStatusCode Status, JsonElement Body)> PostUpdateAsync()
@@ -246,8 +257,8 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
     {
         // Arrange - a launcher registered an hour ago whose stream went six minutes ago and has not come back.
         RegisterLauncher("2.30.0");
-        _launchers.Get(TenantId.Local, Machine)!.RegisteredAt = DateTime.UtcNow.AddHours(-1);
-        _launchers.NoteStreamClosed(TenantId.Local, Machine, DateTime.UtcNow - LauncherReachability.ReconnectWindow - TimeSpan.FromMinutes(1));
+        _launchers.Get(TenantId.Local, Machine)!.RegisteredAt = Now.AddHours(-1);
+        _launchers.NoteStreamClosed(TenantId.Local, Machine, Now - LauncherReachability.ReconnectWindow - TimeSpan.FromMinutes(1));
 
         // Act
         var (status, body) = await PostUpdateAsync();
@@ -265,7 +276,7 @@ public sealed class DirectorUpdateRouteStreamLossTests : IAsyncLifetime
     {
         // Arrange - heartbeating, no stream now, and a stream was seen closing.
         RegisterLauncher("2.30.0");
-        _launchers.NoteStreamClosed(TenantId.Local, Machine, DateTime.UtcNow);
+        _launchers.NoteStreamClosed(TenantId.Local, Machine, Now);
 
         // Act
         var (status, body) = await PostUpdateAsync();

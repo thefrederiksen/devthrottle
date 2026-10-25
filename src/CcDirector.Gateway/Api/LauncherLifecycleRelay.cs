@@ -380,8 +380,9 @@ internal static class LauncherLifecycleRelay
         // BEFORE sending anything. Two spellings of one rule agree until the day one of them is edited,
         // and then the query that exists to be trusted is the one that is wrong.
         var registered = launchers.Get(tenant, machine);
-        var reach = LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
-        var quietForSeconds = LauncherReachability.QuietForSeconds(registered, DateTime.UtcNow);
+        var nowUtc = launchers.UtcNow;
+        var reach = LauncherReachability.Classify(registered, streamConnected: false, nowUtc);
+        var quietForSeconds = LauncherReachability.QuietForSeconds(registered, nowUtc);
 
         switch (reach)
         {
@@ -404,7 +405,7 @@ internal static class LauncherLifecycleRelay
             // Heartbeating, no stream - and this Gateway watched it hold one. Restarting or reconnecting, NOT too
             // old: the evidence outranks the inference above (issue #4423).
             case LauncherReach.Reconnecting:
-                var closedForSeconds = LauncherReachability.StreamClosedForSeconds(registered, DateTime.UtcNow);
+                var closedForSeconds = LauncherReachability.StreamClosedForSeconds(registered, nowUtc);
                 FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
                               + $"({quietForSeconds}s ago) with no command stream, which closed {closedForSeconds}s ago, "
                               + $"for tenant={tenant.Value}, machine={machine} - refused as reconnecting, not too old");
@@ -412,7 +413,7 @@ internal static class LauncherLifecycleRelay
                     QuietForSeconds: quietForSeconds, StreamClosedForSeconds: closedForSeconds);
 
             case LauncherReach.StreamDown:
-                var downForSeconds = LauncherReachability.StreamClosedForSeconds(registered, DateTime.UtcNow);
+                var downForSeconds = LauncherReachability.StreamClosedForSeconds(registered, nowUtc);
                 FileLog.Write($"[LauncherLifecycleRelay] {streamCommand.Verb}: launcher registered and heartbeating "
                               + $"({quietForSeconds}s ago) and its command stream has been down {downForSeconds}s, "
                               + $"for tenant={tenant.Value}, machine={machine} - refused");
