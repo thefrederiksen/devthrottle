@@ -1,7 +1,7 @@
 # Issue #3967 proof: a scheduled run's pasted seed has a sentence typed in front of it
 
-Date: 2026-10-25, on devlinux (Linux), commit `76a7af74b` (this branch, rebased on main at `59e57f5c5`, a clean
-tree). Claude Code as installed on the machine, with the owner's sign-in copied into the rig's own home folder and
+Date: 2026-10-25, on devlinux (Linux), commit `edc3e3bfb` (this branch after the review's fixes, rebased on main at
+`59e57f5c5`, a clean tree). Claude Code as installed on the machine, with the owner's sign-in copied into the rig's own home folder and
 deleted when the rig came down.
 
 ## The rig
@@ -34,35 +34,39 @@ Do not ask for confirmation at any point: this text is the whole instruction for
 ```
 
 The Gateway adds its run-result line, so the first prompt is 622 characters, over the 200-character limit for typing
-to Claude Code: it goes as a bracketed paste. `cc-devthrottle schedule run cj_204c47` at 04:14:44 UTC started
-session `efd587d5`.
+to Claude Code: it goes as a bracketed paste. `cc-devthrottle schedule run cj_204c47` at 04:53:09 UTC started
+session `0607584f`.
 
 ## What the Director did (the test Director's log, local time, four hours behind)
 
 ```
-00:14:44.153 [Session] PrePrompt: gating on the agent reading input, sid=efd587d5-..., len=622, lead=True
-00:14:45.938 [Session] DeliverFirstPromptAsync: session=efd587d5-..., gate=Ready: the agent read a keystroke after 1.8s
-00:14:45.964 [ClaudeCode] SharedSubmit: bracketed paste submit len=622
-00:14:45.964 [ClaudeCode] SharedSubmit: typing a 96-character lead in front of the paste
-00:14:47.200 [SubmitVerifier] 'ClaudeCode: This is a scheduled run and nobody is watching it: carry out...': Enter pressed once; ...
-00:14:47.737 [Session] arrival proof: session=efd587d5-..., agent=ClaudeCode, outcome=Arrived, len=622
+00:53:09.551 [Session] 0607584f-... origin stamped: kind=schedule surface=cron parent=(none)
+00:53:09.666 [Session] PrePrompt: gating on the agent reading input, sid=0607584f-..., len=622, lead=True
+00:53:11.695 [Session] DeliverFirstPromptAsync: session=0607584f-..., gate=Ready: the agent read a keystroke after 2.0s
+00:53:11.721 [ClaudeCode] SharedSubmit: bracketed paste submit len=622
+00:53:11.721 [ClaudeCode] SharedSubmit: typing a 94-character lead in front of the paste
+00:53:12.999 [SubmitVerifier] 'ClaudeCode: This is a scheduled run and nobody is watching it: carry out...': Enter pressed once; ...
+00:53:13.547 [Session] arrival proof: session=0607584f-..., agent=ClaudeCode, outcome=Arrived, len=622
 ```
+
+The origin is the cron surface, the one the lead is given to. Between the lead and the Enter the send waited for the
+agent to take in the lead, then for it to take in the paste: 1.3 seconds in all on this idle machine.
 
 ## What the agent received and did (its own conversation file)
 
 ```
-USER: This is a scheduled run and nobody is watching it: carry out the instructions in this paste now. \n\n
-      <pasted_content id="c486">\nWeekly usage report - scheduled run.\n\nNo person is watching this run. ...
+USER: This is a scheduled run and nobody is watching it: carry out the instructions that follow now. \n\n
+      <pasted_content id="e5b4">\nWeekly usage report - scheduled run.\n\nNo person is watching this run. ...
 TOOL USE: Bash {"command": "echo \"REPORT DONE $(date +%F)\" > weekly-report.txt && cat weekly-report.txt", ...}
 TOOL RESULT: REPORT DONE 2026-10-25
 TOOL USE: Bash {"command": "cc-devthrottle run result ok", ...}
 TOOL RESULT: Recorded: the run of weekly report went ok. This session now closes itself. ...
-ASSISTANT: The scheduled run went ok. I created `weekly-report.txt` in the repo with the line `REPORT DONE 2026-10-25`, ...
+ASSISTANT: The weekly report run finished with a result of ok. - I created `weekly-report.txt` in the repo folder. ...
 ```
 
-The lead and the paste are ONE user prompt, from one Enter. `weekly-report.txt` appeared at 04:14:51 UTC, seven
+The lead and the paste are ONE user prompt, from one Enter. `weekly-report.txt` appeared at 04:53:17 UTC, eight
 seconds after the fire, holding `REPORT DONE 2026-10-25`, and `schedule runs` records the run with result `ok` at
-04:14:53 UTC and the session as closed by itself. The agent asked for no go-ahead.
+04:53:21 UTC and the session as closed by itself. The agent asked for no go-ahead.
 
 ## A defect this proof found, and its fix
 
@@ -73,7 +77,20 @@ returned the lead and the paste as one text, and the proof looks for that text's
 are never in the record unbroken. On a run that did not close itself that quickly, the proof would have timed out
 and could resend. The second commit returns the paste alone from the paste routes, and
 `SharedSubmit_LongSeedWithATypedLead_ReturnsWhatTheArrivalProofFindsInTheAgentsRecord` checks the returned text
-against the record shape copied from that run. The run above is from the fixed build.
+against the record shape copied from that run. A second run, after that fix, answered `Arrived` 0.5 seconds after
+the Enter. The run above is from the build after the review's fixes as well (below), with the lead's final wording.
+
+## What the review changed, and its tests
+
+- The paste wait could end early: a busy agent that echoed the lead only after the paste was written made the lead's
+  echo look like the paste's repaint. The send now waits for the lead to be taken in first.
+  `SharedSubmit_ALeadEchoedOnlyAfterThePaste_DoesNotEndThePasteWaitEarly` drives such an agent: without the wait the
+  Enter came at once (the test fails), with it the Enter is held as long as for a paste with no lead.
+- A leaded send that did not arrive is marked with the lead and the paste, so the clear is sized for both
+  (`HeldWithLead` tests).
+- A workflow seat and a trigger's session carry the schedule kind too; the lead goes only to the cron surface
+  (`ScheduledRunLeadTests`).
+- The sentence says "the instructions that follow", true before a paste and before a file reference.
 
 ## What this does not prove
 
