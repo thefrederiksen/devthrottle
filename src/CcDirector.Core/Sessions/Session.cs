@@ -351,8 +351,8 @@ public sealed class Session : IDisposable
     public string? FactoryKitDirectory { get; internal set; }
 
     /// <summary>
-    /// The settings files of the folder this session started in that hold deny rules, read once at launch
-    /// (<see cref="Claude.FolderDenyRules"/>). Empty for a folder with none and for every agent but Claude Code.
+    /// The settings files this session's agent reads that refused something outright at launch: turned into ask rules,
+    /// or reported as left (<see cref="Agents.DenyRulesBecomeAsk"/>). Empty when nothing refused outright.
     /// </summary>
     public IReadOnlyList<CcDirector.Gateway.Contracts.FolderDenyRulesDto> FolderDenyRules { get; internal set; } =
         Array.Empty<CcDirector.Gateway.Contracts.FolderDenyRulesDto>();

@@ -992,13 +992,13 @@ epo", Seed = "/help" };
         Assert.Equal("No run in the next 7 days", group.Rows.Single().Schedules.Single().ShiftText);
     }
 
-    // ---------- deny rules in the factory's folders (the owner's ruling of 24 October 2026) ----------
+    // ---------- refusals turned into ask rules at launch (the owner's rulings of 24 and 25 October 2026) ----------
 
     private static SessionDto LiveSession(string id, string machine, string repoPath, string? factory, params FolderDenyRulesDto[] deny)
         => new() { SessionId = id, MachineName = machine, RepoPath = repoPath, Factory = factory, FolderDenyRules = deny.ToList() };
 
     [Fact]
-    public void Page_ASessionInTheFactorysFolderWithDenyRules_IsSaidInTheHeader_WithTheMachineTheFileAndTheRules()
+    public void Page_ASessionWhoseDenyRulesBecameAskRules_IsSaidInTheHeader_WithTheMachineTheFileAndTheRules()
     {
         // The session that showed the defect was started in the factory's folder by hand, not born into the factory:
         // it counts by its folder on the factory's computer.
@@ -1007,14 +1007,15 @@ epo", Seed = "/help" };
         {
             File = @"D:\f\warmforward\.claude\settings.json",
             Rules = new() { "Bash(cc-gmail:*)", "Edit(.claude/settings.json)" },
+            Rewritten = true,
         });
 
         var page = FactoriesScreenFold.Page(f, Inputs(new[] { f }, jobs: Running()) with { Sessions = new[] { session } });
 
         Assert.Equal(new[]
         {
-            @"On SOREN_NORTH, D:\f\warmforward\.claude\settings.json holds 2 deny rules: Bash(cc-gmail:*), Edit(.claude/settings.json). "
-            + "A deny rule refuses with no prompt, so you cannot approve what it blocks: change each one to an ask rule in that file.",
+            @"On SOREN_NORTH, 2 deny rules in D:\f\warmforward\.claude\settings.json became ask rules when the seat started: "
+            + "Bash(cc-gmail:*), Edit(.claude/settings.json). They now ask you instead of refusing, so a seat that reaches one waits for your answer.",
         }, page.FolderDenyTexts);
     }
 
@@ -1022,7 +1023,7 @@ epo", Seed = "/help" };
     public void FolderDenyTexts_ASessionBornIntoTheFactory_CountsWhereverItRuns_AndAFileIsSaidOnce()
     {
         var f = WarmForward();
-        var file = new FolderDenyRulesDto { File = "/home/soren/wf/.claude/settings.local.json", Rules = new() { "Write(*)" } };
+        var file = new FolderDenyRulesDto { File = "/home/soren/wf/.claude/settings.local.json", Rules = new() { "Write(*)" }, Rewritten = true };
         var sessions = new[]
         {
             LiveSession("s1", "devlinux", "/home/soren/wf", "warmforward", file),
@@ -1033,7 +1034,8 @@ epo", Seed = "/help" };
 
         Assert.Equal(new[]
         {
-            "On devlinux, /home/soren/wf/.claude/settings.local.json holds 1 deny rule: Write(*). " + FactoriesScreenFold.FolderDenyAdvice,
+            "On devlinux, 1 deny rule in /home/soren/wf/.claude/settings.local.json became an ask rule when the seat started: Write(*). "
+            + FactoriesScreenFold.FolderDenyRewrittenAdvice,
         }, texts);
     }
 
@@ -1044,8 +1046,27 @@ epo", Seed = "/help" };
         var session = LiveSession("s1", "SOREN_NORTH", @"D:\f\warmforward", "warmforward",
             new FolderDenyRulesDto { File = @"D:\f\warmforward\.claude\settings.json", Problem = "it is not JSON" });
 
-        Assert.Equal(new[] { @"On SOREN_NORTH, D:\f\warmforward\.claude\settings.json could not be checked for deny rules: it is not JSON." },
+        Assert.Equal(new[] { @"On SOREN_NORTH, D:\f\warmforward\.claude\settings.json could not be checked for deny rules, because it is not JSON." },
             FactoriesScreenFold.FolderDenyTexts(f, new[] { session }));
+    }
+
+    [Fact]
+    public void FolderDenyTexts_ManagedSettingsTheDirectorCannotChange_AreSaidWithTheirRulesAndWhy()
+    {
+        var f = WarmForward();
+        var session = LiveSession("s1", "SOREN_NORTH", @"D:\f\warmforward", "warmforward", new FolderDenyRulesDto
+        {
+            File = @"C:\Program Files\ClaudeCode\managed-settings.json",
+            Rules = new() { "Bash(curl:*)" },
+            Problem = "it is managed settings an organisation deployed, which the Director does not change",
+        });
+
+        Assert.Equal(new[]
+        {
+            @"On SOREN_NORTH, C:\Program Files\ClaudeCode\managed-settings.json still holds 1 deny rule the Director could not change, "
+            + "because it is managed settings an organisation deployed, which the Director does not change: Bash(curl:*). "
+            + FactoriesScreenFold.FolderDenyAdvice,
+        }, FactoriesScreenFold.FolderDenyTexts(f, new[] { session }));
     }
 
     [Fact]

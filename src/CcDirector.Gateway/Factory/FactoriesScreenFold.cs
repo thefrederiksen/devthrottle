@@ -286,16 +286,20 @@ public static class FactoriesScreenFold
         };
     }
 
-    /// <summary>The sentence that ends every deny-rule line on a factory's page.</summary>
+    /// <summary>The sentence that ends a line about a file the Director turned into ask rules.</summary>
+    public const string FolderDenyRewrittenAdvice =
+        "They now ask you instead of refusing, so a seat that reaches one waits for your answer.";
+
+    /// <summary>The sentence that ends a line about a file the Director could not change.</summary>
     public const string FolderDenyAdvice =
         "A deny rule refuses with no prompt, so you cannot approve what it blocks: change each one to an ask rule in that file.";
 
     /// <summary>
-    /// DENY RULES IN THE FACTORY'S FOLDERS (the owner's ruling of 24 October 2026: "if I approve, it has to do it"). One
-    /// sentence per settings file that held deny rules when one of this factory's live sessions started - a session born
-    /// into the factory, or one started in the factory's own folder on its computer - naming the machine, the file and
-    /// its rules, in the order the sessions are listed and each file once. The Director read the file and left it alone;
-    /// this only says what is there.
+    /// REFUSALS TURNED INTO ASK RULES (the owner's rulings of 24 and 25 October 2026: "if I approve, it has to do it").
+    /// One sentence per settings file that refused something outright when one of this factory's live sessions started
+    /// - a session born into the factory, or one started in the factory's own folder on its computer - naming the
+    /// machine, the file and its rules, in the order the sessions are listed and each file once: what the Director turned
+    /// into ask rules, or what it could not change and why.
     /// </summary>
     public static List<string> FolderDenyTexts(RegisteredFactoryDto factory, IReadOnlyList<SessionDto> sessions)
     {
@@ -308,9 +312,11 @@ public static class FactoriesScreenFold
             foreach (var file in s.FolderDenyRules)
             {
                 if (!seen.Add(s.MachineName + "|" + file.File)) continue;
-                texts.Add(file.Problem is null
-                    ? $"On {s.MachineName}, {file.File} holds {Count(file.Rules.Count, "deny rule")}: {string.Join(", ", file.Rules)}. {FolderDenyAdvice}"
-                    : $"On {s.MachineName}, {file.File} could not be checked for deny rules: {file.Problem}.");
+                texts.Add(file.Rewritten
+                    ? $"On {s.MachineName}, {Count(file.Rules.Count, "deny rule")} in {file.File} became {(file.Rules.Count == 1 ? "an ask rule" : "ask rules")} when the seat started: {string.Join(", ", file.Rules)}. {FolderDenyRewrittenAdvice}"
+                    : file.Rules.Count > 0
+                        ? $"On {s.MachineName}, {file.File} still holds {Count(file.Rules.Count, "deny rule")} the Director could not change, because {file.Problem}: {string.Join(", ", file.Rules)}. {FolderDenyAdvice}"
+                        : $"On {s.MachineName}, {file.File} could not be checked for deny rules, because {file.Problem}.");
             }
         }
         return texts;

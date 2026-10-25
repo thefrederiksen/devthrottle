@@ -203,13 +203,15 @@ line. Write `./secrets/**` for the start folder, or `//secrets/**` for an absolu
 and every `Bash(...)` entry are left as they are.
 
 ```json
-{ "permissions": { "allow": ["Bash(git status)"], "deny": ["Bash(git push:*)"], "ask": [] } }
+{ "permissions": { "allow": ["Bash(git status)"], "ask": ["Bash(git push:*)"] } }
 ```
 
-- `permissions` - holds the three lists.
+- `permissions` - holds the lists.
 - `allow` - rules allowed without asking.
-- `deny` - rules refused.
-- `ask` - rules asked about each time.
+- `ask` - rules asked about each time. This is how a factory restricts a seat: the owner can always approve.
+- `deny` - not allowed in a factory (the owner's ruling of 24 October 2026). The check refuses a deny rule on its line
+  with "make it an ask rule: the owner must always be able to approve". A seat that starts on a schedule or a check
+  stops at an ask rule until a person answers it, and the check notices that once per seat.
 
 ## skills/&lt;name&gt;/SKILL.md
 

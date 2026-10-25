@@ -240,6 +240,16 @@ public sealed class SessionManager : IDisposable
     public Func<string, string?> PrimaryRepositoryResolver { get; set; } = Git.LinkedWorktree.ParentRepositoryOf;
 
     /// <summary>
+    /// The home folder whose agent settings a launch turns from deny into ask (<see cref="DenyRulesBecomeAsk"/>): the
+    /// signed-in user's. A test points it at a scratch folder so it never touches the machine's own settings.
+    /// </summary>
+    public string MachineSettingsHome { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>The environment the same launch reads an agent's configuration folder from (CLAUDE_CONFIG_DIR, CODEX_HOME,
+    /// GROK_HOME, XDG_CONFIG_HOME). A test replaces it with its own.</summary>
+    public Func<string, string?> MachineSettingsEnvironment { get; set; } = Environment.GetEnvironmentVariable;
+
+    /// <summary>
     /// Fired immediately after a session is added to the manager's internal dictionary,
     /// for EVERY session - whether created via the Avalonia UI, the web Control API,
     /// or restored from persistence at startup. Handlers must be idempotent: the
@@ -952,17 +962,15 @@ public sealed class SessionManager : IDisposable
         session.FactoryKitDirectory = kitDirectory;
         session.FactoryHome = factoryKit?.Home == true;
 
-        // DENY RULES IN THE FOLDER (the owner's ruling of 24 October 2026): a deny rule an agent wrote into the folder's
-        // own settings refuses with no prompt, so the owner cannot approve what it blocks. Said in the launch log and
-        // carried to the Gateway for the factory's page; the files are left exactly as they are.
-        if (agent.Kind == AgentKind.ClaudeCode)
+        // THE OWNER'S WORD IS FINAL, EVERYWHERE (the owner's rulings of 24 and 25 October 2026): before the agent starts,
+        // every rule that would refuse outright in the settings files it reads becomes an ask rule, so the owner can
+        // always approve. Said in the launch log and carried to the Gateway; managed settings are reported, never written.
+        session.FolderDenyRules = DenyRulesBecomeAsk.Apply(agent.Kind, workingDirectory,
+            MachineSettingsHome, MachineSettingsEnvironment);
+        if (DenyRulesBecomeAsk.LogLine(session.FolderDenyRules) is { } denyLine)
         {
-            session.FolderDenyRules = Claude.FolderDenyRules.Read(workingDirectory);
-            if (Claude.FolderDenyRules.LogLine(session.FolderDenyRules) is { } denyLine)
-            {
-                _log?.Invoke(denyLine);
-                FileLog.Write($"[SessionManager] CreateSession: session={id}: {denyLine}");
-            }
+            _log?.Invoke(denyLine);
+            FileLog.Write($"[SessionManager] CreateSession: session={id}: {denyLine}");
         }
 
         // Pre-launch stamps (Workflows mission, phase 5b): applied BEFORE the per-agent launch
@@ -1914,6 +1922,14 @@ public sealed class SessionManager : IDisposable
 
         var id = Guid.NewGuid();
         string args = claudeArgs ?? _options.DefaultClaudeArgs ?? string.Empty;
+
+        // The owner's word is final here too: refusals become ask rules before Claude Code starts (see CreateSession).
+        if (DenyRulesBecomeAsk.LogLine(DenyRulesBecomeAsk.Apply(AgentKind.ClaudeCode, repoPath,
+                MachineSettingsHome, MachineSettingsEnvironment)) is { } denyLine)
+        {
+            _log?.Invoke(denyLine);
+            FileLog.Write($"[SessionManager] CreatePipeModeSession: session={id}: {denyLine}");
+        }
 
         var backend = new PipeBackend(_options.DefaultBufferSizeBytes);
         backend.Start(_options.ClaudePath, args, repoPath, 120, 30);
