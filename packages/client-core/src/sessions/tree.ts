@@ -43,7 +43,8 @@ function supervisorOf(s: SessionDto): string {
  * WHOLE roster, never per machine. A session may supervise a session on another machine (the owner
  * named at spawn may live on any Director, and the Gateway resolves liveness fleet-wide), so a child
  * nests under its parent wherever the parent lives, and a child on another machine says
- * so on its own row (see isOnAnotherMachine). A view that groups by machine groups the ROOTS.
+ * so on its own row (see isOnAnotherMachine). A view that groups by machine groups the ROOTS, and also lists each
+ * child on another machine under its own machine, linked to its parent (see crossMachineChildren).
  *
  * EVERY SESSION RENDERS EXACTLY ONCE. A malformed ownership loop (a supervises b supervises a) puts
  * neither in roots and would hide both; every session not reachable from a root is promoted to a
@@ -154,6 +155,22 @@ export function isOnAnotherMachine(parent: SessionDto, child: SessionDto): boole
   const b = String(child.directorId ?? "").trim();
   if (a.length > 0 && b.length > 0) return a !== b;
   return String(parent.machineName ?? "").trim() !== String(child.machineName ?? "").trim();
+}
+
+/**
+ * Every session that sits under a parent on ANOTHER machine, paired with that parent, depth-first from the roots in
+ * root order. A view that groups by machine shows each of these under its OWN machine as well, linked back to its
+ * parent, and leaves a placeholder in the parent's crew (owner ruling, 2026-10-25: "so we can always see all sessions
+ * running on all computers"). The tree itself is unchanged - the session is still counted once, in its parent's crew.
+ */
+export function crossMachineChildren(tree: SessionTree): Descendant[] {
+  const out: Descendant[] = [];
+  for (const r of tree.roots) {
+    for (const d of descendantsOf(tree, r)) {
+      if (isOnAnotherMachine(d.parent, d.session)) out.push(d);
+    }
+  }
+  return out;
 }
 
 /**

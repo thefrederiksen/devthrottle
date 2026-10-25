@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
@@ -18,10 +18,12 @@ import {
   buildSessionTree,
   CALM_BAND_TITLE,
   childrenOf,
+  crossMachineChildren,
   descendantsOf,
   isCrewExpanded,
   isOnAnotherMachine,
   setCrewExpanded,
+  type Descendant,
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
@@ -89,6 +91,11 @@ const SURFACE = "cockpit-roster";
 // parent lives, and a child on another machine carries its machine line. The tree and the crew summary
 // live in client-core/sessions/tree, shared with the phone.
 //
+// EVERY MACHINE SHOWS EVERY SESSION ON IT (owner ruling, 2026-10-25). In "My order", a child whose parent is on
+// ANOTHER machine is drawn twice: its full row under its own machine, wearing a "started by" line and linked to the
+// parent by a dashed line in the rail's margin, and a dashed placeholder in the parent's crew pointing at it. The tree
+// is unchanged, so the crew still counts it once. The Attention view mixes machines and keeps the child in its crew.
+//
 // THE FLEET MANAGER IS PINNED FIRST (the Fleet Manager mission, step 8), in both views, with its team collapsed under
 // it like any crew. Which row is pinned, and every word it and the heading below it wear, is the Gateway's
 // (SessionDto.pin); client-core/sessions/pinning lifts it out, and the rows that are not pinned are laid out exactly as
@@ -129,8 +136,10 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
     sessions === null ? null : activeFilter !== null ? applyFilter(sessions, activeFilter) : withheld ? [] : sessions;
   const shownCount = shown?.length ?? 0;
 
+  const railRef = useRef<HTMLDivElement>(null);
   return (
-    <div className="roster-rail">
+    <div className="roster-rail" ref={railRef}>
+      <CrossMachineLines railRef={railRef} />
       {/* ONE ROW ABOVE THE SESSIONS (owner ruling, 2026-09-20). This was four rows and six controls -
           the count, New session, the two ordering buttons, the colour legend, and a full-width blue
           "Turn on voice for all", which was the largest and brightest object in the window for an action
@@ -206,10 +215,10 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
       )}
 
       {shown !== null && shownCount > 0 && (
-        <PinnedAndRest sessions={shown} directors={directors} portByDirector={portByDirector} selectedId={selectedId}>
-          {(tree, rest) =>
+        <PinnedAndRest sessions={shown} view={view} directors={directors} portByDirector={portByDirector} selectedId={selectedId}>
+          {(tree, rest, links) =>
             view === "my-order" ? (
-              <MyOrderGroups tree={tree} roots={rest} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
+              <MyOrderGroups tree={tree} roots={rest} links={links} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
             ) : (
               <AttentionGroups tree={tree} roots={rest} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
             )
@@ -346,21 +355,27 @@ function FilterLines({
 // the rest of the roots go to the view the owner chose, under the Gateway's heading, laid out as they always were.
 function PinnedAndRest({
   sessions,
+  view,
   directors,
   portByDirector,
   selectedId,
   children,
 }: {
   sessions: SessionDto[];
+  view: RosterView;
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   selectedId: string | undefined;
-  children: (tree: SessionTree, rest: SessionDto[]) => ReactNode;
+  children: (tree: SessionTree, rest: SessionDto[], links: Descendant[]) => ReactNode;
 }) {
   const tree = buildSessionTree(sessions);
   const split: PinnedSplit = splitPinned(tree.roots);
+  // Only "My order" groups by machine, so only it draws a child on another machine under its own machine.
+  const links = view === "my-order" ? crossMachineChildren(tree) : [];
+  const linkedParent = new Map<string, SessionDto>();
+  for (const d of links) linkedParent.set(String(d.session.sessionId ?? "").trim(), d.parent);
   return (
-    <>
+    <CrossMachineContext.Provider value={view === "my-order" ? linkedParent : null}>
       {split.pinned.length > 0 && (
         <div className="roster-pinned" data-testid="roster-pinned">
           <TreeList
@@ -377,31 +392,38 @@ function PinnedAndRest({
           {split.pin.othersHeading}
         </div>
       )}
-      {children(tree, split.rest)}
+      {children(tree, split.rest, links)}
       {/* No "Hand sessions to the Fleet Manager..." link here while the Fleet Manager page's right panel, where that
           list lives, is hidden. Hand-over stays in each session's menu. */}
-    </>
+    </CrossMachineContext.Provider>
   );
 }
 
-// "My order": the tree's ROOTS grouped by their owning Director under a "computer:port" header. A child sits under its
-// parent whichever Director it is on.
+// child sessionId -> the parent it sits under on another machine, while the view groups by machine; null otherwise.
+// A row reads it to draw a child on another machine as a placeholder in its crew, and to wear "started by" on the full
+// row under its own machine.
+const CrossMachineContext = createContext<Map<string, SessionDto> | null>(null);
+
+// "My order": the tree's ROOTS grouped by their owning Director under a "computer:port" header, plus every child on
+// another machine than its parent, under its OWN Director. Its crew keeps a placeholder for it.
 function MyOrderGroups({
   tree,
   roots,
+  links,
   directors,
   portByDirector,
   selectedId,
 }: {
   tree: SessionTree;
   roots: SessionDto[];
+  links: Descendant[];
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   selectedId: string | undefined;
 }) {
   return (
     <>
-          {groupByDirector(roots, portByDirector).map((group) => (
+          {groupByDirector([...roots, ...links.map((d) => d.session)], portByDirector).map((group) => (
             <div className="roster-group" key={group.directorId || "(no-director)"}>
               <div className="roster-group-head">
                 <span className="roster-group-name">
@@ -612,6 +634,10 @@ function RosterRow({
     setExpanded(next);
     setCrewExpanded(sid, next);
   };
+  // A child of a parent on another machine: drawn as a placeholder inside the crew, and in full only at the top of its
+  // own machine's group, where it says who started it.
+  const linkedParent = useContext(CrossMachineContext);
+  const startedBy = linkedParent?.get(sid.trim()) ?? null;
   const attention = classify(session) === "needsYou";
   const named = !!session.name && session.name.trim().length > 0;
   const name = named ? String(session.name) : session.repoPath || "(unnamed session)";
@@ -677,8 +703,9 @@ function RosterRow({
         />
       )}
       <Link
-        className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}${session.pin ? " roster-row-pinned" : ""}`}
+        className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}${session.pin ? " roster-row-pinned" : ""}${startedBy ? " roster-row-linked" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
+        data-linked-row={startedBy ? sid : undefined}
         to={`/session/${encodeURIComponent(sid)}${filterSearch}`}
         title={dotTitle(session, legend)}
       >
@@ -709,6 +736,7 @@ function RosterRow({
           </span>
           {/* Line 2: the Gateway-stamped status, on its own line so it is never squeezed to "Wor...". */}
           <span className="roster-state">{contextLine(session)}</span>
+          {startedBy && <StartedByLine parent={startedBy} portByDirector={portByDirector} />}
           {/* Line 2a (only when something waits): the row line - what waits in this session's fleet inbox,
               in the Gateway's words, rendered verbatim (Message Load mission, slice 4). */}
           {session.inboxLine && <span className="roster-inbox dt-private">{session.inboxLine}</span>}
@@ -784,7 +812,10 @@ function RosterRow({
           whatever order the top level is in. A child on another Director says which. */}
       {isParent && expanded && (
         <ul className="roster-list roster-kids" aria-label={`Sessions under ${name}`}>
-          {kids.map((k) => (
+          {kids.map((k) =>
+            linkedParent?.has(String(k.sessionId ?? "").trim()) ? (
+              <CrossMachinePlaceholder key={k.sessionId} session={k} portByDirector={portByDirector} selectedId={selectedId} />
+            ) : (
             <RosterRow
               key={k.sessionId}
               session={k}
@@ -794,10 +825,135 @@ function RosterRow({
               showMachine={isOnAnotherMachine(session, k)}
               selectedId={selectedId}
             />
-          ))}
+            ),
+          )}
         </ul>
       )}
     </li>
+  );
+}
+
+function sessionLabel(s: SessionDto): string {
+  const num = s.number;
+  if (num !== null && num !== undefined && String(num).trim().length > 0) return String(num);
+  return s.name && s.name.trim().length > 0 ? s.name : "a session";
+}
+
+// The line on a full row whose parent is on another machine: who started it and where that is.
+function StartedByLine({ parent, portByDirector }: { parent: SessionDto; portByDirector: Map<string, string> }) {
+  const where = machinePortLabel((parent.machineName ?? "").trim(), portByDirector.get((parent.directorId ?? "").trim()) ?? "");
+  return (
+    <span className="roster-started-by" data-testid="roster-started-by">
+      started by {sessionLabel(parent)}
+      {where ? ` on ${where}` : ""}
+    </span>
+  );
+}
+
+// The placeholder a crew keeps for a member that runs on another machine. It opens that session like any row, and
+// brings the full row under its own machine into view.
+function CrossMachinePlaceholder({
+  session,
+  portByDirector,
+  selectedId,
+}: {
+  session: SessionDto;
+  portByDirector: Map<string, string>;
+  selectedId: string | undefined;
+}) {
+  const sid = session.sessionId ?? "";
+  const filterSearch = filterSearchOf(useLocation().search);
+  const named = !!session.name && session.name.trim().length > 0;
+  const num = session.number;
+  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
+  const where = machinePortLabel((session.machineName ?? "").trim(), portByDirector.get((session.directorId ?? "").trim()) ?? "");
+  const reveal = () => {
+    const row = linkedRowOf(document, sid);
+    if (row instanceof HTMLElement && typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
+  return (
+    <li className="roster-li">
+      <Link
+        className={`roster-row roster-row-ghost${sid === selectedId ? " roster-row-selected" : ""}`}
+        to={`/session/${encodeURIComponent(sid)}${filterSearch}`}
+        data-ghost-of={sid}
+        data-testid="roster-ghost"
+        title={where ? `Runs on ${where} - its full row is under that machine` : undefined}
+        onClick={reveal}
+      >
+        <span className="roster-body">
+          <span className="roster-name">
+            {hasNum && <span className="num-badge">{num}</span>}
+            <span className={named ? "roster-name-text" : "roster-name-text dt-private"}>
+              {named ? session.name : session.repoPath || "(unnamed session)"}
+            </span>
+          </span>
+          <span className="roster-state">
+            {contextLine(session)}
+            {where ? ` · runs on ${where}` : ""}
+          </span>
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+// The full row a placeholder points at, matched on the attribute's value rather than through a selector built from it.
+function linkedRowOf(root: ParentNode, sid: string): Element | null {
+  for (const el of root.querySelectorAll("[data-linked-row]")) {
+    if (el.getAttribute("data-linked-row") === sid) return el;
+  }
+  return null;
+}
+
+// The dashed line in the rail's left margin from each placeholder to its full row under the other machine. It is
+// measured from the rendered rows, so it follows a crew being opened or closed, the roster repainting and the rail
+// being resized; a placeholder whose crew is closed has no row, so it has no line. A passive effect, not a layout
+// one: a child's layout effect runs before React attaches the rail's ref, so it would find no rail and never observe.
+function CrossMachineLines({ railRef }: { railRef: RefObject<HTMLDivElement | null> }) {
+  const [paths, setPaths] = useState<{ d: string; height: number }>({ d: "", height: 0 });
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const measure = () => {
+      const box = rail.getBoundingClientRect();
+      const top = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return { y: r.top - box.top + rail.scrollTop + Math.min(18, r.height / 2), x: r.left - box.left };
+      };
+      const gutter = 4;
+      let d = "";
+      let bottom = 0;
+      for (const ghost of rail.querySelectorAll("[data-ghost-of]")) {
+        const id = ghost.getAttribute("data-ghost-of") ?? "";
+        const row = linkedRowOf(rail, id);
+        if (!row) continue;
+        const a = top(ghost);
+        const b = top(row);
+        d += `M${a.x} ${a.y} H${gutter} V${b.y} H${b.x} `;
+        bottom = Math.max(bottom, a.y, b.y);
+      }
+      // Only as tall as the lowest line: an overlay as tall as the rail's scroll height would itself hold that height up
+      // after the content shrank, leaving empty space to scroll into.
+      const next = { d: d.trim(), height: Math.ceil(bottom) + 2 };
+      setPaths((prev) => (prev.d === next.d && prev.height === next.height ? prev : next));
+    };
+    measure();
+    const mutations = new MutationObserver(measure);
+    // characterData too: a state line that re-wraps moves every row below it.
+    mutations.observe(rail, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-expanded", "class"] });
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    resize?.observe(rail);
+    return () => {
+      mutations.disconnect();
+      resize?.disconnect();
+    };
+  }, [railRef]);
+  if (paths.d.length === 0) return null;
+  return (
+    <svg className="roster-cross-lines" style={{ height: paths.height }} aria-hidden="true" data-testid="roster-cross-lines">
+      <path d={paths.d} />
+    </svg>
   );
 }
 

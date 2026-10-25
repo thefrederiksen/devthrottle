@@ -7,6 +7,7 @@ import {
   crewAge,
   crewSummary,
   crewSummaryLine,
+  crossMachineChildren,
   descendantsOf,
   isCrewExpanded,
   isOnAnotherMachine,
@@ -176,5 +177,42 @@ describe("the inspection's three cases (pull request 2852 review)", () => {
     const tree = buildSessionTree([a, b, under]);
     expect(tree.roots.map((s) => s.sessionId)).toEqual(["a", "b"]);
     expect(childrenOf(tree, b).map((s) => s.sessionId)).toEqual(["u"]);
+  });
+});
+
+describe("crossMachineChildren", () => {
+  // Session 113 on 2026-10-25: started by 114 on devlinux, running on the Mac Mini, beside 114's own crew on devlinux.
+  const rob = session({ sessionId: "114", directorId: "linux", machineName: "devlinux" });
+  const dev = session({ sessionId: "111", directorId: "linux", machineName: "devlinux", controllerSessionId: "114", sortOrder: 1 });
+  const rm = session({ sessionId: "105", directorId: "linux", machineName: "devlinux", controllerSessionId: "114", sortOrder: 2 });
+  const docs = session({ sessionId: "939", directorId: "linux", machineName: "devlinux", controllerSessionId: "105" });
+  const inv = session({ sessionId: "113", directorId: "mac", machineName: "devthrottle-mac-mini", controllerSessionId: "114", sortOrder: 3 });
+  const macKid = session({ sessionId: "200", directorId: "mac", machineName: "devthrottle-mac-mini", controllerSessionId: "113" });
+  const back = session({ sessionId: "201", directorId: "linux", machineName: "devlinux", controllerSessionId: "113", sortOrder: 1 });
+  const mac = session({ sessionId: "112", directorId: "mac", machineName: "devthrottle-mac-mini" });
+
+  it("lists each child on another machine with the parent it sits under, and nothing on the same machine", () => {
+    const tree = buildSessionTree([rob, dev, rm, docs, inv, mac]);
+    const links = crossMachineChildren(tree);
+    expect(links.map((d) => [d.session.sessionId, d.parent.sessionId])).toEqual([["113", "114"]]);
+  });
+
+  it("leaves the tree as it was, so the crew still counts the session once", () => {
+    const tree = buildSessionTree([rob, dev, rm, docs, inv, mac]);
+    crossMachineChildren(tree);
+    expect(descendantsOf(tree, rob).map((d) => d.session.sessionId)).toEqual(["111", "105", "939", "113"]);
+  });
+
+  it("follows the chain: a child that crosses back again is linked to its own parent, and a same-machine grandchild is not", () => {
+    const tree = buildSessionTree([rob, inv, macKid, back]);
+    const links = crossMachineChildren(tree);
+    expect(links.map((d) => [d.session.sessionId, d.parent.sessionId])).toEqual([
+      ["113", "114"],
+      ["201", "113"],
+    ]);
+  });
+
+  it("is empty when every crew lives on one machine", () => {
+    expect(crossMachineChildren(buildSessionTree([rob, dev, rm, docs, mac]))).toEqual([]);
   });
 });

@@ -26,7 +26,8 @@ export interface FacetOption {
 // those sessions are in. The worktrees are shown under the repo for information only and are never a filter value:
 // they come and go, and a filter pinned to one would stop matching the day it is removed. `worktrees` is empty when
 // every session of the repo runs in the repository's own checkout; otherwise it lists that checkout too, as
-// MAIN_CHECKOUT, so the counts under a repo always add up to the repo's count.
+// MAIN_CHECKOUT, so the counts under a repo add up to the repository's own sessions. The repo's count can be higher: it
+// also counts crew members from other folders, which ticking the repo shows (see applyFilter).
 export interface RepoFacetOption extends FacetOption {
   worktrees: FacetOption[];
 }
@@ -73,9 +74,29 @@ export function sessionMatchesFilter(s: SessionDto, f: SessionFilter): boolean {
 
 // The roster narrowed to the sessions that match the filter, preserving input order (the caller has
 // already ordered it). An inactive filter returns the roster unchanged.
+//
+// A CREW IS NEVER SPLIT BY THE REPO FACET. A session started by another session passes the repo facet when any session
+// above it does: the Mac investigator a devthrottle_internal session started in the Mac's home folder is part of that
+// crew, and a filter that dropped it showed the crew one member short (2026-10-25, session 113). The machine facet
+// stays each session's own, so a filter to one machine still shows only that machine.
 export function applyFilter(sessions: SessionDto[], f: SessionFilter): SessionDto[] {
   if (!filterIsActive(f)) return sessions;
-  return sessions.filter((s) => sessionMatchesFilter(s, f));
+  if (f.repos.length === 0) return sessions.filter((s) => sessionMatchesFilter(s, f));
+  const byId = new Map<string, SessionDto>();
+  for (const s of sessions) byId.set(String(s.sessionId ?? "").trim(), s);
+  const repoMatchesUp = (s: SessionDto): boolean => {
+    const seen = new Set<string>();
+    let cur: SessionDto | undefined = s;
+    while (cur) {
+      if (f.repos.includes(repoOf(cur))) return true;
+      const id = String(cur.sessionId ?? "").trim();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      cur = byId.get(String(cur.controllerSessionId ?? "").trim());
+    }
+    return false;
+  };
+  return sessions.filter((s) => (f.machines.length === 0 || f.machines.includes(machineName(s))) && repoMatchesUp(s));
 }
 
 // The distinct machine values in the roster with per-value counts, sorted by name. Built from the full
@@ -85,12 +106,15 @@ export function machineFacet(sessions: SessionDto[]): FacetOption[] {
 }
 
 // The distinct repositories in the roster with per-repo counts, sorted by name. A repository's worktrees fold into its
-// one row (see RepoFacetOption), so a repo worked on in seven worktrees is one row, not eight.
+// one row (see RepoFacetOption), so a repo worked on in seven worktrees is one row, not eight. The count is what
+// ticking the repo shows - crew members that ride along from other folders included (see applyFilter) - so the panel
+// never says 3 and then shows 4. The worktrees list the repository's own sessions only.
 export function repoFacet(sessions: SessionDto[]): RepoFacetOption[] {
-  return countBy(sessions, repoOf).map(({ value, count }) => {
+  return countBy(sessions, repoOf).map(({ value }) => {
     const mine = sessions.filter((s) => repoOf(s) === value);
     const worktrees = countBy(mine, worktreeOf, true);
     const onlyMainCheckout = worktrees.length === 1 && worktrees[0].value === MAIN_CHECKOUT;
+    const count = applyFilter(sessions, { machines: [], repos: [value] }).length;
     return { value, count, worktrees: onlyMainCheckout ? [] : worktrees };
   });
 }
