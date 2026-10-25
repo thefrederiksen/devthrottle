@@ -71,10 +71,18 @@ public static class ComponentRegistry
 
     /// <summary>
     /// Build a tool component from its id. Tools have NO macOS and NO Linux asset, and that is not
-    /// an omission: the standalone per-executable delivery is Windows-only, and every cc-* tool
-    /// reaches macOS and Linux inside the shared Python tools bundle instead. So
-    /// <see cref="Component.AssetFor"/> answers null off Windows, which callers render as "ships in
-    /// the Python tools bundle" rather than as a missing download.
+    /// an omission: every cc-* tool reaches those platforms inside the shared Python tools bundle
+    /// instead. So <see cref="Component.AssetFor"/> answers null off Windows, and a caller must render
+    /// that as "ships in the Python tools bundle" rather than as a missing download - which is what
+    /// <see cref="PlanItemKind.ProvidedByToolsBundle"/> is for.
+    ///
+    /// NOTE, and it is worth checking before relying on this type: the release no longer ships a
+    /// per-tool <c>-win-x64.exe</c> for ANY tool either. Every <c>*-win-x64.exe</c> in the live manifest
+    /// is on <see cref="DiscoverToolIds"/>'s exclusion list, so that method answers an EMPTY list on
+    /// every platform, Windows included, and the tools now reach Windows through the same Python bundle.
+    /// Whether Tool components should therefore be retired, or re-pointed at the bundle's real contents,
+    /// is an open decision - see the discussion on #4291. Until it is taken, the only tool ids any
+    /// caller sees are <see cref="DefaultToolIds"/>, a fixed list of three that predates the change.
     /// </summary>
     public static Component ToolComponent(string id)
     {
