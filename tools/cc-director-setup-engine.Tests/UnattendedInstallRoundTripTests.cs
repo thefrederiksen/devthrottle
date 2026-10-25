@@ -68,7 +68,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
             {
                 version,
                 sha256 = Hashing.Sha256OfFile(path),
-                platform = OperatingSystem.IsWindows() ? "windows" : "macos",
+                platform = PlatformBundle.ManifestPlatform,
                 size = new FileInfo(path).Length,
             };
         }
@@ -104,6 +104,17 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
             return Task.FromResult(staged);
         };
 
+    /// <summary>
+    /// The Workstation components this runner places on this system: every app component with an asset here, EXCEPT
+    /// the shared Python tools bundle. The bundle joined the app component list (#4368) so the setup commands can see
+    /// it, but it is installed by PythonToolsInstaller as its own step - which this file says above it does not cover -
+    /// and BuildRelease fabricates no bundle. Leaving it in made these tests expect a placement nothing performs, on
+    /// every system.
+    /// </summary>
+    private static IEnumerable<Component> PlacedByThisRunner() =>
+        ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
+            .Where(c => c.Kind != ComponentKind.ToolsBundle && c.AssetFor(HostPlatform.Current) is not null);
+
     private static int CountOf(UpdateRunResult r, ApplyStatus status) => r.Results.Count(x => x.Status == status);
 
     // The whole point: an unattended install puts the components on disk and RECORDS what it put
@@ -112,8 +123,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     public async Task Install_PlacesEveryComponentAndRecordsTheVersion()
     {
         var release = BuildRelease("1.8.6");
-        var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
+        var components = PlacedByThisRunner()
             .ToList();
 
         var runner = new UpdateRunner(_layout, components, FromReleaseDir());
@@ -138,8 +148,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     public async Task Install_RunTwice_IsSafeAndStaysRecordedAtTheSameVersion()
     {
         var release = BuildRelease("1.8.6");
-        var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
+        var components = PlacedByThisRunner()
             .ToList();
         var plan = PlanFor(release, components);
 
@@ -170,8 +179,7 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     public async Task Install_WithAWrongHash_Fails_AndPlacesNothing()
     {
         var release = BuildRelease("1.8.6");
-        var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => c.AssetFor(HostPlatform.Current) is not null)
+        var components = PlacedByThisRunner()
             .Take(1)
             .ToList();
 

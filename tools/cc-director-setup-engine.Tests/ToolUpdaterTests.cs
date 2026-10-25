@@ -65,6 +65,14 @@ public class ToolUpdaterTests : IDisposable
 
     private string ToolContent(string id) => File.ReadAllText(Path.Combine(_layout.BinDir, $"{id}.exe"));
 
+    /// <summary>Every file anywhere under the install root named for <paramref name="id"/>, with or without an extension -
+    /// so "not added" can fail on every system, wherever a placement would have put it.</summary>
+    private IReadOnlyList<string> FilesNamedFor(string id) =>
+        Directory.Exists(_layout.LocalRoot)
+            ? Directory.EnumerateFiles(_layout.LocalRoot, id + "*", SearchOption.AllDirectories)
+                .Where(f => Path.GetFileNameWithoutExtension(f) == id || Path.GetFileName(f) == id).ToList()
+            : Array.Empty<string>();
+
     [Fact]
     public async Task Refresh_UpdatesInstalledToolThatIsBehind()
     {
@@ -94,7 +102,7 @@ public class ToolUpdaterTests : IDisposable
         // cc-word is in the release but NOT installed -> must stay absent.
 
         var result = await new ToolUpdater(_layout).RefreshAsync(release, new ReleaseSource());
-        Assert.False(File.Exists(Path.Combine(_layout.BinDir, "cc-word.exe"))); // not added, on any system
+        Assert.Empty(FilesNamedFor("cc-word")); // not added, on any system
         if (!OperatingSystem.IsWindows())
         {
             AssertNothingWasTouched(result, "cc-pdf", "cc-pdf@1.0.0");
