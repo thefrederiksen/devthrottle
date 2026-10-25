@@ -54,6 +54,8 @@ public sealed class SecretTransferPushNotifier : IDisposable
             // One notification per transfer: two waiting at once must not replace each other. The id is not secret.
             Tag = "devthrottle-secret-transfer-" + transfer.TransferId,
             Url = CardUrl,
+            // The alert this push announces (the Alerts mission), so a tap can open the Alerts tray on it.
+            AlertId = AlertKinds.IdOf(AlertKinds.SecretTransfer, transfer.TransferId),
         }, PayloadJson);
     }
 
@@ -122,5 +124,6 @@ public sealed class SecretTransferPushNotifier : IDisposable
         [JsonPropertyName("body")] public string Body { get; set; } = "";
         [JsonPropertyName("tag")] public string Tag { get; set; } = "";
         [JsonPropertyName("url")] public string Url { get; set; } = "";
+        [JsonPropertyName("alertId")] public string AlertId { get; set; } = "";
     }
 }

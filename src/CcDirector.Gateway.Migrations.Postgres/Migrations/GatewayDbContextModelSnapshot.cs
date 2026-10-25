@@ -187,6 +187,33 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("activity_events", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.AlertMarkEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("AlertId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("ClearedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SeenVersionUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("TouchedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "AlertId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("alert_marks", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeConversationItemEntity", b =>
                 {
                     b.Property<string>("TenantId")

@@ -64,10 +64,12 @@ public sealed class SecretTransferPushNotifierTests : IDisposable
         var payload = JsonDocument.Parse(SecretTransferPushNotifier.BuildPayload(Waiting())).RootElement;
 
         var names = payload.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
-        Assert.Equal(new[] { "body", "kind", "tag", "title", "url" }, names);
+        Assert.Equal(new[] { "alertId", "body", "kind", "tag", "title", "url" }, names);
         Assert.Equal("secret-transfer", payload.GetProperty("kind").GetString());
         Assert.Equal("/mobile/secret-transfers", payload.GetProperty("url").GetString());
         Assert.Equal("devthrottle-secret-transfer-tr-0001", payload.GetProperty("tag").GetString());
+        // The Alerts mission: the push names the alert it announces, so a tap opens the tray on it.
+        Assert.Equal("secret-transfer:tr-0001", payload.GetProperty("alertId").GetString());
     }
 
     [Fact]

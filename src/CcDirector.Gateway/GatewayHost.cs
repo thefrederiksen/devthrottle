@@ -6258,6 +6258,23 @@ public sealed class GatewayHost : IAsyncDisposable
                 CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
+        // Alerts (the Alerts mission): one list of everything that needs the owner, folded at read time from the three
+        // features above - restart requests, secret transfers, message requests - by each feature's own source. The only
+        // new state is what the owner has seen and cleared. None of the four routes is on SessionKeyGuard's allow list:
+        // they are the owner's, like his list of message requests. Answering stays on each feature's own route.
+        Alerts.AlertEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            alerts: new Alerts.AlertsService(
+                new Alerts.IAlertSource[]
+                {
+                    new Api.RestartRequestAlertSource(DirectorRestartRequests),
+                    new Secrets.SecretTransferAlertSource(SecretTransfers),
+                    new Messaging.MessageRequestAlertSource(MessageLinkRequests, MessageLinkRecord,
+                        (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid), notifyOfLink),
+                },
+                new Alerts.AlertMarkStore(_gatewayDb),
+                () => DateTime.UtcNow));
+
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
         // SessionKeyGuard refuses a session key, and the handler allows only the owner's own phone or browser.
         FleetManagerHandOverEndpoints.Map(_app,
