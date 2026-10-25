@@ -1,6 +1,7 @@
 # Issue #3392 proof: a scheduled run whose prompt never reached the agent is a failed run
 
-Date: 2026-10-24, on devlinux (Linux), commit `962d53964` (this branch, a clean tree).
+Date: 2026-10-24, on devlinux (Linux). First run on commit `962d53964`; run again after the review on commit `b7f83032c`
+(the first prompt's own fact, below) - both from a clean tree.
 
 ## The rig
 
@@ -55,3 +56,26 @@ would have read `started`, result `pending`, until the end of its shift.
   one sweep. This change does not shorten the gate.
 - The owner being told: that is pull request #4441 (issue #4436), which tells every failed run. With it, this run is
   told with its reason as the detail.
+
+## Run again after the review: the first prompt's own fact
+
+The review found that the session row's delivery flag is about the LAST send of any source, so the change now reads a
+fact the Director keeps for the first prompt alone (`SessionDto.FirstPromptFailedAtUtc` and its reason). The same rig,
+rebuilt from the reworked branch, the same never-trusted folder, `schedule run cj_f113d5` at 23:52:59 UTC (session
+`9318cca4`):
+
+```
+20:02:59.322 [Session] DeliverFirstPromptAsync: session=9318cca4-..., gate=TimedOut: the agent's composer was not drawn within 600s ...
+20:02:59.329 [Session] first prompt NOT delivered: session=9318cca4-...: The first prompt was not typed: the agent's composer was not drawn within 600s ...
+```
+
+```
+"infraStatus": "started",
+"result": "problem",
+"problem": "prompt-not-delivered",
+"resultReason": "its session started, but the prompt it was given never reached the agent: The first prompt was not typed: the agent's composer was not drawn within 600s (a dialog, a menu, or an agent still starting); nothing was typed. Last screen: ... Yes, I trust this folder | Enter to confirm · Esc to cancel",
+"resultUtc": "2026-10-25T00:03:45.1223281Z",
+"ending": "still-open"
+```
+
+The run is a problem 46 seconds after the Director recorded the first prompt as not delivered.
