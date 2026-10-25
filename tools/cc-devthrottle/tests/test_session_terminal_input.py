@@ -11,13 +11,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from cc_shared import gateway  # noqa: E402
-from src import session_ops  # noqa: E402
+from src import cli, session_ops  # noqa: E402
 from src.cli import app  # noqa: E402
 
 
@@ -47,6 +48,9 @@ def test_finding8_terminal_commands_print_the_routes_answer(
 
     monkeypatch.setattr(session_ops, "resolve_target_or_current", lambda target, action: SESSION_ID)
     monkeypatch.setattr(session_ops.gateway, "post_json", post)
+    # FORCE_COLOR=1 (set on every continuous integration runner) makes the shared console color
+    # what it prints. The answer is read by programs, so it must stay plain JSON even then.
+    monkeypatch.setattr(cli, "console", Console(force_terminal=True, color_system="truecolor"))
 
     result = runner.invoke(app, arguments)
 

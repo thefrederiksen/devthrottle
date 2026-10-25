@@ -3306,7 +3306,7 @@ def keys(target: str = typer.Argument(...), combo: str = typer.Argument(...)) ->
 
     Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
     """
-    console.print_json(json.dumps(terminal_keys(target, combo)))
+    print(json.dumps(terminal_keys(target, combo), indent=2))
 
 @session_app.command()
 def paste(target: str = typer.Argument(...), text: str = typer.Argument(...)) -> None:
@@ -3314,7 +3314,7 @@ def paste(target: str = typer.Argument(...), text: str = typer.Argument(...)) ->
 
     Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
     """
-    console.print_json(json.dumps(terminal_paste(target, text)))
+    print(json.dumps(terminal_paste(target, text), indent=2))
 
 @session_app.command()
 def resize(target: str = typer.Argument(...), cols: int = typer.Argument(...), rows: int = typer.Argument(...)) -> None:
@@ -3322,12 +3322,12 @@ def resize(target: str = typer.Argument(...), cols: int = typer.Argument(...), r
 
     Requires an owner credential. A session credential is refused because an agent cannot change a terminal.
     """
-    console.print_json(json.dumps(terminal_resize(target, cols, rows)))
+    print(json.dumps(terminal_resize(target, cols, rows), indent=2))
 
 @session_app.command()
 def screen(target: str = typer.Argument(...)) -> None:
     """Read the resolved terminal screen."""
-    console.print_json(json.dumps(terminal_screen(target)))
+    print(json.dumps(terminal_screen(target), indent=2))
 
 @session_app.command(name="escape")
 def session_escape(
