@@ -171,8 +171,10 @@ public sealed class TerminalWrappedUrlTests
         string copied = terminal.HarnessSelectedText;
 
         // Rows that were NOT wrapped still copy as separate lines - the wrap-join
-        // must not swallow the line break between ordinary lines.
-        Assert.Equal("one\r\ntwo", copied);
+        // must not swallow the line break between ordinary lines. The break is the
+        // platform's own, because the copy goes to this platform's clipboard: CR LF
+        // on Windows, LF on macOS and Linux.
+        Assert.Equal("one" + Environment.NewLine + "two", copied);
     }
 
     [AvaloniaFact]

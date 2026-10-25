@@ -36,11 +36,9 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_GuiApp_UsesShellExecute()
     {
-        if (!OperatingSystem.IsWindows()) return; // Windows parentage recipe; macOS spawns directly
-
         var request = new LaunchRequest { Path = _tempExe };
 
-        var psi = _svc.BuildStartInfo(request);
+        var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.Windows);
 
         Assert.True(psi.UseShellExecute, "GUI app must use UseShellExecute=true for clean parentage");
         Assert.Equal(_tempExe, psi.FileName);
@@ -80,11 +78,9 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_CmdFile_RoutedThroughCmdExe()
     {
-        if (!OperatingSystem.IsWindows()) return; // batch files are refused on macOS (see below)
-
         var request = new LaunchRequest { Path = _tempBat };
 
-        var psi = _svc.BuildStartInfo(request);
+        var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.Windows);
 
         Assert.Equal("cmd.exe", psi.FileName);
         Assert.Contains(_tempBat, psi.Arguments);
@@ -95,11 +91,9 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_CmdFile_ArgsAppendedCorrectly()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var request = new LaunchRequest { Path = _tempBat, Args = "arg1 arg2" };
 
-        var psi = _svc.BuildStartInfo(request);
+        var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.Windows);
 
         Assert.Contains("arg1 arg2", psi.Arguments);
     }
@@ -107,16 +101,20 @@ public sealed class LaunchServiceTests : IDisposable
     // -------------------------------------------------------------------------
     // macOS branch: bundles via /usr/bin/open, shell scripts via /bin/bash,
     // plain executables spawned directly, batch files refused.
+    //
+    // Every platform-specific test names its platform through BuildStartInfoFor
+    // rather than reading the machine's, so each one runs - and means the same
+    // thing - on Windows, macOS and Linux alike. They used to return early on the
+    // "wrong" host, which read as a pass, and on Linux they took the Linux arm
+    // and failed against macOS expectations.
     // -------------------------------------------------------------------------
 
     [Fact]
     public void BuildStartInfo_Mac_PlainExecutable_SpawnsDirectly()
     {
-        if (OperatingSystem.IsWindows()) return;
-
         var request = new LaunchRequest { Path = _tempExe, Args = "--foo bar" };
 
-        var psi = _svc.BuildStartInfo(request);
+        var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.MacOs);
 
         Assert.Equal(_tempExe, psi.FileName);
         Assert.False(psi.UseShellExecute, "macOS plain executables must spawn directly");
@@ -126,15 +124,13 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_Mac_AppBundle_RoutedThroughOpen()
     {
-        if (OperatingSystem.IsWindows()) return;
-
         var bundle = Path.Combine(Path.GetTempPath(), $"test-launcher-{Guid.NewGuid():N}.app");
         Directory.CreateDirectory(bundle);
         try
         {
             var request = new LaunchRequest { Path = bundle, Args = "--managed \"two words\"" };
 
-            var psi = _svc.BuildStartInfo(request);
+            var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.MacOs);
 
             Assert.Equal("/usr/bin/open", psi.FileName);
             Assert.Equal(bundle, psi.ArgumentList[0]);
@@ -151,15 +147,13 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_Mac_ShellScript_RoutedThroughBash()
     {
-        if (OperatingSystem.IsWindows()) return;
-
         var script = Path.Combine(Path.GetTempPath(), $"test-launcher-{Guid.NewGuid():N}.sh");
         File.WriteAllText(script, "#!/bin/bash\n");
         try
         {
             var request = new LaunchRequest { Path = script, Args = "one two" };
 
-            var psi = _svc.BuildStartInfo(request);
+            var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.MacOs);
 
             Assert.Equal("/bin/bash", psi.FileName);
             Assert.Equal(script, psi.ArgumentList[0]);
@@ -175,11 +169,9 @@ public sealed class LaunchServiceTests : IDisposable
     [Fact]
     public void BuildStartInfo_Mac_BatchFile_Throws()
     {
-        if (OperatingSystem.IsWindows()) return;
-
         var request = new LaunchRequest { Path = _tempBat };
 
-        Assert.Throws<NotSupportedException>(() => _svc.BuildStartInfo(request));
+        Assert.Throws<NotSupportedException>(() => _svc.BuildStartInfoFor(request, LaunchPlatform.MacOs));
     }
 
     // -------------------------------------------------------------------------
@@ -211,7 +203,7 @@ public sealed class LaunchServiceTests : IDisposable
     {
         var request = new LaunchRequest { Path = _tempExe, Args = "--foo bar" };
 
-        var psi = _svc.BuildStartInfo(request);
+        var psi = _svc.BuildStartInfoFor(request, LaunchPlatform.Windows);
 
         Assert.Equal("--foo bar", psi.Arguments);
     }

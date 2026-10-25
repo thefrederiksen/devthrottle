@@ -31,17 +31,23 @@ public sealed class CcWorktreesPoolSlotsTests : IDisposable
 
     // ---- the layout signal: works with no records at all --------------------------------------
 
+    // The paths are written with "/" and rooted on this platform, because "D:\Repos\..." is a path only
+    // on Windows: on macOS and Linux a backslash is an ordinary character, so that whole string is ONE
+    // file name and has no parent to be a <name>.worktrees folder. The pool creates its slots with the
+    // platform's own separators, and that is the shape this pins.
     [Theory]
-    [InlineData(@"D:\Repos\devthrottle.worktrees\wt01", true)]
-    [InlineData(@"D:\Repos\devthrottle.worktrees\wt02", true)]
-    [InlineData(@"D:\Repos\devthrottle.worktrees\wt123", true)]
-    [InlineData(@"D:\Repos\devthrottle.worktrees\wt1", false)]      // the tool writes at least two digits
-    [InlineData(@"D:\Repos\devthrottle.worktrees\scratch", false)]  // not a slot name
-    [InlineData(@"D:\Repos\devthrottle-wt01", false)]               // a hand-made worktree beside the repo
-    [InlineData(@"D:\Repos\worktrees\wt01", false)]                 // no <name>.worktrees parent
-    [InlineData(@"D:\Repos\devthrottle", false)]
-    public void HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(string path, bool expected)
+    [InlineData("Repos/devthrottle.worktrees/wt01", true)]
+    [InlineData("Repos/devthrottle.worktrees/wt02", true)]
+    [InlineData("Repos/devthrottle.worktrees/wt123", true)]
+    [InlineData("Repos/devthrottle.worktrees/wt1", false)]      // the tool writes at least two digits
+    [InlineData("Repos/devthrottle.worktrees/scratch", false)]  // not a slot name
+    [InlineData("Repos/devthrottle-wt01", false)]               // a hand-made worktree beside the repo
+    [InlineData("Repos/worktrees/wt01", false)]                 // no <name>.worktrees parent
+    [InlineData("Repos/devthrottle", false)]
+    public void HasSlotLayout_RecognisesOnlyTheShapeThePoolCreates(string relativePath, bool expected)
     {
+        var path = Path.Combine(Path.GetPathRoot(_root)!, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
         Assert.Equal(expected, CcWorktreesPoolSlots.HasSlotLayout(path));
     }
 

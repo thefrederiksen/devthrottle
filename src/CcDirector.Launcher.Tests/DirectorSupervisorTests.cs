@@ -10,6 +10,13 @@ namespace CcDirector.Launcher.Tests;
 /// </summary>
 public sealed class DirectorSupervisorTests
 {
+    /// <summary>
+    /// An absolute root on whatever platform runs the test. "C:\FakeRoot" is absolute only on Windows -
+    /// on macOS and Linux it is a relative file name, which InstallLayout rightly refuses. Nothing is
+    /// read or written under it.
+    /// </summary>
+    private static readonly string FakeRoot = Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, "FakeRoot");
+
     // -------------------------------------------------------------------------
     // AC2a: Exe path resolves via InstallLayout (no hardcoding).
     // -------------------------------------------------------------------------
@@ -17,7 +24,7 @@ public sealed class DirectorSupervisorTests
     [Fact]
     public void DirectorExePath_ResolvesThroughInstallLayout()
     {
-        var layout = new InstallLayout(@"C:\FakeRoot");
+        var layout = new InstallLayout(FakeRoot);
         var supervisor = new DirectorSupervisor(layout);
 
         var expected = layout.PathFor(ComponentRegistry.Director);
@@ -27,7 +34,7 @@ public sealed class DirectorSupervisorTests
     [Fact]
     public void DirectorExePath_IncludesAppSubdirectory()
     {
-        var layout = new InstallLayout(@"C:\FakeRoot");
+        var layout = new InstallLayout(FakeRoot);
         var supervisor = new DirectorSupervisor(layout);
 
         if (OperatingSystem.IsWindows())
@@ -35,10 +42,16 @@ public sealed class DirectorSupervisorTests
             Assert.Contains("app", supervisor.DirectorExePath, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("cc-director", supervisor.DirectorExePath, StringComparison.OrdinalIgnoreCase);
         }
-        else
+        else if (OperatingSystem.IsMacOS())
         {
             // macOS: the installed Director is the application bundle in ~/Applications.
             Assert.EndsWith("Director.app", supervisor.DirectorExePath, StringComparison.Ordinal);
+        }
+        else
+        {
+            // Linux: one self-contained executable in the install root's app directory. This branch
+            // used to be folded into the macOS one, which is not where a Linux install puts it.
+            Assert.Equal(Path.Combine(FakeRoot, "app", "cc-director"), supervisor.DirectorExePath);
         }
     }
 
