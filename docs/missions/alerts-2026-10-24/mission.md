@@ -118,7 +118,7 @@ per-user read and archive state.
 
 | Field | Meaning |
 |---|---|
-| `id` | Stable and globally unique: `"{kind}:{sourceId}"`, e.g. `restart:3f9c...`. |
+| `id` | Stable and globally unique: `"{kind}:{sourceId}"`, e.g. `restart-request:3f9c...` (the full kind word). |
 | `kind` | `restart-request` \| `secret-transfer` \| `message-request`. A closed set the client switches on. |
 | `needsAnswer` | true while the owner can still act (pending / waiting / `canAccept`). This alone drives the red count. |
 | `title` | ONE line, written for the owner, under ~60 characters: "Restart the Director on mac-mini?" |
