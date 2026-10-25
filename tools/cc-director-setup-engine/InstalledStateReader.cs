@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
@@ -14,6 +16,7 @@ public sealed class InstalledStateReader
     private readonly Func<string, bool> _aliasFileExists;
     private readonly Func<string, string?> _readVersion;
     private readonly InstalledManifest _installed;
+    private readonly OSPlatform _platform;
 
     public InstalledStateReader(
         InstallLayout layout,
@@ -21,11 +24,30 @@ public sealed class InstalledStateReader
         Func<string, bool>? aliasFileExists = null,
         Func<string, string?>? readVersion = null,
         InstalledManifest? installed = null)
+        : this(layout, HostPlatform.Current, ProcessRunner.Run, fileExists, aliasFileExists, readVersion, installed)
     {
+    }
+
+    /// <summary>
+    /// Read as <paramref name="platform"/> lays a machine out, and start the version read's process through
+    /// <paramref name="run"/> - so a test can read a macOS bundle on any machine, answering as plutil does, without
+    /// starting a real program. The public constructor is this one with the host's platform and real processes.
+    /// </summary>
+    internal InstalledStateReader(
+        InstallLayout layout,
+        OSPlatform platform,
+        RunProcess run,
+        Func<string, bool>? fileExists = null,
+        Func<string, bool>? aliasFileExists = null,
+        Func<string, string?>? readVersion = null,
+        InstalledManifest? installed = null)
+    {
+        ArgumentNullException.ThrowIfNull(run);
         _layout = layout ?? throw new ArgumentNullException(nameof(layout));
+        _platform = platform;
         _fileExists = fileExists ?? DefaultExists;
         _aliasFileExists = aliasFileExists ?? DefaultAliasExists;
-        _readVersion = readVersion ?? DefaultReadVersion;
+        _readVersion = readVersion ?? (path => ReadVersionFromDisk(path, platform, run));
         _installed = installed ?? InstalledManifest.Load(layout);
     }
 
@@ -49,7 +71,7 @@ public sealed class InstalledStateReader
     public InstalledComponent Read(Component component)
     {
         ArgumentNullException.ThrowIfNull(component);
-        var path = _layout.PathFor(component);
+        var path = _layout.PathFor(component, _platform);
 
         // Presence accepts a pre-rename alias (issue #1821): an existing Gateway host whose exe is the
         // legacy cc-director-gateway.exe must still read as present, or the update misclassifies it as a
@@ -57,7 +79,7 @@ public sealed class InstalledStateReader
         // version is read from whichever file is actually on disk.
         var onDisk = _fileExists(path)
             ? path
-            : _layout.LegacyAliasesFor(component).FirstOrDefault(_aliasFileExists);
+            : _layout.LegacyAliasesFor(component, _platform).FirstOrDefault(_aliasFileExists);
         if (onDisk is null)
             return new InstalledComponent(component.Id, Present: false, Version: null, Path: path);
 
@@ -104,7 +126,6 @@ public sealed class InstalledStateReader
     /// carries neither, so it reads as null ("present but version unknown", which the
     /// planner answers by re-applying the release so the version gets recorded).
     /// </summary>
-    private static string? DefaultReadVersion(string path) => ReadVersionFromDisk(path);
 
     /// <summary>
     /// The version a build on disk declares about ITSELF, for any path - not only a component's
@@ -112,9 +133,12 @@ public sealed class InstalledStateReader
     /// no manifest entry to be looked up in, and the file's own stamp is then the only thing that can
     /// say what it is (the staged launcher <see cref="LauncherUpdateOwner"/> is about to install).
     /// </summary>
-    public static string? ReadVersionFromDisk(string path)
+    public static string? ReadVersionFromDisk(string path) => ReadVersionFromDisk(path, HostPlatform.Current, ProcessRunner.Run);
+
+    /// <summary>The version read for a stated platform, with plutil started through <paramref name="run"/>.</summary>
+    internal static string? ReadVersionFromDisk(string path, OSPlatform platform, RunProcess run)
     {
-        if (OperatingSystem.IsWindows())
+        if (platform == OSPlatform.Windows)
         {
             try
             {
@@ -130,10 +154,9 @@ public sealed class InstalledStateReader
 
         // macOS .app bundle: the version lives in Contents/Info.plist. plutil is part of macOS.
         var plist = Path.Combine(path, "Contents", "Info.plist");
-        if (!OperatingSystem.IsMacOS() || !File.Exists(plist))
+        if (platform != OSPlatform.OSX || !File.Exists(plist))
             return null;
-        var (exit, output) = ProcessRunner.Run(
-            "/usr/bin/plutil", $"-extract CFBundleShortVersionString raw \"{plist}\"");
+        var (exit, output) = run(PlutilPath, PlutilArguments(plist), null, ProcessRunner.DefaultTimeout);
         if (exit != 0 || string.IsNullOrWhiteSpace(output))
         {
             EngineLog.Write($"[InstalledStateReader] bundle version read FAILED for {plist} (plutil exit {exit})");
@@ -141,4 +164,10 @@ public sealed class InstalledStateReader
         }
         return output.Trim();
     }
+
+    /// <summary>The macOS program that reads a property list.</summary>
+    internal const string PlutilPath = "/usr/bin/plutil";
+
+    /// <summary>The arguments that print a bundle's version from <paramref name="plist"/>, raw.</summary>
+    internal static string PlutilArguments(string plist) => $"-extract CFBundleShortVersionString raw \"{plist}\"";
 }

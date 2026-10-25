@@ -373,13 +373,17 @@ public sealed class InstallLayout
     /// and the macOS Director bundle ("CC Director.app" -> "Director.app"). The CURRENT name stays
     /// canonical/target - these are read-only aliases for detection, never a place we write to.
     /// </summary>
-    public IReadOnlyList<string> LegacyAliasesFor(Component component)
+    public IReadOnlyList<string> LegacyAliasesFor(Component component) => LegacyAliasesFor(component, HostPlatform.Current);
+
+    /// <summary>The same list for a stated platform, so every branch can be asserted from any machine - the way
+    /// <see cref="PathFor(Component, OSPlatform)"/> is.</summary>
+    public IReadOnlyList<string> LegacyAliasesFor(Component component, OSPlatform platform)
     {
         ArgumentNullException.ThrowIfNull(component);
 
         if (component.Kind == ComponentKind.Gateway)
         {
-            var legacyName = OperatingSystem.IsWindows() ? "cc-director-gateway.exe" : "cc-director-gateway";
+            var legacyName = platform == OSPlatform.Windows ? "cc-director-gateway.exe" : "cc-director-gateway";
             return new[] { Path.Combine(GatewayDir, legacyName) };
         }
 
@@ -399,7 +403,7 @@ public sealed class InstallLayout
         // that let a unit test delete a developer's installed application. A stray copy in /Applications
         // is handled by MacBundlePurger instead, which deletes a bundle only after reading its
         // CFBundleIdentifier and finding the product's own.
-        if (component.Kind == ComponentKind.Director && OperatingSystem.IsMacOS())
+        if (component.Kind == ComponentKind.Director && platform == OSPlatform.OSX)
         {
             return new[] { Path.Combine(MacUserAppsDir, "Director.app"), Path.Combine(MacUserAppsDir, "CC Director.app") }
                 .Where(p => !string.Equals(p, PathFor(component, OSPlatform.OSX), StringComparison.Ordinal))
