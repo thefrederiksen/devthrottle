@@ -147,8 +147,10 @@ public static class LinkDetector
                     // An absolute POSIX path in quotes is held to the same rule as one outside quotes (4b): a link
                     // only when it exists, if existence can be checked. Otherwise every quoted '/items' or "/api"
                     // in code on a Mac or Linux screen was underlined as a file that is not there.
+                    // Resolved with no repository, as step 4b does: the path is absolute, and on Windows a
+                    // repository would turn "/tmp/x" into a drive path.
                     else if (posixPaths && path.StartsWith('/') && pathExistsCheck != null
-                             && !pathExistsCheck(ResolvePath(path, repoPath)))
+                             && !pathExistsCheck(ResolvePath(path, null)))
                     {
                         continue;
                     }
