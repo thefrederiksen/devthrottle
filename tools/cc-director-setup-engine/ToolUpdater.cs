@@ -11,10 +11,19 @@ namespace CcDirector.Setup.Engine;
 public sealed class ToolUpdater
 {
     private readonly InstallLayout _layout;
+    private readonly RunProcess _run;
 
     public ToolUpdater(InstallLayout? layout = null)
+        : this(layout, ProcessRunner.Run)
+    {
+    }
+
+    /// <summary>Start every process the Python tools install runs through <paramref name="run"/>, so a test drives a
+    /// refresh without starting a real program - the seam <see cref="PythonToolsInstaller"/> already has.</summary>
+    internal ToolUpdater(InstallLayout? layout, RunProcess run)
     {
         _layout = layout ?? InstallLayout.Default();
+        _run = run ?? throw new ArgumentNullException(nameof(run));
     }
 
     /// <summary>Resolve the latest GitHub release and refresh installed tools that are behind it.</summary>
@@ -128,7 +137,7 @@ public sealed class ToolUpdater
 
         var reason = versionBehind ? $"{installedVer ?? "none"} -> {toolsAsset.Version}" : $"self-heal unhealthy venv ({installedVer})";
         EngineLog.Write($"[ToolUpdater] refreshing Python tools bundle: {reason}");
-        var installer = new PythonToolsInstaller(_layout);
+        var installer = new PythonToolsInstaller(_layout, _run);
         // Check BEFORE downloading: a held update is retried every few minutes (issue #3987), and fetching
         // the ~90 MB bundle each time only to find the tools still in use would be pure waste. The installer
         // checks again itself, because a tool can start in between. The check renames the live trees, so it
@@ -169,7 +178,7 @@ public sealed class ToolUpdater
         EngineLog.Write("[ToolUpdater] on-demand Python tools repair requested");
         var source = new ReleaseSource();
         var release = await source.FetchLatestAsync(ct);
-        var result = await new PythonToolsInstaller(_layout).InstallAsync(release, source, progress, percent, ct);
+        var result = await new PythonToolsInstaller(_layout, _run).InstallAsync(release, source, progress, percent, ct);
         EngineLog.Write($"[ToolUpdater] Python tools repair: success={result.Success}, held={result.HeldBecauseInUse}, count={result.ToolCount}");
         return result;
     }

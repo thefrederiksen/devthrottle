@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -16,8 +15,12 @@ namespace CcDirector.Setup.Engine.Tests;
 ///
 /// The open file here is a FileStream with FileShare.None standing in for the running tool - the same thing
 /// Windows sees, and the same refusal of a directory rename.
+///
+/// ON MACOS AND LINUX THE SAME TESTS CHECK THE OTHER SIDE. There an open file blocks neither a rename nor a
+/// replacement - a running tool keeps reading the files it opened - so the product does not hold, by design
+/// (<see cref="PythonToolsInstaller.ToolTreesAreFree"/>). Each in-use test asserts that: the update goes through, and
+/// the running tool's open file still reads what it read before.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class PythonToolsInUseTests : IDisposable
 {
     private const string PreviousVersion = "1.0.0";
@@ -41,16 +44,29 @@ public sealed class PythonToolsInUseTests : IDisposable
 
     private string PythonSentinel => Path.Combine(_layout.PythonDir, "PREVIOUS-PYTHON.txt");
     private string PreviousConsoleScript => PythonToolsInstaller.ConsoleScriptPath(_layout, Tool);
-    private string Shim => Path.Combine(_layout.BinDir, Tool + ".cmd");
+    private string Shim => PlatformBundle.ShimPath(_layout, Tool);
+
+    /// <summary>Whether an open file stops a tools tree being replaced - Windows only (see the class summary).</summary>
+    private static bool OpenFilesHoldTheUpdate => OperatingSystem.IsWindows();
+
+    /// <summary>On macOS and Linux: the update went through, and the running tool's open file still reads as before.</summary>
+    private static void AssertTheUpdateWentThroughUnderTheRunningTool(PythonToolsResult result, FileStream runningTool, string before)
+    {
+        Assert.True(result.Success, result.Message);
+        Assert.False(result.HeldBecauseInUse, result.Message);
+        runningTool.Position = 0;
+        Assert.Equal(before, new StreamReader(runningTool, leaveOpen: true).ReadToEnd());
+    }
 
     /// <summary>A machine with a working previous install: base Python, a venv with the tool, its shim, its version.</summary>
     private void GiveTheMachineWorkingTools()
     {
-        Directory.CreateDirectory(_layout.PythonDir);
-        File.WriteAllText(Path.Combine(_layout.PythonDir, "python.exe"), "previous interpreter");
+        var interpreter = Path.Combine(_layout.PythonDir, PlatformBundle.InterpreterInAsset);
+        Directory.CreateDirectory(Path.GetDirectoryName(interpreter)!);
+        File.WriteAllText(interpreter, "previous interpreter");
         File.WriteAllText(PythonSentinel, "previous");
         Directory.CreateDirectory(_layout.PyenvBinDir);
-        File.WriteAllText(Path.Combine(_layout.PyenvBinDir, "python.exe"), "previous venv interpreter");
+        File.WriteAllText(Path.Combine(_layout.PyenvBinDir, PlatformBundle.VenvPythonName), "previous venv interpreter");
         File.WriteAllText(PreviousConsoleScript, "previous console script");
         new PythonToolsInstaller(_layout).WriteShims(new[] { Tool });
         var im = InstalledManifest.Load(_layout);
@@ -75,9 +91,14 @@ public sealed class PythonToolsInUseTests : IDisposable
         var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true));
 
         PythonToolsResult result;
-        using (new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var runningTool = new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+            if (!OpenFilesHoldTheUpdate)
+            {
+                AssertTheUpdateWentThroughUnderTheRunningTool(result, runningTool, "previous console script");
+                return;
+            }
         }
 
         Assert.False(result.Success);
@@ -96,9 +117,14 @@ public sealed class PythonToolsInUseTests : IDisposable
         var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true));
 
         PythonToolsResult result;
-        using (new FileStream(PythonSentinel, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var runningTool = new FileStream(PythonSentinel, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+            if (!OpenFilesHoldTheUpdate)
+            {
+                AssertTheUpdateWentThroughUnderTheRunningTool(result, runningTool, "previous");
+                return;
+            }
         }
 
         Assert.True(result.HeldBecauseInUse, result.Message);
@@ -169,8 +195,10 @@ public sealed class PythonToolsInUseTests : IDisposable
         // it was built in, which no longer exists.
         var installed = File.ReadAllText(PreviousConsoleScript);
         Assert.EndsWith("new console script", installed);
-        Assert.StartsWith("#!" + Path.Combine(_layout.PyenvBinDir, "python.exe") + "\n", installed);
-        Assert.Contains("home = " + _layout.PythonDir + "\r\n", File.ReadAllText(Path.Combine(_layout.PyenvDir, "pyvenv.cfg")));
+        Assert.StartsWith("#!" + Path.Combine(_layout.PyenvBinDir, PlatformBundle.VenvPythonName) + "\n", installed);
+        // A venv's home is the folder its interpreter is in: the Python root on Windows, its bin folder elsewhere.
+        var home = Path.GetDirectoryName(Path.Combine(_layout.PythonDir, PlatformBundle.InterpreterInAsset))!;
+        Assert.Contains("home = " + home + "\r\n", File.ReadAllText(Path.Combine(_layout.PyenvDir, "pyvenv.cfg")));
         Assert.True(File.Exists(Shim));
         Assert.False(File.Exists(PythonSentinel), "the previous Python was not replaced");
         Assert.Equal(NewVersion, InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId));
@@ -191,7 +219,16 @@ public sealed class PythonToolsInUseTests : IDisposable
             onStagedPythonProbe: () => lateTool = new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None)));
 
         PythonToolsResult result;
-        try { result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource()); }
+        try
+        {
+            result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+            if (!OpenFilesHoldTheUpdate)
+            {
+                Assert.NotNull(lateTool);
+                AssertTheUpdateWentThroughUnderTheRunningTool(result, lateTool!, "previous console script");
+                return;
+            }
+        }
         finally { lateTool?.Dispose(); }
 
         Assert.True(result.HeldBecauseInUse, result.Message);
@@ -210,7 +247,16 @@ public sealed class PythonToolsInUseTests : IDisposable
             onStagedPythonProbe: () => lateTool = new FileStream(PythonSentinel, FileMode.Open, FileAccess.Read, FileShare.None)));
 
         PythonToolsResult result;
-        try { result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource()); }
+        try
+        {
+            result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+            if (!OpenFilesHoldTheUpdate)
+            {
+                Assert.NotNull(lateTool);
+                AssertTheUpdateWentThroughUnderTheRunningTool(result, lateTool!, "previous");
+                return;
+            }
+        }
         finally { lateTool?.Dispose(); }
 
         Assert.True(result.HeldBecauseInUse, result.Message);
@@ -259,9 +305,15 @@ public sealed class PythonToolsInUseTests : IDisposable
         var release = StageRelease(NewVersion, Tool);
 
         PythonToolsResult? result;
-        using (new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var runningTool = new FileStream(PreviousConsoleScript, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            result = await new ToolUpdater(_layout).RefreshPythonToolsAsync(release, new ReleaseSource());
+            result = await new ToolUpdater(_layout, Runner(new List<string>(), pipSucceeds: true)).RefreshPythonToolsAsync(release, new ReleaseSource());
+            if (!OpenFilesHoldTheUpdate)
+            {
+                Assert.NotNull(result);
+                AssertTheUpdateWentThroughUnderTheRunningTool(result!, runningTool, "previous console script");
+                return;
+            }
         }
 
         Assert.NotNull(result);
@@ -325,6 +377,7 @@ public sealed class PythonToolsInUseTests : IDisposable
         Action? onPip = null) =>
         (exe, arguments, _, _) =>
     {
+        if (PlatformBundle.TryUnpack(exe, arguments, out var unpacked)) return unpacked;
         runs.Add(arguments);
         if (arguments == PythonRuntimeProbe.ProbeArguments)
         {
@@ -337,9 +390,9 @@ public sealed class PythonToolsInUseTests : IDisposable
         {
             // The venv is made wherever the installer says, the way `python -m venv <folder>` does.
             var venv = arguments["-m venv ".Length..].Trim('"');
-            var scripts = Path.Combine(venv, "Scripts");
+            var scripts = PlatformBundle.VenvScriptsDir(venv);
             Directory.CreateDirectory(scripts);
-            File.WriteAllText(Path.Combine(scripts, "python.exe"), "new venv interpreter");
+            File.WriteAllText(Path.Combine(scripts, PlatformBundle.VenvPythonName), "new venv interpreter");
             File.WriteAllText(Path.Combine(venv, "pyvenv.cfg"), $"home = {Path.GetDirectoryName(exe)}\r\n");
             return (0, "");
         }
@@ -350,13 +403,13 @@ public sealed class PythonToolsInUseTests : IDisposable
             if (!pipSucceeds) return (1, "pip refused by the test runner");
             // pip writes each console script beside the interpreter that ran it, naming that interpreter on its
             // first line - the absolute path a real venv bakes in.
-            File.WriteAllText(Path.Combine(Path.GetDirectoryName(exe)!, Tool + ".exe"), $"#!{exe}\nnew console script");
+            File.WriteAllText(PlatformBundle.ConsoleScriptIn(Path.GetDirectoryName(exe)!, Tool), $"#!{exe}\nnew console script");
             return (0, "");
         }
         throw new InvalidOperationException($"unexpected run of {exe} {arguments}");
     };
 
-    /// <summary>A local release whose two assets are real, SHA-matching zips with a placeholder interpreter.</summary>
+    /// <summary>A local release whose two assets are real, SHA-matching archives (this system's format) with a placeholder interpreter.</summary>
     private ResolvedRelease StageRelease(string version, params string[] scripts)
     {
         var releaseDir = Path.Combine(_dir, "release-" + Guid.NewGuid().ToString("N"));
@@ -364,10 +417,11 @@ public sealed class PythonToolsInUseTests : IDisposable
         var work = Path.Combine(_dir, "work-" + Guid.NewGuid().ToString("N"));
 
         var pyStage = Path.Combine(work, "py");
-        Directory.CreateDirectory(pyStage);
-        File.WriteAllText(Path.Combine(pyStage, "python.exe"), "new interpreter");
+        var stagedInterpreter = Path.Combine(pyStage, PlatformBundle.InterpreterInAsset);
+        Directory.CreateDirectory(Path.GetDirectoryName(stagedInterpreter)!);
+        File.WriteAllText(stagedInterpreter, "new interpreter");
         var pyZip = Path.Combine(releaseDir, PythonToolsInstaller.PythonAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(pyStage, pyZip);
+        PlatformBundle.Pack(pyStage, pyZip);
 
         var toolsStage = Path.Combine(work, "tools");
         Directory.CreateDirectory(Path.Combine(toolsStage, "wheelhouse"));
@@ -375,13 +429,10 @@ public sealed class PythonToolsInUseTests : IDisposable
         File.WriteAllText(Path.Combine(toolsStage, "tools-manifest.json"),
             $"{{\"bundleVersion\":\"{version}\",\"tools\":[{toolsArr}]}}");
         var toolsZip = Path.Combine(releaseDir, PythonToolsInstaller.ToolsAsset);
-        System.IO.Compression.ZipFile.CreateFromDirectory(toolsStage, toolsZip);
+        PlatformBundle.Pack(toolsStage, toolsZip);
 
-        var json =
-            "{\"version\":\"" + version + "\",\"assets\":{" +
-            "\"cc-python-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + Hashing.Sha256OfFile(pyZip) + "\",\"platform\":\"windows\",\"size\":" + new FileInfo(pyZip).Length + "}," +
-            "\"cc-tools-pyenv-win-x64.zip\":{\"version\":\"" + version + "\",\"sha256\":\"" + Hashing.Sha256OfFile(toolsZip) + "\",\"platform\":\"windows\",\"size\":" + new FileInfo(toolsZip).Length + "}" +
-            "}}";
+        var json = "{\"version\":\"" + version + "\",\"assets\":{" +
+                   PlatformBundle.AssetEntry(pyZip, version) + "," + PlatformBundle.AssetEntry(toolsZip, version) + "}}";
         File.WriteAllText(Path.Combine(releaseDir, "release-manifest.json"), json);
         return ReleaseSource.LoadLocalReleaseDir(releaseDir);
     }

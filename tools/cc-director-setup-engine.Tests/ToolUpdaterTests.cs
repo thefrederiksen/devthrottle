@@ -4,8 +4,22 @@ using Xunit;
 
 namespace CcDirector.Setup.Engine.Tests;
 
+/// <summary>
+/// The per-tool executable refresh. Those executables ship for WINDOWS only (<see cref="ComponentRegistry.ToolComponent"/>
+/// names a Windows asset and nothing else); on macOS and Linux the tools ship in the Python bundle. So where a test
+/// expects an update, it checks the Windows side there and, elsewhere, that the Windows build is never put on the
+/// machine and nothing installed is touched.
+/// </summary>
 public class ToolUpdaterTests : IDisposable
 {
+    /// <summary>On macOS and Linux: nothing was updated or failed, and the installed tool is exactly as it was.</summary>
+    private void AssertNothingWasTouched(UpdateRunResult result, string id, string content)
+    {
+        Assert.Equal(0, result.Updated);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(content, ToolContent(id));
+    }
+
     private readonly string _dir;
     private readonly string _releaseDir;
     private readonly InstallLayout _layout;
@@ -51,6 +65,14 @@ public class ToolUpdaterTests : IDisposable
 
     private string ToolContent(string id) => File.ReadAllText(Path.Combine(_layout.BinDir, $"{id}.exe"));
 
+    /// <summary>Every file anywhere under the install root named for <paramref name="id"/>, with or without an extension -
+    /// so "not added" can fail on every system, wherever a placement would have put it.</summary>
+    private IReadOnlyList<string> FilesNamedFor(string id) =>
+        Directory.Exists(_layout.LocalRoot)
+            ? Directory.EnumerateFiles(_layout.LocalRoot, id + "*", SearchOption.AllDirectories)
+                .Where(f => Path.GetFileNameWithoutExtension(f) == id || Path.GetFileName(f) == id).ToList()
+            : Array.Empty<string>();
+
     [Fact]
     public async Task Refresh_UpdatesInstalledToolThatIsBehind()
     {
@@ -59,6 +81,11 @@ public class ToolUpdaterTests : IDisposable
         InstallTool("cc-html", "2.0.0");  // current
 
         var result = await new ToolUpdater(_layout).RefreshAsync(release, new ReleaseSource());
+        if (!OperatingSystem.IsWindows())
+        {
+            AssertNothingWasTouched(result, "cc-pdf", "cc-pdf@1.0.0");
+            return;
+        }
 
         Assert.Equal(1, result.Updated);
         Assert.Equal(0, result.Failed);
@@ -75,6 +102,12 @@ public class ToolUpdaterTests : IDisposable
         // cc-word is in the release but NOT installed -> must stay absent.
 
         var result = await new ToolUpdater(_layout).RefreshAsync(release, new ReleaseSource());
+        Assert.Empty(FilesNamedFor("cc-word")); // not added, on any system
+        if (!OperatingSystem.IsWindows())
+        {
+            AssertNothingWasTouched(result, "cc-pdf", "cc-pdf@1.0.0");
+            return;
+        }
 
         Assert.Equal(1, result.Updated);
         Assert.Equal("cc-pdf@2.0.0", ToolContent("cc-pdf"));

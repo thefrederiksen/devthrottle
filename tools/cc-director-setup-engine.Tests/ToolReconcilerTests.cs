@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -14,7 +13,6 @@ namespace CcDirector.Setup.Engine.Tests;
 /// tools manifest via <see cref="CcDirector.Core.Tools.ToolCatalogService"/>; the venv console-script exe is
 /// faked on disk so detection sees a "built" tool.
 /// </summary>
-[SupportedOSPlatform("windows")]
 public sealed class ToolReconcilerTests : IDisposable
 {
     private readonly string _dir;
@@ -39,7 +37,7 @@ public sealed class ToolReconcilerTests : IDisposable
     /// <summary>Place a fake venv console-script exe for each given tool name (so it looks "built").</summary>
     private void PlaceVenvScripts(params string[] names)
     {
-        Directory.CreateDirectory(_layout.PyenvScriptsDir);
+        Directory.CreateDirectory(_layout.PyenvBinDir);
         foreach (var n in names)
             File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, n), "fake-exe");
     }
@@ -56,7 +54,18 @@ public sealed class ToolReconcilerTests : IDisposable
         manifest.Save(_layout);
     }
 
-    private string ShimPath(string name) => Path.Combine(_layout.BinDir, name + ".cmd");
+    private string ShimPath(string name) => PlatformBundle.ShimPath(_layout, name);
+
+    /// <summary>A retired name's shim exactly as the product wrote it on this system (it writes it here, itself) - the
+    /// purge removes only a shim it can prove the product wrote. Returns the shim's path.</summary>
+    private string WriteRetiredShim(string name)
+    {
+        new PythonToolsInstaller(_layout).WriteShims(new[] { name });
+        return ShimPath(name);
+    }
+
+    /// <summary>Is anything at <paramref name="path"/> - a file, or a symbolic link even when its target is gone.</summary>
+    private static bool Present(string path) => File.Exists(path) || new FileInfo(path).LinkTarget is not null;
 
     /// <summary>
     /// Place ONLY the venv interpreter (no manifest, no sidecar, no console scripts) - the residue a FAILED
@@ -66,7 +75,7 @@ public sealed class ToolReconcilerTests : IDisposable
     private void PlaceVenvInterpreter()
     {
         Directory.CreateDirectory(_layout.PyenvBinDir);
-        File.WriteAllText(Path.Combine(_layout.PyenvBinDir, "python.exe"), "fake-python");
+        File.WriteAllText(Path.Combine(_layout.PyenvBinDir, PlatformBundle.VenvPythonName), "fake-python");
     }
 
     /// <summary>
@@ -86,7 +95,7 @@ public sealed class ToolReconcilerTests : IDisposable
             Calls++;
             if (_success)
             {
-                Directory.CreateDirectory(_layout.PyenvScriptsDir);
+                Directory.CreateDirectory(_layout.PyenvBinDir);
                 File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf"), "fake-exe");
                 new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
                 var manifest = InstalledManifest.Load(_layout);
@@ -166,18 +175,15 @@ public sealed class ToolReconcilerTests : IDisposable
         // machine that already installed the bundle, so record the bundle - otherwise the state reads as a
         // truly-empty fresh install and the from-nothing provision (case d) fires instead of a pure purge.
         RecordBundleInstalled();
-        Directory.CreateDirectory(_layout.BinDir);
-        var legacy = Path.Combine(_layout.BinDir, "cc-send.cmd");
-        // The product's OWN shim body: the purge deletes a launcher only when the file proves this
-        // product wrote it, so a stub body would be kept and this test would be asserting on a purge
-        // that never happened.
-        File.WriteAllText(legacy, PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
+        // The product's OWN shim: the purge deletes a launcher only when it proves this product wrote it,
+        // so a stub would be kept and this test would be asserting on a purge that never happened.
+        var legacy = WriteRetiredShim("cc-send");
         var heavy = new FakeHeavyRepair(success: true);
 
         var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
-        Assert.False(File.Exists(legacy), "the orphaned legacy alias shim was not purged");
+        Assert.False(Present(legacy), "the orphaned legacy alias shim was not purged");
         Assert.Contains(result.Actions, a => a.Contains("legacy", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(0, heavy.Calls); // a legacy shim purge must NOT trigger the heavy rebuild
     }
@@ -213,13 +219,13 @@ public sealed class ToolReconcilerTests : IDisposable
         // Both are light fixes - the heavy release-backed rebuild must NOT be invoked.
         PlaceVenvScripts("cc-pdf", "cc-html");
         RecordExpectedScripts("cc-pdf", "cc-html"); // both present -> venv healthy
-        Directory.CreateDirectory(_layout.BinDir);
-        File.WriteAllText(Path.Combine(_layout.BinDir, "cc-spawn.cmd"), "@echo off\r\n"); // retired alias
+        var retired = WriteRetiredShim("cc-spawn"); // retired alias, as the product wrote it
         var heavy = new FakeHeavyRepair(success: true);
 
         var result = await new ToolReconciler(_layout, heavy.InvokeAsync, _mutexName).ReconcileAsync();
 
         Assert.Equal(ReconcileOutcome.Reconciled, result.Outcome);
+        Assert.False(Present(retired), "the retired alias shim was not purged");
         Assert.Equal(0, heavy.Calls); // shim-only drift never escalates to the heavy rebuild
     }
 
@@ -413,9 +419,7 @@ public sealed class ToolReconcilerTests : IDisposable
     [Fact]
     public void HasDrift_OrphanedLegacyShim_ReturnsTrue()
     {
-        Directory.CreateDirectory(_layout.BinDir);
-        File.WriteAllText(Path.Combine(_layout.BinDir, "cc-send.cmd"),
-            PythonToolsInstaller.BuildWindowsShimBody("cc-send"));
+        WriteRetiredShim("cc-send");
 
         Assert.True(new ToolReconciler(_layout).HasDrift());
     }
@@ -465,7 +469,7 @@ public sealed class ToolReconcilerTests : IDisposable
             var worker = new Thread(() =>
             {
                 CompletedOnThreadId = Environment.CurrentManagedThreadId;
-                Directory.CreateDirectory(_layout.PyenvScriptsDir);
+                Directory.CreateDirectory(_layout.PyenvBinDir);
                 File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf"), "fake-exe");
                 new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
                 var manifest = InstalledManifest.Load(_layout);

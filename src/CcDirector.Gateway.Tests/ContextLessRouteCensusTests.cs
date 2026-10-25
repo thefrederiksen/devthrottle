@@ -173,13 +173,24 @@ public sealed class ContextLessRouteCensusTests
     ///     (family "exes-slots"); additionally mapped only on Windows.
     /// On self-host both are single-owner surfaces behind the host-wide credential gate.
     /// </summary>
-    private static readonly string[] SelfHostOnlyExtras =
+    private static readonly string[] SelfHostOnlyKeyVault =
     {
-        "DELETE /exes/slots/{n}",
         "DELETE /vault/keys/{name}",
         "GET /vault/keys/{name}",
+    };
+
+    /// <summary>The developer exe slots: mapped only on Windows (GatewayEndpoints maps ExesEndpoints under
+    /// <c>OperatingSystem.IsWindows()</c>), so a self-host Gateway on macOS or Linux has none of them.</summary>
+    private static readonly string[] SelfHostOnlyExeSlots =
+    {
+        "DELETE /exes/slots/{n}",
         "POST /exes/slots/{n}/build-start",
     };
+
+    /// <summary>The self-host-only rows THIS system's Gateway maps: the key vault everywhere, the exe slots on Windows.</summary>
+    private static string[] SelfHostOnlyExtras =>
+        (OperatingSystem.IsWindows() ? SelfHostOnlyKeyVault.Concat(SelfHostOnlyExeSlots) : SelfHostOnlyKeyVault)
+        .OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
     [Fact]
     public async Task The_hosted_context_less_route_set_is_exactly_the_ruled_census()
@@ -216,6 +227,14 @@ public sealed class ContextLessRouteCensusTests
             Assert.Contains(row, actual);
             Assert.DoesNotContain(row, hostedActual);
         }
+
+        // Off Windows the exe slots are not mapped at all - on either deployment.
+        if (!OperatingSystem.IsWindows())
+            foreach (var row in SelfHostOnlyExeSlots)
+            {
+                Assert.DoesNotContain(row, actual);
+                Assert.DoesNotContain(row, hostedActual);
+            }
     }
 
     /// <summary>
