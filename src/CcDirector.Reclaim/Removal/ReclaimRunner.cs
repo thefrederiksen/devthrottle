@@ -131,6 +131,9 @@ public sealed record ReclaimRunRequest
 
     /// <summary>One rule to run, or null to run every rule that looks inside the root.</summary>
     public string? RuleId { get; init; }
+
+    /// <summary>Handed to the gate: see <see cref="RefusalGateOptions.SameVolume"/>.</summary>
+    internal Func<string, string, bool> SameVolume { get; init; } = VolumeReader.SameVolume;
 }
 
 /// <summary>
@@ -237,7 +240,8 @@ public static class ReclaimRunner
             HoldingRootPath = request.HoldingRootPath,
             ScanRootPath = request.RootPath,
             Apply = request.Apply,
-            NowUtc = request.NowUtc
+            NowUtc = request.NowUtc,
+            SameVolume = request.SameVolume
         });
 
         // The report pass: every candidate is put through the gate, in a dry run and in an apply

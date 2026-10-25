@@ -111,9 +111,9 @@ public sealed class HoldingStoreTests
         tree.File("temp/cc-director-tests/inside.txt", 100);
         var holding = new HoldingStore(tree.Folder("holding"));
 
-        // A file held by this test for the length of the check: the move of the folder around it is
-        // refused by the file system, which is exactly the shape a live folder on a real disk has.
-        using (new FileStream(Path.Combine(item, "inside.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
+        // The file system refuses the move of the folder for the length of the check, which is exactly
+        // the shape a live folder on a real disk has.
+        using (tree.KeepInPlace(Path.Combine(item, "inside.txt")))
         {
             var outcome = holding.Hold(FolderCandidate(item, 100), "devthrottle-test-scratch-folders", DateTimeOffset.UtcNow);
             Assert.False(outcome.Held);
@@ -440,11 +440,9 @@ public sealed class HoldingStoreTests
         var held = holding.Hold(FolderCandidate(item, 100), "devthrottle-test-scratch-folders", now);
         Assert.True(held.Held);
 
-        // A file inside the entry, held open by this test for the length of the call: the entry
-        // cannot be removed, so it is kept and named rather than assumed.
-        using (new FileStream(
-            Path.Combine(holding.Root, held.EntryId!, "cc-director-tests", "inside.txt"),
-            FileMode.Open, FileAccess.Read, FileShare.None))
+        // A file inside the entry the file system will not let go of for the length of the call: the
+        // entry cannot be removed, so it is kept and named rather than assumed.
+        using (tree.KeepInPlace(Path.Combine(holding.Root, held.EntryId!, "cc-director-tests", "inside.txt")))
         {
             var outcome = holding.Purge(now.AddDays(HoldingPeriodDays() + 1), apply: true);
 

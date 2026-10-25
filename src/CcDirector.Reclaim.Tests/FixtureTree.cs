@@ -17,8 +17,8 @@ namespace CcDirector.Reclaim.Tests;
 /// One of the three is a Windows fact and says so plainly. A cloud placeholder is a file whose content
 /// lives in a cloud store, marked by attributes that only Windows keeps, so the end-to-end proof of
 /// placeholder counting can only be built on Windows. Run on a platform that does not keep file
-/// attributes and <see cref="CloudPlaceholder"/> throws and names the reason, rather than building an
-/// ordinary file and letting a test pass on a tree that never held a placeholder.
+/// attributes and <see cref="TryCloudPlaceholder"/> builds nothing and says so, and the tree's own
+/// count of what it holds is what a test expects - never a constant that assumes a placeholder.
 /// </summary>
 public sealed class FixtureTree : IDisposable
 {
@@ -90,26 +90,38 @@ public sealed class FixtureTree : IDisposable
     /// Make a file that stands for one whose content lives in a cloud store: an ordinary file with the
     /// offline mark set on it, which is exactly what a scan meets on a machine with cloud storage
     /// switched on and exactly what it must count apart from the bytes on the disk.
+    ///
+    /// Only a file system that keeps the offline mark can hold one - Windows. Elsewhere the mark is
+    /// dropped as it is set, nothing is left behind, and this answers null; the tree then holds no
+    /// placeholder, and <see cref="PlaceholderFiles"/> and <see cref="PlaceholderBytes"/> say so, so a
+    /// test that takes its expected numbers from them stays exact on every platform rather than passing
+    /// on a tree that never held what it claims.
     /// </summary>
     /// <param name="relativePath">Where the file goes, below the root.</param>
     /// <param name="sizeInBytes">The size the file claims.</param>
-    /// <exception cref="PlatformNotSupportedException">This platform does not keep the offline mark.</exception>
-    public string CloudPlaceholder(string relativePath, int sizeInBytes)
+    /// <returns>The placeholder's path, or null when this platform does not keep the offline mark.</returns>
+    public string? TryCloudPlaceholder(string relativePath, int sizeInBytes)
     {
         var full = File(relativePath, sizeInBytes);
         System.IO.File.SetAttributes(full, System.IO.File.GetAttributes(full) | FileAttributes.Offline);
 
         if ((new FileInfo(full).Attributes & FileAttributes.Offline) == 0)
         {
-            throw new PlatformNotSupportedException(
-                "This fixture needs a file system that keeps the offline attribute, which is where a " +
-                "cloud placeholder is marked. This platform does not keep it, so the proof that a " +
-                "placeholder is counted apart from the bytes on the disk cannot be built here. The " +
-                "same decision is proven on every platform by EntryClassifierTests.");
+            // Left in place it would be an ordinary file the scan counts as bytes seen.
+            System.IO.File.Delete(full);
+            return null;
         }
 
+        PlaceholderFiles++;
+        PlaceholderBytes += sizeInBytes;
         return full;
     }
+
+    /// <summary>How many cloud placeholders this tree really holds.</summary>
+    public long PlaceholderFiles { get; private set; }
+
+    /// <summary>The bytes the placeholders this tree really holds claim, none of them on this disk.</summary>
+    public long PlaceholderBytes { get; private set; }
 
     /// <summary>
     /// Make a link that stands where a folder would: a junction on Windows, a symbolic link
@@ -150,6 +162,33 @@ public sealed class FixtureTree : IDisposable
         return full;
     }
 
+
+    /// <summary>
+    /// A folder of this tree spelled a way that resolves to another final form, which the final path
+    /// check must refuse. On Windows that is the short (8.3) name - see <see cref="WindowsShortPath"/>,
+    /// the spelling Windows itself hands out. Elsewhere there are no short names, and the spelling is
+    /// the folder reached through a "." segment: a path the operating system acts on as the folder,
+    /// spelled differently from the folder's final form.
+    /// </summary>
+    /// <param name="relativePath">The folder, below the root.</param>
+    public string NonCanonicalSpelling(string relativePath)
+    {
+        if (OperatingSystem.IsWindows()) return WindowsShortPath(relativePath);
+
+        var full = Path.Combine(Root, relativePath);
+        if (!Directory.Exists(full))
+            throw new InvalidOperationException($"The fixture cannot respell {full}; there is no folder there.");
+
+        var spelled = Path.Combine(Path.GetDirectoryName(full)!, ".", Path.GetFileName(full));
+        if (!Directory.Exists(spelled) || Path.GetFullPath(spelled) != full)
+        {
+            throw new InvalidOperationException(
+                $"The fixture spelled {full} as {spelled}, which is not another spelling of the same folder. " +
+                "A test built on it would be proving nothing.");
+        }
+
+        return spelled;
+    }
 
     /// <summary>
     /// The Windows short (8.3) form of a folder's name in this tree: DOCUME~1 and its kin. The final
@@ -223,6 +262,65 @@ public sealed class FixtureTree : IDisposable
 
         _deniedFolders.Add(full);
         return full;
+    }
+
+    /// <summary>
+    /// Make the file system refuse to move or remove <paramref name="filePath"/>, the folder holding it,
+    /// or that folder's parent, until the returned handle is disposed - the shape a live folder on a real
+    /// disk has.
+    ///
+    /// On Windows a file held open with no sharing does it. Elsewhere an open file stops nothing: a
+    /// folder can be moved or removed with its files open, so write permission is taken from the file's
+    /// folder and from the folder above it, and the refusal is proven in force before a test relies on
+    /// it - a test that says the store keeps an item it could not move would otherwise prove nothing.
+    /// </summary>
+    /// <param name="filePath">A file inside the tree.</param>
+    public IDisposable KeepInPlace(string filePath)
+    {
+        if (!System.IO.File.Exists(filePath))
+            throw new InvalidOperationException($"The fixture cannot keep {filePath} in place; there is no file there.");
+
+        if (OperatingSystem.IsWindows())
+            return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var folder = Path.GetDirectoryName(filePath)!;
+        var parent = Path.GetDirectoryName(folder)!;
+        var readOnly = UnixFileMode.UserRead | UnixFileMode.UserExecute;
+        System.IO.File.SetUnixFileMode(folder, readOnly);
+        System.IO.File.SetUnixFileMode(parent, readOnly);
+        var kept = new WritableAgain(folder, parent);
+
+        var probe = Path.Combine(folder, ".keep-in-place-probe");
+        try
+        {
+            System.IO.File.WriteAllBytes(probe, []);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return kept;
+        }
+
+        System.IO.File.Delete(probe);
+        kept.Dispose();
+        throw new InvalidOperationException(
+            $"The fixture took write permission from {folder} and it can still be written. A test that says " +
+            "the file system refused a move would be proving nothing. This happens when the account running " +
+            "the tests can write anything on the machine.");
+    }
+
+    /// <summary>Gives write permission back to the folders <see cref="KeepInPlace"/> took it from.</summary>
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    private sealed class WritableAgain(params string[] folders) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var folder in folders)
+            {
+                System.IO.File.SetUnixFileMode(
+                    folder,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
     }
 
     /// <summary>Give back every permission taken away, remove every link, and delete the tree.</summary>

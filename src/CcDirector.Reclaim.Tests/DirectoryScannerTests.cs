@@ -70,8 +70,10 @@ public class DirectoryScannerTests
 
         var result = StandardFixture.Scan(tree);
 
-        Assert.Equal(1L, result.PlaceholderFiles);
-        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud, result.PlaceholderBytesInCloud);
+        // One on Windows; none where the offline mark is not kept, and then the proof is that the scan
+        // invents none. EntryClassifierTests prove the placeholder decision itself on every platform.
+        Assert.Equal(StandardFixture.ExpectedPlaceholderFiles(tree), result.PlaceholderFiles);
+        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud(tree), result.PlaceholderBytesInCloud);
         Assert.Equal(StandardFixture.ExpectedBytesSeen, result.BytesSeen);
         Assert.Equal(StandardFixture.ExpectedFilesSeen, result.FilesSeen);
     }

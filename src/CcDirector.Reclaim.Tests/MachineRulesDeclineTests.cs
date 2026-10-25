@@ -125,17 +125,25 @@ public class MachineRulesDeclineTests
     /// <summary>
     /// Every rule on the machine has its own identifier, because a machine matches on it: two
     /// rules sharing one would be one rule to everything that reads the answer.
+    ///
+    /// Asked of the rules this machine really runs - <see cref="CcCleanupStorage.MachineRules"/> - not of
+    /// the Windows rule set built on whatever machine runs the test. That set reads Windows volume roots
+    /// with the running platform's path rules, so built on Linux every mount point reads as the one root
+    /// "/" and its per-volume identifiers collide; production never builds it there, and a test that does
+    /// was proving something about a machine nobody runs. When a macOS or Linux rule set arrives, this
+    /// test holds it to the same rule without being touched.
     /// </summary>
     [Fact]
-    public void WindowsRuleSet_TheMachineRules_HaveDistinctIdsAndPlaces()
+    public void MachineRules_TheRulesThisMachineRuns_HaveDistinctIdsAndPlaces()
     {
-        var rules = WindowsRuleSet.ForThisMachine();
+        var rules = CcCleanupStorage.MachineRules.ForThisMachine();
 
         Assert.Equal(rules.Count, rules.Select(rule => rule.Id).Distinct().Count());
         Assert.All(rules, rule => Assert.False(string.IsNullOrWhiteSpace(rule.LooksIn)));
 
-        // The rules this phase adds, named as this machine spells them. Asserted only where the
-        // machine can be relied on to have the drive, which on this suite is Windows.
+        // The rules this phase adds, named as this machine spells them, on the one platform that has a
+        // rule set. Every other platform has none yet, and says so with an empty list - which the engine
+        // turns into a broken report, never an answer of nothing to remove (RecommendationBuilderTests).
         if (OperatingSystem.IsWindows())
         {
             Assert.Contains(rules, rule => rule.Id == "windows-component-store");
@@ -148,6 +156,10 @@ public class MachineRulesDeclineTests
                 Assert.Contains(rules, rule => rule.Id == $"windows-recycle-bin-on-{letter}");
                 Assert.Contains(rules, rule => rule.Id == $"windows-disk-cleanup-on-{letter}");
             }
+        }
+        else
+        {
+            Assert.Empty(rules);
         }
     }
 

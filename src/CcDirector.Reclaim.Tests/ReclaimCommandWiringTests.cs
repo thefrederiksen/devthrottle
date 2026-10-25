@@ -1,5 +1,6 @@
 using CcCleanupStorage;
 using CcDirector.Core.Storage;
+using CcDirector.Reclaim.Windows;
 using Xunit;
 
 namespace CcDirector.Reclaim.Tests;
@@ -37,8 +38,9 @@ public sealed class ChangesTheProcessEnvironment
 ///
 /// Each drives the same two calls the tool's entry point makes - the command line reader, then the
 /// runner - against a fixture tree. The storage root, the temporary folder and the OneDrive folder
-/// are pointed INTO the fixture by the environment variables the product already reads, so the rule
-/// set this machine really runs finds a fixture item and nothing else. The apply flag is never
+/// are pointed INTO the fixture by the environment variables the product already reads, and the command
+/// is handed the scratch folder rule over the fixture's temporary folder, so it finds a fixture item and
+/// nothing else - on every platform, including those that have no rule set of their own yet. The apply flag is never
 /// passed: both runs are dry runs, and each test proves afterwards that nothing moved.
 /// </summary>
 [Collection(ChangesTheProcessEnvironment.Name)]
@@ -47,11 +49,6 @@ public sealed class ReclaimCommandWiringTests
     [Fact]
     public void ReclaimCommand_AnItemUnderTheRealResolversConfigFolder_IsRefusedByRefusalOne()
     {
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(
-                "This test drives the Windows rule set, which is the only rule set that exists. " +
-                "It says so rather than passing on a platform where the command has no rules to run.");
-
         using var tree = new FixtureTree(nameof(ReclaimCommand_AnItemUnderTheRealResolversConfigFolder_IsRefusedByRefusalOne));
         using var environment = new EnvironmentChange();
 
@@ -68,7 +65,7 @@ public sealed class ReclaimCommandWiringTests
         environment.Set("TMP", temporary);
         environment.Set("TEMP", temporary);
 
-        var answer = RunTheCommand(tree.Root);
+        var answer = RunTheCommand(tree.Root, temporary);
 
         var json = Assert.IsType<ReclaimJson>(answer.JsonPayload);
         Assert.False(json.Apply);
@@ -86,11 +83,6 @@ public sealed class ReclaimCommandWiringTests
     [Fact]
     public void ReclaimCommand_AnItemUnderTheOneDriveFolder_IsRefusedByRefusalThree()
     {
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException(
-                "This test drives the Windows rule set, which is the only rule set that exists. " +
-                "It says so rather than passing on a platform where the command has no rules to run.");
-
         using var tree = new FixtureTree(nameof(ReclaimCommand_AnItemUnderTheOneDriveFolder_IsRefusedByRefusalThree));
         using var environment = new EnvironmentChange();
 
@@ -105,7 +97,7 @@ public sealed class ReclaimCommandWiringTests
         environment.Set("TMP", temporary);
         environment.Set("TEMP", temporary);
 
-        var answer = RunTheCommand(tree.Root);
+        var answer = RunTheCommand(tree.Root, temporary);
 
         var json = Assert.IsType<ReclaimJson>(answer.JsonPayload);
         Assert.False(json.Apply);
@@ -140,7 +132,13 @@ public sealed class ReclaimCommandWiringTests
     /// The same two calls the tool's entry point makes, in the same order. The apply flag is not
     /// among the arguments, and the request is checked to be a dry run before it is run.
     /// </summary>
-    private static Answer RunTheCommand(string folder)
+    /// <remarks>
+    /// The one rule the command is handed is the scratch folder rule over the fixture's temporary folder,
+    /// which is the rule of the Windows set that offers this item. It is handed in rather than taken from
+    /// the machine because off Windows the machine has no rule set yet - and the rule set is not what
+    /// these tests watch: the protected paths and the user's folders still come from the command itself.
+    /// </remarks>
+    private static Answer RunTheCommand(string folder, string temporaryFolder)
     {
         var holdingRootBefore = Directory.Exists(DefaultHoldingRoot(folder));
 
@@ -149,7 +147,7 @@ public sealed class ReclaimCommandWiringTests
         var request = Assert.IsType<Request>(outcome.Request);
         Assert.False(request.Apply, "this test must never run the command with the apply flag");
 
-        var answer = Runner.Run(request);
+        var answer = Runner.Run(request with { Rules = () => [new TestScratchFoldersRule(temporaryFolder)] });
 
         // A dry run creates no holding root. The command's default sits at the root of the real
         // volume, so this is also the proof that the test wrote nothing outside its own tree.

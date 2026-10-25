@@ -42,7 +42,9 @@ public sealed class DiskCleanupRule : IReclaimRule
 
         _source = source;
         _volumeRootPath = volumeRootPath;
-        _volumeWord = volumeRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // A Windows volume name for a Windows command ("C:\\" becomes "C:"), so both Windows separators
+        // are trimmed whatever platform builds the rule - the platform's own separator is "/" off Windows.
+        _volumeWord = volumeRootPath.TrimEnd('\\', '/');
     }
 
     /// <summary>The rule's name as an identifier a machine matches on.</summary>

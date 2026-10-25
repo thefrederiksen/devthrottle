@@ -187,7 +187,7 @@ public static class Runner
 
         // Only the rules that look inside the folder that was asked about. The rest are named in the
         // answer, never merely left out.
-        var selection = RuleSelection.For(MachineRules.ForThisMachine(), index.Scan.RootPath);
+        var selection = RuleSelection.For(request.Rules(), index.Scan.RootPath);
 
         var findings = selection.ToRun
             .Select(rule => RuleFold.Fold(rule, rule.Examine(context)))
@@ -228,7 +228,7 @@ public static class Runner
 
         var result = ReclaimRunner.Run(new ReclaimRunRequest
         {
-            Rules = MachineRules.ForThisMachine(),
+            Rules = request.Rules(),
             RootPath = Path.GetFullPath(folder),
             HoldingRootPath = holdingRoot,
             ProtectedPaths = CcStorage.ProtectedPaths(),

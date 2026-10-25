@@ -72,10 +72,14 @@ public sealed class DismComponentStoreAnalysis : IComponentStoreAnalysis
     /// <summary>The arguments that ask for the component store analysis report.</summary>
     public const string DefaultArguments = "/Online /Cleanup-Image /AnalyzeComponentStore";
 
+    private const string NotWindowsReason =
+        "The Windows component store analysis is a Windows command, and this machine is not running Windows.";
+
     private readonly string _executable;
     private readonly string _arguments;
     private readonly bool _requiresAdministrator;
     private readonly Func<bool>? _runningAsAdministrator;
+    private readonly Func<bool> _runningOnWindows;
     private readonly TimeSpan _timeLimit;
 
     /// <summary>
@@ -93,12 +97,18 @@ public sealed class DismComponentStoreAnalysis : IComponentStoreAnalysis
     /// null to ask the system. A test supplies its own answer; nothing else does.
     /// </param>
     /// <param name="timeLimit">How long the analysis may take before it counts as not answering.</param>
+    /// <param name="runningOnWindows">
+    /// Whether this machine is running Windows, in place of asking the operating system, or null to ask
+    /// it. A test supplies its own answer so the administrator decision below the platform check can be
+    /// proven on any machine; nothing else does.
+    /// </param>
     public DismComponentStoreAnalysis(
         string executable = DefaultExecutable,
         string arguments = DefaultArguments,
         bool requiresAdministrator = true,
         Func<bool>? runningAsAdministrator = null,
-        TimeSpan? timeLimit = null)
+        TimeSpan? timeLimit = null,
+        Func<bool>? runningOnWindows = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentException.ThrowIfNullOrWhiteSpace(arguments);
@@ -108,6 +118,7 @@ public sealed class DismComponentStoreAnalysis : IComponentStoreAnalysis
         _requiresAdministrator = requiresAdministrator;
         _runningAsAdministrator = runningAsAdministrator;
         _timeLimit = timeLimit ?? TimeSpan.FromMinutes(15);
+        _runningOnWindows = runningOnWindows ?? OperatingSystem.IsWindows;
     }
 
     /// <summary>Ask Windows how big its component store is. It reads; it changes nothing.</summary>
@@ -115,11 +126,8 @@ public sealed class DismComponentStoreAnalysis : IComponentStoreAnalysis
     {
         FileLog.Write($"[DismComponentStoreAnalysis] Ask: executable={_executable}, arguments={_arguments}");
 
-        if (!OperatingSystem.IsWindows())
-        {
-            throw new PlatformNotSupportedException(
-                "The Windows component store analysis is a Windows command, and this machine is not running Windows.");
-        }
+        if (!_runningOnWindows())
+            throw new PlatformNotSupportedException(NotWindowsReason);
 
         if (_requiresAdministrator && !RunningAsAdministrator())
         {
@@ -129,6 +137,11 @@ public sealed class DismComponentStoreAnalysis : IComponentStoreAnalysis
                 "raises itself to one: run cc-cleanup-storage from a command prompt opened with Run as " +
                 "administrator, or run Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore yourself");
         }
+
+        // The machine itself, not the answer above, decides whether a command is started: a test that
+        // says "Windows" on another platform proves the decisions above and still starts nothing.
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException(NotWindowsReason);
 
         Output output;
         try

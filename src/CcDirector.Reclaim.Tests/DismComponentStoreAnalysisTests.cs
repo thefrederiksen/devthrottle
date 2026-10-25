@@ -77,7 +77,8 @@ public class DismComponentStoreAnalysisTests
             executable: "cmd.exe",
             arguments: "/c exit 9",
             requiresAdministrator: true,
-            runningAsAdministrator: () => false);
+            runningAsAdministrator: () => false,
+            runningOnWindows: () => true);
 
         var question = analysis.Ask();
 
@@ -88,6 +89,24 @@ public class DismComponentStoreAnalysisTests
         // Exit code 9 is what the command would have ended with, and it appears nowhere: the
         // command was never started.
         Assert.DoesNotContain("9", question.ReasonNotAnswered!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Off Windows the analysis says so before anything else, and starts nothing: the component store
+    /// rule turns this into a BROKEN verdict that names the reason.
+    /// </summary>
+    [Fact]
+    public void Ask_OnAMachineThatIsNotWindows_SaysSoAndStartsNothing()
+    {
+        var analysis = new DismComponentStoreAnalysis(
+            executable: "cmd.exe",
+            arguments: "/c exit 9",
+            requiresAdministrator: false,
+            runningOnWindows: () => false);
+
+        var refusal = Assert.Throws<PlatformNotSupportedException>(() => analysis.Ask());
+
+        Assert.Contains("not running Windows", refusal.Message, StringComparison.Ordinal);
     }
 
     private static DismComponentStoreAnalysis AnalysisThrough(

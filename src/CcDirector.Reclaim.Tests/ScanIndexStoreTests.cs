@@ -27,7 +27,7 @@ public class ScanIndexStoreTests
         Assert.Equal(StandardFixture.ExpectedBytesSeen, loaded.Scan.BytesSeen);
         Assert.Equal(StandardFixture.ExpectedFilesSeen, loaded.Scan.FilesSeen);
         Assert.Equal(StandardFixture.ExpectedFoldersSeen, loaded.Scan.FoldersSeen);
-        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud, loaded.Scan.PlaceholderBytesInCloud);
+        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud(tree), loaded.Scan.PlaceholderBytesInCloud);
         Assert.Equal(scan.Links.Select(link => link.Path), loaded.Scan.Links.Select(link => link.Path));
         Assert.Equal(
             scan.RefusedFolders.Select(folder => folder.Path),

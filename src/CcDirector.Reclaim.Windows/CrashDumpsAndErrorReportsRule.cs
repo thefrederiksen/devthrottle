@@ -280,6 +280,9 @@ public sealed class CrashDumpsAndErrorReportsRule : IReclaimRule
             var dumps = new DirectoryInfo(folder)
                 .EnumerateFiles("*", SearchOption.TopDirectoryOnly)
                 .Where(file => DumpExtension.Contains(file.Extension, StringComparer.OrdinalIgnoreCase))
+                // By name, so the dumps are offered in one order on every platform and every run. The
+                // listing alone gives the file system's order: by name on Windows, by hash on Linux.
+                .OrderBy(file => file.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return new ListedDumpFolder(dumps, Unreadable: false);
         }
