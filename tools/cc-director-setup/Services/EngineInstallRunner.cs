@@ -72,9 +72,9 @@ public sealed class EngineInstallRunner
         // The engine places the Director here. The Gateway tray app + Cockpit are installed by the
         // gateway phase (MainWindow.RunGatewayTrayInstallAsync shells the CLI - per-user, no elevation),
         // NOT by this generic placer (it cannot extract the Cockpit zip or start the tray); the wizard
-        // shows them as their own "Gateway & Cockpit" card. Every cc-* Python tool ships as ONE
-        // shared-venv bundle, shown as a single row.
-        var components = ComponentRegistry.ForRole(ComponentRegistry.Apps, Role);
+        // shows them as their own "Gateway & Cockpit" card. The cc-* Python tools bundle is not placed
+        // here either - see ComponentsToPlace.
+        var components = ComponentsToPlace(Role);
 
         var items = new List<ToolDownloadItem>();
         var byId = new Dictionary<string, ToolDownloadItem>(StringComparer.OrdinalIgnoreCase);
@@ -110,6 +110,21 @@ public sealed class EngineInstallRunner
                        $"installedDirector={installedDirector}, upToDate={upToDate}");
         return new Prep(version, release, components, items, byId, installedDirector, upToDate);
     }
+
+    /// <summary>
+    /// The components this wizard hands to the generic single-file placer: every app in the role except
+    /// the shared Python tools bundle.
+    ///
+    /// The bundle is in <see cref="ComponentRegistry.Apps"/> so the setup commands can see it (#4291), but
+    /// it is a .zip installed by its own step, and the installer deliberately leaves that step to the
+    /// Director's first launch (<see cref="InstallerToolsProvisioning"/>). Passed to the placer, it came
+    /// back Skipped with "Archive asset requires extraction", and every fresh Windows install ended on
+    /// "Setup finished with problems - Tools did not install" (#4481).
+    /// </summary>
+    internal static IReadOnlyList<Component> ComponentsToPlace(InstallRole role) =>
+        ComponentRegistry.ForRole(ComponentRegistry.Apps, role)
+            .Where(c => c.Kind != ComponentKind.ToolsBundle)
+            .ToList();
 
     /// <summary>Install/refresh every in-scope component, then wire PATH + shortcut. Returns (installed, skipped).</summary>
     public async Task<(int installed, int skipped)> ApplyAsync(Prep prep, CancellationToken ct = default)
