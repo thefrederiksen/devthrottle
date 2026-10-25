@@ -825,6 +825,32 @@ public sealed class SessionWriteExecutorTests
 
     // Pin CC_DIRECTOR_ROOT into a fresh temp dir so the crash-journal folder is controlled; returns the pinned
     // root and the previous value so RestoreRoot can put it back and delete the temp tree.
+    /// <summary>
+    /// Review of pull request 4420, finding 1: a remote key reaches the actual terminal-keys
+    /// dispatcher, whose origin must identify the person at the terminal while the limit dialog shows.
+    /// </summary>
+    [Fact]
+    public async Task Finding1_TerminalKeys_UsageLimitDialog_WritesKey()
+    {
+        var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        var backend = new ExecuteActionTestBackend();
+        var session = new Session(Guid.NewGuid(), Path.GetTempPath(), Path.GetTempPath(), null, backend, SessionBackendType.ConPty);
+        session.MarkRunning();
+        sm.AdoptSession(session);
+        try
+        {
+            backend.Buffer!.Write("\u001b[2J\u001b[28;1HWhat do you want to do?\r\n  1. Stop and wait for limit to reset\r\n  Enter to confirm · Esc to cancel"u8.ToArray());
+            Assert.True(session.UsageLimitDialogMayShow());
+
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-keys", session.Id.ToString(), new TerminalKeyRequest { Key = "Down" }));
+
+            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            Assert.Equal(1, backend.TextsSent);
+        }
+        finally { sm.Dispose(); }
+    }
+
     [Theory]
     [InlineData("3")]
     [InlineData("5")]
