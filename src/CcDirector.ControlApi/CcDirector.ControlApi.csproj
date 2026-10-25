@@ -37,6 +37,8 @@
     <InternalsVisibleTo Include="CcDirector.Gateway.Tests" />
     <!-- The unlocked half of the same suite (pure tests split out of the machine-wide test lock). -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
+    <!-- The delivery qualification rig drives the same internal command dispatch as the Gateway and commits its byte-level proof. -->
+    <InternalsVisibleTo Include="CcDirector.DeliveryQualification" />
     <!-- The desktop's Gateway reads are proved in the Avalonia suite, which the default local gate RUNS.
          Gateway.UnitTests is parked (issue #2824), so a proof that lives only there is a proof nobody
          sees at commit time. -->

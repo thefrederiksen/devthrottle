@@ -75,8 +75,12 @@ public sealed class DesktopHost : IDisposable
         await paste;
     }
 
+    /// <summary>Press one terminal key through the shipped desktop control.</summary>
+    public Task KeyAsync(Key key, KeyModifiers modifiers = KeyModifiers.None) =>
+        _ui.Dispatch(() => { _terminal!.HarnessKeyDown(key, modifiers); return true; }, CancellationToken.None);
+
     /// <summary>Press Enter, as the owner does to submit.</summary>
-    public Task EnterAsync() => _ui.Dispatch(() => { _terminal!.HarnessKeyDown(Key.Enter); return true; }, CancellationToken.None);
+    public Task EnterAsync() => KeyAsync(Key.Enter);
 
     public void Dispose()
     {
