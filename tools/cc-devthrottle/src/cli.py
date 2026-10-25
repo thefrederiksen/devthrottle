@@ -3302,17 +3302,26 @@ def session_enter(
 
 @session_app.command()
 def keys(target: str = typer.Argument(...), combo: str = typer.Argument(...)) -> None:
-    """Send a named terminal key chord, for example ctrl+c or alt+f."""
+    """Send a named terminal key chord, for example ctrl+c or alt+f.
+
+    Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
+    """
     console.print_json(json.dumps(terminal_keys(target, combo)))
 
 @session_app.command()
 def paste(target: str = typer.Argument(...), text: str = typer.Argument(...)) -> None:
-    """Paste text into a session using its live terminal paste mode."""
+    """Paste text into a session using its live terminal paste mode.
+
+    Requires an owner credential. A session credential is refused because an agent cannot type into a terminal.
+    """
     console.print_json(json.dumps(terminal_paste(target, text)))
 
 @session_app.command()
 def resize(target: str = typer.Argument(...), cols: int = typer.Argument(...), rows: int = typer.Argument(...)) -> None:
-    """Resize a session terminal grid."""
+    """Resize a session terminal grid.
+
+    Requires an owner credential. A session credential is refused because an agent cannot change a terminal.
+    """
     console.print_json(json.dumps(terminal_resize(target, cols, rows)))
 
 @session_app.command()
