@@ -409,6 +409,12 @@ public sealed class SessionManager : IDisposable
         LaunchModel = s.LaunchModel,
         // API mode only (issue #4070): a terminal session's row stays exactly what it was before the field existed.
         ConnectionMode = s.ConnectionMode == SessionConnectionMode.Api ? SessionConnectionModeWords.ToWord(s.ConnectionMode) : null,
+        // The kit folder, the home flag and the mission (issue #4120): a seat reopened from its crash record is started
+        // in the same folder - where its agent finds the saved conversation - and on the same mission.
+        FactoryKitDirectory = string.IsNullOrWhiteSpace(s.FactoryKitDirectory) ? null : s.FactoryKitDirectory,
+        FactoryHome = s.FactoryHome ? true : null,
+        MissionId = s.MissionId?.ToString(),
+        MissionName = s.MissionName,
     };
 
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)

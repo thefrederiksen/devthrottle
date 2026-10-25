@@ -28,6 +28,14 @@ public sealed class CrashJournalSessionDto
     /// <summary>How the Director drove the agent: <c>api</c> (<see cref="ConnectionModes.Api"/>), or null for terminal,
     /// which is also what a journal written before the field existed says (API mode mission, issue #4070).</summary>
     public string? ConnectionMode { get; set; }
+    /// <summary>The seat's kit folder, so a reopen starts it where its saved conversation is (issue #4120).</summary>
+    public string? FactoryKitDirectory { get; set; }
+    /// <summary>True when the seat runs in its factory's home.</summary>
+    public bool? FactoryHome { get; set; }
+    /// <summary>The mission it was attached to.</summary>
+    public string? MissionId { get; set; }
+    /// <summary>The mission's name.</summary>
+    public string? MissionName { get; set; }
 }
 
 /// <summary>

@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using CcDirector.ControlApi;
 using CcDirector.ControlApi.SmartRestart;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Avalonia.SmartRestart;
@@ -119,7 +120,14 @@ public sealed class WayUpStartUpAsk
         ArgumentNullException.ThrowIfNull(owner);
 
         var ask = new WayUpStartUpAsk(
-            ct => host.CreateDirectorWayUp().FindOfferAsync(ct),
+            async ct =>
+            {
+                // A CRASHED PREDECESSOR'S SESSIONS FIRST (issue #4120): its crash journal goes on the Gateway as a
+                // restart record before the offer is looked for, so a crash found at this start-up is offered now.
+                // The recorder never throws; what it could not send is in the log and is sent again next start-up.
+                await host.CreateCrashRecorder().RecordAsync(DirectorCrashJournal.ListPendingRecoveries(), ct);
+                return await host.CreateDirectorWayUp().FindOfferAsync(ct);
+            },
             record => new WayUpOfferWindow(new WayUpOfferViewModel(record, host.CreateDirectorWayUp()))
                 .ShowForAnswerAsync(owner));
 
