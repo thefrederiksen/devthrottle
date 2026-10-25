@@ -61,7 +61,7 @@ function installGateway() {
         return json({});
       }
       if (url === "/machines/SOREN_NORTH/director/restart-requests/req-1/decline") {
-        state.alerts = state.alerts.map((a) => (a.id === "restart:req-1" ? { ...a, needsAnswer: false, status: "Declined" } : a));
+        state.alerts = state.alerts.map((a) => (a.id === "restart-request:req-1" ? { ...a, needsAnswer: false, status: "Declined" } : a));
         state.needsAnswerCount = state.alerts.filter((a) => a.needsAnswer).length;
         return json({});
       }
@@ -154,17 +154,17 @@ describe("the bell", () => {
 describe("the tray", () => {
   it("AlertsTray_Many_PutsNeedsYouAboveEarlier_NewestFirst", async () => {
     given([
-      secretAlert({ id: "secret:old", title: "Older question", updatedAtUtc: "2026-10-24T20:00:00Z" }),
-      restartAlert({ id: "restart:done", title: "Accepted restart", needsAnswer: false, status: "Accepted", updatedAtUtc: "2026-10-24T21:50:00Z" }),
-      messageAlert({ id: "message:new", title: "Newer question", updatedAtUtc: "2026-10-24T21:00:00Z" }),
-      secretAlert({ id: "secret:denied", title: "Denied transfer", needsAnswer: false, status: "Denied", updatedAtUtc: "2026-10-24T19:00:00Z" }),
+      secretAlert({ id: "secret-transfer:old", title: "Older question", updatedAtUtc: "2026-10-24T20:00:00Z" }),
+      restartAlert({ id: "restart-request:done", title: "Accepted restart", needsAnswer: false, status: "Accepted", updatedAtUtc: "2026-10-24T21:50:00Z" }),
+      messageAlert({ id: "message-request:new", title: "Newer question", updatedAtUtc: "2026-10-24T21:00:00Z" }),
+      secretAlert({ id: "secret-transfer:denied", title: "Denied transfer", needsAnswer: false, status: "Denied", updatedAtUtc: "2026-10-24T19:00:00Z" }),
     ]);
     renderBell();
     await loaded();
     const tray = await openTray();
     await within(tray).findByText("Newer question");
     const titles = within(tray).getAllByTestId("alerts-row").map((r) => r.getAttribute("data-alert-id"));
-    expect(titles).toEqual(["message:new", "secret:old", "restart:done", "secret:denied"]);
+    expect(titles).toEqual(["message-request:new", "secret-transfer:old", "restart-request:done", "secret-transfer:denied"]);
     const needs = within(tray).getByRole("region", { name: "Needs you" });
     const earlier = within(tray).getByRole("region", { name: "Earlier" });
     expect(within(needs).getAllByTestId("alerts-row")).toHaveLength(2);
@@ -185,7 +185,7 @@ describe("the tray", () => {
     await waitFor(() => expect(calls.some((c) => c.url === "/gateway/alerts/seen")).toBe(true));
     const seen = calls.filter((c) => c.url === "/gateway/alerts/seen");
     expect(seen).toHaveLength(1);
-    expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ ids: ["restart:req-1"] });
+    expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ ids: ["restart-request:req-1"] });
   });
 
   it("AlertsTray_X_ClearsThatEarlierAlert_AndReadsTheListAgain", async () => {
@@ -195,7 +195,7 @@ describe("the tray", () => {
     const tray = await openTray();
     fireEvent.click(await within(tray).findByRole("button", { name: "Clear: Move vercel-bypass to devthrottle-mac-mini?" }));
     await waitFor(() => expect(within(tray).queryByText("Move vercel-bypass to devthrottle-mac-mini?")).toBeNull());
-    expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/alerts/secret%3Atr-1/clear", method: "POST" }));
+    expect(calls).toContainEqual(expect.objectContaining({ url: "/gateway/alerts/secret-transfer%3Atr-1/clear", method: "POST" }));
     expect(within(tray).getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy();
   });
 
@@ -313,7 +313,7 @@ describe("an opened alert", () => {
 
   it("AlertsBell_DeepLink_OpensTheTrayOnThatAlert", async () => {
     given([restartAlert({ seen: true }), secretAlert({ seen: true })]);
-    renderBell({ openAlertId: "secret:tr-1" });
+    renderBell({ openAlertId: "secret-transfer:tr-1" });
     const detail = await screen.findByTestId("alert-detail");
     expect(within(detail).getByText("Move vercel-bypass to devthrottle-mac-mini?")).toBeTruthy();
   });
@@ -394,10 +394,10 @@ describe("keyboard and focus", () => {
 describe("waitingFrom", () => {
   it("lists only the alerts that need an answer and were asked by that session, by kind if asked", async () => {
     given([
-      secretAlert({ id: "secret:a" }, { askedBySessionId: "AAAAAAAA-1111-2222-3333-444444444444" }),
-      secretAlert({ id: "secret:b", needsAnswer: false }, { askedBySessionId: "aaaaaaaa-1111-2222-3333-444444444444" }),
-      messageAlert({ id: "message:c" }, { requesterSessionId: "aaaaaaaa-1111-2222-3333-444444444444" }),
-      restartAlert({ id: "restart:d" }),
+      secretAlert({ id: "secret-transfer:a" }, { askedBySessionId: "AAAAAAAA-1111-2222-3333-444444444444" }),
+      secretAlert({ id: "secret-transfer:b", needsAnswer: false }, { askedBySessionId: "aaaaaaaa-1111-2222-3333-444444444444" }),
+      messageAlert({ id: "message-request:c" }, { requesterSessionId: "aaaaaaaa-1111-2222-3333-444444444444" }),
+      restartAlert({ id: "restart-request:d" }),
     ]);
     function Probe() {
       const { waitingFrom } = useAlerts();
@@ -410,7 +410,7 @@ describe("waitingFrom", () => {
         <Probe />
       </AlertsProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("secret:a,message:c|secret:a"));
+    await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("secret-transfer:a,message-request:c|secret-transfer:a"));
   });
 
   it("outside a provider there are no alerts and no poll", () => {
