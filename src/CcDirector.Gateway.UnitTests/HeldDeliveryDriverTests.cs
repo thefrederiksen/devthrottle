@@ -580,15 +580,16 @@ public sealed class HeldDeliveryDriverTests : IDisposable
         // The route's next write - the provenance it completes the claimed record with - fails, exactly as a write to
         // the share can: nothing was sent, nothing was settled, and the claim is still the driver's.
         var recordFile = Path.Combine(typed.Root, id, "record.json");
-        var shareDown = SaveFailure.Block(recordFile);
-        await Assert.ThrowsAnyAsync<Exception>(() => Task.Run(() =>
-            typed.RememberClaimProvenance(id, new SubmissionProvenanceDto())));
-        Assert.Equal(0, Prompts()); // the press never reached the Director
-        Assert.Equal(TypedPromptState.Held, typed.Read(id).Record!.State);
+        using (SaveFailure.Block(recordFile))
+        {
+            await Assert.ThrowsAnyAsync<Exception>(() => Task.Run(() =>
+                typed.RememberClaimProvenance(id, new SubmissionProvenanceDto())));
+            Assert.Equal(0, Prompts()); // the press never reached the Director
+            Assert.Equal(TypedPromptState.Held, typed.Read(id).Record!.State);
+        }
 
         // The share recovers, and the driver's first attempt - due after the shortest wait - presses the claim itself:
         // the words go in ONCE, and no Gateway restart happened.
-        shareDown.Dispose();
         _prompt = _ => Task.FromResult<DirectorCommandResult?>(Accepted());
         _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
         await driver.TickAsync();

@@ -10,7 +10,12 @@ namespace CcDirector.Gateway.Tests;
 /// trying the delete. On Linux and macOS the delete succeeds whatever is open, so those tests were Windows only and were
 /// skipped everywhere else - and a skipped test reads like a pass in every report. Here each system is asked directly:
 /// Linux through the process's own descriptor table, <c>/proc/self/fd</c>; macOS through <c>libproc</c>, which lists the
-/// process's descriptors and the path of each; Windows by the delete the tests always used.
+/// process's descriptors and the path of each; Windows by an exclusive open, which fails while any handle holds the file.
+///
+/// THE PATH IS RESOLVED BEFORE IT IS COMPARED. Linux and macOS report the canonical path of an open file, with every
+/// symbolic link resolved - and on macOS the temporary folder itself is behind one (<c>/var</c> is <c>/private/var</c>).
+///
+/// Run on Linux and (by the gate) on Windows. The macOS branch has not been run on a Mac yet.
 /// </summary>
 internal static class FileHeldOpen
 {
@@ -18,10 +23,24 @@ internal static class FileHeldOpen
     public static bool ByThisProcess(string path)
     {
         var full = Path.GetFullPath(path);
-        if (OperatingSystem.IsLinux()) return LinuxDescriptorPaths().Any(p => p == full);
-        if (OperatingSystem.IsMacOS()) return MacDescriptorPaths().Any(p => p == full);
+        if (!File.Exists(full)) return false;
+        if (OperatingSystem.IsLinux()) return LinuxDescriptorPaths().Any(p => p == Canonical(full));
+        if (OperatingSystem.IsMacOS()) return MacDescriptorPaths().Any(p => p == Canonical(full));
         if (OperatingSystem.IsWindows()) return WindowsHeld(full);
         throw new PlatformNotSupportedException($"no way to ask {RuntimeInformation.OSDescription} which files this process holds open");
+    }
+
+    /// <summary>The path with every symbolic link on the way resolved, one segment at a time from the root.</summary>
+    internal static string Canonical(string fullPath)
+    {
+        var resolved = Path.GetPathRoot(fullPath)!;
+        foreach (var segment in fullPath[resolved.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var next = Path.Combine(resolved, segment);
+            var target = new FileInfo(next).LinkTarget is null ? null : File.ResolveLinkTarget(next, returnFinalTarget: true);
+            resolved = target is null ? next : Canonical(Path.GetFullPath(target.FullName));
+        }
+        return resolved;
     }
 
     private static IEnumerable<string> LinuxDescriptorPaths()
@@ -35,7 +54,7 @@ internal static class FileHeldOpen
         }
     }
 
-    /// <summary>On Windows an open handle on a file makes deleting it fail; nothing is deleted when it is held.</summary>
+    /// <summary>On Windows an exclusive open fails while any other handle is open on the file.</summary>
     private static bool WindowsHeld(string full)
     {
         try
