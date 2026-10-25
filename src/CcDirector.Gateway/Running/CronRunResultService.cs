@@ -444,8 +444,10 @@ public sealed class CronRunResultService
     /// good, so a quote must never count: a healthy reply that says 'Scout stopped at "You've hit your weekly limit"', or
     /// a seed that names the wording, is not a block. A block is a content line that, stripped of the reply marker and
     /// the box, STARTS with "You've hit" or "You hit" and holds one of the classifier's limit signatures - every printed
-    /// block in the measured corpus does. Only the last few content lines are read, and an echoed prompt line ("> ...")
-    /// ends the search, so nothing above the agent's reply counts.
+    /// block in the measured corpus does. Only the last <see cref="LimitBlockLines"/> content lines are read
+    /// (<see cref="Supervision.TerminatingFaultClassifier.ContentWindow"/> has already dropped the echoed prompt line and
+    /// the composer). A continuation line of the seed that itself began with the block's words, among those last lines,
+    /// would still count; that is accepted as rare.
     /// </summary>
     internal static string? PrintedLimitBlock(IReadOnlyList<string> rows)
     {
@@ -453,7 +455,6 @@ public sealed class CronRunResultService
         for (var i = window.Count - 1; i >= 0; i--)
         {
             var line = window[i].Trim().TrimStart('⎿', '●', '⏺', '■', '•', '*', '✗', '×', '│', '|', ' ').Trim();
-            if (line.StartsWith('>') || line.StartsWith('❯')) return null;
             if (!line.StartsWith("You've hit", StringComparison.OrdinalIgnoreCase)
                 && !line.StartsWith("You hit", StringComparison.OrdinalIgnoreCase)
                 && !line.StartsWith("You have hit", StringComparison.OrdinalIgnoreCase))
