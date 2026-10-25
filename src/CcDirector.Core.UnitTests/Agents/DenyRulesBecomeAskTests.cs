@@ -162,7 +162,116 @@ public sealed class DenyRulesBecomeAskTests : IDisposable
         Assert.DoesNotContain("\n", text.Replace("\r\n", ""));
     }
 
+    [Fact]
+    public void Apply_AFileThatRefusesNothing_IsNeverReported_EvenWithCommentsOrAKeyWrittenTwiceElsewhere()
+    {
+        // Found in review: these were reported as refusals the Director could not change, on every launch.
+        Write(Path.Combine(Folder, ".claude", "settings.json"), "{\n  // nothing denied\n  \"permissions\": {\"deny\": []}\n}\n");
+        Write(Path.Combine(Folder, ".claude", "settings.local.json"), "{\"env\": {\"A\": \"1\", \"A\": \"2\"}, \"permissions\": {\"allow\": [\"deny\"]}}");
+
+        Assert.Empty(Apply(AgentKind.ClaudeCode));
+    }
+
+    [Fact]
+    public void Apply_ACommentedFileThatDoesRefuse_IsReportedWithItsRules()
+    {
+        Write(Path.Combine(Folder, ".claude", "settings.json"), "{\n  // kept\n  \"permissions\": {\"deny\": [\"Bash(rm:*)\"]}\n}\n");
+
+        var entry = Assert.Single(Apply(AgentKind.ClaudeCode));
+
+        Assert.Equal(new[] { "Bash(rm:*)" }, entry.Rules);
+        Assert.False(entry.Rewritten);
+    }
+
+    [Fact]
+    public void Apply_KeepsAUtf8ByteOrderMark()
+    {
+        var file = Path.Combine(Folder, ".claude", "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "{\"permissions\": {\"deny\": [\"Bash(rm:*)\"]}}", new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+        Assert.True(Assert.Single(Apply(AgentKind.ClaudeCode)).Rewritten);
+
+        var bytes = File.ReadAllBytes(file);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(file)!, "*.tmp"));
+    }
+
+    [Fact]
+    public void Apply_AFolderThatCannotBeListed_IsReportedNotThrown()
+    {
+        // Found in review: a rules folder the Director may not list threw out of the launch.
+        var rules = Directory.CreateDirectory(Path.Combine(Folder, ".codex", "rules")).FullName;
+        Write(Path.Combine(rules, "a.rules"), "prefix_rule(pattern=[\"rm\"], decision=\"forbidden\")\n");
+        DenyListing(rules);
+        try
+        {
+            var entry = Assert.Single(Apply(AgentKind.Codex));
+
+            Assert.Equal(rules, entry.File);
+            Assert.False(entry.Rewritten);
+            Assert.StartsWith("the folder could not be listed", entry.Problem);
+        }
+        finally
+        {
+            AllowListing(rules);
+        }
+    }
+
+    private static void DenyListing(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var info = new DirectoryInfo(directory);
+            var security = info.GetAccessControl();
+            security.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+                System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny));
+            info.SetAccessControl(security);
+        }
+        else
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.None);
+        }
+    }
+
+    private static void AllowListing(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var info = new DirectoryInfo(directory);
+            var security = info.GetAccessControl();
+            security.RemoveAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+                System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny));
+            info.SetAccessControl(security);
+        }
+        else
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     // ---------- Codex ----------
+
+    [Fact]
+    public void Apply_Codex_AnApprovalPolicyThatNeverAsks_BecomesOnRequest_InTheMachineAndFolderConfig()
+    {
+        // Found in review: under approval_policy = "never" Codex never pauses, so a prompt rule can never reach the owner.
+        var machine = Write(Path.Combine(Home, ".codex", "config.toml"),
+            "model = \"gpt-5\"\napproval_policy = \"never\"\n\n[profiles.fast]\napproval_policy = 'never'\nsandbox_mode = \"read-only\"\n");
+        var folder = Write(Path.Combine(Folder, ".codex", "config.toml"), "approval_policy = \"on-request\"\n");
+
+        var entry = Assert.Single(Apply(AgentKind.Codex));
+
+        Assert.Equal(machine, entry.File);
+        Assert.Equal(new[] { "line 2: approval_policy = \"never\"", "line 5: approval_policy = 'never'" }, entry.Rules);
+        Assert.Equal("model = \"gpt-5\"\napproval_policy = \"on-request\"\n\n[profiles.fast]\napproval_policy = 'on-request'\nsandbox_mode = \"read-only\"\n",
+            File.ReadAllText(machine));
+        Assert.Equal("approval_policy = \"on-request\"\n", File.ReadAllText(folder));
+    }
 
     [Fact]
     public void Apply_Codex_TurnsForbiddenIntoPrompt_InTheMachineAndFolderRules_LeavingAllowAlone()
@@ -246,6 +355,15 @@ public sealed class DenyRulesBecomeAskTests : IDisposable
         Assert.Equal(new[] { "Bash(rm*)" }, entry.Rules);
         Assert.StartsWith("its [permission] section has both a deny list and an ask list", entry.Problem);
         Assert.Equal(text, File.ReadAllText(file));
+    }
+
+    [Fact]
+    public void Apply_Grok_ABracketInsideARule_DoesNotEndTheListEarlyOrLate()
+    {
+        Write(Path.Combine(Home, ".grok", "config.toml"),
+            "[permission]\ndeny = [\n  \"Bash(echo [*)\",\n]\nallow = [\n  \"Bash(ls*)\",\n]\n");
+
+        Assert.Equal(new[] { "Bash(echo [*)" }, Assert.Single(Apply(AgentKind.Grok)).Rules);
     }
 
     [Fact]

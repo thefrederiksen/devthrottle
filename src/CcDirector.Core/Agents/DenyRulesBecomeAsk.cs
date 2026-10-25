@@ -25,7 +25,9 @@ namespace CcDirector.Core.Agents;
 /// <c>[permission]</c> section of <c>~/.grok/config.toml</c> and the folder's <c>.grok/config.toml</c>: a <c>deny</c>
 /// list becomes the <c>ask</c> list, a rule's <c>action = "deny"</c> becomes <c>"ask"</c>.</item>
 /// <item>Codex: <c>decision="forbidden"</c> in <c>~/.codex/rules/*.rules</c> and the folder's <c>.codex/rules/*.rules</c>
-/// becomes <c>decision="prompt"</c> (<c>codex execpolicy check</c> answers "forbidden" and "prompt" for the two).</item>
+/// becomes <c>decision="prompt"</c> (<c>codex execpolicy check</c> answers "forbidden" and "prompt" for the two), and
+/// <c>approval_policy = "never"</c> in <c>~/.codex/config.toml</c> and the folder's <c>.codex/config.toml</c>, under which
+/// Codex never stops to ask, becomes <c>"on-request"</c>.</item>
 /// <item>Gemini: <c>decision = "deny"</c> in the user's <c>~/.gemini/policies/*.toml</c> becomes <c>"ask_user"</c>. A
 /// folder's <c>.gemini/policies</c> is not read by Gemini (its documentation marks that tier disabled), so it is left.</item>
 /// <item>OpenCode: every <c>"deny"</c> under <c>permission</c> in <c>~/.config/opencode/opencode.json</c> and the folder's
@@ -41,10 +43,11 @@ namespace CcDirector.Core.Agents;
 public static class DenyRulesBecomeAsk
 {
     /// <summary>The kinds of settings file an agent refuses from, each with its own rewrite.</summary>
-    internal enum Format { ClaudeJson, OpenCodeJson, CodexRules, GeminiPolicy, GrokToml }
+    internal enum Format { ClaudeJson, OpenCodeJson, CodexRules, CodexConfig, GeminiPolicy, GrokToml }
 
-    /// <summary>One file a session's agent reads. A managed one is reported, never written.</summary>
-    internal sealed record Target(string Path, Format Format, bool Managed = false);
+    /// <summary>One file a session's agent reads. A managed one is reported, never written. <paramref name="Unlisted"/>
+    /// names a folder of such files that could not be listed, and why: it is reported, never passed over.</summary>
+    internal sealed record Target(string Path, Format Format, bool Managed = false, string? Unlisted = null);
 
     /// <summary>What a rewrite of one file's text found: the new text (null when nothing changes), the rules it turned
     /// into ask rules, and why it could not when it could not.</summary>
@@ -121,6 +124,8 @@ public static class DenyRulesBecomeAsk
                 var codexHome = HomeOf(environment, "CODEX_HOME", Path.Combine(home, ".codex"));
                 targets.AddRange(FilesIn(Path.Combine(folder, ".codex", "rules"), "*.rules", Format.CodexRules));
                 targets.AddRange(FilesIn(Path.Combine(codexHome, "rules"), "*.rules", Format.CodexRules));
+                targets.Add(new Target(Path.Combine(folder, ".codex", "config.toml"), Format.CodexConfig));
+                targets.Add(new Target(Path.Combine(codexHome, "config.toml"), Format.CodexConfig));
                 break;
             case AgentKind.Gemini:
                 targets.AddRange(FilesIn(Path.Combine(home, ".gemini", "policies"), "*.toml", Format.GeminiPolicy));
@@ -148,17 +153,33 @@ public static class DenyRulesBecomeAsk
         : OperatingSystem.IsMacOS() ? "/Library/Application Support/GeminiCli/policies"
         : "/etc/gemini-cli/policies";
 
-    private static IEnumerable<Target> FilesIn(string directory, string pattern, Format format, bool managed = false) =>
-        Directory.Exists(directory)
-            ? Directory.EnumerateFiles(directory, pattern).Order(StringComparer.Ordinal).Select(f => new Target(f, format, managed))
-            : Enumerable.Empty<Target>();
+    // A folder the Director may not list is reported as one entry, never thrown: a user's folder never stops a launch.
+    private static List<Target> FilesIn(string directory, string pattern, Format format, bool managed = false)
+    {
+        if (!Directory.Exists(directory)) return new List<Target>();
+        try
+        {
+            return Directory.EnumerateFiles(directory, pattern).Order(StringComparer.Ordinal).Select(f => new Target(f, format, managed)).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new List<Target> { new(directory, format, managed, Unlisted: $"the folder could not be listed, so whether its files refuse anything outright is unknown ({ex.Message})") };
+        }
+    }
 
     /// <summary>One file: read, rewrite, write. Null when the file is missing or holds no outright refusal.</summary>
     private static FolderDenyRulesDto? ApplyTo(Target target)
     {
+        if (target.Unlisted is not null) return new FolderDenyRulesDto { File = target.Path, Problem = target.Unlisted };
         if (!File.Exists(target.Path)) return null;
         string text;
-        try { text = File.ReadAllText(target.Path); }
+        string path;
+        try
+        {
+            // A settings file linked into a dotfiles folder is rewritten where it lives, so the link survives.
+            path = new FileInfo(target.Path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? target.Path;
+            text = File.ReadAllText(path);
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new FolderDenyRulesDto { File = target.Path, Problem = $"it could not be read, so whether it refuses anything outright is unknown ({ex.Message})" };
@@ -175,7 +196,7 @@ public static class DenyRulesBecomeAsk
                 Problem = "it is managed settings an organisation deployed, which the Director does not change",
             };
 
-        try { WriteReplacing(target.Path, rewrite.Text); }
+        try { WriteReplacing(path, rewrite.Text); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new FolderDenyRulesDto { File = target.Path, Rules = rewrite.Rules, Problem = $"it could not be written ({ex.Message})" };
@@ -184,12 +205,29 @@ public static class DenyRulesBecomeAsk
         return new FolderDenyRulesDto { File = target.Path, Rules = rewrite.Rules, Rewritten = true };
     }
 
-    // Written beside the file and moved over it, so a reader never sees half a settings file.
+    // Written beside the file and moved over it, so a reader never sees half a settings file. The file keeps its byte
+    // order mark and, off Windows, its permissions; a write that fails leaves no temporary file behind.
     private static void WriteReplacing(string path, string text)
     {
         var temporary = path + ".devthrottle-" + Guid.NewGuid().ToString("N") + ".tmp";
-        File.WriteAllText(temporary, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        File.Move(temporary, path, overwrite: true);
+        try
+        {
+            File.WriteAllText(temporary, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: HasUtf8ByteOrderMark(path)));
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temporary, File.GetUnixFileMode(path));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static bool HasUtf8ByteOrderMark(string path)
+    {
+        using var stream = File.OpenRead(path);
+        Span<byte> head = stackalloc byte[3];
+        return stream.Read(head) == 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
     }
 
     /// <summary>The rewrite of one file's text in its format. Pure.</summary>
@@ -198,6 +236,7 @@ public static class DenyRulesBecomeAsk
         Format.ClaudeJson => RewriteClaudeJson(text),
         Format.OpenCodeJson => RewriteOpenCodeJson(text),
         Format.CodexRules => RewriteDecisions(text, CodexForbidden, "prompt"),
+        Format.CodexConfig => RewriteDecisions(text, CodexNeverAsks, "on-request"),
         Format.GeminiPolicy => RewriteDecisions(text, GeminiDeny, "ask_user"),
         Format.GrokToml => RewriteGrokToml(text),
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "no rewrite for this format"),
@@ -259,19 +298,52 @@ public static class DenyRulesBecomeAsk
         return original.EndsWith('\n') ? json + newLine : json;
     }
 
+    /// <summary>The file read the way the agents read it - comments and trailing commas allowed, the last of a key written
+    /// twice winning - or null with why it is not JSON. Used to learn what refuses before deciding whether a rewrite is safe,
+    /// so a file that refuses nothing is never reported.</summary>
+    private static JsonDocument? ParseLenient(string text, out string? problem)
+    {
+        try
+        {
+            problem = null;
+            return JsonDocument.Parse(text, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        }
+        catch (JsonException ex)
+        {
+            problem = $"it is not JSON, so whether it refuses anything outright could not be read ({ex.Message})";
+            return null;
+        }
+    }
+
+    private static JsonElement? LastProperty(JsonElement? element, string name)
+    {
+        if (element is not { ValueKind: JsonValueKind.Object } obj) return null;
+        JsonElement? found = null;
+        foreach (var property in obj.EnumerateObject())
+            if (property.NameEquals(name)) found = property.Value;
+        return found;
+    }
+
     private static Rewrite RewriteClaudeJson(string text)
     {
         if (!text.Contains("\"deny\"", StringComparison.Ordinal)) return Rewrite.Nothing;
-        var (root, problem) = ParseStrict(text);
-        if (problem is not null) return Rewrite.Cannot(problem);
-        if (root!["permissions"] is not JsonObject permissions || permissions["deny"] is not { } deny) return Rewrite.Nothing;
-        if (deny is not JsonArray denyList || denyList.Any(r => r is not JsonValue v || v.GetValueKind() != JsonValueKind.String))
-            return Rewrite.Cannot("its permissions.deny is not a list of rules");
-        if (denyList.Count == 0) return Rewrite.Nothing;
-        if (permissions["ask"] is { } existing && existing is not JsonArray)
-            return Rewrite.Cannot("its permissions.ask is not a list, so the deny rules cannot be added to it");
+        List<string> rules;
+        using (var lenient = ParseLenient(text, out var notJson))
+        {
+            if (lenient is null) return Rewrite.Cannot(notJson!);
+            if (LastProperty(LastProperty(lenient.RootElement, "permissions"), "deny") is not { } denied) return Rewrite.Nothing;
+            if (denied.ValueKind != JsonValueKind.Array || denied.EnumerateArray().Any(r => r.ValueKind != JsonValueKind.String))
+                return Rewrite.Cannot("its permissions.deny is not a list of rules");
+            rules = denied.EnumerateArray().Select(r => r.GetString()!).ToList();
+        }
+        if (rules.Count == 0) return Rewrite.Nothing;
 
-        var rules = denyList.Select(r => r!.GetValue<string>()).ToList();
+        var (root, problem) = ParseStrict(text);
+        if (problem is not null) return Rewrite.Cannot(problem, rules);
+        var permissions = (JsonObject)root!["permissions"]!;
+        if (permissions["ask"] is { } existing && existing is not JsonArray)
+            return Rewrite.Cannot("its permissions.ask is not a list, so the deny rules cannot be added to it", rules);
+
         var ask = permissions["ask"] as JsonArray;
         if (ask is null)
         {
@@ -288,8 +360,16 @@ public static class DenyRulesBecomeAsk
     private static Rewrite RewriteOpenCodeJson(string text)
     {
         if (!text.Contains("\"deny\"", StringComparison.Ordinal)) return Rewrite.Nothing;
+        var denied = new List<string>();
+        using (var lenient = ParseLenient(text, out var notJson))
+        {
+            if (lenient is null) return Rewrite.Cannot(notJson!);
+            DeniedPaths(LastProperty(lenient.RootElement, "permission"), "permission", denied);
+        }
+        if (denied.Count == 0) return Rewrite.Nothing;
+
         var (root, problem) = ParseStrict(text);
-        if (problem is not null) return Rewrite.Cannot(problem);
+        if (problem is not null) return Rewrite.Cannot(problem, denied);
         var rules = new List<string>();
         switch (root!["permission"])
         {
@@ -302,6 +382,15 @@ public static class DenyRulesBecomeAsk
                 break;
         }
         return rules.Count == 0 ? Rewrite.Nothing : new Rewrite(Serialize(root, text), rules, null);
+    }
+
+    private static void DeniedPaths(JsonElement? element, string path, List<string> denied)
+    {
+        if (element is not { } e) return;
+        if (e.ValueKind == JsonValueKind.String && e.GetString() == "deny") denied.Add(path);
+        else if (e.ValueKind == JsonValueKind.Object)
+            foreach (var property in e.EnumerateObject())
+                DeniedPaths(property.Value, $"{path}.{property.Name}", denied);
     }
 
     private static bool IsDeny(JsonNode? node) =>
@@ -326,6 +415,9 @@ public static class DenyRulesBecomeAsk
     // ---------- line rules: Codex and Gemini ----------
 
     private static readonly Regex CodexForbidden = new(@"(?<lead>\bdecision\s*=\s*)(?<q>[""'])forbidden\k<q>", RegexOptions.CultureInvariant);
+    // Codex's approval_policy = "never" never pauses for a person, so nothing it is refused can be approved; "on-request"
+    // asks. A line rule, top level or in a profile; a launch's own command-line flag still wins over the file.
+    private static readonly Regex CodexNeverAsks = new(@"(?<lead>^[ \t]*approval_policy[ \t]*=[ \t]*)(?<q>[""'])never\k<q>", RegexOptions.CultureInvariant | RegexOptions.Multiline);
     private static readonly Regex GeminiDeny = new(@"(?<lead>^[ \t]*decision[ \t]*=[ \t]*)(?<q>[""'])deny\k<q>", RegexOptions.CultureInvariant | RegexOptions.Multiline);
 
     private static Rewrite RewriteDecisions(string text, Regex refusal, string ask)
@@ -405,7 +497,9 @@ public static class DenyRulesBecomeAsk
             var line = i == at ? lines[i][(lines[i].IndexOf('=') + 1)..] : lines[i];
             foreach (Match m in TomlString.Matches(line))
                 items.Add(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
-            depth += line.Count(c => c == '[') - line.Count(c => c == ']');
+            // Brackets inside a quoted rule ("Bash(echo [*)") are not the list's own.
+            var bare = TomlString.Replace(line, "");
+            depth += bare.Count(c => c == '[') - bare.Count(c => c == ']');
             if (depth <= 0) break;
         }
         return items;
