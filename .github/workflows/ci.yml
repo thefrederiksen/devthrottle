@@ -278,7 +278,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Restore dependencies
         run: dotnet restore cc-director.sln

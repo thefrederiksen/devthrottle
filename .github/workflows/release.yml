@@ -94,7 +94,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish for Windows x64
         # Self-contained: the .NET runtime ships INSIDE the executable, so no machine has to install
@@ -147,7 +147,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish for macOS arm64
         # Do NOT add EnableCompressionInSingleFile here: on macOS arm64 under .NET 10 the
@@ -225,7 +225,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish setup wizard for macOS arm64
         # No EnableCompressionInSingleFile on macOS - memory corruption, issue #1442.
@@ -291,7 +291,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish Gateway tray app for Windows x64
         # Self-contained, like the Director and the launcher. This wizard does not install the
@@ -485,7 +485,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish Launcher tray app for Windows x64
         # Self-contained, for the same reason as the Director: the launcher is placed by the installer
@@ -536,7 +536,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish Launcher for macOS arm64
         # No EnableCompressionInSingleFile on macOS - memory corruption, issue #1442.
@@ -578,7 +578,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish for Linux x64
         run: >
@@ -655,7 +655,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish setup wizard for Linux x64
         run: >
@@ -706,7 +706,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish Launcher for Linux x64
         run: >
@@ -780,7 +780,7 @@ jobs:
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.402"
 
       - name: Publish self-contained setup wizard
         run: >
