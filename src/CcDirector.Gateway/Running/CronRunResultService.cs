@@ -403,6 +403,74 @@ public sealed class CronRunResultService
     }
 
     /// <summary>
+    /// A SCHEDULED SESSION WHOSE SEAT IS AT ITS LIMIT IS A FAILED RUN AT ONCE (issue #3907). On 12 October 2026 every
+    /// scheduled session of a factory started, answered its first prompt with "You've hit your monthly spend limit" and
+    /// sat at the prompt; each run read as started and still open for eight to ten hours, and nothing told the owner.
+    /// Called with the session's screen when one of its turns ends: when the session is a scheduled run still waiting
+    /// for its result, and the end of its screen is a usage or spend limit block
+    /// (<see cref="Supervision.TerminatingFaultClassifier.UsageLimitSignatures"/>), the run is recorded as the problem
+    /// <see cref="CronRunProblems.SeatLimit"/>, naming the block. Returns true when it was recorded. No model is asked:
+    /// the screen's own words decide.
+    /// </summary>
+    public bool RecordSeatLimitFromScreen(TenantId tenant, string sessionId, IReadOnlyList<string>? rows)
+    {
+        if (rows is null || string.IsNullOrWhiteSpace(sessionId)) return false;
+        var found = _runs.FindBySession(tenant, sessionId);
+        if (found is null || found.Run.Result != CronRunResults.Pending) return false;
+        if (PrintedLimitBlock(rows) is not { } limit) return false;
+
+        var machine = string.IsNullOrWhiteSpace(found.Run.Machine) ? "its machine" : found.Run.Machine;
+        var reason = $"its session started on {machine}, but the agent answered that its seat is at a limit (\"{limit}\"), so the work could not be done";
+        var written = _runs.RecordResult(tenant, Guid.Parse(found.Run.RunId), CronRunResults.Pending, null,
+            CronRunResults.Problem, CronRunProblems.SeatLimit, reason, _nowUtc());
+        if (!written.Applied)
+        {
+            FileLog.Write($"[CronRunResultService] RecordSeatLimitFromScreen: run={found.Run.RunId} already has its result; left as it is");
+            return false;
+        }
+        FileLog.Write($"[CronRunResultService] RecordSeatLimitFromScreen: run={found.Run.RunId}, job={found.JobId}, session={sessionId}: seat at its limit ({limit})");
+        TryWriteOwedActivity(tenant, Guid.Parse(found.Run.RunId));
+        return true;
+    }
+
+    /// <summary>True when <paramref name="sessionId"/> is a scheduled run still waiting for its result - the only
+    /// session whose screen <see cref="RecordSeatLimitFromScreen"/> is worth reading.</summary>
+    public bool IsPendingScheduledRun(TenantId tenant, string sessionId) =>
+        !string.IsNullOrWhiteSpace(sessionId) && _runs.FindBySession(tenant, sessionId) is { Run.Result: CronRunResults.Pending };
+
+    /// <summary>
+    /// The usage or spend limit block the AGENT printed at the end of its screen, or null (the #3907 review, findings 1
+    /// and 2). Unlike the supervisor, which only raises a hand and may notice more, this records a run as failed for
+    /// good, so a quote must never count: a healthy reply that says 'Scout stopped at "You've hit your weekly limit"', or
+    /// a seed that names the wording, is not a block. A block is a content line that, stripped of the reply marker and
+    /// the box, STARTS with "You've hit" or "You hit" and holds one of the classifier's limit signatures - every printed
+    /// block in the measured corpus does. Only the last <see cref="LimitBlockLines"/> content lines are read
+    /// (<see cref="Supervision.TerminatingFaultClassifier.ContentWindow"/> has already dropped the echoed prompt line and
+    /// the composer). A continuation line of the seed that itself began with the block's words, among those last lines,
+    /// would still count; that is accepted as rare.
+    /// </summary>
+    internal static string? PrintedLimitBlock(IReadOnlyList<string> rows)
+    {
+        var window = Supervision.TerminatingFaultClassifier.ContentWindow(rows, LimitBlockLines);
+        for (var i = window.Count - 1; i >= 0; i--)
+        {
+            var line = window[i].Trim().TrimStart('⎿', '●', '⏺', '■', '•', '*', '✗', '×', '│', '|', ' ').Trim();
+            if (!line.StartsWith("You've hit", StringComparison.OrdinalIgnoreCase)
+                && !line.StartsWith("You hit", StringComparison.OrdinalIgnoreCase)
+                && !line.StartsWith("You have hit", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var lower = line.ToLowerInvariant();
+            var signature = Supervision.TerminatingFaultClassifier.UsageLimitSignatures
+                .FirstOrDefault(sig => lower.Contains(sig, StringComparison.Ordinal));
+            if (signature is not null) return signature;
+        }
+        return null;
+    }
+
+    /// <summary>How many of the screen's last content lines may hold the agent's printed limit block.</summary>
+    internal const int LimitBlockLines = 4;
+
+    /// <summary>
     /// The engine recorded a run that already carries its result - a fire that started no session, a due run that was
     /// skipped. Its factory activity row is owed from the moment it was recorded; write it now.
     /// </summary>

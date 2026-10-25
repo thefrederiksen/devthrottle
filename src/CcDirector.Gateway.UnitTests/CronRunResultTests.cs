@@ -447,6 +447,138 @@ public sealed class CronRunResultTests : IDisposable
         Assert.Equal(CronRunProblems.PromptNotDelivered, runs.List("cj_a").Single().Problem);
     }
 
+    // ---- issue #3907: a scheduled session whose seat is at its limit ------------------------------------------
+
+    // The screen of a scheduled session on 12 October 2026, its only reply the seat's limit.
+    private static readonly string[] SpendLimitScreen =
+    {
+        "> Read the inbox and answer every customer email.",
+        "",
+        "  ⎿  You've hit your monthly spend limit · contact your admin to raise it",
+        "",
+        "╭──────────────────────────────────────────────╮",
+        "│ >                                            │",
+        "╰──────────────────────────────────────────────╯",
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+    };
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_AScheduledRunWhoseSeatIsAtItsLimit_IsAProblemAtOnce()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+
+        Assert.True(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", SpendLimitScreen));
+
+        var run = runs.List("cj_a").Single();
+        Assert.Equal(CronRunResults.Problem, run.Result);
+        Assert.Equal(CronRunProblems.SeatLimit, run.Problem);
+        Assert.Equal("its session started on SOREN_NORTH, but the agent answered that its seat is at a limit " +
+                     "(\"hit your monthly spend limit\"), so the work could not be done", run.ResultReason);
+    }
+
+    [Theory]
+    [InlineData("  ⎿  You've hit your weekly limit · resets Mon 9am", true)]
+    [InlineData("You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage", true)]
+    [InlineData("  ⎿  You've used 94% of your weekly limit", false)]
+    [InlineData("Done. I answered all three emails.", false)]
+    public void RecordSeatLimitFromScreen_OnlyALimitBlockCounts_NeverAWarning(string line, bool recorded)
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+
+        Assert.Equal(recorded, service.RecordSeatLimitFromScreen(TenantId.Local, "s1", new[] { "> Do the work.", line, "│ > │" }));
+        Assert.Equal(recorded ? CronRunResults.Problem : CronRunResults.Pending, runs.List("cj_a").Single().Result);
+    }
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_AHealthyReplyThatQuotesALimit_IsNotABlock()
+    {
+        // The #3907 review, finding 1: a Boss reporting on another seat quotes the block; this run is healthy.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+        var screen = new[]
+        {
+            "> Write the nightly summary.",
+            "",
+            "● Nightly summary: Scout stopped at \"You've hit your weekly limit · resets Mon 9am\" and did nothing.",
+            "  Mail Warmer sent 40 emails.",
+            "╭──────────────╮",
+            "│ >            │",
+            "╰──────────────╯",
+        };
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", screen));
+        Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
+    }
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_ASeedThatNamesTheWording_IsNotABlock()
+    {
+        // The #3907 review, finding 2: the echoed seed tells the agent what to do if it sees the limit; it replied fine.
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+        var screen = new[]
+        {
+            "> If you see \"You've hit your weekly limit\", stop and report it.",
+            "  Otherwise answer every email.",
+            "● Done: three emails answered.",
+            "│ >            │",
+        };
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", screen));
+    }
+
+    [Fact]
+    public void IsPendingScheduledRun_OnlyARunStillWaitingForItsResult()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+
+        Assert.True(service.IsPendingScheduledRun(TenantId.Local, "s1"));
+        Assert.False(service.IsPendingScheduledRun(TenantId.Local, "not-a-run"));
+        service.Report(TenantId.Local, "s1", "ok", null);
+        Assert.False(service.IsPendingScheduledRun(TenantId.Local, "s1"));
+    }
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_ARunThatAlreadyReported_IsLeftAsItIs()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a");
+        var fired = TorontoTime(2026, 10, 12, 0);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _now = fired.AddMinutes(1);
+        Assert.Equal(200, service.Report(TenantId.Local, "s1", "ok", null).StatusCode);
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", SpendLimitScreen));
+        Assert.Equal(CronRunResults.Ok, runs.List("cj_a").Single().Result);
+    }
+
+    [Fact]
+    public void RecordSeatLimitFromScreen_ASessionNoScheduleStarted_OrAnUnreadableScreen_IsNothing()
+    {
+        var (service, _, _) = Build();
+
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "not-a-run", SpendLimitScreen));
+        Assert.False(service.RecordSeatLimitFromScreen(TenantId.Local, "s1", null));
+    }
+
     [Fact]
     public void Sweep_AnOpenRunInsideItsShift_IsLeftAlone()
     {

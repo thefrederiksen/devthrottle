@@ -159,6 +159,10 @@ public sealed class ScheduleFailureWordsTests
             ScheduleFailureCauses.CheckNotRun, "No DevThrottle on studio-mac ran the schedule's check" },
         new object[] { CronRunProblems.CheckFailed, "the check exited 2 and printed no count: Exception at line 4", ScheduleFailureCauses.CheckFailed,
             "The schedule's check failed on studio-mac. What the check said is in the details." },
+        // A seat at its limit (issue #3907): the agent's own words about the limit are only the detail.
+        new object[] { CronRunProblems.SeatLimit,
+            "its session started on studio-mac, but the agent answered that its seat is at a limit (\"You've hit your monthly spend limit · contact your admin to raise it\"), so the work could not be done",
+            ScheduleFailureCauses.SeatLimit, "its agent's seat is at its usage or spend limit, so no work was done" },
     };
 
     [Theory]

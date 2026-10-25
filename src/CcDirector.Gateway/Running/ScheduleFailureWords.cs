@@ -37,6 +37,7 @@ public static class ScheduleFailureCauses
     public const string Reported = "reported";
     public const string CheckFailed = "check-failed";
     public const string CheckNotRun = "check-not-run";
+    public const string SeatLimit = "seat-limit";
     public const string Other = "other";
 }
 
@@ -102,6 +103,9 @@ public static class ScheduleFailureWords
                 CronRunProblems.CheckFailed => (ScheduleFailureCauses.CheckFailed,
                     $"The schedule's check failed on {machine}. What the check said is in the details."),
                 CronRunProblems.CheckNotRun => CheckNotRun(reason, machine),
+                // The agent's own words about its limit are the detail (issue #3907).
+                CronRunProblems.SeatLimit => (ScheduleFailureCauses.SeatLimit,
+                    $"The run's session on {machine} started, but its agent's seat is at its usage or spend limit, so no work was done. Raise the limit or wait for it to reset; the agent's own words are in the details."),
                 _ => (ScheduleFailureCauses.Other, $"This run on {machine} went wrong. The details below say what happened."),
             };
         return new ScheduleFailure(cause, headline, detail);

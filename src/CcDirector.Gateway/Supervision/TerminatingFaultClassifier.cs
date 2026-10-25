@@ -207,7 +207,7 @@ public static class TerminatingFaultClassifier
     private static readonly string[] NonRecoverableSignatures =
     {
         "credit balance is too low", "out of credits", "insufficient credits",
-        UsageLimitFree, UsageLimitPlain, UsageLimitWeekly,
+        UsageLimitFree, UsageLimitPlain, UsageLimitWeekly, SpendLimitMonthly,
         "invalid api key", "invalid x-api-key", "api key auth failed", "authentication_error", "authentication failed",
         "oauth token has expired", "please run /login", "permission_error", "403 forbidden",
     };
@@ -215,6 +215,9 @@ public static class TerminatingFaultClassifier
     private const string UsageLimitFree = "hit your free usage limit";
     private const string UsageLimitPlain = "hit your usage limit.";
     private const string UsageLimitWeekly = "hit your weekly limit";
+    // Issue #3907: on 12 October 2026 every scheduled session of a factory answered its first prompt with "You've hit
+    // your monthly spend limit" and sat at the prompt for hours. A seat's spend limit is a block like the usage limits.
+    private const string SpendLimitMonthly = "hit your monthly spend limit";
 
     /// <summary>
     /// The usage-limit BLOCKS among the non-recoverable signatures, by the one spelling the classifier
@@ -224,7 +227,7 @@ public static class TerminatingFaultClassifier
     /// the reason given above: a session showing one is still working.
     /// </summary>
     public static IReadOnlyList<string> UsageLimitSignatures { get; } =
-        new[] { UsageLimitFree, UsageLimitPlain, UsageLimitWeekly };
+        new[] { UsageLimitFree, UsageLimitPlain, UsageLimitWeekly, SpendLimitMonthly };
 
     /// <summary>A line that announces itself as a failure without naming a class we know. The ONLY thing
     /// that reaches step 3.</summary>

@@ -101,13 +101,14 @@ public sealed class MorningReportUsageLimitStopsTests : IDisposable
         foreach (var signature in TerminatingFaultClassifier.UsageLimitSignatures)
             SeedFault(db, Alice, $"s-{i}", $"signature={signature}", hoursAgo: 10 - i++);
 
-        var row = Row(db, Alice, Live(Alice, Named("s-0", "s-1", "s-2")));
+        var row = Row(db, Alice, Live(Alice, Named("s-0", "s-1", "s-2", "s-3")));
 
         Assert.NotNull(row);
         Assert.Equal("usage-limit-stops", row!.Type);
-        Assert.Equal(3, TerminatingFaultClassifier.UsageLimitSignatures.Count);
-        Assert.Equal(new[] { "Session s-0", "Session s-1", "Session s-2" }, row.Sessions.Select(s => s.Session));
-        Assert.Equal(new[] { "s-0", "s-1", "s-2" }, row.Sessions.Select(s => s.SessionId));
+        // Three usage limits and, since issue #3907, a seat's monthly spend limit.
+        Assert.Equal(4, TerminatingFaultClassifier.UsageLimitSignatures.Count);
+        Assert.Equal(new[] { "Session s-0", "Session s-1", "Session s-2", "Session s-3" }, row.Sessions.Select(s => s.Session));
+        Assert.Equal(new[] { "s-0", "s-1", "s-2", "s-3" }, row.Sessions.Select(s => s.SessionId));
         Assert.Equal(Now.AddHours(-10), row.Sessions[0].StoppedUtc);
         Assert.Null(row.LostContactCount);
     }
