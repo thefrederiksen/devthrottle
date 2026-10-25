@@ -26,9 +26,14 @@ namespace CcDirector.ControlApi.Triggers;
 ///      (<see cref="InheritedSessionEnvironment"/>) and minus EVERY variable whose name begins <c>CC_</c> - a Director
 ///      started from inside a session carries that session's Gateway key, id and address, which a session is stamped
 ///      over and a check is not - plus its own <c>CC_CHECK_STATE_FILE</c>, <c>CC_CHECK_SECRET_VARS</c>,
-///      <c>CC_CHECK_FACTORY</c> and <c>CC_CHECK_SEAT</c>.
+///      <c>CC_CHECK_FACTORY</c>, <c>CC_CHECK_SEAT</c> and <c>CC_CHECK_INPUTS_DIR</c>.
 ///   5. ALWAYS creates the state file before the run, holding the stored state (empty on a first run), in a per-run
 ///      folder under the Director's storage; reads it back after the run, at most 64 KB, and deletes the folder.
+///   6. ALWAYS fetches the factory's CHECK INPUTS for the run - its working documents named <c>check-inputs/...</c> on
+///      the Gateway, as they stand - and writes them into an <c>inputs</c> folder beside the state file, under the
+///      rest of their names (<c>check-inputs/chain.json</c> is <c>inputs/chain.json</c>). A check runs with no Gateway
+///      key, so this is how what the factory's seats keep on the Gateway reaches it. The folder exists, empty, when the
+///      factory keeps none. Inputs that cannot be fetched are a start error: a check never decides from nothing.
 ///
 /// It decides NOTHING from the result, exactly like a command trigger: the Gateway reads the report under the check
 /// contract. Anything that stops the check from running - a refusal, a missing program, or this machine's disk
@@ -41,6 +46,7 @@ public sealed class DefinitionCheckRunner
     public const string SecretVarsVariable = "CC_CHECK_SECRET_VARS";
     public const string FactoryVariable = "CC_CHECK_FACTORY";
     public const string SeatVariable = "CC_CHECK_SEAT";
+    public const string InputsFolderVariable = "CC_CHECK_INPUTS_DIR";
 
     /// <summary>No variable of the Director's or of a session's whose name begins with this reaches a check: a check
     /// needs none of them, and a rule that names the prefix cannot miss the next one someone adds.</summary>
@@ -173,12 +179,16 @@ public sealed class DefinitionCheckRunner
             Directory.CreateDirectory(runFolder);
             var stateFile = Path.Combine(runFolder, "state");
             await File.WriteAllTextAsync(stateFile, trigger.State ?? "", new UTF8Encoding(false), ct).ConfigureAwait(false);
+            var inputsFolder = Path.Combine(runFolder, "inputs");
+            if (await WriteInputsAsync(factory, version, inputsFolder, ct).ConfigureAwait(false) is { } inputsError)
+                return Failed(inputsError);
 
             var environment = CheckEnvironment();
             environment[StateFileVariable] = stateFile;
             environment[SecretVarsVariable] = JsonSerializer.Serialize(secretVars);
             environment[FactoryVariable] = factory;
             environment[SeatVariable] = trigger.Seat ?? "";
+            environment[InputsFolderVariable] = inputsFolder;
 
             var result = await _processes.RunAsync(new CheckProcessStart(commandLine![0], commandLine.Skip(1).ToList(),
                 folder, environment, trigger.TimeoutSeconds), ct).ConfigureAwait(false);
@@ -306,6 +316,42 @@ public sealed class DefinitionCheckRunner
         {
             gate.Release();
         }
+    }
+
+    // ---------- the check inputs ----------
+
+    /// <summary>Fetch the factory's check inputs and write each into <paramref name="folder"/>, which is created even
+    /// when there are none. The reason the check cannot run, or null.</summary>
+    private async Task<string?> WriteInputsAsync(string factory, int version, string folder, CancellationToken ct)
+    {
+        Directory.CreateDirectory(folder);
+        var source = _source();
+        if (source is null) return $"the check inputs of {factory} could not be fetched: no Gateway is configured";
+        var fetch = await source.FetchCheckInputsAsync(_directorId, factory, version, ct).ConfigureAwait(false);
+        if (fetch.Files is null) return $"the check inputs of {factory} could not be fetched: {fetch.Refusal}";
+
+        foreach (var (name, text) in fetch.Files)
+        {
+            if (WhyNotAnInputName(name) is { } why)
+                return $"the check inputs of {factory} were not written: the Gateway sent the name '{name}', which {why}";
+            var target = Path.Combine(folder, name.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            await File.WriteAllTextAsync(target, text, new UTF8Encoding(false), ct).ConfigureAwait(false);
+        }
+        FileLog.Write($"[DefinitionCheckRunner] inputs: factory={factory}, version={version}, inputs={fetch.Files.Count}, folder={folder}");
+        return null;
+    }
+
+    /// <summary>Why a check input's name may not become a file in the inputs folder, or null: plain relative segments,
+    /// nothing that climbs out.</summary>
+    public static string? WhyNotAnInputName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "is empty";
+        if (name.Contains('\\') || name.Contains(':')) return "is not a plain relative path";
+        foreach (var segment in name.Split('/'))
+            if (segment.Length == 0 || segment == "." || segment == ".." || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                return "is not a plain relative path";
+        return null;
     }
 
     /// <summary>Why a path the Gateway sent may not be written, or null. Only <c>checks/</c> and <c>files/</c>, plain

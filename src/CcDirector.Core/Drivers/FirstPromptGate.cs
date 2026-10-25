@@ -53,7 +53,7 @@ public readonly record struct FirstPromptGateResult(FirstPromptGateOutcome Outco
 /// NOT A RETRY LOOP. Nothing is typed twice. If the limit passes first the gate says so, the caller records a failed
 /// delivery that rides the session row to every screen, and the prompt is not typed at all.
 ///
-/// SCOPE: Claude Code and Codex only - the two agents whose composer <see cref="DoorbellSafety"/> can read from real
+/// SCOPE: Claude Code, Codex and Pi - the agents whose composer <see cref="DoorbellSafety"/> can read from real
 /// captured screens. Every other agent keeps the older wait (<see cref="CanProve"/> is false for it).
 /// </summary>
 public static class FirstPromptGate
@@ -79,7 +79,7 @@ public static class FirstPromptGate
     private static readonly byte[] BackspaceBytes = [0x7F];
 
     /// <summary>True for the agents whose composer can be read from the screen, and so can be gated.</summary>
-    public static bool CanProve(AgentKind agent) => agent is AgentKind.ClaudeCode or AgentKind.Codex;
+    public static bool CanProve(AgentKind agent) => agent is AgentKind.ClaudeCode or AgentKind.Codex or AgentKind.Pi;
 
     /// <summary>
     /// The composer is drawn and waiting: the screen shows no working marker, and the agent's composer is recognised

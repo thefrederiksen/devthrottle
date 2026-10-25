@@ -66,6 +66,7 @@ from .session_ops import (
     spawn_session,
     stop_session,
     undo_done,
+    wait_for_session,
     whoami as show_whoami,
 )
 
@@ -195,7 +196,7 @@ factory_journal_app = typer.Typer(
 factory_app.add_typer(factory_journal_app, name="journal")
 factory_doc_app = typer.Typer(
     cls=AxiGroup,
-    help="A factory's working documents on the Gateway, every version kept.",
+    help="A factory's working documents on the Gateway, the newest three versions kept.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -2560,6 +2561,17 @@ def session_list(
     list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields, connection=connection)
 
 
+@session_app.command("wait")
+def session_wait(
+    target: str = typer.Argument(None, help="Session number, id, or exact name. Default: this session."),
+    until: str = typer.Option(..., "--until", help="State to wait for: idle or needs-approval."),
+    timeout_seconds: int = typer.Option(3600, "--timeout", help="Stop waiting after this many seconds."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the reached state as JSON."),
+) -> None:
+    """Wait until a session is idle or needs approval."""
+    wait_for_session(target, until, timeout_seconds, json_output)
+
+
 @errors_app.command("list")
 def errors_list(
     json_output: bool = typer.Option(
@@ -4507,6 +4519,48 @@ def schedule_runs(
     schedule_ops.list_runs(job_id, json_output)
 
 
+@schedule_app.command("admin-runs")
+def schedule_admin_runs(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output the Gateway's answer as JSON: every field of every run. Filters still apply."
+    ),
+    account: str = typer.Option(None, "--account", help="Only this account id."),
+    email: str = typer.Option(None, "--email", help="Only the account recorded against this email."),
+    job: str = typer.Option(None, "--job", help="Only this schedule id."),
+    since: str = typer.Option(None, "--since", help="Fired from this time: ISO 8601, or an age such as 6h, 7d. Default 7d."),
+    until: str = typer.Option(None, "--until", help="Fired up to this time: ISO 8601, or an age. Default now."),
+    failed: bool = typer.Option(False, "--failed", help="Only runs that failed: a problem, or a start never known."),
+    limit: int = typer.Option(100, "--limit", "-n", help="At most this many, newest first (1 to 500)."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: fired,account,name,machine,result,problem,reason. "
+        "Valid: fired, account, job, name, machine, status, result, problem, failed, reason, session, run, "
+        "scheduled, resolved.",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show whole reasons instead of a preview."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Read from this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """All accounts' scheduled runs and how each ended. Administrator."""
+    from .schedule_admin_ops import list_admin_runs
+
+    list_admin_runs(
+        json_output=json_output,
+        account=account,
+        email=email,
+        job=job,
+        since=since,
+        until=until,
+        failed=failed,
+        limit=limit,
+        fields=fields,
+        full=full,
+        gateway_url=gateway_url,
+    )
+
+
 @schedule_app.command("plan")
 def schedule_plan(
     job_id: str = typer.Argument(..., help="The schedule id (a random schedule)."),
@@ -4552,9 +4606,9 @@ def schedule_create(
     seed: Optional[str] = typer.Option(None, "--seed", help="Skill or prompt the session runs."),
     worklist: Optional[str] = typer.Option(None, "--worklist", help="Named work list to drain."),
     notify_on: str = typer.Option(
-        schedule_ops.NOTIFY_NONE,
+        schedule_ops.NOTIFY_DEFAULT,
         "--notify-on",
-        help="Run-complete notification: none, always, or failure.",
+        help="Tell the owner: failure (the default: when a run fails), always (every run), or none (off).",
     ),
     notify_webhook: Optional[str] = typer.Option(
         None,
@@ -5373,7 +5427,7 @@ def factory_doc_history(
 ) -> None:
     """One page of a working document's versions, newest first, without their text.
 
-    Every version is kept.
+    Only the newest three versions of a document are kept.
     """
     factory_record_ops.doc_history(factory, name, count, before, json_output)
 
@@ -5438,6 +5492,20 @@ def factory_attach_add(
     Each file and each factory's files together are capped; a file over either is refused in words and nothing is kept.
     """
     factory_record_ops.attach_add(factory, seat, file, name, content_type, json_output)
+
+
+@factory_attach_app.command("remove")
+def factory_attach_remove(
+    factory: str = typer.Option(..., "--factory", help=_RECORD_FACTORY_HELP),
+    attachment_id: str = typer.Option(..., "--id", help="The attachment's id, as list shows it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the removed attachment as JSON."),
+) -> None:
+    """Remove one file the factory no longer needs.
+
+    Its bytes are deleted and stop counting against the cap; its record stays, marked removed, so a journal entry
+    that named it still says what it was.
+    """
+    factory_record_ops.attach_remove(factory, attachment_id, json_output)
 
 
 @factory_records_app.command("upload")

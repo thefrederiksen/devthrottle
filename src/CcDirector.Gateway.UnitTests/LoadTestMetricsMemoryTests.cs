@@ -78,6 +78,18 @@ public sealed class LoadTestMetricsMemoryTests
     }
 
     [Fact]
+    public void Snapshot_ReportsTheThreadPoolWorkerFloor()
+    {
+        // Issue #4400: the hosted host starts the pool at 32; this field is how production confirms it took.
+        ThreadPool.GetMinThreads(out var workers, out _);
+
+        var json = JsonSerializer.Serialize(LoadTestMetrics.Snapshot(reset: false));
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Equal(workers, doc.RootElement.GetProperty("process").GetProperty("threadPoolMinWorkers").GetInt32());
+    }
+
+    [Fact]
     public void Snapshot_WithReset_StillReadsMemoryBeforeResetting()
     {
         LoadTestMetrics.SnoozeDbReadObserved();

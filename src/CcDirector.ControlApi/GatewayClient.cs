@@ -631,6 +631,35 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
     }
 
     /// <summary>
+    /// Send the crash journal of the Director that ran before this one to <c>POST /gateway/workspaces/crash-records</c>,
+    /// on this Director's own credential, so the Gateway keeps it as a restart record (issue #4120). Answers true when
+    /// the record was written and false when it was already there - the id is derived from the dead process, so the
+    /// same journal sent at every start-up is recorded once. Throws with the Gateway's reason on any other answer.
+    /// </summary>
+    /// <param name="request">The journal and the record id.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<bool> RecordCrashAsync(WorkspaceCrashRecordRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; a crash record is kept on the Gateway.");
+
+        const string route = "POST /gateway/workspaces/crash-records";
+        FileLog.Write($"[GatewayClient] RecordCrashAsync: {route}, id={request.Id}, sessions={request.Journal.Sessions.Count}");
+        using var resp = await _http.PostAsJsonAsync("gateway/workspaces/crash-records", request, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            FileLog.Write($"[GatewayClient] RecordCrashAsync: '{request.Id}' was already recorded");
+            return false;
+        }
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        FileLog.Write($"[GatewayClient] RecordCrashAsync: '{request.Id}' recorded");
+        return true;
+    }
+
+    /// <summary>
     /// Write what a restore did to one seat (the Message Load mission, inspection 7, ruling 1) through
     /// <c>POST /gateway/workspaces/{id}/restore/marks</c>, on this Director's own credential. Returns the stored
     /// document. Throws with the Gateway's reason when the mark is not written - notably when this Director does
@@ -1091,6 +1120,37 @@ public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourL
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             FileLog.Write($"[GatewayClient] FetchFactoryChecksAsync FAILED: factory={factory}, version={version}, {ex.Message}");
+            return Triggers.FactoryCheckFetch.Refused(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// A factory's check inputs, for one run of one of its checks (<see cref="Triggers.IFactoryCheckSource"/>). A refusal
+    /// or a failure to reach the Gateway comes back as the reason, never as an empty set: a check that was not handed
+    /// its inputs must fail, not decide from nothing.
+    /// </summary>
+    public async Task<Triggers.FactoryCheckFetch> FetchCheckInputsAsync(string directorId, string factory, int version, CancellationToken ct)
+    {
+        FileLog.Write($"[GatewayClient] FetchCheckInputsAsync: factory={factory}, version={version}");
+        if (!_config.IsEnabled) return Triggers.FactoryCheckFetch.Refused("no Gateway is configured");
+        try
+        {
+            using var resp = await _http.GetAsync(
+                $"directors/{Uri.EscapeDataString(directorId)}/factory-check-inputs/{Uri.EscapeDataString(factory)}/{version}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                return Triggers.FactoryCheckFetch.Refused($"HTTP {(int)resp.StatusCode}: {RefusalSentence(body)}");
+            }
+            var answer = await resp.Content.ReadFromJsonAsync<FactoryCheckInputsResponse>(ct);
+            if (answer?.Inputs is null)
+                return Triggers.FactoryCheckFetch.Refused("the Gateway answered with no inputs");
+            FileLog.Write($"[GatewayClient] FetchCheckInputsAsync: factory={factory}, version={version}, inputs={answer.Inputs.Count}");
+            return new Triggers.FactoryCheckFetch(answer.Inputs, null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] FetchCheckInputsAsync FAILED: factory={factory}, version={version}, {ex.Message}");
             return Triggers.FactoryCheckFetch.Refused(ex.Message);
         }
     }

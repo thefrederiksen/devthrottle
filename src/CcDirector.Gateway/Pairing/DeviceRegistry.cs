@@ -36,6 +36,27 @@ public sealed class DeviceRegistry : IDisposable
     private readonly object _enrollLock = new();
     private bool _disposed;
 
+    /// <summary>
+    /// The longest a key judged active is trusted without asking the database again (issue #4409, the owner's ruling
+    /// of 23 October 2026: "it's fine to keep them 60 seconds"). Inside this process a revoke, a re-enrollment, an
+    /// ownership change or a removal from a team is seen at once through <see cref="DeviceCredentialGeneration"/>; this
+    /// bounds only a write made by ANOTHER Gateway process, during the minute two containers overlap in a deploy.
+    /// </summary>
+    public static readonly TimeSpan RememberedKeyMaxAge = TimeSpan.FromSeconds(60);
+
+    /// <summary>Keys this process may remember at once. Only ACTIVE keys are remembered, so the set is the live devices
+    /// and nobody can grow it by presenting guesses; the cap is a backstop that empties it rather than grow without end.</summary>
+    internal const int RememberedKeyCapacity = 10_000;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RememberedKey> _rememberedKeys =
+        new(StringComparer.Ordinal);
+
+    /// <summary>The clock remembered keys are aged by. A test replaces it to age a key past <see cref="RememberedKeyMaxAge"/>.</summary>
+    internal Func<long> NowMs { get; set; } = () => Environment.TickCount64;
+
+    /// <summary>An active resolution, the number it was judged under, and when.</summary>
+    private sealed record RememberedKey(DeviceCredentialResolution Resolution, long Generation, long JudgedAtMs);
+
     public DeviceRegistry() : this(storePath: null)
     {
     }
@@ -193,7 +214,16 @@ public sealed class DeviceRegistry : IDisposable
         {
             var suppliedBytes = HashKeyBytes(key);
             var suppliedHash = HashBytesToHex(suppliedBytes);
-            // Load-test Stage 0 (issue #1173): every authenticated request pays this uncached database
+            // REMEMBERED ACTIVE KEYS (issue #4409). The hash is the dictionary key, so a hit means this exact key was
+            // judged active, under the current number, less than RememberedKeyMaxAge ago. Unknown and revoked keys are
+            // never remembered: a new key works at once, and a refusal is always the database's answer.
+            if (_rememberedKeys.TryGetValue(suppliedHash, out var remembered)
+                && remembered.Generation == DeviceCredentialGeneration.Current
+                && NowMs() - remembered.JudgedAtMs < RememberedKeyMaxAge.TotalMilliseconds)
+                return remembered.Resolution;
+
+            var generation = DeviceCredentialGeneration.Current;
+            // Load-test Stage 0 (issue #1173): every authenticated request that is not remembered pays this database
             // lookup; counting it puts a number on that cost beside the roster's own reads.
             Diagnostics.LoadTestMetrics.DeviceCredentialLookupObserved();
             using var ctx = _db.CreateUnscopedContext();
@@ -222,7 +252,13 @@ public sealed class DeviceRegistry : IDisposable
                 return DeviceCredentialResolution.Unavailable;
             }
 
-            return Judge(ctx, row);
+            var judged = Judge(ctx, row);
+            if (judged.Kind == DeviceCredentialResolutionKind.Active)
+            {
+                if (_rememberedKeys.Count >= RememberedKeyCapacity) _rememberedKeys.Clear();
+                _rememberedKeys[suppliedHash] = new RememberedKey(judged, generation, NowMs());
+            }
+            return judged;
         }
         catch (Exception ex) when (IsDatabaseFailure(ex))
         {

@@ -119,7 +119,7 @@ public static class MacAppPlacer
     /// caught up yet is not a failed install. A failure is logged and nothing else.
     /// </summary>
     [SupportedOSPlatform("macos")]
-    private static void RegisterWithLaunchServices(string target, Action<string> log)
+    public static void RegisterWithLaunchServices(string target, Action<string> log)
     {
         if (!File.Exists(LsRegisterPath))
         {

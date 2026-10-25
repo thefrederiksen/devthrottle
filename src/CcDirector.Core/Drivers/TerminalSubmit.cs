@@ -44,8 +44,6 @@ public enum DoorbellSubmitOutcome
 public static class TerminalSubmit
 {
     private static readonly byte[] EscapeByte = [0x1B];
-    private static readonly byte[] BracketedPasteStart = Encoding.UTF8.GetBytes("\x1b[200~");
-    private static readonly byte[] BracketedPasteEnd = Encoding.UTF8.GetBytes("\x1b[201~");
 
     /// <summary>
     /// THE one place an Enter is pressed to submit a prompt. Settle, press, then watch the TUI until
@@ -111,6 +109,13 @@ public static class TerminalSubmit
     /// NEVER from occurrences of the text anywhere on the screen (Voice Delivery mission, phase 6: a prompt identical
     /// to words already visible in the conversation above could not be sent, and a retained-text check read that
     /// conversation as the composer).</param>
+    /// <param name="commandLine">The agent takes this line as a command - its first character makes it one
+    /// (<see cref="IAgentDriver.LeadingCharacterMode"/>). Enter is pressed ONCE and never again, as a person presses it
+    /// (issue #4380): an agent that refuses a command keeps the line in its composer - Codex answers an unknown one
+    /// "Unrecognized command" and leaves it there - and the nudge ladder read that as a swallowed Enter and pressed Enter
+    /// again, running the command again each time; that is how a leading "/" was sent twice. The output after the Enter
+    /// does not decide either: a command can print almost nothing. The caller's check of the composer after the Enter
+    /// decides.</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
     /// carries it. That is what the agent's records will hold.</returns>
     public static async Task<string> SharedSubmitAsync(
@@ -133,14 +138,20 @@ public static class TerminalSubmit
         Func<string?>? composerText = null,
         Func<string>? composerSeen = null,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        bool commandLine = false,
+        Func<byte[], bool>? writeClearKeys = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
-        var throwWhenParked = !recordsProofFollows;
+        var throwWhenParked = !recordsProofFollows && !commandLine;
         var nudgeBefore = TextWaitsInComposer.Value;
         var clockBefore = SendClock.Value;
-        TextWaitsInComposer.Value = nudgeOnlyWhen;
+        TextWaitsInComposer.Value = commandLine ? () => false : nudgeOnlyWhen;
+        if (commandLine)
+            SendTrail.Step(driverTag, "CommandLine: the agent takes this line as a command - Enter is pressed once, never nudged");
         SendClock.Value = clock;
+        var clearWriterBefore = ClearKeysWriter.Value;
+        ClearKeysWriter.Value = writeClearKeys;
         var typedAfterExistingText = new StrongBox<bool>();
         try
         {
@@ -158,7 +169,34 @@ public static class TerminalSubmit
         {
             TextWaitsInComposer.Value = nudgeBefore;
             SendClock.Value = clockBefore;
+            ClearKeysWriter.Value = clearWriterBefore;
         }
+    }
+
+    /// <summary>
+    /// HOW THE CLEAR KEYS ARE WRITTEN, carried alongside the send as <see cref="SendClock"/> is (review of pull request
+    /// 4396, finding 1). The clear waits for the terminal to go quiet first - up to <see cref="QuietBeforeClearLimit"/> -
+    /// and a person can type into the composer in that wait; the clear keys would then erase their words with the line
+    /// they were meant for. The Session supplies a writer that writes the keys only if no one's text has reached the
+    /// terminal since the send began, deciding and writing under its input lock so no keystroke lands between the two,
+    /// and answers false when it wrote nothing. Null - a host with no Session - writes the keys as before.
+    /// </summary>
+    private static readonly AsyncLocal<Func<byte[], bool>?> ClearKeysWriter = new();
+
+    /// <summary>Write the clear keys through the send's writer. False when they were NOT written because someone typed
+    /// since the send began; the caller then clears nothing and the send types after what is there, as after any
+    /// draft (the owner's ruling, 21 October 2026).</summary>
+    private static bool WriteClearKeys(ISessionBackend backend, string driverTag, byte[] keys)
+    {
+        if (ClearKeysWriter.Value is not { } writer)
+        {
+            backend.Write(keys);
+            return true;
+        }
+        if (writer(keys)) return true;
+        SendTrail.Step(driverTag, "ResolveRetainedComposer: someone typed into the session after this send began - the clear " +
+                                  "keys are NOT pressed, so their words are not erased, and the send types after what is there");
+        return false;
     }
 
     /// <summary>
@@ -209,7 +247,7 @@ public static class TerminalSubmit
         // menu too. This runs BEFORE the retained-text step, so that step never presses its clear keys into a menu, and
         // its mark is left standing for the send that comes once the menu is gone.
         if (composerRegion is not null)
-            await RefuseUnlessComposerDrawnAsync(driverTag, composerRegion, composerSeen, screenSnapshot);
+            await RefuseUnlessComposerDrawnAsync(driverTag, composerRegion, composerSeen);
         await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen, composerRegion);
         // TEXT ALREADY IN THE COMPOSER IS TYPED ONTO, NEVER REFUSED (the owner's ruling, 21 October 2026: "If there are
         // texts already entered in the text box, we should be allowed to add more to it and then hit enter"). Text the
@@ -222,7 +260,39 @@ public static class TerminalSubmit
             typedAfterExistingText.Value = TypeASpaceAfterExistingText(backend, driverTag, composerRegion);
 
         var textForCheck = text.TrimEnd('\r', '\n');
-        if (ShouldUseInstructionFile(driverTag, textForCheck)
+
+        // A PASTE IS A PASTE, AS AT THE KEYBOARD (issue #4379). For the agents the parity harness measures, once the agent
+        // has asked for bracketed paste: a text holding a line break or a tab, or longer than a person would type, goes as
+        // ONE bracketed paste, its line breaks normalised. Typed, a line break is Enter and a tab is the Tab key - the
+        // baseline (23 October 2026) saw tabs lost on every agent, and Codex was sent every multi-line or 300-plus
+        // character text as a file to read instead of the text. The file route is now a recorded fallback, used only
+        // above the size the harness proved each agent takes as a paste.
+        if (bracketedPasteEnabled && PastesLikeAPerson(driverTag))
+        {
+            var pasted = TerminalInputEncoder.NormalizeLineBreaks(textForCheck);
+            if (pasted.Length > PasteLimitFor(driverTag) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
+            {
+                SendTrail.Step(driverTag, $"SharedSubmit: FILE ROUTE (recorded fallback): {pasted.Length} characters is over the " +
+                                          $"{PasteLimitFor(driverTag)} this agent was measured to take as one paste");
+                FileLog.Write($"[TerminalSubmit] FileRoute: driver={driverTag}, session={sessionId}, length={pasted.Length}, " +
+                              $"limit={PasteLimitFor(driverTag)}");
+                // The file holds the text exactly as it was given; only a paste's line breaks are normalised.
+                var viaFile = driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
+                    ? await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion)
+                    : await SubmitViaInstructionFileAsync(backend, textForCheck, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout, pollInterval,
+                        enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
+                ComposerRetention.Clear(backend);
+                return viaFile;
+            }
+            if (pasted.Length > ClaudeTypingLimit || TerminalInputEncoder.HoldsControlCharacters(pasted))
+            {
+                await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
+                ComposerRetention.Clear(backend);
+                // What the composer holds: the paste carries no Escape (TerminalInputEncoder.WithoutEscapes).
+                return TerminalInputEncoder.WithoutEscapes(pasted);
+            }
+        }
+        else if (ShouldUseInstructionFile(driverTag, textForCheck)
             && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
         {
             var instruction = await SubmitViaInstructionFileAsync(
@@ -621,12 +691,24 @@ public static class TerminalSubmit
         SendTrail.Step(driverTag, $"SharedSubmit: bracketed paste submit len={text.Length}");
         // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
         var composerBefore = ReadComposerText(composerText);
-        backend.Write(BracketedPasteStart);
-        await WriteTextAsync(backend, text);
-        backend.Write(BracketedPasteEnd);
+        // ONE ENCODER FOR EVERY PASTE (issue #4379): the same writes the desktop's Ctrl+V makes - the brackets, every
+        // line break as one LF (Codex doubled each CR LF), a tab as a tab, and non-ASCII as key events on Windows.
+        var writes = TerminalInputEncoder.Paste(text, bracketed: true, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(backend),
+            TerminalInputEncoder.PasteChunkBytes).ToList();
+        for (var i = 0; i < writes.Count - 1; i++)
+        {
+            backend.Write(writes[i]);
+            if (i > 0) await Task.Delay(TerminalInputEncoder.PasteChunkPause, Clock);
+        }
+        // THE REPAINT IS COUNTED FROM BEFORE THE END MARKER IS WRITTEN (issue #4379). It was counted from after it, and an
+        // agent that repainted at once - before the next line here ran - repainted into bytes already counted, so the
+        // wait never saw a repaint and held the Enter for its full two minutes. Nothing can answer the end marker before
+        // it is written, so counting from just before it cannot miss the repaint and cannot take an older one for it.
+        var beforeEnd = backend.Buffer?.TotalBytesWritten ?? 0;
+        backend.Write(writes[^1]);
         // THE PASTE IS TAKEN IN BEFORE THE ENTER (issue #3290). An agent still reading a large paste can take the Enter
         // as part of it. The agent repaints its composer once the paste is in; the Enter waits for that repaint to end.
-        await WaitForPasteTakenInAsync(backend, driverTag, text.Length, composerText, composerBefore);
+        await WaitForPasteTakenInAsync(backend, driverTag, text.Length, beforeEnd, composerText, composerBefore);
         await PressEnterAndVerifyAsync(
             backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
     }
@@ -772,10 +854,11 @@ public static class TerminalSubmit
         // this retry after it, so the clear keys never take a draft off.
         // THE MARKED TEXT AND MORE IS NOT OURS ALONE (review of pull request 4072, risk B). A parked doorbell line, or a
         // failed send's text, can have the owner's own words typed after it; the measured clear keys - End and a
-        // Backspace for every character and more - take those words off first. So where the region shows the marked
-        // text with anything else beside it, nothing is cleared and nothing typed, the mark stands, and the send is
-        // refused with what was read. Not for the retry inside one send, where nothing in the composer can be the
-        // owner's.
+        // Backspace for every character and more - would take those words off first. So where the region shows the marked
+        // text with anything else beside it, nothing is cleared: the composer is a draft like any other, and the send
+        // types after it (the owner's decision 8, 23 October 2026 - a person at the terminal can always add to what is
+        // there). Until then this send was refused. Not for the retry inside one send, where nothing in the composer can
+        // be the owner's.
         var regionHolds = ReadRegionText(composerRegion);
         // Only where the WHOLE marked text is in view: a long one Codex scrolls shows only its tail, and then what else is
         // there cannot be told apart from the part scrolled away.
@@ -784,14 +867,9 @@ public static class TerminalSubmit
             && regionHolds.Replace(retainedNeedle, "", StringComparison.Ordinal).Length > 0)
         {
             SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer holds the previous send's {retained.Length} " +
-                                      "characters AND other text - nothing is cleared and nothing typed, so words typed after " +
-                                      $"them are not erased. What it read: {RegionForTrail(composerRegion)}");
-            ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
-            throw new ComposerNotAcceptingInputException(
-                $"[{driverTag}] ResolveRetainedComposer: nothing was typed: the composer holds an earlier unsent text with " +
-                "more typed after it, and clearing it would erase those words too. Send or clear the composer on the " +
-                "session's screen, then send again.")
-            { TerminalReacted = false };
+                                      "characters AND other text - nothing is cleared, so words typed after them are not " +
+                                      $"erased, and this send types after them. What it read: {RegionForTrail(composerRegion)}");
+            return;
         }
 
         if ((unconditionally && clearKeys is not null) || ComposerRetention.ShouldClearBeforeTyping(orphan))
@@ -822,8 +900,8 @@ public static class TerminalSubmit
                                       "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
                                       "unread in the terminal's input are read before them and would otherwise run into this send.");
             await WaitForQuietAsync(backend, driverTag);
-            backend.Write(clearKeys);
-            await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
+            if (WriteClearKeys(backend, driverTag, clearKeys))
+                await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         }
         else
         {
@@ -897,36 +975,29 @@ public static class TerminalSubmit
     }
 
     /// <summary>
-    /// A composer that is "not found" on a screen that rendered NOTHING is not evidence of anything: an empty capture is a
-    /// broken instrument, never a reading (the rule <see cref="ReadScreen"/> and <see cref="ObserveComposerAsync"/> already
-    /// keep). Such a send is not refused for what it cannot see - it goes on as it did before this check existed. Only a
-    /// screen that drew something without a composer on it, or a menu, refuses.
-    /// </summary>
-    private static bool NothingRendered(ComposerReading reading, string driverTag, Func<string[]>? screenSnapshot)
-    {
-        if (reading != ComposerReading.NotFound || screenSnapshot is null || ReadScreen(screenSnapshot) is not null) return false;
-        SendTrail.Step(driverTag, "LookBeforeTyping: the screen has rendered nothing, so the composer cannot be judged - not refusing on it");
-        return true;
-    }
-
-    /// <summary>
-    /// Refuse the send, typing nothing, unless the composer is drawn: a menu, a dialog, or a screen with no composer on it
-    /// is never typed into. The refusal says what to do, sets no mark, and lasts exactly as long as the screen shows it.
+    /// Refuse the send, typing nothing, only on a POSITIVE reading of a menu or a dialog where the composer should be: a
+    /// person at the terminal would see it and not type into it either. A screen the reader cannot place a composer on -
+    /// a full-screen view, a frame mid-repaint, an agent whose composer has no reader (Pi), a screen that rendered nothing
+    /// - is not evidence of anything, and a person at the terminal is never stopped by it (the owner's decision 8, 23
+    /// October 2026: "no silly gates"), so the send goes on and the trail says the composer could not be read. The
+    /// refusal says what to do, sets no mark, and lasts exactly as long as the screen shows the menu.
     /// </summary>
     private static async Task RefuseUnlessComposerDrawnAsync(
-        string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion, Func<string>? composerSeen,
-        Func<string[]>? screenSnapshot)
+        string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion, Func<string>? composerSeen)
     {
-        var look = await LookAtComposerAsync(composerRegion, (r, _) => r is ComposerReading.Empty or ComposerReading.HoldsText);
-        if (look.Ready || NothingRendered(look.Reading, driverTag, screenSnapshot)) return;
-        SendTrail.Step(driverTag, $"LookBeforeTyping: the composer is not drawn ({look.Reading}) after {LookBeforeTypingLooks} looks - " +
+        var look = await LookAtComposerAsync(composerRegion, (r, _) => r != ComposerReading.MenuOpen);
+        if (look.Ready)
+        {
+            if (look.Reading == ComposerReading.NotFound)
+                SendTrail.Step(driverTag, "LookBeforeTyping: the composer cannot be read on this screen - that is not a menu, " +
+                                          $"so the send goes on. {RegionForTrail(composerRegion)}; {ComposerSeenForTrail(composerSeen)}");
+            return;
+        }
+        SendTrail.Step(driverTag, $"LookBeforeTyping: a menu or a dialog stands where the composer should be after {LookBeforeTypingLooks} looks - " +
                                   $"nothing is typed. {RegionForTrail(composerRegion)}; {ComposerSeenForTrail(composerSeen)}");
-        var what = look.Reading == ComposerReading.MenuOpen
-            ? "the agent is showing a menu or a dialog where its composer should be - it may be asking a question"
-            : "the agent's composer is not on the screen - a full-screen view or a dialog may be open";
         throw new ComposerNotAcceptingInputException(
-            $"[{driverTag}] LookBeforeTyping: nothing was typed: {what}. Answer or close it on the session's screen, then send " +
-            "again.")
+            $"[{driverTag}] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer " +
+            "should be - it may be asking a question. Answer or close it on the session's screen, then send again.")
         { TerminalReacted = false };
     }
 
@@ -981,7 +1052,7 @@ public static class TerminalSubmit
         SendTrail.Step(driverTag, $"ResolveRetainedComposer: clearing - the composer before: {RegionForTrail(composerRegion)}; " +
                                   $"pressing {DescribeKeys(keys)}");
         var clearedAt = Now;
-        backend.Write(keys);
+        if (!WriteClearKeys(backend, driverTag, keys)) return;
         await Task.Delay(TimeSpan.FromMilliseconds(300), Clock);
         if (composerHoldsNothing is null) return;
 
@@ -1003,25 +1074,28 @@ public static class TerminalSubmit
         if (empty) return;
 
         var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
-        ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
-        if (composerRegion?.Invoke().Reading == ComposerReading.NotFound)
+        var after = composerRegion?.Invoke().Reading;
+        if (after == ComposerReading.NotFound)
         {
-            // AN UNREADABLE COMPOSER IS NOT A FULL ONE (issue 3481). The reader could not find the composer at all -
-            // on 29 September 2026 because Claude Code had drawn the session's name into the rule above it - and that
-            // used to be reported as "still holds text", which named a cause nobody observed and sent the owner
-            // looking for words that were not there. Nothing is typed, because an empty composer cannot be proven;
-            // the refusal says what is actually known, and the rows the reader looked at go to the log.
+            // AN UNREADABLE COMPOSER IS NOT A FULL ONE (issue 3481), AND IT STOPS NOBODY (the owner's decision 8, 23 October
+            // 2026). The reader could not find the composer at all - on 29 September 2026 because Claude Code had drawn the
+            // session's name into the rule above it. That used to refuse the send; a person at the terminal is not stopped
+            // by a screen the Director cannot read, so the send goes on. The rows the reader looked at go to the trail, so a
+            // reader that has fallen behind the agent's interface can still be seen for what it is.
             var rows = screenSnapshot?.Invoke() ?? [];
-            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer cannot be read after the clear - " +
-                                      $"{rows.Length} screen rows, the last ones:{Environment.NewLine}" +
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer cannot be read after the clear - not refusing on " +
+                                      $"that, the send goes on. {rows.Length} screen rows, the last ones:{Environment.NewLine}" +
                                       string.Join(Environment.NewLine, rows.Reverse().SkipWhile(string.IsNullOrWhiteSpace).Take(12).Reverse()
                               .Select(r => "    |" + r)));
-            throw new ComposerNotAcceptingInputException(
-                $"[{driverTag}] ResolveRetainedComposer: the composer cannot be read after it was cleared, so " +
-                "nothing was typed - the Director cannot tell whether it is empty. " +
-                $"The Director believes an earlier send may have left {retained.Length} characters there; " +
-                $"what it read: {seen}. The next send looks again.");
+            FileLog.Write($"[TerminalSubmit] {driverTag}: the composer cannot be read after the clear; the send goes on unrefused. What it read: {seen}");
+            return;
         }
+        ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+        if (after == ComposerReading.MenuOpen)
+            throw new ComposerNotAcceptingInputException(
+                $"[{driverTag}] ResolveRetainedComposer: nothing was typed: after the clear the agent is showing a menu or a " +
+                "dialog where its composer should be. Answer or close it on the session's screen, then send again.")
+            { TerminalReacted = false };
         throw new ComposerNotAcceptingInputException(
             $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
             "nothing was typed - typing now would run the new text together with what is there. " +
@@ -1075,15 +1149,17 @@ public static class TerminalSubmit
     /// An agent that shows neither has not read the paste yet (measured on Pi under full load: thirty seconds without a
     /// byte), so it is waited for, up to <see cref="PasteTakenInLimit"/>, and the wait says so in the log.
     /// </summary>
+    /// <param name="beforeEnd">The terminal's byte count taken just before the paste's end marker was written: any output
+    /// past it is the agent answering the paste.</param>
     private static async Task WaitForPasteTakenInAsync(
-        ISessionBackend backend, string driverTag, int length, Func<string?>? composerText = null, string? composerBefore = null)
+        ISessionBackend backend, string driverTag, int length, long beforeEnd, Func<string?>? composerText = null, string? composerBefore = null)
     {
         if (backend.Buffer is not { } buffer) return;
         var notice = new SendWaitNotice(driverTag, $"the agent to take in a {length}-character paste " +
             (composerText is null ? "(a repaint followed by a quiet terminal)" : "(the composer showing it, or a quiet terminal)"),
             $"{PasteTakenInLimit.TotalSeconds:F0}s", Clock);
         var started = Now;
-        var startTotal = buffer.TotalBytesWritten;
+        var startTotal = beforeEnd;
         var lastTotal = startTotal;
         var lastChange = started;
         var lastLook = DateTime.MinValue;
@@ -1430,6 +1506,27 @@ public static class TerminalSubmit
     /// </summary>
     internal const int PasteLimit = 2000;
 
+    /// <summary>
+    /// The agents whose paste the parity harness measures (issue #4379): for them a paste is the first choice and the file
+    /// route the recorded fallback. Every other agent keeps its routes until it is measured.
+    /// </summary>
+    internal static bool PastesLikeAPerson(string driverTag) =>
+        driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
+        || driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
+        || driverTag.Equals("Pi", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The longest text pasted into each measured agent; a longer one goes through a file (issue #4379). It is the
+    /// largest text the parity harness PROVED arrives as one paste, character for character in the agent's own records:
+    /// on 23 October 2026 Claude Code 2.1.309, Codex 0.163.0 and Pi 1.2.0 each took 2,001, 8,192 and 51,200 characters
+    /// and a 50-line text exactly, through this send and through the desktop paste, idle and with all 32 cores busy.
+    /// (The old 2,000 limit came from a busy machine on 24 September, when the send's paste-wait race - fixed with this
+    /// limit - could hold an Enter for two minutes.) Nothing longer was measured, so nothing longer is pasted.
+    /// </summary>
+    internal const int MeasuredPasteLimit = 51_200;
+
+    internal static int PasteLimitFor(string driverTag) => MeasuredPasteLimit;
+
     private static bool ShouldReferenceRatherThanPaste(string driverTag, string text) =>
         text.Length > PasteLimit && driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase);
 
@@ -1629,73 +1726,19 @@ public static class TerminalSubmit
 
     private static async Task WriteTextAsync(ISessionBackend backend, string text)
     {
-        var asKeyEvents = backend is ConPtyBackend;
+        var asKeyEvents = TerminalInputEncoder.SendsNonAsciiAsKeyEvents(backend);
         const int bulkThreshold = 48;
         if (Encoding.UTF8.GetByteCount(text) <= bulkThreshold)
         {
-            backend.Write(Encode(text, asKeyEvents));
+            backend.Write(TerminalInputEncoder.Encode(text, asKeyEvents));
             return;
         }
 
-        foreach (var chunk in Chunks(text, asKeyEvents))
+        foreach (var chunk in TerminalInputEncoder.Chunks(text, asKeyEvents))
         {
             backend.Write(chunk);
             await Task.Delay(TimeSpan.FromMilliseconds(10), Clock);
         }
-    }
-
-    /// <summary>
-    /// The bytes that put <paramref name="text"/> into an agent's composer. With <paramref name="nonAsciiAsKeyEvents"/>
-    /// (a Windows pseudo console) every character outside ASCII is written as a win32-input-mode key press - the form
-    /// Windows Terminal itself uses to hand the pseudo console a keystroke - and ASCII is written as it is.
-    ///
-    /// WHY (issue #3290), measured on 24 September 2026 with the qualification rig (`--chars`): written as UTF-8, the
-    /// text "e\u00e9 d\u2013 q\u201cx\u201d p\u00a3 u\u20ac" reached Codex and Grok as "e\u00e9 d qx p u" - the pseudo
-    /// console hands those two agents each UTF-8 byte as a character of its own, so Codex RECORDED "Caf\u00e9" as
-    /// "Caf\u00c3\u00a9" and the dashes, curly quotes, pound and euro vanished. One write, a write per character and a
-    /// bracketed paste all lost them the same way. As key presses the text reached Claude Code, Codex, Pi, OpenCode and
-    /// Grok intact, and inside a bracketed paste Claude Code still received it as one two-line paste. Dictation
-    /// produces curly quotes and dashes all the time, so this is not an edge case.
-    /// </summary>
-    internal static byte[] Encode(string text, bool nonAsciiAsKeyEvents)
-    {
-        if (!nonAsciiAsKeyEvents || text.All(c => c < 0x80))
-            return Encoding.UTF8.GetBytes(text);
-        var sb = new StringBuilder(text.Length + 64);
-        foreach (var c in text)
-        {
-            if (c < 0x80)
-            {
-                sb.Append(c);
-                continue;
-            }
-            // CSI Vk;Sc;Uc;Kd;Cs;Rc _ : no virtual key, no scan code, the UTF-16 unit, key down then key up, once.
-            // A character outside the basic plane is sent as its two surrogate units, as Windows Terminal sends it.
-            sb.Append("\u001b[0;0;").Append((int)c).Append(";1;0;1_");
-            sb.Append("\u001b[0;0;").Append((int)c).Append(";0;0;1_");
-        }
-        return Encoding.ASCII.GetBytes(sb.ToString());
-    }
-
-    /// <summary>
-    /// The text as chunks of about sixteen characters' bytes that NEVER split a character - a character, and a
-    /// character sent as key presses, always travels in one write.
-    /// </summary>
-    internal static IEnumerable<byte[]> Chunks(string text, bool nonAsciiAsKeyEvents = false, int chunkSize = 16)
-    {
-        var pending = new List<byte>(chunkSize + 64);
-        var e = System.Globalization.StringInfo.GetTextElementEnumerator(text);
-        while (e.MoveNext())
-        {
-            var element = Encode((string)e.Current, nonAsciiAsKeyEvents);
-            if (pending.Count > 0 && pending.Count + element.Length > chunkSize)
-            {
-                yield return pending.ToArray();
-                pending.Clear();
-            }
-            pending.AddRange(element);
-        }
-        if (pending.Count > 0) yield return pending.ToArray();
     }
 
     /// <summary>

@@ -84,6 +84,45 @@ public sealed class ApiModeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task SendTextAsync_DialogTimesOutWithTurnEnd_NextTextIsDeliveredAsPrompt()
+    {
+        // Arrange: begin a turn, then let an unanswered dialog expire when Pi settles the turn without a reply.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        var (session, backend, sink) = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await sink.WaitForAsync<ConnectionReady>();
+
+        var firstSend = session.SendTextAsync("Open a dialog", Door);
+        var firstPrompt = System.Text.Json.JsonDocument.Parse(await pi.WaitForWrittenAsync("prompt")).RootElement;
+        var firstCommandId = firstPrompt.GetProperty("id").GetString();
+        pi.Process.EmitOutput($"{{\"id\":\"{firstCommandId}\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{{\"disposition\":\"started\"}}}}\n");
+        Assert.True((await firstSend).Confirmed);
+        pi.Process.EmitOutput("{\"type\":\"agent_start\"}\n");
+        await sink.WaitForAsync<TurnStarted>();
+        pi.Process.EmitOutput("{\"type\":\"extension_ui_request\",\"id\":\"ui-timeout\",\"method\":\"input\",\"title\":\"Optional detail\",\"timeout\":1000}\n");
+        await sink.WaitForAsync<InteractionRequested>();
+        await backend.Host.HeardAsync();
+        Assert.NotNull(session.PendingInteraction);
+
+        // Act: Pi gives no dialog-expiry event; its turn end is the only evidence that the dialog no longer exists.
+        pi.Process.EmitOutput("{\"type\":\"agent_settled\",\"aborted\":false}\n");
+        await sink.WaitForAsync<TurnEnded>();
+        await backend.Host.HeardAsync();
+
+        // Assert: the expired dialog is gone, and the next text uses prompt rather than extension_ui_response.
+        Assert.Null(session.PendingInteraction);
+        var nextSend = session.SendTextAsync("The next task", Door);
+        var secondPromptLine = await pi.WaitForWrittenAsync("prompt", occurrence: 2);
+        var secondCommandId = System.Text.Json.JsonDocument.Parse(secondPromptLine).RootElement.GetProperty("id").GetString();
+        pi.Process.EmitOutput($"{{\"id\":\"{secondCommandId}\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{{\"disposition\":\"started\"}}}}\n");
+
+        Assert.True((await nextSend).Confirmed);
+        Assert.Equal("The next task", MessageOf(secondPromptLine));
+        Assert.DoesNotContain("extension_ui_response", pi.WrittenTypes);
+    }
+
+    [Fact]
     public async Task SendTextAsync_PiRefuses_ReturnsRefusedWithPisReason()
     {
         // Arrange

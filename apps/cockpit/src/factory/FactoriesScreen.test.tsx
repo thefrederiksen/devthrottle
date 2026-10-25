@@ -55,6 +55,7 @@ const cronClient = vi.hoisted(() => ({
   setCronJobEnabled: vi.fn(),
   getCronPause: vi.fn(),
   setCronPause: vi.fn(),
+  getFolderChoices: vi.fn(async (machine: string) => ({ machine, os: "", osName: "Unknown", online: true, placeholder: "", note: null, repositories: [] })),
   getSeatChoices: vi.fn(async () => ({
     noneLabel: "No factory (Personal)",
     factories: [{ factory: "warmforward", title: "WarmForward Factory", seats: [{ id: "nora-hale", label: "Nora Hale (nora-hale)" }] }],

@@ -372,16 +372,33 @@ public sealed class PiDialectTests
     [InlineData("confirm")]
     [InlineData("input")]
     [InlineData("editor")]
-    public void OnStdoutRecord_ExtensionDialog_AnswersAtOnceWithTheCancellation(string method)
+    public void OnStdoutRecord_ExtensionDialog_RemainsPendingForThePerson(string method)
     {
-        // Act: documented only.
+        // Act
         Pi($$$"""{"type":"extension_ui_request","id":"ui-7","method":"{{{method}}}","title":"Pick one"}""");
 
-        // Assert
-        var answer = Assert.Single(_toWrite);
-        Assert.Equal("""{"type":"extension_ui_response","id":"ui-7","cancelled":true}""", answer.Line);
-        Assert.Empty(_events);
+        // Assert: the Director must not answer or cancel an interaction the person has not decided.
+        Assert.Empty(_toWrite);
+        var pending = Assert.IsType<InteractionRequested>(Assert.Single(_events));
+        Assert.Equal("ui-7", pending.RequestId);
+        Assert.Equal(method, pending.Method);
+        Assert.Equal("Pick one", pending.Prompt);
+        Assert.Equal(method == "confirm" ? ["Yes", "No"] : [], pending.Options);
         Assert.Empty(_defects);
+    }
+
+    [Theory]
+    [InlineData("select", "Second", "{\"type\":\"extension_ui_response\",\"id\":\"ui-7\",\"value\":\"Second\"}")]
+    [InlineData("input", "typed value", "{\"type\":\"extension_ui_response\",\"id\":\"ui-7\",\"value\":\"typed value\"}")]
+    [InlineData("editor", "two lines", "{\"type\":\"extension_ui_response\",\"id\":\"ui-7\",\"value\":\"two lines\"}")]
+    [InlineData("confirm", "Yes", "{\"type\":\"extension_ui_response\",\"id\":\"ui-7\",\"confirmed\":true}")]
+    [InlineData("confirm", "No", "{\"type\":\"extension_ui_response\",\"id\":\"ui-7\",\"confirmed\":false}")]
+    public void BuildExtensionUiAnswer_UsesTheResponseShapeForTheDialog(string method, string answer, string expected)
+    {
+        var command = _dialect.BuildExtensionUiAnswer("ui-7", method, answer);
+
+        Assert.Equal(expected, command.Line);
+        Assert.Equal("extension_ui_response", command.Type);
     }
 
     [Fact]

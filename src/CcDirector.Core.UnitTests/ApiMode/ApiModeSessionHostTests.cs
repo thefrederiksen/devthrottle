@@ -72,6 +72,22 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
+    public async Task AnswerInteractionAsync_PendingSelect_WritesTheOwnersChoiceWithoutCancelling()
+    {
+        await using var rig = StartHost(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        rig.Pi.Process.EmitOutput("{\"type\":\"extension_ui_request\",\"id\":\"ui-7\",\"method\":\"select\",\"title\":\"Pick one\",\"options\":[\"First\",\"Second\"]}\n");
+        await rig.Sink.WaitForAsync<InteractionRequested>();
+
+        var written = await rig.Host.AnswerInteractionAsync("ui-7", "select", "Second", CancellationToken.None);
+        var line = await rig.Pi.WaitForWrittenAsync("extension_ui_response");
+
+        Assert.True(written);
+        Assert.Equal("Second", JsonDocument.Parse(line).RootElement.GetProperty("value").GetString());
+        Assert.False(JsonDocument.Parse(line).RootElement.TryGetProperty("cancelled", out _));
+    }
+
+    [Fact]
     public async Task SendPromptAsync_PlainPrompt_IsDeliveredAndTheTurnEndsDone()
     {
         // Arrange

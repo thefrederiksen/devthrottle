@@ -1,0 +1,10 @@
+agent    case           run pass  working-after false-waiting waiting-after-end approval-shown
+claude   approval         1 NO             1.2s          0.0s             never no
+claude   approval         2 NO             1.2s          0.0s             never no
+codex    approval         1 NO             1.2s          0.0s             never no
+codex    approval         2 NO             1.2s          0.0s             never no
+0 of 4 case runs correct; 0 case(s) passed on one run and failed on another.
+  claude approval run 1: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-claude-approval-run1.txt)
+  claude approval run 2: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-claude-approval-run2.txt)
+  codex approval run 1: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-codex-approval-run1.txt)
+  codex approval run 2: not shown waiting within 2s of the true end; the approval was never shown as needing approval (screen: screens/state-codex-approval-run2.txt)

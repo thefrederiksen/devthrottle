@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FleetMachine, FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
-import { machineOf, toneClass, versionStateByDirector } from "./machinesFormat";
+import { machineOf, outcomeStillShown, toneClass, versionStateByDirector } from "./machinesFormat";
 
 const action = { offered: false, label: "", reason: null };
 const version = { label: "", tone: "idle" as const, behind: false };
@@ -13,6 +13,7 @@ function machine(name: string, directorIds: string[]): FleetMachine {
     reachTone: "ok",
     launcherVersionState: version,
     canReportUpdateStatus: true,
+    upToDate: false,
     update: action,
     restart: action,
     start: action,
@@ -51,5 +52,24 @@ describe("machinesFormat", () => {
     const map = versionStateByDirector(view);
     expect(map.get("136af82d")?.behind).toBe(true);
     expect(map.size).toBe(2);
+  });
+
+  // Issue #4423: Update now worked, both versions came back current, and the red "too old" answer stayed beside the
+  // green row. The update's answer goes once the Gateway says the machine is up to date.
+  it("drops an update's answer once the Gateway says the machine is up to date", () => {
+    const failed = { text: "the launcher is too old", tone: "bad" as const, kind: "update" as const };
+    const behind = machine("STUDIO_MAC", ["d1"]);
+    const current = { ...behind, upToDate: true };
+
+    expect(outcomeStillShown(failed, behind)).toBe(true);
+    expect(outcomeStillShown(failed, current)).toBe(false);
+  });
+
+  it("keeps a restart's or a start's answer whatever the versions say", () => {
+    const current = { ...machine("STUDIO_MAC", ["d1"]), upToDate: true };
+
+    expect(outcomeStillShown({ text: "The Director restarted.", tone: "ok", kind: "restart" }, current)).toBe(true);
+    expect(outcomeStillShown({ text: "asked to start", tone: "ok", kind: "start" }, current)).toBe(true);
+    expect(outcomeStillShown(null, current)).toBe(false);
   });
 });

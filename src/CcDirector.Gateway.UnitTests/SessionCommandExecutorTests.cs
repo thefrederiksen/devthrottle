@@ -969,6 +969,62 @@ public sealed class SessionCommandExecutorTests
         finally { sm.Dispose(); }
     }
 
+    // ---------- issue #3469: a scheduled Claude Code start never waits on the folder-trust question ----------
+
+    [Fact]
+    public async Task DispatchAsync_Create_AScheduledClaudeCodeStartInAnUntrustedUnregisteredFolder_IsRefusedBeforeAnythingStarts()
+    {
+        var folder = Directory.CreateTempSubdirectory("scheduled-trust-create-").FullName;
+        var config = Path.Combine(folder, ".claude.json");
+        File.WriteAllText(config, "{}");
+        var sm = new SessionManager(new Core.Configuration.AgentOptions()) { ClaudeFolderTrust = new Core.Claude.ClaudeFolderTrust(config) };
+        try
+        {
+            var command = CreateCommand(new NewSessionRequest
+            {
+                RepoPath = folder, Agent = "ClaudeCode", Name = "nightly", Origin = SessionOriginKinds.Schedule,
+                OriginSurface = SessionOriginSurfaces.Cron,
+            });
+
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+
+            Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+            Assert.StartsWith($"not started: the folder '{folder}' is not one of the repositories of", result.Error);
+            Assert.Empty(sm.ListSessions());
+        }
+        finally
+        {
+            sm.Dispose();
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DispatchAsync_Create_AScheduledStartOfAnotherAgent_IsNotAskedAboutClaudeCodesTrust()
+    {
+        var folder = Directory.CreateTempSubdirectory("scheduled-trust-create-").FullName;
+        var config = Path.Combine(folder, ".claude.json");
+        File.WriteAllText(config, "{}");
+        var sm = new SessionManager(new Core.Configuration.AgentOptions()) { ClaudeFolderTrust = new Core.Claude.ClaudeFolderTrust(config) };
+        try
+        {
+            var command = CreateCommand(new NewSessionRequest
+            {
+                RepoPath = folder, Agent = "RawCli", Command = TestShellPath, Name = "nightly shell", WingmanEnabled = false,
+                Origin = SessionOriginKinds.Schedule, OriginSurface = SessionOriginSurfaces.Cron,
+            });
+
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+
+            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+        }
+        finally
+        {
+            sm.Dispose();
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     // ---------- auto-name + IsAutoNamed (chunk 3) ----------
 
     [Fact]

@@ -56,6 +56,18 @@ public sealed class CronRunRecord
     public string? EndingText { get; set; }
 
     /// <summary>
+    /// What went wrong with a failed run, as one plain sentence the owner can act on (issue #4436): what happened, on
+    /// which machine, and what to do - for example "The folder '/Users/you/project' does not exist on studio-mac (a
+    /// Mac). Choose a folder that exists on studio-mac. Then edit the schedule." Null for a run that did not fail. The
+    /// raw reason stays in <see cref="ResultReason"/> as the detail and is never this headline. Read-only.
+    /// </summary>
+    public string? FailureText { get; set; }
+
+    /// <summary>The cause of a failed run, one of the <c>ScheduleFailureCauses</c> values; null for a run that did not
+    /// fail. Read-only.</summary>
+    public string? FailureCause { get; set; }
+
+    /// <summary>
     /// The shift the run started in, in the account's time zone, for example "morning shift, Sun 11 Oct, 08:00-16:00"
     /// (Factory Control, step 3; <c>WorkShifts</c>). Folded by the Gateway on a read. Read-only.
     /// </summary>
@@ -191,6 +203,12 @@ public static class CronRunProblems
     /// <summary>The run was due and never started a session.</summary>
     public const string DidNotRun = "did-not-run";
 
+    /// <summary>
+    /// The run started its session, and the prompt it was given never reached the agent (issue #3392): the Director
+    /// reported on the session that its first prompt was not delivered. Nothing ran, though the session is open.
+    /// </summary>
+    public const string PromptNotDelivered = "prompt-not-delivered";
+
     /// <summary>The run's check broke its contract (Factory Definition, phase 5b); the reason is the contract's, quoted.
     /// Also the kind of a definition trigger's failed check on the problems list.</summary>
     public const string CheckFailed = "check-failed";
@@ -223,6 +241,7 @@ public static class CronRunProblems
         DidNotReport => "did not report",
         RanPastShift => "ran past its shift",
         DidNotRun => "did not run",
+        PromptNotDelivered => "its prompt never reached the agent",
         CheckFailed => "check failed",
         CheckNotRun => "check did not run",
         MailboxFailed => "mailbox could not be checked",

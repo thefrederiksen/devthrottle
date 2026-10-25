@@ -139,6 +139,118 @@ public sealed class TunnelStreamLegsTests
         Assert.Equal(0, registry.LiveStreamCount);
     }
 
+    /// <summary>The bottom of a real captured usage-limit dialog, personal details removed (the rows
+    /// <see cref="EnterCommandTests"/> uses).</summary>
+    private static readonly string[] UsageLimitDialogRows =
+    {
+        "  You've hit your session limit - resets 10:20am (UTC)",
+        "  What do you want to do?",
+        "  > 1. Stop and wait for limit to reset",
+        "    2. Add funds to continue with usage credits",
+        "    3. Switch to Team plan",
+        "  Enter to confirm - Esc to cancel",
+    };
+
+    /// <summary>
+    /// Issue #4380: a keystroke the Director refuses gets a refused frame with the reason - the browser used to hear
+    /// nothing at all. Driven through the real keystroke pump into the Director's real terminal-input verb, for a session
+    /// that has ended.
+    /// </summary>
+    [Fact]
+    public async Task Terminal_leg_keystroke_the_director_refuses_gets_a_refused_frame()
+    {
+        var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        var sessions = new Core.Sessions.SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        session.Dispose();
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
+            ? Task.FromResult<DirectorCommandResult?>(ControlApi.SessionWriteExecutor.TerminalInput(sessions, c))
+            : Ok();
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
+        var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
+        stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("x"));
+
+        try
+        {
+            await legs.ServeTerminalAsync(NewWebSocketContext(stub), session.Id.ToString(), TenantId.Local, "dir1");
+        }
+        finally { sessions.Dispose(); }
+
+        var refused = Assert.Single(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Contains("nothing was typed", JsonDocument.Parse(refused).RootElement.GetProperty("reason").GetString());
+        Assert.Empty(terminal.Writes);
+    }
+
+    /// <summary>
+    /// Review of pull request 4394, finding 1: a key typed into the live browser terminal while Claude Code's usage-limit
+    /// dialog shows is a person typing at a terminal they can see, as at the desktop - it reaches the dialog, and no
+    /// refused frame is sent. (Issue #4380's first wording expected a refused frame here; decision 8 and this review
+    /// overrule it.)
+    /// </summary>
+    [Fact]
+    public async Task Terminal_leg_keystroke_on_the_usage_limit_dialog_reaches_it_as_a_persons_key()
+    {
+        var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        terminal.Buffer!.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H" + string.Join("\r\n", UsageLimitDialogRows)));
+        Assert.True(session.UsageLimitDialogMayShow());
+        var sessions = new Core.Sessions.SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
+            ? Task.FromResult<DirectorCommandResult?>(ControlApi.SessionWriteExecutor.TerminalInput(sessions, c))
+            : Ok();
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
+        var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
+        stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("1\r"));
+
+        try
+        {
+            await legs.ServeTerminalAsync(NewWebSocketContext(stub), session.Id.ToString(), TenantId.Local, "dir1");
+        }
+        finally { sessions.Dispose(); }
+
+        Assert.DoesNotContain(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Equal(new[] { "1\r" }, terminal.Writes);
+    }
+
+    [Fact]
+    public async Task Terminal_leg_keystroke_written_gets_no_refused_frame()
+    {
+        var (session, terminal) = ScriptedTerminal.NewWaitingSession();
+        var sessions = new Core.Sessions.SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
+            ? Task.FromResult<DirectorCommandResult?>(ControlApi.SessionWriteExecutor.TerminalInput(sessions, c))
+            : Ok();
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
+        var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
+        stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("hi"));
+
+        try
+        {
+            await legs.ServeTerminalAsync(NewWebSocketContext(stub), session.Id.ToString(), TenantId.Local, "dir1");
+        }
+        finally { sessions.Dispose(); }
+
+        Assert.DoesNotContain(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Equal(new[] { "hi" }, terminal.Writes);
+    }
+
+    [Fact]
+    public async Task Terminal_leg_keystroke_to_an_unreachable_director_gets_a_refused_frame()
+    {
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) => c.Verb == "terminal-input"
+            ? Task.FromResult<DirectorCommandResult?>(null)
+            : Ok();
+        var legs = new TunnelStreamLegs(new GatewayStreamRegistry(), send);
+        var stub = new StubServerWebSocket { CloseWhenIncomingDrained = true };
+        stub.Incoming.Enqueue(Encoding.UTF8.GetBytes("x"));
+
+        await legs.ServeTerminalAsync(NewWebSocketContext(stub), Guid.NewGuid().ToString(), TenantId.Local, "dir1");
+
+        var refused = Assert.Single(stub.SentText, t => t.Contains("\"type\":\"refused\""));
+        Assert.Contains("could not be reached", refused);
+    }
+
     // ---------------------------------------------------------------------------------- helpers ----
 
     private static Task<DirectorCommandResult?> Ok(object? body = null) =>
@@ -191,6 +303,13 @@ public sealed class TunnelStreamLegsTests
 
         public void SignalClose() => _close.TrySetResult();
 
+        /// <summary>Messages the browser sends, delivered in order before anything else is received.</summary>
+        public Queue<byte[]> Incoming { get; } = new();
+
+        /// <summary>When set, the browser disconnects as soon as its <see cref="Incoming"/> messages are all received:
+        /// the pump has answered each one before it asks for the next.</summary>
+        public bool CloseWhenIncomingDrained { get; init; }
+
         public override WebSocketState State => _state;
 
         public override Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType messageType, bool endOfMessage, CancellationToken ct)
@@ -204,6 +323,12 @@ public sealed class TunnelStreamLegsTests
 
         public override async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken ct)
         {
+            if (Incoming.TryDequeue(out var message))
+            {
+                message.CopyTo(buffer.Array!, buffer.Offset);
+                return new WebSocketReceiveResult(message.Length, WebSocketMessageType.Binary, true);
+            }
+            if (CloseWhenIncomingDrained) SignalClose();
             using var reg = ct.Register(() => _close.TrySetResult());
             await _close.Task;
             _state = WebSocketState.CloseReceived;

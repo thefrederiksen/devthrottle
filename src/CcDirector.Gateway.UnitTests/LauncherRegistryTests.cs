@@ -153,4 +153,97 @@ public sealed class LauncherRegistryTests
             Version = version,
             StartedAt = DateTime.UtcNow,
         };
+
+    // Issue #4423: the new launcher process registers BEFORE it opens its stream, so the old stream's close must
+    // survive that registration - it is the evidence that "heartbeating, no stream" means restarting.
+    [Fact]
+    public void Upsert_AfterNoteStreamClosed_KeepsTheClose()
+    {
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("STUDIO-MAC", pid: 101));
+        reg.NoteStreamClosed(CcDirector.Core.Tenancy.TenantId.Local, "studio-mac", closedAt);
+
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("STUDIO-MAC", pid: 202));
+
+        var dto = reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "STUDIO-MAC");
+        Assert.Equal(202, dto!.Pid);
+        Assert.Equal(closedAt, dto.StreamClosedAt);
+    }
+
+    // Review finding 1: a launcher that quits cleanly closes its stream and then DELETEs its registration, and the new
+    // process registers before it opens its own stream. The close must survive the DELETE.
+    [Fact]
+    public void Upsert_AfterTheStreamClosedAndTheRowWasRemoved_StillCarriesTheClose()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 101, version: "2.28.0"));
+        reg.NoteStreamClosed(tenant, "studio-mac", closedAt);
+        reg.Remove(tenant, "studio-mac");
+
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 202, version: "2.30.0"));
+
+        Assert.Equal(closedAt, reg.Get(tenant, "studio-mac")!.StreamClosedAt);
+    }
+
+    [Fact]
+    public void NoteStreamClosed_BeforeTheMachineRegisters_IsCarriedByItsRegistration()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var closedAt = new DateTime(2026, 10, 24, 19, 31, 0, DateTimeKind.Utc);
+
+        reg.NoteStreamClosed(tenant, "studio-mac", closedAt);
+
+        Assert.Null(reg.Get(tenant, "studio-mac"));
+        reg.Upsert(tenant, MakeReq("STUDIO-MAC", pid: 202));
+        Assert.Equal(closedAt, reg.Get(tenant, "studio-mac")!.StreamClosedAt);
+    }
+
+    // Review round 2: the close is kept for good, so it is usually old. A launcher starting this morning after its
+    // machine was off overnight is reconnecting for the moment until its stream opens - not "not taking commands".
+    [Fact]
+    public void Classify_LauncherStartingAfterALongStop_IsReconnectingNotStreamDown()
+    {
+        var tenant = CcDirector.Core.Tenancy.TenantId.Local;
+        var reg = new LauncherRegistry();
+        var lastNight = DateTime.UtcNow.AddHours(-10);
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 101, version: "2.30.0"));
+        reg.NoteStreamClosed(tenant, "studio-mac", lastNight);
+        reg.Remove(tenant, "studio-mac");
+        var thisMorning = DateTime.UtcNow;
+        reg.Upsert(tenant, MakeReq("studio-mac", pid: 202, version: "2.30.0"));
+
+        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(reg.Get(tenant, "studio-mac"), streamConnected: false, thisMorning.AddSeconds(2));
+
+        Assert.Equal(LauncherReach.Reconnecting, reach);
+    }
+
+    [Fact]
+    public void Classify_RegisteredLongAgoAndStreamLongDown_IsStreamDown()
+    {
+        var registered = new LauncherDto
+        {
+            MachineName = "studio-mac",
+            RegisteredAt = DateTime.UtcNow.AddHours(-3),
+            LastSeenAt = DateTime.UtcNow.AddSeconds(-5),
+            StreamClosedAt = DateTime.UtcNow.AddHours(-1),
+        };
+
+        var reach = CcDirector.Gateway.Api.LauncherReachability.Classify(registered, streamConnected: false, DateTime.UtcNow);
+
+        Assert.Equal(LauncherReach.StreamDown, reach);
+    }
+
+    [Fact]
+    public void Upsert_MachineThatNeverStreamed_CarriesNoClose()
+    {
+        var reg = new LauncherRegistry();
+
+        reg.Upsert(CcDirector.Core.Tenancy.TenantId.Local, MakeReq("old-box"));
+
+        Assert.Null(reg.Get(CcDirector.Core.Tenancy.TenantId.Local, "old-box")!.StreamClosedAt);
+    }
 }

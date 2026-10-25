@@ -697,7 +697,7 @@ public static class SessionOrdering
     {
         if (Is(s.ActivityState, "Starting") || Is(s.ActivityState, "Working")) return "blue";
         if (Is(s.ActivityState, "WaitingForInput") || Is(s.ActivityState, "WaitingForPerm")
-            || Is(s.ActivityState, "Idle")) return "red";
+            || Is(s.ActivityState, "MenuOpen") || Is(s.ActivityState, "Idle")) return "red";
         if (Is(s.ActivityState, "Exited")) return s.Crashed ? "error" : "grey";
         return "unknown";
     }
@@ -706,7 +706,8 @@ public static class SessionOrdering
     /// gate the Director uses for its purple/green/auto-explain overlays.</summary>
     private static bool IsAtTurnEnd(SessionDto s) =>
         string.Equals(s.ActivityState, "WaitingForInput", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(s.ActivityState, "WaitingForPerm", StringComparison.OrdinalIgnoreCase);
+        || string.Equals(s.ActivityState, "WaitingForPerm", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(s.ActivityState, "MenuOpen", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Issue #1177 (Phase 2): the ONE human-readable state label every client renders, computed by the

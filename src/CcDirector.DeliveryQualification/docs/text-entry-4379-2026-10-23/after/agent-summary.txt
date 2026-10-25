@@ -1,0 +1,39 @@
+agent    route           sends pass altered lost partial doubled via-file director-failed trim-accepted unsteady-cells
+claude   desktop-type       17   15       1    1       0       0        0               0             1              0
+claude   desktop-paste      22   19       2    1       0       0        0               0             1              0
+claude   prompt             22   19       2    1       0       0        0               0             1              0
+claude   desktop-newline     4    4       0    0       0       0        0               0             0              0
+codex    desktop-type       17   14       2    1       0       0        0               0             0              0
+codex    desktop-paste      22   19       2    1       0       0        0               0             0              0
+codex    prompt             22   19       2    0       0       1        0               0             0              0
+codex    desktop-newline     4    4       0    0       0       0        0               0             0              0
+pi       desktop-type       17   15       1    1       0       0        0               0             0              0
+pi       desktop-paste      22   19       2    1       0       0        0               0             0              0
+pi       prompt             22   19       2    1       0       0        0               0             0              0
+pi       desktop-newline     4    4       0    0       0       0        0               0             0              0
+25 of 195 did not:
+  claude desktop-paste tabs run 1 len=116: director=OK truth=ALTERED first difference at character 18 of 116 (got 125): wanted "Q93C5AFDB3E.\tcolumn\tcolu", got "Q93C5AFDB3E.    column  "
+  claude prompt tabs run 1 len=116: director=OK truth=ALTERED first difference at character 18 of 116 (got 125): wanted "Q4B73D3DAEA.\tcolumn\tcolu", got "Q4B73D3DAEA.    column  "
+  claude desktop-type lead-slash run 1 len=112: director=OK truth=LOST
+  claude desktop-paste lead-slash run 1 len=112: director=OK truth=LOST
+  claude prompt lead-slash run 1 len=112: director=OK truth=LOST
+  claude desktop-type lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 142): wanted "!Token Q1549", got "<bash-input>"
+  claude desktop-paste lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 142): wanted "!Token Q382F", got "<bash-input>"
+  claude prompt lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 142): wanted "!Token Q9BBC", got "<bash-input>"
+  codex desktop-type edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token Q95", got "Token Q95EC4"
+  codex desktop-paste edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token Q85", got "Token Q85939"
+  codex prompt edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token QB0", got "Token QB070C"
+  codex desktop-type lead-slash run 1 len=112: director=OK truth=LOST
+  codex desktop-paste lead-slash run 1 len=112: director=OK truth=LOST
+  codex prompt lead-slash run 1 len=112: director=OK truth=DOUBLED
+  codex desktop-type lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 293): wanted "!Token Q5F6C", got "<user_shell_"
+  codex desktop-paste lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 293): wanted "!Token Q9C99", got "<user_shell_"
+  codex prompt lead-bang run 1 len=118: director=OK truth=ALTERED first difference at character 0 of 118 (got 293): wanted "!Token QBC15", got "<user_shell_"
+  pi desktop-paste tabs run 1 len=116: director=OK truth=ALTERED first difference at character 18 of 116 (got 125): wanted "QFDE63BDAC9.\tcolumn\tcolu", got "QFDE63BDAC9.    column  "
+  pi prompt tabs run 1 len=116: director=OK truth=ALTERED first difference at character 18 of 116 (got 125): wanted "Q2C67187037.\tcolumn\tcolu", got "Q2C67187037.    column  "
+  pi desktop-type edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token QE3", got "Token QE394F"
+  pi desktop-paste edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token Q73", got "Token Q739D4"
+  pi prompt edge-spaces run 1 len=130: director=OK truth=ALTERED first difference at character 0 of 130 (got 124): wanted "   Token Q0C", got "Token Q0C66D"
+  pi desktop-type lead-bang run 1 len=118: director=OK truth=LOST
+  pi desktop-paste lead-bang run 1 len=118: director=OK truth=LOST
+  pi prompt lead-bang run 1 len=118: director=OK truth=LOST

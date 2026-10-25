@@ -18,6 +18,14 @@ public static class WayUpWords
     /// <summary>The headline of an offer, shown at start-up. The owner's own words for it.</summary>
     public const string Headline = "A restart is available";
 
+    /// <summary>The offer's headline for a record of this kind. A crash was not a restart anybody asked for, so it is
+    /// not called one (issue #4120).</summary>
+    /// <param name="shutdownKind">The record's shutdown kind.</param>
+    public static string HeadlineFor(string? shutdownKind) =>
+        string.Equals(shutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal)
+            ? "Sessions from before the Director stopped can come back"
+            : Headline;
+
     /// <summary>What is said when the Gateway answered and there is nothing waiting.</summary>
     public const string NothingWaiting =
         "There is nothing waiting to come back. No smart shutdown of this Director in the last seven days is " +
@@ -71,6 +79,15 @@ public static class WayUpWords
     /// <summary>The line naming when the shutdown was.</summary>
     /// <param name="local">The moment, in local time.</param>
     public static string WhenLabel(DateTime local) => $"Shut down on {When(local)}.";
+
+    /// <summary>When, for a record of this kind. A crash record's moment is the last time the Director was known to be
+    /// running - it stopped some time after - so it is not called a shut down (issue #4120).</summary>
+    /// <param name="local">The moment, in local time.</param>
+    /// <param name="shutdownKind">The record's shutdown kind.</param>
+    public static string WhenLabel(DateTime local, string? shutdownKind) =>
+        string.Equals(shutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal)
+            ? $"The Director stopped without shutting down. It was last known to be running on {When(local)}."
+            : WhenLabel(local);
 
     /// <summary>
     /// The reason the shutdown was run, in plain words, or NULL when there was none - and a window shows
@@ -296,6 +313,8 @@ public static class WayUpWords
         ArgumentNullException.ThrowIfNull(seat);
         var why = string.Equals(seat.DrainState, WorkspaceDrainStates.EndedAtLimit, StringComparison.Ordinal)
             ? "It was still running when time ran out and was shut down for it."
+            : string.Equals(seat.DrainState, WorkspaceDrainStates.DiedWithDirector, StringComparison.Ordinal)
+            ? "It was running when the Director stopped without shutting down, and it stopped with it."
             : "It never answered, so nothing was written for it.";
         return why + " It is not brought back with the rest, because there is no handover for it to read.";
     }
@@ -400,6 +419,16 @@ public static class WayUpWords
         $"You were stopped when the Director shut down on {When(local)} and this is that same session opened " +
         "again - check the state of your work before you act on anything.";
 
+    /// <summary>The first line for a seat of a record of this kind: after a crash the Director did not shut down, it
+    /// stopped, some time after it was last known to be running (issue #4120).</summary>
+    /// <param name="local">The record's moment, in local time.</param>
+    /// <param name="shutdownKind">The record's shutdown kind.</param>
+    public static string ReopenPrompt(DateTime local, string? shutdownKind) =>
+        string.Equals(shutdownKind, WorkspaceShutdownKinds.Crash, StringComparison.Ordinal)
+            ? $"You were stopped when the Director stopped without shutting down, some time after {When(local)}, and " +
+              "this is that same session opened again - check the state of your work before you act on anything."
+            : ReopenPrompt(local);
+
     /// <summary>
     /// THE SEED FILE, AND IT SAYS ONLY THESE FOUR THINGS (mission document 5.3 item 14, ruling 10.6):
     /// you are a restored session; read this document; what changed while you were gone; verify the state of
@@ -440,6 +469,7 @@ public static class WayUpWords
     {
         WorkspaceShutdownKinds.SmartShutdown => "Smart shutdown - every session was asked to hand over.",
         WorkspaceShutdownKinds.IgnoreAll => "Shut down ignoring all sessions - nothing from it is offered back.",
+        WorkspaceShutdownKinds.Crash => "The Director stopped without shutting down - killed or crashed - so no session wrote a handover.",
         null or "" => "Captured the older way, before smart shutdowns were built.",
         _ => $"Shutdown kind '{shutdownKind}', which this build does not know.",
     };
@@ -480,6 +510,8 @@ public static class WayUpWords
             return "Ended when time was up, without a handover. Its saved conversation can be reopened.";
         if (string.Equals(seat.DrainState, WorkspaceDrainStates.Unreachable, StringComparison.Ordinal))
             return "Never answered, so nothing was written for it. Its saved conversation can be reopened.";
+        if (string.Equals(seat.DrainState, WorkspaceDrainStates.DiedWithDirector, StringComparison.Ordinal))
+            return "Stopped with the Director, without a handover. Its saved conversation can be reopened.";
         if (string.Equals(seat.DrainState, WorkspaceDrainStates.Covered, StringComparison.Ordinal))
             return $"Covered by its lead's handover: {seat.CoveredNote ?? "no note was written"}";
         if (string.Equals(seat.DrainState, WorkspaceDrainStates.Blocked, StringComparison.Ordinal))

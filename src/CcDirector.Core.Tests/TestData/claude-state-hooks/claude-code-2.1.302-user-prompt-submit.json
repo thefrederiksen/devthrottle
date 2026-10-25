@@ -1,0 +1,8 @@
+{
+  "session_id": "fc93ce6d-aa4b-42d2-b343-d3a5af12374e",
+  "transcript_path": "/home/soren/.claude/projects/example/fc93ce6d-aa4b-42d2-b343-d3a5af12374e.jsonl",
+  "cwd": "/home/soren/ReposFred/devthrottle",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Reply with OK."
+}

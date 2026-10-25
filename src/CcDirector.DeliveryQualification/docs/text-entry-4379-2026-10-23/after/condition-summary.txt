@@ -1,0 +1,37 @@
+condition    agent   route           sends pass fail not-counted unsteady-cells  truths
+mid-turn     claude  desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  desktop-newline     2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-newline     2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-newline     2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      prompt              2    2    0           0              0  ARRIVED ARRIVED
+owner-draft  claude  desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  desktop-newline     2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-newline     2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-newline     2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+menu-open    claude  desktop-type        2    2    0           0              0  ANSWERED-MENU/NEXT-ARRIVED ANSWERED-MENU/NEXT-ARRIVED
+menu-open    claude  desktop-newline     2    2    0           0              0  ANSWERED-MENU/NEXT-ARRIVED ANSWERED-MENU/NEXT-ARRIVED
+menu-open    claude  desktop-paste       2    2    0           0              0  LOST/NEXT-ARRIVED LOST/NEXT-ARRIVED
+menu-open    claude  prompt              2    2    0           0              0  LOST/LOST LOST/LOST
+usage-limit  echo    desktop-type        2    2    0           0              0  EXACT EXACT
+usage-limit  echo    desktop-paste       2    2    0           0              0  EXACT EXACT
+EVERY COUNTED CELL PASSED (0 not counted: the condition could not be set up).
+What each condition cannot show:
+  mid-turn: when the agent records a queued prompt only at the end of the turn (Codex, Pi) it cannot show the prompt was taken at once, only that it arrived.
+  owner-draft: how many spaces join the two is not judged: the prompt route adds one, a person types their own.
+  menu-open: on the desktop routes the keys typed into the menu are the person's own - where they go is recorded, not judged. Codex and Pi have no question menu the rig can raise: Codex asks questions only in plan mode, Pi has none, and their model pickers are not used because Enter in one changes the agent's model (Codex also writes the choice to the owner's own configuration file).
+  usage-limit: Claude Code shows the dialog only when the owner's allowance has run out, which no run can cause on demand, so the byte-echo agent draws the dialog's real words and the Director's own guard reads them. It proves what the Director lets through, not what Claude Code does with it. The prompt route is left out: whether phone and Cockpit prompts pass the dialog is the owner's open question (mission 11.6).

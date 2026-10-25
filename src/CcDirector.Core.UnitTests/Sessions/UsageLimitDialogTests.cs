@@ -314,21 +314,38 @@ public sealed class UsageLimitDialogTests
         Assert.Empty(backend.Writes);
     }
 
-    [Theory]
-    [InlineData(InputSurface.Phone)]
-    [InlineData(InputSurface.Cockpit)]
-    [InlineData(InputSurface.Unknown)]
-    public void Session_TypedInputFromAnotherSurfaceWhileTheDialogShows_IsRefused(InputSurface surface)
+    [Fact]
+    public void Session_TypedInputFromAnUnknownSurfaceWhileTheDialogShows_IsRefused()
     {
-        // Review of pull request 3863, finding 1: a phone or browser prompt sent without Enter arrives as typed raw
-        // input. Its sender is not at this terminal and may not see the dialog, so it is refused like any automatic key.
+        // Review of pull request 3863, finding 1: a prompt sent without Enter arrives as typed raw input. One whose device
+        // did not resolve proves no person sent it, so it is refused like any automatic key.
         var backend = new RecordingBackend(withScreen: true);
         var session = NewTerminalSession(backend);
         backend.Show(RowsIntact);
 
-        session.SendInput(new byte[] { 0x1B, 0x5B, 0x42, 0x0D }, InputOrigin.Typed(surface));
+        session.SendInput(new byte[] { 0x1B, 0x5B, 0x42, 0x0D }, InputOrigin.Typed(InputSurface.Unknown));
 
         Assert.Empty(backend.Writes);
+    }
+
+    /// <summary>
+    /// The owner's decision 10 (Terminal Parity mission, 23 October 2026): the owner's own input from the phone or the
+    /// Cockpit goes through the dialog exactly as the desktop's keys do - before it, both were refused here.
+    /// </summary>
+    [Theory]
+    [InlineData(InputSurface.Phone)]
+    [InlineData(InputSurface.Cockpit)]
+    public void Session_TypedInputFromThePhoneOrTheCockpitWhileTheDialogShows_ReachesIt(InputSurface surface)
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+        var keys = new byte[] { 0x1B, 0x5B, 0x42, 0x0D };
+
+        var answer = session.SendInput(keys, InputOrigin.Typed(surface), SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt));
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Equal(new[] { keys }, backend.Writes);
     }
 
     [Fact]
@@ -544,6 +561,102 @@ public sealed class UsageLimitDialogTests
         session.SendInput(new byte[] { 0x0D }, InputOrigin.DesktopTyped);
 
         Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
+    }
+
+    /// <summary>Issue #4380: input the guard drops is answered refused, with the reason - never dropped in silence.</summary>
+    [Fact]
+    public void SendInput_AutomaticInputWhileTheDialogShows_AnswersRefusedWithTheReason()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, null, SessionTestDoors.TestDoor);
+
+        Assert.Equal(InputAnswerKind.Refused, answer.Kind);
+        Assert.Equal(UsageLimitInputGuard.RefusedReason, answer.Reason);
+        Assert.Empty(backend.Writes);
+    }
+
+    [Fact]
+    public void SendInput_PersonAtTheTerminalWhileTheDialogShows_AnswersWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, InputOrigin.DesktopTyped, SessionTestDoors.TestDoor);
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Single(backend.Writes);
+    }
+
+    /// <summary>
+    /// The owner's decision 10 (Terminal Parity mission, 23 October 2026), which turned on the switch merged off in pull
+    /// request 4394 and removed it: a prompt from the phone or the Cockpit passes the dialog, typed or spoken. One with no
+    /// origin - an agent's, the Gateway's own - or whose device did not resolve does not.
+    /// </summary>
+    [Fact]
+    public void PhoneAndCockpitPrompts_PassTheDialog_AndNothingElseDoes()
+    {
+        Assert.True(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Typed(InputSurface.Phone)));
+        Assert.True(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Voice(InputSurface.Phone)));
+        Assert.True(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Typed(InputSurface.Cockpit)));
+        Assert.True(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Voice(InputSurface.Cockpit)));
+        Assert.False(UsageLimitInputGuard.PromptPassesTheDialog(null));
+        Assert.False(UsageLimitInputGuard.PromptPassesTheDialog(InputOrigin.Typed(InputSurface.Unknown)));
+        Assert.True(UsageLimitInputGuard.IsAPersonAtTheTerminal(InputOrigin.DesktopTyped));
+        Assert.False(UsageLimitInputGuard.IsAPersonAtTheTerminal(null));
+        Assert.True(UsageLimitInputGuard.IsAPersonAtTheTerminal(null, SubmissionRoutes.GatewayTerminal));
+        Assert.False(UsageLimitInputGuard.IsAPersonAtTheTerminal(null, SubmissionRoutes.GatewayPrompt));
+    }
+
+    /// <summary>
+    /// Review of pull request 4394, finding 1: a key typed into a live browser terminal is a person typing at a terminal
+    /// they can see, like the desktop's - so Enter reaches the dialog, and the answer is written, not refused.
+    /// </summary>
+    [Fact]
+    public void SendInput_BrowserTerminalKeyWhileTheDialogShows_IsWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x0D }, null,
+            SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayTerminal));
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Equal(new[] { new byte[] { 0x0D } }, backend.Writes);
+    }
+
+    /// <summary>The Cockpit pane's keys travel as prompt text without an Enter: they reach the dialog (decision 10).</summary>
+    [Fact]
+    public void SendInput_CockpitPromptTextWithoutEnterWhileTheDialogShows_IsWritten()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x32 }, InputOrigin.Typed(InputSurface.Cockpit),
+            SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt));
+
+        Assert.Equal(InputAnswer.Written, answer);
+        Assert.Equal(new[] { new byte[] { 0x32 } }, backend.Writes);
+    }
+
+    /// <summary>An agent's text without an Enter carries no origin: it is still refused, with the reason.</summary>
+    [Fact]
+    public void SendInput_AgentPromptTextWithoutEnterWhileTheDialogShows_IsStillRefused()
+    {
+        var backend = new RecordingBackend(withScreen: true);
+        var session = NewTerminalSession(backend);
+        backend.Show(RowsIntact);
+
+        var answer = session.SendInput(new byte[] { 0x32 }, null, SubmissionProvenance.FromWire(null, SubmissionRoutes.FleetMessage));
+
+        Assert.Equal(InputAnswerKind.Refused, answer.Kind);
+        Assert.Equal(UsageLimitInputGuard.RefusedReason, answer.Reason);
+        Assert.Empty(backend.Writes);
     }
 
     [Fact]

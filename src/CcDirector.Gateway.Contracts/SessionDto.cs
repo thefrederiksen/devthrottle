@@ -88,6 +88,19 @@ public sealed class SessionDto
     /// quiet-timer detector, purely mechanical, written by nothing else.</summary>
     public string ActivityState { get; set; } = "";
 
+    /// <summary>The source whose fact selected <see cref="ActivityState"/>: agent, screen, wingman,
+    /// silence-timer, core, or initial.</summary>
+    public string ActivityStateSource { get; set; } = "";
+
+    /// <summary>True when <see cref="ActivityState"/> is the silence timer's last-resort answer.</summary>
+    public bool ActivityStateIsFallback { get; set; }
+
+    /// <summary>Recent lower-priority facts that contradicted the selected state, oldest first.</summary>
+    public List<SessionStateDisagreementDto> StateDisagreements { get; set; } = new();
+
+    /// <summary>Recent adapter event or notification types the installed program did not support.</summary>
+    public List<SessionStateDiagnosticDto> StateDiagnostics { get; set; } = new();
+
     /// <summary>
     /// The ASSESSED state (issue #186 two-owner model): owned by the GATEWAY, whose brain
     /// reads the transcript after a turn end and can refute the mechanical quiet signal
@@ -332,6 +345,16 @@ public sealed class SessionDto
     /// renders.
     /// </summary>
     public bool PromptDeliveryUnresolved { get; set; }
+
+    /// <summary>
+    /// When this session's FIRST prompt - a schedule's seed, a spawn's prompt, a restore - was found not delivered (UTC),
+    /// or null (issue #3392). Unlike <see cref="LastPromptDeliveryFailureAtUtc"/> it is about that one prompt only, never
+    /// a later send. Reported by the owning Director; null from a Director too old to say.
+    /// </summary>
+    public DateTime? FirstPromptFailedAtUtc { get; set; }
+
+    /// <summary>Why the first prompt was not delivered, in the Director's words; null with <see cref="FirstPromptFailedAtUtc"/>.</summary>
+    public string? FirstPromptFailureReason { get; set; }
 
     /// <summary>
     /// Gateway-owned plain-English notice that this session lost a prompt, or null when there is nothing to
@@ -1255,8 +1278,32 @@ public sealed class SessionDto
     {
         var copy = (SessionDto)MemberwiseClone();
         copy.DriverCapabilities = new List<string>(DriverCapabilities);
+        copy.StateDisagreements = new List<SessionStateDisagreementDto>(StateDisagreements);
+        copy.StateDiagnostics = new List<SessionStateDiagnosticDto>(StateDiagnostics);
         return copy;
     }
+}
+
+/// <summary>One state-source disagreement retained by the Director for diagnostics and repeatable tests.</summary>
+public sealed class SessionStateDisagreementDto
+{
+    public DateTime RecordedAtUtc { get; set; }
+    public string ReportedState { get; set; } = "";
+    public string ReportedSource { get; set; } = "";
+    public DateTime ReportedAtUtc { get; set; }
+    public string SelectedState { get; set; } = "";
+    public string SelectedSource { get; set; } = "";
+}
+
+/// <summary>An adapter event or notification type that the installed program did not support.</summary>
+public sealed class SessionStateDiagnosticDto
+{
+    public DateTime RecordedAtUtc { get; set; }
+    public string EventId { get; set; } = "";
+    public long Sequence { get; set; }
+    public string Agent { get; set; } = "";
+    public string RawType { get; set; } = "";
+    public string CliVersion { get; set; } = "";
 }
 
 /// <summary>The values of <see cref="SessionDto.WorkingOrigin"/>.</summary>

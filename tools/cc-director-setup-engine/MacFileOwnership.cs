@@ -65,7 +65,9 @@ public static class MacFileOwnership
                 Path.Combine(userApps, SetupAppName),
                 launchAgentPlistPath,
                 // The shell start-up files the install appends its PATH block to (InstallFinalizer). Files, so the
-                // recursive repair changes only the file itself.
+                // recursive repair changes only the file itself. .zshenv is where the block is written now;
+                // .zshrc is named because machines installed before #4292 carry it there.
+                Path.Combine(layout.HomeDir, ".zshenv"),
                 Path.Combine(layout.HomeDir, ".zshrc"),
                 Path.Combine(layout.HomeDir, ".bash_profile"),
             ],

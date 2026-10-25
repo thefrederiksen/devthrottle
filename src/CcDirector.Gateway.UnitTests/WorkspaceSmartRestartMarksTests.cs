@@ -117,9 +117,10 @@ public sealed class WorkspaceSmartRestartMarksTests : IDisposable
     }
 
     [Fact]
-    public void ShutdownKinds_AreExactlyTheTwoTheWayUpSearchesBy()
+    public void ShutdownKinds_AreExactlyTheThreeTheWayUpSearchesBy()
     {
-        Assert.Equal(new[] { "smart-shutdown", "ignore-all" }, WorkspaceShutdownKinds.All);
+        // "crash" is the record the Gateway keeps from a killed or crashed Director's journal (issue #4120).
+        Assert.Equal(new[] { "smart-shutdown", "ignore-all", "crash" }, WorkspaceShutdownKinds.All);
     }
 
     [Theory]

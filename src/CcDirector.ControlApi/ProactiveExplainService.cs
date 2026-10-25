@@ -91,7 +91,7 @@ public sealed class ProactiveExplainService : IDisposable
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
         {
             // Decision point: the agent finished its turn and is back at the prompt.
-            if (newState != ActivityState.WaitingForInput) return;
+            if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen)) return;
             if (!session.WingmanEnabled) return;
             TriggerBackgroundExplain(session);
         };

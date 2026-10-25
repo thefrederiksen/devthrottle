@@ -51,6 +51,16 @@ public static class UpdatePlanner
             }
 
             var assetName = c.AssetFor(host);
+
+            // A Tool with no asset for this platform is not a hole in the release: there is no standalone
+            // per-tool download, and every cc-* tool arrives inside the Python tools bundle. Say that,
+            // positively, instead of reporting a missing download nobody can supply (#4291).
+            if (assetName is null && c.Kind == ComponentKind.Tool)
+            {
+                items.Add(new PlanItem(c.Id, PlanItemKind.ProvidedByToolsBundle, "", null, null, ""));
+                continue;
+            }
+
             var asset = assetName is null ? null : manifest.TryGetAsset(assetName);
             if (asset is null)
             {
@@ -114,6 +124,7 @@ public static class UpdatePlanner
                         $"{items.Count(i => i.Kind == PlanItemKind.Install)} install, " +
                         $"{items.Count(i => i.Kind == PlanItemKind.Update)} update, " +
                         $"{items.Count(i => i.Kind == PlanItemKind.MissingAsset)} missing-asset, " +
+                        $"{items.Count(i => i.Kind == PlanItemKind.ProvidedByToolsBundle)} in-tools-bundle, " +
                         $"{items.Count(i => i.Kind == PlanItemKind.InstalledByTheToolsStep)} own-install-step.");
 
         return new UpdatePlan { Items = items };

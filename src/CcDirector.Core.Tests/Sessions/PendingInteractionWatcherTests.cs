@@ -65,6 +65,19 @@ public sealed class PendingInteractionWatcherTests : IDisposable
         return session;
     }
 
+    [Fact]
+    public void WireSession_MenuOpenTurnEnd_ReadsPendingInteraction()
+    {
+        using var session = WorkingSessionOn(WriteTranscript(AsksWhichBranch));
+        using var watcher = new PendingInteractionWatcher(_manager, work => work());
+        watcher.WireSession(session);
+
+        session.ApplyScreenActivityState(ActivityState.MenuOpen);
+
+        Assert.NotNull(session.PendingInteraction);
+        Assert.Equal("Which branch should I cut the worktree from?", session.PendingInteraction!.Prompt);
+    }
+
     /// <summary>
     /// A transcript that cannot be read leaves whatever was there alone. Erasing a real question because
     /// a file was momentarily unreadable would be the worst of both: no flag, and no sign that anything

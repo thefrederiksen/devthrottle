@@ -23,6 +23,12 @@ import { ViewTabs } from "../components/ViewTabs";
 const STATUS_BASE = "Conversation history (live)";
 const BOTTOM_THRESHOLD_PX = 40;
 
+// THE CHAT OPENS ON THE LAST TEN TURNS (issue #4372), as the Cockpit's does. It used to download and draw the whole
+// conversation - up to two thousand messages - on every open, which on a phone is seconds. Scrolling to the top
+// fetches the ten before, and so on (owner direction, 2026-10-23).
+const CHAT_TURNS = 10;
+const EARLIER_THRESHOLD_PX = 200;
+
 // The surface name the path-status hint reports a background failure under (issue #4078).
 const SURFACE_PATHS = "mobile-chat-paths";
 
@@ -45,9 +51,8 @@ export function Chat() {
   // Until the roster answers - a row, or a problem saying there will be none - the mode is not known, so the history
   // read waits: starting it on the first render read /history for an API-mode session (phase 6 QA).
   const modeKnown = manage.session !== null || lastForRoute !== null || manage.sessionProblem !== null;
-  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(
-    modeKnown && apiMode === null ? sessionId : undefined,
-  );
+  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter, hasEarlier, loadingEarlier, earlierPages, earlierError, loadEarlier } =
+    useSessionChat(modeKnown && apiMode === null ? sessionId : undefined, { turns: CHAT_TURNS });
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
   const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [status, setStatus] = useState(STATUS_BASE);
@@ -61,6 +66,25 @@ export function Chat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
+  // EARLIER TURNS WERE PUT IN FRONT: hold the reader exactly where they were. The list's height is recorded after every
+  // render; the render in which `earlierPages` went up is the one that grew at the top, and by exactly the difference.
+  // Measured per render rather than remembered from when the fetch started, because a new turn can land at the BOTTOM
+  // while the page is in flight, and a distance taken from the bottom then moved the reader twice (found in review).
+  const lastHeightRef = useRef(0);
+  const seenEarlierPagesRef = useRef(earlierPages);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    if (earlierPages > seenEarlierPagesRef.current && lastHeightRef.current > 0)
+      el.scrollTop += el.scrollHeight - lastHeightRef.current;
+    seenEarlierPagesRef.current = earlierPages;
+    lastHeightRef.current = el.scrollHeight;
+  });
+
+  const fetchEarlier = useCallback(() => {
+    if (!hasEarlier || loadingEarlier) return;
+    loadEarlier();
+  }, [hasEarlier, loadingEarlier, loadEarlier]);
 
   // One-shot fetch of the session's display name for the header.
   useEffect(() => {
@@ -85,7 +109,8 @@ export function Chat() {
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
-  }, []);
+    if (el.scrollTop < EARLIER_THRESHOLD_PX) fetchEarlier();
+  }, [fetchEarlier]);
 
   const flash = useCallback((message: string) => {
     setStatus(message);
@@ -197,6 +222,17 @@ export function Chat() {
             <div className="chat-empty">{emptyText}</div>
           ) : (
             <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+              {/* There is more above. Said in words, and a button, because a list that simply ends at the top reads
+                  as the whole conversation - and the scroll that fetches more on its own needs something to scroll. */}
+              {hasEarlier && (
+                <div className="chat-earlier">
+                  <button type="button" className="chat-earlier-btn" disabled={loadingEarlier} onClick={fetchEarlier}>
+                    {loadingEarlier ? "Loading earlier messages..." : "Load earlier messages"}
+                  </button>
+                  {/* error-reported-by: useSessionChat */}
+                  {earlierError !== null && <span className="chat-earlier-error" role="alert">{earlierError}</span>}
+                </div>
+              )}
               {bubbles.map((r, i) => (
                 <div className={`chat-bubble ${r.bubble.kind}`} key={i}>
                   <div className="chat-speaker">{r.bubble.speaker}</div>

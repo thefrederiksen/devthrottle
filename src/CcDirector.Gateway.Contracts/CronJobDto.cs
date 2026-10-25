@@ -84,14 +84,44 @@ public sealed class CronJobDto
 
     /// <summary>
     /// Run-complete notification policy (epic #479 deferred piece, issue #622): one of the
-    /// <see cref="CronNotify"/> values - <c>none</c> (default, opt-in: silent jobs stay silent),
-    /// <c>always</c> (notify on every finish, success or failure), or <c>failure</c> (notify only
-    /// when the fire failed to start / errored). The firing engine reads this on fire completion
-    /// and, when it opts in, delivers a notification over the existing fleet notification channel
-    /// (the per-Director doorbell event ring observed at <c>GET /directors/{id}/events</c>) and,
-    /// when <see cref="NotifyWebhookUrl"/> is set, also POSTs the same payload to that URL.
+    /// <see cref="CronNotify"/> values - <c>failure</c> (THE DEFAULT since issue #4436: a failed run tells its owner),
+    /// <c>always</c> (also tell every run that started), or <c>none</c> (the owner turned it off). A failed run - one that
+    /// did not run, did not start, whose start is not known, or that ended with a problem, missed runs included - is told
+    /// by <c>ScheduleFailureNotifier</c> on the fleet notification channel (the per-Director doorbell event ring), the
+    /// owner's phones and the account owner's email, at most once an hour for each cause of each schedule; when
+    /// <see cref="NotifyWebhookUrl"/> is set the same payload is also POSTed there.
     /// </summary>
-    public string NotifyOn { get; set; } = CronNotify.None;
+    public string NotifyOn { get; set; } = CronNotify.Default;
+
+    /// <summary>
+    /// When this schedule's notifications were switched on by the change of default (issue #4436), or null when the
+    /// owner set them or the schedule was made after the change. Stored by the migration that moved every schedule still
+    /// on the old default (<c>none</c>) to <c>failure</c>. Read-only: ignored on a write.
+    /// </summary>
+    public DateTime? NotifyDefaultedUtc { get; set; }
+
+    /// <summary>
+    /// One sentence saying that failure notifications were switched on by the change of default and how to turn them
+    /// off, while this schedule still notifies on failure because of it; null otherwise. Folded by the Gateway on every
+    /// read, so no client words it itself. Read-only.
+    /// </summary>
+    public string? NotifyNote { get; set; }
+
+    /// <summary>The policy in words, for example "When a run fails" (<see cref="CronNotify.Text"/>), folded on every
+    /// read so no client words it itself. Read-only.</summary>
+    public string? NotifyText { get; set; }
+
+    /// <summary>
+    /// The newest run's state in words when it went wrong (issue #4436), for example "Last run failed: The folder
+    /// '/Users/you/project' does not exist on studio-mac (a Mac). ..." - shown on the schedule's row without opening it.
+    /// Null when the newest run did not go wrong, or there is none. Folded by the Gateway on every list and get.
+    /// Read-only.
+    /// </summary>
+    public string? LastRunText { get; set; }
+
+    /// <summary>How <see cref="LastRunText"/> is shown: <c>err</c> (it failed) or <c>warn</c> (it is not known whether it
+    /// started); null with no text. Read-only.</summary>
+    public string? LastRunTone { get; set; }
 
     /// <summary>
     /// Optional per-job outbound webhook (issue #622): when set, a run-complete notification (gated
@@ -182,6 +212,14 @@ public sealed class CronJobDto
     /// The schedule is saved either way: this is a warning, not a refusal. Read-only.
     /// </summary>
     public string? LoadWarning { get; set; }
+
+    /// <summary>
+    /// Set on the answer to a create or an update when the schedule's folder could not be checked on its machine
+    /// (issue #4421): the machine is offline, or its Director is too old to be asked. The schedule is saved, and the
+    /// folder is checked again when it first runs. Null when the folder was checked and is there. A folder the machine
+    /// does not have is not a warning: the save is refused. Read-only.
+    /// </summary>
+    public string? FolderWarning { get; set; }
 
     /// <summary>
     /// The shifts this schedule's runs start in over the next 7 days, in the account's time zone, in the order a day
@@ -312,33 +350,52 @@ public sealed class CronJobAction
 /// </summary>
 public static class CronNotify
 {
-    /// <summary>No run-complete notification (the default - opt-in means silent unless asked).</summary>
+    /// <summary>No run-complete notification: the owner turned them off.</summary>
     public const string None = "none";
 
     /// <summary>Notify on every fire finish, whether it started cleanly or failed.</summary>
     public const string Always = "always";
 
-    /// <summary>Notify only when a fire failed to start / errored (a silent failed run is the worst case).</summary>
+    /// <summary>Notify only when a run failed (a silent failed run is the worst case). The default since issue #4436.</summary>
     public const string Failure = "failure";
+
+    /// <summary>
+    /// The policy a schedule gets when nobody chose one (issue #4436): <see cref="Failure"/>. It was <see cref="None"/>,
+    /// and a schedule could fail every morning without its owner ever hearing.
+    /// </summary>
+    public const string Default = Failure;
 
     /// <summary>The three accepted policy values.</summary>
     public static readonly IReadOnlyList<string> All = new[] { None, Always, Failure };
 
     /// <summary>
     /// Normalize a policy string to one of <see cref="All"/>. Null/empty/whitespace maps to
-    /// <see cref="None"/> (the opt-in default); the compare is case-insensitive.
+    /// <see cref="Default"/>, as does a value that is none of them; the compare is case-insensitive.
     /// </summary>
     public static string Normalize(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return None;
+        if (string.IsNullOrWhiteSpace(value)) return Default;
         var trimmed = value.Trim();
         foreach (var policy in All)
         {
             if (string.Equals(policy, trimmed, StringComparison.OrdinalIgnoreCase))
                 return policy;
         }
-        return None;
+        return Default;
     }
+
+    /// <summary>True when <paramref name="value"/> is one of <see cref="All"/>, in any case and with any surrounding space.</summary>
+    public static bool IsKnown(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && All.Any(p => string.Equals(p, value.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The policy in the words every surface shows (issue #4436): "When a run fails", "Every run, started or
+    /// failed", or "Off". Folded on the Gateway so no client words it itself.</summary>
+    public static string Text(string? policy) => Normalize(policy) switch
+    {
+        Always => "Every run, started or failed",
+        None => "Off",
+        _ => "When a run fails",
+    };
 
     /// <summary>True when a run with the given outcome should notify under the given policy.</summary>
     public static bool ShouldNotify(string? policy, bool succeeded)
@@ -386,8 +443,23 @@ public sealed class CronRunCompletedPayload
     /// <summary>A deep link to the resulting session's view, or empty when there is no session to link.</summary>
     public string SessionLink { get; set; } = "";
 
-    /// <summary>The failure / not-started reason when <see cref="Succeeded"/> is false, or null on success.</summary>
+    /// <summary>
+    /// What went wrong, as one plain sentence the owner can act on, when <see cref="Succeeded"/> is false (issue #4436):
+    /// what happened, on which machine, and what to do. Null on success. Never the Director's or the runtime's own text,
+    /// which is <see cref="Detail"/>.
+    /// </summary>
     public string? Reason { get; set; }
+
+    /// <summary>The run record's own reason, unreworded, for whoever needs the technical detail; null on success.</summary>
+    public string? Detail { get; set; }
+
+    /// <summary>The cause of the failure, one of the <c>ScheduleFailureCauses</c> values (for example
+    /// <c>folder-missing</c>); null on success. Notifications are limited to one an hour for each cause of a schedule.</summary>
+    public string? Cause { get; set; }
+
+    /// <summary>How many failures of this cause this notification stands for: 1, or more when earlier ones inside the
+    /// hour were held back so a broken schedule does not flood its owner.</summary>
+    public int Occurrences { get; set; } = 1;
 
     /// <summary>When the run fired (UTC).</summary>
     public DateTime FiredUtc { get; set; }

@@ -10,6 +10,7 @@ const cronClient = vi.hoisted(() => ({
   createCronJob: vi.fn(),
   updateCronJob: vi.fn(),
   getSeatChoices: vi.fn(),
+  getFolderChoices: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/schedule/scheduleClient", () => cronClient);
 
@@ -79,6 +80,9 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   cronClient.getSeatChoices.mockResolvedValue(CHOICES);
+  cronClient.getFolderChoices.mockImplementation(async (machine: string) => ({
+    machine, os: "", osName: "Unknown", online: true, placeholder: "", note: null, repositories: [],
+  }));
   fleet.getFleetDirectors.mockResolvedValue([]);
 });
 
@@ -172,5 +176,113 @@ describe("ScheduleEditor machine picker", () => {
     expect(alert.textContent).toContain("the Gateway fell over (fake)");
     expect(screen.queryByText("No machines known to this Gateway yet.")).toBeNull();
     expect(reported.describeAndReport).toHaveBeenCalledWith("cockpit-schedule-editor", "read the machines for the picker", failure);
+  });
+});
+
+// Issue #4421: the folder box offers the chosen machine's repositories and an example in that machine's own shape, both
+// from the Gateway (GET /cron/folder-choices). A person on a Mac is no longer shown a Windows path to copy.
+describe("ScheduleEditor folder choices", () => {
+  const onTheMac: CronJob = { ...personal, target: { machine: "STUDIO_MAC" }, action: { ...personal.action, repoPath: "" } };
+
+  it("asks the Gateway about the chosen machine, and shows its placeholder instead of a Windows path", async () => {
+    cronClient.getFolderChoices.mockResolvedValue({
+      machine: "STUDIO_MAC", os: "macos", osName: "Mac", online: true,
+      placeholder: "/Users/<you>/Documents/my-project", note: null, repositories: [],
+    });
+    openOn(onTheMac);
+
+    const box = screen.getByLabelText("Repository path") as HTMLInputElement;
+    await waitFor(() => expect(box.placeholder).toBe("/Users/<you>/Documents/my-project"));
+    expect(cronClient.getFolderChoices).toHaveBeenCalledWith("STUDIO_MAC", expect.anything());
+    expect(box.placeholder).not.toContain("\\");
+  });
+
+  it("offers the machine's repositories, and picking one fills the folder that is saved", async () => {
+    cronClient.getFolderChoices.mockResolvedValue({
+      machine: "STUDIO_MAC", os: "macos", osName: "Mac", online: true, placeholder: "/Users/<you>/Documents/my-project", note: null,
+      repositories: [
+        { name: "project", path: "/Users/pat/Documents/project", lastUsed: null, neverOpened: false },
+        { name: "notes", path: "/Users/pat/notes", lastUsed: null, neverOpened: true },
+      ],
+    });
+    cronClient.updateCronJob.mockResolvedValue({ ...onTheMac, action: { ...onTheMac.action, repoPath: "/Users/pat/notes" } });
+    const onSaved = openOn(onTheMac);
+
+    const pick = (await screen.findByLabelText("STUDIO_MAC's repositories")) as HTMLSelectElement;
+    // In the Gateway's order, never re-sorted here.
+    expect(within(pick).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Choose one of STUDIO_MAC's repositories...",
+      "project - /Users/pat/Documents/project",
+      "notes - /Users/pat/notes",
+    ]);
+    fireEvent.change(pick, { target: { value: "/Users/pat/notes" } });
+    expect((screen.getByLabelText("Repository path") as HTMLInputElement).value).toBe("/Users/pat/notes");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(cronClient.updateCronJob).toHaveBeenCalledWith(
+      "cj_54663c",
+      expect.objectContaining({ action: expect.objectContaining({ repoPath: "/Users/pat/notes" }) }),
+    );
+  });
+
+  it("asks the Gateway for the empty box's words before a machine is chosen (review, finding 5)", async () => {
+    cronClient.getFolderChoices.mockResolvedValue({
+      machine: "", os: "", osName: "Unknown", online: false, placeholder: "Choose the machine first", note: null, repositories: [],
+    });
+    render(<ScheduleEditor request={{ kind: "create", timeZone: "America/Toronto" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    const box = screen.getByLabelText("Repository path") as HTMLInputElement;
+    await waitFor(() => expect(box.placeholder).toBe("Choose the machine first"));
+    expect(cronClient.getFolderChoices).toHaveBeenCalledWith("", expect.anything());
+  });
+
+  it("shows the Gateway's own sentence when the folder choices cannot be read, with nothing added by the form", async () => {
+    cronClient.getFolderChoices.mockRejectedValue(new GatewayError(503, "GET /cron/folder-choices failed", {
+      reason: "Known repository storage is not available.",
+    }));
+    openOn(onTheMac);
+
+    const shown = await screen.findByText(/Known repository storage is not available\./);
+    // The shared sentence alone: the Gateway's reason, and the retry hint the shared helper gives a 503.
+    expect(shown.textContent).toBe("Known repository storage is not available. Try again.");
+  });
+
+  it("shows the Gateway's note when the machine is offline", async () => {
+    cronClient.getFolderChoices.mockResolvedValue({
+      machine: "STUDIO_MAC", os: "macos", osName: "Mac", online: false, placeholder: "/Users/<you>/Documents/my-project",
+      note: "STUDIO_MAC is offline, so the folder cannot be checked when you save. It is checked when the schedule first runs.",
+      repositories: [],
+    });
+    openOn(onTheMac);
+
+    expect(await screen.findByText("STUDIO_MAC is offline, so the folder cannot be checked when you save. It is checked when the schedule first runs.")).toBeTruthy();
+  });
+
+  it("shows the Gateway's refusal of a Windows path for a Mac inline, and keeps the editor open", async () => {
+    cronClient.updateCronJob.mockRejectedValue(new GatewayError(400, "PUT /cron/jobs/cj_54663c failed", {
+      reason: "'\\\\documents\\\\devthrottle' is a Windows path, but STUDIO_MAC is a Mac. Use a path like /Users/<you>/Documents/devthrottle.",
+    }));
+    const onSaved = openOn({ ...onTheMac, action: { ...onTheMac.action, repoPath: "\\\\documents\\\\devthrottle" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/is a Windows path, but STUDIO_MAC is a Mac/)).toBeTruthy();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});
+
+// Issue #4436: a failed run tells its owner by default.
+describe("ScheduleEditor notifications", () => {
+  it("starts a new schedule on notify-when-a-run-fails", async () => {
+    render(<ScheduleEditor request={{ kind: "create", timeZone: "UTC" }} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("When a run fails (the default)")).toBeTruthy();
+  });
+
+  it("keeps an owner's choice of off", async () => {
+    openOn({ ...personal, notifyOn: "none" });
+
+    expect(await screen.findByDisplayValue("Off (no notification)")).toBeTruthy();
   });
 });

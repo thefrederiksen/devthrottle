@@ -537,6 +537,25 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Pairing.SessionKeyRegistry SessionKeys { get; }
 
+    /// <summary>
+    /// Issue #4403: the Gateway's own failures that belong to one account - a refused credential, a refused session-key
+    /// registration, a failed scheduled run - into the error store under that account. One instance, shared by the auth
+    /// gate, the Director hub and <see cref="_cronRunFailures"/>; attached to the error sink once the sink exists.
+    /// </summary>
+    internal Api.GatewayAccountFailures AccountFailures { get; } = new();
+
+    // Issue #4403: reads every account's failed runs and reports each once through AccountFailures.
+    private Running.CronRunFailureReporter? _cronRunFailures;
+
+    // Issue #4436: reads every account's failed runs and tells each schedule's owner, once per cause an hour.
+    private Running.ScheduleFailureNotifier? _scheduleFailureNotices;
+
+    // The fleet notification channel and webhook a schedule's run-complete and failure notices ride (issue #622).
+    private readonly Running.GatewayCronNotifier _cronNotifier;
+
+    // The phone push of a schedule's failure notice (issue #4436).
+    private readonly Push.ScheduleFailurePushNotifier _scheduleFailurePush;
+
     /// <summary>Every session each account has ever marked as its Fleet Manager (the Fleet Manager mission,
     /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
     internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
@@ -1854,6 +1873,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Push.PushSubscriptionStore _pushSubscriptions;
     private Push.WebPushNeedsYouNotifier? _pushNotifier;
     private readonly Push.SecretTransferPushNotifier _secretTransferPush;
+    private readonly Push.MessageLinkRequestPushNotifier _linkRequestPush;
     private readonly Push.LicenseAlarmPushNotifier _licenseAlarmPush;
     private readonly Push.VapidWebPushSender _licenseAlarmPushSender;
     // The per-tenant driver for the app-icon dot, and the timer that fires it. The notifier holds no timer of
@@ -2073,7 +2093,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // them could only ever hand them nothing - which is exactly the state this ordering fixes: the store
         // opened PostgreSQL and migrated it successfully, and the observers that should have used it had
         // already decided, two lines earlier, that hosted means no statistics.
-        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted);
+        StatsStore = Stats.Data.GatewayStatsStore.FromEnvironment(Hosted, time: Options.StatsClock);
         if (!StatsStore.IsAvailable)
             FileLog.Write(
                 $"[GatewayHost] statistics are UNAVAILABLE ({StatsStore.Availability.ReasonCode}): " +
@@ -2127,7 +2147,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // deletion records above it first - the two that were removed were removed because their guard could
         // not be made atomic with their destruction, and the tests will redden if they come back.
         Registry.OnDirectorRemoved += removal => PushedSessions.ForgetIfDisconnected(removal.Tenant, removal.DirectorId);
-        LauncherConnections = new Streaming.LauncherConnectionRegistry();
+        LauncherConnections = new Streaming.LauncherConnectionRegistry
+        {
+            // A launcher's closed stream is written onto its registration, so "heartbeating, no stream" can be read
+            // as restarting rather than too old when this Gateway has seen that machine stream (issue #4423).
+            StreamClosed = (tenant, machine, closedAt) => Launchers.NoteStreamClosed(tenant, machine, closedAt),
+        };
         // Gateway Cleanup: the tunnel is mandatory; the streamMode parameter is ignored and retained only for existing test call sites (removed with the test rewrite).
         _streamStaleAfter = TimeSpan.FromSeconds(gatewayConfig.StreamStaleAfterSeconds);
         AuthEnabled = ResolveAuthEnabled(authEnabled);
@@ -2777,7 +2802,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // payload to a per-job webhook. The deep link is built from the resolved Director's tailnet
         // endpoint (the same source the /sessions aggregation uses for ViewUrl); the gw query roots on
         // this Gateway's loopback base. The webhook client is short-timeout, best-effort.
-        var cronNotifier = new Running.GatewayCronNotifier(
+        var cronNotifier = _cronNotifier = new Running.GatewayCronNotifier(
             DirectorEvents,
             // Issue #2161: a delegate, not a string. This runs in the constructor, long before the listener
             // binds, so a formatted address here would freeze the pre-bind port into every deep link.
@@ -2825,7 +2850,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
             settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status),
             // The third source (Mail Desk phase 3, section 6.2): a mailbox that could not be checked, and the spend limit.
-            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf));
+            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf),
+            // Issue #3392: the session row its Director last pushed says when a run's prompt never reached the agent.
+            // Assigned further down this constructor, before the first sweep or request can call this.
+            lastKnownSession: (tenant, directorId, sessionId) => PushedSessions.GetLastKnown(tenant, directorId).Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
@@ -3092,10 +3121,19 @@ public sealed class GatewayHost : IAsyncDisposable
         // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
         _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
             new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
+        // The message link request push (issue #4373): a session asking to message another is pushed to the same phones, so
+        // the owner can answer away from the desk. Its own sender, for the same reason as the secret handoff push.
+        _linkRequestPush = new Push.MessageLinkRequestPushNotifier(_pushSubscriptions,
+            new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
         // The license alarm push (License Switching phase 6): an alarm that opens is pushed to the same phones, each
         // tenant's to its own, over its own sender for the same reason as the secret handoff push.
         _licenseAlarmPushSender = new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com");
         _licenseAlarmPush = new Push.LicenseAlarmPushNotifier(_pushSubscriptions, _licenseAlarmPushSender,
+            tenant => _tenantBoundary.EnterScope(tenant));
+        // The schedule failure push (issue #4436): a failed schedule's notice is pushed to the same phones, over its own
+        // sender for the same reason as the secret handoff push.
+        _scheduleFailurePush = new Push.ScheduleFailurePushNotifier(_pushSubscriptions,
+            new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"),
             tenant => _tenantBoundary.EnterScope(tenant));
         // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
         LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
@@ -4726,6 +4764,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Remove-the-network-port phase 1b: the DirectorHub (constructed per-invocation by SignalR) registers
         // and revokes session keys through the SAME registry the auth gate verifies against.
         builder.Services.AddSingleton(SessionKeys);
+        // Issue #4403: the hub reports a session key it refused to register under the account.
+        builder.Services.AddSingleton(AccountFailures);
         // The hub ends a raised entry when it reaps the session (the Fleet Manager Improvement mission, phase 1).
         builder.Services.AddSingleton(RaisedSessions);
         // The hub ends a session's message links when it reaps the session, and records it (issue #3548).
@@ -4754,6 +4794,34 @@ public sealed class GatewayHost : IAsyncDisposable
         _errorSink = new Api.GatewayErrorSink(_errorReports);
         _errorSink.Start();
         Api.GatewayRequestErrors.Use(_app, _errorSink);
+        // Issue #4403: the Gateway's own failures that belong to one account go to the same store, under that account.
+        AccountFailures.Attach(_errorSink);
+        var failureStore = _errorReports;
+        _cronRunFailures = new Running.CronRunFailureReporter(_cronRuns, AccountFailures,
+            alreadyStored: since => Running.CronRunFailureReporter.StoredScheduleFailures(failureStore, since, DateTime.UtcNow),
+            // Beside the error store, on the durable root a deploy does not touch.
+            checkpointPath: Path.Combine(failureStore.Root, "schedule-failure-checkpoint.txt"));
+        _cronRunFailures.Start();
+        // Issue #4436: a failed schedule tells its owner - the fleet channel and webhook, the phones, and the owner's
+        // email where the account has one - at most once an hour for each cause of each schedule.
+        var noticeOs = new Running.ScheduleFolderCheck(t => Registry.ListDirectors(t),
+            (t, directorId) => PushedSessions.GetActiveConnectionId(t, directorId) is not null, SendCommandAsync);
+        _scheduleFailureNotices = new Running.ScheduleFailureNotifier(_cronRuns, new Running.CronFailureNoticeStore(_gatewayDb),
+            jobOf: (tenant, id) =>
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                    return _cronJobs.Get(id);
+            },
+            machineOsOf: (tenant, machine) => noticeOs.OsOf(tenant, machine),
+            fleet: _cronNotifier,
+            push: _scheduleFailurePush.NotifyAsync,
+            mail: async (tenant, subject, body, ct) =>
+            {
+                var sent = await LicenseOwnerMail(tenant, new Licenses.LicenseOwnerEmail("", subject, body), ct).ConfigureAwait(false);
+                return sent.Outcome == Licenses.LicenseOwnerEmailOutcome.Sent ? null : sent.Detail ?? sent.Outcome.ToString();
+            },
+            enterScope: tenant => _tenantBoundary.EnterScope(tenant));
+        _scheduleFailureNotices.Start();
 
         _app.UseForwardedHeaders();
 
@@ -4897,6 +4965,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 IsRaised = identity => RaisedSessions.IsRaised(identity.Tenant, identity.SessionId.ToString()),
                 RecordRaisedAction = (identity, grant, method, path) => RaisedSessionRecord.Action(identity.Tenant,
                     identity.SessionId.ToString(), Fleet.RaisedSessionRecord.DescribeGuardGrant(grant, method, path)),
+                // Issue #4403: a refused credential whose account is known is reported under that account.
+                AccountFailures = AccountFailures,
             };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
@@ -5635,7 +5705,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
-            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
+            // A missing-folder run names its machine's system here too (issue #4421 review, finding 3).
+            (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now,
+                machine => Running.ScheduleFolderCheck.ReportedOs(Registry.ListDirectors(tenant), machine)),
             (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false),
             // The factories New factory made that are not published yet (Factory Definition, phase 6b), each read from
@@ -5933,6 +6005,8 @@ public sealed class GatewayHost : IAsyncDisposable
             ?? throw new InvalidOperationException("the error store is created before the pipeline and must exist when the routes are mapped");
         InstallReportEndpoints.Map(_app, errorReports);
         DirectorErrorEndpoints.Map(_app, errorReports, _tenantBoundary, TenantRegistry);
+        // Issue #4403: the administrator's read of every account's scheduled runs, behind the same service token.
+        AdminCronRunEndpoints.Map(_app, _cronRuns, TenantRegistry);
         // The browser error channel: every error the Cockpit or the phone app shows the user is also reported
         // here, into the SAME durable store under the caller's account (the Error Logging mission, issue #3675) -
         // no on-screen error exists only on the user's screen.
@@ -6123,6 +6197,13 @@ public sealed class GatewayHost : IAsyncDisposable
             record: MessageLinkRecord,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
             notify: notifyOfLink,
+            // A new request is pushed to the owner's phones (issue #4373) with the two session numbers. The subscriptions
+            // are read inside the request, so only this account's phones hear it; the sends are not awaited, so a slow
+            // push service never holds up the session that asked.
+            announceRequested: (tenant, request) => { _ = _linkRequestPush.NotifyRequestedAsync(request.RequestId,
+                GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, request.RequesterSessionId)?.Number,
+                GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, request.TargetSessionId)?.Number,
+                CancellationToken.None); },
             nowUtc: () => DateTime.UtcNow);
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
@@ -6304,7 +6385,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // Factory Memory mission (phase 1): a schedule may name the factory its sessions are born into, and only a
         // person or a session already in that factory may name it - read through the history row like everywhere else.
         // Each run's ending, from the run history and the session work history (the owner, 2026-10-09).
-        var cronRunRecords = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf);
+        // Issue #4421: a schedule's folder is checked on its machine when it is saved, through a Director that is
+        // connected now; the system each machine last reported words the refusal and the run table's did-not-run.
+        var folderCheck = new Running.ScheduleFolderCheck(
+            t => Registry.ListDirectors(t),
+            (t, directorId) => PushedSessions.GetActiveConnectionId(t, directorId) is not null,
+            SendCommandAsync);
+        var cronRunRecords = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf,
+            machine => _tenantPass.Current is { } tenant ? folderCheck.OsOf(tenant, machine) : null);
         CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf,
             // Issue #3650: a schedule's factory and seat must be in the calling account's registry.
             findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
@@ -6315,7 +6403,17 @@ public sealed class GatewayHost : IAsyncDisposable
             // Factory Definition, phase 4: a defined factory's schedules are written by its publish, never by these
             // routes. An account this request has no tenant for holds no definition.
             isDefined: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
-                && FactoryDefinitions.IsDefined(tenant, factory));
+                && FactoryDefinitions.IsDefined(tenant, factory),
+            // A request with no account has no machines to ask, so its folder is saved unchecked and says so.
+            checkFolder: (ctx, machine, path, ct) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+                ? folderCheck.CheckAsync(tenant, machine, path, ct)
+                : Task.FromResult(Running.ScheduleFolderVerdict.Unchecked(
+                    $"The folder '{path}' could not be checked: this request has no account. It is checked again when the schedule first runs.")));
+        // The schedule editor's folder choices (issue #4421): the machine's known repositories and its system's shape.
+        Api.CronFolderChoicesEndpoint.Map(_app, (ctx, machine) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+            ? new Api.CronFolderChoicesEndpoint.MachineFolders(folderCheck.OsOf(tenant, machine), folderCheck.IsOnline(tenant, machine),
+                _knownRepositories.ReadForMachine(tenant, machine))
+            : null);
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
@@ -6461,7 +6559,9 @@ public sealed class GatewayHost : IAsyncDisposable
             directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
                 .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
                 ?.MachineName,
-            definitions: FactoryDefinitions);
+            definitions: FactoryDefinitions,
+            // A check runs with no Gateway key: the factory's check-inputs/ documents are how its records reach it.
+            documents: _factoryDocuments);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
@@ -7833,7 +7933,7 @@ public sealed class GatewayHost : IAsyncDisposable
             return LauncherCommandResult.Refuse(refusal);
         }
         FileLog.Write($"[GatewayHost] SendLauncherCommandAsync: machine={machineName}, verb={command.Verb}, connection={connection.ConnectionId}");
-        return await hub.Clients.Client(connection.ConnectionId).InvokeAsync<LauncherCommandResult>("Command", command, ct);
+        return await Api.LauncherCommandRouter.InvokeDownStreamAsync(hub, connection.ConnectionId, machineName, command, ct);
     }
 
     public async Task StopAsync()
@@ -7883,6 +7983,13 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         try { _sessionKeySweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session key sweep timer dispose error: {ex.Message}"); }
         _sessionKeySweepTimer = null;
+        // Issue #4436: stop telling owners of failed runs.
+        try { _scheduleFailureNotices?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] schedule failure notifier dispose FAILED: {ex.Message}"); }
+        _scheduleFailureNotices = null;
+        // Issue #4403: stop reading failed runs before the sink they are reported into goes.
+        try { _cronRunFailures?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] schedule failure reporter dispose FAILED: {ex.Message}"); }
+        _cronRunFailures = null;
+        AccountFailures.Detach();
         // The Gateway's own errors: detach from the log and write what is waiting, the running flood hour included.
         try { _errorSink?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] error sink dispose FAILED: {ex.Message}"); }
         _errorSink = null;
@@ -7903,6 +8010,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _pushNotifierTimer = null;
         try { _pushNotifier?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push notifier dispose error: {ex.Message}"); }
         try { _secretTransferPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] secret transfer push dispose error: {ex.Message}"); }
+        try { _linkRequestPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] link request push dispose error: {ex.Message}"); }
         try { _licenseAlarmPushSender.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license alarm push dispose error: {ex.Message}"); }
         try { _netDiagMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] netdiag monitor dispose error: {ex.Message}"); }
         try { _hostedAiSpendSweep?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] hosted-ai spend sweep dispose error: {ex.Message}"); }

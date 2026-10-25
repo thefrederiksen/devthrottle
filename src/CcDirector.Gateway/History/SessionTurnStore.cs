@@ -54,6 +54,9 @@ public sealed class SessionTurnStore
     /// <summary>How many ordinals one page of the contiguous-watermark scan reads.</summary>
     private const int WatermarkPage = 1000;
 
+    /// <summary>How many expired sessions one retention delete names.</summary>
+    private const int PurgeChunk = 500;
+
     private readonly Func<DateTime> _utcNow;
 
     /// <param name="utcNow">The clock a held conversation's idleness is measured on; the system clock when omitted.</param>
@@ -290,23 +293,88 @@ public sealed class SessionTurnStore
             var key = (ctx.ActiveTenant ?? "", sessionId);
             if (head is null)
             {
-                _held.Remove(key);
+                // Release, not a bare remove: it keeps the held-row count true and disposes the held index.
+                if (_held.TryGetValue(key, out var gone)) Release(key, gone);
                 return null;
             }
 
-            var rows = HeldRows(ctx, key, head);
+            var (rows, _) = HeldRows(ctx, key, head);
             var messages = new List<HistoryMessageDto>(rows.Count);
             foreach (var row in rows)
-            {
-                messages.Add(new HistoryMessageDto
-                {
-                    Role = row.Role,
-                    Timestamp = row.TimestampUtc is { } ts ? new DateTimeOffset(DateTime.SpecifyKind(ts, DateTimeKind.Utc)) : null,
-                    Parts = JsonSerializer.Deserialize<List<HistoryPartDto>>(row.PartsJson, Json) ?? new List<HistoryPartDto>(),
-                });
-            }
+                messages.Add(ToMessage(row));
             return (head, messages);
         }
+    }
+
+    /// <summary>
+    /// The session's current conversation for a CURSOR request (issue #4387): the head, the count, and the index of
+    /// every message - the cursor hash after it and whether it starts a turn - with the messages themselves left to be
+    /// rebuilt only for the part of the answer that is sent (<see cref="ConversationView.Messages"/>).
+    ///
+    /// The index is kept beside the held rows and only extended: a message is hashed and classified once, when it is
+    /// first read, not on every poll. It goes when the held rows go - another generation, eviction, retention - and is
+    /// rebuilt from the rows on the next read. <paramref name="hashTenant"/>, <paramref name="sessionId"/>, the head's
+    /// generation and <paramref name="options"/> are what the cursor hash covers (<see cref="ConversationTail"/>).
+    ///
+    /// Never null: a session with nothing stored answers a view with no head and no messages, whose one hash is the
+    /// cursor for an empty conversation under generation "", as a full read of it would be.
+    /// </summary>
+    public ConversationView ReadView(string sessionId, string hashTenant, JsonSerializerOptions options)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        ArgumentNullException.ThrowIfNull(hashTenant);
+        ArgumentNullException.ThrowIfNull(options);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
+            var key = (ctx.ActiveTenant ?? "", sessionId);
+            if (head is null)
+            {
+                if (_held.TryGetValue(key, out var gone)) Release(key, gone);
+                using var empty = new ConversationIndex(hashTenant, sessionId, "", options);
+                return new ConversationView(null, 0, _ => throw new InvalidOperationException("an empty conversation has no messages"), empty);
+            }
+
+            var (rows, held) = HeldRows(ctx, key, head);
+            var index = held?.Index;
+            if (index is null || !index.IsFor(hashTenant, head.Generation, options) || index.Count > rows.Count)
+            {
+                index?.Dispose();
+                index = new ConversationIndex(hashTenant, sessionId, head.Generation, options);
+                // Rows that are served but not held (a store fault, or a conversation too long to hold) get an index
+                // for this read only, like the rows themselves.
+                if (held is not null) held.Index = index;
+            }
+            try
+            {
+                for (var i = index.Count; i < rows.Count; i++)
+                    index.Append(ToMessage(rows[i]));
+                return new ConversationView(head, rows.Count, i => ToMessage(rows[i]), index);
+            }
+            finally
+            {
+                // An index for this read only is let go however the read ends, a row that does not parse included.
+                if (held is null) index.Dispose();
+            }
+        }
+    }
+
+    /// <summary>How many stored rows have been rebuilt into messages, for the tests that prove a poll rebuilds only
+    /// what it sends.</summary>
+    internal long RowsRebuilt => Interlocked.Read(ref _rowsRebuilt);
+    private long _rowsRebuilt;
+
+    /// <summary>One stored row as the message Chat renders: fresh every time, so no two readers share an object.</summary>
+    internal HistoryMessageDto ToMessage(HeldTurn row)
+    {
+        Interlocked.Increment(ref _rowsRebuilt);
+        return new HistoryMessageDto
+        {
+            Role = row.Role,
+            Timestamp = row.TimestampUtc is { } ts ? new DateTimeOffset(DateTime.SpecifyKind(ts, DateTimeKind.Utc)) : null,
+            Parts = JsonSerializer.Deserialize<List<HistoryPartDto>>(row.PartsJson, Json) ?? new List<HistoryPartDto>(),
+        };
     }
 
     // ----- the held conversations (devthrottle_internal#2199) -----
@@ -323,13 +391,15 @@ public sealed class SessionTurnStore
     // deserialises fresh messages, so a caller that changes what it was given cannot change the next caller's answer.
 
     /// <summary>One stored turn as it is held: exactly the three columns a reader is built from.</summary>
-    private sealed record HeldTurn(string Role, DateTime? TimestampUtc, string PartsJson);
+    internal sealed record HeldTurn(string Role, DateTime? TimestampUtc, string PartsJson);
 
     private sealed class HeldConversation
     {
         public required string Generation { get; init; }
         public required List<HeldTurn> Turns { get; init; }
         public DateTime LastReadUtc { get; set; }
+        /// <summary>The cursor index of these rows (issue #4387), built by the first cursor read; null until then.</summary>
+        public ConversationIndex? Index { get; set; }
     }
 
     /// <summary>The most stored turns held across every conversation. Past it the least recently read conversations
@@ -350,9 +420,10 @@ public sealed class SessionTurnStore
     /// The current generation's contiguous prefix, as held rows: the held ones plus whatever the database has past
     /// them. The held rows are discarded - and the prefix read whole - when they cannot be the start of what the head
     /// now describes: another generation, or a head that counts fewer rows than are held (retention removed the
-    /// session and it came back).
+    /// session and it came back). Also answers the held conversation the rows are now part of, or null when they are
+    /// served without being held.
     /// </summary>
-    private List<HeldTurn> HeldRows(GatewayDbContext ctx, (string Tenant, string SessionId) key, SessionTurnHeadEntity head)
+    private (List<HeldTurn> Rows, HeldConversation? Held) HeldRows(GatewayDbContext ctx, (string Tenant, string SessionId) key, SessionTurnHeadEntity head)
     {
         var now = _utcNow();
         EvictIdle(now);
@@ -381,19 +452,19 @@ public sealed class SessionTurnStore
             // The head says rows [0, Count) are all present and they are not. That is a store fault (the watermark and
             // the rows are written in one transaction), so it is logged and the read answers exactly what the database
             // holds, as it always did - nothing is held on top of a prefix with a hole in it.
-            FileLog.Write($"[SessionTurnStore] ReadCurrent session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
+            FileLog.Write($"[SessionTurnStore] read session={sessionId}: head counts {head.Count} turn(s) but ordinals {from}..{head.Count - 1} returned {added.Count}; answering what is stored and holding nothing");
             if (held is not null) Release(key, held);
-            if (from == 0) return added;
-            return ctx.SessionTurns.AsNoTracking()
+            if (from == 0) return (added, null);
+            return (ctx.SessionTurns.AsNoTracking()
                 .Where(t => t.SessionId == sessionId && t.Generation == generation && t.Ordinal < head.Count)
                 .OrderBy(t => t.Ordinal)
                 .Select(t => new HeldTurn(t.Role, t.TimestampUtc, t.PartsJson))
-                .ToList();
+                .ToList(), null);
         }
 
         if (held is null)
         {
-            if (added.Count > MaxHeldTurns) return added;   // too long to hold at all; served, not kept
+            if (added.Count > MaxHeldTurns) return (added, null);   // too long to hold at all; served, not kept
             held = new HeldConversation { Generation = generation, Turns = added, LastReadUtc = now };
             _held[key] = held;
             _heldTurnCount += added.Count;
@@ -407,12 +478,15 @@ public sealed class SessionTurnStore
 
         var answer = new List<HeldTurn>(held.Turns);
         EvictOverCap(keep: key);
-        return answer;
+        return (answer, held);
     }
 
     private void Release((string Tenant, string SessionId) key, HeldConversation held)
     {
-        if (_held.Remove(key)) _heldTurnCount -= held.Turns.Count;
+        if (!_held.Remove(key)) return;
+        _heldTurnCount -= held.Turns.Count;
+        held.Index?.Dispose();
+        held.Index = null;
     }
 
     private void EvictIdle(DateTime now)
@@ -444,27 +518,56 @@ public sealed class SessionTurnStore
     public int PurgeOlderThan(DateTime cutoffUtc)
     {
         var cutoff = Utc(cutoffUtc);
+        // The expired sessions, found on the head's own index.
+        List<string> expired;
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            using var tx = ctx.Database.BeginTransaction();
-            // Heads first, and conditionally on the timestamp that makes them expired: a push that refreshed a
-            // head between our read and our delete keeps its head, and therefore keeps its turns below.
-            var heads = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).ExecuteDelete();
-            // Turns of sessions that now have NO head at all - whole sessions, never a prefix. Then the aged
-            // rows of generations a live session has left; the current generation is never touched here.
-            var turns = ctx.SessionTurns
-                .Where(t => !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId))
-                .ExecuteDelete();
+            expired = ctx.SessionTurnHeads.Where(h => h.UpdatedAtUtc < cutoff).Select(h => h.SessionId).ToList();
+        }
+
+        var heads = 0;
+        var turns = 0;
+        // One transaction, and one hold of the lock, per chunk: a session's head and its rows always go together,
+        // and a sweep that expires thousands of sessions at once lets every reader and push in between chunks rather
+        // than making them wait for all of it. Lists, not arrays: inside a query an array's Contains binds to the
+        // span overload, which the query cannot run.
+        foreach (var chunk in expired.Chunk(PurgeChunk).Select(c => c.ToList()))
+        {
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext();
+                using var tx = ctx.Database.BeginTransaction();
+                // Heads first, and conditionally on the timestamp that makes them expired: a push that refreshed a
+                // head between our read and our delete keeps its head, and therefore keeps its turns below.
+                heads += ctx.SessionTurnHeads.Where(h => chunk.Contains(h.SessionId) && h.UpdatedAtUtc < cutoff).ExecuteDelete();
+                // Turns of those sessions that now have NO head at all - whole sessions, never a prefix.
+                //
+                // Issue #4391: only THOSE sessions. This used to delete every turn row with no head, which is a scan
+                // of every conversation row the account holds, run every two minutes inside the store's one lock. On
+                // 23 October that scan took 39.5 seconds for the largest account (1.6 million rows) and found none,
+                // and every Chat read and every push waited behind it. A turn row with no head cannot otherwise
+                // exist: a head is written with its first rows, and only this method removes one, in the same
+                // transaction as its rows.
+                turns += ctx.SessionTurns
+                    .Where(t => chunk.Contains(t.SessionId) && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId))
+                    .ExecuteDelete();
+                tx.Commit();
+            }
+        }
+
+        // Then the aged rows of generations a live session has left; the current generation is never touched here.
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
             turns += ctx.SessionTurns
                 .Where(t => t.ReceivedAtUtc < cutoff
                             && !ctx.SessionTurnHeads.Any(h => h.SessionId == t.SessionId && h.Generation == t.Generation))
                 .ExecuteDelete();
-            tx.Commit();
-            if (turns + heads > 0)
-                FileLog.Write($"[SessionTurnStore] PurgeOlderThan: removed {heads} session(s) and {turns} turn row(s) older than {cutoff:O}");
-            return turns + heads;
         }
+        if (turns + heads > 0)
+            FileLog.Write($"[SessionTurnStore] PurgeOlderThan: removed {heads} session(s) and {turns} turn row(s) older than {cutoff:O}");
+        return turns + heads;
     }
 
     /// <summary>Refuse a batch that disagrees with itself before anything is written. A malformed push is a

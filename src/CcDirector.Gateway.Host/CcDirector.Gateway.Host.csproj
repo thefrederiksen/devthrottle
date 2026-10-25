@@ -40,6 +40,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Issue #4400: start the hosted Gateway's worker pool at 32, not at the processor count. The hosted plan
+         has 2 cores, so the pool started at 2 and grew by one or two threads a second; when several per-account
+         timers fired together they held every worker while waiting on the database, and even the health check
+         (which never touches the database) queued for up to 2 seconds. On the load rig (2 cores, 3 ms database
+         round trip) 32 removed every stall: worst health check 1.8 s -> 17 ms. Threads are still created only on
+         demand, so an idle Gateway pays nothing. Set here, in the hosted host's own runtimeconfig, so it applies
+         to the container only and not to the self-host or tray Gateway. /diag/loadmetrics reports the floor. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.MinThreads" Value="32" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The IMAGE-WIDE hosted identity marker (GatewayHostedMode.HostedImageMarkerFileName). Publishing this
          host ALSO ships a runnable, unmarked CcDirector.Gateway.dll; a compiled-in attribute only marks the
          launcher it is stamped on, so this file - baked into the published output next to every shipped

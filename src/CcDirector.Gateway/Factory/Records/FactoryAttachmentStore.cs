@@ -16,8 +16,17 @@ namespace CcDirector.Gateway.Factory.Records;
 /// one factory holding 216 MB. So each file is capped, and so is the factory's total - with a refusal that says how much is held and what the cap is,
 /// because a factory that silently stopped keeping its screenshots would look exactly like one that took none.
 ///
-/// WRITTEN ONCE. A file is never edited or replaced; a changed file is a new attachment with a new id. Nothing is
-/// pruned in this phase.
+/// WRITTEN ONCE. A file is never edited or replaced; a changed file is a new attachment with a new id.
+///
+/// KEPT ONCE (owner, 2026-10-23: "if there's duplicate, we don't need to save them"). A file whose exact bytes the
+/// factory already holds for the same seat is not stored again: the attachment it holds is the answer, under the name
+/// it was first kept by, <see cref="FactoryRecordOutcome.AlreadyStored"/>.
+/// A seat that attaches the same resume to every application keeps it once.
+///
+/// REMOVED WHEN NO LONGER NEEDED (owner, 2026-10-23: "we don't need to save the applications forever"). A person or a
+/// session of the factory may remove a file (<see cref="Remove"/>): its bytes are deleted, so they no longer count
+/// against the cap, and its row stays marked removed, so a journal entry that named it still says what it was. A
+/// removed file is never listed, never handed and never named by a new journal entry.
 ///
 /// THE FACTORY TOTAL IS CHECKED BEFORE THE INSERT, NOT BY THE DATABASE. Two writers on two replicas can both pass it
 /// at the same moment, so the total can go over the cap by at most one file per writer at that moment. That is the
@@ -64,7 +73,7 @@ public sealed class FactoryAttachmentStore
         {
             using var ctx = _db.CreateContext(tenant);
             var factoryBytes = FactoryBytes(ctx, factory);
-            var rows = ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory);
+            var rows = ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory && a.RemovedAtUtc == null);
             if (foldedSeat is not null) rows = rows.Where(a => a.Seat == foldedSeat);
             var total = rows.Count();
             var page = rows.OrderByDescending(a => a.WrittenAtUtc).ThenBy(a => a.Name).Take(limit).ToList();
@@ -88,7 +97,7 @@ public sealed class FactoryAttachmentStore
         {
             using var ctx = _db.CreateContext(tenant);
             var factoryBytes = FactoryBytes(ctx, factory);
-            var rows = ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory);
+            var rows = ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory && a.RemovedAtUtc == null);
             var total = rows.Count();
             var ordered = rows.OrderByDescending(a => a.WrittenAtUtc).ThenBy(a => a.Name).ThenBy(a => a.Id);
             if (before is not { } cursorId)
@@ -97,10 +106,16 @@ public sealed class FactoryAttachmentStore
                 return new FactoryAttachmentPage(first, total, 0, first.Count < total ? first[^1].Id : null, factoryBytes);
             }
 
-            if (rows.FirstOrDefault(a => a.Id == cursorId) is not { } cursor) return null;
+            // The cursor is looked up among every file the factory kept, removed ones too: a file removed after a page
+            // ended on it still marks where the next page starts (review of #4404, finding 1).
+            if (ctx.FactoryAttachments.AsNoTracking().FirstOrDefault(a => a.Factory == factory && a.Id == cursorId) is not { } cursor)
+                return null;
             var at = cursor.WrittenAtUtc;
-            // The attachments kept at the cursor's instant, in the page order; those after the cursor come first.
-            var tied = rows.Where(a => a.WrittenAtUtc == at).OrderBy(a => a.Name).ThenBy(a => a.Id).Select(a => a.Id).ToList();
+            // The attachments kept at the cursor's instant, in the page order, with the cursor placed among them even
+            // when it was removed; those after it come first. The database orders them, as it orders the pages.
+            var tied = ctx.FactoryAttachments.AsNoTracking()
+                .Where(a => a.Factory == factory && a.WrittenAtUtc == at && (a.RemovedAtUtc == null || a.Id == cursorId))
+                .OrderBy(a => a.Name).ThenBy(a => a.Id).Select(a => a.Id).ToList();
             var tiedAfter = tied.Skip(tied.IndexOf(cursorId) + 1).ToList();
             var older = ordered.Where(a => a.WrittenAtUtc < at);
             var left = tiedAfter.Count + older.Count();
@@ -118,7 +133,8 @@ public sealed class FactoryAttachmentStore
         }
     }
 
-    /// <summary>What one attachment is, without its bytes, or null when the factory holds no such attachment.</summary>
+    /// <summary>What one attachment is, without its bytes, or null when the factory holds no such attachment. A removed
+    /// one is answered, with <see cref="FactoryAttachmentEntity.RemovedAtUtc"/> set.</summary>
     public FactoryAttachmentEntity? Get(TenantId tenant, string factory, Guid id)
     {
         if (!FactoryNames.TryFactory(factory, out factory, out _)) return null;
@@ -147,10 +163,10 @@ public sealed class FactoryAttachmentStore
         }
     }
 
-    /// <summary>One attachment's bytes, or null when the factory holds no such attachment.</summary>
+    /// <summary>One attachment's bytes, or null when the factory holds no such attachment or removed it.</summary>
     public byte[]? Content(TenantId tenant, string factory, Guid id)
     {
-        if (Get(tenant, factory, id) is null) return null;
+        if (Get(tenant, factory, id) is not { RemovedAtUtc: null }) return null;
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -164,7 +180,7 @@ public sealed class FactoryAttachmentStore
 
     /// <summary>
     /// Which of these ids are NOT attachments of the factory. A journal entry may name only files its factory holds,
-    /// and the journal store asks this before it writes.
+    /// and the journal store asks this before it writes. A removed file is not held.
     /// </summary>
     public IReadOnlyList<Guid> Missing(TenantId tenant, string factory, IReadOnlyCollection<Guid> ids)
     {
@@ -174,7 +190,7 @@ public sealed class FactoryAttachmentStore
         {
             using var ctx = _db.CreateContext(tenant);
             var held = ctx.FactoryAttachments.AsNoTracking()
-                .Where(a => a.Factory == factory && ids.Contains(a.Id))
+                .Where(a => a.Factory == factory && ids.Contains(a.Id) && a.RemovedAtUtc == null)
                 .Select(a => a.Id)
                 .ToHashSet();
             return ids.Where(id => !held.Contains(id)).ToList();
@@ -229,6 +245,17 @@ public sealed class FactoryAttachmentStore
                         "bytes. Nothing was changed: the Gateway's copy and the machine's file disagree, and a person " +
                         "decides which one stands", before);
                 }
+            }
+
+            // The same bytes, already held for this seat (or for the factory as a whole, when no seat is named): kept
+            // once, and the file held is the answer. Per seat, so a seat's file is always in that seat's listing
+            // (review of #4404, finding 2). The upload names its files and is answered above.
+            if (importKey is null
+                && ctx.FactoryAttachments.AsNoTracking().FirstOrDefault(a => a.Factory == factory && a.Seat == foldedSeat
+                    && a.Sha256 == sha && a.Bytes == content.LongLength && a.RemovedAtUtc == null) is { } same)
+            {
+                FileLog.Write($"[FactoryAttachmentStore] {factory}/{foldedName}: the same bytes are held already as {same.Id} ('{same.Name}'); nothing stored");
+                return new FactoryAttachmentWrite(FactoryRecordOutcome.AlreadyStored, null, same);
             }
 
             if (content.Length > MaxAttachmentBytes)
@@ -300,9 +327,41 @@ public sealed class FactoryAttachmentStore
         }
     }
 
-    /// <summary>How many bytes of attachments the factory holds together - what its cap counts.</summary>
+    /// <summary>
+    /// Remove one file: its bytes are deleted and its row is marked removed, in one transaction. Removing a file that
+    /// was removed before answers <see cref="FactoryRecordOutcome.Removed"/> again with nothing changed, so a retry
+    /// after a lost answer is safe. A file the factory never held is <see cref="FactoryRecordOutcome.NotFound"/>.
+    /// </summary>
+    public FactoryAttachmentWrite Remove(TenantId tenant, string factory, Guid id, string authorKind, string? authorId,
+        DateTime nowUtc)
+    {
+        if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
+            return FactoryAttachmentWrite.Refused(FactoryRecordOutcome.BadFactory, factoryRefusal!);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.FactoryAttachments.FirstOrDefault(a => a.Factory == factory && a.Id == id);
+            if (row is null)
+                return FactoryAttachmentWrite.Refused(FactoryRecordOutcome.NotFound, $"'{factory}' holds no attachment {id}");
+            if (row.RemovedAtUtc is not null)
+                return new FactoryAttachmentWrite(FactoryRecordOutcome.Removed, null, row);
+
+            using var tx = ctx.Database.BeginTransaction();
+            row.RemovedAtUtc = nowUtc;
+            row.RemovedBy = $"{authorKind}:{authorId ?? "(unknown)"}";
+            ctx.FactoryAttachmentContents.Where(c => c.AttachmentId == id).ExecuteDelete();
+            ctx.SaveChanges();
+            tx.Commit();
+            FileLog.Write($"[FactoryAttachmentStore] {factory}/{row.Name}: removed attachment {id} ({row.Bytes} bytes) by {row.RemovedBy}");
+            return new FactoryAttachmentWrite(FactoryRecordOutcome.Removed, null, row);
+        }
+    }
+
+    /// <summary>How many bytes of attachments the factory holds together - what its cap counts. A removed file's bytes
+    /// are gone, so they do not count.</summary>
     private static long FactoryBytes(GatewayDbContext ctx, string factory)
-        => ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory).Sum(a => (long?)a.Bytes) ?? 0;
+        => ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory && a.RemovedAtUtc == null)
+            .Sum(a => (long?)a.Bytes) ?? 0;
 }
 
 /// <summary>A page of a factory's attachments, newest first, with how many match in all and how many bytes the factory
@@ -324,7 +383,7 @@ public sealed record FactoryAttachmentPage(IReadOnlyList<FactoryAttachmentEntity
 /// carries that attachment.</summary>
 public sealed record FactoryAttachmentWrite(FactoryRecordOutcome Outcome, string? Refusal, FactoryAttachmentEntity? Attachment)
 {
-    public bool Ok => Outcome is FactoryRecordOutcome.Written or FactoryRecordOutcome.AlreadyStored;
+    public bool Ok => Outcome is FactoryRecordOutcome.Written or FactoryRecordOutcome.AlreadyStored or FactoryRecordOutcome.Removed;
 
     public static FactoryAttachmentWrite Refused(FactoryRecordOutcome outcome, string refusal) => new(outcome, refusal, null);
 }

@@ -26,6 +26,10 @@ public sealed class WebSocketStreamSink : IStreamSink
 {
     private readonly WebSocket _socket;
 
+    /// <summary>One send at a time on the socket: a WebSocket allows no concurrent sends, and since issue #4380 two
+    /// writers share it - the Director's terminal frames and the keystroke pump's refused frames.</summary>
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
+
     public WebSocketStreamSink(WebSocket socket) => _socket = socket ?? throw new ArgumentNullException(nameof(socket));
 
     public async Task WriteFrameAsync(DirectorStreamFrame frame, CancellationToken cancellationToken)
@@ -41,7 +45,7 @@ public sealed class WebSocketStreamSink : IStreamSink
             case DirectorStreamFrameType.Binary:
                 var data = frame.Data ?? Array.Empty<byte>();
                 if (data.Length > 0)
-                    await _socket.SendAsync(data, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken);
+                    await SendAsync(data, WebSocketMessageType.Binary, cancellationToken);
                 break;
             case DirectorStreamFrameType.Closed:
                 await SendTextAsync(new { type = "closed", reason = frame.Reason ?? "" }, cancellationToken);
@@ -64,10 +68,32 @@ public sealed class WebSocketStreamSink : IStreamSink
         }
     }
 
-    private async Task SendTextAsync(object payload, CancellationToken ct)
+    /// <summary>
+    /// Tell the browser that keystrokes it sent did NOT reach the terminal, and why (issue #4380): a <c>refused</c> text
+    /// frame, <c>{"type":"refused","reason":"..."}</c>. Until then a keystroke the Director dropped - Claude Code's
+    /// usage-limit dialog showing - got no answer at all on this socket.
+    /// </summary>
+    public Task WriteRefusedAsync(string reason, CancellationToken cancellationToken)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
-        await _socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+        if (_socket.State != WebSocketState.Open)
+            throw new InvalidOperationException("terminal WebSocket is no longer open");
+        return SendTextAsync(new { type = "refused", reason }, cancellationToken);
+    }
+
+    private Task SendTextAsync(object payload, CancellationToken ct) =>
+        SendAsync(JsonSerializer.SerializeToUtf8Bytes(payload), WebSocketMessageType.Text, ct);
+
+    private async Task SendAsync(byte[] bytes, WebSocketMessageType type, CancellationToken ct)
+    {
+        await _sendGate.WaitAsync(ct);
+        try
+        {
+            await _socket.SendAsync(bytes, type, endOfMessage: true, ct);
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
     }
 
     // A WebSocket close reason is capped at 123 UTF-8 bytes by the protocol; keep it short and never null.

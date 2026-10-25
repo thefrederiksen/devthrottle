@@ -43,7 +43,8 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             findFactory: (_, _) => null,
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(new CronRunHistoryStore(db, _storePath + ".runs.json"),
                 new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
         await _app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(_app)}";
 
@@ -208,21 +209,41 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_NoNotify_DefaultsToNone()
+    public async Task Post_NoNotify_DefaultsToFailure()
     {
-        // AC4 default-OFF: a job created without the notify fields comes back as "none".
+        // Issue #4436: a job created without the notify fields tells its owner when a run fails.
         var created = await CreateJob("silent");
         var get = await _http.GetAsync($"/cron/jobs/{created.Id}");
         var fetched = JsonSerializer.Deserialize<CronJobDto>(await get.Content.ReadAsStringAsync(), JsonOpts);
         Assert.NotNull(fetched);
-        Assert.Equal("none", fetched!.NotifyOn);
+        Assert.Equal("failure", fetched!.NotifyOn);
         Assert.Null(fetched.NotifyWebhookUrl);
+        Assert.Null(fetched.NotifyNote);
+    }
+
+    [Fact]
+    public async Task Post_AnUnknownNotifyPolicy_IsRefused()
+    {
+        // Issue #4436 review, finding 6: "off" is not read as the default, which would tell its owner of every failure.
+        var body = new
+        {
+            name = "typo",
+            scheduleKind = "recurring",
+            cronExpression = "0 0 * * *",
+            timeZoneId = "America/Chicago",
+            target = new { machine = "workstation-A" },
+            action = new { repoPath = @"D:\repo", seed = "/help" },
+            notifyOn = "off",
+        };
+        var post = await _http.PostAsJsonAsync("/cron/jobs", body);
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+        Assert.Contains("notifyOn 'off' is not a notification policy", await post.Content.ReadAsStringAsync());
     }
 
     [Fact]
     public async Task Put_EditsNotifySettings()
     {
-        // AC4: editing a job updates the notify policy + webhook.
+        // AC4: editing a job updates the notify policy + webhook - the owner can turn the default off (issue #4436).
         var created = await CreateJob("editme");
 
         var edit = new
@@ -233,14 +254,14 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
             timeZoneId = "America/Chicago",
             target = new { machine = "workstation-A" },
             action = new { repoPath = @"D:\repo", seed = "/help" },
-            notifyOn = "failure",
+            notifyOn = "none",
             notifyWebhookUrl = "https://example.com/h2",
         };
         var put = await _http.PutAsJsonAsync($"/cron/jobs/{created.Id}", edit);
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
         var dto = JsonSerializer.Deserialize<CronJobDto>(await put.Content.ReadAsStringAsync(), JsonOpts);
         Assert.NotNull(dto);
-        Assert.Equal("failure", dto!.NotifyOn);
+        Assert.Equal("none", dto!.NotifyOn);
         Assert.Equal("https://example.com/h2", dto.NotifyWebhookUrl);
     }
 

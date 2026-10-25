@@ -8,7 +8,7 @@ namespace CcDirector.Gateway.Factory.Records;
 /// <summary>
 /// THE RECORDS TAB OF A FACTORY'S PAGE, FOLDED ONCE (Factory Definition mission, phase 6, sections 5.6 and 5.7; critical
 /// rule 7). Beside Memory: what the factory produced, held on the Gateway - its journals by seat, its working documents
-/// with every version, and its attachments. Every sentence and label is composed here, and the Cockpit draws it.
+/// with their newest versions, and its attachments. Every sentence and label is composed here, and the Cockpit draws it.
 ///
 /// The tab only READS. A record is written by a session of the factory (<c>cc-devthrottle factory journal|doc|attach</c>)
 /// or by the one-time upload, and a journal entry is never edited, so the owner's screen offers nothing to write.
@@ -60,9 +60,9 @@ public static class FactoryRecordsTabFold
             Factory = factory.Factory,
             Heading = $"The records of {factory.Title}",
             IntroText = $"What {factory.Title} has produced, kept on the Gateway so it does not depend on one machine's disk: " +
-                        "a journal per seat, working documents with every version, and attachments. The factory's sessions write " +
-                        "them with cc-devthrottle factory journal, doc and attach. A journal entry is never edited, and every " +
-                        "version of a document is kept.",
+                        "a journal per seat, working documents with their newest versions, and attachments. The factory's sessions " +
+                        "write them with cc-devthrottle factory journal, doc and attach. A journal entry is never edited, and a " +
+                        $"document keeps its newest {FactoryDocumentStore.KeptVersions} versions.",
             Journals = new FactoryRecordsSectionDto
             {
                 Heading = "Journals",
@@ -144,8 +144,9 @@ public static class FactoryRecordsTabFold
         SizeText = Size(a.Bytes),
         WhoText = Who(a.AuthorKind, a.AuthorId),
         WhenText = When(a.WrittenAtUtc, zone, nowUtc),
-        DownloadLabel = "Download",
-        DownloadHref = AttachmentHref(factory.Factory, a.Id),
+        // A removed file keeps its row so the journal still says what it was; there is nothing left to download.
+        DownloadLabel = a.RemovedAtUtc is { } removed ? $"Removed {When(removed, zone, nowUtc)}" : "Download",
+        DownloadHref = a.RemovedAtUtc is null ? AttachmentHref(factory.Factory, a.Id) : "",
     };
 
     // ---------- one journal ----------
@@ -194,8 +195,10 @@ public static class FactoryRecordsTabFold
         return new FactoryRecordsDocumentHistoryViewDto
         {
             Name = name,
-            Heading = $"Every version of {name}",
-            SummaryText = $"{FactoriesScreenFold.Count(page.Total, "version")}. Every version is kept.",
+            Heading = $"The newest versions of {name}",
+            // The one-time upload's own version is kept beside the newest three, so a history can show four.
+            SummaryText = $"{FactoriesScreenFold.Count(page.Total, "version")}. A document keeps its newest {FactoryDocumentStore.KeptVersions} " +
+                          "versions, and the one the one-time upload stored.",
             Columns = new List<string> { "Version", "State", "Written by", "When", "Size" },
             Rows = page.Versions.Select(v => new FactoryRecordsDocumentVersionRowDto
             {

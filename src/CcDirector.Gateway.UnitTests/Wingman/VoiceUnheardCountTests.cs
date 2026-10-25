@@ -154,7 +154,7 @@ public sealed class VoiceUnheardCountTests : IDisposable
         var at = voice.Get(Tenant, sid)!.AtUtc;
         var path = Path.Combine(voice.PartitionDirectoryFor(Tenant), "voice-listening.json");
 
-        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (SaveFailure.Block(path))
         {
             var failure = Record.Exception(() => voice.Listening.NotePlayed(Tenant, sid, at));
             Assert.True(failure is IOException or UnauthorizedAccessException, $"expected the save failure to reach the caller, got {failure?.GetType().Name ?? "nothing"}");

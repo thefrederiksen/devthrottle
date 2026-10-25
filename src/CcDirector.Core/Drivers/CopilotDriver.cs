@@ -33,7 +33,6 @@ namespace CcDirector.Core.Drivers;
 /// </summary>
 public sealed class CopilotDriver : IAgentDriver
 {
-    private static readonly byte[] CtrlC = [0x03];
 
     private static readonly JsonDocumentOptions JsonOptions = new()
     {
@@ -115,24 +114,18 @@ public sealed class CopilotDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.SharedSubmitAsync(backend, text, "CopilotDriver", requireEcho: false);
 
-    public Task CancelAsync(ISessionBackend backend) =>
+    public DriverInput Cancel() =>
         throw new NotSupportedException(
             "[CopilotDriver] copilot's soft-cancel keystroke is not yet live-verified (issue #625). " +
-            "Use InterruptAsync (Ctrl+C) until it is confirmed.");
+            "Use Interrupt (Ctrl+C) until it is confirmed.");
 
-    public Task InterruptAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[CopilotDriver] InterruptAsync: sending Ctrl+C");
-        backend.Write(CtrlC);
-        return Task.CompletedTask;
-    }
+    public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[CopilotDriver] copilot has no verified in-terminal history picker.");
 
-    public Task ClearContextAsync(ISessionBackend backend) =>
+    public DriverInput ClearContext() =>
         throw new NotSupportedException(
             "[CopilotDriver] copilot has no verified in-place context-clear command.");
 

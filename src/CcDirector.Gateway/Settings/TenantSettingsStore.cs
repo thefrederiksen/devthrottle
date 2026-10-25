@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
@@ -23,18 +24,62 @@ namespace CcDirector.Gateway.Settings;
 /// <see cref="TenantSettingsResolver"/> above it owns parsing, validation, and the fall-back to the global
 /// default. Threading: the Gateway is a single writer; every operation runs under this store's write lock over
 /// a fresh pooled context.
+///
+/// READS ARE REMEMBERED (issue #4405). The per-account timers read the same few keys about 25 times a minute for
+/// every account, most of them with no override at all, and every read waited on the database under the lock above -
+/// a third of the hosted Gateway's database traffic. <see cref="Get"/> and the existing-value path of
+/// <see cref="GetOrAdd"/> now answer from memory, absent values included, while the account's
+/// <see cref="TenantSettingsGenerations"/> number is unchanged and the value is younger than <see cref="MaxAge"/>.
+/// Every write anywhere moves that number, so this process never serves a value older than its own last write.
 /// </summary>
 public sealed class TenantSettingsStore
 {
+    /// <summary>
+    /// The longest a remembered value is trusted. It bounds only what this process cannot see: a write made by
+    /// ANOTHER Gateway process, which happens during the minute two containers overlap in a deploy. Every write in
+    /// this process is seen at once through <see cref="TenantSettingsGenerations"/>.
+    /// </summary>
+    public static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(30);
+
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
+    private readonly Func<long> _nowMs;
+    private readonly ConcurrentDictionary<(string Tenant, string Key), Remembered> _remembered = new();
 
     /// <param name="db">The Gateway EF database this store reads and writes through. Required.</param>
     /// <exception cref="ArgumentNullException">The database is null.</exception>
-    public TenantSettingsStore(GatewayDatabase db)
+    public TenantSettingsStore(GatewayDatabase db) : this(db, () => Environment.TickCount64)
+    {
+    }
+
+    /// <summary>The same store with its clock passed in, so a test can age a remembered value past <see cref="MaxAge"/>.</summary>
+    internal TenantSettingsStore(GatewayDatabase db, Func<long> nowMs)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _nowMs = nowMs ?? throw new ArgumentNullException(nameof(nowMs));
     }
+
+    /// <summary>One value as read, null for no override, with the account's number it was read under.</summary>
+    private sealed record Remembered(string? Value, long Generation, long ReadAtMs);
+
+    private bool TryRemembered(TenantId tenant, string key, out string? value)
+    {
+        // The same refusal GatewayDatabase.CreateContext gives, made here because memory is now asked first.
+        if (!tenant.IsValid)
+            throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+        if (_remembered.TryGetValue((tenant.Value, key), out var hit)
+            && hit.Generation == TenantSettingsGenerations.Current(tenant.Value)
+            && _nowMs() - hit.ReadAtMs < MaxAge.TotalMilliseconds)
+        {
+            value = hit.Value;
+            return true;
+        }
+        value = null;
+        return false;
+    }
+
+    private void Remember(TenantId tenant, string key, string? value, long generation) =>
+        _remembered[(tenant.Value, key)] = new Remembered(value, generation, _nowMs());
 
     /// <summary>
     /// The raw override value for one tenant's key, or null when that tenant has set no override for it.
@@ -45,10 +90,14 @@ public sealed class TenantSettingsStore
     public string? Get(TenantId tenant, string key)
     {
         RequireKey(key);
+        if (TryRemembered(tenant, key, out var remembered)) return remembered;
         lock (_gate)
         {
+            var generation = TenantSettingsGenerations.Current(tenant.Value);
             using var ctx = _db.CreateContext(tenant);
-            return ctx.TenantSettings.AsNoTracking().FirstOrDefault(e => e.Key == key)?.Value;
+            var value = ctx.TenantSettings.AsNoTracking().FirstOrDefault(e => e.Key == key)?.Value;
+            Remember(tenant, key, value, generation);
+            return value;
         }
     }
 
@@ -115,13 +164,18 @@ public sealed class TenantSettingsStore
     {
         RequireKey(key);
         if (create is null) throw new ArgumentNullException(nameof(create));
+        if (TryRemembered(tenant, key, out var remembered) && remembered is not null) return remembered;
         lock (_gate)
         {
             using (var ctx = _db.CreateContext(tenant))
             {
+                var generation = TenantSettingsGenerations.Current(tenant.Value);
                 var existing = ctx.TenantSettings.AsNoTracking().FirstOrDefault(e => e.Key == key);
                 if (existing is not null)
+                {
+                    Remember(tenant, key, existing.Value, generation);
                     return existing.Value;
+                }
 
                 var value = create();
                 ctx.TenantSettings.Add(new TenantSettingEntity

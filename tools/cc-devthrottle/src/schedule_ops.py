@@ -45,6 +45,8 @@ NOTIFY_NONE = "none"
 NOTIFY_ALWAYS = "always"
 NOTIFY_FAILURE = "failure"
 NOTIFY_CHOICES = (NOTIFY_NONE, NOTIFY_ALWAYS, NOTIFY_FAILURE)
+# A failed run tells its owner unless the owner turns it off (issue #4436); it was none.
+NOTIFY_DEFAULT = NOTIFY_FAILURE
 
 console = Console()
 err_console = Console(stderr=True)
@@ -268,11 +270,9 @@ def _runs_label(job: dict) -> str:
 
 
 def _notify_label(job: dict) -> str:
-    policy = (job.get("notifyOn") or NOTIFY_NONE).lower()
-    if policy == NOTIFY_NONE:
-        return "off"
+    # The Gateway's own words for the policy (issue #4436 review); an older Gateway sends none, and the policy is shown.
+    base = job.get("notifyText") or (job.get("notifyOn") or NOTIFY_DEFAULT)
     webhook = job.get("notifyWebhookUrl")
-    base = "always (success + failure)" if policy == NOTIFY_ALWAYS else "on failure"
     return f"{base} + webhook {webhook}" if webhook else base
 
 
@@ -533,6 +533,12 @@ def get_job(job_id: str, json_output: bool) -> None:
     console.print(f"  Seat:       {_seat_label(job)}")
     console.print(f"  Next run:   {_fmt(job.get('nextRunUtc'))} UTC")
     console.print(f"  Last fired: {_fmt(job.get('lastFiredUtc'))}  ({_fmt(job.get('lastStatus'))})")
+    # What went wrong with the newest run, in the Gateway's words (issue #4436); absent when it did not go wrong.
+    # Printed as plain text: the Gateway's sentence is never styled or read as markup.
+    if job.get("lastRunText"):
+        console.print(f"  Last run:   {axi_cli.ascii_text(job['lastRunText'])}", markup=False, highlight=False)
+    if job.get("notifyNote"):
+        console.print(f"  Note:       {axi_cli.ascii_text(job['notifyNote'])}", markup=False, highlight=False)
     console.print(f"  Created:    {_fmt(job.get('createdUtc'))} UTC")
 
 
@@ -558,6 +564,7 @@ def list_runs(job_id: str, json_output: bool) -> None:
     table.add_column("Session")
     table.add_column("Infra")
     table.add_column("How it ended")
+    table.add_column("What went wrong")
     table.add_column("Task")
 
     for run in history:
@@ -569,6 +576,8 @@ def list_runs(job_id: str, json_output: bool) -> None:
             _fmt(run.get("infraStatus")),
             # The Gateway's own words for how the run went (review of P10), never a status this tool interprets.
             _fmt(run.get("endingText")),
+            # And what went wrong with a failed run, in one plain sentence (issue #4436); the raw reason stays in --json.
+            _fmt(run.get("failureText")),
             _fmt(run.get("taskStatus")),
         )
     console.print(table)
@@ -617,7 +626,7 @@ def create_job(
             "cc-devthrottle factory register --manifest <file>."
         )
 
-    notify_value = (notify_on or NOTIFY_NONE).strip().lower()
+    notify_value = (notify_on or NOTIFY_DEFAULT).strip().lower()
     if notify_value not in NOTIFY_CHOICES:
         _create_usage_error(
             f"--notify-on must be one of {', '.join(NOTIFY_CHOICES)}, "
@@ -729,11 +738,14 @@ def _random_settings(
 
 
 def _write_load_warning(job: Dict[str, Any]) -> None:
-    """The Gateway's warning when a schedule just written lands in an hour over its machine's capacity. The schedule
-    is saved either way; the warning says where it is crowded and which hour is quietest."""
-    warning = job.get("loadWarning")
-    if warning:
-        axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
+    """The Gateway's warnings on a schedule just written, each in its own words: the folder could not be checked on its
+    machine (issue #4421 - offline, or a Director too old to ask), and its sessions land in an hour over the machine's
+    capacity. The schedule is saved either way. A folder the machine does not have is not a warning: the Gateway
+    refuses the save, and that refusal is printed as the error."""
+    for key in ("folderWarning", "loadWarning"):
+        warning = job.get(key)
+        if warning:
+            axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
 
 
 def show_load(machine: Optional[str], json_output: bool) -> None:
@@ -859,11 +871,20 @@ def run_now(job_id: str, json_output: bool) -> None:
         f"  Infra:   {_fmt(record.get('infraStatus'))}",
         f"  Task:    {_fmt(record.get('taskStatus'))}",
     ]
-    # Why a run started nothing, in the Gateway's words - for a seat the Director refused, its own sentence (Factory
-    # Definition, phase 5, QA finding 6). A run that started has no reason, and no line.
+    # How the run went, in the Gateway's words - for a run whose folder is not on its machine, what was wrong and how to
+    # fix it (issue #4421), where the reason below is the Director's own words.
+    ending = record.get("endingText")
+    if ending:
+        lines.append(f"  Ending:  {axi_cli.ascii_text(ending)}")
+    # What went wrong, in one plain sentence the Gateway chose from the cause (issue #4436), and the run record's own
+    # reason as the detail under it - for a seat the Director refused, its own sentence (Factory Definition, phase 5,
+    # QA finding 6). A run that started has neither, and no line.
+    problem = record.get("failureText")
+    if problem and problem not in (ending or ""):
+        lines.append(f"  Problem: {axi_cli.ascii_text(problem)}")
     reason = record.get("resultReason")
     if reason:
-        lines.append(f"  Reason:  {axi_cli.ascii_text(reason)}")
+        lines.append(f"  Detail:  {axi_cli.ascii_text(reason)}")
     axi_cli.write_lines(*lines)
     # The id is the one the Gateway just accepted; the session is whatever the run record names.
     axi_cli.print_next([

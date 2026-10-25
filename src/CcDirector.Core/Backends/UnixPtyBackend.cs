@@ -92,26 +92,33 @@ public sealed class UnixPtyBackend : ISessionBackend
 
     public void Write(byte[] data)
     {
-        if (_disposed || _processHost == null) return;
+        if (_disposed || _processHost == null)
+            throw TerminalWriteFailedException.Logged("UnixPtyBackend", $"write {data.Length} byte(s)", NotRunningReason);
         _processHost.Write(data);
     }
 
+    /// <summary>Why nothing can be written: the terminal was disposed, or its process was never started.</summary>
+    private string NotRunningReason => _disposed ? "the terminal has been disposed" : "the terminal's process was never started";
+
     public async Task SendTextAsync(string text)
     {
-        if (_disposed || _processHost == null) return;
+        if (_disposed || _processHost == null)
+            throw TerminalWriteFailedException.Logged("UnixPtyBackend", $"submit a text of {text.Length} character(s)", NotRunningReason);
         await TerminalSubmit.SharedSubmitAsync(this, text, "UnixPtyBackend");
     }
 
     public Task SendEnterAsync()
     {
-        if (_disposed || _processHost == null) return Task.CompletedTask;
+        if (_disposed || _processHost == null)
+            throw TerminalWriteFailedException.Logged("UnixPtyBackend", "press Enter", NotRunningReason);
         _processHost.Write(new byte[] { 0x0D }); // CR = Enter/submit (matches Windows ConPty)
         return Task.CompletedTask;
     }
 
     public void Resize(short cols, short rows)
     {
-        if (_disposed || _console == null) return;
+        if (_disposed || _console == null)
+            throw TerminalWriteFailedException.Logged("UnixPtyBackend", $"resize to {cols}x{rows}", NotRunningReason);
         // Mark the geometry change at the current byte position BEFORE the console
         // resizes, so the repaint bytes the resize triggers fall after the mark and
         // are replayed at the new width (issue #1304).
@@ -120,9 +127,10 @@ public sealed class UnixPtyBackend : ISessionBackend
         {
             _console.Resize(cols, rows);
         }
-        catch
+        catch (Exception ex)
         {
-            // Resize may fail if console is disposed
+            // A resize the console refused is logged and reaches the caller (issue #4380); it used to be swallowed here.
+            throw TerminalWriteFailedException.Logged("UnixPtyBackend", $"resize to {cols}x{rows}", "the console refused the resize", ex);
         }
     }
 

@@ -50,7 +50,14 @@ public static class CronSchedule
     /// <param name="factoryIsDefined">True when <see cref="CronJobDto.Factory"/> names a factory with a published
     /// definition, as the caller read it.</param>
     public static (bool Ok, string? Error) Validate(CronJobDto job, bool factoryIsDefined)
-        => ValidateCore(job, folderRequired: !(factoryIsDefined && !string.IsNullOrWhiteSpace(job?.Factory)));
+    {
+        // A notification policy that is none of the known ones is refused, never read as one (the issue #4436 review,
+        // finding 6): an integration that sent "off" would otherwise start being told of every failure. Left out or
+        // empty, the schedule takes the default, failure.
+        if (job is not null && !string.IsNullOrWhiteSpace(job.NotifyOn) && !CronNotify.IsKnown(job.NotifyOn))
+            return (false, $"notifyOn '{job.NotifyOn}' is not a notification policy; use one of {string.Join(", ", CronNotify.All)}, or leave it out for the default, {CronNotify.Default}");
+        return ValidateCore(job!, folderRequired: !(factoryIsDefined && !string.IsNullOrWhiteSpace(job?.Factory)));
+    }
 
     /// <summary>
     /// The rules, with the folder asked for or not. Without it, these are what WHEN a job fires depends on: the next run

@@ -67,9 +67,15 @@ public partial class App : Application
 
     public bool SandboxMode { get; private set; }
 
+    /// <summary>The name a Mac shows for the app in its menu bar (issue #4427). Avalonia puts the application's
+    /// Name there, and an unnamed application reads "Avalonia Application" (#3438).</summary>
+    public const string MacMenuBarName = "DevThrottle";
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        if (OperatingSystem.IsMacOS())
+            Name = MacMenuBarName;
     }
 
     public override void RegisterServices()
@@ -167,6 +173,13 @@ public partial class App : Application
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
         FileLog.Write("[CcDirector] Main window shown");
+
+        // Conformance is a warning only. Version processes run after the window is visible, off the interface thread,
+        // and can neither delay nor refuse start-up when a command is missing, changed, or slow.
+        _ = Task.Run(() => CliConformance.LogInstalledVersions(Options))
+            .ContinueWith(
+                task => FileLog.Write($"[CliConformance] Background version check FAILED: {task.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
 
         // The FIRST repository rescan starts HERE, not in InitializeServices (ruling R2-8): the
         // MainWindow constructor above wired RepositoryMonitor.LiveSessionsProvider, and the
