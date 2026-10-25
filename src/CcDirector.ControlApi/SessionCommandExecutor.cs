@@ -2084,11 +2084,25 @@ internal static class SessionCommandExecutor
         var seedText = req.PrePrompt;
         if (!string.IsNullOrWhiteSpace(seedText))
         {
-            _ = StartPrePrompt(session, seedText, TimeSpan.FromMilliseconds(Math.Max(1000, req.PrePromptWaitMs)));
+            _ = StartPrePrompt(session, seedText, TimeSpan.FromMilliseconds(Math.Max(1000, req.PrePromptWaitMs)),
+                typedLead: FirstPromptLead(kind, origin));
         }
 
         return DirectorCommandResult.Success(Serialize(ControlEndpoints.Map(session, directorId)));
     }
+
+    /// <summary>
+    /// The sentence typed in front of a new session's first prompt when that prompt goes as a paste (issue #3967), or
+    /// null for none: <see cref="Session.ScheduledRunLead"/> for a schedule's Claude Code session, whose agent was seen
+    /// asking a go-ahead of a paste with nothing typed beside it. Only a schedule's own firing (the cron surface): a
+    /// workflow seat and a trigger's session carry the schedule kind too, but the sentence says "a scheduled run", which
+    /// is not true of them (review of issue #3967). Every other session's first prompt - one a person typed or said
+    /// above all - reaches the agent as it was given.
+    /// </summary>
+    internal static string? FirstPromptLead(AgentKind kind, SessionOrigin origin) =>
+        kind == AgentKind.ClaudeCode && origin.Kind == SessionOriginKinds.Schedule && origin.Surface == SessionOriginSurfaces.Cron
+            ? Session.ScheduledRunLead
+            : null;
 
     /// <summary>
     /// Types a new session's first prompt on its own task, after the create verb has answered. Nobody awaits it, so it is
@@ -2098,7 +2112,7 @@ internal static class SessionCommandExecutor
     /// session's id whichever runs first (issue #3675). <paramref name="notBefore"/> holds the task back until it
     /// completes; null in the Director, a test uses it to run the task after the command's scope is gone.
     /// </summary>
-    internal static Task StartPrePrompt(Session session, string prePrompt, TimeSpan wait, Task? notBefore = null)
+    internal static Task StartPrePrompt(Session session, string prePrompt, TimeSpan wait, Task? notBefore = null, string? typedLead = null)
     {
         var correlationId = ErrorContext.Current?.CorrelationId;
         return Task.Run(async () =>
@@ -2107,7 +2121,7 @@ internal static class SessionCommandExecutor
             using var errorContext = ErrorContext.Begin(correlationId: correlationId, sessionId: session.Id.ToString());
             try
             {
-                await session.DeliverPrePromptAsync(prePrompt, wait);
+                await session.DeliverPrePromptAsync(prePrompt, wait, typedLead);
             }
             catch (Exception ex)
             {
