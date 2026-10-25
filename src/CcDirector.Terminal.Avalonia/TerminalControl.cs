@@ -160,6 +160,7 @@ public class TerminalControl : Control
     // Paste state. Read on the background paste thread, set on the UI thread (the
     // Cancel Paste menu item), so it is volatile to guarantee the cancel is seen.
     private volatile bool _isPasting;
+    private CancellationTokenSource? _pasteCancellation;
 
     // Paste pacing. Clipboard text is sent to the agent TUI in small chunks with a
     // short delay between them so interactive prompts (claude /login) do not drop
@@ -1107,6 +1108,13 @@ public class TerminalControl : Control
     internal Task HarnessPasteAsync(string text) =>
         _session is { } session && !_isPasting ? PasteTextAsync(session, text) : Task.CompletedTask;
 
+    /// <summary>Test seam for the Cancel Paste menu action.</summary>
+    internal void HarnessCancelPaste()
+    {
+        _isPasting = false;
+        _pasteCancellation?.Cancel();
+    }
+
     /// <summary>Harness: force the grid dimensions (when not driven by layout).</summary>
     internal void HarnessSetGrid(int cols, int rows)
     {
@@ -1639,6 +1647,7 @@ public class TerminalControl : Control
             {
                 FileLog.Write("[TerminalControl] Paste cancelled by user");
                 _isPasting = false;
+                _pasteCancellation?.Cancel();
             };
             menu.Items.Add(cancelItem);
         }
@@ -2452,14 +2461,20 @@ public class TerminalControl : Control
         var bracketed = session.BracketedPasteEnabled;
         FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}");
         _isPasting = true;
+        using var cancellation = new CancellationTokenSource();
+        _pasteCancellation = cancellation;
 
         try
         {
             // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
             // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
             await TerminalPasteExecutor.PasteAsync(text, bracketed, session.Backend,
-                bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
+                bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor), cancellation.Token).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            FileLog.Write("[TerminalControl] PasteToTerminalAsync: cancelled");
         }
         catch (Exception ex)
         {
@@ -2467,7 +2482,11 @@ public class TerminalControl : Control
         }
         finally
         {
-            _isPasting = false;
+            if (ReferenceEquals(_pasteCancellation, cancellation))
+            {
+                _pasteCancellation = null;
+                _isPasting = false;
+            }
         }
     }
 
