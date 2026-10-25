@@ -10,15 +10,16 @@ namespace CcDirector.Gateway.Tests;
 /// Disposing a self-host statistics store releases its file, and only its file. The store serves through
 /// pooled SQLite connections, and a pooled connection holds the file open after the context that used it is
 /// gone; on Windows a folder holding such a file cannot be deleted. The Gateway disposes its store on every
-/// stop so a restart can reopen the file and a test can remove its storage root. Every delete below is LOUD:
-/// it throws while any connection still holds the file, and that throw is the observation these tests rest on.
+/// stop so a restart can reopen the file and a test can remove its storage root. The observation these tests rest on
+/// is whether this process holds the file open, asked of the operating system itself (<see cref="FileHeldOpen"/>).
 ///
 /// In the pool-isolation collection: the observation is a pooled connection holding a file, and dozens of
 /// classes in this assembly call ClearAllPools on dispose, which reclaims that connection from under a test
 /// running beside them (issue #3393). Alone, the premise holds; in parallel, it is somebody else's cleanup.
 ///
-/// Windows only: the observation is that a held file blocks the folder delete, which Unix does not do - there a
-/// deleted file simply disappears from the directory while the handle lives on, and there is nothing to observe.
+/// ON EVERY SYSTEM. These tests used to observe a held file by trying to delete its folder, which fails only on Windows,
+/// so they were Windows only and skipped elsewhere. They now ask the system which files this process holds open, which
+/// Linux and macOS answer as well as Windows.
 /// </summary>
 [Collection(SqlitePoolIsolationCollection.Name)]
 public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
@@ -33,7 +34,7 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         Assert.True(context.Database.CanConnect());
     }
 
-    [WindowsOnlyFact("a held file blocks the folder delete only on Windows; on Unix the delete succeeds and there is nothing to observe")]
+    [Fact]
     public void Dispose_ReleasesTheSelfHostFile_SoItsFolderCanBeDeleted()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-stats-store-dispose-" + Guid.NewGuid().ToString("N"));
@@ -45,40 +46,47 @@ public sealed class GatewayStatsStoreDisposeReleasesTheFileTests
         UseOnce(store);
 
         // The premise, stated as a check rather than assumed: while the store is open its pooled connection
-        // holds the file, and the folder cannot be deleted.
-        Assert.ThrowsAny<IOException>(() => Directory.Delete(dir, recursive: true));
+        // holds the file.
+        Assert.True(FileHeldOpen.ByThisProcess(path), "the store's pooled connection should hold its file while it is open");
 
         store.Dispose();
 
+        Assert.False(FileHeldOpen.ByThisProcess(path), "disposing the store should release its file");
         Directory.Delete(dir, recursive: true);
         Assert.False(Directory.Exists(dir));
     }
 
-    [WindowsOnlyFact("a held file blocks the folder delete only on Windows; on Unix the delete succeeds and there is nothing to observe")]
+    [Fact]
     public void Dispose_ReleasesOnlyItsOwnFile_AnotherStoresPooledConnectionIsLeftAlone()
     {
         // Two stores over two files in one process: a running Gateway next to a test, or two tests side by side.
         // Disposing the first must clear the FIRST file's pool and nothing else. The second store's idle pooled
-        // connection is the observation: it still holds the second file, so the second folder still cannot be
-        // deleted. Clearing every pool in the process - the ClearAllPools this replaced - would release the
-        // second file too, and the first delete below would succeed instead of throwing.
+        // connection is the observation: it still holds the second file. Clearing every pool in the process - the
+        // ClearAllPools this replaced - would release the second file too.
         var dir = Path.Combine(Path.GetTempPath(), "cc-stats-store-dispose-pair-" + Guid.NewGuid().ToString("N"));
         var firstDir = Path.Combine(dir, "first");
         var secondDir = Path.Combine(dir, "second");
-        var first = OpenOver(Path.Combine(firstDir, "gateway-stats.db"));
-        var second = OpenOver(Path.Combine(secondDir, "gateway-stats.db"));
+        var firstPath = Path.Combine(firstDir, "gateway-stats.db");
+        var secondPath = Path.Combine(secondDir, "gateway-stats.db");
+        var first = OpenOver(firstPath);
+        var second = OpenOver(secondPath);
         Assert.True(first.IsAvailable, first.Availability.Detail);
         Assert.True(second.IsAvailable, second.Availability.Detail);
         UseOnce(first);
         UseOnce(second);
 
+        Assert.True(FileHeldOpen.ByThisProcess(firstPath), "the first store should hold its file while it is open");
+        Assert.True(FileHeldOpen.ByThisProcess(secondPath), "the second store should hold its file while it is open");
+
         first.Dispose();
 
+        Assert.False(FileHeldOpen.ByThisProcess(firstPath), "disposing the first store should release its file");
+        Assert.True(FileHeldOpen.ByThisProcess(secondPath), "disposing the first store must leave the second store's file held");
         Directory.Delete(firstDir, recursive: true);
-        Assert.ThrowsAny<IOException>(() => Directory.Delete(secondDir, recursive: true));
         UseOnce(second);
 
         second.Dispose();
+        Assert.False(FileHeldOpen.ByThisProcess(secondPath), "disposing the second store should release its file");
         Directory.Delete(dir, recursive: true);
         Assert.False(Directory.Exists(dir));
     }
