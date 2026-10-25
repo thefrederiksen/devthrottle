@@ -52,3 +52,20 @@ The run is a problem 9.5 seconds after it fired. On main it reads `started`, res
 - The owner being told: that is pull request #4441 (issue #4436).
 - The issue's third point - a one-at-a-time trigger that stays blocked behind the limited session - is not changed: the
   session is left open, as every failed run's session is.
+
+## Run again after the review
+
+The review asked that only the agent's own printed block count (a quote, or a seed naming the wording, must not), and
+that only a pending run's screen be read. The same rig rebuilt from commit `f662df742`, the same schedule, `schedule
+run cj_53c570` at 00:10:14 UTC (session `c1f966e0`):
+
+```
+"result": "problem",
+"problem": "seat-limit",
+"resultReason": "its session started on devlinux, but the agent answered that its seat is at a limit (\"hit your monthly spend limit\"), so the work could not be done",
+"resultUtc": "2026-10-25T00:10:29.6615317Z",
+"ending": "still-open"
+```
+
+The run is a problem 14.6 seconds after it fired. The quote and seed cases are unit tests
+(`RecordSeatLimitFromScreen_AHealthyReplyThatQuotesALimit_IsNotABlock`, `..._ASeedThatNamesTheWording_IsNotABlock`).
