@@ -39,3 +39,21 @@ public sealed class ZshOnlyFactAttribute : FactAttribute
             Skip = "needs /bin/zsh: " + because;
     }
 }
+
+/// <summary>
+/// A fact about behaviour only macOS has, which SKIPS - visibly, with a stated reason - everywhere
+/// else, rather than failing for a platform it was never about. The same discipline as
+/// <see cref="WindowsOnlyTheoryAttribute"/>.
+///
+/// For a test that genuinely needs the real macOS: one that shells out to <c>plutil</c>, say. A test
+/// that merely ASSERTS ABOUT macOS should name the platform and run everywhere instead - see
+/// MacInstallLocationTests, which does exactly that.
+/// </summary>
+public sealed class MacOnlyFactAttribute : FactAttribute
+{
+    public MacOnlyFactAttribute(string because)
+    {
+        if (!OperatingSystem.IsMacOS())
+            Skip = "macOS-only: " + because;
+    }
+}
