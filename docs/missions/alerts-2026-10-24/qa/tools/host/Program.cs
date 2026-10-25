@@ -76,8 +76,8 @@ string Restart(string machine, string reason, string? launcherVersion = null, st
         DirectorId = "d-" + machine,
         DirectorName = machine,
         RequestedBySessionId = Sid(142),
-        // The requester as DirectorRestartRequestService.RequesterName stores it: the session's name and its short id.
-        RequestedBySessionName = asker ?? "Rig - Developer (aaaaaaaa)",
+        // The requester as DirectorRestartRequestService.RequesterName stores it: the session's name and its number.
+        RequestedBySessionName = asker ?? "Rig - Developer (142)",
         Reason = reason,
         LiveSessionCount = 2,
         LiveSessionsSentence = "That Director holds 2 live sessions right now; each will be asked to write a handover and close, leaf-first.",
@@ -91,7 +91,7 @@ string Restart(string machine, string reason, string? launcherVersion = null, st
             GuardedRestartReason = guarded ?? "",
         },
         Title = $"Restart the Director on {machine}?",
-        AskedBySentence = $"{asker ?? "Rig - Developer (aaaaaaaa)"} asks: {reason}",
+        AskedBySentence = $"{asker ?? "Rig - Developer (142)"} asks: {reason}",
         AcceptSentence = "Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.",
     };
     if (!restarts.TryCreate(tenant, r, out _)) throw new InvalidOperationException("restart seed refused for " + machine);
@@ -157,7 +157,7 @@ switch (scenario)
         Restart("devthrottle-mac-mini-build-02", longReason, longVersion,
             capabilityReason: $"The launcher {longVersion} answers on this machine and can restart the Director; {longReason}",
             guarded: "GuardedRestartUnavailableBecauseTheLauncherDeclaredNoGuardedRestartCommandInItsCapabilitiesList",
-            asker: "Rig - Developer-with-a-very-long-session-name-that-has-no-spaces-anywhere-at-all (aaaaaaaa)");
+            asker: "Rig - Developer-with-a-very-long-session-name-that-has-no-spaces-anywhere-at-all (142)");
         Secret("a-very-long-entry-name-for-a-secret-that-has-no-break-points-anywhere", "devthrottle-mac-mini-build-02", 142, longReason);
         break;
     }

@@ -35,8 +35,8 @@ public sealed class RestartRequestAlertSourceTests
             DirectorId = "d-1",
             Reason = "the Mac Tester can run the v2.31.0 checks",
             Title = $"Restart the Director on {machine}?",
-            RequestedBySessionName = "Release - Release Manager (1512339f)",
-            AskedBySentence = "Release - Release Manager (1512339f) asks: the Mac Tester can run the v2.31.0 checks",
+            RequestedBySessionName = "Release - Release Manager (125)",
+            AskedBySentence = "Release - Release Manager (125) asks: the Mac Tester can run the v2.31.0 checks",
             Capability = new MachineRestartCapabilityDto(),
         };
         Assert.True(_store.TryCreate(tenant ?? Tenant, request, out _));
@@ -56,9 +56,10 @@ public sealed class RestartRequestAlertSourceTests
         Assert.Equal("restart-request:" + id, alert.Id);
         Assert.Equal(AlertKinds.RestartRequest, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Restart the Director on mac-mini?", alert.Title);
-        // The session is named by its mission and role, never by the short id the request stores beside its name.
-        Assert.Equal("Release Manager asks: the Mac Tester can run the v2.31.0 checks", alert.Summary);
+        // The session is named by its mission and role, then its number - as the other two kinds name theirs.
+        Assert.Equal("Release Manager (125) asks: the Mac Tester can run the v2.31.0 checks", alert.Summary);
         Assert.Equal(_now + DirectorRestartRequestStore.Expiry, alert.ExpiresAtUtc);
         Assert.Equal(_now, alert.CreatedAtUtc);
         Assert.Equal(_now, alert.UpdatedAtUtc);
@@ -76,6 +77,7 @@ public sealed class RestartRequestAlertSourceTests
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Accepted", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Restarting the Director on mac-mini", alert.Title);
         Assert.Equal("Accepted; telling the Director to begin.", alert.Summary);
         Assert.Null(alert.ExpiresAtUtc);
@@ -97,6 +99,7 @@ public sealed class RestartRequestAlertSourceTests
         var alert = Only();
 
         Assert.Equal("Accepted", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("2 of 3 sessions have written their handover.", alert.Summary);
         Assert.Equal(_now, alert.UpdatedAtUtc);
     }
@@ -116,6 +119,7 @@ public sealed class RestartRequestAlertSourceTests
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Restarted", alert.Status);
+        Assert.Equal(AlertTones.Good, alert.Tone);
         Assert.Equal("The Director on mac-mini restarted", alert.Title);
         Assert.Equal("The restart finished.", alert.Summary);
     }
@@ -134,6 +138,7 @@ public sealed class RestartRequestAlertSourceTests
         var alert = Only();
 
         Assert.Equal("Stopped", alert.Status);
+        Assert.Equal(AlertTones.Bad, alert.Tone);
         Assert.Equal("The Director stopped without restarting. Open Details for its reason.", alert.Summary);
         Assert.DoesNotContain("guardedRestartReason", alert.Summary + alert.Title);
         Assert.Contains("guardedRestartReason", ((DirectorRestartRequestDto)alert.Detail!).StateReason);
@@ -149,6 +154,7 @@ public sealed class RestartRequestAlertSourceTests
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Declined", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("You declined it. Nothing was restarted.", alert.Summary);
     }
 
@@ -162,6 +168,7 @@ public sealed class RestartRequestAlertSourceTests
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Expired", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Nobody accepted it within 30 minutes. Nothing was restarted.", alert.Summary);
     }
 
@@ -175,6 +182,7 @@ public sealed class RestartRequestAlertSourceTests
         var alert = Only();
 
         Assert.Equal("Expired", alert.Status);
+        Assert.Equal(AlertTones.Bad, alert.Tone);
         Assert.Equal("The Director did not say how the restart ended within 3 hours. Check that machine before assuming it restarted.",
             alert.Summary);
     }

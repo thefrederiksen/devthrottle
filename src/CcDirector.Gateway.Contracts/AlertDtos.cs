@@ -26,6 +26,24 @@ public static class AlertKinds
 }
 
 /// <summary>
+/// How an alert's outcome should read (the Alerts mission, phase 5 review): a failed or stopped answer must not look like
+/// a calm note. Ruled by each source on the Gateway; a client only colours what it is told.
+/// </summary>
+public static class AlertTones
+{
+    /// <summary>It did what was asked: delivered, restarted, allowed.</summary>
+    public const string Good = "good";
+
+    /// <summary>It did not happen, and the owner should know: failed, stopped, a restart nobody can account for.</summary>
+    public const string Bad = "bad";
+
+    /// <summary>Waiting, under way, or ended by a choice: declined, denied, nobody answered in time.</summary>
+    public const string Neutral = "neutral";
+
+    public static readonly IReadOnlyList<string> All = new[] { Good, Bad, Neutral };
+}
+
+/// <summary>
 /// ONE ALERT: something that asks the owner for an answer, or did in the last day (the Alerts mission, section 5.2).
 ///
 /// AN ALERT IS NOT NEW DATA. It is a read-time view of a record another feature already owns - a restart request, a
@@ -52,6 +70,9 @@ public sealed class AlertDto
 
     /// <summary>A short status word: <c>Waiting</c>, <c>Accepted</c>, <c>Declined</c>, <c>Expired</c>, <c>Delivered</c>...</summary>
     public string Status { get; set; } = "";
+
+    /// <summary>How <see cref="Status"/> reads: one of <see cref="AlertTones"/>.</summary>
+    public string Tone { get; set; } = "";
 
     /// <summary>When the record was made.</summary>
     public DateTime CreatedAtUtc { get; set; }

@@ -182,6 +182,21 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
         Assert.Equal(1, list.NeedsAnswerCount);
     }
 
+    // Phase 5 review, observation 3: the client colours an outcome by the tone the Gateway stamps, under the field name
+    // its AlertDto type reads.
+    [Fact]
+    public async Task List_CarriesEachAlertsTone_UnderTheFieldNameTheClientReads()
+    {
+        Pending(Alice);
+
+        var resp = await Send(HttpMethod.Get, AlertEndpoints.ListRoute, Alice);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var alert = Assert.Single(doc.RootElement.GetProperty("alerts").EnumerateArray());
+        Assert.Equal(AlertTones.Neutral, alert.GetProperty("tone").GetString());
+        Assert.Equal("Waiting", alert.GetProperty("status").GetString());
+    }
+
     [Fact]
     public async Task ClearOne_WhileItNeedsAnAnswer_Is409WithTheSentence()
     {

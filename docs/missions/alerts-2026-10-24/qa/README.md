@@ -27,10 +27,15 @@ summaries are rewritten on the Gateway as owner sentences: "Release Manager (121
 - **The browser** is the Director's account-less "Agent browser" profile, driven with browser-harness. Phone app at
   390 x 844 (device scale 2) and 360 x 780 for the overflow fixture; Cockpit at 1440 x 900. `tools/qa.py` runs each
   scenario as ONE foreground command: it starts the host, drives the steps, and stops the host.
-- **Every step's printed result is in `run-log.txt`.** The run is one pass over every scenario. The first phone pass of
-  the mixed scenario timed out at its very first step (waiting for the bell's badge after the page loaded, before any
-  Alerts screen was opened) and wrote no screenshot; it was run again at once, unchanged, and passed every step. Both are
-  in the log, marked `RERUN`. The cause of that one timeout was not found.
+- **Every step's printed result is in `run-log.txt`.** It is one pass over every scenario, on one build, after the
+  review's fixes. Every screenshot was taken. One line in it is not a pass of the app's: after the "twelve" scenario's
+  screenshots, the QA host's own shutdown did not finish inside the 30 seconds `qa.py` gives it (it waits for the
+  browser's open connections), so that scenario ends in a traceback; no QA host process was left running afterwards.
+  Earlier attempts at this pass stopped part-way for reasons outside the app - the browser's screenshot call hanging, and
+  the "Agent browser" being stopped while the run was using it - and were thrown away whole rather than patched.
+- **What needs an answer is measured on what the screen shows.** The phone's Alerts screen has no bell (it IS Alerts),
+  so on the phone each answer prints the number of cards before and after (`cards 3 after: cards 2`), and the step back
+  to the session list prints the bell's badge there. The Cockpit prints its bell's badge. (Phase 5 review, finding 3.)
 - The `?` in front of the Cockpit's tab title in the log is browser-harness's own tab marker, not the app's title.
 
 ## Screenshots, named for the state they prove
@@ -47,13 +52,13 @@ The phone app is `phone-*`, the Cockpit is `desktop-*` (and `cockpit-390-*` at p
 | Earlier expanded: compact rows, Clear all in its header | `phone-alerts-earlier-expanded` | `desktop-alerts-earlier-expanded` |
 | An Earlier row opened in place (the running restart's progress line) | `phone-alerts-earlier-row-opened` | `desktop-alerts-earlier-row-opened` |
 | A card's Details opened (the restart's diagnostics) | `phone-card-restart-details` | `desktop-card-restart-details` |
-| Secret transfer approved from its card: the card leaves, a line says what happened | `phone-answer-secret-transfer-approved` | `desktop-answer-secret-transfer-approved` |
-| Message request approved from its card | `phone-answer-message-request-allowed` | `desktop-answer-message-request-allowed` |
+| Secret transfer approved from its card, and its delivery failed: the card leaves, the line says so in red | `phone-answer-secret-transfer-approved-then-failed` | `desktop-answer-secret-transfer-approved-then-failed` |
+| Message request approved from its card (the line's edge in green: it happened) | `phone-answer-message-request-allowed` | `desktop-answer-message-request-allowed` |
 | Restart accepted from its card, step 1: the confirmation on the card | `phone-answer-restart-step-1-confirm` | `desktop-answer-restart-step-1-confirm` |
 | Restart, step 2: the Gateway's answer, out of Needs you | `phone-answer-restart-step-2-answered` | `desktop-answer-restart-step-2-answered` |
 | Nothing needs you, Earlier still beneath it | `phone-alerts-nothing-needs-you-earlier-below` | `desktop-alerts-nothing-needs-you-earlier-below` |
 | Clear one | `phone-cleared-one` | `desktop-cleared-one` |
-| Clear refused on an alert that needs an answer | `phone-clear-refused-needs-an-answer` | `desktop-clear-refused-needs-an-answer` |
+| Clear refused on an alert that needs an answer (the sentence indented under its own row) | `phone-clear-refused-needs-an-answer` | `desktop-clear-refused-needs-an-answer` |
 | Clear all (Earlier gone; the alert that needs an answer stays as a card) | `phone-cleared-all` | `desktop-cleared-all` |
 | Back returns to the session list, with focus on the bell | `phone-back-to-session-list` | - |
 | Gateway unreachable: the failure line, the last-known list kept | `phone-gateway-unreachable` | `desktop-gateway-unreachable` |
@@ -74,6 +79,10 @@ long session name and a long secret entry name - now shown IN FULL on the card, 
 
 ## Notes for the reader
 
+- **Outcomes carry the Gateway's tone.** Each source stamps a `tone` beside the status word - good (it happened:
+  Delivered, Restarted, Allowed), bad (it did not, and the owner should know: Failed, Stopped, a restart nobody can
+  account for, a request whose session ended) or neutral (waiting, under way, or ended by a choice). The answered line
+  and the Earlier rows only colour what they are told: red for bad, green for good. (Phase 5 review, observation 3.)
 - **The approved secret transfer reads "Failed".** The approval itself went through and was recorded as given on the
   phone; the Gateway then could not deliver it, and said so. Read back from the Gateway after the same click:
   `"status":"Failed", "where":"phone", "outcome":"QA-DESK is not connected with a Director that can send it now. Nothing
@@ -87,7 +96,8 @@ long session name and a long secret entry name - now shown IN FULL on the card, 
   Earlier. The Gateway answers 409 and the row shows its sentence verbatim. When the read is released, that request comes
   back as a card in Needs you (`*-cleared-all`).
 - **Names.** "Release Manager (121)" is the session "Release - Manager", number 121; "Release Manager (125)" is "Release -
-  Release Manager". The restart request stores its requester with a short id and no number, so it reads "Rig Developer".
+  Release Manager". The restart request now stores its requester with the session's number ("Rig - Developer (142)"),
+  so it reads "Rig Developer (142)" like the other two kinds; a session with no number keeps its short id there.
 
 ## The roster guard (goal 1)
 
@@ -102,13 +112,15 @@ All run in this worktree on the final code.
 |---|---|
 | `npm ci` | completed |
 | `npm run typecheck` | no errors |
-| `npm test --workspace @devthrottle/client-core` | 187 files, 2,381 tests passed |
-| `npm test --workspace @devthrottle/mobile` | 39 files, 199 tests passed |
+| `npm test --workspace @devthrottle/client-core` | 187 files, 2,383 tests passed |
+| `npm test --workspace @devthrottle/mobile` | 39 files, 200 tests passed |
 | `npm test --workspace @devthrottle/cockpit` | 132 files, 1,429 tests passed |
 | `npm run lint` | 5 errors, exactly the five known ones already on main (`FactoryRecordsTab.tsx`, `fixtures.ts`, `sw.test.ts`, `Recorder.tsx`, `VoiceMode.tsx`); no other |
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Alert"` | 112 passed |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Alert"` | 116 passed |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Alert"` | 13 passed |
-| `dotnet test src/CcDirector.Gateway.DatabaseTests --filter "FullyQualifiedName~Alert"` | plain `dotnet test` reports it SKIPPED (by design); through `scripts	est-database.ps1 -Filter "FullyQualifiedName~Alert"` against a throwaway PostgreSQL: 1 executed, 1 passed, 0 skipped |
+| `dotnet test src/CcDirector.Gateway.DatabaseTests --filter "FullyQualifiedName~Alert"` | plain `dotnet test` reports it SKIPPED (by design); through `scripts/test-database.ps1 -Filter "FullyQualifiedName~Alert"` against a throwaway PostgreSQL: 1 executed, 1 passed, 0 skipped |
 
 Also run, because this branch changes the push notifications' address to the new Alerts screen
-(`/mobile/alerts?alert={id}`): `--filter "FullyQualifiedName~Alert|FullyQualifiedName~PushNotifier"`, 133 passed.
+(`/mobile/alerts?alert={id}`) and the name a restart request stores for its asker:
+`--filter "FullyQualifiedName~Alert|FullyQualifiedName~PushNotifier|FullyQualifiedName~DirectorRestartRequestService|FullyQualifiedName~DirectorDrainRestartStep"`,
+181 passed.

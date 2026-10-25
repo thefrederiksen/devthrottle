@@ -29,7 +29,7 @@ export function Alerts() {
 
   const back = () => {
     if (from?.pushed) navigate(-1);
-    else navigate(from?.back ?? "/", { replace: true });
+    else navigate(from?.back ?? "/", { replace: true, state: from?.backState });
   };
 
   return (

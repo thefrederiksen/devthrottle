@@ -28,6 +28,8 @@ interface FakeState {
   listBody?: unknown;
   clearStatus: number;
   clearBody: unknown;
+  /** When set, what an answer turns its alert into on the Gateway instead of the plain answered word. */
+  outcome?: { status: string; tone: "good" | "bad" | "neutral" };
 }
 
 let state: FakeState;
@@ -66,7 +68,8 @@ function installGateway() {
       }
       // The three features' own answer routes: each turns its alert into an answered one, as the Gateway would.
       const answered = (id: string, status: string, body: unknown = {}) => {
-        state.alerts = state.alerts.map((a) => (a.id === id ? { ...a, needsAnswer: false, status } : a));
+        const after = state.outcome ?? { status, tone: "neutral" as const };
+        state.alerts = state.alerts.map((a) => (a.id === id ? { ...a, needsAnswer: false, ...after } : a));
         state.needsAnswerCount = state.alerts.filter((a) => a.needsAnswer).length;
         return json(body);
       };
@@ -264,6 +267,31 @@ describe("the list", () => {
     expect(screen.queryByTestId("alerts-answered")).toBeNull();
   });
 
+  // Phase 5 review, observation 3: a failed answer must not read as a calm note. The Gateway rules the tone; the line
+  // and the Earlier row only colour what they are told.
+  it("AlertsList_AnAnswerThatFailed_ReadsAsBad_InTheLineAndTheEarlierRow", async () => {
+    state.outcome = { status: "Failed", tone: "bad" };
+    given([secretAlert({ seen: true })]);
+    renderList();
+    fireEvent.click(within(await screen.findByTestId("alert-card")).getByRole("button", { name: "Approve" }));
+    const line = await screen.findByTestId("alerts-answered");
+    expect(line.textContent).toBe("Failed: Send the secret vercel-bypass to devthrottle-mac-mini?");
+    expect(line.getAttribute("data-tone")).toBe("bad");
+    expect(line.className).toContain("alert-tone-bad");
+    fireEvent.click(screen.getByRole("button", { name: "Earlier (1)" }));
+    expect(within(screen.getByTestId("alerts-row")).getByText("Failed").className).toContain("alert-tone-bad");
+  });
+
+  it("AlertsList_AnAnswerThatWorked_ReadsAsGood_AndAnUnknownToneAsNeutral", async () => {
+    state.outcome = { status: "Allowed", tone: "good" };
+    given([messageAlert({ seen: true }), secretAlert({ needsAnswer: false, status: "Odd", tone: "sideways" as never, seen: true })]);
+    renderList();
+    fireEvent.click(within(await screen.findByTestId("alert-card")).getByRole("button", { name: "Approve" }));
+    expect((await screen.findByTestId("alerts-answered")).className).toContain("alert-tone-good");
+    fireEvent.click(screen.getByRole("button", { name: "Earlier (2)" }));
+    expect(screen.getByText("Odd").className).toContain("alert-tone-neutral");
+  });
+
   it("AlertsList_MessageRequest_DeniedFromTheCard_InOneTap", async () => {
     given([messageAlert({ seen: true })]);
     renderList();
@@ -347,7 +375,11 @@ describe("the list", () => {
     renderList();
     fireEvent.click(await screen.findByRole("button", { name: "Earlier (1)" }));
     fireEvent.click(screen.getByRole("button", { name: /^Clear:/ }));
-    expect(await screen.findByText(sentence)).toBeTruthy();
+    const refusal = await screen.findByText(sentence);
+    // It sits indented under its own row (phase 5 review, observation 4), by a rule that outranks .alert-line's margin.
+    expect(refusal.closest("[data-testid=alerts-row]")).toBeTruthy();
+    expect(refusal.className).toContain("alerts-row-error");
+    expect(readFileSync(join(__dirname, "alerts.css"), "utf8")).toMatch(/\.alert-line\.alerts-row-error\s*\{[^}]*margin:\s*0 0 6px 22px/);
     // The alert stays on screen; a refused clear removed nothing.
     expect(screen.getByTestId("alerts-row")).toBeTruthy();
   });

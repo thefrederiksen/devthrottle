@@ -1,3 +1,4 @@
+QA_LABEL=zero
 === python -u qa.py zero steps_count.py
 [qa] READY port=7993
 phone bell: Alerts
@@ -6,11 +7,12 @@ SHOT phone-bell-zero
 phone alerts: /mobile/alerts {"cards":0,"empty":true,"earlier":"none"} overflow: {"width":390,"bad":[]}
 SHOT phone-alerts-zero
 desktop bell: Alerts
-desktop title: DevThrottle Cockpit
+desktop title: ? DevThrottle Cockpit
 SHOT desktop-bell-zero
 desktop alerts: {"cards":0,"empty":true,"earlier":"none"} overflow: {"width":1440,"bad":[]}
 SHOT desktop-alerts-zero
 [qa] host stopped
+QA_LABEL=one
 === python -u qa.py one steps_count.py
 [qa] READY port=7993
 phone bell: Alerts, 1 needs you
@@ -24,6 +26,7 @@ SHOT desktop-bell-one
 desktop alerts: {"cards":1,"empty":false,"earlier":"none"} overflow: {"width":1440,"bad":[]}
 SHOT desktop-alerts-one
 [qa] host stopped
+QA_LABEL=twelve
 === python -u qa.py twelve steps_count.py
 [qa] READY port=7993
 phone bell: Alerts, 12 need you
@@ -36,28 +39,75 @@ desktop title: ? (12) DevThrottle Cockpit
 SHOT desktop-bell-twelve
 desktop alerts: {"cards":12,"empty":false,"earlier":"none"} overflow: {"width":1440,"bad":[]}
 SHOT desktop-alerts-twelve
-[qa] host stopped
-=== python -u qa.py mixed steps_mixed.py
-[qa] READY port=7993
+[qa] host stop: Command '['D:\\ReposFred\\devthrottle-alerts-p5\\docs\\missions\\alerts-2026-10-24\\qa\\tools\\host\\bin\\Debug\\net10.0\\AlertsQaHost.exe', 'twelve', '7993']' timed out after 30 seconds
 Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "C:\Users\soren\.local\bin\browser-harness.exe\__main__.py", line 10, in <module>
-  File "C:\Users\soren\AppData\Roaming\uv\tools\browser-harness\Lib\site-packages\browser_harness\run.py", line 180, in main
-    exec(code, globals())
-  File "<string>", line 78, in <module>
-  File "<string>", line 27, in wait_js
-RuntimeError: timed out waiting for: document.querySelector('[data-testid=alerts-badge]')
-[qa] host stopped
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 104, in stop
+    self.p.wait(timeout=30)
+  File "C:\Users\soren\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1264, in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\soren\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1591, in _wait
+    raise TimeoutExpired(self.args, timeout)
+subprocess.TimeoutExpired: Command '['D:\\ReposFred\\devthrottle-alerts-p5\\docs\\missions\\alerts-2026-10-24\\qa\\tools\\host\\bin\\Debug\\net10.0\\AlertsQaHost.exe', 'twelve', '7993']' timed out after 30 seconds
+During handling of the above exception, another exception occurred:
 Traceback (most recent call last):
   File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 131, in <module>
     main()
-  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 124, in main
-    exec(code, {"host": host, "bh": bh, "KEY": host.key, "PHONE_KEY": host.phone_key, "BASE": BASE, "OUT": OUT, "time": time})
-  File "<string>", line 49, in <module>
-  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 115, in bh
-    raise RuntimeError("browser-harness failed")
-RuntimeError: browser-harness failed
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 126, in main
+    host.stop()
+  File "D:\ReposFred\devthrottle-alerts-p5\docs\missions\alerts-2026-10-24\qa\tools\qa.py", line 107, in stop
+    self.p.wait(timeout=30)
+  File "C:\Users\soren\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1264, in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\soren\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1591, in _wait
+    raise TimeoutExpired(self.args, timeout)
+subprocess.TimeoutExpired: Command '['D:\\ReposFred\\devthrottle-alerts-p5\\docs\\missions\\alerts-2026-10-24\\qa\\tools\\host\\bin\\Debug\\net10.0\\AlertsQaHost.exe', 'twelve', '7993']' timed out after 30 seconds
+QA_APP=phone
+=== python -u qa.py mixed steps_mixed.py
+[qa] READY port=7993
+cards in the session list: 0
+badge: 3
+SHOT phone-session-list-no-cards
+address: /mobile/alerts dialog: False shade: False
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":[],"answered":[],"errors":[],"empty":false}
+overflow: {"width":390,"bad":[]}
+SHOT phone-alerts-three-need-you-earlier-collapsed
+SHOT phone-alerts-three-need-you-scrolled
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":["Restarting the Director on linux-rig","Restart of the Director on build-box","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":false}
+SHOT phone-alerts-earlier-expanded
+row opened: The Director has taken the cycle: it is draining itself and will report here.
+SHOT phone-alerts-earlier-row-opened
+SHOT phone-card-restart-details
+needs an answer, before: cards 3 after: cards 2
+state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)"],"earlier":"Earlier (5)","rows":[],"answered":["Failed: Secret vercel-bypass to mac-mini"],"errors":[],"empty":false}
+SHOT phone-answer-secret-transfer-approved-then-failed
+needs an answer, before: cards 2 after: cards 1
+state: {"needsYou":["Restart the Director on mac-mini?"],"earlier":"Earlier (6)","rows":[],"answered":["Allowed: Release Manager (121) may message Release Manager (125)"],"errors":[],"empty":false}
+SHOT phone-answer-message-request-allowed
+confirm: Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.Yes, restart itNot now
+SHOT phone-answer-restart-step-1-confirm
+needs an answer, before: cards 1 after: cards 0
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":["Stopped: Restart of the Director on mac-mini"],"errors":[],"empty":true}
+SHOT phone-answer-restart-step-2-answered
+state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":[],"errors":[],"empty":true}
+SHOT phone-alerts-nothing-needs-you-earlier-below
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":true}
+SHOT phone-cleared-one
+list read held
+[qa] host: REOPENED True
+state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":["This still needs your answer; it leaves when you answer it or when it expires."],"empty":true}
+SHOT phone-clear-refused-needs-an-answer
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":[],"empty":false}
+clear all still offered: False
+SHOT phone-cleared-all
+address: /mobile/ focus on the bell: alerts-bell badge: 1
+SHOT phone-back-to-session-list
+[qa] host: DOWN finished=True
+state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":["Could not load the alerts: Can't reach the Gateway - retrying."],"empty":false}
+SHOT phone-gateway-unreachable
+[qa] host stopped
+QA_APP=desktop
 === python -u qa.py mixed steps_mixed.py
 [qa] READY port=7993
 cards in the session list: 0
@@ -72,15 +122,15 @@ SHOT desktop-alerts-earlier-expanded
 row opened: The Director has taken the cycle: it is draining itself and will report here.
 SHOT desktop-alerts-earlier-row-opened
 SHOT desktop-card-restart-details
-badge before: 3 after: 2
+needs an answer, before: badge 3 after: badge 2
 state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)"],"earlier":"Earlier (5)","rows":[],"answered":["Failed: Secret vercel-bypass to mac-mini"],"errors":[],"empty":false}
-SHOT desktop-answer-secret-transfer-approved
-badge before: 2 after: 1
+SHOT desktop-answer-secret-transfer-approved-then-failed
+needs an answer, before: badge 2 after: badge 1
 state: {"needsYou":["Restart the Director on mac-mini?"],"earlier":"Earlier (6)","rows":[],"answered":["Allowed: Release Manager (121) may message Release Manager (125)"],"errors":[],"empty":false}
 SHOT desktop-answer-message-request-allowed
 confirm: Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.Yes, restart itNot now
 SHOT desktop-answer-restart-step-1-confirm
-badge before: 1 after: none
+needs an answer, before: badge 1 after: badge none
 state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":["Stopped: Restart of the Director on mac-mini"],"errors":[],"empty":true}
 SHOT desktop-answer-restart-step-2-answered
 state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":[],"errors":[],"empty":true}
@@ -124,47 +174,4 @@ screen: /mobile/settings heading: Settings
 phone badge: 3
 bell in the app bar: True
 SHOT phone-bell-on-settings
-[qa] host stopped
-=== RERUN: QA_APP=phone python -u qa.py mixed steps_mixed.py (the first phone run above timed out at its first step)
-[qa] READY port=7993
-cards in the session list: 0
-badge: 3
-SHOT phone-session-list-no-cards
-address: /mobile/alerts dialog: False shade: False
-state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":[],"answered":[],"errors":[],"empty":false}
-overflow: {"width":390,"bad":[]}
-SHOT phone-alerts-three-need-you-earlier-collapsed
-SHOT phone-alerts-three-need-you-scrolled
-state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)","Send the secret vercel-bypass to mac-mini?"],"earlier":"Earlier (4)","rows":["Restarting the Director on linux-rig","Restart of the Director on build-box","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":false}
-SHOT phone-alerts-earlier-expanded
-row opened: The Director has taken the cycle: it is draining itself and will report here.
-SHOT phone-alerts-earlier-row-opened
-SHOT phone-card-restart-details
-badge before: none after: none
-state: {"needsYou":["Restart the Director on mac-mini?","Release Manager (121) wants to message Release Manager (125)"],"earlier":"Earlier (5)","rows":[],"answered":["Failed: Secret vercel-bypass to mac-mini"],"errors":[],"empty":false}
-SHOT phone-answer-secret-transfer-approved
-badge before: none after: none
-state: {"needsYou":["Restart the Director on mac-mini?"],"earlier":"Earlier (6)","rows":[],"answered":["Allowed: Release Manager (121) may message Release Manager (125)"],"errors":[],"empty":false}
-SHOT phone-answer-message-request-allowed
-confirm: Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.Yes, restart itNot now
-SHOT phone-answer-restart-step-1-confirm
-badge before: none after: none
-state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":["Stopped: Restart of the Director on mac-mini"],"errors":[],"empty":true}
-SHOT phone-answer-restart-step-2-answered
-state: {"needsYou":[],"earlier":"Earlier (7)","rows":[],"answered":[],"errors":[],"empty":true}
-SHOT phone-alerts-nothing-needs-you-earlier-below
-state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":[],"empty":true}
-SHOT phone-cleared-one
-list read held
-[qa] host: REOPENED True
-state: {"needsYou":[],"earlier":"Earlier (6)","rows":["Restart of the Director on mac-mini","Release Manager (121) may message Release Manager (125)","Secret vercel-bypass to mac-mini","Restarting the Director on linux-rig","Docs Writer (130) may message Rig Developer (142)","Secret posthog-key to linux-rig"],"answered":[],"errors":["This still needs your answer; it leaves when you answer it or when it expires."],"empty":true}
-SHOT phone-clear-refused-needs-an-answer
-state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":[],"empty":false}
-clear all still offered: False
-SHOT phone-cleared-all
-address: /mobile/ focus on the bell: alerts-bell
-SHOT phone-back-to-session-list
-[qa] host: DOWN finished=True
-state: {"needsYou":["Docs Writer (130) wants to message Rig Developer (142)"],"earlier":"none","rows":[],"answered":[],"errors":["Could not load the alerts: Can't reach the Gateway - retrying."],"empty":false}
-SHOT phone-gateway-unreachable
 [qa] host stopped

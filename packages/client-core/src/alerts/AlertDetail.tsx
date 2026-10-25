@@ -3,7 +3,7 @@ import type { SecretTransferPlace } from "../secrets/secretTransfersClient";
 import { RestartRequestActions } from "./actions/RestartRequestActions";
 import { SecretTransferActions } from "./actions/SecretTransferActions";
 import { MessageRequestActions } from "./actions/MessageRequestActions";
-import { alertClock, type AlertDto } from "./alertsClient";
+import { alertClock, toneClass, type AlertDto } from "./alertsClient";
 import "./alerts.css";
 
 // ONE ALERT, WITH ITS ANSWER ON IT (the Alerts mission, sections 5.3 and phase 5): the plain question as its heading,
@@ -44,7 +44,7 @@ export function AlertDetail({ alert, where, onAnswered, headless = false }: Aler
             {alert.title}
           </h3>
           <p className="alert-line alert-summary">{alert.summary}</p>
-          {alert.needsAnswer ? null : <p className="alert-line alert-status">{alert.status}</p>}
+          {alert.needsAnswer ? null : <p className={`alert-line alert-status ${toneClass(alert.tone)}`}>{alert.status}</p>}
         </>
       )}
       {alert.needsAnswer && alert.expiresAtUtc ? (

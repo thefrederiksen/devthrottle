@@ -57,6 +57,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
         Assert.Equal("message-request:" + id, alert.Id);
         Assert.Equal(AlertKinds.MessageRequest, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         // The owner's own example: each session by its mission and role, then its number - and the reason once, in the
         // summary, never repeating the title.
         Assert.Equal("Release Manager (121) wants to message Release Manager (125)", alert.Title);
@@ -80,6 +81,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Allowed", alert.Status);
+        Assert.Equal(AlertTones.Good, alert.Tone);
         Assert.Equal("Release Manager (121) may message Release Manager (125)", alert.Title);
         Assert.Equal(summary, alert.Summary);
         Assert.Equal(T0.AddMinutes(1), alert.UpdatedAtUtc);
@@ -95,6 +97,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Declined", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("You declined it. Nothing was set up.", alert.Summary);
     }
 
@@ -108,6 +111,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Ended", alert.Status);
+        Assert.Equal(AlertTones.Bad, alert.Tone);
         Assert.Equal("A session ended before you answered. Nothing was set up.", alert.Summary);
         Assert.Contains(_told, t => t.StartsWith(Requester, StringComparison.Ordinal) && t.Contains("has ended"));
     }

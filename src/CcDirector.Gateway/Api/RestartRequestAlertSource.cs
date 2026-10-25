@@ -43,20 +43,21 @@ public sealed class RestartRequestAlertSource : IAlertSource
     internal static AlertDto Fold(DirectorRestartRequestDto r)
     {
         var machine = r.Machine;
-        var (status, title, summary) = r.State switch
+        var (status, tone, title, summary) = r.State switch
         {
-            DirectorRestartRequestState.Pending => ("Waiting", $"Restart the Director on {machine}?", AskedBy(r)),
-            DirectorRestartRequestState.Accepted => ("Accepted", $"Restarting the Director on {machine}",
+            DirectorRestartRequestState.Pending => ("Waiting", AlertTones.Neutral, $"Restart the Director on {machine}?", AskedBy(r)),
+            DirectorRestartRequestState.Accepted => ("Accepted", AlertTones.Neutral, $"Restarting the Director on {machine}",
                 string.IsNullOrWhiteSpace(r.Progress) ? "Accepted - waiting for the Director." : Sentence(r.Progress)),
-            DirectorRestartRequestState.Declined => ("Declined", $"Restart of the Director on {machine}",
+            DirectorRestartRequestState.Declined => ("Declined", AlertTones.Neutral, $"Restart of the Director on {machine}",
                 "You declined it. Nothing was restarted."),
-            DirectorRestartRequestState.Expired => ("Expired", $"Restart of the Director on {machine}",
-                r.AcceptedAtUtc is null
-                    ? "Nobody accepted it within 30 minutes. Nothing was restarted."
-                    : "The Director did not say how the restart ended within 3 hours. Check that machine before assuming it restarted."),
-            DirectorRestartRequestState.Abandoned => ("Stopped", $"Restart of the Director on {machine}",
+            DirectorRestartRequestState.Expired => r.AcceptedAtUtc is null
+                ? ("Expired", AlertTones.Neutral, $"Restart of the Director on {machine}",
+                    "Nobody accepted it within 30 minutes. Nothing was restarted.")
+                : ("Expired", AlertTones.Bad, $"Restart of the Director on {machine}",
+                    "The Director did not say how the restart ended within 3 hours. Check that machine before assuming it restarted."),
+            DirectorRestartRequestState.Abandoned => ("Stopped", AlertTones.Bad, $"Restart of the Director on {machine}",
                 "The Director stopped without restarting. Open Details for its reason."),
-            DirectorRestartRequestState.Completed => ("Restarted", $"The Director on {machine} restarted",
+            DirectorRestartRequestState.Completed => ("Restarted", AlertTones.Good, $"The Director on {machine} restarted",
                 "The restart finished."),
             _ => throw new InvalidOperationException($"restart request {r.Id} is in state {r.State}, which has no alert words"),
         };
@@ -68,6 +69,7 @@ public sealed class RestartRequestAlertSource : IAlertSource
             Title = title,
             Summary = summary,
             Status = status,
+            Tone = tone,
             CreatedAtUtc = Utc(r.RequestedAtUtc),
             UpdatedAtUtc = Utc(AlertWindow.Latest(r.RequestedAtUtc, r.AcceptedAtUtc, r.ProgressAtUtc, r.ClosedAtUtc)),
             ExpiresAtUtc = r.State == DirectorRestartRequestState.Pending ? Utc(r.ExpiresAtUtc) : null,

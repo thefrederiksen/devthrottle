@@ -16,6 +16,8 @@ public static class AlertWords
 {
     private static readonly Regex AskedBySession = new(@"^Session (?<number>\d+) ""(?<name>.*)""$", RegexOptions.CultureInvariant);
     private static readonly Regex AskedBySessionWithoutNumber = new(@"^Session ""(?<name>.*)""$", RegexOptions.CultureInvariant);
+    // At most seven digits: a short id is always eight characters, and one made only of digits is still a short id.
+    private static readonly Regex NameWithNumber = new(@"^(?<name>.+) \((?<number>\d{1,7})\)$", RegexOptions.CultureInvariant);
     private static readonly Regex NameWithShortId = new(@"^(?<name>.+) \([0-9a-f]{8}\)$", RegexOptions.CultureInvariant);
 
     /// <summary>"Release Manager (121)", or the role alone when the session has no number.</summary>
@@ -56,10 +58,13 @@ public static class AlertWords
     }
 
     /// <summary>A restart request's stored requester (written by <c>DirectorRestartRequestService.RequesterName</c>) as
-    /// the owner reads it. Its usual form, "Release - Manager (1512339f)", carries a short id and no number, so it reads
-    /// "Release Manager"; its other forms ("a device on this account") are plain words, capitalised to start a sentence.</summary>
+    /// the owner reads it. Its usual form, "Release - Manager (121)", reads "Release Manager (121)"; a session with no
+    /// number is stored with its short id, "Release - Manager (1512339f)", and reads "Release Manager"; the other forms
+    /// ("a device on this account") are plain words, capitalised to start a sentence.</summary>
     public static string FromRestartRequester(string requester)
     {
+        var numbered = NameWithNumber.Match(requester);
+        if (numbered.Success) return SessionLabel(int.Parse(numbered.Groups["number"].Value), numbered.Groups["name"].Value);
         var match = NameWithShortId.Match(requester);
         var who = match.Success ? Role(match.Groups["name"].Value) : requester.Trim();
         return who.Length == 0 ? who : char.ToUpperInvariant(who[0]) + who[1..];

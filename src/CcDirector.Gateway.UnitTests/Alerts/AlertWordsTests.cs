@@ -38,9 +38,12 @@ public sealed class AlertWordsTests
         => Assert.Equal(expected, AlertWords.FromSecretAskedBy(askedBy));
 
     [Theory]
+    [InlineData("Release - Release Manager (125)", "Release Manager (125)")]
+    [InlineData("Rig - Developer (007)", "Rig Developer (007)")]
     [InlineData("Release - Release Manager (1512339f)", "Release Manager")]
+    [InlineData("Release - Release Manager (15123390)", "Release Manager")]
     [InlineData("a device on this account", "A device on this account")]
     [InlineData("session 1512339f (not on the roster)", "Session 1512339f (not on the roster)")]
-    public void FromRestartRequester_DropsTheShortId_AndStartsASentence(string requester, string expected)
+    public void FromRestartRequester_KeepsTheNumber_DropsAShortId_AndStartsASentence(string requester, string expected)
         => Assert.Equal(expected, AlertWords.FromRestartRequester(requester));
 }

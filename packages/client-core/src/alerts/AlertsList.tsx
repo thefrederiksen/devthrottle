@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SecretTransferPlace } from "../secrets/secretTransfersClient";
 import { useAlerts } from "./AlertsProvider";
 import { AlertDetail } from "./AlertDetail";
-import { alertClock, type AlertDto } from "./alertsClient";
+import { alertClock, toneClass, type AlertDto } from "./alertsClient";
 import "./alerts.css";
 
 // WHAT THE OWNER SEES WHEN HE OPENS ALERTS (the Alerts mission, phase 5) - the same content on the phone's own Alerts
@@ -79,7 +79,7 @@ export function AlertsList({ where, focusAlertId }: AlertsListProps) {
   // read that has not caught up - gets none yet, so the line never claims what the Gateway has not said.
   const lines = answered.flatMap((was) => {
     const now = alerts.find((a) => a.id === was.id);
-    return now && !now.needsAnswer ? [{ id: now.id, text: `${now.status}: ${now.title}` }] : [];
+    return now && !now.needsAnswer ? [{ id: now.id, tone: now.tone, text: `${now.status}: ${now.title}` }] : [];
   });
 
   return (
@@ -103,7 +103,7 @@ export function AlertsList({ where, focusAlertId }: AlertsListProps) {
           <h2 className="alerts-section-heading">Needs you</h2>
           <div role="status" className="alerts-answered">
             {lines.map((l) => (
-              <p key={l.id} className="alert-line alerts-answered-line" data-testid="alerts-answered">
+              <p key={l.id} className={`alert-line alerts-answered-line ${toneClass(l.tone)}`} data-testid="alerts-answered" data-tone={l.tone}>
                 {l.text}
               </p>
             ))}
@@ -183,7 +183,7 @@ function EarlierRow({ alert: a, where, open, onToggle, onAnswered }: EarlierRowP
             {a.title}
           </span>
           <span className="alerts-row-meta">
-            <span className="alert-status">{a.status}</span>
+            <span className={`alert-status ${toneClass(a.tone)}`}>{a.status}</span>
             <span className="alerts-row-time">{alertClock(a.updatedAtUtc)}</span>
           </span>
         </button>
@@ -198,7 +198,7 @@ function EarlierRow({ alert: a, where, open, onToggle, onAnswered }: EarlierRowP
         </button>
       </div>
       {clearError ? (
-        <p className="alert-line alert-error" role="alert">
+        <p className="alert-line alert-error alerts-row-error" role="alert">
           {/* error-reported-by: AlertsProvider */}
           {clearError}
         </p>

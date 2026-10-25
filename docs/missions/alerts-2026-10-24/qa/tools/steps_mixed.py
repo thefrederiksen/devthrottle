@@ -38,6 +38,12 @@ def earlier(open_it):
         click('.alerts-section-toggle')
 def count():
     return js("(document.querySelector('[data-testid=alerts-badge]')||{}).textContent || 'none'")
+def waiting():
+    # What still needs an answer, measured on what this screen shows: the bell's badge in the Cockpit, and the cards on
+    # the phone's Alerts screen, which has no bell (it IS Alerts). Never a measurement of an element that is not there.
+    if ROOT == ".alerts-page":
+        return "cards " + str(js("document.querySelectorAll('[data-testid=alert-card]').length"))
+    return "badge " + count()
 def state():
     return js("JSON.stringify({needsYou:[...document.querySelectorAll('[data-testid=alert-card] .alert-detail-title')].map(t=>t.textContent), earlier:(document.querySelector('.alerts-section-toggle')||{}).textContent||'none', rows:[...document.querySelectorAll('.alerts-row-title')].map(t=>t.textContent), answered:[...document.querySelectorAll('[data-testid=alerts-answered]')].map(t=>t.textContent), errors:[...document.querySelectorAll(%%s)].map(e=>e.textContent), empty:!!document.querySelector('.alerts-empty')})" %% json.dumps(ROOT + " [role=alert]"))
 ''' % ROOT
@@ -94,24 +100,24 @@ js("(()=>{{const c=%s; c.querySelector('details').open=false; return 1;}})()" % 
 
 # 5. The secret transfer, approved straight from its card: it leaves Needs you with a line saying so.
 bh(HELP + f'''
-before = count()
+before = waiting()
 scroll_to(card("secret-transfer"))
 press_on_card("secret-transfer", "Approve")
 wait_js("document.querySelector('[data-testid=alerts-answered]')")
 js("window.scrollTo(0, 0); document.querySelectorAll('.alerts-tray-body').forEach(b=>b.scrollTop=0); 1"); time.sleep(0.3)
-print("badge before:", before, "after:", count())
+print("needs an answer, before:", before, "after:", waiting())
 print("state:", state())
-shot("{APP}-answer-secret-transfer-approved")
+shot("{APP}-answer-secret-transfer-approved-then-failed")
 ''')
 
 # 6. The message request, approved straight from its card.
 bh(HELP + f'''
-before = count()
+before = waiting()
 scroll_to(card("message-request"))
 press_on_card("message-request", "Approve")
 time.sleep(1.0)
 js("window.scrollTo(0, 0); document.querySelectorAll('.alerts-tray-body').forEach(b=>b.scrollTop=0); 1"); time.sleep(0.3)
-print("badge before:", before, "after:", count())
+print("needs an answer, before:", before, "after:", waiting())
 print("state:", state())
 shot("{APP}-answer-message-request-allowed")
 ''')
@@ -119,7 +125,7 @@ shot("{APP}-answer-message-request-allowed")
 # 7. The restart, accepted straight from its card in two steps. With no Director attached to this local Gateway, the
 #    Gateway re-checks the machine and closes the request with its own word, Stopped; either way it leaves Needs you.
 bh(HELP + f'''
-before = count()
+before = waiting()
 press_on_card("restart-request", "Accept")
 wait_js("document.querySelector('[data-testid=alert-card] .alert-btn-danger')")
 time.sleep(0.3)
@@ -127,7 +133,7 @@ print("confirm:", js("document.querySelector('[data-testid=alert-card] .alert-co
 shot("{APP}-answer-restart-step-1-confirm")
 press_on_card("restart-request", "Yes, restart it")
 time.sleep(2.5)
-print("badge before:", before, "after:", count())
+print("needs an answer, before:", before, "after:", waiting())
 print("state:", state())
 shot("{APP}-answer-restart-step-2-answered")
 ''')
@@ -181,7 +187,7 @@ if APP == "phone":
 click('.app-bar .back-link')
 wait_js("document.querySelector('[data-testid=alerts-bell]')")
 time.sleep(0.8)
-print("address:", js("location.pathname"), "focus on the bell:", js("document.activeElement && document.activeElement.getAttribute('data-testid')"))
+print("address:", js("location.pathname"), "focus on the bell:", js("document.activeElement && document.activeElement.getAttribute('data-testid')"), "badge:", count())
 shot("phone-back-to-session-list")
 ''' + open_alerts())
 

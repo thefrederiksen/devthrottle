@@ -20,6 +20,8 @@
  *   --alerts-layer           1000; the stacking level of the backdrop and popover
  *   --alerts-card-background --bg; a card's own background (the phone's screen is --bg, so it sets --surface)
  *   --alerts-text-size       13px; a card's summary and buttons (15px on a phone)
+ *
+ * Tokens used beyond those: --ok (a good outcome) and --attention (a bad one), which both shells define.
  */
 
 .alerts {
@@ -175,9 +177,24 @@
 .alerts-answered-line {
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--text-dim);
   border-radius: 6px;
   font-size: var(--alerts-text-size, 13px);
+}
+/* The Gateway rules the tone; these only colour it. A failed or stopped answer must not read as a calm note. */
+.alerts-answered-line.alert-tone-good {
+  border-left-color: var(--ok);
+}
+.alerts-answered-line.alert-tone-bad {
+  border-color: var(--attention);
+  border-left-width: 3px;
+  color: var(--attention);
+}
+.alert-status.alert-tone-good {
+  color: var(--ok);
+}
+.alert-status.alert-tone-bad {
+  color: var(--attention);
 }
 
 /* ===== A card: one alert that needs an answer, with its buttons on it ===== */
@@ -317,6 +334,11 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+/* A refused clear's sentence sits under the row it belongs to, at the title's edge, not the page's. Two classes, so
+   it outranks .alert-line's own margin, which is declared later in this file. */
+.alert-line.alerts-row-error {
+  margin: 0 0 6px 22px;
 }
 .alerts-row-more {
   display: flex;

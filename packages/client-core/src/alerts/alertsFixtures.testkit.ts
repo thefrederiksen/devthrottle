@@ -89,6 +89,7 @@ function common(id: string, overrides: Partial<Common>): Common {
     title: "An alert",
     summary: "Someone asked for something.",
     status: "Waiting",
+    tone: "neutral",
     createdAtUtc: "2026-10-24T21:40:00Z",
     updatedAtUtc: "2026-10-24T21:41:00Z",
     expiresAtUtc: null,

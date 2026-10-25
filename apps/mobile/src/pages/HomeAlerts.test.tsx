@@ -40,10 +40,15 @@ function emptyRoster() {
 
 function LocationProbe() {
   const location = useLocation();
-  return <span data-testid="location">{location.pathname + location.search}</span>;
+  return (
+    <>
+      <span data-testid="location">{location.pathname + location.search}</span>
+      <span data-testid="state">{JSON.stringify(location.state ?? null)}</span>
+    </>
+  );
 }
 
-function renderHome(entry: string) {
+function renderHome(entry: string | { pathname: string; search?: string; state?: unknown }) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <AlertsProvider>
@@ -86,6 +91,18 @@ describe("Alerts on the phone's roster", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
     expect(await screen.findByRole("button", { name: "Filter sessions" })).toBeTruthy();
+  });
+
+  // Phase 5 review, observation 2: a push landing while the roster shows its Voice tab must not lose that tab on Back.
+  it("Home_DeepLink_BackKeepsTheRostersOwnState", async () => {
+    emptyRoster();
+    listAlerts.mockResolvedValue({ alerts: [secretAlert({ id: "secret-transfer:tr-1" })], needsAnswerCount: 1 });
+    renderHome({ pathname: "/", search: "?alert=secret-transfer%3Atr-1", state: { tab: "voice" } });
+
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/alerts?alert=secret-transfer%3Atr-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
+    expect(screen.getByTestId("state").textContent).toBe(JSON.stringify({ tab: "voice" }));
   });
 
   it("Home_Bell_OpensTheAlertsScreen_AndBackPutsFocusOnTheBellAgain", async () => {

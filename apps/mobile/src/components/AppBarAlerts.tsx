@@ -16,6 +16,9 @@ export interface AlertsScreenState {
   back: string;
   /** True when the Alerts screen was pushed on top of it (back pops), false when it replaced a deep link. */
   pushed: boolean;
+  /** That address's own router state (the roster's tab, say), put back with it when Back replaces a deep link. Its
+   *  one-shot commands are already spent: the screens that carry them scrub them on arrival (VoiceMode). */
+  backState?: unknown;
 }
 
 export const ALERTS_PATH = "/alerts";
@@ -46,9 +49,9 @@ export function AppBarAlerts() {
     const params = new URLSearchParams(location.search);
     params.delete("alert");
     const rest = params.toString();
-    const state: AlertsScreenState = { back: location.pathname + (rest ? `?${rest}` : ""), pushed: false };
+    const state: AlertsScreenState = { back: location.pathname + (rest ? `?${rest}` : ""), pushed: false, backState: location.state };
     navigate({ pathname: ALERTS_PATH, search: `?alert=${encodeURIComponent(deepLinkAlert)}` }, { replace: true, state });
-  }, [deepLinkAlert, location.pathname, location.search, navigate]);
+  }, [deepLinkAlert, location.pathname, location.search, location.state, navigate]);
 
   const open = useCallback(() => {
     const state: AlertsScreenState = { back: location.pathname + location.search, pushed: true };

@@ -53,6 +53,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
         Assert.Equal("secret-transfer:" + id, alert.Id);
         Assert.Equal(AlertKinds.SecretTransfer, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Send the secret devlinux-rdp to mac-mini?", alert.Title);
         Assert.Equal("Mac Tester (104) asks: sudo on the mac", alert.Summary);
         Assert.Equal(T0 + SecretTransferStore.ApprovalLifetime, alert.ExpiresAtUtc);
@@ -70,6 +71,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Approved", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Sending the secret devlinux-rdp to mac-mini", alert.Title);
         Assert.Equal("Approved in the Cockpit. Delivering now.", alert.Summary);
         Assert.Equal(T0.AddMinutes(1), alert.UpdatedAtUtc);
@@ -86,6 +88,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Denied", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Denied on the phone. Nothing was moved.", alert.Summary);
     }
 
@@ -98,6 +101,7 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Expired", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("Expired: nobody answered within 15 minutes. Nothing was moved.", alert.Summary);
     }
 
@@ -118,6 +122,8 @@ public sealed class SecretTransferAlertSourceTests : IDisposable
         Assert.Equal(("Delivered", "Stored on mac-mini.", false), (d.Status, d.Summary, d.NeedsAnswer));
         var f = alerts["secret-transfer:" + failed];
         Assert.Equal(("Failed", "mac-mini already holds other-key.", false), (f.Status, f.Summary, f.NeedsAnswer));
+        // A delivery that happened reads good; one that did not reads bad, never as a calm note.
+        Assert.Equal((AlertTones.Good, AlertTones.Bad), (d.Tone, f.Tone));
     }
 
     [Fact]
