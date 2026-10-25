@@ -103,6 +103,21 @@ public sealed class FactorySeatAtTheSpawnDoorTests
         Assert.Equal("Find ten leads.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void TryEstablish_ChildOfASeatWithNoPrompt_IsGivenNone_SoItWaitsToBeTold(string? prompt)
+    {
+        // Found in review: the paragraph alone typed as a first prompt spends a turn and stops as needs-you.
+        var req = Body();
+        req.PrePrompt = prompt;
+
+        Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", ASeat(), out _));
+
+        Assert.Equal(prompt, req.PrePrompt);
+    }
+
     [Fact]
     public void TryEstablish_GrandchildOfASeat_InheritsTheSameSeatFromItsParentsRow()
     {

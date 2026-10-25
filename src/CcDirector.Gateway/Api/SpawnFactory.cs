@@ -280,8 +280,9 @@ internal static class SpawnFactory
         req.FactoryDefinitionVersion = version;
         req.FactoryKit = FactoryKits.RulesOnly;
         // THE OWNER'S WORD IS FINAL for a seat's child too (owner ruling 2026-10-24): a rules-only kit carries no brief,
-        // so the standing paragraph rides on the prompt the caller gave.
-        req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(req.PrePrompt ?? "");
+        // so the standing paragraph rides on the prompt the caller gave. No prompt stays no prompt: the session waits to be
+        // told what to do rather than spending a turn on the paragraph alone.
+        if (!string.IsNullOrWhiteSpace(req.PrePrompt)) req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(req.PrePrompt);
 
         if (ChildCannotTakeRules(req, seat, version, seatRules) is { } refusal)
         {
@@ -380,8 +381,8 @@ internal static class SpawnFactory
 
         req.Factory = boss.Factory;
         // A Boss started this way gets a rules-only kit, or none, so no brief: it is told the owner's word is final on
-        // its prompt (owner ruling 2026-10-24).
-        req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(req.PrePrompt ?? "");
+        // its prompt when it is given one (owner ruling 2026-10-24).
+        if (!string.IsNullOrWhiteSpace(req.PrePrompt)) req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(req.PrePrompt);
         if (boss.PublishedVersion is not { } version)
         {
             ClearSeat(req);

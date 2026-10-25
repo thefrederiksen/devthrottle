@@ -127,6 +127,16 @@ public sealed class FactoryBossStartAtTheSpawnDoorTests
     }
 
     [Fact]
+    public void TryEstablish_TheBossWithNoPrompt_IsGivenNone()
+    {
+        var req = Body();
+
+        Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", InNoFactory, out _, NoRules, Boss()));
+
+        Assert.Null(req.PrePrompt);
+    }
+
+    [Fact]
     public void TryEstablish_ARefusedBossStart_LeavesThePromptAsItWas()
     {
         var req = Body(seat: "finder");
