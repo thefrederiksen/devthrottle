@@ -889,6 +889,8 @@ internal static class Commands
                 PlanItemKind.UpToDate => $"up to date ({i.ToVersion})",
                 PlanItemKind.MissingAsset => "no asset in release",
                 PlanItemKind.ProvidedByToolsBundle => "ships in the Python tools bundle - nothing to install",
+                PlanItemKind.InstalledByTheToolsStep =>
+                    $"installed by the tools step{(i.FromVersion is null ? "" : $" (have {i.FromVersion})")}",
                 PlanItemKind.Pinned => $"pinned (skipping {i.ToVersion})",
                 _ => i.Kind.ToString(),
             };

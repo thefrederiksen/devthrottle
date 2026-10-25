@@ -9,7 +9,9 @@ public class ComponentRegistryTests
     public void Build_ProducesAppsPlusTools()
     {
         var all = ComponentRegistry.Build(["cc-pdf", "cc-html"]);
-        Assert.Equal(5, all.Count); // 3 apps (director, gateway, launcher) + 2 tools
+        // 3 apps (director, gateway, launcher) + the shared Python tools bundle + 2 tools
+        Assert.Equal(6, all.Count);
+        Assert.Contains(all, c => c.Id == PythonToolsInstaller.ComponentId);
         Assert.Contains(all, c => c.Id == "director");
         Assert.Contains(all, c => c.Id == "gateway");
         Assert.Contains(all, c => c.Id == "cc-launcher");

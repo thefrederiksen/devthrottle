@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace CcDirector.Setup.Engine;
 
 /// <summary>
@@ -59,8 +61,33 @@ public static class ComponentRegistry
         MacAsset: "cc-launcher-mac-arm64",
         LinuxAsset: "cc-launcher-linux-x64");
 
-    /// <summary>The fixed app components (Director, Gateway, Launcher).</summary>
-    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Launcher];
+    /// <summary>
+    /// The shared Python tools bundle: one download holding every cc-* tool.
+    ///
+    /// It exists here so that <c>components</c>, <c>status</c> and <c>plan</c> can SEE it. Before this
+    /// the bundle was the only thing the tools install actually downloads, versions and records - its
+    /// version is in installed.json under this id - and it was the one thing none of those three
+    /// commands mentioned, while they all reported three individual tools that have no asset, no
+    /// version and no install action of their own (#4291).
+    ///
+    /// The asset names are the real ones, for display and diagnostics. They are NOT a download
+    /// instruction: this component is installed by PythonToolsInstaller as its own install step, and
+    /// the planner refuses to make it actionable on the strength of its KIND rather than on an absent
+    /// asset - see UpdatePlanner. That distinction matters, because the macOS and Linux bundles are
+    /// .tar.gz, and the generic UpdateRunner only skips .zip: left actionable, it would have downloaded
+    /// a tarball and placed it as though it were a single executable.
+    /// </summary>
+    public static readonly Component PythonTools = new(
+        Id: PythonToolsInstaller.ComponentId,
+        Kind: ComponentKind.ToolsBundle,
+        DisplayName: "Python tools bundle",
+        WindowsAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.Windows),
+        Roles: BothRoles,
+        MacAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.OSX),
+        LinuxAsset: PythonToolsInstaller.ToolsAssetFor(OSPlatform.Linux));
+
+    /// <summary>The fixed app components (Director, Gateway, Launcher) and the shared tools bundle.</summary>
+    public static readonly IReadOnlyList<Component> Apps = [Director, Gateway, Launcher, PythonTools];
 
     /// <summary>
     /// A conservative default tool set (the tools the release pipeline ships

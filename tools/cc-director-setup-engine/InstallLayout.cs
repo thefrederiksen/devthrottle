@@ -299,6 +299,7 @@ public sealed class InstallLayout
             {
                 ComponentKind.Director => Path.Combine(AppDir, "cc-director"),
                 ComponentKind.Tool => Path.Combine(PyenvBinDirFor(platform), component.Id),
+                ComponentKind.ToolsBundle => PyenvDir,
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
@@ -324,6 +325,7 @@ public sealed class InstallLayout
             {
                 ComponentKind.Director => Path.Combine(MacAppsDir, "Director.app"),
                 ComponentKind.Tool => Path.Combine(PyenvBinDirFor(platform), component.Id),
+                ComponentKind.ToolsBundle => PyenvDir,
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway"),
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
@@ -337,6 +339,7 @@ public sealed class InstallLayout
                 ComponentKind.Director => Path.Combine(AppDir, "cc-director.exe"),
                 ComponentKind.Gateway => Path.Combine(GatewayDir, "devthrottle-gateway.exe"),
                 ComponentKind.Tool => Path.Combine(BinDir, $"{component.Id}.exe"),
+                ComponentKind.ToolsBundle => PyenvDir,
                 ComponentKind.Launcher => Path.Combine(LauncherDir, "cc-launcher.exe"),
                 _ => throw new ArgumentOutOfRangeException(nameof(component), component.Kind, "Unknown component kind."),
             };
