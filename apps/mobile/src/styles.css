@@ -4864,6 +4864,13 @@ a.banner-btn {
 .restart-request-btn:disabled { opacity: 0.5; }
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
+/* Nothing on the card may push past the screen edge: the Gateway's sentences carry long unbroken strings
+   (a launcher version, a machine name), so every line wraps anywhere and every flex child may shrink. */
+.restart-request, .restart-request-head, .restart-request-title, .restart-request-state,
+.restart-request-line, .restart-request-error, .restart-request-details, .restart-request-actions { min-width: 0; overflow-wrap: anywhere; }
+.restart-request-head { flex-wrap: wrap; }
+.restart-request-details > p { margin-top: 4px; }
+.restart-request-details > summary { cursor: pointer; }
 
 /* ---- A secret transfer waiting for the owner's approval (Secret Handoff, issue #2943) - the shared client-core
    card (packages/client-core/src/secrets/secrets.css), re-tuned for touch under .screen. Every sentence on it is the

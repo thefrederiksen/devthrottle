@@ -61,16 +61,10 @@ export function useRestartRequests(): { requests: DirectorRestartRequest[]; erro
   return { requests, error, refresh };
 }
 
-export interface RestartRequestsPanelProps {
-  /** The clock, injectable for tests. Defaults to Date.now. */
-  now?: () => number;
-}
-
-/** Every visible restart request, as cards. Renders nothing at all when there are none. */
-export function RestartRequestsPanel({ now }: RestartRequestsPanelProps) {
+/** Every request waiting for the owner's answer, as cards. Renders nothing at all when there are none. */
+export function RestartRequestsPanel() {
   const { requests, error, refresh } = useRestartRequests();
-  const clock = now ?? Date.now;
-  const visible = visibleRestartRequests(requests, clock());
+  const visible = visibleRestartRequests(requests);
   if (visible.length === 0 && !error) return null;
   return (
     <section className="restart-requests" aria-label="Director restart requests">
@@ -126,9 +120,16 @@ export function RestartRequestCard({ request, onChanged }: RestartRequestCardPro
       <p className="restart-request-line">{request.askedBySentence}</p>
       <p className="restart-request-line">{request.liveSessionsSentence}</p>
       {request.capability && (
-        <p className="restart-request-line restart-request-capability">
-          {request.capability.reason} {request.capability.guardedRestartReason}
-        </p>
+        // The capability check's own sentences are diagnostics, not the question: collapsed by default so
+        // the card reads as one plain ask, and still there, verbatim, for whoever opens them.
+        <details className="restart-request-details">
+          <summary className="restart-request-dim">Details</summary>
+          <p className="restart-request-line restart-request-capability">{request.capability.reason}</p>
+          <p className="restart-request-line restart-request-capability">{request.capability.guardedRestartReason}</p>
+          {request.capability.launcherVersion && (
+            <p className="restart-request-line restart-request-capability">Launcher version: {request.capability.launcherVersion}</p>
+          )}
+        </details>
       )}
       {request.state === "Pending" && (
         <p className="restart-request-line restart-request-dim">

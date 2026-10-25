@@ -4,10 +4,15 @@
 // the two actions only when the Gateway says an accept would be honoured, and SENDS the accept to the
 // right route only after the in-card confirmation. A card that paraphrased a refusal, or accepted on one
 // tap, would leave every Gateway test green while the owner saw something else.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RestartRequestCard, RestartRequestsPanel } from "./RestartRequestsPanel";
 import { visibleRestartRequests, type DirectorRestartRequest } from "./restartRequests";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 function request(overrides: Partial<DirectorRestartRequest> = {}): DirectorRestartRequest {
   return {
@@ -83,6 +88,51 @@ describe("RestartRequestCard", () => {
     expect(screen.getByText("Pending")).toBeTruthy();
   });
 
+  it("keeps the capability check's sentences and the launcher version inside a closed Details", () => {
+    const { container } = render(<RestartRequestCard request={request({ capability: { ...request().capability!, launcherVersion: "2.1.0" } })} />);
+    const details = container.querySelector("details.restart-request-details") as HTMLDetailsElement;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("Details");
+    expect(details.textContent).toContain("can be restarted");
+    expect(details.textContent).toContain("director/restart:only-if-empty");
+    expect(details.textContent).toContain("Launcher version: 2.1.0");
+    // The main lines outside Details carry none of the diagnostics.
+    const outside = Array.from(container.querySelectorAll("article > .restart-request-line")).map((p) => p.textContent).join(" ");
+    expect(outside).not.toContain("can be restarted");
+    expect(outside).not.toContain("only-if-empty");
+  });
+
+  it("renders the longest real strings - a 46-character version and a 300-character reason - in full", () => {
+    const version = "2.24.0-preview.20261024.215301+sha.3e47021cb0a";
+    expect(version).toHaveLength(46);
+    const reason = "x".repeat(300);
+    const { container } = render(
+      <RestartRequestCard
+        request={request({
+          askedBySentence: `Rig Alpha - Architect (11111111) asks: ${reason}`,
+          capability: { ...request().capability!, reason, guardedRestartReason: `the launcher on SOREN_NORTH (version ${version}) will refuse a restart`, launcherVersion: version },
+        })}
+      />,
+    );
+    const details = container.querySelector("details.restart-request-details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain(`Launcher version: ${version}`);
+    expect(details.textContent).toContain(reason);
+    expect(screen.getByText(`Rig Alpha - Architect (11111111) asks: ${reason}`)).toBeTruthy();
+    // Every line is a wrapping line: the class the shells give overflow-wrap: anywhere and min-width: 0.
+    for (const p of Array.from(container.querySelectorAll("p"))) expect(p.classList.contains("restart-request-line")).toBe(true);
+  });
+
+  it("gives every card line overflow-wrap: anywhere and min-width: 0 in both apps' styles", () => {
+    for (const app of ["mobile", "cockpit"]) {
+      const css = readFileSync(join(HERE, `../../../../apps/${app}/src/styles.css`), "utf-8");
+      const rule = css.split(/\r?\n/).find((l) => l.includes(".restart-request-line") && l.includes("overflow-wrap: anywhere"));
+      expect(rule, `${app} styles.css`).toBeTruthy();
+      expect(rule).toContain("min-width: 0");
+    }
+  });
+
   it("offers Accept and Decline only while the Gateway says an accept would be honoured", () => {
     const { unmount } = render(<RestartRequestCard request={request()} />);
     expect(screen.getByText("Accept")).toBeTruthy();
@@ -155,6 +205,18 @@ describe("RestartRequestsPanel", () => {
     render(<RestartRequestsPanel />);
     await waitFor(() => expect(screen.getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy());
   });
+
+  it("does not render a request the owner already accepted", async () => {
+    fakeGateway([
+      request({ id: "accepted", state: "Accepted", canAccept: false, title: "Restart the Director on BUILD_BOX?", progress: "draining" }),
+      request({ id: "pending", title: "Restart the Director on SOREN_NORTH?" }),
+    ]);
+    const { container } = render(<RestartRequestsPanel />);
+    // The pending card proves the list arrived; only then is the accepted card's absence evidence.
+    await waitFor(() => expect(screen.getByText("Restart the Director on SOREN_NORTH?")).toBeTruthy());
+    expect(screen.queryByText("Restart the Director on BUILD_BOX?")).toBeNull();
+    expect(container.querySelectorAll(".restart-request")).toHaveLength(1);
+  });
 });
 
 describe("listRestartRequests", () => {
@@ -166,9 +228,7 @@ describe("listRestartRequests", () => {
 });
 
 describe("visibleRestartRequests", () => {
-  const now = Date.parse("2026-09-07T13:00:00Z");
-
-  it("keeps open requests, drops closed ones after thirty minutes, and keeps an unparseable close time", () => {
+  it("keeps only the requests still waiting for an answer - an accepted request is not a card", () => {
     const list = [
       request({ id: "open", state: "Pending" }),
       request({ id: "running", state: "Accepted", canAccept: false }),
@@ -176,6 +236,6 @@ describe("visibleRestartRequests", () => {
       request({ id: "old", state: "Completed", canAccept: false, closedAtUtc: "2026-09-07T12:00:00Z" }),
       request({ id: "odd", state: "Abandoned", canAccept: false, closedAtUtc: "not a time" }),
     ];
-    expect(visibleRestartRequests(list, now).map((r) => r.id)).toEqual(["open", "running", "fresh", "odd"]);
+    expect(visibleRestartRequests(list).map((r) => r.id)).toEqual(["open"]);
   });
 });
