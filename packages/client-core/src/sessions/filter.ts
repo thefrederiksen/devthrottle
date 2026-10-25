@@ -26,7 +26,8 @@ export interface FacetOption {
 // those sessions are in. The worktrees are shown under the repo for information only and are never a filter value:
 // they come and go, and a filter pinned to one would stop matching the day it is removed. `worktrees` is empty when
 // every session of the repo runs in the repository's own checkout; otherwise it lists that checkout too, as
-// MAIN_CHECKOUT, so the counts under a repo always add up to the repo's count.
+// MAIN_CHECKOUT, so the counts under a repo add up to the repository's own sessions. The repo's count can be higher: it
+// also counts crew members from other folders, which ticking the repo shows (see applyFilter).
 export interface RepoFacetOption extends FacetOption {
   worktrees: FacetOption[];
 }
