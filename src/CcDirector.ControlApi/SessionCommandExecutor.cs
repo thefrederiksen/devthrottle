@@ -2085,7 +2085,7 @@ internal static class SessionCommandExecutor
         if (!string.IsNullOrWhiteSpace(seedText))
         {
             _ = StartPrePrompt(session, seedText, TimeSpan.FromMilliseconds(Math.Max(1000, req.PrePromptWaitMs)),
-                typedLead: FirstPromptLead(kind, origin.Kind));
+                typedLead: FirstPromptLead(kind, origin));
         }
 
         return DirectorCommandResult.Success(Serialize(ControlEndpoints.Map(session, directorId)));
@@ -2094,11 +2094,15 @@ internal static class SessionCommandExecutor
     /// <summary>
     /// The sentence typed in front of a new session's first prompt when that prompt goes as a paste (issue #3967), or
     /// null for none: <see cref="Session.ScheduledRunLead"/> for a schedule's Claude Code session, whose agent was seen
-    /// asking a go-ahead of a paste with nothing typed beside it. Every other session's first prompt - one a person
-    /// typed or said above all - reaches the agent as it was given.
+    /// asking a go-ahead of a paste with nothing typed beside it. Only a schedule's own firing (the cron surface): a
+    /// workflow seat and a trigger's session carry the schedule kind too, but the sentence says "a scheduled run", which
+    /// is not true of them (review of issue #3967). Every other session's first prompt - one a person typed or said
+    /// above all - reaches the agent as it was given.
     /// </summary>
-    internal static string? FirstPromptLead(AgentKind kind, string? originKind) =>
-        kind == AgentKind.ClaudeCode && originKind == SessionOriginKinds.Schedule ? Session.ScheduledRunLead : null;
+    internal static string? FirstPromptLead(AgentKind kind, SessionOrigin origin) =>
+        kind == AgentKind.ClaudeCode && origin.Kind == SessionOriginKinds.Schedule && origin.Surface == SessionOriginSurfaces.Cron
+            ? Session.ScheduledRunLead
+            : null;
 
     /// <summary>
     /// Types a new session's first prompt on its own task, after the create verb has answered. Nobody awaits it, so it is

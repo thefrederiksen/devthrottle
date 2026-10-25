@@ -708,7 +708,9 @@ public static class TerminalSubmit
         if (typedLead is not null)
         {
             SendTrail.Step(driverTag, $"SharedSubmit: typing a {typedLead.Length}-character lead in front of the paste");
+            var beforeLead = backend.Buffer?.TotalBytesWritten ?? 0;
             await WriteTextAsync(backend, typedLead + " ");
+            await WaitForLeadTakenInAsync(backend, driverTag, typedLead, beforeLead, composerText);
         }
         // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
         var composerBefore = ReadComposerText(composerText);
@@ -1224,6 +1226,59 @@ public static class TerminalSubmit
                 SendTrail.Step(driverTag, $"SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
                                           $"{length}-character paste (repainted={total != startTotal}) - pressing Enter; the records decide");
                 notice.End("the limit was reached - pressing Enter");
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// THE LEAD IS TAKEN IN BEFORE THE PASTE IS WRITTEN (review of issue #3967). The paste wait above ends on the first
+    /// repaint after the paste followed by a quiet terminal, or on the composer changing from what it held before the
+    /// paste. A busy agent that echoed the lead only after the paste bytes were written gave it both - the lead's echo
+    /// was the repaint, and the agent was quiet while it still read the paste - and the Enter was pressed into a paste
+    /// still being read (the #3290 hazard). So the lead must be seen first: the composer showing its words, or, with no
+    /// reader, the terminal answering it and going quiet for <see cref="PasteQuiet"/>. An agent that shows neither has
+    /// not read the lead yet, so it is waited for up to <see cref="PasteTakenInLimit"/>, as a paste is; at the limit the
+    /// send goes on and the records decide, as the paste wait does.
+    /// </summary>
+    private static async Task WaitForLeadTakenInAsync(
+        ISessionBackend backend, string driverTag, string lead, long beforeLead, Func<string?>? composerText)
+    {
+        if (backend.Buffer is not { } buffer) return;
+        var notice = new SendWaitNotice(driverTag, $"the agent to take in the {lead.Length}-character lead before the paste",
+            $"{PasteTakenInLimit.TotalSeconds:F0}s", Clock);
+        var leadLetters = PromptArrival.Loose(lead);
+        var started = Now;
+        var lastTotal = beforeLead;
+        var lastChange = started;
+        var lastLook = DateTime.MinValue;
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), Clock);
+            notice.Check();
+            var now = Now;
+            var total = buffer.TotalBytesWritten;
+            if (total != lastTotal) { lastTotal = total; lastChange = now; }
+            if (composerText is not null && now - lastLook >= ComposerLookInterval)
+            {
+                lastLook = now;
+                if (ReadComposerText(composerText) is { } shown
+                    && PromptArrival.Loose(shown).Contains(leadLetters, StringComparison.Ordinal))
+                {
+                    notice.End("the composer shows the lead - pasting");
+                    return;
+                }
+            }
+            if (total != beforeLead && now - lastChange >= PasteQuiet)
+            {
+                notice.End("the terminal answered the lead and went quiet - pasting");
+                return;
+            }
+            if (now - started >= PasteTakenInLimit)
+            {
+                SendTrail.Step(driverTag, $"SharedSubmit: the lead was not seen within {PasteTakenInLimit.TotalSeconds:F0}s " +
+                                          "- pasting; the records decide");
+                notice.End("the limit was reached - pasting");
                 return;
             }
         }

@@ -29,6 +29,11 @@ public sealed class TerminalSubmitPasteTests : IDisposable
     private sealed class ComposerTerminal(VirtualClock clock) : ISessionBackend
     {
         private bool _inPaste;
+        private readonly List<byte> _unread = new();
+
+        /// <summary>A busy agent: it echoes typed text only once the paste's end marker arrives, and never repaints the
+        /// paste (the review of issue #3967).</summary>
+        public bool ReadsTypingOnlyAtPasteEnd { get; init; }
 
         public List<byte[]> Writes { get; } = new();
         public DateTimeOffset? EnterAt { get; private set; }
@@ -65,6 +70,12 @@ public sealed class TerminalSubmitPasteTests : IDisposable
             if (data.SequenceEqual(TerminalInputEncoder.PasteEnd))
             {
                 _inPaste = false;
+                if (ReadsTypingOnlyAtPasteEnd)
+                {
+                    Buffer!.Write(_unread.ToArray());
+                    _unread.Clear();
+                    return;
+                }
                 Buffer!.Write(Encoding.UTF8.GetBytes("\r\n[Pasted text]\r\n> "));
                 return;
             }
@@ -74,7 +85,9 @@ public sealed class TerminalSubmitPasteTests : IDisposable
                 Buffer!.Write(Encoding.UTF8.GetBytes(new string('r', 4096)));
                 return;
             }
-            if (!_inPaste) Buffer!.Write(data);
+            if (_inPaste) return;
+            if (ReadsTypingOnlyAtPasteEnd) _unread.AddRange(data);
+            else Buffer!.Write(data);
         }
 
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
@@ -92,7 +105,7 @@ public sealed class TerminalSubmitPasteTests : IDisposable
 
     // ---- issue #3967: a scheduled run's seed is pasted with a lead typed in front of it --------------------------------
 
-    private const string Lead = "This is a scheduled run and nobody is watching it: carry out the instructions in this paste now.";
+    private const string Lead = "This is a scheduled run and nobody is watching it: carry out the instructions that follow now.";
 
     private static string AllWritten(ComposerTerminal terminal) => Encoding.UTF8.GetString(terminal.Writes.SelectMany(w => w).ToArray());
 
@@ -141,6 +154,41 @@ public sealed class TerminalSubmitPasteTests : IDisposable
 
         Assert.Contains(PromptArrival.Fingerprint(typed), PromptArrival.Loose(record), StringComparison.Ordinal);
         Assert.DoesNotContain(PromptArrival.Fingerprint(Lead + " " + seed), PromptArrival.Loose(record), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// THE LEAD'S ECHO IS NOT THE PASTE'S REPAINT (review of issue #3967). A busy agent that echoes the lead only once the
+    /// paste has been written, and never repaints the paste, ended the paste wait at once: the lead's echo looked like the
+    /// repaint, and the Enter went into a paste still being read. Without a lead the same agent holds the Enter for the
+    /// whole limit; with one it must hold it at least as long.
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_ALeadEchoedOnlyAfterThePaste_DoesNotEndThePasteWaitEarly()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock) { ReadsTypingOnlyAtPasteEnd = true };
+        var started = clock.GetUtcNow();
+
+        await SendAsync(terminal, clock, "No person is watching this run.\nRead the inbox and answer every customer email.", "ClaudeCode", Lead);
+
+        Assert.NotNull(terminal.EnterAt);
+        Assert.True(terminal.EnterAt!.Value - started >= TerminalSubmit.PasteTakenInLimit,
+            $"the Enter came {(terminal.EnterAt.Value - started).TotalSeconds:F1}s after the send began");
+    }
+
+    /// <summary>An agent that echoes the lead at once is not held: the lead, the paste and the Enter follow in seconds.</summary>
+    [Fact]
+    public async Task SharedSubmit_ALeadEchoedAtOnce_IsPastedAndSubmittedWithinSeconds()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+        var started = clock.GetUtcNow();
+
+        await SendAsync(terminal, clock, "No person is watching this run.\nRead the inbox and answer every customer email.", "ClaudeCode", Lead);
+
+        Assert.NotNull(terminal.EnterAt);
+        Assert.True(terminal.EnterAt!.Value - started < TimeSpan.FromSeconds(10),
+            $"the Enter came {(terminal.EnterAt.Value - started).TotalSeconds:F1}s after the send began");
     }
 
     /// <summary>A first prompt short enough to be typed is the person's own typing already: the lead is not added.</summary>

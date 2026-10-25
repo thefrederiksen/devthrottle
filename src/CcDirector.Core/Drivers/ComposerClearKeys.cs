@@ -43,7 +43,8 @@ public static class ComposerClearKeys
         // Ctrl+U clears only the cursor's line in Claude Code, and a double Escape on an EMPTY composer opens its
         // rewind menu. End then Backspaces cleared both a typed and a pasted two-line draft and does nothing to an
         // empty one. A typed text is at most one line (longer or multi-line text is pasted, and a paste is removed
-        // by one Backspace), so the count covers it with room to spare.
+        // by one Backspace), so the count covers it with room to spare. A lead typed in front of a paste (issue #3967)
+        // is counted with it: the send marks the composer with the lead and the paste together.
         AgentKind.ClaudeCode => [CtrlE, .. Enumerable.Repeat(Backspace, Math.Clamp(retainedLength + 16, 64, 2048))],
         // End first: Ctrl+U deletes only what is before the cursor, and a command Codex refused leaves it at the start.
         AgentKind.Codex => [CtrlE, CtrlU],

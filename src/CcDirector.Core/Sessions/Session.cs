@@ -2728,7 +2728,17 @@ public sealed class Session : IDisposable
     /// own session is given it - never a prompt a person typed or said, which reaches the agent as they gave it.
     /// </summary>
     public const string ScheduledRunLead =
-        "This is a scheduled run and nobody is watching it: carry out the instructions in this paste now.";
+        "This is a scheduled run and nobody is watching it: carry out the instructions that follow now.";
+
+    /// <summary>
+    /// What the composer may hold after a send that did not arrive: the typed lead and the text together. The mark sizes
+    /// the clear keys, and Claude Code's clear is one Backspace per typed character, so a mark without the lead could
+    /// leave part of it behind (review of issue #3967). A text that already starts with the lead - the lead and a file
+    /// reference, typed as one line - is not given it twice. A short text is typed without the lead, so its mark is a
+    /// little larger than needed; a Backspace on an empty Claude Code composer does nothing.
+    /// </summary>
+    internal static string HeldWithLead(string? typedLead, string typed) =>
+        typedLead is null || typed.StartsWith(typedLead, StringComparison.Ordinal) ? typed : typedLead + " " + typed;
 
     private async Task DeliverPrePromptCoreAsync(string text, TimeSpan wait, string? typedLead)
     {
@@ -4285,7 +4295,7 @@ public sealed class Session : IDisposable
         return label;
     }
 
-    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
+    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped, string? typedLead = null)
     {
         var label = PromptLabel(typed);
         var current = typed;
@@ -4377,7 +4387,7 @@ public sealed class Session : IDisposable
         {
             // THE TEXT MAY STILL BE IN THE COMPOSER (review finding 2): marked, so the next send clears it with the
             // measured keys instead of being typed onto the end of it.
-            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), current);
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), HeldWithLead(typedLead, current));
             throw new Drivers.PromptNotSubmittedException(
                 $"[Session] the prompt never reached {AgentKind}: its conversation records have no prompt holding the text " +
                 $"{ArrivalWindow.TotalSeconds:F0}s after the send. The terminal's output is not proof, so the send is NOT delivered. " +
@@ -4638,7 +4648,7 @@ public sealed class Session : IDisposable
     /// <param name="leadingMode">What the text's first character made of it (<see cref="Drivers.IAgentDriver.LeadingCharacterMode"/>),
     /// or null. A command the agent refused stays in its composer; the refusal then names the mode, so the sender learns why
     /// (issue #4380).</param>
-    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed, string? leadingMode = null)
+    private async Task<TextSendOutcome> ConfirmLeftComposerAsync(string typed, string? leadingMode = null, string? typedLead = null)
     {
         if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return TextSendOutcome.Delivered;
         var fingerprint = Drivers.PromptArrival.Fingerprint(typed);
@@ -4655,7 +4665,7 @@ public sealed class Session : IDisposable
         if (release == ComposerRelease.Left) return TextSendOutcome.Delivered;
         if (release == ComposerRelease.StillHeld)
         {
-            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), typed);
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), HeldWithLead(typedLead, typed));
             throw new Drivers.PromptNotSubmittedException(
                 $"[Session] the prompt is still in {AgentKind}'s composer {window.TotalSeconds:F0}s after its Enter, so it was NOT " +
                 $"submitted. It is left there, exactly as typed, and is not typed again." +
@@ -4867,9 +4877,9 @@ public sealed class Session : IDisposable
                     typed = await Submit(clearFirst: true);
                 }
                 if (proof is not null)
-                    outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; });
+                    outcome = await ConfirmArrivalAsync(proof, typed, () => Submit(), () => { lock (_inputLock) return _ownerTextCount != ownerTextBefore; }, typedLead);
                 else if (ReferenceEquals(target, _backend))
-                    outcome = await ConfirmLeftComposerAsync(typed, leadingMode);
+                    outcome = await ConfirmLeftComposerAsync(typed, leadingMode, typedLead);
                 }
                 finally
                 {
