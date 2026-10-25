@@ -67,7 +67,7 @@ public sealed class SecretTransferPushNotifierTests : IDisposable
         Assert.Equal(new[] { "alertId", "body", "kind", "tag", "title", "url" }, names);
         Assert.Equal("secret-transfer", payload.GetProperty("kind").GetString());
         // A tap opens the phone on the alert: the Alerts tray, on this transfer (the Alerts mission).
-        Assert.Equal("/mobile/?alert=secret-transfer%3Atr-0001", payload.GetProperty("url").GetString());
+        Assert.Equal("/mobile/alerts?alert=secret-transfer%3Atr-0001", payload.GetProperty("url").GetString());
         Assert.Equal("devthrottle-secret-transfer-tr-0001", payload.GetProperty("tag").GetString());
         // The Alerts mission: the push names the alert it announces, so a tap opens the tray on it.
         Assert.Equal("secret-transfer:tr-0001", payload.GetProperty("alertId").GetString());

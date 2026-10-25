@@ -88,7 +88,7 @@ const SECRET_PUSH = {
   title: "Secret transfer waiting",
   body: "Approve sending vercel-bypass from SOREN_NORTH to devthrottle-mac-mini?",
   tag: "devthrottle-secret-transfer-tr-1",
-  url: "/mobile/?alert=secret-transfer%3Atr-1",
+  url: "/mobile/alerts?alert=secret-transfer%3Atr-1",
 };
 
 describe("phone push handler", () => {
@@ -116,7 +116,7 @@ describe("phone push handler", () => {
     const w = loadWorker([app]);
     await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
     await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
-    expect(app.navigatedTo).toBe("/mobile/?alert=secret-transfer%3Atr-1");
+    expect(app.navigatedTo).toBe("/mobile/alerts?alert=secret-transfer%3Atr-1");
     expect(app.focused).toBe(true);
   });
 
@@ -124,7 +124,7 @@ describe("phone push handler", () => {
     const w = loadWorker();
     await w.dispatch("push", { data: { json: () => SECRET_PUSH } });
     await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
-    expect(w.opened).toEqual(["/mobile/?alert=secret-transfer%3Atr-1"]);
+    expect(w.opened).toEqual(["/mobile/alerts?alert=secret-transfer%3Atr-1"]);
   });
 
   // The license alarm push (License Switching phase 6): the Gateway's words, its own notification, and a tap that
@@ -172,7 +172,7 @@ describe("phone push handler", () => {
     title: "A session asks to message another",
     body: "Session 121 asks to message session 125. Approve or deny?",
     tag: "devthrottle-link-request-req-1",
-    url: "/mobile/?alert=message-request%3Areq-1",
+    url: "/mobile/alerts?alert=message-request%3Areq-1",
   };
 
   it("a link request push draws its own audible notification in the Gateway's words", async () => {
@@ -199,7 +199,7 @@ describe("phone push handler", () => {
     const w = loadWorker([app]);
     await w.dispatch("push", { data: { json: () => LINK_PUSH } });
     await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
-    expect(app.navigatedTo).toBe("/mobile/?alert=message-request%3Areq-1");
+    expect(app.navigatedTo).toBe("/mobile/alerts?alert=message-request%3Areq-1");
     expect(app.focused).toBe(true);
   });
 

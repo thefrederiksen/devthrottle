@@ -89,6 +89,7 @@ function common(id: string, overrides: Partial<Common>): Common {
     title: "An alert",
     summary: "Someone asked for something.",
     status: "Waiting",
+    tone: "neutral",
     createdAtUtc: "2026-10-24T21:40:00Z",
     updatedAtUtc: "2026-10-24T21:41:00Z",
     expiresAtUtc: null,
@@ -99,7 +100,7 @@ function common(id: string, overrides: Partial<Common>): Common {
 
 export function restartAlert(overrides: Partial<Common> = {}, detail: Partial<DirectorRestartRequest> = {}): AlertDto {
   return {
-    ...common("restart-request:req-1", { title: "Restart the Director on SOREN_NORTH?", summary: "Rig Alpha asks: the launcher has a staged update.", status: "Pending", expiresAtUtc: "2026-10-24T22:11:00Z", ...overrides }),
+    ...common("restart-request:req-1", { title: "Restart the Director on SOREN_NORTH?", summary: "Rig Alpha Architect asks: the launcher has a staged update", status: "Pending", expiresAtUtc: "2026-10-24T22:11:00Z", ...overrides }),
     kind: "restart-request",
     detail: restartRequest(detail),
   };
@@ -107,7 +108,7 @@ export function restartAlert(overrides: Partial<Common> = {}, detail: Partial<Di
 
 export function secretAlert(overrides: Partial<Common> = {}, detail: Partial<SecretTransfer> = {}): AlertDto {
   return {
-    ...common("secret-transfer:tr-1", { title: "Move vercel-bypass to devthrottle-mac-mini?", summary: "Session 042 asks: the preview deploy needs it.", ...overrides }),
+    ...common("secret-transfer:tr-1", { title: "Send the secret vercel-bypass to devthrottle-mac-mini?", summary: "Rig Developer (042) asks: The preview deploy needs it", ...overrides }),
     kind: "secret-transfer",
     detail: secretTransfer(detail),
   };
@@ -115,7 +116,7 @@ export function secretAlert(overrides: Partial<Common> = {}, detail: Partial<Sec
 
 export function messageAlert(overrides: Partial<Common> = {}, detail: Partial<MessageLinkRequest> = {}): AlertDto {
   return {
-    ...common("message-request:lr-1", { title: "Let 121 message 125?", summary: "121 asks: I need to hand the merge over.", ...overrides }),
+    ...common("message-request:lr-1", { title: "Fix the Release Manager (121) wants to message Release Manager (125)", summary: "Its reason: I need to hand the merge over", ...overrides }),
     kind: "message-request",
     detail: messageRequest(detail),
   };

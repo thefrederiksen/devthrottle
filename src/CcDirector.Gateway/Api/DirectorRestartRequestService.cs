@@ -515,7 +515,10 @@ public sealed class DirectorRestartRequestService
         var session = _findSession(tenant, caller.SessionId.ToString());
         var shortId = caller.SessionId.ToString("N")[..8];
         if (session is null) return $"session {shortId} (not on the roster)";
-        return string.IsNullOrWhiteSpace(session.Name) ? $"session {shortId} (unnamed)" : $"{session.Name} ({shortId})";
+        if (string.IsNullOrWhiteSpace(session.Name)) return $"session {shortId} (unnamed)";
+        // The session's number is what the owner can act on (the Alerts mission, phase 5 review): "Release - Manager
+        // (121)". A session with no number keeps its short id, the only other thing that tells it apart.
+        return session.Number is { } n ? $"{session.Name} ({n:000})" : $"{session.Name} ({shortId})";
     }
 
     /// <summary>The 404 for an id that is not this machine's request, or null when it is. The same

@@ -35,7 +35,7 @@ public sealed class DirectorRestartRequestServiceTests
         public bool RosterPushed = true;
         public List<SessionDto> Sessions = new()
         {
-            new SessionDto { SessionId = AskingSession.ToString(), DirectorId = DirectorId, Name = "Restart Director - Architect" },
+            new SessionDto { SessionId = AskingSession.ToString(), DirectorId = DirectorId, Name = "Restart Director - Architect", Number = 121 },
             new SessionDto { SessionId = Guid.NewGuid().ToString(), DirectorId = DirectorId, Name = "another seat" },
         };
         public Func<DirectorCommand, DirectorCommandResult?> Director = cmd => cmd.Verb == DirectorRestartVerbs.Eligibility
@@ -111,7 +111,8 @@ public sealed class DirectorRestartRequestServiceTests
         Assert.Equal(DirectorId, dto.DirectorId);
         Assert.Equal("DevThrottle_1", dto.DirectorName);
         Assert.Equal(AskingSession.ToString(), dto.RequestedBySessionId);
-        Assert.StartsWith("Restart Director - Architect", dto.RequestedBySessionName);
+        // Named with its session number, which is what the owner acts on - never only a short id.
+        Assert.Equal("Restart Director - Architect (121)", dto.RequestedBySessionName);
         Assert.Equal(2, dto.LiveSessionCount);
         Assert.Contains("2 live sessions", dto.LiveSessionsSentence);
         Assert.Equal("Restart the Director on SOREN_NORTH?", dto.Title);

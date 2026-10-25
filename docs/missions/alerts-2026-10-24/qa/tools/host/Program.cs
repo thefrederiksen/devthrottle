@@ -1,4 +1,4 @@
-// A LOCAL Gateway for the Alerts Phase 4 QA run. Committed with the QA run as the record of how the screenshots were
+// A LOCAL Gateway for the Alerts QA runs (Phase 4, and Phase 5's phone screen). Committed with the QA run as the record of how the screenshots were
 // made; it is not part of the solution and nothing builds it but `dotnet run` from this folder. It starts the real GatewayHost in this
 // process on loopback, self-host mode, with its own throwaway data folder, seeds alerts straight into the Gateway's own
 // stores (the way the Gateway tests do), registers one browser device, and serves the built Cockpit and phone app from
@@ -34,6 +34,9 @@ await gateway.StartAsync();
 
 var tenant = TenantId.Local;
 var key = gateway.Devices.Register("qa-browser", "QA-DESK", "web", "browser").DeviceKey;
+// The phone app signs in as a phone, as a real phone does: the Gateway decides from the device's type where an answer
+// was given, and refuses a secret transfer answered "on the phone" from a desktop browser's key.
+var phoneKey = gateway.Devices.Register("qa-phone", "QA-PHONE", "android", "phone").DeviceKey;
 var now = DateTime.UtcNow;
 
 const string DirectorId = "qa-director-1";
@@ -73,7 +76,8 @@ string Restart(string machine, string reason, string? launcherVersion = null, st
         DirectorId = "d-" + machine,
         DirectorName = machine,
         RequestedBySessionId = Sid(142),
-        RequestedBySessionName = asker ?? "142 Rig - Developer",
+        // The requester as DirectorRestartRequestService.RequesterName stores it: the session's name and its number.
+        RequestedBySessionName = asker ?? "Rig - Developer (142)",
         Reason = reason,
         LiveSessionCount = 2,
         LiveSessionsSentence = "That Director holds 2 live sessions right now; each will be asked to write a handover and close, leaf-first.",
@@ -87,7 +91,7 @@ string Restart(string machine, string reason, string? launcherVersion = null, st
             GuardedRestartReason = guarded ?? "",
         },
         Title = $"Restart the Director on {machine}?",
-        AskedBySentence = $"{asker ?? "142 Rig - Developer"} asks: {reason}",
+        AskedBySentence = $"{asker ?? "Rig - Developer (142)"} asks: {reason}",
         AcceptSentence = "Accept once, and nothing more is asked of you: the Director asks its 2 live sessions to write a handover and close, checks the machine again, and reports here.",
     };
     if (!restarts.TryCreate(tenant, r, out _)) throw new InvalidOperationException("restart seed refused for " + machine);
@@ -96,7 +100,9 @@ string Restart(string machine, string reason, string? launcherVersion = null, st
 
 string Secret(string entry, string to, int asker, string reason)
 {
-    var row = secrets.Create(tenant, new SecretTransferAsk(entry, entry, Machine, to, false, Sid(asker), $"Session {asker}", reason), null, now)
+    // "Asked by" as SecretTransferEndpoints.AskedBy stores it for a session: its number and its name.
+    var name = sessions.First(s => s.Number == asker).Name;
+    var row = secrets.Create(tenant, new SecretTransferAsk(entry, entry, Machine, to, false, Sid(asker), $"Session {asker:000} \"{name}\"", reason), null, now)
         ?? throw new InvalidOperationException("secret seed refused for " + entry);
     return row.TransferId;
 }
@@ -151,7 +157,7 @@ switch (scenario)
         Restart("devthrottle-mac-mini-build-02", longReason, longVersion,
             capabilityReason: $"The launcher {longVersion} answers on this machine and can restart the Director; {longReason}",
             guarded: "GuardedRestartUnavailableBecauseTheLauncherDeclaredNoGuardedRestartCommandInItsCapabilitiesList",
-            asker: "142 Rig - Developer-with-a-very-long-session-name-that-has-no-spaces-anywhere-at-all");
+            asker: "Rig - Developer-with-a-very-long-session-name-that-has-no-spaces-anywhere-at-all (142)");
         Secret("a-very-long-entry-name-for-a-secret-that-has-no-break-points-anywhere", "devthrottle-mac-mini-build-02", 142, longReason);
         break;
     }
@@ -159,7 +165,7 @@ switch (scenario)
         throw new ArgumentException("unknown scenario " + scenario);
 }
 
-Console.WriteLine($"READY port={gateway.Port} key={key} scenario={scenario}");
+Console.WriteLine($"READY port={gateway.Port} key={key} phonekey={phoneKey} scenario={scenario}");
 Console.Out.Flush();
 
 string? line;

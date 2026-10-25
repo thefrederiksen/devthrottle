@@ -1,9 +1,10 @@
-"""Alerts Phase 4 QA orchestrator. ONE foreground command: starts the local QA Gateway host for a scenario, runs a
+"""Alerts QA orchestrator (Phases 4 and 5). ONE foreground command: starts the local QA Gateway host for a scenario, runs a
 steps file against it through browser-harness, and stops the host when the steps end (or fail).
 
     python qa.py <scenario> <steps.py>
 
-A steps file is plain Python run here with: host (send(cmd) -> reply line), bh(code) -> stdout, KEY, BASE, OUT.
+A steps file is plain Python run here with: host (send(cmd) -> reply line), bh(code) -> stdout, KEY (the Cockpit's
+browser device), PHONE_KEY (the phone app's phone device), BASE, OUT.
 
 To run it: build host/ (dotnet build), build both web apps (npm run build for @devthrottle/cockpit and
 @devthrottle/mobile) and copy apps/cockpit/dist to host/bin/Debug/net10.0/wwwroot/c and apps/mobile/dist to
@@ -49,7 +50,8 @@ def wait_js(expr, timeout=15):
         time.sleep(0.25)
     raise RuntimeError("timed out waiting for: " + expr)
 def center(sel):
-    r = js("(()=>{const e=document.querySelector(%s); if(!e) return null; const b=e.getBoundingClientRect(); return [b.left+b.width/2,b.top+b.height/2];})()" % json.dumps(sel))
+    # Brought into view first: a coordinate click below the fold of a scrolling screen lands on nothing.
+    r = js("(()=>{const e=document.querySelector(%s); if(!e) return null; e.scrollIntoView({block:'nearest'}); const b=e.getBoundingClientRect(); return [b.left+b.width/2,b.top+b.height/2];})()" % json.dumps(sel))
     if not r: raise RuntimeError("no element " + sel)
     return r
 def click(sel):
@@ -62,8 +64,9 @@ def shot(name):
     p = r"%OUT%\\" + name + ".png"
     capture_screenshot(p)
     print("SHOT", name)
-def overflow():
-    return js("(()=>{const w=document.documentElement.clientWidth; const bad=[...document.querySelectorAll('.alerts-tray, .alerts-tray *')].filter(e=>{const b=e.getBoundingClientRect(); return b.width>0 && (b.right>w+0.5 || b.left< -0.5 || e.scrollWidth>e.clientWidth+1 && getComputedStyle(e).overflowX!=='auto' && getComputedStyle(e).overflowX!=='scroll' && getComputedStyle(e).overflowX!=='hidden');}).map(e=>e.className+':'+Math.round(e.getBoundingClientRect().right)); return JSON.stringify({width:w, bad});})()")
+def overflow(root=".alerts-tray"):
+    # Every element of the Alerts content: none may pass the window's edge or hold content wider than its box.
+    return js("(()=>{const w=document.documentElement.clientWidth; const bad=[...document.querySelectorAll('ROOT, ROOT *'.replaceAll('ROOT', %s))].filter(e=>{const b=e.getBoundingClientRect(); return b.width>0 && (b.right>w+0.5 || b.left< -0.5 || e.scrollWidth>e.clientWidth+1 && getComputedStyle(e).overflowX!=='auto' && getComputedStyle(e).overflowX!=='scroll' && getComputedStyle(e).overflowX!=='hidden');}).map(e=>e.className+':'+Math.round(e.getBoundingClientRect().right)); return JSON.stringify({width:w, bad});})()" % json.dumps(root))
 '''.replace("%OUT%", OUT)
 
 
@@ -78,7 +81,8 @@ class Host:
                 raise RuntimeError("QA host exited before READY")
             if line.startswith("READY"):
                 print("[qa] " + line.strip().split(" key=")[0])
-                self.key = line.split("key=")[1].split()[0]
+                self.key = line.split(" key=")[1].split()[0]
+                self.phone_key = line.split(" phonekey=")[1].split()[0]
                 break
 
     def send(self, cmd):
@@ -117,7 +121,7 @@ def main():
     host = Host(scenario)
     try:
         code = open(steps, encoding="utf8").read()
-        exec(code, {"host": host, "bh": bh, "KEY": host.key, "BASE": BASE, "OUT": OUT, "time": time})
+        exec(code, {"host": host, "bh": bh, "KEY": host.key, "PHONE_KEY": host.phone_key, "BASE": BASE, "OUT": OUT, "time": time})
     finally:
         host.stop()
         print("[qa] host stopped")

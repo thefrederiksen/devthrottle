@@ -22,6 +22,7 @@
     "./alerts/AlertsBell": "./src/alerts/AlertsBell.tsx",
     "./alerts/AlertsTray": "./src/alerts/AlertsTray.tsx",
     "./alerts/AlertDetail": "./src/alerts/AlertDetail.tsx",
+    "./alerts/AlertsList": "./src/alerts/AlertsList.tsx",
     "./alerts/actions/RestartRequestActions": "./src/alerts/actions/RestartRequestActions.tsx",
     "./alerts/actions/SecretTransferActions": "./src/alerts/actions/SecretTransferActions.tsx",
     "./alerts/actions/MessageRequestActions": "./src/alerts/actions/MessageRequestActions.tsx",

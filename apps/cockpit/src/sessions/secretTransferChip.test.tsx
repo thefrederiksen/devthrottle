@@ -71,8 +71,10 @@ describe("secret transfer badge on the asking session", () => {
     renderScreen();
     fireEvent.click(await screen.findByTestId("secret-transfer-chip"));
     const detail = screen.getByTestId("alert-detail");
-    expect(detail.textContent).toContain("Move vercel-bypass to devthrottle-mac-mini?");
-    expect(detail.textContent).toContain('"The preview deploy needs it"');
+    expect(detail.textContent).toContain("Send the secret vercel-bypass to devthrottle-mac-mini?");
+    // The reason is in the Gateway's one sentence, and never quoted a second time.
+    expect(detail.textContent).toContain("Rig Developer (042) asks: The preview deploy needs it");
+    expect(detail.textContent?.split("The preview deploy needs it")).toHaveLength(2);
   });
 
   it.each([

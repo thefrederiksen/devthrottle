@@ -61,7 +61,7 @@ public sealed class MessageLinkRequestPushNotifierTests : IDisposable
         Assert.Equal(new[] { "alertId", "body", "kind", "tag", "title", "url" }, names);
         Assert.Equal("link-request", payload.GetProperty("kind").GetString());
         // A tap opens the phone on the alert: the Alerts tray, on this request (the Alerts mission).
-        Assert.Equal("/mobile/?alert=message-request%3Areq-1", payload.GetProperty("url").GetString());
+        Assert.Equal("/mobile/alerts?alert=message-request%3Areq-1", payload.GetProperty("url").GetString());
         Assert.Equal("devthrottle-link-request-req-1", payload.GetProperty("tag").GetString());
         // The Alerts mission: the push names the alert it announces, so a tap opens the tray on it.
         Assert.Equal("message-request:req-1", payload.GetProperty("alertId").GetString());

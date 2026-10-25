@@ -3,30 +3,50 @@ import type { SecretTransferPlace } from "../secrets/secretTransfersClient";
 import { RestartRequestActions } from "./actions/RestartRequestActions";
 import { SecretTransferActions } from "./actions/SecretTransferActions";
 import { MessageRequestActions } from "./actions/MessageRequestActions";
-import { alertClock, type AlertDto } from "./alertsClient";
+import { alertClock, toneClass, type AlertDto } from "./alertsClient";
 import "./alerts.css";
 
-// ONE ALERT, OPENED (the Alerts mission, section 5.3): its title and status, the Gateway's one-sentence summary, the
-// lines the owner needs before he answers, the kind's action block, and the machine diagnostics behind a collapsed
-// "Details". Every sentence is the Gateway's; the action blocks are the feature cards' own, moved here, and they call
-// each feature's existing answer route.
+// ONE ALERT, WITH ITS ANSWER ON IT (the Alerts mission, sections 5.3 and phase 5): the plain question as its heading,
+// the Gateway's one sentence of who asked and why, when it expires, the kind's action buttons, and the machine
+// diagnostics behind a collapsed "Details". One tap answers - there is no second screen to open first.
+//
+// Every sentence is the Gateway's. The reason a session gave is already in that one sentence, so it is never quoted a
+// second time below it. The action blocks are the feature cards' own, moved here, and they call each feature's
+// existing answer route.
+//
+// It is the card in "Needs you", the body of an Earlier row opened in place (`headless`, the row already shows the
+// title), and the popover of a session's own ask chip in the Cockpit.
 
 export interface AlertDetailProps {
   alert: AlertDto;
-  /** Where a secret transfer answered here is recorded: "phone" on the phone, "cockpit" on the Cockpit. */
+  /** Where a secret transfer answered here is recorded: "phone", "cockpit" or "badge". */
   where: SecretTransferPlace;
   /** Called after an answer landed, so the list is read again at once. */
   onAnswered: () => void;
+  /** Leave out the heading and the summary - an Earlier row opened in place already shows them. */
+  headless?: boolean;
 }
 
-export function AlertDetail({ alert, where, onAnswered }: AlertDetailProps) {
+export function AlertDetail({ alert, where, onAnswered, headless = false }: AlertDetailProps) {
+  const headingId = `alert-heading-${alert.id}`;
   return (
-    <article className="alert-detail" data-kind={alert.kind} data-testid="alert-detail" aria-label={alert.title}>
-      <header className="alert-detail-head">
-        <h3 className="alert-detail-title">{alert.title}</h3>
-        <span className={`alert-status ${alert.needsAnswer ? "alert-status-needs" : ""}`}>{alert.status}</span>
-      </header>
-      <p className="alert-line alert-summary">{alert.summary}</p>
+    <article
+      className="alert-detail"
+      data-kind={alert.kind}
+      data-testid="alert-detail"
+      aria-labelledby={headless ? undefined : headingId}
+      aria-label={headless ? alert.title : undefined}
+    >
+      {headless ? null : (
+        <>
+          <h3 className="alert-detail-title" id={headingId}>
+            {alert.seen ? null : <span className="alerts-visually-hidden">New: </span>}
+            {alert.title}
+          </h3>
+          <p className="alert-line alert-summary">{alert.summary}</p>
+          {alert.needsAnswer ? null : <p className={`alert-line alert-status ${toneClass(alert.tone)}`}>{alert.status}</p>}
+        </>
+      )}
       {alert.needsAnswer && alert.expiresAtUtc ? (
         <p className="alert-line alert-dim">Expires {alertClock(alert.expiresAtUtc)}</p>
       ) : null}
@@ -58,8 +78,7 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
       const t = alert.detail;
       return (
         <>
-          {t.replaceNote ? <p className="alert-line alert-strong">{t.replaceNote}</p> : null}
-          {t.reason ? <p className="alert-line alert-quote">"{t.reason}"</p> : null}
+          {alert.needsAnswer && t.replaceNote ? <p className="alert-line alert-strong">{t.replaceNote}</p> : null}
           <SecretTransferActions transfer={t} where={where} onAnswered={onAnswered} />
           <Details>
             <DetailLine label="Moves">{t.summary}</DetailLine>
@@ -73,7 +92,6 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
       const m = alert.detail;
       return (
         <>
-          {m.reason ? <p className="alert-line alert-quote">"{m.reason}"</p> : null}
           <MessageRequestActions request={m} onAnswered={onAnswered} />
           <Details>
             {m.requesterLabel ? <DetailLine label="Asking session">{m.requesterLabel}</DetailLine> : null}
@@ -89,7 +107,7 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
   }
 }
 
-/** The machine diagnostics, collapsed. Every line wraps; nothing here can push the panel wider. */
+/** The machine diagnostics, collapsed. Every line wraps; nothing here can push the card wider. */
 function Details({ children }: { children: ReactNode }) {
   return (
     <details className="alert-details">

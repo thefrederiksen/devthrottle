@@ -43,20 +43,21 @@ public sealed class RestartRequestAlertSource : IAlertSource
     internal static AlertDto Fold(DirectorRestartRequestDto r)
     {
         var machine = r.Machine;
-        var (status, title, summary) = r.State switch
+        var (status, tone, title, summary) = r.State switch
         {
-            DirectorRestartRequestState.Pending => ("Waiting", $"Restart the Director on {machine}?", r.AskedBySentence),
-            DirectorRestartRequestState.Accepted => ("Accepted", $"Restarting the Director on {machine}",
+            DirectorRestartRequestState.Pending => ("Waiting", AlertTones.Neutral, $"Restart the Director on {machine}?", AskedBy(r)),
+            DirectorRestartRequestState.Accepted => ("Accepted", AlertTones.Neutral, $"Restarting the Director on {machine}",
                 string.IsNullOrWhiteSpace(r.Progress) ? "Accepted - waiting for the Director." : Sentence(r.Progress)),
-            DirectorRestartRequestState.Declined => ("Declined", $"Restart of the Director on {machine}",
+            DirectorRestartRequestState.Declined => ("Declined", AlertTones.Neutral, $"Restart of the Director on {machine}",
                 "You declined it. Nothing was restarted."),
-            DirectorRestartRequestState.Expired => ("Expired", $"Restart of the Director on {machine}",
-                r.AcceptedAtUtc is null
-                    ? "Nobody accepted it within 30 minutes. Nothing was restarted."
-                    : "The Director did not say how the restart ended within 3 hours. Check that machine before assuming it restarted."),
-            DirectorRestartRequestState.Abandoned => ("Stopped", $"Restart of the Director on {machine}",
+            DirectorRestartRequestState.Expired => r.AcceptedAtUtc is null
+                ? ("Expired", AlertTones.Neutral, $"Restart of the Director on {machine}",
+                    "Nobody accepted it within 30 minutes. Nothing was restarted.")
+                : ("Expired", AlertTones.Bad, $"Restart of the Director on {machine}",
+                    "The Director did not say how the restart ended within 3 hours. Check that machine before assuming it restarted."),
+            DirectorRestartRequestState.Abandoned => ("Stopped", AlertTones.Bad, $"Restart of the Director on {machine}",
                 "The Director stopped without restarting. Open Details for its reason."),
-            DirectorRestartRequestState.Completed => ("Restarted", $"The Director on {machine} restarted",
+            DirectorRestartRequestState.Completed => ("Restarted", AlertTones.Good, $"The Director on {machine} restarted",
                 "The restart finished."),
             _ => throw new InvalidOperationException($"restart request {r.Id} is in state {r.State}, which has no alert words"),
         };
@@ -68,11 +69,22 @@ public sealed class RestartRequestAlertSource : IAlertSource
             Title = title,
             Summary = summary,
             Status = status,
+            Tone = tone,
             CreatedAtUtc = Utc(r.RequestedAtUtc),
             UpdatedAtUtc = Utc(AlertWindow.Latest(r.RequestedAtUtc, r.AcceptedAtUtc, r.ProgressAtUtc, r.ClosedAtUtc)),
             ExpiresAtUtc = r.State == DirectorRestartRequestState.Pending ? Utc(r.ExpiresAtUtc) : null,
             Detail = r,
         };
+    }
+
+    /// <summary>Who asked and why, in one sentence: "Release Manager asks: the Mac Tester can run the v2.31.0 checks". The
+    /// request's own <see cref="DirectorRestartRequestDto.AskedBySentence"/> names the session with a short id, which
+    /// the owner cannot act on; this names it by its mission and role (<see cref="AlertWords.FromRestartRequester"/>).</summary>
+    private static string AskedBy(DirectorRestartRequestDto r)
+    {
+        if (string.IsNullOrWhiteSpace(r.RequestedBySessionName))
+            throw new InvalidOperationException($"restart request {r.Id} names no requester");
+        return $"{AlertWords.FromRestartRequester(r.RequestedBySessionName)} asks: {r.Reason}";
     }
 
     /// <summary>The Director's progress line as a sentence: it writes "accepted; telling the Director to begin".</summary>

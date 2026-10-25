@@ -76,6 +76,7 @@ public sealed class AlertRoutesTenantIsolationTests : IAsyncLifetime
             DirectorId = "d-" + machine,
             Reason = "install the update",
             Title = $"Restart the Director on {machine}?",
+            RequestedBySessionName = "a device on this account",
             AskedBySentence = "a session asks: install the update",
         };
         Assert.True(_gateway.DirectorRestartRequests.TryCreate(tenant, request, out _));

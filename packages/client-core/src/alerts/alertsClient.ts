@@ -14,6 +14,14 @@ import type { DirectorRestartRequest } from "../restart/restartRequests";
 import type { SecretTransfer } from "../secrets/secretTransfersClient";
 import type { MessageLinkRequest } from "../fleet/messageLinksClient";
 
+/** How an alert's status reads (`AlertTones` on the Gateway). */
+export type AlertTone = "good" | "bad" | "neutral";
+
+/** The class that colours a status by its tone. Layout only: the tone itself is the Gateway's. */
+export function toneClass(tone: string): string {
+  return tone === "good" || tone === "bad" ? `alert-tone-${tone}` : "alert-tone-neutral";
+}
+
 /** What an alert is about. A closed set: the detail view switches on it to pick the action block. */
 export type AlertKind = "restart-request" | "secret-transfer" | "message-request";
 
@@ -28,6 +36,9 @@ interface AlertFields {
   summary: string;
   /** A short status word for an Earlier row, written by the source: Accepted, Declined, Expired... */
   status: string;
+  /** How that status reads, ruled by the source: "good" (it happened), "bad" (it did not, and the owner should know) or
+   *  "neutral". A client only colours it; an unknown tone is drawn as neutral, never guessed at. */
+  tone: AlertTone;
   createdAtUtc: string;
   updatedAtUtc: string;
   /** When a needs-answer alert stops being answerable, if it does. */

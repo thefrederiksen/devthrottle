@@ -32,8 +32,8 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
     {
         _requests = new FleetMessageLinkRequestStore(_harness.Open());
         var record = new FleetMessageLinkRecord(new GovernanceAuditLog(_harness.Open(new FixedTenantContext(Tenant))), _ => new NoScope());
-        _sessions[Requester] = new SessionDto { SessionId = Requester, Number = 121, Name = "Release Manager" };
-        _sessions[Target] = new SessionDto { SessionId = Target, Number = 125, Name = "Mac Tester" };
+        _sessions[Requester] = new SessionDto { SessionId = Requester, Number = 121, Name = "Release - Manager" };
+        _sessions[Target] = new SessionDto { SessionId = Target, Number = 125, Name = "Release - Release Manager - v2.31.0 checks" };
         _source = new MessageRequestAlertSource(_requests, record,
             (_, id) => _sessions.TryGetValue(id, out var s) ? s : null,
             (_, session, text) => _told.Add(session.SessionId + ": " + text));
@@ -57,12 +57,15 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
         Assert.Equal("message-request:" + id, alert.Id);
         Assert.Equal(AlertKinds.MessageRequest, alert.Kind);
         Assert.Equal("Waiting", alert.Status);
-        Assert.Equal("Let 121 Release Manager message 125 Mac Tester?", alert.Title);
-        Assert.Equal("121 Release Manager asks: hand over the merge", alert.Summary);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
+        // The owner's own example: each session by its mission and role, then its number - and the reason once, in the
+        // summary, never repeating the title.
+        Assert.Equal("Release Manager (121) wants to message Release Manager (125)", alert.Title);
+        Assert.Equal("Its reason: hand over the merge", alert.Summary);
         Assert.Null(alert.ExpiresAtUtc);
         Assert.DoesNotContain(Requester, alert.Title + alert.Summary);
         var detail = Assert.IsType<FleetMessageLinkRequestDto>(alert.Detail);
-        Assert.Equal("121 Release Manager", detail.RequesterLabel);
+        Assert.Equal("121 Release - Manager", detail.RequesterLabel);
     }
 
     [Theory]
@@ -78,7 +81,8 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Allowed", alert.Status);
-        Assert.Equal("121 Release Manager may message 125 Mac Tester", alert.Title);
+        Assert.Equal(AlertTones.Good, alert.Tone);
+        Assert.Equal("Release Manager (121) may message Release Manager (125)", alert.Title);
         Assert.Equal(summary, alert.Summary);
         Assert.Equal(T0.AddMinutes(1), alert.UpdatedAtUtc);
     }
@@ -93,6 +97,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Declined", alert.Status);
+        Assert.Equal(AlertTones.Neutral, alert.Tone);
         Assert.Equal("You declined it. Nothing was set up.", alert.Summary);
     }
 
@@ -106,6 +111,7 @@ public sealed class MessageRequestAlertSourceTests : IDisposable
 
         Assert.False(alert.NeedsAnswer);
         Assert.Equal("Ended", alert.Status);
+        Assert.Equal(AlertTones.Bad, alert.Tone);
         Assert.Equal("A session ended before you answered. Nothing was set up.", alert.Summary);
         Assert.Contains(_told, t => t.StartsWith(Requester, StringComparison.Ordinal) && t.Contains("has ended"));
     }

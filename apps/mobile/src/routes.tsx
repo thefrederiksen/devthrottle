@@ -11,6 +11,7 @@ import { Settings } from "./pages/Settings";
 import { MailDesk } from "./pages/MailDesk";
 import { Recorder } from "./pages/Recorder";
 import { About } from "./pages/About";
+import { Alerts } from "./pages/Alerts";
 import { Diagnostics } from "./pages/Diagnostics";
 import { YourThrottle } from "./pages/YourThrottle";
 import { Repos } from "./pages/Repos";
@@ -163,6 +164,8 @@ export const MOBILE_ROUTES: RouteObject[] = [
           { path: "/secret-transfers", element: <Navigate to="/" replace /> },
           { path: "/link-requests", element: <Navigate to="/" replace /> },
           { path: "/about", element: <About /> },
+          // Alerts (the Alerts mission, phase 5): a full screen of its own, opened from the bell in every app bar.
+          { path: "/alerts", element: <Alerts /> },
           // Diagnostics (auto-network-switching mission): a phone-side connection tester - route
           // (direct LAN vs Tailscale relay), latency, and download/upload throughput, with a verdict.
           { path: "/diagnostics", element: <Diagnostics /> },

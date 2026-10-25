@@ -41,15 +41,16 @@ public sealed class SecretTransferAlertSource : IAlertSource
     {
         var dto = SecretTransferEndpoints.ToDto(row, nowUtc);
         var what = $"{dto.Entry} to {dto.ToMachine}";
-        var (status, title, summary) = dto.State switch
+        var (status, tone, title, summary) = dto.State switch
         {
-            SecretTransferStates.Waiting => ("Waiting", $"Send the secret {what}?", $"{dto.AskedBy} asks: {dto.Reason}"),
-            SecretTransferStates.Approved => ("Approved", $"Sending the secret {what}",
+            SecretTransferStates.Waiting => ("Waiting", AlertTones.Neutral, $"Send the secret {what}?",
+                $"{AlertWords.FromSecretAskedBy(dto.AskedBy)} asks: {dto.Reason}"),
+            SecretTransferStates.Approved => ("Approved", AlertTones.Neutral, $"Sending the secret {what}",
                 $"Approved {SecretTransferPlaces.Words(dto.AnsweredWhere)}. Delivering now."),
-            SecretTransferStates.Denied => ("Denied", $"Secret {what}", Finished(dto)),
-            SecretTransferStates.Expired => ("Expired", $"Secret {what}", Finished(dto)),
-            SecretTransferStates.Delivered => ("Delivered", $"Secret {what}", Finished(dto)),
-            SecretTransferStates.Failed => ("Failed", $"Secret {what}", Finished(dto)),
+            SecretTransferStates.Denied => ("Denied", AlertTones.Neutral, $"Secret {what}", Finished(dto)),
+            SecretTransferStates.Expired => ("Expired", AlertTones.Neutral, $"Secret {what}", Finished(dto)),
+            SecretTransferStates.Delivered => ("Delivered", AlertTones.Good, $"Secret {what}", Finished(dto)),
+            SecretTransferStates.Failed => ("Failed", AlertTones.Bad, $"Secret {what}", Finished(dto)),
             _ => throw new InvalidOperationException($"secret transfer {dto.TransferId} is in state '{dto.State}', which has no alert words"),
         };
         return new AlertDto
@@ -60,6 +61,7 @@ public sealed class SecretTransferAlertSource : IAlertSource
             Title = title,
             Summary = summary,
             Status = status,
+            Tone = tone,
             CreatedAtUtc = dto.CreatedAtUtc,
             UpdatedAtUtc = AlertWindow.Latest(dto.CreatedAtUtc, dto.AnsweredAtUtc, dto.FinishedAtUtc),
             ExpiresAtUtc = dto.State == SecretTransferStates.Waiting ? dto.ExpiresAtUtc : null,

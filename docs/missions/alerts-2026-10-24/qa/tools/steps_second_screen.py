@@ -3,7 +3,7 @@
 bh(f'''
 new_tab("about:blank")
 phone()
-enrol("{BASE}/mobile/settings", "{KEY}")
+enrol("{BASE}/mobile/settings", "{PHONE_KEY}")
 wait_js("document.querySelector('.app-bar h1') && document.querySelector('[data-testid=alerts-badge]')")
 time.sleep(1.5)
 print("screen:", js("location.pathname"), "heading:", js("document.querySelector('.app-bar h1').textContent"))

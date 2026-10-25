@@ -225,7 +225,7 @@ describe("cockpit push service worker", () => {
     title: "Secret transfer waiting",
     body: "Approve sending vercel-bypass from SOREN_NORTH to devthrottle-mac-mini?",
     tag: "devthrottle-secret-transfer-tr-1",
-    url: "/mobile/?alert=secret-transfer%3Atr-1",
+    url: "/mobile/alerts?alert=secret-transfer%3Atr-1",
     alertId: "secret-transfer:tr-1",
   };
 
