@@ -90,7 +90,7 @@ public sealed class VoiceAutoOffLineTests
             await ledger.SwitchOffInFlight;
             var path = Path.Combine(dir, "voice-listening.json");
 
-            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (SaveFailure.Block(path))
                 ledger.ClearForVoiceOn(tenant);
             Assert.NotNull(new VoiceListeningLedger(_ => dir, () => OffAtUtc).SwitchedOff(tenant));   // still the old record on disk
 
