@@ -32,8 +32,11 @@ public sealed class CronNotifyTests : IDisposable
         _h.Dispose();
     }
 
+    // The one instant the engine fires at and the failure notifier reads: a gate test never reads the real clock.
+    private static readonly DateTime Now = new(2026, 10, 24, 12, 0, 0, DateTimeKind.Utc);
+
     private static CronEngine Engine(CronJobStore store, CronRunHistoryStore history, ICronSessionStarter starter, ICronNotifier notifier) =>
-        new(store, history, starter, new UnusedWorkListRunner(), notifier, new FakeClock(DateTime.UtcNow));
+        new(store, history, starter, new UnusedWorkListRunner(), notifier, new FakeClock(Now));
 
     private static CronJobDto SeedJob(string notifyOn, string? webhook = null, bool enabled = true) => new()
     {
@@ -82,7 +85,7 @@ public sealed class CronNotifyTests : IDisposable
     private ScheduleFailureNotifier FailureNotifier(CronJobStore store, CronRunHistoryStore history, ICronNotifier fleet) =>
         new(history, new CronFailureNoticeStore(Db), (_, id) => store.Get(id), (_, _) => null, fleet,
             (_, _, _) => Task.CompletedTask, (_, _, _, _) => Task.FromResult<string?>("no account to email in this test"),
-            _ => new NoScope(), () => DateTime.UtcNow);
+            _ => new NoScope(), () => Now);
 
     [Fact]
     public async Task NotifyAlways_FailedFire_IsToldByTheFailureNotifier_WithAPlainSentence()
