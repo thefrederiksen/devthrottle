@@ -1592,7 +1592,8 @@ internal static class SessionCommandExecutor
     /// not start. Null when the folder is already trusted (by itself, a parent, or its main checkout), when it is one
     /// of this machine's registered repositories - which is then marked trusted - or when this Director marks no
     /// folders. The refusal starts "not started: " and names the folder and the machine, so the run record reads as a
-    /// sentence a person acts on.
+    /// sentence a person acts on. Both refusals name "the folder-trust question": the Gateway's ScheduleFailureWords
+    /// chooses the cause folder-not-trusted by those words, so a reword here must keep them.
     /// </summary>
     internal static string? ScheduledFolderTrustRefusal(string? folder, IReadOnlyList<RepositoryConfig>? registered,
         CcDirector.Core.Claude.ClaudeFolderTrust? trust, string machine)
