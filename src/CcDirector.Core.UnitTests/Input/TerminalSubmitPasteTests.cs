@@ -85,10 +85,94 @@ public sealed class TerminalSubmitPasteTests : IDisposable
         public void Dispose() => Buffer!.Dispose();
     }
 
-    private static Task<string> SendAsync(ComposerTerminal terminal, VirtualClock clock, string text, string agent) =>
+    private static Task<string> SendAsync(ComposerTerminal terminal, VirtualClock clock, string text, string agent, string? typedLead = null) =>
         VirtualTime.RunAsync(clock, () => TerminalSubmit.SharedSubmitAsync(
             terminal, text, agent, bracketedPasteEnabled: true,
-            submitVerifyBeat: TimeSpan.FromMilliseconds(20), clock: clock));
+            submitVerifyBeat: TimeSpan.FromMilliseconds(20), clock: clock, typedLead: typedLead));
+
+    // ---- issue #3967: a scheduled run's seed is pasted with a lead typed in front of it --------------------------------
+
+    private const string Lead = "This is a scheduled run and nobody is watching it: carry out the instructions in this paste now.";
+
+    private static string AllWritten(ComposerTerminal terminal) => Encoding.UTF8.GetString(terminal.Writes.SelectMany(w => w).ToArray());
+
+    /// <summary>
+    /// The scheduled run in issue #3967: its long seed reached Claude Code as a paste with nothing typed beside it, and
+    /// the agent asked for a go-ahead nobody was there to give. The lead is typed first, in the same composer, the seed
+    /// is pasted unchanged, and ONE Enter after the paste submits both - and the send returns the lead and the seed, which
+    /// is what the agent's records will hold.
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_LongSeedWithATypedLead_TypesTheLeadThenPastesTheSeedThenOneEnter()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+        var seed = "No person is watching this run.\nRead the inbox and answer every customer email.\nThen report the run.";
+
+        var typed = await SendAsync(terminal, clock, seed, "ClaudeCode", Lead);
+
+        var all = AllWritten(terminal);
+        var pasteAt = all.IndexOf("\u001b[200~", StringComparison.Ordinal);
+        Assert.True(pasteAt > 0, "the seed was not pasted");
+        Assert.Equal(Lead + " ", all[..pasteAt]);
+        Assert.Equal(seed, terminal.Pasted);
+        Assert.DoesNotContain('\r', all[..pasteAt]);
+        Assert.True(all.IndexOf('\r', StringComparison.Ordinal) > all.IndexOf("\u001b[201~", StringComparison.Ordinal),
+            "an Enter was pressed before the paste ended");
+        Assert.Equal(Lead + " " + seed, typed);
+    }
+
+    /// <summary>A first prompt short enough to be typed is the person's own typing already: the lead is not added.</summary>
+    [Fact]
+    public async Task SharedSubmit_ShortOneLineTextWithALead_IsTypedAloneWithoutTheLead()
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+
+        var typed = await SendAsync(terminal, clock, "Run the weekly report.", "ClaudeCode", Lead);
+
+        Assert.Equal("Run the weekly report.", typed);
+        Assert.DoesNotContain("scheduled run", AllWritten(terminal));
+        Assert.False(terminal.PasteFramed);
+    }
+
+    /// <summary>A text over the measured paste limit goes as a file reference; the lead is typed on the same line in front
+    /// of it, so the reference does not arrive alone either.</summary>
+    [Fact]
+    public async Task SharedSubmit_SeedOverThePasteLimitWithALead_TypesTheLeadInFrontOfTheReference()
+    {
+        var clock = VirtualTime.NewClock();
+        var folder = Directory.CreateTempSubdirectory("lead-reference-").FullName;
+        try
+        {
+            using var terminal = new ComposerTerminal(clock) { WorkingDirectory = folder };
+            var seed = string.Join("\n", Enumerable.Repeat("Read the inbox and answer every customer email.", 1200));
+            Assert.True(seed.Length > TerminalSubmit.MeasuredPasteLimit);
+
+            var typed = await SendAsync(terminal, clock, seed, "ClaudeCode", Lead);
+
+            Assert.StartsWith(Lead + " @", typed);
+            Assert.False(terminal.PasteFramed);
+            Assert.StartsWith(Lead + " @", AllWritten(terminal));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("two\nlines")]
+    [InlineData("a\ttab")]
+    [InlineData("   ")]
+    public async Task SharedSubmit_ALeadThatIsNotOneLineOfWords_IsRefusedBeforeAnythingIsWritten(string lead)
+    {
+        var clock = VirtualTime.NewClock();
+        using var terminal = new ComposerTerminal(clock);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => SendAsync(terminal, clock, "first line\nsecond line", "ClaudeCode", lead));
+        Assert.Empty(terminal.Writes);
+    }
 
     /// <summary>
     /// THE PASTE-WAIT RACE. The send counted the agent's repaint only from AFTER it wrote the paste's end marker, so a

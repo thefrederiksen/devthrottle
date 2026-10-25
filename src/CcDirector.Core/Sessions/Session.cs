@@ -2679,14 +2679,15 @@ public sealed class Session : IDisposable
     /// qualification rig both call this, so the rig proves the code that ships rather than a copy of it.
     /// An agent whose composer can be read goes through <see cref="DeliverFirstPromptAsync"/>, which PROVES the
     /// agent reads input; every other agent waits for a startup burst followed by a quiet poll, up to
-    /// <paramref name="wait"/>, and then sends.
+    /// <paramref name="wait"/>, and then sends. <paramref name="typedLead"/> is typed in front of a first prompt that
+    /// goes as a paste or a file reference (<see cref="ScheduledRunLead"/>; issue #3967); null types none.
     /// </summary>
-    public async Task DeliverPrePromptAsync(string text, TimeSpan wait)
+    public async Task DeliverPrePromptAsync(string text, TimeSpan wait, string? typedLead = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         try
         {
-            await DeliverPrePromptCoreAsync(text, wait);
+            await DeliverPrePromptCoreAsync(text, wait, typedLead);
         }
         catch (Exception ex)
         {
@@ -2718,7 +2719,18 @@ public sealed class Session : IDisposable
         RaisePromptDeliveryChanged();
     }
 
-    private async Task DeliverPrePromptCoreAsync(string text, TimeSpan wait)
+    /// <summary>
+    /// THE SENTENCE TYPED IN FRONT OF A SCHEDULED RUN'S PASTED SEED (issue #3967). A long seed reaches Claude Code as one
+    /// bracketed paste, as at the keyboard (issue #4379), and a scheduled run's agent answered it: "The message arrived as
+    /// pasted text only, with nothing typed by you alongside it, and I only act on pasted instructions when you ask me to
+    /// in your own words." Nobody watches a scheduled run, so it never ran. This sentence is typed into the same composer
+    /// just before the paste and submitted with it as one prompt; the seed itself is pasted unchanged. Only a schedule's
+    /// own session is given it - never a prompt a person typed or said, which reaches the agent as they gave it.
+    /// </summary>
+    public const string ScheduledRunLead =
+        "This is a scheduled run and nobody is watching it: carry out the instructions in this paste now.";
+
+    private async Task DeliverPrePromptCoreAsync(string text, TimeSpan wait, string? typedLead)
     {
         // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
         var provenance = SubmissionProvenance.FrameworkText();
@@ -2734,8 +2746,8 @@ public sealed class Session : IDisposable
         if (CanGateFirstPrompt)
         {
             var limit = wait > Drivers.FirstPromptGate.MinimumWait ? wait : Drivers.FirstPromptGate.MinimumWait;
-            FileLog.Write($"[Session] PrePrompt: gating on the agent reading input, sid={Id}, len={text.Length}");
-            await DeliverFirstPromptAsync(text, provenance, limit);
+            FileLog.Write($"[Session] PrePrompt: gating on the agent reading input, sid={Id}, len={text.Length}, lead={typedLead is not null}");
+            await DeliverFirstPromptAsync(text, provenance, limit, typedLead);
             return;
         }
 
@@ -2766,7 +2778,7 @@ public sealed class Session : IDisposable
     /// NOT typed, the failure is recorded against the session - so its row says the prompt was not delivered, on every
     /// screen - and this throws. A session that exits first is left alone; its exit is its own report.
     /// </summary>
-    public async Task DeliverFirstPromptAsync(string text, SubmissionProvenance provenance, TimeSpan limit)
+    public async Task DeliverFirstPromptAsync(string text, SubmissionProvenance provenance, TimeSpan limit, string? typedLead = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -2790,7 +2802,7 @@ public sealed class Session : IDisposable
         switch (gate.Outcome)
         {
             case Drivers.FirstPromptGateOutcome.Ready:
-                await SendTextAsync(text, provenance, SendSource.Framework);
+                await SendTextAsync(text, provenance, SendSource.Framework, typedLead: typedLead);
                 return;
             case Drivers.FirstPromptGateOutcome.Exited:
                 return;
@@ -3842,7 +3854,7 @@ public sealed class Session : IDisposable
     /// <returns>Delivered, or still delivering, or refused before typing (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
     /// <param name="deliveryId">The Gateway's delivery id for this prompt (<see cref="PromptRequest.DeliveryId"/>), or null. An
     /// API-mode session carries it as the prompt id on every event about the prompt; a terminal session does not read it.</param>
-    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null, string? deliveryId = null)
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null, string? deliveryId = null, string? typedLead = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
         // API mode (issue #4070): the prompt goes to the agent's own protocol and its receipt is the agent's
@@ -3868,7 +3880,7 @@ public sealed class Session : IDisposable
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, source={source}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
         using var input = await BeginInputAsync();
-        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled, sentAtUtc);
+        var outcome = await SubmitTextAsync(_backend, text, provenance, source, origin, BracketedPasteEnabled, sentAtUtc, typedLead);
         FileLog.Write($"[Session] SendTextAsync done: session={Id}, " +
                       (outcome.Confirmed ? "delivered"
                        : outcome.NothingTyped ? $"REFUSED - {outcome.Reason}"
@@ -4749,7 +4761,7 @@ public sealed class Session : IDisposable
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.
     /// <paramref name="sentAtUtc"/> is the Send time the Gateway put on the prompt, for the age check at the first
     /// keystroke; null when there is nothing to check.</summary>
-    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste, DateTime? sentAtUtc)
+    private async Task<TextSendOutcome> SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste, DateTime? sentAtUtc, string? typedLead = null)
     {
         // EVERY ERROR THIS SEND LOGS NAMES ITS SESSION AND NEVER ITS WORDS (issue #3675). Inside the prompt verb this nests
         // in the command's context and keeps its correlation id; a send typed on the desktop has this one alone.
@@ -4823,7 +4835,8 @@ public sealed class Session : IDisposable
                     composerRegion: ComposerRegionReader(),
                     clock: Clock,
                     commandLine: commandLine,
-                    writeClearKeys: ReferenceEquals(target, _backend) ? keys => WriteClearKeysUnlessSomeoneTyped(keys, ownerTextBefore) : null);
+                    writeClearKeys: ReferenceEquals(target, _backend) ? keys => WriteClearKeysUnlessSomeoneTyped(keys, ownerTextBefore) : null,
+                    typedLead: typedLead);
 
                 string typed;
                 try

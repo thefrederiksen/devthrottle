@@ -116,8 +116,12 @@ public static class TerminalSubmit
     /// again, running the command again each time; that is how a leading "/" was sent twice. The output after the Enter
     /// does not decide either: a command can print almost nothing. The caller's check of the composer after the Enter
     /// decides.</param>
+    /// <param name="typedLead">A sentence TYPED into the composer, followed by a space, in front of a text that goes as a
+    /// paste or a file reference - the same composer, one Enter, one prompt (issue #3967). Null types nothing extra, and
+    /// a text short enough to be typed is typed alone: the lead exists only so a paste does not arrive with nothing typed
+    /// beside it. One line, no control characters.</param>
     /// <returns>The exact line typed into the composer: the text itself, or the file instruction or @-reference that
-    /// carries it. That is what the agent's records will hold.</returns>
+    /// carries it, after the lead when there is one. That is what the agent's records will hold.</returns>
     public static async Task<string> SharedSubmitAsync(
         ISessionBackend backend,
         string text,
@@ -140,9 +144,12 @@ public static class TerminalSubmit
         Func<(ComposerReading Reading, string Text)>? composerRegion = null,
         TimeProvider? clock = null,
         bool commandLine = false,
-        Func<byte[], bool>? writeClearKeys = null)
+        Func<byte[], bool>? writeClearKeys = null,
+        string? typedLead = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
+        if (typedLead is not null && (typedLead.Trim().Length == 0 || TerminalInputEncoder.HoldsControlCharacters(typedLead)))
+            throw new ArgumentException("A typed lead is one line of words, with no control characters.", nameof(typedLead));
         var throwWhenParked = !recordsProofFollows && !commandLine;
         var nudgeBefore = TextWaitsInComposer.Value;
         var clockBefore = SendClock.Value;
@@ -158,7 +165,7 @@ public static class TerminalSubmit
             return await SharedSubmitCoreAsync(backend, text, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout,
                 pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, clearKeysFor,
                 composerHoldsNothing, throwWhenParked, clearRetainedUnconditionally, composerText, composerSeen, composerRegion,
-                typedAfterExistingText);
+                typedAfterExistingText, commandLine ? null : typedLead);
         }
         catch (ComposerNotAcceptingInputException ex) when (typedAfterExistingText.Value)
         {
@@ -224,7 +231,7 @@ public static class TerminalSubmit
         TimeSpan? echoTimeout, TimeSpan? pollInterval, TimeSpan? enterSettleDelay, Func<string[]>? screenSnapshot,
         TimeSpan? submitVerifyBeat, Guid sessionId, Func<int, byte[]?>? clearKeysFor, Func<bool>? composerHoldsNothing,
         bool throwWhenParked, bool clearRetainedUnconditionally, Func<string?>? composerText, Func<string>? composerSeen,
-        Func<(ComposerReading Reading, string Text)>? composerRegion, StrongBox<bool> typedAfterExistingText)
+        Func<(ComposerReading Reading, string Text)>? composerRegion, StrongBox<bool> typedAfterExistingText, string? typedLead)
     {
 
         // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
@@ -278,7 +285,7 @@ public static class TerminalSubmit
                               $"limit={PasteLimitFor(driverTag)}");
                 // The file holds the text exactly as it was given; only a paste's line breaks are normalised.
                 var viaFile = driverTag.Contains("Claude", StringComparison.OrdinalIgnoreCase)
-                    ? await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion)
+                    ? await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion, typedLead)
                     : await SubmitViaInstructionFileAsync(backend, textForCheck, driverTag, bracketedPasteEnabled, requireEcho, echoTimeout, pollInterval,
                         enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
                 ComposerRetention.Clear(backend);
@@ -286,10 +293,10 @@ public static class TerminalSubmit
             }
             if (pasted.Length > ClaudeTypingLimit || TerminalInputEncoder.HoldsControlCharacters(pasted))
             {
-                await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
+                await BracketedPasteSubmitAsync(backend, pasted, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText, typedLead);
                 ComposerRetention.Clear(backend);
                 // What the composer holds: the paste carries no Escape (TerminalInputEncoder.WithoutEscapes).
-                return TerminalInputEncoder.WithoutEscapes(pasted);
+                return WithLead(typedLead, TerminalInputEncoder.WithoutEscapes(pasted));
             }
         }
         else if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -319,7 +326,7 @@ public static class TerminalSubmit
         // itself, so its size no longer decides whether it arrives on a busy machine.
         if (ShouldReferenceRatherThanPaste(driverTag, textForCheck) && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
         {
-            var reference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
+            var reference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion, typedLead);
             ComposerRetention.Clear(backend);
             return reference;
         }
@@ -328,14 +335,14 @@ public static class TerminalSubmit
         {
             if (bracketedPasteEnabled)
             {
-                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText);
+                await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat, throwWhenParked, composerText, typedLead);
                 ComposerRetention.Clear(backend);
-                return textForCheck;
+                return WithLead(typedLead, textForCheck);
             }
 
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))
             {
-                var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion);
+                var atReference = await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId, throwWhenParked, composerRegion, typedLead);
                 ComposerRetention.Clear(backend);
                 return atReference;
             }
@@ -686,9 +693,18 @@ public static class TerminalSubmit
         TimeSpan? enterSettleDelay = null,
         TimeSpan? submitVerifyBeat = null,
         bool throwWhenParked = true,
-        Func<string?>? composerText = null)
+        Func<string?>? composerText = null,
+        string? typedLead = null)
     {
         SendTrail.Step(driverTag, $"SharedSubmit: bracketed paste submit len={text.Length}");
+        // A LEAD IS TYPED IN FRONT OF THE PASTE (issue #3967): a scheduled run's seed reached Claude Code as a paste with
+        // nothing typed beside it, and the agent answered that it acts on pasted instructions only when asked in the
+        // user's own words. Typed first, in the same composer, so the one Enter below submits both as one prompt.
+        if (typedLead is not null)
+        {
+            SendTrail.Step(driverTag, $"SharedSubmit: typing a {typedLead.Length}-character lead in front of the paste");
+            await WriteTextAsync(backend, typedLead + " ");
+        }
         // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
         var composerBefore = ReadComposerText(composerText);
         // ONE ENCODER FOR EVERY PASTE (issue #4379): the same writes the desktop's Ctrl+V makes - the brackets, every
@@ -710,8 +726,11 @@ public static class TerminalSubmit
         // as part of it. The agent repaints its composer once the paste is in; the Enter waits for that repaint to end.
         await WaitForPasteTakenInAsync(backend, driverTag, text.Length, beforeEnd, composerText, composerBefore);
         await PressEnterAndVerifyAsync(
-            backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
+            backend, WithLead(typedLead, text), driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(80), submitVerifyBeat, throwWhenParked);
     }
+
+    /// <summary>The line a send with a typed lead leaves in the composer: the lead, a space, then what follows it.</summary>
+    private static string WithLead(string? typedLead, string text) => typedLead is null ? text : typedLead + " " + text;
 
     private static async Task TypeSettleEnterSubmitAsync(
         ISessionBackend backend,
@@ -743,11 +762,14 @@ public static class TerminalSubmit
         TimeSpan? submitVerifyBeat = null,
         Guid sessionId = default,
         bool throwWhenParked = true,
-        Func<(ComposerReading Reading, string Text)>? composerRegion = null)
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null,
+        string? typedLead = null)
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory, backend.PromptFileDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
-        var atReference = LargeInputHandler.AtReference(relRef);
+        // A lead goes on the same typed line, in front of the reference (issue #3967), so a retype after a lost echo
+        // types both again.
+        var atReference = WithLead(typedLead, LargeInputHandler.AtReference(relRef));
         SendTrail.Step(driverTag, $"SharedSubmit: large input ({text.Length} chars), using temp file reference: {atReference}");
 
         await EchoVerifiedInlineSubmitAsync(
