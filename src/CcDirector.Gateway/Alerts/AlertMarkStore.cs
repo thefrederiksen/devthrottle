@@ -25,6 +25,18 @@ public sealed class AlertMarkStore
         _db = db ?? throw new ArgumentNullException(nameof(db));
     }
 
+    /// <summary>
+    /// A seen version as the table can hold it: whole microseconds. PostgreSQL keeps a <c>timestamp with time zone</c>
+    /// to the microsecond and Npgsql drops the rest, while a restart request's <c>UpdatedAtUtc</c> comes from an
+    /// in-memory clock with 100-nanosecond ticks - so a version stored as given reads back up to 900 nanoseconds
+    /// EARLIER than the alert it marks, and the alert would never read as seen (phase 2 review, finding 1). Every
+    /// version is cut to this precision before it is stored and before it is compared, so both providers agree.
+    /// </summary>
+    public static DateTime ToStoredPrecision(DateTime utc)
+        => new(utc.Ticks - utc.Ticks % TicksPerMicrosecond, DateTimeKind.Utc);
+
+    private const long TicksPerMicrosecond = TimeSpan.TicksPerMillisecond / 1000;
+
     /// <summary>Every mark in the account, by alert id.</summary>
     public IReadOnlyDictionary<string, AlertMarkEntity> All(TenantId tenant)
     {
@@ -32,12 +44,13 @@ public sealed class AlertMarkStore
         return ctx.AlertMarks.AsNoTracking().ToList().ToDictionary(m => m.AlertId, StringComparer.Ordinal);
     }
 
-    /// <summary>Record that the owner saw each alert at the given version (its <c>UpdatedAtUtc</c>).</summary>
+    /// <summary>Record that the owner saw each alert at the given version (its <c>UpdatedAtUtc</c>), stored at
+    /// <see cref="ToStoredPrecision"/>.</summary>
     public void MarkSeen(TenantId tenant, IReadOnlyCollection<(string AlertId, DateTime Version)> seen, DateTime nowUtc)
     {
         if (seen.Count == 0) return;
         Write(tenant, seen.Select(s => s.AlertId), nowUtc, (row, id) =>
-            row.SeenVersionUtc = seen.First(s => s.AlertId == id).Version);
+            row.SeenVersionUtc = ToStoredPrecision(seen.First(s => s.AlertId == id).Version));
         FileLog.Write($"[AlertMarkStore] MarkSeen: tenant={tenant.ToLogString()}, count={seen.Count}");
     }
 

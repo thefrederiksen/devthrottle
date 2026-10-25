@@ -23,6 +23,7 @@ public sealed class AlertRoutesTenantIsolationTests : IAsyncLifetime
     private HttpClient _http = null!;
     private string _keyA = "";
     private string _keyB = "";
+    private string _directorKeyA = "";
     private TenantId _tenantA;
     private TenantId _tenantB;
     private string? _priorRoot;
@@ -46,12 +47,15 @@ public sealed class AlertRoutesTenantIsolationTests : IAsyncLifetime
         await _gateway.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
-        _keyA = _gateway.Devices.Register("dev-a", "MA").DeviceKey;
-        _keyB = _gateway.Devices.Register("dev-b", "MB").DeviceKey;
+        // The owners' own browsers, and a Director's own key on account A (a workstation device, the default type).
+        _keyA = _gateway.Devices.Register("dev-a", "MA", "web", "browser").DeviceKey;
+        _keyB = _gateway.Devices.Register("dev-b", "MB", "web", "browser").DeviceKey;
+        _directorKeyA = _gateway.Devices.Register("dir-a", "MA").DeviceKey;
         _tenantA = _gateway.TenantRegistry.MintOrLookupBySubject("sub-alice", "alice@example.com");
         _tenantB = _gateway.TenantRegistry.MintOrLookupBySubject("sub-bob", "bob@example.com");
         _gateway.Devices.SetAccountBinding("dev-a", "sub-alice", _tenantA.Value);
         _gateway.Devices.SetAccountBinding("dev-b", "sub-bob", _tenantB.Value);
+        _gateway.Devices.SetAccountBinding("dir-a", "sub-alice", _tenantA.Value);
     }
 
     public async Task DisposeAsync()
@@ -233,6 +237,24 @@ public sealed class AlertRoutesTenantIsolationTests : IAsyncLifetime
 
         Assert.True(Assert.Single((await List(_keyA)).Alerts).Seen);
         Assert.False(Assert.Single((await List(_keyB)).Alerts).Seen);
+    }
+
+    [Fact]
+    public async Task ADirectorsOwnKey_ReadsTheList_ButIsRefusedEveryWrite()
+    {
+        var pending = SeedPendingRestart(_tenantA, "mac-a");
+        var closed = SeedDeclinedRestart(_tenantA, "mac-a2");
+
+        Assert.Equal(2, (await List(_directorKeyA)).Alerts.Count);
+        var seen = await Send(HttpMethod.Post, "gateway/alerts/seen", _directorKeyA, new { ids = new[] { pending } });
+        var one = await Send(HttpMethod.Post, $"gateway/alerts/{Uri.EscapeDataString(closed)}/clear", _directorKeyA);
+        var all = await Send(HttpMethod.Post, "gateway/alerts/clear", _directorKeyA);
+
+        Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.Forbidden, HttpStatusCode.Forbidden),
+            (seen.StatusCode, one.StatusCode, all.StatusCode));
+        var after = await List(_keyA);
+        Assert.Equal(2, after.Alerts.Count);
+        Assert.All(after.Alerts, a => Assert.False(a.Seen));
     }
 
     [Fact]

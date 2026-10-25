@@ -1,5 +1,6 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Alerts;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -31,6 +32,25 @@ public sealed class AddAlertMarksPostgresTests
     private const string MigrationUnderTest = "20261025095255_AddAlertMarks";
 
     private static string Connection => PostgresProofDatabase.Connection;
+
+    /// <summary>A source of one alert, copied afresh on every read as a real source folds afresh from its store.</summary>
+    private sealed class OneAlertSource : IAlertSource
+    {
+        public OneAlertSource(AlertDto alert) => Alert = alert;
+
+        public AlertDto Alert { get; }
+
+        public string Kind => AlertKinds.RestartRequest;
+
+        public IReadOnlyList<AlertDto> List(TenantId tenant, DateTime nowUtc) => new[]
+        {
+            new AlertDto
+            {
+                Id = Alert.Id, Kind = Alert.Kind, NeedsAnswer = Alert.NeedsAnswer, Title = Alert.Title, Summary = Alert.Summary,
+                Status = Alert.Status, CreatedAtUtc = Alert.CreatedAtUtc, UpdatedAtUtc = Alert.UpdatedAtUtc,
+            },
+        };
+    }
 
     private static GatewayDbContext NewContext()
     {
@@ -130,6 +150,30 @@ public sealed class AddAlertMarksPostgresTests
             Assert.Equal(1, marks.Sweep(alice, new HashSet<string>(), AlertWindow.Earlier, later));
             Assert.Empty(marks.All(alice));
             Assert.Single(marks.All(bob));
+
+            // A restart request's version has 100-nanosecond ticks, and timestamp with time zone keeps microseconds
+            // (phase 2 review, finding 1): the alert must still read seen after the round trip, and read unseen again
+            // once it changes by a microsecond.
+            var source = new OneAlertSource(new AlertDto
+            {
+                Id = "restart-request:fedcba9876543210fedcba9876543210",
+                Kind = AlertKinds.RestartRequest,
+                NeedsAnswer = true,
+                Title = "Restart the Director on mac-mini?",
+                Summary = "a session asks",
+                Status = "Waiting",
+                CreatedAtUtc = new DateTime(639285588001234567, DateTimeKind.Utc),
+                UpdatedAtUtc = new DateTime(639285588001234567, DateTimeKind.Utc),
+            });
+            var service = new AlertsService(new IAlertSource[] { source }, new AlertMarkStore(db), () => now);
+            Assert.Equal(1, service.MarkSeen(alice, new[] { source.Alert.Id }));
+            Assert.Equal("2026-10-25 21:00:00.123456", Scalar("""
+                SELECT to_char("SeenVersionUtc" AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') FROM gateway.alert_marks
+                WHERE tenant_id = 'acct-alice'
+                """));
+            Assert.True(Assert.Single(service.List(alice).Alerts).Seen);
+            source.Alert.UpdatedAtUtc = source.Alert.UpdatedAtUtc.AddTicks(10);
+            Assert.False(Assert.Single(service.List(alice).Alerts).Seen);
         }
         finally
         {

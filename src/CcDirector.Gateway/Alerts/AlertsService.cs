@@ -69,7 +69,10 @@ public sealed class AlertsService
             {
                 marks.TryGetValue(alert.Id, out var mark);
                 if (mark?.ClearedAtUtc is not null && !alert.NeedsAnswer) continue;
-                alert.Seen = mark?.SeenVersionUtc is { } seen && DateTime.SpecifyKind(seen, DateTimeKind.Utc) >= alert.UpdatedAtUtc;
+                // Compared at the precision the table keeps, the precision the version was stored at.
+                alert.Seen = mark?.SeenVersionUtc is { } seen
+                             && AlertMarkStore.ToStoredPrecision(DateTime.SpecifyKind(seen, DateTimeKind.Utc))
+                                >= AlertMarkStore.ToStoredPrecision(alert.UpdatedAtUtc);
                 shown.Add(alert);
             }
             var ordered = shown

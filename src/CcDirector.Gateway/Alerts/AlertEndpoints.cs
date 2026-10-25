@@ -24,6 +24,12 @@ namespace CcDirector.Gateway.Alerts;
 /// requests sessions made, and a session never marks or clears the owner's alerts. Answering is not here at all - the
 /// detail view uses each feature's own answer route, which keeps every check it has.
 ///
+/// THE THREE WRITES ARE THE OWNER'S OWN DEVICE'S (the Delivery Lead's decision on the phase 2 review, observation 1).
+/// Marking seen and clearing go one step further than the read: like hand-over and the owner's list of message
+/// requests, they take <see cref="Api.FleetManagerOwnerDevice.Require"/>, so a Director's own credential and the shared
+/// machine token are refused too, and only the owner on his signed-in phone or browser empties his Earlier list. The
+/// read stays open to any credential that resolves the account.
+///
 /// TENANT CONFINEMENT: the account is resolved from the authenticated credential through the same resolver every
 /// <c>/gateway/*</c> route uses, and every source and the marks are read inside it, so another account's alert id is a
 /// 404 here, not an alert.
@@ -75,6 +81,7 @@ public static class AlertEndpoints
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            if (!FromTheOwner(ctx, "mark the owner's alerts seen", out var refused)) return refused!;
             AlertSeenRequest? body;
             try
             {
@@ -106,6 +113,7 @@ public static class AlertEndpoints
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            if (!FromTheOwner(ctx, "clear the owner's alerts", out var refused)) return refused!;
             if (!AlertsService.IsWellFormedId(id)) return MalformedId(id);
             return alerts.Clear(tenant, id) switch
             {
@@ -128,6 +136,7 @@ public static class AlertEndpoints
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            if (!FromTheOwner(ctx, "clear the owner's alerts", out var refused)) return refused!;
             return Results.Json(new AlertClearResponse { Cleared = alerts.ClearAll(tenant) });
         }
         catch (Exception ex)
@@ -136,6 +145,12 @@ public static class AlertEndpoints
             throw;
         }
     }
+
+    /// <summary>The owner-device rule the three writes share; false with the 403 refusal for anyone else.</summary>
+    private static bool FromTheOwner(HttpContext ctx, string what, out IResult? refusal)
+        => Api.FleetManagerOwnerDevice.Require(ctx, what,
+               $"a session may not {what}; the owner does that on his own phone or browser.",
+               "AlertEndpoints", out refusal) is not null;
 
     private static IResult MalformedId(string? id) => Refuse(StatusCodes.Status400BadRequest, "invalid_alert_id",
         $"'{id}' is not an alert id. An alert id is '<kind>:<id>', where the kind is one of {string.Join(", ", AlertKinds.All)}.");

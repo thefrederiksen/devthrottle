@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Alerts;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -25,6 +26,8 @@ namespace CcDirector.Gateway.UnitTests.Alerts;
 public sealed class AlertEndpointsTests : IAsyncLifetime
 {
     private const string AccountHeader = "X-Test-Account";
+    private const string DeviceTypeHeader = "X-Test-Device-Type";
+    private const string NoDevice = "none";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly DirectorRestartRequestStore _restarts;
@@ -46,6 +49,15 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         builder.WebHost.UseTestServer();
         _app = builder.Build();
+        // Stands in for AuthMiddleware: the device the credential belongs to. "browser" and "phone" are the owner's own;
+        // "workstation" is a Director's own key; "none" is a credential with no device row, as the shared token is.
+        _app.Use(async (ctx, next) =>
+        {
+            var type = ctx.Request.Headers.TryGetValue(DeviceTypeHeader, out var t) ? t.ToString() : "browser";
+            if (type != NoDevice)
+                ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("dev-1", null, type, "active");
+            await next();
+        });
         var service = new AlertsService(new IAlertSource[] { new RestartRequestAlertSource(_restarts) },
             new AlertMarkStore(_harness.Open()), () => _now);
         AlertEndpoints.Map(_app,
@@ -77,10 +89,12 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
         return "restart-request:" + id;
     }
 
-    private Task<HttpResponseMessage> Send(HttpMethod method, string path, TenantId? tenant, object? body = null)
+    private Task<HttpResponseMessage> Send(HttpMethod method, string path, TenantId? tenant, object? body = null,
+        string deviceType = "browser")
     {
         var req = new HttpRequestMessage(method, path);
         if (tenant is { } t) req.Headers.Add(AccountHeader, t.Value);
+        req.Headers.Add(DeviceTypeHeader, deviceType);
         if (body is not null) req.Content = JsonContent.Create(body);
         return _client.SendAsync(req);
     }
@@ -99,6 +113,60 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, "/gateway/alerts/seen", null, new { ids = Array.Empty<string>() })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, "/gateway/alerts/clear", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, "/gateway/alerts/restart-request:x/clear", null)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("workstation")]
+    [InlineData(NoDevice)]
+    public async Task Seen_FromAnythingButTheOwnersDevice_Is403_AndMarksNothing(string deviceType)
+    {
+        var id = "restart-request:" + Pending(Alice);
+
+        var resp = await Send(HttpMethod.Post, "/gateway/alerts/seen", Alice, new { ids = new[] { id } }, deviceType);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("owner_only", await resp.Content.ReadAsStringAsync());
+        Assert.False(Assert.Single((await List(Alice)).Alerts).Seen);
+    }
+
+    [Theory]
+    [InlineData("workstation")]
+    [InlineData(NoDevice)]
+    public async Task ClearOne_FromAnythingButTheOwnersDevice_Is403_AndClearsNothing(string deviceType)
+    {
+        var id = Declined(Alice, "mac-a");
+
+        var resp = await Send(HttpMethod.Post, $"/gateway/alerts/{Uri.EscapeDataString(id)}/clear", Alice, null, deviceType);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("owner_only", await resp.Content.ReadAsStringAsync());
+        Assert.Single((await List(Alice)).Alerts);
+    }
+
+    [Theory]
+    [InlineData("workstation")]
+    [InlineData(NoDevice)]
+    public async Task ClearAll_FromAnythingButTheOwnersDevice_Is403_AndClearsNothing(string deviceType)
+    {
+        Declined(Alice, "mac-a");
+
+        var resp = await Send(HttpMethod.Post, "/gateway/alerts/clear", Alice, null, deviceType);
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("owner_only", await resp.Content.ReadAsStringAsync());
+        Assert.Single((await List(Alice)).Alerts);
+    }
+
+    [Theory]
+    [InlineData("phone")]
+    [InlineData("workstation")]
+    public async Task List_IsReadByAnyCredentialThatResolvesTheAccount(string deviceType)
+    {
+        Pending(Alice);
+
+        var resp = await Send(HttpMethod.Get, "/gateway/alerts", Alice, null, deviceType);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
     }
 
     [Fact]
@@ -241,6 +309,7 @@ public sealed class AlertEndpointsTests : IAsyncLifetime
             Content = new StringContent("{not json", System.Text.Encoding.UTF8, "application/json"),
         };
         req.Headers.Add(AccountHeader, Alice.Value);
+        req.Headers.Add(DeviceTypeHeader, "browser");
 
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.SendAsync(req)).StatusCode);
     }

@@ -86,6 +86,23 @@ public sealed class AlertsServiceTests : IDisposable
     }
 
     [Fact]
+    public void MarkSeen_AVersionWithSubMicrosecondTicks_ReadsSeen_AndAChangeOfAMicrosecondReadsUnseen()
+    {
+        // A restart request's UpdatedAtUtc comes from an in-memory clock with 100-nanosecond ticks; the table keeps
+        // whole microseconds (phase 2 review, finding 1).
+        var alert = Alert(AlertKinds.RestartRequest, "r1", false, 10);
+        alert.UpdatedAtUtc = new DateTime(639285588001234567, DateTimeKind.Utc);
+        _restarts.Add(Tenant, alert);
+
+        _service.MarkSeen(Tenant, new[] { alert.Id });
+
+        Assert.Equal(new DateTime(639285588001234560, DateTimeKind.Utc), _marks.All(Tenant)[alert.Id].SeenVersionUtc);
+        Assert.True(Assert.Single(_service.List(Tenant).Alerts).Seen);
+        alert.UpdatedAtUtc = alert.UpdatedAtUtc.AddTicks(10);
+        Assert.False(Assert.Single(_service.List(Tenant).Alerts).Seen);
+    }
+
+    [Fact]
     public void MarkSeen_SkipsIdsThatNameNoCurrentAlert()
     {
         _restarts.Add(Tenant, Alert(AlertKinds.RestartRequest, "r1", false, 10));
