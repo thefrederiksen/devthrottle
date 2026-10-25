@@ -851,6 +851,27 @@ public sealed class SessionWriteExecutorTests
         finally { sm.Dispose(); }
     }
 
+    /// <summary>
+    /// Review of pull request 4420, finding 4: terminal-paste owns its input normalization. The
+    /// remote route must trim a clipboard's trailing newline before its unframed terminal write.
+    /// </summary>
+    [Fact]
+    public async Task Finding4_TerminalPaste_TrimsTrailingNewlineBeforeUnframedWrite()
+    {
+        var (sm, session, backend) = NewSession();
+        var writes = new List<byte[]>();
+        backend.Buffer!.OnBytesWritten += bytes => writes.Add(bytes.ToArray());
+        try
+        {
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A",
+                Command("terminal-paste", session.Id.ToString(), new TerminalPasteRequest { Text = "yes\r\n" }));
+
+            Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            Assert.Equal("yes", Encoding.UTF8.GetString(writes.SelectMany(bytes => bytes).ToArray()));
+        }
+        finally { sm.Dispose(); }
+    }
+
     [Theory]
     [InlineData("3")]
     [InlineData("5")]
