@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DevReportLanding } from "@devthrottle/client-core/devreports/DevReportLanding";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // The phone's report landing (dev reports mission, phase 3b): `/mobile/report/{report id}`, which is where
 // the printed address `<gateway>/r/<report id>` sends a phone. It is the ONE route that needs nothing but a
@@ -27,6 +28,8 @@ export function ReportLanding() {
     <div className="terminal-screen">
       <header className="app-bar">
         <h1 className="term-title">Report</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
       <DevReportLanding reportId={reportId} onFound={onFound} />
     </div>

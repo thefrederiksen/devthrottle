@@ -13,7 +13,8 @@ Run on 25 October 2026, on the branch `alerts/phase4-mount`, by the Phase 4 Deve
 - **The browser** is the Director's account-less `agent-browser` profile, driven with browser-harness.
   Phone app at 390 x 844 (device scale 2), Cockpit at 1440 x 900. `tools/qa.py` runs each scenario as ONE
   foreground command: it starts the host, drives the steps, and stops the host.
-- **Every step's printed result is in `run-log.txt`** (39 screenshots, all from the same final run).
+- **Every step's printed result is in `run-log.txt`** (40 screenshots: 39 from the same final run, and
+  `phone-bell-on-settings` from the review follow-up run appended at its end).
 - The `?` in front of the tab titles in the log is browser-harness's own tab marker, not the app's title.
 
 ## Screenshots, named for the state they prove
@@ -40,6 +41,7 @@ The phone app is `phone-*`, the Cockpit is `desktop-*` (and `cockpit-390-*` at p
 | Overflow fixture, list | `phone-360-overflow-list` (360 px) | `desktop-280-popover-overflow-list` (280 px popover) |
 | Overflow fixture, opened with Details | `phone-360-overflow-restart-details`, `...-scrolled`, `phone-360-overflow-secret-details` | `desktop-280-popover-overflow-restart-details` |
 | The Cockpit at phone width | - | `cockpit-390-bell`, `cockpit-390-tray` |
+| The bell on a phone screen other than the roster (Settings, count 3) | `phone-bell-on-settings` | - |
 
 **Nothing overflows.** For every overflow shot the run measured every element inside the tray: none passes
 the window's edge and none has content wider than its box (`"bad":[]` in `run-log.txt`), with the tray's own
@@ -72,8 +74,9 @@ machine name, a long session name, and a long secret entry name.
   purpose: it holds the tray's list read in the browser for that one step (the clear itself goes through),
   puts the allowed message request back to waiting on the Gateway, and presses its X. The Gateway answers 409
   and the tray shows its sentence verbatim.
-- **The refusal sentence stays under that row** after it moves to Needs you, until it is cleared again
-  (`*-gateway-unreachable`). The sentence is still true there; noted for the Delivery Lead, not changed.
+- **The refusal sentence stays under that row** while it is in Needs you (`*-gateway-unreachable`), where it is
+  still true. After the review it goes once a read lists that alert as answered or it leaves the list (review
+  observation 1, with tests in `Alerts.test.tsx`).
 - **Observation 5 of the Phase 3 review**: with the tray open, a click on the bell lands on the backdrop and
   closes the tray. That is expected and was not counted as a defect.
 
@@ -90,14 +93,15 @@ catch, and that it leaves the per-session badges alone.
 
 ## Section 7 commands
 
-All run in this worktree on the final code.
+All run in this worktree on the final code, and run again after the review follow-up (the numbers below are
+that second run).
 
 | Command | Result |
 |---|---|
 | `npm ci` | completed |
 | `npm run typecheck` | no errors |
-| `npm test --workspace @devthrottle/client-core` | 187 files, 2,370 tests passed |
-| `npm test --workspace @devthrottle/mobile` | 38 files, 195 tests passed |
+| `npm test --workspace @devthrottle/client-core` | 187 files, 2,374 tests passed |
+| `npm test --workspace @devthrottle/mobile` | 39 files, 198 tests passed |
 | `npm test --workspace @devthrottle/cockpit` | 132 files, 1,429 tests passed |
 | `npm run lint` | 5 errors, exactly the five known ones already on main (`FactoryRecordsTab.tsx`, `fixtures.ts`, `sw.test.ts`, `Recorder.tsx`, `VoiceMode.tsx`); no other |
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Alert"` | 94 passed |

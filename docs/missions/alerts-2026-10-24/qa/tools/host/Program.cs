@@ -1,4 +1,5 @@
-// A LOCAL Gateway for the Alerts Phase 4 QA run. Out of tree, never committed. It starts the real GatewayHost in this
+// A LOCAL Gateway for the Alerts Phase 4 QA run. Committed with the QA run as the record of how the screenshots were
+// made; it is not part of the solution and nothing builds it but `dotnet run` from this folder. It starts the real GatewayHost in this
 // process on loopback, self-host mode, with its own throwaway data folder, seeds alerts straight into the Gateway's own
 // stores (the way the Gateway tests do), registers one browser device, and serves the built Cockpit and phone app from
 // wwwroot next to this program. It then reads commands from stdin:

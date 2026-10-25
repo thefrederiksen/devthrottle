@@ -25,6 +25,7 @@ import {
   type RecordingListItem,
 } from "@devthrottle/client-core/recordings/recordingsClient";
 import { backgroundRecovered, describeAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const SURFACE = "mobile-recorder";
 const NO_DURABLE_STORE =
@@ -355,6 +356,8 @@ export function Recorder() {
           Back
         </Link>
         <h1>Voice Recorder</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       {!storeOk && (

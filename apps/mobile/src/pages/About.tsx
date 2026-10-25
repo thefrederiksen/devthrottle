@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getGatewayHealth, type GatewayHealth } from "@devthrottle/client-core/api/client";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const SURFACE = "mobile-about";
 const READ = "read the Gateway's version";
@@ -36,6 +37,8 @@ export function About() {
           Back
         </Link>
         <h1>About</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       {error !== null && (

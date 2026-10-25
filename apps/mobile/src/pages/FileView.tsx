@@ -14,6 +14,7 @@ import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown
 import { isFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 import { FolderListing } from "@devthrottle/client-core/history/FolderListing";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 const SURFACE = "mobile-file-view";
 const IMAGE_FAILED = "Could not load image. The file may be missing (404) or the session's machine offline.";
@@ -106,6 +107,8 @@ export function FileView() {
         <header className="app-bar">
           <button type="button" className="file-view-back" onClick={goBack}>Back</button>
           <h1 className="term-title">File</h1>
+          <div className="app-bar-spacer" />
+          <AppBarAlerts />
         </header>
         <div className="file-view-body">
           <div className="file-view-error">No file path was provided.</div>
@@ -141,6 +144,8 @@ function FileViewFor({ sessionId, path, goBack }: { sessionId: string; path: str
         <button type="button" className="file-view-back" onClick={goBack}>Back</button>
         <h1 className="term-title" title={path}>{name}</h1>
         {state.kind !== "loading" && shown === null && !folder && <DownloadButton url={url} name={name} sessionId={sessionId} />}
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
       <div className="file-view-body">
         {state.kind === "loading" ? (

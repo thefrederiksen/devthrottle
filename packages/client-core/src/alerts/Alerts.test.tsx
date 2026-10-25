@@ -230,6 +230,75 @@ describe("the tray", () => {
     expect(within(tray).getByTestId("alerts-row")).toBeTruthy();
   });
 
+  // Phase 4 review, observation 1: the refusal describes the alert at the moment it was refused. Once the alert is
+  // answered, or leaves the list, the sentence is no longer true and must not sit under an Earlier row.
+  describe("a clear's refusal", () => {
+    const sentence = "This still needs your answer; it leaves when you answer it or when it expires.";
+    const id = "message-request:lr-1";
+    let alerts: ReturnType<typeof useAlerts>;
+    function Probe() {
+      alerts = useAlerts();
+      return <span data-testid="refusal">{alerts.clearErrors[id] ?? ""}</span>;
+    }
+    function refusal() {
+      return screen.getByTestId("refusal").textContent;
+    }
+    async function refusedWhileItNeedsAnAnswer() {
+      given([messageAlert({ id, needsAnswer: false, status: "Allowed", seen: true })]);
+      render(
+        <AlertsProvider>
+          <Probe />
+        </AlertsProvider>,
+      );
+      await loaded();
+      await waitFor(() => expect(alerts.earlier).toHaveLength(1));
+      // Between two reads the request went back to waiting; the X pressed on the Earlier row is refused.
+      given([messageAlert({ id, needsAnswer: true, status: "Pending", seen: true })]);
+      state.clearStatus = 409;
+      state.clearBody = { error: sentence };
+      await act(async () => alerts.clear(id));
+      expect(refusal()).toBe(sentence);
+      expect(alerts.needsYou).toHaveLength(1);
+    }
+
+    it("stays while the alert still needs an answer", async () => {
+      await refusedWhileItNeedsAnAnswer();
+      await act(async () => alerts.refresh());
+      expect(refusal()).toBe(sentence);
+    });
+
+    it("goes once a read lists the alert as answered", async () => {
+      await refusedWhileItNeedsAnAnswer();
+      given([messageAlert({ id, needsAnswer: false, status: "Allowed", seen: true })]);
+      await act(async () => alerts.refresh());
+      expect(alerts.earlier).toHaveLength(1);
+      expect(refusal()).toBe("");
+    });
+
+    it("goes once the alert leaves the list", async () => {
+      await refusedWhileItNeedsAnAnswer();
+      given([]);
+      await act(async () => alerts.refresh());
+      expect(refusal()).toBe("");
+    });
+
+    it("a failed clear on an alert that stays in Earlier keeps its sentence", async () => {
+      given([messageAlert({ id, needsAnswer: false, status: "Allowed", seen: true })]);
+      render(
+        <AlertsProvider>
+          <Probe />
+        </AlertsProvider>,
+      );
+      await loaded();
+      await waitFor(() => expect(alerts.earlier).toHaveLength(1));
+      state.clearStatus = 503;
+      state.clearBody = { error: "The Gateway is restarting." };
+      await act(async () => alerts.clear(id));
+      await act(async () => alerts.refresh());
+      expect(refusal()).toContain("The Gateway is restarting.");
+    });
+  });
+
   it("AlertsTray_ReadFails_KeepsTheLastKnownList_AndSaysSo", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     given([restartAlert({ seen: true })]);

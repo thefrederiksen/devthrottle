@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DevReportConversation } from "@devthrottle/client-core/devreports/DevReportConversation";
 import { DevReportViewer } from "@devthrottle/client-core/devreports/DevReportViewer";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // One dev report, full screen on the phone (dev reports mission, phase 3). The report frame and the
 // conversation are the shared client-core view; this page is the phone's frame around them: a Back button
@@ -30,6 +31,8 @@ export function ReportView() {
           Back
         </button>
         <h1 className="term-title">Report</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
       {reportId && (
         <DevReportViewer

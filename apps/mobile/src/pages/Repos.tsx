@@ -9,6 +9,7 @@ import {
   type RepoSummary,
 } from "@devthrottle/client-core/stats/statsClient";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { AppBarAlerts } from "../components/AppBarAlerts";
 
 // The private "Repos" page for the phone: where the owner's development actually happens - how driving
 // splits across the codebases worked in, ranked by submitted turns. Its own page, deliberately separate
@@ -79,6 +80,8 @@ export function Repos() {
           Back
         </Link>
         <h1>Repos</h1>
+        <div className="app-bar-spacer" />
+        <AppBarAlerts />
       </header>
 
       <div className="repos-private">

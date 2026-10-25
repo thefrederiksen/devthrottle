@@ -107,3 +107,11 @@ SHOT cockpit-390-bell
 tray box: {"x":8,"y":54,"width":374,"height":510,"top":54,"right":382,"bottom":564,"left":8} overflow: {"width":390,"bad":[]}
 SHOT cockpit-390-tray
 [qa] host stopped
+
+== review follow-up: the bell on a second phone screen (steps_second_screen.py, scenario mixed) ==
+[qa] READY port=7993
+screen: /mobile/settings heading: Settings
+phone badge: 3
+bell in the app bar: True
+SHOT phone-bell-on-settings
+[qa] host stopped
