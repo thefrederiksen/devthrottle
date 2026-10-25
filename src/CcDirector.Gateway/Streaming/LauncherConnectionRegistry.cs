@@ -59,6 +59,12 @@ public sealed class LauncherConnectionRegistry
     public Action<TenantId, string, DateTime>? StreamClosed { get; set; }
 
     /// <summary>
+    /// The clock a stream close is stamped with. The system clock unless a test fixes it - and a test that
+    /// judges the stamp with <see cref="Discovery.LauncherRegistry"/> gives both the same clock.
+    /// </summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
+
+    /// <summary>
     /// Mark <paramref name="connectionId"/> as the active stream connection for the owning tenant's
     /// <paramref name="machineName"/>, superseding any prior connection for that (tenant, machine).
     /// </summary>
@@ -106,7 +112,7 @@ public sealed class LauncherConnectionRegistry
             if (((ICollection<KeyValuePair<MachineKey, LauncherStreamConnection>>)_byMachine).Remove(kv))
             {
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister: tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)} cleared");
-                StreamClosed?.Invoke(kv.Key.Tenant, kv.Key.Machine, DateTime.UtcNow);
+                StreamClosed?.Invoke(kv.Key.Tenant, kv.Key.Machine, Clock.GetUtcNow().UtcDateTime);
             }
             else
                 FileLog.Write($"[LauncherConnectionRegistry] Unregister IGNORED (superseded): tenant={kv.Key.Tenant.Value}, machine={kv.Key.Machine}, conn={Short(connectionId)}");

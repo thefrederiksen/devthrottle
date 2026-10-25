@@ -288,7 +288,6 @@ delay | src/CcDirector.Gateway.UnitTests/HostedCandidateJudgeTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/HostedCandidateJudgeTests.cs | 2
 real-clock | src/CcDirector.Gateway.UnitTests/HostedEntitlementGateTests.cs | 13
 real-clock | src/CcDirector.Gateway.UnitTests/HostedTenancyActivationTests.cs | 3
-real-clock | src/CcDirector.Gateway.UnitTests/LauncherRegistryTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/LauncherTenantIsolationTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/MicrophoneRankingTests.cs | 1
 real-clock | src/CcDirector.Gateway.UnitTests/NarrationClipsOnDiskTests.cs | 1
