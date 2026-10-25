@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -781,6 +782,45 @@ public sealed class SessionWriteExecutorTests
             Assert.Equal(0, resp!.Assigned);
         }
         finally { sm.Dispose(); }
+    }
+
+    /// <summary>
+    /// Review of pull request 4420, finding 6: every remote terminal-input shape reports a stopped or disposed
+    /// terminal as refused. No exception may escape the command dispatcher and leave the caller without an answer.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "never started")]
+    [InlineData(true, "disposed")]
+    public async Task Finding6_TerminalWrites_StoppedOrDisposedTerminalAreRefused(bool dispose, string reason)
+    {
+        using var terminal = new ConPtyBackend();
+        var session = new Session(Guid.NewGuid(), Path.GetTempPath(), Path.GetTempPath(), null, terminal, SessionBackendType.ConPty);
+        session.MarkRunning();
+        terminal.Buffer!.Write("\x1b[?1000h"u8.ToArray());
+        Assert.True(session.MouseReportingEnabled);
+        if (dispose) terminal.Dispose();
+
+        var sessions = new SessionManager(new Core.Configuration.AgentOptions());
+        sessions.AdoptSession(session);
+        try
+        {
+            var commands = new (string Verb, object Payload)[]
+            {
+                ("terminal-keys", new TerminalKeyRequest { Key = "Down" }),
+                ("terminal-paste", new TerminalPasteRequest { Text = "x" }),
+                ("terminal-mouse", new TerminalMouseRequest { Button = "left", Column = 1, Row = 1 }),
+            };
+
+            foreach (var command in commands)
+            {
+                var result = await SessionCommandExecutor.DispatchAsync(sessions, "dir-A",
+                    Command(command.Verb, session.Id.ToString(), command.Payload));
+
+                Assert.Equal(DirectorCommandStatus.Conflict, result.Status);
+                Assert.Contains(reason, result.Error, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        finally { sessions.Dispose(); }
     }
 
     // Pin CC_DIRECTOR_ROOT into a fresh temp dir so the crash-journal folder is controlled; returns the pinned
