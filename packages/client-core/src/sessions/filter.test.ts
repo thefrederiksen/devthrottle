@@ -78,6 +78,15 @@ describe("applyFilter", () => {
     expect(out.map((s) => s.sessionId)).toEqual(["p"]);
   });
 
+  it("counts a repo option as what ticking it shows, crew members from other folders included", () => {
+    const parent = { sessionId: "p", machineName: "devlinux", repoPath: "/home/soren/ReposFred/devthrottle_internal" } as unknown as SessionDto;
+    const child = { sessionId: "c", machineName: "mac-mini", repoPath: "/Users/soren", controllerSessionId: "p" } as unknown as SessionDto;
+    const facet = repoFacet([parent, child]);
+    const internal = facet.find((o) => o.value === "devthrottle_internal");
+    expect(internal?.count).toBe(applyFilter([parent, child], { machines: [], repos: ["devthrottle_internal"] }).length);
+    expect(internal?.count).toBe(2);
+  });
+
   it("does not loop on a malformed ownership loop", () => {
     const a = { sessionId: "a", repoPath: "/x/one", controllerSessionId: "b" } as unknown as SessionDto;
     const b = { sessionId: "b", repoPath: "/x/two", controllerSessionId: "a" } as unknown as SessionDto;

@@ -115,4 +115,28 @@ describe("a child on another machine than its parent", () => {
     expect(within(crew).getByText("Mac Release - Investigator")).toBeTruthy();
     expect(within(crew).queryByTestId("roster-ghost")).toBeNull();
   });
+
+  it("draws the dashed line from the placeholder to the full row - on a plain mount, as the production build runs", async () => {
+    // Not StrictMode: a layout effect would read the rail's ref before React attached it, and never draw (review of #4479).
+    const rect = (top: number, left: number) => ({ top, left, height: 40, width: 200, bottom: top + 40, right: left + 200, x: left, y: top, toJSON: () => ({}) });
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.hasAttribute("data-ghost-of")) return rect(100, 30) as DOMRect;
+      if (this.hasAttribute("data-linked-row")) return rect(300, 10) as DOMRect;
+      return rect(0, 0) as DOMRect;
+    };
+    try {
+      renderRoster([rob, dev, inv, mac], "my-order");
+      fireEvent.click(screen.getByRole("button", { name: "Expand the 2 sessions under devthrottle_internal - rob" }));
+      const svg = await screen.findByTestId("roster-cross-lines");
+      expect(svg.querySelector("path")?.getAttribute("d")).toBe("M30 118 H4 V318 H10");
+      // Only as tall as the lowest line, so the overlay never holds the rail's scroll height up.
+      expect((svg as unknown as SVGElement).style.height).toBe("320px");
+      // Closing the crew removes the placeholder, and with it the line.
+      fireEvent.click(screen.getByRole("button", { name: "Collapse the 2 sessions under devthrottle_internal - rob" }));
+      await vi.waitFor(() => expect(screen.queryByTestId("roster-cross-lines")).toBeNull());
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
+  });
 });

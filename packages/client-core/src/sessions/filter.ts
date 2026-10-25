@@ -105,12 +105,15 @@ export function machineFacet(sessions: SessionDto[]): FacetOption[] {
 }
 
 // The distinct repositories in the roster with per-repo counts, sorted by name. A repository's worktrees fold into its
-// one row (see RepoFacetOption), so a repo worked on in seven worktrees is one row, not eight.
+// one row (see RepoFacetOption), so a repo worked on in seven worktrees is one row, not eight. The count is what
+// ticking the repo shows - crew members that ride along from other folders included (see applyFilter) - so the panel
+// never says 3 and then shows 4. The worktrees list the repository's own sessions only.
 export function repoFacet(sessions: SessionDto[]): RepoFacetOption[] {
-  return countBy(sessions, repoOf).map(({ value, count }) => {
+  return countBy(sessions, repoOf).map(({ value }) => {
     const mine = sessions.filter((s) => repoOf(s) === value);
     const worktrees = countBy(mine, worktreeOf, true);
     const onlyMainCheckout = worktrees.length === 1 && worktrees[0].value === MAIN_CHECKOUT;
+    const count = applyFilter(sessions, { machines: [], repos: [value] }).length;
     return { value, count, worktrees: onlyMainCheckout ? [] : worktrees };
   });
 }

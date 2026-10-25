@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
@@ -868,7 +868,7 @@ function CrossMachinePlaceholder({
   const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
   const where = machinePortLabel((session.machineName ?? "").trim(), portByDirector.get((session.directorId ?? "").trim()) ?? "");
   const reveal = () => {
-    const row = document.querySelector(`[data-linked-row="${CSS.escape(sid)}"]`);
+    const row = linkedRowOf(document, sid);
     if (row instanceof HTMLElement && typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   };
   return (
@@ -898,12 +898,21 @@ function CrossMachinePlaceholder({
   );
 }
 
+// The full row a placeholder points at, matched on the attribute's value rather than through a selector built from it.
+function linkedRowOf(root: ParentNode, sid: string): Element | null {
+  for (const el of root.querySelectorAll("[data-linked-row]")) {
+    if (el.getAttribute("data-linked-row") === sid) return el;
+  }
+  return null;
+}
+
 // The dashed line in the rail's left margin from each placeholder to its full row under the other machine. It is
 // measured from the rendered rows, so it follows a crew being opened or closed, the roster repainting and the rail
-// being resized; a placeholder whose crew is closed has no row, so it has no line.
+// being resized; a placeholder whose crew is closed has no row, so it has no line. A passive effect, not a layout
+// one: a child's layout effect runs before React attaches the rail's ref, so it would find no rail and never observe.
 function CrossMachineLines({ railRef }: { railRef: RefObject<HTMLDivElement | null> }) {
   const [paths, setPaths] = useState<{ d: string; height: number }>({ d: "", height: 0 });
-  useLayoutEffect(() => {
+  useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
     const measure = () => {
@@ -914,20 +923,25 @@ function CrossMachineLines({ railRef }: { railRef: RefObject<HTMLDivElement | nu
       };
       const gutter = 4;
       let d = "";
+      let bottom = 0;
       for (const ghost of rail.querySelectorAll("[data-ghost-of]")) {
         const id = ghost.getAttribute("data-ghost-of") ?? "";
-        const row = rail.querySelector(`[data-linked-row="${CSS.escape(id)}"]`);
+        const row = linkedRowOf(rail, id);
         if (!row) continue;
         const a = top(ghost);
         const b = top(row);
         d += `M${a.x} ${a.y} H${gutter} V${b.y} H${b.x} `;
+        bottom = Math.max(bottom, a.y, b.y);
       }
-      const next = { d: d.trim(), height: rail.scrollHeight };
+      // Only as tall as the lowest line: an overlay as tall as the rail's scroll height would itself hold that height up
+      // after the content shrank, leaving empty space to scroll into.
+      const next = { d: d.trim(), height: Math.ceil(bottom) + 2 };
       setPaths((prev) => (prev.d === next.d && prev.height === next.height ? prev : next));
     };
     measure();
     const mutations = new MutationObserver(measure);
-    mutations.observe(rail, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-expanded", "class"] });
+    // characterData too: a state line that re-wraps moves every row below it.
+    mutations.observe(rail, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-expanded", "class"] });
     const resize = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     resize?.observe(rail);
     return () => {
