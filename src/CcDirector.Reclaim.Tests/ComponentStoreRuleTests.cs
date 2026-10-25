@@ -13,19 +13,29 @@ namespace CcDirector.Reclaim.Tests;
 /// does when Windows cannot be asked. A rule that cannot determine the size reports a control
 /// counting nought and says BROKEN, never nothing to remove.
 /// </summary>
-public class ComponentStoreRuleTests
+public sealed class ComponentStoreRuleTests : IDisposable
 {
+    // A folder of the test's own standing in for C:\Windows\WinSxS. The rule asks only whether the
+    // folder is there before it asks the analysis, and the real one exists on Windows only - so naming
+    // it made these tests depend on the machine, and fail on every other platform.
+    private readonly FixtureTree _tree = new(nameof(ComponentStoreRuleTests));
+    private readonly string _store;
+
+    public ComponentStoreRuleTests() => _store = _tree.Folder("WinSxS");
+
+    public void Dispose() => _tree.Dispose();
+
     [Fact]
     public void Examine_AWindowsThatAnswered_OffersTheStoreSizedByItsOwnAnalysis()
     {
         var rule = new ComponentStoreRule(
             new AnsweredAnalysis(actualSizeBytes: 9_000_000_000, bytesItsCommandCanClear: 1_600_000_000),
-            @"C:\Windows\WinSxS");
+            _store);
         var finding = Fold(rule);
 
         Assert.Equal(RuleVerdict.Ok, finding.Verdict);
         var offered = Assert.Single(finding.Candidates);
-        Assert.Equal(@"C:\Windows\WinSxS", offered.Path);
+        Assert.Equal(_store, offered.Path);
         Assert.Equal(1_600_000_000, offered.Bytes);
         Assert.Equal(1, Control(finding, "component-store-size-known"));
     }
@@ -41,7 +51,7 @@ public class ComponentStoreRuleTests
     {
         var rule = new ComponentStoreRule(
             new UnansweredAnalysis("asking Windows how big the component store is needs an administrator"),
-            @"C:\Windows\WinSxS");
+            _store);
 
         var finding = Fold(rule);
 
@@ -69,7 +79,7 @@ public class ComponentStoreRuleTests
     public void Examine_AMachineThatIsNotWindows_ReportsBroken()
     {
         var rule = new ComponentStoreRule(
-            new NotWindowsAnalysis(), @"C:\Windows\WinSxS");
+            new NotWindowsAnalysis(), _store);
 
         var finding = Fold(rule);
 
@@ -87,7 +97,7 @@ public class ComponentStoreRuleTests
     public void Examine_WhatIsLost_SaysNothingIsHeldBecauseTheCommandPutsNothingBack()
     {
         var finding = Fold(new ComponentStoreRule(
-            new AnsweredAnalysis(1, 1), @"C:\Windows\WinSxS"));
+            new AnsweredAnalysis(1, 1), _store));
         var text = string.Join("\n", finding.Lines);
 
         Assert.Contains("Nothing is held for this rule", text, StringComparison.Ordinal);
@@ -102,7 +112,7 @@ public class ComponentStoreRuleTests
     public void Examine_TheRule_NeedsAnAdministratorAndPrintsTheOwnersCleanupCommand()
     {
         var finding = Fold(new ComponentStoreRule(
-            new AnsweredAnalysis(1, 1), @"C:\Windows\WinSxS"));
+            new AnsweredAnalysis(1, 1), _store));
         var text = string.Join("\n", finding.Lines);
 
         Assert.True(finding.NeedsAdministrator);

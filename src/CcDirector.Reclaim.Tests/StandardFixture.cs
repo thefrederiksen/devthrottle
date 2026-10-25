@@ -12,7 +12,8 @@ namespace CcDirector.Reclaim.Tests;
 /// The tree holds each of the three things a disk scan has to get right and is easiest to get wrong:
 /// a junction it must count and must not walk through, a folder that refuses to be listed which it
 /// must count and name, and a file whose bytes are in a cloud store which it must count apart from
-/// the bytes on the disk. It also holds enough real bytes for the unseen-gap line to have two sides.
+/// the bytes on the disk. The last exists only where the file system keeps the offline mark - Windows -
+/// so the placeholder numbers are read from the tree that was built rather than written as constants. It also holds enough real bytes for the unseen-gap line to have two sides.
 /// </summary>
 public static class StandardFixture
 {
@@ -59,8 +60,15 @@ public static class StandardFixture
     /// <summary>Everything under beta.</summary>
     public const long ExpectedBetaBytes = BetaFileBytes;
 
-    /// <summary>What the placeholder claims, none of it on this disk.</summary>
-    public const long ExpectedPlaceholderBytesInCloud = PlaceholderBytes;
+    /// <summary>
+    /// How many cloud placeholders the scan of <paramref name="tree"/> must count: the one the fixture
+    /// built, or none on a file system that does not keep the offline mark (anything but Windows), where
+    /// a scan rightly reports no placeholders at all. Taken from the tree, never assumed.
+    /// </summary>
+    public static long ExpectedPlaceholderFiles(FixtureTree tree) => tree.PlaceholderFiles;
+
+    /// <summary>What the placeholders in <paramref name="tree"/> claim, none of it on this disk.</summary>
+    public static long ExpectedPlaceholderBytesInCloud(FixtureTree tree) => tree.PlaceholderBytes;
 
     /// <summary>
     /// Build the tree. The caller owns it and disposes it.
@@ -81,7 +89,7 @@ public static class StandardFixture
         tree.File(Path.Combine("refused", "r1.txt"), HiddenFileBytes);
         tree.DenyListing("refused");
 
-        tree.CloudPlaceholder("cloud.bin", PlaceholderBytes);
+        tree.TryCloudPlaceholder("cloud.bin", PlaceholderBytes);
         tree.DirectoryLink("link-to-alpha", "alpha");
 
         return tree;

@@ -64,7 +64,26 @@ public class ScanReportBuilderTests
 
         Assert.Contains("links: 1 link or junction was found, and none were followed", report.Lines);
         Assert.Contains(
-            $"placeholders: 1 cloud placeholder file holds {StandardFixture.ExpectedPlaceholderBytesInCloud} bytes " +
+            StandardFixture.ExpectedPlaceholderFiles(tree) == 0
+                ? "placeholders: no cloud placeholder file was found"
+                : $"placeholders: 1 cloud placeholder file holds {StandardFixture.ExpectedPlaceholderBytesInCloud(tree)} bytes " +
+                  "(4.0 kilobytes) in a cloud store and no bytes on this disk",
+            report.Lines);
+    }
+
+    /// <summary>
+    /// The placeholder line for a scan that found one, on every platform. The fixture tree can hold a
+    /// placeholder only on Windows, so the sentence is pinned here from a scan built by hand.
+    /// </summary>
+    [Fact]
+    public void Build_AScanThatFoundAPlaceholder_SaysWhatItHoldsInTheCloud()
+    {
+        var scan = ScanThatSawSomething() with { PlaceholderFiles = 1, PlaceholderBytesInCloud = StandardFixture.PlaceholderBytes };
+
+        var report = ScanReportBuilder.Build(scan);
+
+        Assert.Contains(
+            $"placeholders: 1 cloud placeholder file holds {StandardFixture.PlaceholderBytes} bytes " +
             "(4.0 kilobytes) in a cloud store and no bytes on this disk",
             report.Lines);
     }

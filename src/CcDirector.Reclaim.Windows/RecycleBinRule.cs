@@ -136,6 +136,14 @@ public sealed class RecycleBinRule : IReclaimRule
                 .EnumerateDirectories("*", SearchOption.TopDirectoryOnly)
                 .ToList();
         }
+        catch (DirectoryNotFoundException) when (File.Exists(_recycleBinFolderPath))
+        {
+            // NOT ABSENT: a file sits where the bin folder belongs. Windows reports this as a failure to
+            // list; Linux and macOS report it as "directory not found", which would have read as a volume
+            // with no bin - nothing to remove - on those two platforms only.
+            return new RuleAnswer([], [],
+                $"the recycle bin folder {_recycleBinFolderPath} is a file, not a folder, so this rule could not do its work");
+        }
         catch (DirectoryNotFoundException)
         {
             // A volume with no recycle bin folder is a volume that has never held a deleted item or

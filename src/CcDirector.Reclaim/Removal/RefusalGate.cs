@@ -38,6 +38,17 @@ public sealed record RefusalGateOptions
 
     /// <summary>The moment the age gates are judged against, at the check itself.</summary>
     public required DateTimeOffset NowUtc { get; init; }
+
+    /// <summary>
+    /// Whether two paths sit on the same volume. Production always uses
+    /// <see cref="VolumeReader.SameVolume"/>; a test supplies its own answer.
+    ///
+    /// A SEAM, because the refusal it feeds cannot be produced honestly from a path on every platform:
+    /// off Windows every absolute path names the one root "/", so no two paths ever read as different
+    /// volumes there, and what a test proves through this is the gate's DECISION on a different-volume
+    /// answer - not how a volume is told apart off Windows, which is not settled yet.
+    /// </summary>
+    internal Func<string, string, bool> SameVolume { get; init; } = VolumeReader.SameVolume;
 }
 
 /// <summary>
@@ -96,7 +107,7 @@ public sealed class RefusalGate
         // fitness, so every check is reported not reached.
         try
         {
-            if (!VolumeReader.SameVolume(recommended.Path, _options.HoldingRootPath))
+            if (!_options.SameVolume(recommended.Path, _options.HoldingRootPath))
             {
                 return ConfigurationRefused(recommended.Path,
                     $"the holding root {_options.HoldingRootPath} and the item {recommended.Path} sit on " +

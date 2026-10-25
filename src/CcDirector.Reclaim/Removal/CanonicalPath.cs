@@ -11,8 +11,8 @@ namespace CcDirector.Reclaim.Removal;
 /// dots and alternate separators, so a rule could examine one path while the gate was about to act on
 /// another that spells the same place differently. The operating system's own final-path answer
 /// resolves all of that, which is why refusal 10 - a path that is not canonical after resolution -
-/// uses it. On the other platforms <see cref="Path.GetFullPath"/> is the whole answer, and it is the
-/// whole answer here too rather than a promise to write the other platforms later.
+/// uses it. On the other platforms <see cref="Path.GetFullPath"/> is the spelling, and the path must
+/// name something that is there, as it must for Windows to open it.
 ///
 /// A path that cannot be resolved throws, and the refusal gate treats that as a refusal with the
 /// reason - never as a pass.
@@ -44,6 +44,13 @@ public static class CanonicalPath
             {
                 throw new IOException($"the path {path} would not resolve: {ex.Message}");
             }
+
+            // A path to nothing has no final form. Windows answers that by refusing to open it; without
+            // this the path to an item that is gone - one that moved away inside another item earlier in
+            // the same run - "resolved" here and went on to be judged by checks that ask the disk about
+            // a place that is not there.
+            if (!File.Exists(resolved) && !Directory.Exists(resolved))
+                throw new IOException($"the path {resolved} would not resolve; nothing is there");
         }
 
         FileLog.Write($"[CanonicalPath] Resolve done: path={path}, result={resolved}");

@@ -323,10 +323,10 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         Directory.CreateDirectory(longNamed);
         File.WriteAllBytes(Path.Combine(longNamed, "scratch.txt"), new byte[64]);
 
-        // The folder, referred to by the short name Windows keeps for it: a spelling the final-path
-        // answer does not match. The fixture proves the short form is real before the test uses it,
-        // and throws on a platform that does not keep short names rather than pretending.
-        var shortPath = tree.WindowsShortPath(Path.Combine("temp", "canonicalization-proof-folder"));
+        // The folder, referred to by a spelling the final-path answer does not match: the short name
+        // Windows keeps for it, or a "." segment where there are no short names. The fixture proves the
+        // spelling names the same folder before the test uses it.
+        var shortPath = tree.NonCanonicalSpelling(Path.Combine("temp", "canonicalization-proof-folder"));
         var rule = new OfferingRule(temp, new ReclaimCandidate(
             shortPath, 64, DateTimeOffset.UtcNow, "created by one of DevThrottle's own test suites"));
 
@@ -353,9 +353,11 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         var rule = new OfferingRule(temp, new ReclaimCandidate(
             item, 64, DateTimeOffset.UtcNow, "created by one of DevThrottle's own test suites"));
 
-        // A holding root spelled onto another volume - a name, not a real volume, because asking the
-        // path which volume it names touches no disk. Removal is a move on the same volume.
-        var elsewhere = Path.Combine(Path.GetPathRoot(Path.GetFullPath(tree.Root)) == "X:\\" ? "Y:\\" : "X:\\", "cc-reclaim-holding");
+        // A holding root the test says is on another volume. Removal is a move on the same volume.
+        // The answer is given through the gate's volume seam rather than spelled as "X:\\": off Windows
+        // every absolute path names the one root "/", so no spelling of a path reads as another volume
+        // there, and the refusal under test could never be reached.
+        var elsewhere = tree.Folder("another-volume");
         var result = ReclaimRunner.Run(new ReclaimRunRequest
         {
             Rules = [rule],
@@ -364,7 +366,9 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
             ProtectedPaths = [],
             UserFolders = [],
             Apply = false,
-            NowUtc = DateTimeOffset.UtcNow
+            NowUtc = DateTimeOffset.UtcNow,
+            SameVolume = (path, otherPath) =>
+                path.StartsWith(elsewhere, StringComparison.Ordinal) == otherPath.StartsWith(elsewhere, StringComparison.Ordinal)
         });
 
         var outcome = Assert.Single(result.Items);

@@ -219,7 +219,7 @@ public class RunnerTests
 
         Assert.Equal(StandardFixture.ExpectedFilesSeen, json.FilesSeen);
         Assert.Equal(StandardFixture.ExpectedFoldersSeen, json.FoldersSeen);
-        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud, json.PlaceholderBytesInCloud);
+        Assert.Equal(StandardFixture.ExpectedPlaceholderBytesInCloud(tree), json.PlaceholderBytesInCloud);
         Assert.Single(json.Links);
         Assert.Equal("access denied", Assert.Single(json.RefusedFolders).Reason);
         Assert.NotNull(json.UnseenBytes);

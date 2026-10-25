@@ -89,6 +89,16 @@ public sealed record Request
 
     /// <summary>The command word as it was typed, for the help offered after an answer.</summary>
     public required string CommandWord { get; init; }
+
+    /// <summary>
+    /// The rules this run uses. Always <see cref="MachineRules.ForThisMachine"/> outside a test; the
+    /// command line never sets it.
+    ///
+    /// A SEAM for the tests that watch the command's own wiring - that the protected paths and the
+    /// user's folders the command reads really reach the refusal gate. Off Windows this machine has no
+    /// rule set yet, so through the command alone those tests would have nothing to refuse there.
+    /// </summary>
+    internal Func<IReadOnlyList<CcDirector.Reclaim.Rules.IReclaimRule>> Rules { get; init; } = MachineRules.ForThisMachine;
 }
 
 /// <summary>Either a decided request, or the reason the command line could not be used.</summary>
