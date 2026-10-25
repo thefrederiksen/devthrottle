@@ -203,9 +203,10 @@ public static class ScheduleFailureWords
         if (reason.StartsWith(NotStarted, StringComparison.Ordinal) || reason.Contains(": " + NotStarted, StringComparison.Ordinal))
         {
             var refusal = reason[(reason.IndexOf(NotStarted, StringComparison.Ordinal) + NotStarted.Length)..].Trim();
-            // A folder Claude Code was never told to trust is refused before the session starts (issue #3469).
+            // A folder Claude Code would ask to trust is refused before the session starts (issue #3469): one that is not a
+            // repository of the machine, and one whose trust could not be recorded. Both refusals name the question.
             var cause = refusal.Contains(" is archived", StringComparison.Ordinal) ? ScheduleFailureCauses.FactoryArchived
-                : refusal.Contains("never been told to trust it", StringComparison.Ordinal) ? ScheduleFailureCauses.FolderNotTrusted
+                : refusal.Contains("the folder-trust question", StringComparison.Ordinal) ? ScheduleFailureCauses.FolderNotTrusted
                 : ScheduleFailureCauses.FactorySetup;
             return (cause, $"This run did not start: {Sentence(refusal)}");
         }
