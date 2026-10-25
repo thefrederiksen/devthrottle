@@ -1,0 +1,24 @@
+ECHO LAYER (no model): exact sends
+  agent/as   route             baseline 7f5ffb82   after 8ba3ee79
+  echo       desktop-newline            0/4 (0%)      24/32 (75%)
+  echo       desktop-paste           26/28 (93%)   224/224 (100%)
+  echo       desktop-type           21/21 (100%)   168/168 (100%)
+  echo       prompt                  63/84 (75%)   168/168 (100%)
+  ALL                              110/137 (80%)    584/592 (99%)
+
+REAL AGENTS: sends that arrived exactly
+  agent/as   route             baseline 7f5ffb82   after 8ba3ee79
+  claude     desktop-newline            0/4 (0%)       4/4 (100%)
+  claude     desktop-paste           17/22 (77%)      19/22 (86%)
+  claude     desktop-type            14/17 (82%)      15/17 (88%)
+  claude     prompt                   9/22 (41%)      19/22 (86%)
+  codex      desktop-newline            0/4 (0%)       4/4 (100%)
+  codex      desktop-paste           17/22 (77%)      19/22 (86%)
+  codex      desktop-type            14/17 (82%)      14/17 (82%)
+  codex      prompt                  12/22 (55%)      19/22 (86%)
+  pi         desktop-newline            0/4 (0%)       4/4 (100%)
+  pi         desktop-paste           18/22 (82%)      19/22 (86%)
+  pi         desktop-type            15/17 (88%)      15/17 (88%)
+  pi         prompt                  17/22 (77%)      19/22 (86%)
+  ALL                              133/195 (68%)    170/195 (87%)
+

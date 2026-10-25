@@ -11,14 +11,20 @@ namespace CcDirector.Core.Tests;
 /// </summary>
 public class LinkDetectorExactTextTests
 {
-    private const string Repo = @"D:\repo";
+    // The repository and the files a relative path resolves to are written in THIS platform's own shape, because
+    // LinkDetector.ResolvePath joins a relative path to the repository the way the platform does. A Windows-shaped
+    // repository on a Mac resolved "src/a/b.cs" to a path no file could have, and seven rows failed there while the
+    // code was right. The Windows-only rows below (drive letters, network shares) stay as written: those paths are
+    // absolute and are never joined to the repository.
+    private static readonly string Repo = OperatingSystem.IsWindows() ? @"D:\repo" : "/repo";
 
     private static readonly HashSet<string> Existing = new(StringComparer.OrdinalIgnoreCase)
     {
-        @"D:\repo\README.md",
-        @"D:\repo\src\a\b.cs",
+        Path.Combine(Repo, "README.md"),
+        Path.Combine(Repo, "src", "a", "b.cs"),
         @"C:\Program Files (x86)\App\app.exe",
-        @"C:\Users\x.txt",
+        // A Git Bash path: on Windows "/c/Users/x.txt" names C:\Users\x.txt; elsewhere it is itself.
+        OperatingSystem.IsWindows() ? @"C:\Users\x.txt" : "/c/Users/x.txt",
         @"\\server\share\file.txt",
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "app", "settings.json"),
     };
@@ -353,6 +359,30 @@ public class LinkDetectorExactTextTests
         var (underlined, _, _) = OnlyLink("open /c/Users/x.txt now");
 
         Assert.Equal("/c/Users/x.txt", underlined);
+    }
+
+    // ---- a quoted absolute POSIX path is a link only when it exists --------------------------------
+    // Asked with the platform stated, so both rows run the same on every machine.
+
+    [Fact]
+    public void QuotedPosixPath_ThatDoesNotExist_IsNotALink_WherePathsArePosix()
+    {
+        var found = LinkDetector.FindAllLinkMatches("url = 'see https://a.com/api/'+id+'/items'", "/repo", _ => false,
+            posixPaths: true);
+
+        Assert.Equal(new[] { "https://a.com/api/" }, found.Select(m => m.Text).ToArray());
+    }
+
+    [Fact]
+    public void QuotedPosixPath_ThatExists_IsALink_WherePathsArePosix()
+    {
+        var asked = new List<string>();
+        var found = LinkDetector.FindAllLinkMatches("wrote '/tmp/build/out.log' just now", "/repo",
+            p => { asked.Add(p); return p == "/tmp/build/out.log"; }, posixPaths: true);
+
+        var m = Assert.Single(found);
+        Assert.Equal("/tmp/build/out.log", m.Text);
+        Assert.Contains("/tmp/build/out.log", asked);
     }
 
     // ---- the two lookups agree -------------------------------------------------------------------

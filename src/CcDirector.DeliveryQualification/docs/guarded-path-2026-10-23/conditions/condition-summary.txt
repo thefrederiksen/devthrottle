@@ -1,0 +1,53 @@
+condition    agent   route           sends pass fail not-counted unsteady-cells  truths
+mid-turn     claude  desktop-type        1    1    0           1              0  ARRIVED
+mid-turn     claude  desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     claude  desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     claude  prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   desktop-type        1    1    0           1              0  ARRIVED
+mid-turn     codex   desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     codex   desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     codex   prompt              2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-type        2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      desktop-newline     2    0    2           0              0  ALTERED ALTERED
+mid-turn     pi      desktop-paste       2    2    0           0              0  ARRIVED ARRIVED
+mid-turn     pi      prompt              2    2    0           0              0  ARRIVED ARRIVED
+owner-draft  claude  desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  claude  desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  claude  prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  codex   desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  codex   prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-type        2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      desktop-newline     2    0    2           0              0  ALTERED ALTERED
+owner-draft  pi      desktop-paste       2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+owner-draft  pi      prompt              2    2    0           0              0  ARRIVED-AFTER-DRAFT ARRIVED-AFTER-DRAFT
+menu-open    claude  desktop-type        2    2    0           0              0  ANSWERED-MENU/NEXT-ARRIVED ANSWERED-MENU/NEXT-ARRIVED
+menu-open    claude  desktop-newline     2    0    2           0              0  ALTERED/NEXT-ALTERED ALTERED/NEXT-ALTERED
+menu-open    claude  desktop-paste       2    2    0           0              0  LOST/NEXT-ARRIVED LOST/NEXT-ARRIVED
+menu-open    claude  prompt              2    2    0           0              0  LOST/LOST LOST/LOST
+usage-limit  echo    desktop-type        2    2    0           0              0  EXACT EXACT
+usage-limit  echo    desktop-paste       2    2    0           0              0  EXACT EXACT
+14 of 58 counted cells did not pass (2 not counted):
+  mid-turn claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn codex desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  mid-turn pi desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  owner-draft claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " QA9C96CE2AE Token Q25C5", got " QA9C96CE2AEToken Q25C57"
+  owner-draft claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q2DEE5410C1 Token Q8A5D", got " Q2DEE5410C1Token Q8A5DB"
+  owner-draft codex desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " QCA04C87B88 Token QE05B", got " QCA04C87B88Token QE05B8"
+  owner-draft codex desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " QDA9385ABBC Token Q9284", got " QDA9385ABBCToken Q92848"
+  owner-draft pi desktop-newline multiline-lf run 1: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q2C4F084D33 Token Q6ED7", got " Q2C4F084D33Token Q6ED75"
+  owner-draft pi desktop-newline multiline-lf run 2: director=OK truth=ALTERED first difference at character 31 of 245 (got 62): wanted " Q774669022A Token QAE2A", got " Q774669022AToken QAE2A3"
+  menu-open claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  menu-open claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  not counted: mid-turn claude desktop-type run 1: the 25-second tool never started (no start mark; its call is not in the records)
+  not counted: mid-turn codex desktop-type run 1: the 25-second tool never started (no start mark; its call is not in the records)
+What each condition cannot show:
+  mid-turn: when the agent records a queued prompt only at the end of the turn (Codex, Pi) it cannot show the prompt was taken at once, only that it arrived.
+  owner-draft: how many spaces join the two is not judged: the prompt route adds one, a person types their own.
+  menu-open: on the desktop routes the keys typed into the menu are the person's own - where they go is recorded, not judged. Codex and Pi have no question menu the rig can raise: Codex asks questions only in plan mode, Pi has none, and their model pickers are not used because Enter in one changes the agent's model (Codex also writes the choice to the owner's own configuration file).
+  usage-limit: Claude Code shows the dialog only when the owner's allowance has run out, which no run can cause on demand, so the byte-echo agent draws the dialog's real words and the Director's own guard reads them. It proves what the Director lets through, not what Claude Code does with it. The prompt route is left out: whether phone and Cockpit prompts pass the dialog is the owner's open question (mission 11.6).

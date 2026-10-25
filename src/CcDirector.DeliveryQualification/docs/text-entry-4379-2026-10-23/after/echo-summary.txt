@@ -1,0 +1,25 @@
+route           as       sends exact split altered via-file other  framed  unsteady-cells
+desktop-type    desktop     42    42     0       0        0     0  0/42               0
+desktop-paste   desktop     56    56     0       0        0     0  56/56               0
+desktop-newline desktop      8     0     8       0        0     0  0/8               0
+desktop-type    claude      42    42     0       0        0     0  0/42               0
+desktop-paste   claude      56    56     0       0        0     0  56/56               0
+desktop-newline claude       8     8     0       0        0     0  0/8               0
+desktop-type    codex       42    42     0       0        0     0  0/42               0
+desktop-paste   codex       56    56     0       0        0     0  56/56               0
+desktop-newline codex        8     8     0       0        0     0  0/8               0
+desktop-type    pi          42    42     0       0        0     0  0/42               0
+desktop-paste   pi          56    56     0       0        0     0  56/56               0
+desktop-newline pi           8     8     0       0        0     0  0/8               0
+prompt          claude      56    56     0       0        0     0  28/56               0
+prompt          codex       56    56     0       0        0     0  28/56               0
+prompt          pi          56    56     0       0        0     0  28/56               0
+8 of 592 did not:
+  desktop-newline as desktop multiline-lf run 1 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-lf run 2 len=213: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 1 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-crlf run 2 len=216: SPLIT director=OK Enter arrived after 31 of 213 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 1 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop blank-lines run 2 len=152: SPLIT director=OK Enter arrived after 35 of 152 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 1 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt
+  desktop-newline as desktop multiline-3k run 2 len=2692: SPLIT director=OK Enter arrived after 32 of 2692 characters, so the rest would be a second prompt

@@ -431,6 +431,18 @@
                 </StackPanel>
             </Grid>
 
+            <!-- ===================== GITHUB (issue #4426) ===================== -->
+            <Grid x:Name="GitHubPanel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,*">
+                <TextBlock Grid.Row="0" Classes="eyebrow" Text="WHERE YOUR CODE GOES" />
+                <TextBlock Grid.Row="1" Classes="wtitle step" Text="Connect GitHub" Margin="0,0,0,10" />
+                <TextBlock Grid.Row="2" Classes="wsub step" Margin="0,0,0,22"
+                           Text="Sessions push your work and open pull requests with git and the GitHub command line. Install them and sign in once - or continue and do it later in Settings." />
+                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              Padding="0,0,16,0" MaxWidth="640" HorizontalAlignment="Center">
+                    <Border x:Name="GitHubWizardHost" MaxWidth="600" />
+                </ScrollViewer>
+            </Grid>
+
             <!-- ===================== SCREENSHOTS ===================== -->
             <Grid x:Name="ScreenshotsPanel" IsVisible="False" RowDefinitions="Auto,Auto,Auto,*">
                 <TextBlock Grid.Row="0" Classes="eyebrow" Text="SHOW, DON'T TYPE" />

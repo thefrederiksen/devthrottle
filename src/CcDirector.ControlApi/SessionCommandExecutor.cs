@@ -138,6 +138,8 @@ internal static class SessionCommandExecutor
         // Factory Definition, phase 5: the machine question - whether this machine holds a defined factory's seat
         // secrets and has its repositories registered, asked by the Gateway when a person publishes the definition.
         new FactoryMachineQuestionExecutor(),
+        // Issue #4421: the folder check - whether a schedule's folder is on this machine, asked when it is saved.
+        new FolderCheckExecutor(),
     };
 
     /// <summary>
@@ -442,15 +444,11 @@ internal static class SessionCommandExecutor
             return TooOldAnswer(session, bufferCursor, reason);
         }
 
-        // CLAUDE CODE'S USAGE-LIMIT DIALOG (License Switching mission, trap 4): nothing automatic may type into it, and a
-        // prompt from the phone or the Cockpit is automatic - its sender may not see the dialog. The guard on the session
-        // drops every such write; this answers the sender a refusal it can show, instead of a success that typed nothing
-        // (fix-round review of pull request 3863). Checked before the send, and watched during it, for a dialog drawn
-        // while the send waits.
-        if (session.UsageLimitDialogMayShow())
-            return UsageLimitDialogAnswer(session, bufferCursor);
-        using var refusals = UsageLimitInputGuard.WatchRefusals();
-
+        // CLAUDE CODE'S USAGE-LIMIT DIALOG (License Switching mission, trap 4): nothing automatic may type into it. The
+        // guard on the session drops every such write; this answers the sender a refusal it can show, instead of a success
+        // that typed nothing (fix-round review of pull request 3863). Checked before the send, and watched during it, for
+        // a dialog drawn while the send waits. The owner's own prompt from the phone or the Cockpit is not automatic and
+        // goes through (UsageLimitInputGuard.PromptPassesTheDialog).
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
         // dictation delivery (SendSource.Delivery, set from the X-Dictation-Delivery marker) and typed
         // otherwise. Surface comes from the Gateway-authoritative request.Surface. Count when this is an
@@ -474,6 +472,19 @@ internal static class SessionCommandExecutor
                 effectiveSource == SendSource.Delivery ? InputModality.Voice : InputModality.Typed,
                 InputOrigin.RemoteSurfaceFromDeviceType(request.Surface))
             : null;
+
+        // The same rule the session's input guard follows: a phone or Cockpit prompt goes through as a person's own keys
+        // do (the owner's decision 10); every other prompt is refused here while the dialog may show.
+        if (!UsageLimitInputGuard.PromptPassesTheDialog(origin) && session.UsageLimitDialogMayShow())
+            return UsageLimitDialogAnswer(session, bufferCursor);
+        using var refusals = UsageLimitInputGuard.WatchRefusals();
+
+        // A LEADING "!" OR "/" IS NEVER QUIET (issue #4380): the text is typed exactly as a person would type it, so the
+        // agent does with it what it does for a person - and the answer says what that was. Only for a SUBMITTED prompt:
+        // text sent without an Enter is keystrokes (the Cockpit's terminal sends every chunk that way), not a line.
+        var leadingMode = request.AppendEnter ? session.Driver.LeadingCharacterMode(request.Text) : null;
+        if (leadingMode is not null)
+            FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the text's first character makes it {leadingMode} in {session.AgentKind}");
 
         // WHAT THE DOOR KNEW (source logging, 2026-09-05): the Gateway's route built it from what it verified and
         // sent it on the wire; it is recorded as it arrived. A Gateway older than the field sends none, and that
@@ -537,6 +548,7 @@ internal static class SessionCommandExecutor
                     BufferCursor = bufferCursor,
                     ActivityState = session.ActivityState.ToString(),
                     DeliveryState = DeliveryState.Delivering,
+                    LeadingMode = leadingMode,
                 }));
             }
             // Finished within the budget: a failure the send knows about is thrown here and stays a failure, as before.
@@ -566,6 +578,7 @@ internal static class SessionCommandExecutor
                     BufferCursor = bufferCursor,
                     ActivityState = session.ActivityState.ToString(),
                     DeliveryState = DeliveryState.Delivering,
+                    LeadingMode = leadingMode,
                 }));
             }
         }
@@ -591,6 +604,7 @@ internal static class SessionCommandExecutor
             ActivityState = session.ActivityState.ToString(),
             IdleChecked = request.OnlyWhenWaitingForInput,
             DeliveryState = request.AppendEnter ? DeliveryState.Delivered : null,
+            LeadingMode = leadingMode,
         };
         return DirectorCommandResult.Success(Serialize(response));
     }
@@ -987,16 +1001,26 @@ internal static class SessionCommandExecutor
     internal static async Task<DirectorCommandResult> InterruptCoreAsync(Session session)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
+        InputAnswer answer;
         try
         {
-            await session.InterruptAsync();
+            answer = await session.InterruptAsync();
         }
         catch (NotSupportedException ex)
         {
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
         }
-        return DirectorCommandResult.Success();
+        return Answer(answer);
     }
+
+    /// <summary>
+    /// EVERY INPUT ROUTE ANSWERS (issue #4380): written or held is a success whose body says which
+    /// (<see cref="InputAnswerResponse"/>); refused is a Conflict whose error is the reason, so no sender mistakes input
+    /// that never reached the terminal for input that did.
+    /// </summary>
+    internal static DirectorCommandResult Answer(InputAnswer answer) => answer.Kind == InputAnswerKind.Refused
+        ? DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, answer.Reason!)
+        : DirectorCommandResult.Success(Serialize(new InputAnswerResponse { Outcome = answer.Word, Reason = answer.Reason }));
 
     /// <summary>
     /// The <c>escape</c> verb: soft-stop a session's current turn (Esc). Mirrors the Director's
@@ -1020,15 +1044,16 @@ internal static class SessionCommandExecutor
     internal static async Task<DirectorCommandResult> EscapeCoreAsync(Session session)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
+        InputAnswer answer;
         try
         {
-            await session.CancelTurnAsync();
+            answer = await session.CancelTurnAsync();
         }
         catch (NotSupportedException ex)
         {
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, ex.Message);
         }
-        return DirectorCommandResult.Success();
+        return Answer(answer);
     }
 
     /// <summary>The sentence an <c>enter</c> sender reads while Claude Code's usage-limit dialog may be showing.</summary>
@@ -1036,12 +1061,6 @@ internal static class SessionCommandExecutor
         "Nothing was pressed: the session is showing Claude Code's usage-limit dialog, where Enter would confirm the " +
         "highlighted option - one of them turns on paid extra usage. Press Escape to close it instead " +
         "(cc-devthrottle session escape).";
-
-    /// <summary>The sentence an <c>enter</c> sender reads while another send is being typed into the session.</summary>
-    internal const string EnterRefusedWhileSending =
-        "Nothing was pressed: a prompt is being sent to that session right now - still being typed, or its delivery still " +
-        "being confirmed - and an Enter would land in the middle of it. Read the session (cc-devthrottle session buffer) " +
-        "and press Enter again once that send has finished.";
 
     /// <summary>
     /// The <c>enter</c> verb: press one Enter in a session, with nothing typed before it - the phone's Enter key, for an
@@ -1074,13 +1093,6 @@ internal static class SessionCommandExecutor
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, $"the session has {session.Status.ToString().ToLowerInvariant()}; nothing was pressed");
         if (session.BackendType is not SessionBackendType.ConPty)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "this session has no terminal to press Enter in; nothing was pressed");
-        // NOT INSIDE ANOTHER SEND (review of the owner's ruling, finding 3): the Enter would submit half of that send's text,
-        // or be held and written after it, with this answer already saying "pressed".
-        if (session.SendInProgress)
-        {
-            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: a send is being typed into it");
-            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedWhileSending);
-        }
         if (session.UsageLimitDialogMayShow())
         {
             FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: the usage-limit dialog may be showing");
@@ -1088,21 +1100,18 @@ internal static class SessionCommandExecutor
         }
 
         // Written as the phone's Enter key is - a raw keystroke through the session's input - so the session reads it as
-        // the submit it is: a draft it was tracking is now sent. A send that started after the check above is caught
-        // again under the input lock, so the Enter is never held while this answers "pressed".
-        using var refusals = UsageLimitInputGuard.WatchRefusals();
-        if (!session.SendKeystrokeUnlessSending([0x0D], SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt)))
-        {
-            FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: a send began before the Enter was written");
-            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedWhileSending);
-        }
-        if (refusals.Refused)
+        // the submit it is: a draft it was tracking is now sent. NEVER INSIDE ANOTHER SEND, AND NEVER REFUSED FOR ONE (the
+        // owner's decision 8, 23 October 2026): while a send is being typed the Enter is held and pressed after it, as the
+        // desktop's keys are held, and the answer says held - not pressed - so the sender is never told something that
+        // has not happened yet. Until then it was refused.
+        var answer = session.PressKeyAfterAnySend([0x0D], SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayPrompt));
+        if (answer.Kind == InputAnswerKind.Refused && answer.Reason == UsageLimitInputGuard.RefusedReason)
         {
             FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} REFUSED: the input guard dropped the Enter (usage-limit dialog)");
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, EnterRefusedOnUsageLimitDialog);
         }
-        FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id} pressed Enter");
-        return DirectorCommandResult.Success();
+        FileLog.Write($"[SessionCommandExecutor] enter: session={session.Id}: {answer}");
+        return Answer(answer);
     }
 
     /// <summary>
@@ -1579,6 +1588,43 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>
+    /// Settle the folder trust of a scheduled Claude Code session before it starts (issue #3469), or return why it may
+    /// not start. Null when the folder is already trusted (by itself, a parent, or its main checkout), when it is one
+    /// of this machine's registered repositories - which is then marked trusted - or when this Director marks no
+    /// folders. The refusal starts "not started: " and names the folder and the machine, so the run record reads as a
+    /// sentence a person acts on.
+    /// </summary>
+    internal static string? ScheduledFolderTrustRefusal(string? folder, IReadOnlyList<RepositoryConfig>? registered,
+        CcDirector.Core.Claude.ClaudeFolderTrust? trust, string machine)
+    {
+        if (trust is null || string.IsNullOrWhiteSpace(folder)) return null;
+        if (trust.Covers(folder)) return null;
+        var full = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // The same rule the repository registry decides "the same repository" by (RepositoryRegistry.TryAdd).
+        var comparison = StringComparison.OrdinalIgnoreCase;
+        var isRepository = registered?.Any(r => !string.IsNullOrWhiteSpace(r.Path) && string.Equals(
+            Path.GetFullPath(r.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), full, comparison)) == true;
+        if (!isRepository)
+            return $"not started: the folder '{folder}' is not one of the repositories of {machine}, and Claude Code has never been told to trust it, " +
+                   $"so the scheduled session would wait at the folder-trust question with nobody to answer it. Add the folder as a repository of {machine}, " +
+                   "or open it (or the repository it is in) once in DevThrottle and answer the question; the next run then starts.";
+        try
+        {
+            trust.Trust(full);
+        }
+        catch (CcDirector.Core.Claude.ClaudeFolderTrustException ex)
+        {
+            // Its message is worded for a factory seat; the run's record gets a sentence of its own, and the log the detail.
+            FileLog.Write($"[SessionCommandExecutor] ScheduledFolderTrustRefusal: marking {full} trusted FAILED: {ex.Message}");
+            return $"not started: the folder '{folder}' is a repository of {machine}, but Claude Code's configuration there could not be " +
+                   "read or written to record it as trusted, so the scheduled session would wait at the folder-trust question. " +
+                   $"Open the folder once in DevThrottle on {machine} and answer the question; the next run then starts.";
+        }
+        FileLog.Write($"[SessionCommandExecutor] marked {full} trusted for Claude Code: a scheduled session in a repository of this machine");
+        return null;
+    }
+
+    /// <summary>
     /// THE SEAT'S START, SETTLED BEFORE THE CREATE (Factory Definition mission, phase 5, design sections 2 and 4): which
     /// kit the Director downloads and writes before the agent starts, and where the seat works. Returns the refusal, in
     /// one sentence, or null. A create that names no part of a seat settles nothing and is exactly what it was.
@@ -1921,6 +1967,18 @@ internal static class SessionCommandExecutor
                               $"(repo=\"{carried.Repo}\", slot=\"{carried.Slot}\", path=\"{carried.Path}\", " +
                               $"lease present={!string.IsNullOrWhiteSpace(carried.Lease)}); it is ignored");
             }
+        }
+
+        // A SCHEDULED CLAUDE CODE SESSION NEVER WAITS ON THE FOLDER-TRUST QUESTION (issue #3469). Nobody is there to
+        // answer it, so the first-prompt gate held the seed for ten minutes and then dropped it. A folder the owner has
+        // registered as one of this machine's repositories is marked trusted before the agent starts; any other folder
+        // the owner never trusted is refused here, at once, in words the run record carries.
+        if (kind == AgentKind.ClaudeCode && factoryKit is null && origin.Kind == SessionOriginKinds.Schedule
+            && ScheduledFolderTrustRefusal(req.RepoPath, services?.Repositories?.Repositories, sessionManager.ClaudeFolderTrust,
+                Environment.MachineName) is { } trustRefusal)
+        {
+            FileLog.Write($"[SessionCommandExecutor] create REFUSED: {trustRefusal}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, trustRefusal);
         }
 
         Session session;

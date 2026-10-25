@@ -743,6 +743,33 @@ help[5]:
   ...
 ```
 
+**The Gateway's own failures, and every account's scheduled runs (issue #4403).** The Gateway
+reports its own failures that belong to one account into the same store, as component `gateway`,
+under that account: a scheduled run that failed (source `schedule`, with the reason the run record
+carries), a session key or device credential it refused whose account it knows (source
+`credential`: revoked, expired, or a session key on a route it may not call), and a session key a
+Director asked to register and it refused (source `session-key-registration`). A key nobody holds
+names no account and is not reported. The same refusal is stored at most once every ten minutes,
+with the repeats held back counted on the next row. Read them with
+`errors list --email <address> --component gateway`.
+
+`schedule admin-runs` reads every account's scheduled runs on the administrator token - the
+schedule, machine, when it fired, how it ended and the reason recorded - newest first. It takes
+`--account` or `--email`, `--job`, `--since` and `--until` (on the fire time, default the last 7
+days), `--failed` (a problem, or a start whose outcome was never known), `--limit`, `--fields`,
+`--full`, `--json` and `--gateway`.
+
+```
+$ cc-secrets run admin-service-token -- cc-devthrottle schedule admin-runs --email someone@example.com --failed
+scope: account 11111111-1111-1111-1111-111111111111, failed runs, fired 2026-10-16T18:00:00Z to 2026-10-23T18:00:00Z
+count: 1
+runs[1]{fired,account,name,machine,result,problem,reason}:
+  2026-10-23T17:58:02Z,11111111-1111-1111-1111-111111111111,Morning report,workstation-a,problem,did-not-run,"it did not start a session: ..."
+help[3]:
+  cc-devthrottle schedule admin-runs --json
+  cc-devthrottle errors list --email someone@example.com --component gateway --since 7d
+```
+
 `cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,
 with the full command on each row; `--json` is unchanged.
 
@@ -1746,7 +1773,21 @@ COMMANDS:
 ```
 
 `--json` is available on `list`, `get`, `runs`, `plan`, `create`, `run`, and `endpoint`.
-`--notify-on none|always|failure` and `--notify-webhook URL` are available on `create`.
+`--notify-on failure|always|none` and `--notify-webhook URL` are available on `create`.
+
+**A failed schedule tells its owner by default (issue #4436).** `--notify-on` defaults to `failure`:
+a run that did not run (a missed run too), did not start, may not have started, or ended with a
+problem tells the schedule's owner - on the fleet notification channel, the owner's phones, the
+webhook when one is set, and the account owner's email on the hosted Gateway - at most once an
+hour for each cause of each schedule. `always` also tells every run that started; `none` turns it
+off. Every schedule that was still on the old default (`none`) was moved to `failure`, and
+`schedule get` says so in its `Note:` line.
+
+**What went wrong, in plain words.** `schedule runs` has a `What went wrong` column, `schedule run`
+prints a `Problem:` line and `schedule get` a `Last run:` line: one sentence the Gateway chose from
+the cause - what happened, on which machine, and what to do. The run's own reason (for example the
+Director's `repoPath does not exist: ...`) is the `Detail:` line of `schedule run`, and stays in
+`--json` as `resultReason`; it is never the headline.
 
 **Random schedules (issue #3622).** `--random 07:00-01:00 --per-day 4 --min-gap 45` fires about four
 times a day at random times inside that local window (an end at or before the start crosses
@@ -1925,6 +1966,16 @@ Gateway answers "The boss's role is Boss: set its role to "Boss"." The screen sa
 boss" and "Latest from the boss", never a name, so thirteen factories' bosses no longer read like thirteen
 people. A factory registered before that day keeps the role word it was registered with until it is
 registered again.
+
+**A schedule's folder is checked on its machine when it is saved (issue #4421).** `schedule create`, `schedule
+enable`, `schedule link` and every save in the Cockpit's Schedule form ask the target machine's Director whether the
+schedule's folder (`--repo`) is a folder there. A folder the machine does not have is refused, naming the machine and its system, and nothing is
+stored. A Windows path (a drive letter, or a backslash in a path that does not start with `/` or `~`) for a Mac or a
+Linux computer is refused even when the machine is offline, with an example in the right shape: "'\documents\project' is a Windows path, but STUDIO_MAC is a Mac. Use a
+path like /Users/<you>/Documents/project." When the machine is offline, or its Director is too old to be asked, the
+schedule is saved and `WARNING:` says the folder was not checked. Its first run checks it again. A run that did not
+start because its folder was missing says so in `schedule runs` and `schedule run`. Switching a schedule off is never
+refused for its folder. The Cockpit's form lists the chosen machine's known repositories above the folder box.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
@@ -2252,6 +2303,57 @@ it with 'cc-devthrottle factory check-state show'; ask the owner to reset it.` a
 
 The routes are `GET /factory-definitions/{factory}/check-state` and
 `POST /factory-definitions/{factory}/check-state/reset` with `{"ownerKey": "trigger:<id>"}`.
+
+### Factory check inputs
+
+How what a factory's seats keep on the Gateway reaches its checks. A check runs on the Director with no Gateway
+key, so it cannot call `factory doc get`. Instead, every working document of the factory whose name begins
+`check-inputs/` is handed to every check of that factory, read only, as a file in the folder named by
+`CC_CHECK_INPUTS_DIR`, under the rest of its name: the document `check-inputs/chain.json` is the file
+`$CC_CHECK_INPUTS_DIR/chain.json`. Nothing else of the factory's records reaches a check.
+
+A seat keeps an input current the way it keeps any working document:
+
+```
+cc-devthrottle factory doc write --factory dev-sales --name check-inputs/chain.json --file chain.json --expected-version 4
+```
+
+The Director fetches the inputs on every run of every check, so a check always decides from what the seats wrote
+last. The folder exists, empty, when the factory keeps none. Inputs that cannot be fetched are a start error with the
+reason, never an empty folder: a check never decides from nothing. All of a factory's inputs together may take at
+most 512 KB; above that the Gateway hands none and the check fails with
+`the check inputs of <factory> take <n> bytes together, and a check is handed at most 524288; make the documents under check-inputs/ smaller`.
+
+The Director's route is `GET /directors/{directorId}/factory-check-inputs/{factory}/{version}`, refused as the
+check download is, and more narrowly: only the factory's CURRENT published version, and only to a Director whose
+machine has a seat of the factory in it. A machine that had a seat in an older version and was moved out is given
+nothing (`version_not_current`).
+
+
+### Factory working documents: the newest three versions
+
+A working document (`factory doc write`) keeps its newest three versions; every write removes the older ones. A
+writer still states the newest version it read, and a stale write is still refused with the current text. Reading
+a version older than the three answers 404 and says only the newest three are kept.
+
+### Factory attachments: kept once, removed when no longer needed
+
+A factory keeps files on the Gateway (`factory attach add`), each at most 4 MB and all of one factory's together at
+most 1 GB.
+
+- **Kept once.** A file whose exact bytes the factory already holds is not stored again: the answer is the file it
+  holds (outcome `AlreadyStored`, with that file's id). A seat that attaches the same resume to every application
+  keeps it once.
+- **Removed when no longer needed.** A person or a session of the factory removes a file it no longer needs:
+
+```
+cc-devthrottle factory attach remove --factory private --id <id>
+```
+
+  Its bytes are deleted and stop counting against the 1 GB; its record stays, marked removed, so a journal entry that
+  named it still says what it was ("Removed 3 days ago" on the Records tab, with nothing to download). Reading a
+  removed file answers 410 with when it was removed. Removing it again changes nothing. The one-time upload can never
+  remove a file. The route is `DELETE /factory-records/{factory}/attachments/{id}`.
 
 ### Run
 

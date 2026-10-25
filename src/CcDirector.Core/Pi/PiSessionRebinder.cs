@@ -51,7 +51,7 @@ public sealed class PiSessionRebinder : IDisposable
         Action<ActivityState, ActivityState> handler = (oldState, newState) =>
         {
             _ = oldState;
-            if (newState != ActivityState.WaitingForInput) return;
+            if (!ActivityStateFacts.IsTurnEnd(newState)) return;
             Task.Run(() => Rebind(session));
         };
         _handlers[session.Id] = handler;

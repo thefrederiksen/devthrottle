@@ -110,7 +110,8 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             findFactory: (_, id) => _registry.Find(T, id),
             runRecords: runRecords,
             accountZoneOf: _ => TimeZoneInfo.Utc,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            checkFolder: (_, _, _, _) => Task.FromResult(CcDirector.Gateway.Running.ScheduleFolderVerdict.Fine));
 
         var settings = new TenantSettingsStore(_db);
         var record = _record;

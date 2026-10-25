@@ -16,12 +16,14 @@ const SURFACE = "cockpit-machine-actions";
 // buttons exist and what they say comes from the Gateway's fold; this component only asks for a confirm, sends
 // the command, and hands the outcome back. Shared by the Machines tab and the Director page's update card.
 
+export type Kind = "update" | "restart" | "start";
+
 export interface ActionOutcome {
   text: string;
   tone: FleetTone;
+  /** Which button it answers, so an update's answer can be cleared once the Gateway says the machine is up to date. */
+  kind: Kind;
 }
-
-type Kind = "update" | "restart" | "start";
 
 export function MachineActions({
   machine,
@@ -47,16 +49,16 @@ export function MachineActions({
     try {
       if (kind === "update") {
         const view = await updateDirectorNow(machine.machine);
-        onOutcome({ text: view.headline, tone: view.tone });
+        onOutcome({ text: view.headline, tone: view.tone, kind });
       } else if (kind === "restart") {
         await restartDirectorIfEmpty(machine.machine);
-        onOutcome({ text: "The Director restarted.", tone: "ok" });
+        onOutcome({ text: "The Director restarted.", tone: "ok", kind });
       } else {
         await startDirector(machine.machine);
-        onOutcome({ text: "The launcher was asked to start the Director.", tone: "ok" });
+        onOutcome({ text: "The launcher was asked to start the Director.", tone: "ok", kind });
       }
     } catch (err) {
-      onOutcome({ text: describeAndReport(SURFACE, `${kind} the Director on ${machine.machine}`, err), tone: "bad" });
+      onOutcome({ text: describeAndReport(SURFACE, `${kind} the Director on ${machine.machine}`, err), tone: "bad", kind });
     } finally {
       setBusy(null);
     }

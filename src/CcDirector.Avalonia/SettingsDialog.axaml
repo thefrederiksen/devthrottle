@@ -152,7 +152,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Gateway">
+            <TabItem x:Name="GatewayTab" Header="Gateway">
                 <!-- Gateway Connection mission, Phase 4 (design spec section 8): this tab IS the one
                      reusable GatewayConnectionPanel now. The old scattered controls (Gateway URL box,
                      Detect, Test, Director public URL + Detect, plain-text token box, "Connect to
@@ -270,7 +270,13 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Browser profiles">
+            <TabItem x:Name="GitHubTab" Header="GitHub">
+                <!-- Issue #4426: git, the GitHub command line (gh) and its sign-in - detected, installed, signed in. The
+                     same panel is the first-run wizard's GitHub step. Created in code-behind (LoadAsync). -->
+                <Border x:Name="GitHubSettingsHost" Padding="0,4,14,0" />
+            </TabItem>
+
+            <TabItem x:Name="BrowsersTab" Header="Browser profiles">
                 <!-- Browsers feature (slice 2): the workshop for drivable automation browsers -
                      create, sign in once, rename, remove. The rail's pinned Browsers group is the
                      launch surface; this tab is where they are set up. All logic lives in the view. -->
@@ -350,7 +356,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Tools">
+            <TabItem x:Name="ToolsTab" Header="Tools">
                 <!-- Consolidated Tools screen: the download-and-repair card on top, the full tool
                      status dashboard (the same ToolsView the standalone page used) filling the rest.
                      One place to SEE which tool is missing/failing and to repair it. The button calls

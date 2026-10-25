@@ -86,27 +86,21 @@ public class ClaudeDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task CancelAsync_WritesASingleEscByte()
+    public void Cancel_AsksForASingleEscByte()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new ClaudeDriver().Cancel();
 
-        await new ClaudeDriver().CancelAsync(backend);
-
-        var write = Assert.Single(backend.RawWrites);
+        var write = Assert.Single(input.Keys).Bytes;
         var b = Assert.Single(write);
         Assert.Equal(0x1B, b);
     }
 
     [Fact]
-    public async Task ClearContextAsync_SubmitsSlashClear()
+    public void ClearContext_AsksForSlashClear()
     {
-        var backend = new FakeBackend();
-        backend.Start("x", "", ".", 80, 24);
+        var input = new ClaudeDriver().ClearContext();
 
-        await new ClaudeDriver().ClearContextAsync(backend);
-
-        Assert.Contains("/clear", backend.SentTexts);
+        Assert.Equal("/clear", input.Command);
     }
 
     private static ClaudeDriver FastDriver(FakeTranscriptReader? reader = null) => new(

@@ -1,0 +1,10 @@
+condition    agent   route           sends pass fail not-counted unsteady-cells  truths
+menu-open    claude  desktop-type        2    2    0           0              0  ANSWERED-MENU/NEXT-ARRIVED ANSWERED-MENU/NEXT-ARRIVED
+menu-open    claude  desktop-newline     2    0    2           0              0  ALTERED/NEXT-ALTERED ALTERED/NEXT-ALTERED
+menu-open    claude  desktop-paste       2    2    0           0              0  LOST/NEXT-ARRIVED LOST/NEXT-ARRIVED
+menu-open    claude  prompt              2    2    0           0              0  LOST/LOST LOST/LOST
+2 of 8 counted cells did not pass (0 not counted):
+  menu-open claude desktop-newline multiline-lf run 1: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+  menu-open claude desktop-newline multiline-lf run 2: director=OK truth=ALTERED/NEXT-ALTERED first difference at character 31 of 213 (got 31): wanted "line 1 of 4.\nLine 2: the", got "line 1 of 4."
+What each condition cannot show:
+  menu-open: on the desktop routes the keys typed into the menu are the person's own - where they go is recorded, not judged. Codex and Pi have no question menu the rig can raise: Codex asks questions only in plan mode, Pi has none, and their model pickers are not used because Enter in one changes the agent's model (Codex also writes the choice to the owner's own configuration file).

@@ -1,0 +1,17 @@
+{
+  "session_id": "6608ade8-06d2-4326-a128-f5eb794690a2",
+  "transcript_path": "C:\\Users\\soren\\.claude\\projects\\C--Users-soren-AppData-Local-Temp-claude-D--ReposFred-devthrottle-27cdd814-0e86-474c-96b6-43e545256a6e-scratchpad-capture-repo\\6608ade8-06d2-4326-a128-f5eb794690a2.jsonl",
+  "cwd": "C:\\Users\\soren\\AppData\\Local\\Temp\\claude\\D--ReposFred-devthrottle\\27cdd814-0e86-474c-96b6-43e545256a6e\\scratchpad\\capture\\repo",
+  "prompt_id": "8814d150-0432-48fd-892e-49313a723dc1",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "PowerShell",
+  "tool_input": {
+    "command": "Write-Output RULE-PROBE-PS",
+    "description": "Write RULE-PROBE-PS to output"
+  },
+  "tool_use_id": "toolu_01Ji2BW5JfhnHF8omZBGe9hk"
+}

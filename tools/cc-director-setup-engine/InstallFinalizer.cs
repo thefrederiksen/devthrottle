@@ -161,16 +161,15 @@ public static class InstallFinalizer
 
     /// <summary>
     /// macOS: ensure ~/.local/bin (where the tool shim symlinks live) is on the user's shell PATH by
-    /// appending an idempotent, marker-bracketed block to ~/.zshrc (and ~/.bash_profile if it exists).
+    /// appending an idempotent, marker-bracketed block to the files in <see cref="MacPathWriteFiles"/>.
     /// Returns true if any file changed. The marker lets <see cref="Uninstaller"/> remove the block.
     /// </summary>
     [SupportedOSPlatform("macos")]
     public static bool EnsureMacUserBinOnPath()
     {
-        var block = $"\n{MacPathMarker}\n" +
-                    "case \":$PATH:\" in *\":$HOME/.local/bin:\"*) ;; *) export PATH=\"$HOME/.local/bin:$PATH\" ;; esac\n";
+        var block = MacPathBlock();
         var changed = false;
-        foreach (var rc in MacShellRcFiles())
+        foreach (var rc in MacPathWriteFiles())
         {
             var content = File.Exists(rc) ? File.ReadAllText(rc) : "";
             if (content.Contains(MacPathMarker, StringComparison.Ordinal)) continue;
@@ -181,13 +180,66 @@ public static class InstallFinalizer
         return changed;
     }
 
-    /// <summary>The shell rc files we manage on macOS: ~/.zshrc always; ~/.bash_profile only if present.</summary>
-    public static IReadOnlyList<string> MacShellRcFiles()
+    /// <summary>
+    /// Where the install WRITES the PATH block on macOS.
+    /// <para>
+    /// <c>~/.zshenv</c> ALWAYS, and it is the whole point of this list: zsh reads <c>.zshrc</c> only for
+    /// INTERACTIVE shells, so while the block lived there alone, no <c>cc-*</c> tool was on PATH for any
+    /// unattended shell - a script, <c>cron</c>, <c>launchd</c>, continuous integration, or a tool spawned
+    /// by another program. <c>.zshenv</c> is the only start-up file zsh reads for every invocation, which
+    /// is why a PATH that must always be present belongs in it (#4292).
+    /// </para>
+    /// <para>
+    /// <c>~/.bash_profile</c> only if it already exists, unchanged from before: bash does not read
+    /// <c>.zshenv</c>, so a user whose login shell is bash still needs it named here.
+    /// </para>
+    /// <para>
+    /// <c>~/.zshrc</c> is deliberately NOT written any more. <c>.zshenv</c> covers every shell that
+    /// <c>.zshrc</c> covered, so writing both would append a second, redundant block for ever. It is still
+    /// CLEANED UP - see <see cref="MacShellRcFiles"/>.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> MacPathWriteFiles() => MacPathWriteFiles(UserHome());
+
+    /// <summary>
+    /// The same list for a stated home, so a test can assert the choice of files on any platform rather
+    /// than only on a Mac - the discipline the rest of this engine follows for the macOS branches.
+    /// </summary>
+    public static IReadOnlyList<string> MacPathWriteFiles(string home)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var files = new List<string> { Path.Combine(home, ".zshrc") };
+        ArgumentNullException.ThrowIfNull(home);
+        var files = new List<string> { Path.Combine(home, ".zshenv") };
         var bashProfile = Path.Combine(home, ".bash_profile");
         if (File.Exists(bashProfile)) files.Add(bashProfile);
         return files;
     }
+
+    /// <summary>
+    /// Every shell start-up file the install has EVER written its PATH block to, which is what an
+    /// uninstall must clean and what the ownership repair must name. It is a superset of
+    /// <see cref="MacPathWriteFiles"/>: <c>~/.zshrc</c> stays here for ever, because machines installed
+    /// before #4292 carry the block there and an uninstall that stopped looking would orphan it.
+    /// </summary>
+    public static IReadOnlyList<string> MacShellRcFiles() => MacShellRcFiles(UserHome());
+
+    /// <summary>The same list for a stated home. See <see cref="MacPathWriteFiles(string)"/>.</summary>
+    public static IReadOnlyList<string> MacShellRcFiles(string home)
+    {
+        ArgumentNullException.ThrowIfNull(home);
+        var files = new List<string>
+        {
+            Path.Combine(home, ".zshenv"),
+            Path.Combine(home, ".zshrc"),
+        };
+        var bashProfile = Path.Combine(home, ".bash_profile");
+        if (File.Exists(bashProfile)) files.Add(bashProfile);
+        return files;
+    }
+
+    /// <summary>The PATH block this install appends, for a test to evaluate in a real shell.</summary>
+    public static string MacPathBlock() =>
+        $"\n{MacPathMarker}\n" +
+        "case \":$PATH:\" in *\":$HOME/.local/bin:\"*) ;; *) export PATH=\"$HOME/.local/bin:$PATH\" ;; esac\n";
+
+    private static string UserHome() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 }

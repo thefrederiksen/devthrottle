@@ -34,6 +34,8 @@ What each file shows:
 | `codex-menu-rate-limit` | The model-switch menu Codex opened at its usage limit |
 | `codex-menu-trust-folder` | The folder-trust dialog, `› 1. Yes, continue` selected |
 | `codex-wrapped-composer` | Codex 0.157.1 with a 164-character prompt typed (no Enter) into a 100-column composer: the `›` row, then one continuation row indented by the two columns the glyph and its separator take, cursor at the end of the last row - the shape a wrapped Codex composer has, captured for the phase 6 review finding 1 |
+| `pi-idle-empty` | Pi 1.2.0 after a turn, with its empty one-row composer between horizontal rules and its provider, model, and thinking footer below |
+| `pi-menu-model-picker` | Pi 1.2.0 model picker with the search cursor, choices, key legend, and ordinary Pi footer; captured by the Terminal Parity state rig on 24 October 2026 |
 
 Two files are DERIVED, not captured (inspection 4, ruling 3), and say so in their own `derivedFrom` and
 `derivation` fields:

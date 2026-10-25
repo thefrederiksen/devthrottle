@@ -240,7 +240,7 @@ public sealed class VoiceService
     private VoiceCommandResponse ReplyListWaiting(string transcript, IList<Session> sessions)
     {
         var waiting = sessions
-            .Where(s => s.ActivityState is ActivityState.WaitingForInput or ActivityState.WaitingForPerm)
+            .Where(s => s.ActivityState is ActivityState.WaitingForInput or ActivityState.WaitingForPerm or ActivityState.MenuOpen)
             .ToList();
 
         if (waiting.Count == 0)

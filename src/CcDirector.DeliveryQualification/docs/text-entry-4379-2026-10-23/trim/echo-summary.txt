@@ -1,0 +1,13 @@
+route           as       sends exact split altered via-file other  framed  unsteady-cells
+desktop-type    desktop      2     2     0       0        0     0  0/2               0
+desktop-paste   desktop      2     2     0       0        0     0  2/2               0
+desktop-type    claude       2     2     0       0        0     0  0/2               0
+desktop-paste   claude       2     2     0       0        0     0  2/2               0
+desktop-type    codex        2     2     0       0        0     0  0/2               0
+desktop-paste   codex        2     2     0       0        0     0  2/2               0
+desktop-type    pi           2     2     0       0        0     0  0/2               0
+desktop-paste   pi           2     2     0       0        0     0  2/2               0
+prompt          claude       2     2     0       0        0     0  0/2               0
+prompt          codex        2     2     0       0        0     0  0/2               0
+prompt          pi           2     2     0       0        0     0  0/2               0
+EVERY TEXT ARRIVED EXACTLY, AS TEXT, IN ONE SUBMIT.

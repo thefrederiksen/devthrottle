@@ -1,0 +1,25 @@
+{
+  "Agent": "claude",
+  "Version": "2.1.293 (Claude Code)",
+  "State": "model-picker",
+  "CapturedAtUtc": "2026-10-07T00:00:00Z",
+  "CursorRow": 1,
+  "CursorCol": 3,
+  "CursorVisible": false,
+  "Rows": [
+    "   Select model",
+    "   ❯ 1. Default",
+    "     2. Other",
+    "",
+    "   Enter to confirm · Esc to cancel"
+  ],
+  "Answer": {
+    "Composer": "MenuOpen",
+    "ComposerText": "",
+    "Picker": true,
+    "ModelPicker": false,
+    "WorkingMarker": false,
+    "Activity": "MenuOpen",
+    "PickerSigns": ["enter-to-confirm"]
+  }
+}

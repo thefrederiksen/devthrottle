@@ -6,7 +6,7 @@ namespace CcDirector.Core.Tests.Drivers;
 public sealed class PiDriverTests
 {
     [Fact]
-    public void Capabilities_Default_DeclaresOnlyCancelAndClearContext()
+    public void Capabilities_Default_DeclaresPiTerminalAndTranscriptFeatures()
     {
         var driver = new PiDriver();
 
@@ -16,51 +16,48 @@ public sealed class PiDriverTests
         Assert.True(capabilities.HasFlag(DriverCapabilities.ClearContext));
         Assert.False(capabilities.HasFlag(DriverCapabilities.Interrupt));
         Assert.False(capabilities.HasFlag(DriverCapabilities.History));
-        Assert.False(capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(capabilities.HasFlag(DriverCapabilities.TokenUsage));
     }
 
     [Fact]
-    public async Task CancelAsync_Default_WritesEscapeByte()
+    public void Cancel_Default_AsksForEscapeByte()
     {
         var driver = new PiDriver();
-        var backend = new RecordingSessionBackend();
 
-        await driver.CancelAsync(backend);
+        var input = driver.Cancel();
 
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal([0x1B], bytes);
     }
 
     [Fact]
-    public async Task ClearContextAsync_Default_SubmitsNewCommand()
+    public void ClearContext_Default_AsksForNewCommand()
     {
         var driver = new PiDriver();
-        var backend = new RecordingSessionBackend();
 
-        await driver.ClearContextAsync(backend);
+        var input = driver.ClearContext();
 
-        Assert.Equal(["/new"], backend.SentTexts);
-        Assert.Empty(backend.WrittenBytes);
+        Assert.Equal("/new", input.Command);
+        Assert.Empty(input.Keys);
     }
 
     [Fact]
-    public async Task InterruptAsync_Default_ThrowsNotSupported()
+    public void Interrupt_Default_ThrowsNotSupported()
     {
         var driver = new PiDriver();
-        var backend = new RecordingSessionBackend();
 
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() => driver.InterruptAsync(backend));
+        var error = Assert.Throws<NotSupportedException>(() => driver.Interrupt());
 
         Assert.Contains("no safe hard interrupt", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task ShowHistoryAsync_Default_ThrowsNotSupported()
+    public void ShowHistory_Default_ThrowsNotSupported()
     {
         var driver = new PiDriver();
-        var backend = new RecordingSessionBackend();
 
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() => driver.ShowHistoryAsync(backend));
+        var error = Assert.Throws<NotSupportedException>(() => driver.ShowHistory());
 
         Assert.Contains("tree", error.Message, StringComparison.OrdinalIgnoreCase);
     }

@@ -19,15 +19,14 @@ namespace CcDirector.Core.Drivers;
 /// Therefore: <see cref="DriverCapabilities.Interrupt"/> is NOT declared - a naive
 /// Ctrl+C cascade would kill the session, and pi has no safe hard-interrupt distinct
 /// from quit. History is NOT declared - double-Esc opens a different feature.
-/// Transcripts exist (~/.pi/agent/sessions/&lt;cwd-slug&gt;/&lt;timestamp&gt;_&lt;id&gt;.jsonl) and the
-/// conversation reader parses them, but the widget/usage readers below are not implemented, so
-/// TranscriptRead stays undeclared. Launching remains with the Director's PiAgent, which passes
+/// Transcripts exist (~/.pi/agent/sessions/&lt;cwd-slug&gt;/&lt;timestamp&gt;_&lt;id&gt;.jsonl); the
+/// conversation, widget, and usage readers parse them and TranscriptRead is declared.
+/// Launching remains with the Director's PiAgent, which passes
 /// <c>--session-id</c> so the id - and therefore the file - is known from birth (issue #2670);
 /// the records readers below resolve by that id.
 /// </summary>
 public sealed class PiDriver : IAgentDriver
 {
-    private static readonly byte[] EscapeByte = [0x1B];
 
     public AgentKind Kind => AgentKind.Pi;
 
@@ -36,9 +35,11 @@ public sealed class PiDriver : IAgentDriver
         | DriverCapabilities.ClearContext
         | DriverCapabilities.ContextUsage
         | DriverCapabilities.ModelReport
+        | DriverCapabilities.TranscriptRead
+        | DriverCapabilities.TokenUsage
         // pi compacts with /compact (its own catalog: "Manually compact context"). No completion
-        // report: pi transcript parsing is not implemented, so there is nothing to read a finish from,
-        // and compact-and-continue refuses for pi rather than guessing (issue #2150).
+        // report: its transcript records the resulting conversation but no unambiguous compaction-finished event,
+        // so compact-and-continue refuses for pi rather than guessing (issue #2150).
         | DriverCapabilities.CompactContext;
 
     /// <summary>Terminal, and API mode: <c>pi --mode rpc</c>, spoken to by <see cref="ApiMode.Pi.PiDialect"/>
@@ -46,6 +47,17 @@ public sealed class PiDriver : IAgentDriver
     public IReadOnlyList<ApiMode.SessionConnectionMode> ConnectionModes => ApiMode.SessionConnectionModes.TerminalAndApi;
 
     public IReadOnlyList<AgentSlashCommand> SlashCommands => PiSlashCommands.All;
+
+    /// <summary>Pi 1.2.0 interface rows captured by the Terminal Parity state rig. These are precise interface phrases;
+    /// broad fragments could hide a real reply from turn detection.</summary>
+    public IReadOnlyCollection<string> SelfDescribingRowMarkers { get; } =
+    [
+        "Press ctrl+o to show full startup help",
+        "Pi can explain its own features",
+        "Update Available",
+        "New version 1.4.0 is available",
+        "Changelog: https://pi.dev/changelog",
+    ];
 
     // pi selects its model inside the tool, not via a Director-passed flag (v1): no model selection.
     public string ModelFlag => "";
@@ -70,45 +82,41 @@ public sealed class PiDriver : IAgentDriver
     public Task SubmitAsync(ISessionBackend backend, string text) =>
         TerminalSubmit.EchoVerifiedSubmitAsync(backend, text, "PiDriver");
 
-    public Task CancelAsync(ISessionBackend backend)
+    /// <summary>Measured on Pi (Terminal Parity baseline, 23 October 2026): a leading "!" runs the line as a shell command
+    /// and never reaches the conversation. A leading "/" is a command only when it names one of Pi's own commands; any
+    /// other line starting with "/" arrived as an ordinary prompt.</summary>
+    public string? LeadingCharacterMode(string text)
     {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CancelAsync: sending Esc");
-        backend.Write(EscapeByte);
-        return Task.CompletedTask;
+        if (text.Length == 0) return null;
+        if (text[0] == '!') return "a shell command";
+        if (text[0] != '/') return null;
+        var word = text[1..].Split(' ', 2)[0];
+        return SlashCommands.Any(c => string.Equals(c.NormalizedName, word, StringComparison.Ordinal)) ? "a slash command" : null;
     }
 
-    public Task InterruptAsync(ISessionBackend backend) =>
+    public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+
+    public DriverInput Interrupt() =>
         throw new NotSupportedException(
             "[PiDriver] pi has no safe hard interrupt: Ctrl+C clears the editor and " +
-            "Ctrl+C twice QUITS pi. Use CancelAsync (Esc).");
+            "Ctrl+C twice QUITS pi. Use Cancel (Esc).");
 
-    public Task ShowHistoryAsync(ISessionBackend backend) =>
+    public DriverInput ShowHistory() =>
         throw new NotSupportedException(
             "[PiDriver] pi's double-Esc opens the /tree session navigator, not a history " +
             "rewind; not surfaced as History until live-verified as useful.");
 
     /// <summary>pi's context clear: the /new command starts a fresh session in place.</summary>
-    public Task ClearContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] ClearContextAsync: submitting /new");
-        return backend.SendTextAsync("/new");
-    }
+    public DriverInput ClearContext() => DriverInput.TypeCommand("/new");
 
     /// <summary>pi's in-place summarize: /compact, distinct from /new which starts over.</summary>
-    public Task CompactContextAsync(ISessionBackend backend)
-    {
-        ArgumentNullException.ThrowIfNull(backend);
-        FileLog.Write("[PiDriver] CompactContextAsync: submitting /compact");
-        return backend.SendTextAsync("/compact");
-    }
+    public DriverInput CompactContext() => DriverInput.TypeCommand("/compact");
 
     public List<TurnWidgetDto> ReadWidgets(string agentSessionId, string workingDirectory) =>
-        throw new NotSupportedException("[PiDriver] pi transcript parsing is not implemented (v1).");
+        Pi.PiTranscriptServices.ReadWidgetsForSession(agentSessionId);
 
     public SessionUsageDto? ReadUsage(string agentSessionId, string workingDirectory) =>
-        throw new NotSupportedException("[PiDriver] pi transcript parsing is not implemented (v1).");
+        Pi.PiTranscriptServices.ReadUsageForSession(agentSessionId);
 
     /// <summary>How full the pi context window is right now (capability
     /// <see cref="DriverCapabilities.ContextUsage"/>). pi's session file carries per-message
@@ -127,5 +135,5 @@ public sealed class PiDriver : IAgentDriver
         Pi.PiCurrentModel.ReadForSession(agentSessionId);
 
     public List<(string AgentSessionId, DateTime LastWriteUtc)> ListTranscripts(string workingDirectory) =>
-        throw new NotSupportedException("[PiDriver] pi transcript listing is not implemented (v1).");
+        Pi.PiSessionLocator.ListForRepo(workingDirectory);
 }

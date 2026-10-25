@@ -88,7 +88,17 @@ public sealed class SessionKeyRegistry
     /// </summary>
     /// <returns>True when the registration was accepted; false when it was refused.</returns>
     public bool Register(TenantId tenant, string directorId, string sessionId, string keyHash, DateTime expiresAtUtc)
+        => Register(tenant, directorId, sessionId, keyHash, expiresAtUtc, out _);
+
+    /// <summary>
+    /// <see cref="Register(TenantId, string, string, string, DateTime)"/>, also saying why a refused registration was
+    /// refused (issue #4403: the Gateway reports its refusals under the account). <paramref name="refusal"/> is null
+    /// when the registration was accepted. It names identifiers only - never the key or its hash.
+    /// </summary>
+    public bool Register(TenantId tenant, string directorId, string sessionId, string keyHash, DateTime expiresAtUtc,
+        out string? refusal)
     {
+        refusal = null;
         if (!tenant.IsValid)
             throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
         if (string.IsNullOrWhiteSpace(sessionId))
@@ -117,6 +127,7 @@ public sealed class SessionKeyRegistry
             if (row is not null && row.RevokedAtUtc is not null)
             {
                 FileLog.Write($"[SessionKeyRegistry] Register REFUSED: session={id} was revoked ({row.RevokedReason}) and is not revived by a re-registration");
+                refusal = $"session {id} was revoked ({row.RevokedReason}) and a revoked session key is never registered again";
                 return false;
             }
 
@@ -129,6 +140,7 @@ public sealed class SessionKeyRegistry
                 && !string.Equals(row.DirectorId, directorId?.Trim() ?? "", StringComparison.OrdinalIgnoreCase))
             {
                 FileLog.Write($"[SessionKeyRegistry] Register REFUSED: session={id} is registered to director={row.DirectorId} and director={directorId} may not take it over");
+                refusal = $"session {id} is registered to another Director ({row.DirectorId}), which this Director may not take over";
                 return false;
             }
 
@@ -163,6 +175,7 @@ public sealed class SessionKeyRegistry
             if (ctx.SessionKeys.AsNoTracking().Any(s => s.KeyHash == hash && s.SessionId != id))
             {
                 FileLog.Write($"[SessionKeyRegistry] Register REFUSED: the presented key hash is already registered to another session (session={id})");
+                refusal = $"the key presented for session {id} is already registered to another session";
                 return false;
             }
 
@@ -192,6 +205,7 @@ public sealed class SessionKeyRegistry
         catch (Exception ex) when (IsDatabaseFailure(ex))
         {
             FileLog.Write($"[SessionKeyRegistry] Register FAILED: session={id}, {ex.GetType().Name}: {ex.Message}");
+            refusal = $"the session key registry could not be written ({ex.GetType().Name})";
             return false;
         }
     }
@@ -269,8 +283,12 @@ public sealed class SessionKeyRegistry
 
             var identity = new SessionCredentialIdentity(sessionId, tenant, row.DirectorId);
 
-            if (row.RevokedAtUtc is not null || row.ExpiresAtUtc <= _clock())
-                return new SessionCredentialResolution(SessionCredentialResolutionKind.Revoked, identity);
+            if (row.RevokedAtUtc is not null)
+                return new SessionCredentialResolution(SessionCredentialResolutionKind.Revoked, identity,
+                    $"the session key was revoked ({(string.IsNullOrWhiteSpace(row.RevokedReason) ? "no reason recorded" : row.RevokedReason)})");
+            if (row.ExpiresAtUtc <= _clock())
+                return new SessionCredentialResolution(SessionCredentialResolutionKind.Revoked, identity,
+                    "the session key expired and its Director did not renew it");
 
             return new SessionCredentialResolution(SessionCredentialResolutionKind.Active, identity);
         }
@@ -420,9 +438,11 @@ public enum SessionCredentialResolutionKind
 public sealed record SessionCredentialIdentity(Guid SessionId, TenantId Tenant, string DirectorId);
 
 /// <summary>The typed result of one session-key lookup.</summary>
+/// <param name="Refusal">Why a known key is no longer accepted - revoked, and for what, or expired. Null otherwise.</param>
 public readonly record struct SessionCredentialResolution(
     SessionCredentialResolutionKind Kind,
-    SessionCredentialIdentity? Identity)
+    SessionCredentialIdentity? Identity,
+    string? Refusal = null)
 {
     public static SessionCredentialResolution Unknown { get; } =
         new(SessionCredentialResolutionKind.Unknown, null);

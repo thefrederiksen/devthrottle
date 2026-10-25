@@ -75,8 +75,10 @@ describe("useSessionChat polling", () => {
     await settle();
     expect(reads.calls).toHaveLength(1);
 
+    // Async, so each answer lands before the next tick, as it does 2.5 seconds apart: a tick whose previous poll
+    // has not answered sends nothing (issue #4387).
     await act(async () => {
-      vi.advanceTimersByTime(7500);
+      await vi.advanceTimersByTimeAsync(7500);
     });
     expect(reads.calls).toHaveLength(4);
   });

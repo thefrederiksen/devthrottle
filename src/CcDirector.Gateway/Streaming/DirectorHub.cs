@@ -97,8 +97,10 @@ public sealed class DirectorHub : Hub
         ApiModeEvents.ApiModeEventIngest? apiModeEvents = null,
         Licenses.LicenseApproverRegistration? licenseApproverRegistration = null,
         PushedHostedDesktopStore? hostedDesktops = null,
-        DesktopRelayRegistry? desktopRelay = null)
+        DesktopRelayRegistry? desktopRelay = null,
+        Api.GatewayAccountFailures? accountFailures = null)
     {
+        _accountFailures = accountFailures;
         _hostedDesktops = hostedDesktops;
         _desktopRelay = desktopRelay;
         _licenseApproverRegistration = licenseApproverRegistration;
@@ -165,6 +167,10 @@ public sealed class DirectorHub : Hub
     /// holding a key the Gateway will never accept, which reads as an agent whose tools are broken.
     /// </summary>
     private readonly Pairing.SessionKeyRegistry? _sessionKeys;
+
+    // Issue #4403: a session key this Director asked to register and the Gateway refused is reported under the account,
+    // so the administrator sees the Gateway's side of "the Gateway did not accept this Director's session key".
+    private readonly Api.GatewayAccountFailures? _accountFailures;
 
     /// <summary>The account's list of raised sessions (the Fleet Manager Improvement mission, phase 1). A raised entry
     /// ends with its session, and the reap below is where the Gateway learns a session has ended. Null in tests and
@@ -1024,14 +1030,16 @@ public sealed class DirectorHub : Hub
         if (teamRefusal is not null)
         {
             FileLog.Write($"[DirectorHub] RegisterSessionKey REFUSED ({teamRefusal}): director={directorId}");
+            _accountFailures?.RegistrationRefused(tenant.Value, directorId, registration.SessionId.Trim(), teamRefusal);
             throw new HubException(teamRefusal);
         }
 
         bool registered;
+        string? refusal;
         try
         {
             registered = _sessionKeys.Register(
-                tenant, directorId, registration.SessionId, registration.KeyHash, registration.ExpiresAtUtc);
+                tenant, directorId, registration.SessionId, registration.KeyHash, registration.ExpiresAtUtc, out refusal);
         }
         catch (Exception ex)
         {
@@ -1047,12 +1055,16 @@ public sealed class DirectorHub : Hub
             // not one of them said which argument was wrong. The Gateway knew; the Director could not be
             // told. Rethrown as a HubException, the reason travels.
             FileLog.Write($"[DirectorHub] RegisterSessionKey FAILED UNEXPECTEDLY: director={directorId}, session={registration.SessionId}, {ex.GetType().Name}: {ex.Message}");
+            _accountFailures?.RegistrationRefused(tenant.Value, directorId, registration.SessionId.Trim(),
+                $"the registration failed unexpectedly ({ex.GetType().Name})");
             throw new HubException($"the session key for {registration.SessionId} could not be registered: {ex.GetType().Name}: {ex.Message}");
         }
 
         if (!registered)
         {
-            FileLog.Write($"[DirectorHub] RegisterSessionKey REFUSED: director={directorId}, session={registration.SessionId}");
+            FileLog.Write($"[DirectorHub] RegisterSessionKey REFUSED: director={directorId}, session={registration.SessionId}: {refusal}");
+            _accountFailures?.RegistrationRefused(tenant.Value, directorId, registration.SessionId.Trim(),
+                refusal ?? "the registry refused it and gave no reason");
             throw new HubException($"the session key for {registration.SessionId} was not registered");
         }
     }

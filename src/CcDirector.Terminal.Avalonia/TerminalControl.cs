@@ -10,6 +10,9 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using CcDirector.Core.Backends;
+using CcDirector.Core.Drivers;
+using CcDirector.Core.Input;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Terminal.Avalonia.Rendering;
@@ -353,7 +356,17 @@ public class TerminalControl : Control
         _resizeRequests++;
         _lastResizeRequest = (cols, rows);
         _session.SuppressActivityFor(RepaintSuppressionWindow);
-        _session.Resize(cols, rows);
+        try
+        {
+            _session.Resize(cols, rows);
+        }
+        catch (TerminalWriteFailedException ex)
+        {
+            // THE CONTROL IS WHERE A RESIZE FAILURE LANDS (issue #4380): the backend no longer swallows it, and every
+            // caller of this method is a layout or attach handler on the UI thread. Logged, and the next resize tries
+            // again - the session keeps its old size, so the same size is not skipped as unchanged.
+            FileLog.Write($"[TerminalControl] ResizeSession FAILED: session={_session.Id}, {cols}x{rows}: {ex.Message}");
+        }
     }
 
     // Test hooks only: how many resizes this control has asked its session for, and the last size asked. They count
@@ -1084,6 +1097,16 @@ public class TerminalControl : Control
     /// <summary>A key pressed in the control, through the real key-down handler.</summary>
     internal void HarnessKeyDown(global::Avalonia.Input.Key key) => OnKeyDown(new global::Avalonia.Input.KeyEventArgs { Key = key, RoutedEvent = KeyDownEvent });
 
+    /// <summary>A key pressed with modifiers held (Shift+Enter, Ctrl+R), through the real key-down handler - for the
+    /// delivery harness (issue #4378).</summary>
+    internal void HarnessKeyDown(global::Avalonia.Input.Key key, global::Avalonia.Input.KeyModifiers modifiers) =>
+        OnKeyDown(new global::Avalonia.Input.KeyEventArgs { Key = key, KeyModifiers = modifiers, RoutedEvent = KeyDownEvent });
+
+    /// <summary>A paste of <paramref name="text"/> through the same code Ctrl+V runs once it has read the clipboard - for
+    /// the delivery harness (issue #4378). Completes when the last chunk has been written.</summary>
+    internal Task HarnessPasteAsync(string text) =>
+        _session is { } session && !_isPasting ? PasteTextAsync(session, text) : Task.CompletedTask;
+
     /// <summary>Harness: force the grid dimensions (when not driven by layout).</summary>
     internal void HarnessSetGrid(int cols, int rows)
     {
@@ -1191,6 +1214,9 @@ public class TerminalControl : Control
         _hasSelection = true;
         _isSelecting = false;
     }
+
+    /// <summary>Harness: the menu a right-click opens, built by the same code (issue #2810).</summary>
+    internal Task<ContextMenu> HarnessBuildRightClickMenuAsync() => BuildPasteContextMenuAsync();
 
     /// <summary>Harness: the selected text, through the same path the clipboard copy uses.</summary>
     internal string HarnessSelectedText => GetSelectedText();
@@ -1521,31 +1547,20 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Handle right-click: copy selection or show paste context menu.
+    /// Handle right-click: a menu, always. With text selected it starts with Copy (issue #2810) - right-click used to
+    /// copy silently and clear the highlight, which looked like nothing happened.
     /// </summary>
     private async void HandleRightClick(PointerReleasedEventArgs e)
     {
         try
         {
-            // Right-click with selection copies to clipboard
-            if (_hasSelection)
-            {
-                FileLog.Write("[TerminalControl] Right-click with selection, copying to clipboard");
-                await CopySelectionToClipboardAsync();
-                ClearSelection();
-                InvalidateVisual();
-                e.Handled = true;
-                return;
-            }
+            if (!_hasSelection && _session == null) return;
 
-            // Right-click without selection: always show paste affordance for terminal input.
-            if (_session != null)
-            {
-                var menu = await BuildPasteContextMenuAsync();
-                this.ContextMenu = menu;
-                menu.Open(this);
-                e.Handled = true;
-            }
+            FileLog.Write($"[TerminalControl] HandleRightClick: hasSelection={_hasSelection}, hasSession={_session != null}");
+            var menu = await BuildPasteContextMenuAsync();
+            this.ContextMenu = menu;
+            menu.Open(this);
+            e.Handled = true;
         }
         catch (Exception ex)
         {
@@ -1568,8 +1583,43 @@ public class TerminalControl : Control
         }
 
         var menu = new ContextMenu();
-        AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
+        AddSelectionCopyItem(menu, separatorAfter: _session != null);
+        if (_session != null)
+            AddPasteItems(menu, !string.IsNullOrEmpty(clipText));
         return menu;
+    }
+
+    /// <summary>
+    /// With text selected, puts <b>Copy</b> first in <paramref name="menu"/>, followed by a separator when other items follow
+    /// (issue #2810). The
+    /// text is read when the menu opens, so Copy puts exactly what was highlighted on the clipboard even if the screen
+    /// scrolls while the menu is open. It belongs to the terminal, like the paste items, not to the shared
+    /// <see cref="LinkContextMenuBuilder"/> the History tab also uses.
+    /// </summary>
+    private void AddSelectionCopyItem(ContextMenu menu, bool separatorAfter)
+    {
+        if (!_hasSelection) return;
+        var text = GetSelectedText();
+        if (string.IsNullOrEmpty(text)) return;
+
+        var copyItem = new MenuItem { Header = "Copy" };
+        copyItem.Click += async (_, _) =>
+        {
+            try
+            {
+                FileLog.Write($"[TerminalControl] Menu Copy: {text.Length} characters");
+                await SetClipboardTextAsync(text);
+                ClearSelection();
+                InvalidateVisual();
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TerminalControl] Menu Copy FAILED: {ex.Message}");
+            }
+        };
+        menu.Items.Add(copyItem);
+        if (separatorAfter)
+            menu.Items.Add(new Separator());
     }
 
     private void AddPasteItems(ContextMenu menu, bool hasClipboardText = true)
@@ -1601,27 +1651,13 @@ public class TerminalControl : Control
             bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
             bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
 
-            // Ctrl+C with selection = copy to clipboard (not SIGINT)
-            // Ctrl+Shift+C = always copy to clipboard
-            if (ctrl && e.Key == Key.C && _hasSelection)
+            // Copy, paste and select all: Control on Windows and Linux, Command on a Mac (issue #4425). Ctrl+C with
+            // nothing selected is not one of these - it goes on below as the interrupt.
+            var clipboardAction = TerminalClipboardChord.Classify(e.Key, e.KeyModifiers, OperatingSystem.IsMacOS(), _hasSelection);
+            if (clipboardAction != TerminalClipboardAction.None)
             {
-                FileLog.Write($"[TerminalControl] Ctrl+C detected with selection, copying to clipboard");
-                _ = CopySelectionToClipboardAsync();
-                ClearSelection();
-                InvalidateVisual();
-                e.Handled = true;
-                return;
-            }
-
-            if (ctrl && shift && e.Key == Key.C)
-            {
-                FileLog.Write($"[TerminalControl] Ctrl+Shift+C detected, hasSelection={_hasSelection}");
-                if (_hasSelection)
-                {
-                    _ = CopySelectionToClipboardAsync();
-                    ClearSelection();
-                    InvalidateVisual();
-                }
+                FileLog.Write($"[TerminalControl] OnKeyDown: {e.KeyModifiers}+{e.Key} -> {clipboardAction}, hasSelection={_hasSelection}");
+                RunClipboardAction(clipboardAction);
                 e.Handled = true;
                 return;
             }
@@ -1634,16 +1670,17 @@ public class TerminalControl : Control
                 return;
             }
 
-            // Ctrl+V / Ctrl+Shift+V = paste clipboard as slow keystrokes
-            if (ctrl && e.Key == Key.V)
+            if (_session == null) return;
+
+            // SHIFT+ENTER AND CTRL+J MAKE A NEW LINE, AS A PERSON EXPECTS (issue #4379). Shift+Enter used to send a plain
+            // Enter, which submitted the first line on its own. Each agent gets the key measured to insert a new line in
+            // its composer; an agent not yet measured keeps what the terminal always sent.
+            if (IsNewlineChord(e.Key, e.KeyModifiers) && ComposerNewlineKey.For(_session.AgentKind) is { } newline)
             {
-                FileLog.Write($"[TerminalControl] {(shift ? "Ctrl+Shift+V" : "Ctrl+V")} detected, pasting to terminal");
-                _ = PasteToTerminalAsync();
+                _session.SendInput(newline, InputOrigin.DesktopTyped, DesktopTerminalDoor);
                 e.Handled = true;
                 return;
             }
-
-            if (_session == null) return;
 
             byte[]? data = MapKeyToBytes(e.Key, e.KeyModifiers);
             if (data != null)
@@ -1665,7 +1702,9 @@ public class TerminalControl : Control
         {
             if (_session == null || string.IsNullOrEmpty(e.Text)) return;
 
-            var bytes = Encoding.UTF8.GetBytes(e.Text);
+            // The one platform encoder (issue #4379): on Windows a character outside ASCII goes as a key event, exactly
+            // as the Director's own send writes it.
+            var bytes = TerminalInputEncoder.Encode(e.Text, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(_session.Backend));
             // DevThrottle Stats: raw desktop terminal typing - typed character volume, local by construction.
             _session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor);
             e.Handled = true;
@@ -2289,14 +2328,70 @@ public class TerminalControl : Control
     {
         var text = GetSelectedText();
         if (!string.IsNullOrEmpty(text))
+            await SetClipboardTextAsync(text);
+    }
+
+    private async Task SetClipboardTextAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null)
         {
-            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard != null)
-            {
-                await clipboard.SetTextAsync(text);
-                FileLog.Write($"[TerminalControl] Copied {text.Length} characters to clipboard");
-            }
+            await clipboard.SetTextAsync(text);
+            FileLog.Write($"[TerminalControl] Copied {text.Length} characters to clipboard");
         }
+    }
+
+    /// <summary>True while text is highlighted - what the Mac Edit menu asks before it offers Copy.</summary>
+    public bool HasSelection => _hasSelection;
+
+    /// <summary>
+    /// Copy, Paste or Select All, from a key chord or from the Mac Edit menu (issue #4425): one place, so the menu and
+    /// the keys can never do different things.
+    /// </summary>
+    public void RunClipboardCommand(TerminalClipboardCommand command)
+    {
+        FileLog.Write($"[TerminalControl] RunClipboardCommand: {command}, hasSelection={_hasSelection}");
+        RunClipboardAction(command switch
+        {
+            TerminalClipboardCommand.Copy => _hasSelection ? TerminalClipboardAction.Copy : TerminalClipboardAction.Swallow,
+            TerminalClipboardCommand.Paste => TerminalClipboardAction.Paste,
+            TerminalClipboardCommand.SelectAll => TerminalClipboardAction.SelectAll,
+            _ => throw new ArgumentOutOfRangeException(nameof(command), command, "unknown clipboard command"),
+        });
+    }
+
+    private void RunClipboardAction(TerminalClipboardAction action)
+    {
+        switch (action)
+        {
+            case TerminalClipboardAction.Copy:
+                _ = CopySelectionToClipboardAsync();
+                ClearSelection();
+                InvalidateVisual();
+                break;
+            case TerminalClipboardAction.Paste:
+                _ = PasteToTerminalAsync();
+                break;
+            case TerminalClipboardAction.SelectAll:
+                SelectAllVisible();
+                break;
+            case TerminalClipboardAction.Swallow:
+            case TerminalClipboardAction.None:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, "unknown clipboard action");
+        }
+    }
+
+    /// <summary>Select every cell on the screen, top left to bottom right.</summary>
+    private void SelectAllVisible()
+    {
+        if (_cols <= 0 || _rows <= 0) return;
+        _selectionStart = (0, 0);
+        _selectionEnd = (_cols - 1, _rows - 1);
+        _isSelecting = false;
+        _hasSelection = true;
+        InvalidateVisual();
     }
 
     /// <summary>
@@ -2342,17 +2437,38 @@ public class TerminalControl : Control
             return;
         }
 
+        await PasteTextAsync(session, text);
+    }
+
+    /// <summary>
+    /// The paste itself, after the clipboard is read: the text Ctrl+V and the Paste menu put into the session. Split
+    /// from <see cref="PasteToTerminalAsync"/> only so the delivery harness (issue #4378) can paste a known text through
+    /// this same code; the clipboard read is the only part it skips.
+    /// </summary>
+    private async Task PasteTextAsync(Session session, string? text)
+    {
         if (string.IsNullOrEmpty(text)) return;
 
         // Strip trailing newlines - user can press Enter themselves
         text = text.TrimEnd('\r', '\n');
 
-        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars");
+        // ONE BRACKETED PASTE WHEN THE AGENT ASKED FOR ONE (issue #4379). The paste used to go as plain keystrokes, so
+        // every line break in it was an Enter that submitted the text in pieces, and every tab was the Tab key. Inside
+        // the brackets a line break and a tab are text. The writes come from the one platform encoder the Director's own
+        // send uses. Without brackets it goes at the old keystroke pace, which interactive prompts (claude /login) need.
+        var bracketed = session.BracketedPasteEnabled;
+        var writes = TerminalInputEncoder.Paste(text, bracketed, TerminalInputEncoder.SendsNonAsciiAsKeyEvents(session.Backend),
+            bracketed ? TerminalInputEncoder.PasteChunkBytes : PasteChunkSize).ToList();
+        var pause = bracketed ? TerminalInputEncoder.PasteChunkPause : TimeSpan.FromMilliseconds(PasteChunkDelayMs);
+
+        FileLog.Write($"[TerminalControl] PasteToTerminalAsync: pasting {text.Length} chars, bracketed={bracketed}, writes={writes.Count}");
         _isPasting = true;
 
         try
         {
-            await PaceChunksAsync(text, bytes => session.SendInput(bytes, null, DesktopTerminalDoor)).ConfigureAwait(false);
+            // A PASTE IS THE PERSON AT THE TERMINAL, as their typing is (issue #4380). It went with no origin, so it was
+            // neither counted as theirs nor let through Claude Code's usage-limit dialog: dropped there, silently.
+            await PaceChunksAsync(writes, pause, bracketed, bytes => session.SendInput(bytes, InputOrigin.DesktopTyped, DesktopTerminalDoor)).ConfigureAwait(false);
             FileLog.Write($"[TerminalControl] PasteToTerminalAsync: complete ({text.Length} chars sent)");
         }
         catch (Exception ex)
@@ -2366,9 +2482,9 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// Sends <paramref name="text"/> to <paramref name="send"/> in <see cref="PasteChunkSize"/>-character
-    /// chunks with a <see cref="PasteChunkDelayMs"/> delay between chunks, stopping early if
-    /// <see cref="_isPasting"/> is cleared (Cancel Paste).
+    /// Sends each of <paramref name="writes"/> to <paramref name="send"/> with <paramref name="pause"/> between them,
+    /// stopping early if <see cref="_isPasting"/> is cleared (Cancel Paste). A cancelled BRACKETED paste still writes its
+    /// end marker, so the agent is never left reading everything after it as part of the paste.
     ///
     /// The loop runs inside <see cref="Task.Run(System.Action)"/> and every delay uses
     /// ConfigureAwait(false), so it executes entirely on the thread pool and NEVER resumes on the
@@ -2379,29 +2495,34 @@ public class TerminalControl : Control
     /// of render load. Kept as a separate method so a headless test can drive the real pacing against a
     /// deliberately saturated UI thread. See PasteOffUiThreadTests.
     /// </summary>
-    private async Task PaceChunksAsync(string text, Action<byte[]> send)
+    private async Task PaceChunksAsync(IReadOnlyList<byte[]> writes, TimeSpan pause, bool bracketed, Action<byte[]> send)
     {
         await Task.Run(async () =>
         {
-            for (int i = 0; i < text.Length; i += PasteChunkSize)
+            for (int i = 0; i < writes.Count; i++)
             {
-                if (!_isPasting) break; // Cancelled
+                if (!_isPasting) // Cancelled
+                {
+                    if (bracketed && i > 0) send(TerminalInputEncoder.PasteEnd);
+                    break;
+                }
 
-                var chunk = text.Substring(i, Math.Min(PasteChunkSize, text.Length - i));
-                send(Encoding.UTF8.GetBytes(chunk));
-                await Task.Delay(PasteChunkDelayMs).ConfigureAwait(false);
+                send(writes[i]);
+                if (i < writes.Count - 1) await Task.Delay(pause).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
     }
 
     /// <summary>Test seam: drive the real <see cref="PaceChunksAsync"/> with injected text and a capture
-    /// callback instead of the clipboard and a live session. Mirrors the production _isPasting lifecycle.</summary>
+    /// callback instead of the clipboard and a live session, at the unbracketed keystroke pace. Mirrors the production
+    /// _isPasting lifecycle.</summary>
     internal async Task HarnessPaceChunksAsync(string text, Action<byte[]> send)
     {
         _isPasting = true;
         try
         {
-            await PaceChunksAsync(text, send).ConfigureAwait(false);
+            var writes = TerminalInputEncoder.Paste(text, bracketed: false, nonAsciiAsKeyEvents: false, PasteChunkSize).ToList();
+            await PaceChunksAsync(writes, TimeSpan.FromMilliseconds(PasteChunkDelayMs), bracketed: false, send).ConfigureAwait(false);
         }
         finally
         {
@@ -2418,6 +2539,9 @@ public class TerminalControl : Control
     private void ShowLinkContextMenu(Point position, string link, LinkDetector.LinkType type, string? address = null)
     {
         _linkContextMenu = new ContextMenu();
+        // Selected text comes first, before the link's own items (issue #2810): a person who selected a whole command
+        // line and clicked the path inside it wants the line, not the path.
+        AddSelectionCopyItem(_linkContextMenu, separatorAfter: true);
 
         LinkContextMenuBuilder.PopulateLinkItems(_linkContextMenu, new LinkMenuContext
         {
@@ -2440,52 +2564,20 @@ public class TerminalControl : Control
         _linkContextMenu.Open(this);
     }
 
-    private static byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
+    /// <summary>Shift+Enter, or Ctrl+J: the chords a person uses for a new line in an agent's composer.</summary>
+    internal static bool IsNewlineChord(Key key, KeyModifiers modifiers) =>
+        (key == Key.Enter && modifiers == KeyModifiers.Shift) || (key == Key.J && modifiers == KeyModifiers.Control);
+
+    private byte[]? MapKeyToBytes(Key key, KeyModifiers modifiers)
     {
-        bool ctrl = (modifiers & KeyModifiers.Control) != 0;
-        bool shift = (modifiers & KeyModifiers.Shift) != 0;
-
-        // Ctrl+C
-        if (ctrl && key == Key.C) return new byte[] { 0x03 };
-        // Ctrl+D
-        if (ctrl && key == Key.D) return new byte[] { 0x04 };
-        // Ctrl+Z
-        if (ctrl && key == Key.Z) return new byte[] { 0x1A };
-        // Ctrl+L
-        if (ctrl && key == Key.L) return new byte[] { 0x0C };
-
-        // Shift+Tab (backtab) - used by Claude Code for mode cycling
-        if (shift && key == Key.Tab) return "\x1b[Z"u8.ToArray();
-
-        return key switch
-        {
-            Key.Enter => "\r"u8.ToArray(),
-            Key.Back => new byte[] { 0x7F },
-            Key.Tab => "\t"u8.ToArray(),
-            Key.Escape => new byte[] { 0x1B },
-            Key.Up => "\x1b[A"u8.ToArray(),
-            Key.Down => "\x1b[B"u8.ToArray(),
-            Key.Right => "\x1b[C"u8.ToArray(),
-            Key.Left => "\x1b[D"u8.ToArray(),
-            Key.Home => "\x1b[H"u8.ToArray(),
-            Key.End => "\x1b[F"u8.ToArray(),
-            Key.Delete => "\x1b[3~"u8.ToArray(),
-            Key.PageUp => "\x1b[5~"u8.ToArray(),
-            Key.PageDown => "\x1b[6~"u8.ToArray(),
-            Key.Insert => "\x1b[2~"u8.ToArray(),
-            Key.F1 => "\x1bOP"u8.ToArray(),
-            Key.F2 => "\x1bOQ"u8.ToArray(),
-            Key.F3 => "\x1bOR"u8.ToArray(),
-            Key.F4 => "\x1bOS"u8.ToArray(),
-            Key.F5 => "\x1b[15~"u8.ToArray(),
-            Key.F6 => "\x1b[17~"u8.ToArray(),
-            Key.F7 => "\x1b[18~"u8.ToArray(),
-            Key.F8 => "\x1b[19~"u8.ToArray(),
-            Key.F9 => "\x1b[20~"u8.ToArray(),
-            Key.F10 => "\x1b[21~"u8.ToArray(),
-            Key.F11 => "\x1b[23~"u8.ToArray(),
-            Key.F12 => "\x1b[24~"u8.ToArray(),
-            _ => null
-        };
+        if (TerminalKeyInputPolicy.ShouldLeaveToTextInput(key, modifiers, OperatingSystem.IsWindows())) return null;
+        if (!TerminalKeyInputPolicy.TryMap(key, out var terminalKey)) return null;
+        return KeyEncoder.Encode(terminalKey, ToTerminalModifiers(modifiers), _session?.ApplicationCursorKeys ?? false);
     }
+
+    private static TerminalKeyModifiers ToTerminalModifiers(KeyModifiers modifiers) =>
+        (modifiers.HasFlag(KeyModifiers.Shift) ? TerminalKeyModifiers.Shift : TerminalKeyModifiers.None) |
+        (modifiers.HasFlag(KeyModifiers.Alt) ? TerminalKeyModifiers.Alt : TerminalKeyModifiers.None) |
+        (modifiers.HasFlag(KeyModifiers.Control) ? TerminalKeyModifiers.Control : TerminalKeyModifiers.None);
+
 }

@@ -63,7 +63,7 @@ GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
 TREE_CANDIDATES=("$HOME/Library/Application Support/cc-director" "$DESTINATION_DIR/$APP_NAME"
                  "$DESTINATION_DIR/Director.app" "$DESTINATION_DIR/CC Director.app"
                  "$HOME/Library/LaunchAgents/com.devthrottle.cc-launcher.plist"
-                 "$HOME/.zshrc" "$HOME/.bash_profile")
+                 "$HOME/.zshenv" "$HOME/.zshrc" "$HOME/.bash_profile")
 # Shared parents a sudo run may have created: only the folder itself, never what other apps keep in it.
 # Replacing anything inside a folder needs the folder to be writable, so a root-owned parent blocks on its own.
 FOLDER_CANDIDATES=("$DESTINATION_DIR" "$HOME/Library/LaunchAgents" "$HOME/.local" "$HOME/.local/bin")

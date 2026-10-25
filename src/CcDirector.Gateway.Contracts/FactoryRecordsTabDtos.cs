@@ -63,10 +63,11 @@ public sealed class FactoryRecordsAttachmentRowDto
 
     public string WhenText { get; set; } = "";
 
-    /// <summary>"Download".</summary>
+    /// <summary>"Download", or "Removed 3 days ago" for a file the factory removed.</summary>
     public string DownloadLabel { get; set; } = "";
 
-    /// <summary>Where the file is read: <c>/gateway/factories/{factory}/records/attachments/{id}</c>.</summary>
+    /// <summary>Where the file is read: <c>/gateway/factories/{factory}/records/attachments/{id}</c>; empty for a file the
+    /// factory removed.</summary>
     public string DownloadHref { get; set; } = "";
 }
 
@@ -200,10 +201,10 @@ public sealed class FactoryRecordsDocumentHistoryViewDto
 {
     public string Name { get; set; } = "";
 
-    /// <summary>"Every version of outreach/ledger.json".</summary>
+    /// <summary>"The newest versions of outreach/ledger.json".</summary>
     public string Heading { get; set; } = "";
 
-    /// <summary>"4 versions. Every version is kept."</summary>
+    /// <summary>"3 versions. A document keeps its newest 3 versions, and the one the one-time upload stored."</summary>
     public string SummaryText { get; set; } = "";
 
     public List<string> Columns { get; set; } = new();

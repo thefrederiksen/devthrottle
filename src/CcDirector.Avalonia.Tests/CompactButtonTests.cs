@@ -55,7 +55,8 @@ public class CompactButtonTests
         await bar.CompactContextWithConfirmationAsync();
 
         Assert.Equal(1, driver.CompactCalls);
-        Assert.Empty(((RecordingBackend)session.Backend).SentTexts);
+        // The session types the driver's compaction command (issue #4380) - and nothing after it.
+        Assert.Equal(["/compact"], ((RecordingBackend)session.Backend).SentTexts);
     }
 
     /// <summary>Still nothing sent, even for a driver that COULD time a follow-up.</summary>
@@ -70,7 +71,8 @@ public class CompactButtonTests
         await bar.CompactContextWithConfirmationAsync();
 
         Assert.Equal(1, driver.CompactCalls);
-        Assert.Empty(((RecordingBackend)session.Backend).SentTexts);
+        // The session types the driver's compaction command (issue #4380) - and nothing after it.
+        Assert.Equal(["/compact"], ((RecordingBackend)session.Backend).SentTexts);
     }
 
     /// <summary>Compaction must never be substituted with a clear - they differ by one word and by
@@ -157,21 +159,21 @@ public class CompactButtonTests
         public string ResolveExecutable(string? configuredPath) => throw new NotSupportedException();
         public AgentLaunchSpec BuildLaunchSpec(string? baseArgs, string? resumeSessionId) => throw new NotSupportedException();
         public Task SubmitAsync(ISessionBackend backend, string text) => backend.SendTextAsync(text);
-        public Task CancelAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task InterruptAsync(ISessionBackend backend) => Task.CompletedTask;
-        public Task ShowHistoryAsync(ISessionBackend backend) => Task.CompletedTask;
+        public DriverInput Cancel() => DriverInput.PressKeys(DriverKey.Escape);
+        public DriverInput Interrupt() => DriverInput.PressKeys(DriverKey.CtrlC);
+        public DriverInput ShowHistory() => DriverInput.PressKeys(DriverKey.Escape);
 
-        public Task ClearContextAsync(ISessionBackend backend)
+        public DriverInput ClearContext()
         {
             ClearCalls++;
-            return Task.CompletedTask;
+            return DriverInput.TypeCommand("/clear");
         }
 
-        public Task CompactContextAsync(ISessionBackend backend)
+        public DriverInput CompactContext()
         {
             if (!CanCompact) throw new NotSupportedException("stub declares no compaction");
             CompactCalls++;
-            return Task.CompletedTask;
+            return DriverInput.TypeCommand("/compact");
         }
 
         // Reports the compaction as finished on the first look, so the button's wait resolves at once.

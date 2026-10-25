@@ -326,10 +326,13 @@ public sealed class RestartEligibilityTests
     }
 
     [Fact]
-    public void Letter_case_does_not_make_the_same_Windows_executable_a_different_one()
+    public void Letter_case_is_ignored_on_Windows_and_names_a_different_executable_elsewhere()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        // Both sides of the rule, so the test checks something on every system (it used to return early off Windows and
+        // pass having checked nothing): Windows paths ignore case, so an upper-cased path is the same executable; on
+        // Linux it is a different file, and a different executable is not the supervised one.
         var dto = RestartEligibility.Judge("default", true, Supervised.ToUpperInvariant(), Supervised);
-        Assert.True(dto.Eligible);
+        if (OperatingSystem.IsWindows()) Assert.True(dto.Eligible);
+        else Assert.NotEqual(true, dto.Eligible);
     }
 }

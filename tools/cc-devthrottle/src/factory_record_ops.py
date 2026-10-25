@@ -4,7 +4,7 @@ Three kinds of record, each beside the factory's memory and its activity record:
 
 - `factory journal`  what a seat wrote down about a day. Append-only: `add` and the two reads, never an edit.
 - `factory doc`      a named working document a seat reads and rewrites - the outreach ledger, the playbook.
-                     Every version kept. `write` sends the version the caller last READ, and a write against a
+                     The newest three versions kept. `write` sends the version the caller last READ, and a write against a
                      version that is no longer the newest is refused with the CURRENT text, so the caller can merge
                      and write again. Two runs writing the ledger at once: one is refused, nothing is lost.
 - `factory attach`   a file a factory kept - a screenshot, a walk's JSON. Bytes kept apart from any journal.
@@ -94,7 +94,7 @@ def _read_text_file(path: str, what: str, usage: str) -> str:
 
 def _written(answer: Any, key: str) -> Optional[Dict[str, Any]]:
     """The record a write answered with, or None when the answer carried none."""
-    if isinstance(answer, dict) and answer.get("outcome") in ("Written", "AlreadyStored") and isinstance(answer.get(key), dict):
+    if isinstance(answer, dict) and answer.get("outcome") in ("Written", "AlreadyStored", "Removed") and isinstance(answer.get(key), dict):
         return answer[key]
     return None
 
@@ -416,9 +416,34 @@ def attach_add(factory: str, seat: Optional[str], file: str, name: Optional[str]
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    axi_cli.write_lines(f"Kept: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes). Name this id in a "
-                        "journal entry with --attachment.")
+    if answer.get("outcome") == "AlreadyStored":
+        axi_cli.write_lines(f"Already held: these exact bytes are kept as attachment {a.get('id')} '{a.get('name')}' "
+                            f"({a.get('bytes')} bytes), so nothing was stored again. Name this id in a journal entry "
+                            "with --attachment.")
+    else:
+        axi_cli.write_lines(f"Kept: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes). Name this id in a "
+                            "journal entry with --attachment.")
     axi_cli.print_next([f"{_JOURNAL} add {_f(factory)} --file <path> --attachment {a.get('id')}"])
+
+
+def attach_remove(factory: str, attachment_id: str, json_output: bool) -> None:
+    """Remove one file the factory no longer needs: its bytes go, its record stays marked removed, so a journal entry
+    that named it still says what it was. Removing it again changes nothing."""
+    try:
+        answer = gateway.delete(f"{_root(factory)}/attachments/{gateway.path_segment(attachment_id)}")
+    except gateway.GatewayError as exc:
+        _fail_gateway(exc, [f"{_ATTACH} list {_f(factory)}"] if exc.status in (400, 404) else None)
+        return
+    a = _written(answer, "attachment")
+    if a is None:
+        axi_cli.fail("the Gateway answered without the attachment it removed, so this command cannot show it was removed.",
+                     [f"{_ATTACH} list {_f(factory)}"])
+        return
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    axi_cli.write_lines(f"Removed: attachment {a.get('id')} '{a.get('name')}' ({a.get('bytes')} bytes) on "
+                        f"{a.get('removedAtUtc')}. Its bytes are gone; its record stays.")
 
 
 # ---------------------------------------------------------------------------------------------------

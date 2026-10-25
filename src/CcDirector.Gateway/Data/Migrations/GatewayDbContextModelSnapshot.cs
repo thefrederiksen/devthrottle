@@ -365,6 +365,40 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("api_mode_receipts", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronFailureNoticeEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("HeldBack")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastCountedRunId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastCountedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSentUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "JobId", "Cause");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("cron_failure_notices", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -408,6 +442,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("NextRunUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NotifyDefaultedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("NotifyOn")
@@ -1289,6 +1326,13 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RemovedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RemovedBy")
+                        .HasMaxLength(230)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Seat")

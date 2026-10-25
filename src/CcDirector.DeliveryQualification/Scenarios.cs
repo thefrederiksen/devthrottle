@@ -435,7 +435,7 @@ public static class Scenarios
         return r;
     }
 
-    private static async Task<(string Director, string Detail, double Seconds)> TimeSendAsync(Func<Task> send)
+    internal static async Task<(string Director, string Detail, double Seconds)> TimeSendAsync(Func<Task> send)
     {
         if (SendBegan.Value is { } began) began.Value = true;
         var sw = Stopwatch.StartNew();

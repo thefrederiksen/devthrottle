@@ -298,6 +298,7 @@ public static class DoorbellSafety
         {
             AgentKind.ClaudeCode => ReadClaudeComposer(frame),
             AgentKind.Codex => ReadCodexComposer(frame),
+            AgentKind.Pi => ReadPiComposer(frame),
             _ => (ComposerReading.NotFound, ""),
         };
     }
@@ -385,6 +386,43 @@ public static class DoorbellSafety
         return rest.Length > 0 && rest[0] is ' ' or '\u00A0' ? rest[1..] : rest;
     }
 
+    /// <summary>Pi 1.2.0 draws its composer as the cursor row between two full horizontal rules. The working-directory
+    /// and usage footer sits below the second rule. Requiring both rules and the visible cursor makes a partial repaint,
+    /// transcript row, picker search box, or unread screen remain unknown as NotFound, so an ambiguous frame never
+    /// invents a refusal a person at Pi's terminal would not face.</summary>
+    private static (ComposerReading, string) ReadPiComposer(ScreenFrame frame)
+    {
+        var rows = frame.Rows ?? [];
+        if (!frame.CursorVisible || frame.CursorRow <= 0 || frame.CursorRow >= rows.Count - 1)
+            return (ComposerReading.NotFound, "");
+        var topRule = -1;
+        for (var row = frame.CursorRow - 1; row >= Math.Max(0, frame.CursorRow - 12); row--)
+            if (IsRule(rows[row])) { topRule = row; break; }
+        var bottomRule = -1;
+        for (var row = frame.CursorRow + 1; row < Math.Min(rows.Count, frame.CursorRow + 13); row++)
+            if (IsRule(rows[row])) { bottomRule = row; break; }
+        if (topRule < 0 || bottomRule < 0)
+            return (ComposerReading.NotFound, "");
+        // The Pi footer is part of the positive composer signature. Rule-framed editors also exist in other agents,
+        // and Pi itself uses rules for notices and pickers; without its provider/model/thinking footer this is unknown.
+        var piFooter = rows.Skip(bottomRule + 1).Take(3).Any(row =>
+            row is not null && row.Contains("thinking ", StringComparison.OrdinalIgnoreCase)
+                            && row.Contains('(') && row.Contains(')'));
+        if (!piFooter)
+            return (ComposerReading.NotFound, "");
+
+        var editorRows = rows.Skip(topRule + 1).Take(bottomRule - topRule - 1).Select(row => row ?? "").ToList();
+        // Pi's pickers reuse the same outer rules, but carry this captured key legend. It is positive menu evidence,
+        // not a guess from an unfamiliar composer; other unknown shapes remain NotFound below.
+        if (editorRows.Any(row => row.Contains("Enter to select ·", StringComparison.Ordinal)))
+            return (ComposerReading.NotFound, "");
+        if (editorRows.All(string.IsNullOrEmpty))
+            return frame.CursorCol == 0
+                ? (ComposerReading.Empty, "")
+                : (ComposerReading.HoldsText, "");
+        return (ComposerReading.HoldsText, string.Join("\n", editorRows).Trim());
+    }
+
     private static (ComposerReading, string) ReadCodexComposer(ScreenFrame frame)
     {
         var rows = frame.Rows ?? [];
@@ -462,6 +500,9 @@ public static class DoorbellSafety
         {
             AgentKind.ClaudeCode => FindClaudeComposer(frame.Rows).Prompt,
             AgentKind.Codex => CodexPromptRow(frame, frame.Rows),
+            AgentKind.Pi => ReadPiComposer(frame).Item1 is ComposerReading.Empty or ComposerReading.HoldsText
+                ? frame.CursorRow
+                : -1,
             _ => -1,
         };
         return (frame.CursorRow, frame.CursorCol, promptRow, frame.CursorVisible);
@@ -564,6 +605,15 @@ public static class DoorbellSafety
                 for (var row = codexPrompt + 1; row <= frame.CursorRow; row++)
                     segments.Add((row, rows[row].Length >= ContinuationIndent.Length ? rows[row][ContinuationIndent.Length..] : rows[row]));
                 break;
+            }
+            case AgentKind.Pi:
+            {
+                var (piReading, piText) = ReadPiComposer(frame);
+                if (piReading != ComposerReading.HoldsText || !string.Equals(piText, line, StringComparison.Ordinal))
+                    return false;
+                return frame.CursorVisible
+                       && frame.CursorRow >= 0
+                       && frame.CursorCol == line.Length;
             }
             default:
                 return false;

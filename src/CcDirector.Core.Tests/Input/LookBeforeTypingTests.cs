@@ -80,6 +80,10 @@ public sealed class LookBeforeTypingTests : IDisposable
         /// <summary>After this many frames are read, the overlay closes by itself (a menu the owner answered).</summary>
         public int? OverlayClosesAfterFrames { get; init; }
 
+        /// <summary>When set, a write carrying a Backspace draws this instead of the composer once it is applied: the clear
+        /// of an earlier text lands and the screen then shows a view the composer reader cannot place.</summary>
+        public string[]? OverlayOnBackspace { get; init; }
+
         /// <summary>Park an empty composer's cursor away from its prompt row, as an idle live screen can do.</summary>
         public bool ParkEmptyCursorAway { get; }
         private int _framesRead;
@@ -120,6 +124,7 @@ public sealed class LookBeforeTypingTests : IDisposable
                         default: if (b >= 0x20 && b < 0x7F) _composer.Append((char)b); break;
                     }
                 }
+                if (OverlayOnBackspace is not null && data.Contains((byte)0x7F)) _overlay = OverlayOnBackspace;
                 Redraw();
             }
         }
@@ -216,15 +221,33 @@ public sealed class LookBeforeTypingTests : IDisposable
         Assert.Empty(screen.Written);
     }
 
+    /// <summary>
+    /// The owner's decision 8 (23 October 2026): no gate a person at the terminal does not have. A screen the reader cannot
+    /// place a composer on is not a menu, and a person would type into it; until then this send was refused with "the
+    /// composer is not on the screen".
+    /// </summary>
     [Fact]
-    public async Task SharedSubmit_FullScreenViewWithNoComposer_RefusesAndTypesNothing()
+    public async Task SharedSubmit_FullScreenViewWithNoComposer_IsNotRefusedAndTypes()
     {
         using var screen = new ClaudeScreen(overlay: OutputView);
+        var trail = SendTrail.Begin();
 
-        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+        var failure = await Record.ExceptionAsync(() => Send(screen, Prompt));
 
-        Assert.Contains("composer is not on the screen", ex.Message);
-        Assert.Empty(screen.Written);
+        Assert.DoesNotContain("LookBeforeTyping", failure?.Message ?? "");
+        Assert.Contains(Prompt, Encoding.ASCII.GetString(screen.Written.SelectMany(w => w).ToArray()));
+        Assert.Contains("LookBeforeTyping: the composer cannot be read on this screen - that is not a menu", string.Join("\n", trail.Steps));
+    }
+
+    [Fact]
+    public async Task SharedSubmit_ScreenRenderedNothing_IsNotRefusedAndTypes()
+    {
+        using var screen = new ClaudeScreen(overlay: [""]);
+
+        var failure = await Record.ExceptionAsync(() => Send(screen, Prompt));
+
+        Assert.DoesNotContain("LookBeforeTyping", failure?.Message ?? "");
+        Assert.NotEmpty(screen.Written);
     }
 
     /// <summary>The owner's ruling, 21 October 2026: "If there are texts already entered in the text box, we should be
@@ -298,20 +321,39 @@ public sealed class LookBeforeTypingTests : IDisposable
     }
 
     [Fact]
-    public async Task SharedSubmit_OwnerTypedAfterAMarkedLine_RefusesAndErasesNothing()
+    public async Task SharedSubmit_OwnerTypedAfterAMarkedLine_TypesAfterBothAndErasesNothing()
     {
         // Review of pull request 4072, risk B: the clear keys (End and a Backspace per character and more) would take the
-        // owner's words off the end first.
+        // owner's words off the end first, so nothing is cleared. The owner's decision 8 (23 October 2026): the send then
+        // types after the text, as for any draft; until then it was refused.
         const string leftover = "[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox";
         using var screen = new ClaudeScreen(composer: leftover + " and my own reply");
         ComposerRetention.MarkMayHoldText(screen, AgentKind.ClaudeCode.ToString(), leftover);
 
-        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+        await Send(screen, Prompt);
 
-        Assert.Contains("would erase those words", ex.Message);
-        Assert.Empty(screen.Written);
-        Assert.Equal(leftover + " and my own reply", screen.Composer);
-        Assert.True(ComposerRetention.MayHoldText(screen));
+        Assert.DoesNotContain(screen.Written, w => w.Contains((byte)0x7F));
+        Assert.Equal([leftover + " and my own reply " + Prompt], screen.Submitted);
+    }
+
+    /// <summary>
+    /// The owner's decision 8 (23 October 2026): the clear of an earlier unsent text is never followed by a refusal because
+    /// the screen cannot be read. Until then the send was refused with "the composer cannot be read after it was cleared".
+    /// </summary>
+    [Fact]
+    public async Task SharedSubmit_ComposerUnreadableAfterTheClear_IsNotRefused()
+    {
+        const string leftover = "an earlier unsent prompt about the release checklist";
+        using var screen = new ClaudeScreen(composer: leftover) { OverlayOnBackspace = OutputView };
+        ComposerRetention.MarkMayHoldText(screen, AgentKind.ClaudeCode.ToString(), leftover);
+        var trail = SendTrail.Begin();
+
+        var failure = await Record.ExceptionAsync(() => Send(screen, Prompt));
+
+        Assert.DoesNotContain("ResolveRetainedComposer", failure?.Message ?? "");
+        Assert.Contains(screen.Written, w => w.Contains((byte)0x7F));
+        Assert.Contains(Prompt, Encoding.ASCII.GetString(screen.Written.SelectMany(w => w).ToArray()));
+        Assert.Contains("the composer cannot be read after the clear - not refusing on that", string.Join("\n", trail.Steps));
     }
 
     private static ScreenFrame CodexFrame(IReadOnlyList<string> rows, int cursorRow, int cursorCol) =>

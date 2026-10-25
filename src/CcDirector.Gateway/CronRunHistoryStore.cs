@@ -396,6 +396,85 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    /// <summary>One recorded run with the account and schedule it belongs to - a row of the administrator's read
+    /// across every account (issue #4403). <paramref name="JobName"/> is the schedule's name as it stands now, or the
+    /// name fixed on the run when the schedule is gone, or null when neither is known.</summary>
+    public sealed record AccountRun(string Account, string JobId, string? JobName, CronRunRecord Run);
+
+    /// <summary>What the administrator's read filters by. Every field but <see cref="Limit"/> is optional; the window
+    /// is on the time the run fired.</summary>
+    public sealed record AccountRunQuery(string? Account, string? JobId, DateTime? SinceUtc, DateTime? UntilUtc,
+        bool FailedOnly, int Limit);
+
+    /// <summary>
+    /// A run that FAILED: one recorded as a problem (it did not start, did not report, ran past its shift, its check
+    /// did not run, or its session reported one), or one whose start was never known to have happened. The one
+    /// definition the administrator's <c>outcome=failed</c> filter and the Gateway's own failure reports share.
+    /// </summary>
+    public static bool IsFailed(CronRunRecord run) =>
+        run.Result is CronRunResults.Problem or CronRunResults.StartUnknown;
+
+    /// <summary>
+    /// THE ADMINISTRATOR'S READ OF EVERY ACCOUNT'S RUNS (issue #4403), newest fire first. Read across accounts on
+    /// purpose - the account filter is the caller's, not the ambient tenant - so it is reached only from the route
+    /// behind the administrator service token. Read-only.
+    /// </summary>
+    public IReadOnlyList<AccountRun> ListAcrossAccounts(AccountRunQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.Limit < 1) throw new ArgumentOutOfRangeException(nameof(query), "the limit must be at least 1");
+        lock (_gate)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var rows = ctx.CronRuns.IgnoreQueryFilters().AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(query.Account)) rows = rows.Where(e => e.TenantId == query.Account);
+            if (!string.IsNullOrWhiteSpace(query.JobId)) rows = rows.Where(e => e.JobId == query.JobId);
+            if (query.SinceUtc is { } since) rows = rows.Where(e => e.FiredUtc >= since);
+            if (query.UntilUtc is { } until) rows = rows.Where(e => e.FiredUtc <= until);
+            if (query.FailedOnly)
+                rows = rows.Where(e => e.Result == CronRunResults.Problem || e.Result == CronRunResults.StartUnknown);
+            var found = rows.OrderByDescending(e => e.FiredUtc).ThenByDescending(e => e.Sequence)
+                .Take(query.Limit).ToList();
+            return WithNames(ctx, found);
+        }
+    }
+
+    /// <summary>
+    /// Every failed run (<see cref="IsFailed"/>) of every account whose result was recorded at or after
+    /// <paramref name="sinceUtc"/>, oldest result first, at most <paramref name="max"/>. What the Gateway's own failure
+    /// reports read (<see cref="Running.CronRunFailureReporter"/>): every path that fails a run stamps its result time,
+    /// so this one read sees a failure whichever path recorded it.
+    /// </summary>
+    public IReadOnlyList<AccountRun> FailedSince(DateTime sinceUtc, int max)
+    {
+        if (max < 1) throw new ArgumentOutOfRangeException(nameof(max), "max must be at least 1");
+        lock (_gate)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var found = ctx.CronRuns.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => e.ResultUtc != null && e.ResultUtc >= sinceUtc
+                    && (e.Result == CronRunResults.Problem || e.Result == CronRunResults.StartUnknown))
+                .OrderBy(e => e.ResultUtc).ThenBy(e => e.Sequence)
+                .Take(max).ToList();
+            return WithNames(ctx, found);
+        }
+    }
+
+    private static IReadOnlyList<AccountRun> WithNames(GatewayDbContext ctx, List<CronRunEntity> runs)
+    {
+        if (runs.Count == 0) return Array.Empty<AccountRun>();
+        var jobIds = runs.Select(r => r.JobId).Distinct(StringComparer.Ordinal).ToList();
+        var names = ctx.CronJobs.IgnoreQueryFilters().AsNoTracking()
+            .Where(j => jobIds.Contains(j.Id))
+            .Select(j => new { j.TenantId, j.Id, j.Name })
+            .ToList()
+            .ToDictionary(j => (j.TenantId, j.Id), j => j.Name);
+        return runs.Select(r => new AccountRun(r.TenantId, r.JobId,
+                names.TryGetValue((r.TenantId, r.JobId), out var name) && !string.IsNullOrWhiteSpace(name) ? name : r.JobName,
+                ToRecord(r)))
+            .ToList();
+    }
+
     /// <summary>What a conditional write found: whether it was applied, and the run as it now stands (null: no such run).</summary>
     public sealed record ResultWrite(bool Applied, CronRunRecord? Run);
 

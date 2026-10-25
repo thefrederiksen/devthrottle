@@ -176,7 +176,8 @@ public sealed class AgentPluginRegistryTests
         Assert.False(plugin.Launch.SupportsStudioMode);
         Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.Cancel));
         Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.ClearContext));
-        Assert.False(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TranscriptRead));
+        Assert.True(plugin.Driver.Capabilities.HasFlag(DriverCapabilities.TokenUsage));
         Assert.NotEmpty(plugin.Driver.SlashCommands);
         Assert.All(plugin.Driver.SlashCommands, command => Assert.Equal(AgentKind.Pi, command.DriverKind));
     }

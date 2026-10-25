@@ -3,10 +3,13 @@
 import type { CronJob } from "./scheduleClient";
 
 /**
- * The warnings on a saved schedule, as one line for the "Saved, but:" banner: the Gateway's load warning and its
- * shift-end warning (Factory Control, step 3), each verbatim, in that order. Null when the Gateway gave neither.
+ * The warnings on a saved schedule, as one line for the "Saved, but:" banner: the Gateway's folder warning (issue
+ * #4421), its load warning and its shift-end warning (Factory Control, step 3), each verbatim, in that order. Null when
+ * the Gateway gave none.
  */
-export function savedWarnings(saved: Pick<CronJob, "loadWarning" | "shiftWarning">): string | null {
-  const parts = [saved.loadWarning, saved.shiftWarning].filter((w): w is string => typeof w === "string" && w.length > 0);
+export function savedWarnings(saved: Pick<CronJob, "folderWarning" | "loadWarning" | "shiftWarning">): string | null {
+  const parts = [saved.folderWarning, saved.loadWarning, saved.shiftWarning].filter(
+    (w): w is string => typeof w === "string" && w.length > 0,
+  );
   return parts.length === 0 ? null : parts.join(" ");
 }

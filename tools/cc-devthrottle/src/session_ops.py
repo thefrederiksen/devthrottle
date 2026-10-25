@@ -218,6 +218,69 @@ def fleet_or_exit() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str]
     return _get_fleet()
 
 
+def wait_for_session(
+    target: Optional[str],
+    until: str,
+    timeout_seconds: int,
+    json_output: bool = False,
+    *,
+    read_state=None,
+    monotonic=None,
+    sleep=None,
+) -> None:
+    """Wait until one session reaches the requested resolved activity state."""
+    valid_until = ("idle", "needs-approval")
+    if until not in valid_until:
+        _usage_error(f"unknown --until value '{axi_output.escape_ascii(until)}'. Valid values: {', '.join(valid_until)}")
+    if timeout_seconds <= 0:
+        _usage_error("--timeout must be greater than zero seconds.")
+
+    sid = resolve_target_or_current(target, command_name="session wait")
+    read = read_state or (lambda: gateway.get_json(f"sessions/{gateway.path_segment(sid)}"))
+    clock = monotonic or time.monotonic
+    pause = sleep or time.sleep
+    deadline = clock() + timeout_seconds
+    desired = {"idle": ("Idle", "WaitingForInput"), "needs-approval": ("WaitingForPerm",)}[until]
+
+    while True:
+        try:
+            row = read()
+        except gateway.GatewayError as err:
+            axi_cli.fail(f"could not read session {sid}: {err}", ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY])
+        if not isinstance(row, dict):
+            axi_cli.fail(
+                f"the Gateway returned no session object for {sid}.",
+                ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
+            )
+        state = gateway.field(row, "activityState", "ActivityState")
+        if state in desired:
+            answer = {
+                "sessionId": sid,
+                "until": until,
+                "activityState": state,
+                "source": gateway.field(row, "activityStateSource", "ActivityStateSource"),
+                "fallback": row.get("activityStateIsFallback", row.get("ActivityStateIsFallback", False)) is True,
+            }
+            if json_output:
+                print(json.dumps(answer, separators=(",", ":")))
+            else:
+                axi_output.write_blocks(
+                    sys.stdout,
+                    f"session: {axi_output.escape_ascii(sid)}\nuntil: {until}\nactivity-state: {state}\n"
+                    f"source: {axi_output.escape_ascii(answer['source'])}\nfallback: {'yes' if answer['fallback'] else 'no'}",
+                    axi_output.format_help(["cc-devthrottle session list", f"cc-devthrottle session wait {axi_cli.bare(sid, '<session-id>')} --until <state>"]),
+                )
+            return
+        if state == "Exited":
+            axi_cli.fail(f"session {sid} exited before it reached {until}.", ["cc-devthrottle session list"])
+        if clock() >= deadline:
+            axi_cli.fail(
+                f"session {sid} did not reach {until} within {timeout_seconds} seconds; its last activity state was {state or '(missing)' }.",
+                [f"cc-devthrottle session wait {axi_cli.bare(sid, '<session-id>')} --until {until} --timeout <seconds>", "cc-devthrottle session list"],
+            )
+        pause(0.25)
+
+
 def resolve_target_or_current(target: Optional[str], command_name: str = "the command") -> str:
     """Return the requested session id, defaulting to this session."""
     if target is None or not target.strip():

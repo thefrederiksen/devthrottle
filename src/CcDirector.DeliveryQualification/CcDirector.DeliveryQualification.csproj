@@ -14,6 +14,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../CcDirector.Core/CcDirector.Core.csproj" />
+    <!-- The shipped desktop terminal control, run headless so the desktop typing and paste routes are measured through
+         its own code (issue #4378). -->
+    <ProjectReference Include="../CcDirector.Terminal.Avalonia/CcDirector.Terminal.Avalonia.csproj" />
+    <PackageReference Include="Avalonia.Headless" Version="11.*" />
   </ItemGroup>
 
   <ItemGroup>

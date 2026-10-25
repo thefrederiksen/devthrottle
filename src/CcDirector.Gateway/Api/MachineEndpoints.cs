@@ -729,6 +729,17 @@ internal static class MachineEndpoints
     /// </summary>
     private static IResult ToUpdateViewResult(string machine, string verb, LauncherLifecycleRelay.LauncherRelayOutcome outcome)
     {
+        // AN UPDATE THAT RESTARTED THE LAUNCHER BEFORE IT ANSWERED IS NOT A FAILURE (issue #4423, review finding 3).
+        // It is what an update that replaces the launcher does, so it is answered as the update's view - in the warn
+        // tone, saying what happened - rather than as an error a client shows in red and files as a fault.
+        if (outcome.Kind == LauncherLifecycleRelay.RelayOutcomeKind.StreamLost
+            && string.Equals(verb, LauncherCapabilities.DirectorUpdate, StringComparison.Ordinal))
+        {
+            var restarted = DirectorUpdateViewFold.RestartedBeforeAnswering(machine);
+            FileLog.Write($"[MachineEndpoints] {verb} on {machine}: {restarted.Headline}");
+            return Results.Json(restarted);
+        }
+
         if (!outcome.Accepted)
             return ToQueryResult(machine, verb, outcome);
 
@@ -810,6 +821,57 @@ internal static class MachineEndpoints
                     verb,
                     launcherVersion = outcome.LauncherVersion,
                     reason = "launcher-too-old",
+                }, statusCode: 502),
+
+            // HEARTBEATING, NO STREAM, AND THIS GATEWAY SAW IT STREAM (issue #4423). The launcher is restarting
+            // or reconnecting. It is not too old, and telling its owner to update it - which is what the arm
+            // above says - would send them to update a launcher that had just been updated. 503: the condition
+            // is temporary and looking again is the fix.
+            LauncherLifecycleRelay.RelayOutcomeKind.Reconnecting => Results.Json(
+                new
+                {
+                    error = $"the launcher on '{machine}' is reconnecting: it is still reaching this Gateway (it "
+                          + $"heartbeated {outcome.QuietForSeconds}s ago) and its command stream closed "
+                          + $"{outcome.StreamClosedForSeconds}s ago, which is what a launcher restarting into a new "
+                          + $"version looks like. Nothing was sent. Look again in a minute; if it is still "
+                          + $"reconnecting after a few minutes, restart the launcher on that machine.",
+                    machine,
+                    verb,
+                    launcherVersion = outcome.LauncherVersion,
+                    reason = "launcher-reconnecting",
+                    retryable = true,
+                }, statusCode: 503),
+
+            // THE ANSWER WAS LOST, NOT REFUSED (issue #4423). The launcher had the command; its stream closed
+            // before it replied, so whether it did it is not known here. (An UPDATE losing its answer this way is
+            // the expected shape, and is answered as a view by ToUpdateViewResult before it reaches here.) The
+            // sentence says to look rather than to try again, which could do the thing twice.
+            LauncherLifecycleRelay.RelayOutcomeKind.StreamLost => Results.Json(
+                new
+                {
+                    error = $"the launcher on '{machine}' was sent '{verb}' and its command stream closed before it "
+                          + $"answered, so whether it did it is not known here. The launcher may be restarting; "
+                          + $"check that machine in a minute before asking again.",
+                    machine,
+                    verb,
+                    launcherVersion = outcome.LauncherVersion,
+                    reason = "launcher-stream-lost",
+                    retryable = false,
+                }, statusCode: 502),
+
+            // HEARTBEATING, AND ITS STREAM HAS BEEN DOWN LONGER THAN A RESTART TAKES (issue #4423, review finding 2).
+            // Not too old - this Gateway saw it stream - and not merely reconnecting any more.
+            LauncherLifecycleRelay.RelayOutcomeKind.StreamDown => Results.Json(
+                new
+                {
+                    error = $"the launcher on '{machine}' is reaching this Gateway (it heartbeated "
+                          + $"{outcome.QuietForSeconds}s ago) but its command stream has been down for "
+                          + $"{outcome.StreamClosedForSeconds / 60} minutes, longer than a restart takes, so nothing "
+                          + $"was sent. Restart the launcher on that machine.",
+                    machine,
+                    verb,
+                    launcherVersion = outcome.LauncherVersion,
+                    reason = "launcher-stream-down",
                 }, statusCode: 502),
 
             _ => Results.Json(

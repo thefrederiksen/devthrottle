@@ -63,6 +63,79 @@ public sealed class ContentTurnRuleTests : IDisposable
     }
 
     // ------------------------------------------------------------------------------------------
+    // A drawn picker settles immediately from positive screen evidence
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void ActiveClaudeModelPicker_IsMenuOpenBeforeTheSilenceTimer()
+    {
+        AssertActivePickerBecomesMenu(AgentKind.ClaudeCode,
+            "   Select model\r\n"
+            + "     1.  Default (recommended)\r\n"
+            + "   ❯ 2.  Opus 5.5 ✔\r\n"
+            + "     3.  Fable 5.1\r\n\r\n"
+            + "   Enter to set as default · s to use this session only · Esc to cancel");
+    }
+
+    [Fact]
+    public void ActivePiModelPicker_IsMenuOpenBeforeTheSilenceTimer()
+    {
+        AssertActivePickerBecomesMenu(AgentKind.Pi,
+            "Only showing models from configured providers. Use /login to add providers.\r\n\r\n"
+            + ">\r\n\r\n"
+            + "→ ✓ gpt-5.6-terra [azure-openai-responses]\r\n"
+            + "    gpt-5.6-sol [azure-openai-responses] · default\r\n\r\n"
+            + "  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel");
+    }
+
+    [Fact]
+    public void ActiveHalfDrawnModelPicker_DoesNotBecomeMenuOpen()
+    {
+        var (session, backend, detector) = Start(TurnContentRule.Row);
+        using (detector)
+        {
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            backend.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H   Select model\r\n   Switch between models.\r\n     1. Default"));
+
+            _clock.Advance(SettleDelay);
+
+            Assert.Equal(ActivityState.Working, session.ActivityState);
+        }
+    }
+
+    [Fact]
+    public void ActivePermissionPrompt_IsNotReclassifiedAsAModelMenu()
+    {
+        var (session, backend, detector) = Start(TurnContentRule.Row);
+        using (detector)
+        {
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            backend.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n Esc to cancel - Tab to amend"));
+
+            _clock.Advance(SettleDelay);
+
+            Assert.Equal(ActivityState.Working, session.ActivityState);
+        }
+    }
+
+    private void AssertActivePickerBecomesMenu(AgentKind agent, string screen)
+    {
+        var (session, backend, detector) = Start(TurnContentRule.Row, agent: agent);
+        using (detector)
+        {
+            session.ApplyTerminalActivityState(ActivityState.Working);
+            backend.Write(Encoding.UTF8.GetBytes("\u001b[2J\u001b[H" + screen));
+
+            _clock.Advance(SettleDelay);
+
+            Assert.Equal(ActivityState.MenuOpen, session.ActivityState);
+            Assert.Equal(SessionStateSources.Screen, session.ActivityStateSource);
+            Assert.True(SettleDelay < Quiet,
+                "the picker check must run before this test's silence fallback can fire");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------
     // The switch is off: nothing changes
     // ------------------------------------------------------------------------------------------
 

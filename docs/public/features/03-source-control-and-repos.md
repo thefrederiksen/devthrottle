@@ -19,9 +19,14 @@ you quick-launch a session against any of them.
 
 _Screenshot pending - open from the toolbar / repositories area to capture._
 
-## Clone a repository
+## Connect GitHub
 
-Clone from a URL with the Clone Repository dialog, or browse your GitHub
-repositories and clone one directly.
+**Settings > GitHub** shows whether git and the GitHub command line (`gh`) are
+installed and whether `gh` is signed in. It installs what is missing (Homebrew on a
+Mac, winget on Windows) and signs `gh` in, both in a terminal window you can see; the
+sign-in also sets up git, so a `git push` from any session uses it. The first-run
+wizard has the same step, and the Home screen's **GitHub** row says whether this
+machine is signed in, with **Fix** to get there.
 
-_Screenshot pending - open the Clone Repository dialog to capture._
+To bring a repository onto the machine, clone it yourself (`git clone` or
+`gh repo clone`) into one of your root folders; DevThrottle picks it up.

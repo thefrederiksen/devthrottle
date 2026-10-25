@@ -165,6 +165,44 @@ describe("phone push handler", () => {
     expect(app.focused).toBe(true);
   });
 
+  // The message link request push (issue #4373): the Gateway's words, its own notification, and a tap that opens the
+  // phone's Message requests card.
+  const LINK_PUSH = {
+    kind: "link-request",
+    title: "A session asks to message another",
+    body: "Session 121 asks to message session 125. Approve or deny?",
+    tag: "devthrottle-link-request-req-1",
+    url: "/mobile/link-requests",
+  };
+
+  it("a link request push draws its own audible notification in the Gateway's words", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => LINK_PUSH } });
+    expect(w.shown).toHaveLength(1);
+    expect(w.shown[0].title).toBe(LINK_PUSH.title);
+    expect(w.shown[0].options.body).toBe(LINK_PUSH.body);
+    expect(w.shown[0].options.tag).toBe(LINK_PUSH.tag);
+    expect(w.shown[0].options.silent).toBe(false);
+  });
+
+  it("a link request push leaves the needs-you dot alone", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => ({ count: 2 }) } });
+    await w.dispatch("push", { data: { json: () => LINK_PUSH } });
+    expect(w.shown[0].options.tag).toBe("devthrottle-needs-you");
+    expect(w.shown[0].closed).toBe(false);
+    expect(w.shown).toHaveLength(2);
+  });
+
+  it("tapping a link request steers the open app to the Message requests card", async () => {
+    const app = appWindow("https://gw.example/mobile/");
+    const w = loadWorker([app]);
+    await w.dispatch("push", { data: { json: () => LINK_PUSH } });
+    await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
+    expect(app.navigatedTo).toBe("/mobile/link-requests");
+    expect(app.focused).toBe(true);
+  });
+
   it("tapping the needs-you dot only brings the app forward", async () => {
     const app = appWindow("https://gw.example/mobile/session/abc");
     const w = loadWorker([app]);

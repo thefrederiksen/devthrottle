@@ -874,9 +874,19 @@ export async function getSessionHistory(
   sessionId: string,
   signal?: AbortSignal,
   cursor?: string,
+  window?: { turns: number; before?: number },
 ): Promise<SessionHistoryPage> {
   const sid = encodeURIComponent(sessionId);
-  const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+  // The window (issue #4372) rides only with a cursor: it is a newer client's request, and a Gateway that does not
+  // know it ignores it and answers the whole conversation, which the client handles exactly as before.
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set("cursor", cursor);
+  if (cursor !== undefined && window !== undefined) {
+    params.set("turns", String(window.turns));
+    if (window.before !== undefined) params.set("before", String(window.before));
+  }
+  const encoded = params.toString();
+  const query = encoded === "" ? "" : `?${encoded}`;
   const res = await gatewayFetch(`/sessions/${sid}/history${query}`, {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },

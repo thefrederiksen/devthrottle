@@ -49,14 +49,13 @@ public sealed class CopilotDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task Interrupt_IsCtrlC()
+    public void Interrupt_IsCtrlC()
     {
         var driver = new CopilotDriver();
-        var backend = new RecordingSessionBackend();
 
-        await driver.InterruptAsync(backend);
+        var input = driver.Interrupt();
 
-        var bytes = Assert.Single(backend.WrittenBytes);
+        var bytes = Assert.Single(input.Keys).Bytes;
         Assert.Equal(new byte[] { 0x03 }, bytes);
     }
 
@@ -75,15 +74,14 @@ public sealed class CopilotDriverTests : IDisposable
     }
 
     [Fact]
-    public async Task UndeclaredVerbs_ThrowNotSupported()
+    public void UndeclaredVerbs_ThrowNotSupported()
     {
         // AC14: an unsupported verb throws rather than fabricating behavior/data.
         var driver = new CopilotDriver();
-        var backend = new RecordingSessionBackend();
 
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.CancelAsync(backend));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ShowHistoryAsync(backend));
-        await Assert.ThrowsAsync<NotSupportedException>(() => driver.ClearContextAsync(backend));
+        Assert.Throws<NotSupportedException>(() => driver.Cancel());
+        Assert.Throws<NotSupportedException>(() => driver.ShowHistory());
+        Assert.Throws<NotSupportedException>(() => driver.ClearContext());
         Assert.Throws<NotSupportedException>(() => driver.ReadWidgets("sid", "wd"));
         Assert.Throws<NotSupportedException>(() => driver.ReadUsage("sid", "wd"));
         Assert.Throws<NotSupportedException>(() => driver.ListTranscripts("wd"));

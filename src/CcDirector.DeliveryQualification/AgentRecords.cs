@@ -130,7 +130,7 @@ public static class AgentRecords
         return turns;
     }
 
-    private static bool IsUserTurn(string agent, JsonElement root)
+    internal static bool IsUserTurn(string agent, JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return false;
         static string? Str(JsonElement e, string name) =>
@@ -138,10 +138,178 @@ public static class AgentRecords
         var type = Str(root, "type");
         return agent switch
         {
-            "claude" => type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True),
-            "codex" => type == "event_msg" && root.TryGetProperty("payload", out var p) && Str(p, "type") == "user_message",
+            // A prompt sent while Claude Code works is recorded as a queued_command attachment, not a user line, when it is
+            // delivered inside the running turn (issue #4378, the mid-turn cells); it is the person's prompt all the same.
+            "claude" => (type == "user" && !(root.TryGetProperty("isMeta", out var meta) && meta.ValueKind == JsonValueKind.True))
+                        || IsQueuedPrompt(root),
+            // Older Codex wrote the prompt as an event_msg user_message; Codex 0.16x writes it as a response_item message
+            // with role user (and no user_message event), measured 23 October 2026. Either is a user turn.
+            "codex" => root.TryGetProperty("payload", out var p)
+                       && ((type == "event_msg" && Str(p, "type") == "user_message")
+                           || (type == "response_item" && Str(p, "type") == "message" && Str(p, "role") == "user")),
             "pi" => type == "message" && root.TryGetProperty("message", out var msg) && Str(msg, "role") == "user",
             _ => false,
+        };
+    }
+
+    /// <summary>
+    /// A record that only COPIES a prompt the agent records elsewhere, and so is never its turn, its answer or its ask:
+    ///  - Claude Code's queue-operation (the prompt queued), api-request-blob (the request it sent the model, written
+    ///    BEFORE the queued prompt's own record and holding it inside a reminder - measured on 2.1.309, 23 October 2026)
+    ///    and last-prompt;
+    ///  - Codex's item_completed event for a UserMessage, which echoes the prompt.
+    /// </summary>
+    internal static bool IsCopyOfPrompt(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("type", out var t) || t.ValueKind != JsonValueKind.String) return false;
+        var type = t.GetString();
+        if (type is "queue-operation" or "api-request-blob" or "last-prompt") return true;
+        return type == "event_msg" && root.TryGetProperty("payload", out var p) && p.ValueKind == JsonValueKind.Object
+               && p.TryGetProperty("type", out var pt) && pt.ValueKind == JsonValueKind.String && pt.GetString() == "item_completed"
+               && p.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.Object
+               && item.TryGetProperty("type", out var it) && it.ValueKind == JsonValueKind.String && it.GetString() == "UserMessage";
+    }
+
+    /// <summary>Claude Code's record of a prompt typed while it worked: an attachment of type queued_command in prompt mode.</summary>
+    private static bool IsQueuedPrompt(JsonElement root) =>
+        root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() == "attachment"
+        && root.TryGetProperty("attachment", out var a) && a.ValueKind == JsonValueKind.Object
+        && a.TryGetProperty("type", out var at) && at.ValueKind == JsonValueKind.String && at.GetString() == "queued_command"
+        && !(a.TryGetProperty("commandMode", out var mode) && mode.ValueKind == JsonValueKind.String && mode.GetString() != "prompt");
+
+    /// <summary>
+    /// Whether <paramref name="root"/> is the agent's own TOOL CALL - the record of it asking to run a tool, written before
+    /// the tool runs and so before any approval is asked (issue #4378: the Codex approval ask read from its records):
+    ///  - Claude Code: an assistant line with a tool_use part;
+    ///  - Codex: a response_item of type function_call, custom_tool_call or local_shell_call, or an event naming an
+    ///    approval request;
+    ///  - Pi: an assistant message with a toolCall part.
+    /// The prompt that asked for the tool also holds its words (Codex echoes it in an item_completed event), so a reader
+    /// that only skipped user turns took the prompt for the ask.
+    /// </summary>
+    internal static bool IsToolCall(string agent, JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        static string? Str(JsonElement e, string name) =>
+            e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static bool HasPart(JsonElement message, string partType) =>
+            message.ValueKind == JsonValueKind.Object && message.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.Array
+            && c.EnumerateArray().Any(p => Str(p, "type") == partType);
+        var type = Str(root, "type");
+        return agent switch
+        {
+            "claude" => type == "assistant" && root.TryGetProperty("message", out var m) && HasPart(m, "tool_use"),
+            "codex" => root.TryGetProperty("payload", out var p)
+                       && ((type == "response_item" && Str(p, "type") is "function_call" or "custom_tool_call" or "local_shell_call")
+                           || (type == "event_msg" && Str(p, "type") is { } e && e.EndsWith("approval_request", StringComparison.Ordinal))),
+            "pi" => type == "message" && root.TryGetProperty("message", out var pm) && Str(pm, "role") == "assistant" && HasPart(pm, "toolCall"),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// THE STRICT WITNESS (issue #4378). <see cref="Check"/> folds whitespace and so cannot see a lost line break, a
+    /// doubled space or a tab turned into a space. This finds the USER TURN that holds <paramref name="token"/> and
+    /// returns its text as the agent recorded it, so the caller can compare it character for character. Null when no
+    /// user turn holds the token. The agent's own paste wrapper is removed; nothing else is changed.
+    /// </summary>
+    public static string? UserTurnText(string agent, DateTime sinceUtc, string token)
+    {
+        foreach (var file in CandidateFiles(agent, sinceUtc).Where(f => f.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var raw = ReadShared(file);
+            if (raw is null) continue;
+            foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line) || !line.Contains(token, StringComparison.Ordinal)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    if (!IsUserTurn(agent, doc.RootElement)) continue;
+                    var text = TurnText(agent, doc.RootElement);
+                    if (text is not null && text.Contains(token, StringComparison.Ordinal))
+                        // Only the agent's paste wrapper is removed - never surrounding whitespace, which a route may
+                        // have lost (review of #4390, finding 3).
+                        return StripPasteWrapper(text);
+                }
+                catch (JsonException) { }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// How many user turns hold <paramref name="token"/> (issue #4378, the owner-draft cell, whose turn holds the draft as
+    /// well as the text, so the folding witness reads it as merged). Codex writes one prompt in two record kinds in some
+    /// versions (an event and a response item), so for Codex the larger of the two counts is taken; for the others every
+    /// kind adds up, so a prompt written once as Claude Code's queued attachment and again as a user line is two.
+    /// </summary>
+    public static int UserTurnsHolding(string agent, DateTime sinceUtc, string token) => CountUserTurns(agent, RecentLines(agent, sinceUtc), token);
+
+    internal static int CountUserTurns(string agent, IEnumerable<string> lines, string token)
+    {
+        var byKind = new Dictionary<string, int>();
+        foreach (var line in lines)
+        {
+            if (!line.Contains(token, StringComparison.Ordinal)) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!IsUserTurn(agent, root) || TurnText(agent, root) is not { } text || !text.Contains(token, StringComparison.Ordinal)) continue;
+                var kind = root.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "";
+                byKind[kind] = byKind.GetValueOrDefault(kind) + 1;
+            }
+            catch (JsonException) { }
+        }
+        return agent == "codex" ? byKind.Values.DefaultIfEmpty().Max() : byKind.Values.Sum();
+    }
+
+    /// <summary>Every JSON-lines record of <paramref name="agent"/> that may have been written since
+    /// <paramref name="sinceUtc"/>, for the working-or-waiting matrix to read times from (issue #4378).</summary>
+    public static IEnumerable<string> RecentLines(string agent, DateTime sinceUtc)
+    {
+        foreach (var file in CandidateFiles(agent, sinceUtc).Where(f => f.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var raw = ReadShared(file);
+            if (raw is null) continue;
+            foreach (var line in Encoding.UTF8.GetString(raw).Split('\n'))
+                if (!string.IsNullOrWhiteSpace(line)) yield return line;
+        }
+    }
+
+    /// <summary>The text inside the agent's paste wrapper when the whole record is one, else the record unchanged.
+    /// Claude Code writes a long paste as <c>\n\n&lt;pasted_content id="…"&gt;\n…\n&lt;/pasted_content id="…"&gt;\n</c>: the line breaks
+    /// round the wrapper and the one just after its opening tag are the wrapper's, not the text's (issue #4379 - the
+    /// baseline read every such paste as ALTERED). The break before the closing tag is kept: it cannot be told from a
+    /// trailing break the text really had, and the comparison already ignores trailing breaks.</summary>
+    internal static string StripPasteWrapper(string text)
+    {
+        var m = Regex.Match(text, @"^\n*<pasted_content id=""[^""]*"">\n?(?<body>[\s\S]*)</pasted_content(?: id=""[^""]*"")?>\n*$", RegexOptions.CultureInvariant);
+        return m.Success ? m.Groups["body"].Value : text;
+    }
+
+    /// <summary>The prompt text of one user-turn record: Claude Code's message content, Codex's user message, Pi's
+    /// message content - a string, or the text parts of a list, joined.</summary>
+    internal static string? TurnText(string agent, JsonElement root)
+    {
+        static string? FromContent(JsonElement content) => content.ValueKind switch
+        {
+            JsonValueKind.String => content.GetString(),
+            JsonValueKind.Array => string.Concat(content.EnumerateArray()
+                .Where(p => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+                .Select(p => p.GetProperty("text").GetString())),
+            _ => null,
+        };
+        return agent switch
+        {
+            "claude" => IsQueuedPrompt(root) ? root.GetProperty("attachment").TryGetProperty("prompt", out var qp) && qp.ValueKind == JsonValueKind.String ? qp.GetString() : null
+                : root.TryGetProperty("message", out var m) && m.TryGetProperty("content", out var c) ? FromContent(c) : null,
+            "codex" => !root.TryGetProperty("payload", out var p) ? null
+                : p.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String ? msg.GetString()
+                : p.TryGetProperty("content", out var pc0) ? FromContent(pc0) : null,
+            "pi" => root.TryGetProperty("message", out var pm) && pm.TryGetProperty("content", out var pc) ? FromContent(pc) : null,
+            _ => null,
         };
     }
 
@@ -242,7 +410,7 @@ public static class AgentRecords
 
     /// <summary>Every string value in a JSON or JSON-lines file. A line that does not parse (half written) is
     /// skipped.</summary>
-    private static List<string> StringsOf(string file)
+    internal static List<string> StringsOf(string file)
     {
         var raw = ReadShared(file);
         var result = new List<string>();
@@ -255,11 +423,10 @@ public static class AgentRecords
             try
             {
                 using var doc = JsonDocument.Parse(chunk);
-                // A queue record repeats the prompt Claude Code also writes as a user line; reading both would
-                // hide nothing but would make a doubled prompt harder to see, so it is skipped.
-                if (doc.RootElement.ValueKind == JsonValueKind.Object
-                    && doc.RootElement.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
-                    && t.GetString() == "queue-operation")
+                // A COPY of the prompt is not the agent's record of it (IsCopyOfPrompt): reading one would hide nothing
+                // but would make a doubled prompt harder to see - and a copy that wraps the prompt in other text, like
+                // Claude Code's api-request-blob, reads as the prompt welded onto that text.
+                if (IsCopyOfPrompt(doc.RootElement))
                     continue;
                 Collect(doc.RootElement, result);
             }

@@ -32,14 +32,14 @@ public sealed class TextDeliveryTests : IDisposable
     [Fact]
     public void Ascii_is_written_as_it_is_on_every_backend()
     {
-        Assert.Equal(Encoding.UTF8.GetBytes("plain text 123"), TerminalSubmit.Encode("plain text 123", nonAsciiAsKeyEvents: true));
-        Assert.Equal(Encoding.UTF8.GetBytes("plain text 123"), TerminalSubmit.Encode("plain text 123", nonAsciiAsKeyEvents: false));
+        Assert.Equal(Encoding.UTF8.GetBytes("plain text 123"), TerminalInputEncoder.Encode("plain text 123", nonAsciiAsKeyEvents: true));
+        Assert.Equal(Encoding.UTF8.GetBytes("plain text 123"), TerminalInputEncoder.Encode("plain text 123", nonAsciiAsKeyEvents: false));
     }
 
     [Fact]
     public void A_character_outside_ascii_becomes_one_key_press_down_and_up_on_a_pseudo_console()
     {
-        var bytes = Encoding.ASCII.GetString(TerminalSubmit.Encode("a\u2013b", nonAsciiAsKeyEvents: true));
+        var bytes = Encoding.ASCII.GetString(TerminalInputEncoder.Encode("a\u2013b", nonAsciiAsKeyEvents: true));
 
         Assert.Equal("a\u001b[0;0;8211;1;0;1_\u001b[0;0;8211;0;0;1_b", bytes);
     }
@@ -47,7 +47,7 @@ public sealed class TextDeliveryTests : IDisposable
     [Fact]
     public void A_character_outside_the_basic_plane_is_sent_as_its_two_surrogate_units()
     {
-        var bytes = Encoding.ASCII.GetString(TerminalSubmit.Encode("\U0001F600", nonAsciiAsKeyEvents: true));
+        var bytes = Encoding.ASCII.GetString(TerminalInputEncoder.Encode("\U0001F600", nonAsciiAsKeyEvents: true));
 
         Assert.Contains(";55357;1;0;1_", bytes);
         Assert.Contains(";56832;1;0;1_", bytes);
@@ -56,7 +56,7 @@ public sealed class TextDeliveryTests : IDisposable
     [Fact]
     public void Without_key_events_the_text_is_plain_utf8()
     {
-        Assert.Equal(Encoding.UTF8.GetBytes(Dictated), TerminalSubmit.Encode(Dictated, nonAsciiAsKeyEvents: false));
+        Assert.Equal(Encoding.UTF8.GetBytes(Dictated), TerminalInputEncoder.Encode(Dictated, nonAsciiAsKeyEvents: false));
     }
 
     [Theory]
@@ -66,10 +66,10 @@ public sealed class TextDeliveryTests : IDisposable
     {
         var text = string.Concat(Enumerable.Repeat(Dictated + " ", 12));
 
-        var chunks = TerminalSubmit.Chunks(text, asKeyEvents).ToList();
+        var chunks = TerminalInputEncoder.Chunks(text, asKeyEvents).ToList();
 
         Assert.True(chunks.Count > 1);
-        Assert.Equal(TerminalSubmit.Encode(text, asKeyEvents), chunks.SelectMany(c => c).ToArray());
+        Assert.Equal(TerminalInputEncoder.Encode(text, asKeyEvents), chunks.SelectMany(c => c).ToArray());
         if (!asKeyEvents)
             foreach (var chunk in chunks)
                 Assert.Equal(chunk, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(chunk)));
@@ -324,7 +324,8 @@ public sealed class TextDeliveryTests : IDisposable
     [Fact]
     public void Each_agent_gets_the_clear_key_measured_for_it_and_never_a_lone_Escape()
     {
-        Assert.Equal(new byte[] { 0x15 }, ComposerClearKeys.For(AgentKind.Codex));
+        // End, then Ctrl+U: a command Codex refused leaves the cursor at the line's start (issue #4380).
+        Assert.Equal(new byte[] { 0x05, 0x15 }, ComposerClearKeys.For(AgentKind.Codex));
         Assert.Equal(new byte[] { 0x15 }, ComposerClearKeys.For(AgentKind.Pi));
         var claude = ComposerClearKeys.For(AgentKind.ClaudeCode, 100)!;
         Assert.Equal(0x05, claude[0]);

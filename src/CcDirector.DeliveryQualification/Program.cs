@@ -33,7 +33,15 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --claude-suggestion-capture [--cols 120] [--rows 40]   (dump Claude Code's grey prompt suggestion and a short prompt typed over it)
 ///   CcDirector.DeliveryQualification --claude-titled-capture [--cols 120] [--rows 40]   (dump Claude Code's composer with the session name in its top rule; nothing is submitted)
 ///   CcDirector.DeliveryQualification --scenarios all|name,name [--agents claude,pi] [--repeat 3]   (the delivery scenarios; every attempt goes to the ledger)
+///   CcDirector.DeliveryQualification --newline-keys claude [--newline-candidates ctrl-j,alt-enter]   (which keystroke makes a new line in the agent's composer; issue #4379)
 ///   CcDirector.DeliveryQualification --rates [--ledger FILE]   (the success rate per product commit, agent and scenario, from the ledger)
+///   CcDirector.DeliveryQualification --echo [--routes all|r,r] [--texts all|t,t] [--agents claude,codex,pi]   (the parity texts on every route, sent to the free byte-echo agent; issue #4378)
+///   CcDirector.DeliveryQualification --state-matrix [--cases quick,tool-40s,...] [--agents claude,codex,pi]   (working or waiting: the Director's state against the agent's records)
+///   CcDirector.DeliveryQualification --text-matrix [--routes ...] [--texts ...] [--agents claude,codex,pi] [--max-turns 240] [--cpu-load 24]   (the same to real agents, judged character for character)
+///   CcDirector.DeliveryQualification --condition-matrix [--conditions mid-turn,owner-draft,menu-open,usage-limit] [--routes ...] [--agents ...]   (a send into a busy, drafted, menu or dialog state)
+///   CcDirector.DeliveryQualification --conformance [--agents claude,codex,pi]   (capture fixed interface states and check every screen classifier)
+///   CcDirector.DeliveryQualification --conformance-replay FILE   (check a saved versioned screen fixture against today's classifiers)
+///   Every parity matrix runs each cell twice; --repeat N changes that.
 /// </summary>
 public static class Program
 {
@@ -41,7 +49,9 @@ public static class Program
     {
         ["claude"] = (AgentKind.ClaudeCode, "--dangerously-skip-permissions --model claude-haiku-4-5-20251001"),
         ["codex"] = (AgentKind.Codex, "--dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low"),
-        ["pi"] = (AgentKind.Pi, "--model deepinfra-mindzie/zai-org/GLM-5.3-Flash --thinking off"),
+        // The owner's choice (23 October 2026): Pi runs on the cheapest mindzie dev Azure Foundry deployment. Terra is
+        // taken as the cheaper of the two configured (sol, terra) from the size order of the names; confirm the price.
+        ["pi"] = (AgentKind.Pi, "--model azure-openai-responses/gpt-5.6-terra --thinking off"),
         ["gemini"] = (AgentKind.Gemini, "--yolo"),
         ["grok"] = (AgentKind.Grok, ""),
         ["opencode"] = (AgentKind.OpenCode, ""),
@@ -63,7 +73,16 @@ public static class Program
         if (args.Length == 4 && args[0] == "--replay")
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
+        // --echo-agent <log> [--usage-dialog]: run AS the byte-echo agent inside a terminal the rig started (issue #4378),
+        // drawing Claude Code's usage-limit dialog when asked. Any other argument after the log is ignored: standing in for
+        // an agent, it is given that agent's own launch arguments too (the Director adds Claude Code's --settings to every
+        // session of that kind; issue #4379).
+        if (args.Length >= 2 && args[0] == "--echo-agent")
+            return EchoAgent.Run(args[1], usageDialog: args.Skip(2).Contains("--usage-dialog"));
+
         var opts = Options.Parse(args);
+        if (opts.ConformanceReplayPath is { } conformanceFixture)
+            return Conformance.Replay(conformanceFixture);
         if (opts.Rates)
         {
             Console.WriteLine(Ledger.Rates(Ledger.Read(opts.LedgerPath)));
@@ -169,9 +188,31 @@ public static class Program
         {
             var (k, a) = Agents[keysAgent];
             await ClearKeyExperiment.RunAsync(manager, keysAgent, k, opts.ArgsOverride.TryGetValue(keysAgent, out var ka) ? ka : a,
-                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")));
+                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.KeysOnly);
             return 0;
         }
+
+        if (opts.NewlineAgent is { } newlineAgent)
+        {
+            var (nk, na) = Agents[newlineAgent];
+            return await NewlineKeyExperiment.RunAsync(manager, newlineAgent, nk, opts.ArgsOverride.TryGetValue(newlineAgent, out var nka) ? nka : na,
+                Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")), opts.NewlineKeyNames);
+        }
+
+        if (opts.Echo)
+            return await EchoLayer.RunAsync(manager, opts);
+
+        if (opts.TextMatrix)
+            return await AgentMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.StateMatrix)
+            return await StateMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.ConditionMatrix)
+            return await ConditionMatrix.RunAsync(manager, agentOptions, opts);
+
+        if (opts.Conformance)
+            return await Conformance.RunAsync(manager, agentOptions, opts);
 
         if (opts.ScenarioNames is { } scenarioNames)
             return await RunScenariosAsync(manager, agentOptions, opts, scenarioNames);
@@ -375,13 +416,23 @@ public sealed class Options
     public string RepoRoot { get; private set; } = DefaultRepoRoot;
     public string Out { get; private set; } = Path.Combine(DefaultRepoRoot, "runs", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
     public IReadOnlyList<string>? ScenarioNames { get; private set; }
-    public int Repeat { get; private set; } = 1;
+    private int? _repeat;
+    /// <summary>How many times each delivery scenario runs: once unless --repeat says otherwise.</summary>
+    public int Repeat => _repeat ?? 1;
+    /// <summary>How many times each cell of the parity matrices runs (issue #4378, the mission's 11.5: "run each cell
+    /// twice"): twice unless --repeat says otherwise, so a cell that passes once and fails once shows as unsteady.</summary>
+    public int MatrixRepeat => _repeat ?? 2;
     public bool Rates { get; private set; }
     private string? _ledger;
     public string LedgerPath => _ledger ?? Path.Combine(RepoRoot, "ledger.jsonl");
     public Dictionary<string, string> ArgsOverride { get; } = new();
     public string? KeysAgent { get; private set; }
+    public List<string>? KeysOnly { get; private set; }
     public string? CharsAgent { get; private set; }
+    public string? NewlineAgent { get; private set; }
+    /// <summary>An echo run's echo-results.jsonl: where an agent's own edge trim may be accepted (issue #4379).</summary>
+    public string? EchoProofPath { get; private set; }
+    public IReadOnlyList<string>? NewlineKeyNames { get; private set; }
     public bool Busy { get; private set; }
     public bool FailThenSend { get; private set; }
     public bool RepeatShortPrompt { get; private set; }
@@ -392,6 +443,19 @@ public sealed class Options
     public short CaptureCols { get; private set; } = 100;
     public short CaptureRows { get; private set; } = 30;
     public int ThawWaitSeconds { get; private set; } = 8;
+    public bool Echo { get; private set; }
+    public bool TextMatrix { get; private set; }
+    public bool StateMatrix { get; private set; }
+    public bool ConditionMatrix { get; private set; }
+    public bool Conformance { get; private set; }
+    public string? ConformanceReplayPath { get; private set; }
+    public IReadOnlyList<string>? ConditionNames { get; private set; }
+    public IReadOnlyList<string>? StateCaseNames { get; private set; }
+    public IReadOnlyList<string>? RouteNames { get; private set; }
+    public IReadOnlyList<string>? MatrixTextNames { get; private set; }
+    /// <summary>The most turns a text-matrix run spends on real agents, so a run cannot quietly use up the owner's
+    /// subscription allowance (the owner's ruling, 23 October 2026: the runs stay small).</summary>
+    public int MaxTurns { get; private set; } = 240;
 
     public static Options Parse(string[] args)
     {
@@ -419,7 +483,11 @@ public sealed class Options
                     break;
                 case "--out": o.Out = Next(); break;
                 case "--keys": o.KeysAgent = Next(); break;
+                case "--keys-only": o.KeysOnly = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--chars": o.CharsAgent = Next(); break;
+                case "--newline-keys": o.NewlineAgent = Next(); break;
+                case "--echo-proof": o.EchoProofPath = Next(); break;
+                case "--newline-candidates": o.NewlineKeyNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
                 case "--busy": o.Busy = true; break;
                 case "--fail-then-send": o.FailThenSend = true; break;
                 case "--repeat-short-prompt": o.RepeatShortPrompt = true; break;
@@ -435,8 +503,31 @@ public sealed class Options
                     o.ScenarioNames = sc == "all" ? Scenarios.All.Select(x => x.Name).ToList() : sc.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                     foreach (var n in o.ScenarioNames) Scenarios.AppliesTo(n, "claude");
                     break;
-                case "--repeat": o.Repeat = int.Parse(Next()); break;
+                case "--repeat": o._repeat = int.Parse(Next()); break;
                 case "--rates": o.Rates = true; break;
+                case "--echo": o.Echo = true; break;
+                case "--text-matrix": o.TextMatrix = true; break;
+                case "--state-matrix": o.StateMatrix = true; break;
+                case "--condition-matrix": o.ConditionMatrix = true; break;
+                case "--conformance": o.Conformance = true; break;
+                case "--conformance-replay": o.ConformanceReplayPath = Next(); break;
+                case "--conditions":
+                    var cs = Next();
+                    o.ConditionNames = cs == "all" ? Conditions.All.Select(c => c.Name).ToList() : cs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var c in o.ConditionNames) Conditions.Named(c);
+                    break;
+                case "--cases": o.StateCaseNames = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); break;
+                case "--max-turns": o.MaxTurns = int.Parse(Next()); break;
+                case "--routes":
+                    var rs = Next();
+                    o.RouteNames = rs == "all" ? Routes.All : rs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var r in o.RouteNames) Routes.AppliesTo(r, "");
+                    break;
+                case "--texts":
+                    var ts = Next();
+                    o.MatrixTextNames = ts == "all" ? MatrixTexts.All.Select(t => t.Name).ToList() : ts.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var t in o.MatrixTextNames) MatrixTexts.Named(t);
+                    break;
                 case "--ledger": o._ledger = Next(); break;
                 default:
                     if (args[i].StartsWith("--args-", StringComparison.Ordinal)) { o.ArgsOverride[args[i]["--args-".Length..]] = Next(); break; }

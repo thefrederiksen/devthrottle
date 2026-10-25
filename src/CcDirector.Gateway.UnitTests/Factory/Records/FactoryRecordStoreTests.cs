@@ -56,6 +56,78 @@ public sealed class FactoryRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void NewestUnder_hands_the_newest_version_of_each_document_under_the_prefix_with_its_text_and_nothing_else()
+    {
+        var store = Documents();
+        WriteBySession(store, "chain v1", expect: 0, name: "check-inputs/chain.json");
+        WriteBySession(store, "chain v2", expect: 1, name: "check-inputs/chain.json");
+        WriteBySession(store, "2026-10-14", expect: 0, name: "check-inputs/boss/last-review.txt");
+        WriteBySession(store, "not an input", expect: 0, name: "check-inputs-old/chain.json");
+        WriteBySession(store, "the ledger", expect: 0);
+        WriteBySession(store, "another account's input", expect: 0, name: "check-inputs/hold.txt", tenant: B);
+        Assert.True(store.Write(A, Other, "check-inputs/hold.txt", "another factory's input", 0,
+            FactoryRecordAuthorKinds.Session, RunOne, Now).Ok);
+
+        var under = Documents().NewestUnder(A, TheFactory, "check-inputs/");
+
+        Assert.Equal(new[] { ("check-inputs/boss/last-review.txt", 1, "2026-10-14"), ("check-inputs/chain.json", 2, "chain v2") },
+            under.Select(d => (d.Name, d.Version, d.Text)));
+    }
+
+    [Fact]
+    public void NewestUnder_a_factory_with_nothing_under_the_prefix_is_empty()
+    {
+        WriteBySession(Documents(), "the ledger", expect: 0);
+
+        Assert.Empty(Documents().NewestUnder(A, TheFactory, "check-inputs/"));
+    }
+
+    [Fact]
+    public void Only_the_newest_three_versions_are_kept_and_the_numbers_still_climb()
+    {
+        var store = Documents();
+        for (var v = 1; v <= 5; v++)
+            Assert.True(WriteBySession(store, $"v{v}", expect: v - 1).Ok);
+
+        var page = store.History(A, TheFactory, Ledger);
+        Assert.Equal(3, page.Total);
+        Assert.Equal(new[] { 5, 4, 3 }, page.Versions.Select(v => v.Version));
+        Assert.Null(store.Find(A, TheFactory, Ledger, 2));
+        Assert.Equal("v3", store.Find(A, TheFactory, Ledger, 3)!.Text);
+        // The next writer still states the newest version it read; a stale one is still refused.
+        Assert.Equal(FactoryRecordOutcome.Stale, WriteBySession(store, "late", expect: 4).Outcome);
+        Assert.Equal(6, WriteBySession(store, "v6", expect: 5).Document!.Version);
+        Assert.Equal(new[] { 6, 5, 4 }, store.History(A, TheFactory, Ledger).Versions.Select(v => v.Version));
+    }
+
+    [Fact]
+    public void The_version_the_upload_stored_is_kept_so_a_re_run_of_the_upload_is_already_stored()
+    {
+        var store = Documents();
+        Assert.True(store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json").Ok);
+        for (var v = 2; v <= 5; v++) Assert.True(WriteBySession(store, $"v{v}", expect: v - 1).Ok);
+
+        Assert.Equal(new[] { 5, 4, 3, 1 }, store.History(A, TheFactory, Ledger).Versions.Select(v => v.Version));
+        var again = store.Write(A, TheFactory, Ledger, "from the machine", 0, FactoryRecordAuthorKinds.Upload, "SOREN_NORTH",
+            Now, importKey: "outreach/ledger.json");
+        Assert.Equal(FactoryRecordOutcome.AlreadyStored, again.Outcome);
+    }
+
+    [Fact]
+    public void Trimming_one_document_leaves_every_other_document_factory_and_account_alone()
+    {
+        var store = Documents();
+        WriteBySession(store, "other", expect: 0, name: "playbook.md");
+        WriteBySession(store, "theirs", expect: 0, tenant: B);
+        for (var v = 1; v <= 5; v++) WriteBySession(store, $"v{v}", expect: v - 1);
+
+        Assert.Equal(1, store.History(A, TheFactory, "playbook.md").Total);
+        Assert.Equal("theirs", store.Get(B, TheFactory, Ledger)!.Text);
+        Assert.Equal(1, store.History(B, TheFactory, Ledger).Total);
+    }
+
+    [Fact]
     public void A_second_write_adds_a_version_and_every_version_is_kept()
     {
         var store = Documents();
@@ -296,6 +368,147 @@ public sealed class FactoryRecordStoreTests : IDisposable
 
         using var ctx = _h.Open().CreateContext(A);
         Assert.Equal(content, ctx.FactoryAttachmentContents.Single(c => c.AttachmentId == row.Id).Content);
+    }
+
+    [Fact]
+    public void The_same_bytes_are_kept_once_and_the_file_already_held_is_the_answer()
+    {
+        var store = Attachments();
+        var resume = Png(2048);
+        var first = AddBySession(store, "applications/2026-10-24/acme/resume.pdf", resume, seat: "applicant");
+
+        var again = AddBySession(store, "applications/2026-10-25/beta/resume.pdf", resume, seat: "applicant");
+
+        Assert.Equal(FactoryRecordOutcome.AlreadyStored, again.Outcome);
+        Assert.Equal(first.Attachment!.Id, again.Attachment!.Id);
+        Assert.Equal(1, store.List(A, TheFactory).Total);
+        Assert.Equal(2048, store.List(A, TheFactory).FactoryBytes);
+        using var ctx = _h.Open().CreateContext(A);
+        Assert.Single(ctx.FactoryAttachmentContents.ToList());
+    }
+
+    [Fact]
+    public void The_same_bytes_for_another_seat_are_kept_for_that_seat_so_each_seat_lists_its_own()
+    {
+        var store = Attachments();
+        var bytes = Png(300);
+        AddBySession(store, "templates/resume.pdf", bytes, seat: null);
+
+        var mine = AddBySession(store, "applications/2026-10-24/acme/resume.pdf", bytes, seat: "applicant");
+
+        Assert.Equal(FactoryRecordOutcome.Written, mine.Outcome);
+        Assert.Equal(1, store.List(A, TheFactory, "applicant").Total);
+    }
+
+    [Fact]
+    public void A_page_that_ended_on_a_file_removed_since_still_leads_to_the_older_ones()
+    {
+        var store = Attachments();
+        var newest = store.Add(A, TheFactory, null, "c.png", "image/png", Png(3), FactoryRecordAuthorKinds.Session, RunOne, Now).Attachment!;
+        var middle = store.Add(A, TheFactory, null, "b.png", "image/png", Png(4), FactoryRecordAuthorKinds.Session, RunOne, Now.AddMinutes(-1)).Attachment!;
+        var oldest = store.Add(A, TheFactory, null, "a.png", "image/png", Png(5), FactoryRecordAuthorKinds.Session, RunOne, Now.AddMinutes(-2)).Attachment!;
+        var first = store.Page(A, TheFactory, null, 2)!;
+        Assert.Equal(new[] { newest.Id, middle.Id }, first.Attachments.Select(a => a.Id));
+
+        store.Remove(A, TheFactory, middle.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+        var next = store.Page(A, TheFactory, first.NextBefore, 2);
+
+        Assert.NotNull(next);
+        Assert.Equal(new[] { oldest.Id }, next!.Attachments.Select(a => a.Id));
+    }
+
+    [Fact]
+    public void A_removed_cursor_among_files_kept_at_one_instant_starts_the_next_page_right_after_it()
+    {
+        var store = Attachments();
+        var ids = new[] { "a.png", "b.png", "c.png", "d.png" }
+            .Select((n, i) => store.Add(A, TheFactory, null, n, "image/png", Png(10 + i), FactoryRecordAuthorKinds.Session, RunOne, Now).Attachment!.Id)
+            .ToList();
+        var first = store.Page(A, TheFactory, null, 2)!;
+        Assert.Equal(ids.Take(2), first.Attachments.Select(a => a.Id));
+
+        store.Remove(A, TheFactory, ids[1], FactoryRecordAuthorKinds.Session, RunOne, Now);
+        var next = store.Page(A, TheFactory, first.NextBefore, 2)!;
+
+        Assert.Equal(ids.Skip(2), next.Attachments.Select(a => a.Id));
+    }
+
+    [Fact]
+    public void The_same_bytes_in_another_factory_or_account_are_kept_there_too()
+    {
+        var store = Attachments();
+        var bytes = Png(512);
+        AddBySession(store, "a.png", bytes);
+
+        Assert.Equal(FactoryRecordOutcome.Written, AddBySession(store, "a.png", bytes, factory: Other).Outcome);
+        Assert.Equal(FactoryRecordOutcome.Written,
+            store.Add(B, TheFactory, null, "a.png", "image/png", bytes, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+    }
+
+    [Fact]
+    public void A_removed_file_loses_its_bytes_keeps_its_row_and_no_longer_counts()
+    {
+        var store = Attachments();
+        var kept = AddBySession(store, "applications/2026-07-01/acme/form.html", Png(1000)).Attachment!;
+        var later = Now.AddDays(100);
+
+        var removal = store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Session, RunTwo, later);
+
+        Assert.Equal(FactoryRecordOutcome.Removed, removal.Outcome);
+        var row = store.Get(A, TheFactory, kept.Id)!;
+        Assert.Equal(later, row.RemovedAtUtc);
+        Assert.Equal($"session:{RunTwo}", row.RemovedBy);
+        Assert.Null(store.Content(A, TheFactory, kept.Id));
+        Assert.Equal(0, store.List(A, TheFactory).Total);
+        Assert.Equal(0, store.List(A, TheFactory).FactoryBytes);
+        Assert.Equal(new[] { kept.Id }, store.Missing(A, TheFactory, new[] { kept.Id }));
+        Assert.Single(store.Find(A, TheFactory, new[] { kept.Id }));   // a journal entry that named it still finds it
+        using var ctx = _h.Open().CreateContext(A);
+        Assert.Empty(ctx.FactoryAttachmentContents.ToList());
+    }
+
+    [Fact]
+    public void Removing_twice_is_answered_removed_again_and_changes_nothing()
+    {
+        var store = Attachments();
+        var kept = AddBySession(store, "x.png", Png(10)).Attachment!;
+        store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+
+        var again = store.Remove(A, TheFactory, kept.Id, FactoryRecordAuthorKinds.Person, "owner", Now.AddDays(1));
+
+        Assert.Equal(FactoryRecordOutcome.Removed, again.Outcome);
+        Assert.Equal(Now, store.Get(A, TheFactory, kept.Id)!.RemovedAtUtc);
+        Assert.Equal($"session:{RunOne}", store.Get(A, TheFactory, kept.Id)!.RemovedBy);
+    }
+
+    [Fact]
+    public void A_file_never_held_or_held_by_another_factory_or_account_is_not_found_and_stays()
+    {
+        var store = Attachments();
+        var theirs = AddBySession(store, "x.png", Png(10), factory: Other).Attachment!;
+
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(A, TheFactory, theirs.Id, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(B, Other, theirs.Id, FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.Equal(FactoryRecordOutcome.NotFound,
+            store.Remove(A, TheFactory, Guid.NewGuid(), FactoryRecordAuthorKinds.Session, RunOne, Now).Outcome);
+        Assert.NotNull(store.Content(A, Other, theirs.Id));
+    }
+
+    [Fact]
+    public void After_a_removal_the_same_bytes_are_kept_again_as_a_new_file()
+    {
+        var store = Attachments();
+        var bytes = Png(64);
+        var first = AddBySession(store, "a.png", bytes).Attachment!;
+        store.Remove(A, TheFactory, first.Id, FactoryRecordAuthorKinds.Session, RunOne, Now);
+
+        var again = AddBySession(store, "a.png", bytes);
+
+        Assert.Equal(FactoryRecordOutcome.Written, again.Outcome);
+        Assert.NotEqual(first.Id, again.Attachment!.Id);
+        Assert.Equal(bytes, store.Content(A, TheFactory, again.Attachment.Id));
     }
 
     [Fact]

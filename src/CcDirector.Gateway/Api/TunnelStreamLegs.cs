@@ -71,7 +71,7 @@ internal sealed class TunnelStreamLegs
             Route = Core.Sessions.SubmissionRoutes.GatewayTerminal,
             IdentityKind = Util.AuthMiddleware.IdentityKind(ctx),
         };
-        var keystrokes = PumpKeystrokesAsync(ws, sid, directorId, typist, browserGone);
+        var keystrokes = PumpKeystrokesAsync(ws, sink, sid, directorId, typist, browserGone);
 
         FileLog.Write($"[TunnelStreamLegs] terminal open sid={sid} director={directorId} stream={streamId}");
         DirectorCommandResult? open;
@@ -112,7 +112,12 @@ internal sealed class TunnelStreamLegs
         FileLog.Write($"[TunnelStreamLegs] terminal closed sid={sid} stream={streamId}");
     }
 
-    private async Task PumpKeystrokesAsync(WebSocket ws, string sid, string directorId, SubmissionProvenanceDto typist, CancellationTokenSource browserGone)
+    /// <summary>
+    /// Forward the browser's keystrokes to the owning Director, one terminal-input verb per message. EVERY KEYSTROKE IS
+    /// ANSWERED (issue #4380): when the Director refuses it - Claude Code's usage-limit dialog is showing - or cannot be
+    /// reached, the browser gets a <c>refused</c> frame with the reason, instead of the silence it used to get.
+    /// </summary>
+    private async Task PumpKeystrokesAsync(WebSocket ws, WebSocketStreamSink sink, string sid, string directorId, SubmissionProvenanceDto typist, CancellationTokenSource browserGone)
     {
         var buffer = new byte[4096];
         using var message = new MemoryStream();
@@ -129,12 +134,22 @@ internal sealed class TunnelStreamLegs
                 var bytes = message.ToArray();
                 message.SetLength(0);
                 var payload = new TerminalInputRequest { Bytes = Convert.ToBase64String(bytes), Provenance = typist };
+                string? refused;
                 try
                 {
-                    await DirectorCommandRouter.TrySendAsync(_sendCommand, directorId, "terminal-input", sid, payload, browserGone.Token);
+                    var answer = await DirectorCommandRouter.TrySendAsync(_sendCommand, directorId, "terminal-input", sid, payload, browserGone.Token);
+                    refused = answer is null
+                        ? "the Director that owns this session could not be reached, so the keystrokes were not delivered"
+                        : answer.Ok ? null : answer.Error ?? $"the Director answered {answer.Status}";
                 }
                 catch (OperationCanceledException) { break; }
-                catch (Exception ex) { FileLog.Write($"[TunnelStreamLegs] terminal-input send failed sid={sid}: {ex.Message}"); }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[TunnelStreamLegs] terminal-input send failed sid={sid}: {ex.Message}");
+                    refused = $"the keystrokes could not be sent to the Director: {ex.Message}";
+                }
+                if (refused is not null)
+                    await TellRefusedAsync(sink, sid, bytes.Length, refused, browserGone.Token);
             }
         }
         catch
@@ -144,6 +159,22 @@ internal sealed class TunnelStreamLegs
         finally
         {
             browserGone.Cancel();
+        }
+    }
+
+    /// <summary>Put a refused frame on the browser's socket. A socket that has already gone cannot be told; that is
+    /// logged and the pump goes on to its own end.</summary>
+    private static async Task TellRefusedAsync(WebSocketStreamSink sink, string sid, int bytes, string reason, CancellationToken ct)
+    {
+        FileLog.Write($"[TunnelStreamLegs] terminal-input REFUSED sid={sid}, bytes={bytes}: {reason}");
+        try
+        {
+            await sink.WriteRefusedAsync(reason, ct);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or WebSocketException or OperationCanceledException)
+        {
+            // not-an-error: the browser left before it could be told; its socket is gone with the keystrokes
+            FileLog.Write($"[TunnelStreamLegs] refused frame not sent sid={sid}: {ex.Message}");
         }
     }
 

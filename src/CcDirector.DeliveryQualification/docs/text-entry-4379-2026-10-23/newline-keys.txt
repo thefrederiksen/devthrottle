@@ -1,0 +1,18 @@
+[newline] codex: keyboard modes the agent asked for: ESC[>4;0m ESC[>7u ESC[?u
+[newline] codex   ctrl-j             NEWLINE (one turn, the break kept)
+[newline] codex   alt-enter          NEWLINE (one turn, the break kept)
+[newline] codex   kitty-shift-enter  NEWLINE (one turn, the break kept)
+[newline] codex   xterm-shift-enter  ALTERED (Token QF41213E048 first lineDo not run any tools. Reply with exactly: ACK)
+[newline] codex   backslash-enter    ALTERED (Token Q2744C1905A first line\\nDo not run any tools. Reply with exactly: ACK)
+[newline] claude: keyboard modes the agent asked for: ESC[?u ESC[<u
+[newline] claude  ctrl-j             NEWLINE (one turn, the break kept)
+[newline] claude  alt-enter          NEWLINE (one turn, the break kept)
+[newline] claude  kitty-shift-enter  NEWLINE (one turn, the break kept)
+[newline] claude  xterm-shift-enter  NEWLINE (one turn, the break kept)
+[newline] claude  backslash-enter    NEWLINE (one turn, the break kept)
+[newline] pi: keyboard modes the agent asked for: ESC[>7u ESC[?u
+[newline] pi      ctrl-j             NEWLINE (one turn, the break kept)
+[newline] pi      alt-enter          SUBMITS (the key sent the first line on its own)
+[newline] pi      kitty-shift-enter  NEWLINE (one turn, the break kept)
+[newline] pi      xterm-shift-enter  NEWLINE (one turn, the break kept)
+[newline] pi      backslash-enter    NEWLINE (one turn, the break kept)

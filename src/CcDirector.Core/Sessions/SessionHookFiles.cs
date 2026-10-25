@@ -27,6 +27,41 @@ public static class SessionHookFiles
     /// and transcript path into. A hook that does not see it reports nothing.</summary>
     public const string PointerFileEnvVar = "CC_SESSION_POINTER_FILE";
 
+    public const string StateEventDirectoryEnvVar = "CC_STATE_EVENT_DIR";
+    public const string StateEventTokenEnvVar = "CC_STATE_EVENT_TOKEN";
+
+    public const string StateEventExtension = ".state.json";
+
+    public static string StateEventDirectoryFor(Guid sessionId, string token, string? directory = null)
+    {
+        RequireMintedToken(token);
+        return Path.Combine(directory ?? CcStorage.SessionPointers(), "state-events", sessionId + "." + token);
+    }
+
+    public static string StateEventPathFor(Guid sessionId, string token, long sequence, string? directory = null)
+    {
+        if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
+        return Path.Combine(StateEventDirectoryFor(sessionId, token, directory), sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) + StateEventExtension);
+    }
+
+    public static bool TryParseStateEventDropName(string path, out Guid sessionId, out string token)
+    {
+        sessionId = default;
+        token = "";
+        var name = Path.GetFileName(path);
+        if (!name.EndsWith(StateEventExtension, StringComparison.OrdinalIgnoreCase)) return false;
+        var stem = name[..^StateEventExtension.Length];
+        if (!long.TryParse(stem, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var sequence) || sequence <= 0) return false;
+        var parent = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(parent)) return false;
+        var folder = Path.GetFileName(parent);
+        if (string.IsNullOrEmpty(folder)) return false;
+        var dot = folder.LastIndexOf('.');
+        if (dot <= 0 || !Guid.TryParse(folder[..dot], out sessionId)) return false;
+        token = folder[(dot + 1)..];
+        return token.Length == DropTokenLength && token.All(char.IsAsciiHexDigitLower);
+    }
+
     /// <summary>The file extension both drops use, so the pointer watcher can ignore the temporary
     /// file an in-progress atomic write leaves beside the real one.</summary>
     public const string DropExtension = ".json";

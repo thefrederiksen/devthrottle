@@ -23,6 +23,7 @@ using CcDirector.Core.Settings;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Setup;
 using CcDirector.Setup.Engine;
 using CcDirector.Core.ErrorReports;
 
@@ -277,6 +278,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         WizardStep.Agents => "Your agents",
         WizardStep.Tools => "Tools",
         WizardStep.Code => "Your code",
+        WizardStep.GitHub => "GitHub",
         WizardStep.Screenshots => "Screenshots",
         WizardStep.Browsers => "Browser profiles",
         WizardStep.Done => "Done",
@@ -312,6 +314,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         AgentsPanel.IsVisible = step == WizardStep.Agents;
         ToolsPanel.IsVisible = step == WizardStep.Tools;
         CodePanel.IsVisible = step == WizardStep.Code;
+        GitHubPanel.IsVisible = step == WizardStep.GitHub;
         ScreenshotsPanel.IsVisible = step == WizardStep.Screenshots;
         BrowsersPanel.IsVisible = step == WizardStep.Browsers;
         GatewayPanel.IsVisible = step == WizardStep.Gateway;
@@ -379,6 +382,19 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
                 PrimaryButton.IsVisible = true;
                 if (!_codeScanRan)
                     _ = ScanCodeFoldersAsync();
+                break;
+
+            case WizardStep.GitHub:
+                // An offer like every other step: the panel installs and signs in, and Continue moves on either way.
+                PrimaryButton.Content = "Continue";
+                PrimaryButton.IsVisible = true;
+                PrimaryButton.IsEnabled = true;
+                if (GitHubWizardHost.Child is null)
+                {
+                    var panel = new Controls.GitHubSetupPanel(light: true);
+                    panel.StatusChanged += (_, status) => _gitHubStatus = status;
+                    GitHubWizardHost.Child = panel;
+                }
                 break;
 
             case WizardStep.Screenshots:
@@ -2505,6 +2521,9 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
 
     // ---- Done receipt ------------------------------------------------------------------------------
 
+    /// <summary>The GitHub step's last reading (issue #4426), for the receipt. Null until the step has been shown.</summary>
+    private GitHubSetupStatus? _gitHubStatus;
+
     private void BuildDoneReceipt()
     {
         DoneReceiptPanel.Children.Clear();
@@ -2541,6 +2560,15 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
                     ? "Add a folder from the Repositories view once you have code on this machine"
                     : "Add them from the Repositories view to get repository suggestions",
                 done: false));
+
+        // GitHub row (issue #4426), from the panel's last reading; none when the step was never opened.
+        if (_gitHubStatus is { } gitHub)
+            DoneReceiptPanel.Children.Add(gitHub.State switch
+            {
+                GitHubSetupState.SignedIn => ReceiptRow("GitHub signed in", gitHub.Account ?? "github.com", done: true),
+                GitHubSetupState.SignInUnconfirmed => ReceiptRow("GitHub sign-in not confirmed", gitHub.Detail, done: false),
+                _ => ReceiptRow("GitHub not set up yet", "Sign in any time in Settings > GitHub", done: false),
+            });
 
         // Screenshots row.
         if (_shotsSelectedPath is not null)
