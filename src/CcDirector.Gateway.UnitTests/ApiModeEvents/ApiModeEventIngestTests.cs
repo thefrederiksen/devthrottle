@@ -8,6 +8,7 @@ using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.ApiModeConversation;
 using CcDirector.Gateway.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -489,14 +490,14 @@ public sealed class ApiModeEventIngestTests : IDisposable
         void PushHere(ApiModeEventBatch batch) => ingest.Accept(Alice, Director, batch);
         PushHere(A(Ready(1), Queued(2, "p1")));
         int firstProof;
-        using (var work = new DatabaseWork(_harness.DbPath))
+        using (var work = new DatabaseWorkCounter(_harness.DbPath))
         {
             PushHere(B(Tool(1)));
             firstProof = work.Transactions;
         }
 
         // Act: three more tool events of the same generation, each a proof.
-        using var later = new DatabaseWork(_harness.DbPath);
+        using var later = new DatabaseWorkCounter(_harness.DbPath);
         PushHere(B(Tool(2), Tool(3)));
         PushHere(B(Tool(4)));
 
@@ -642,61 +643,5 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(3, HeldSequences(Bob).Count());
         Assert.Equal(3, bobSaw.Count);
         Assert.All(bobSaw, e => Assert.IsNotType<PromptDelivered>(e.Event));
-    }
-
-    /// <summary>
-    /// Counts the database work Entity Framework does against ONE database file, from its diagnostic events: every
-    /// connection opened, every transaction begun and every statement run. Other tests use other files and are not counted.
-    /// (The same instrument as pull request #4200's, kept here until one of the two is on main.)
-    /// </summary>
-    private sealed class DatabaseWork : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
-    {
-        private readonly string _dataSource;
-        private readonly IDisposable _all;
-        private readonly List<IDisposable> _subscriptions = new();
-        private int _connectionsOpened;
-        private int _transactions;
-        private int _commands;
-
-        public DatabaseWork(string databaseFile)
-        {
-            _dataSource = databaseFile;
-            _all = DiagnosticListener.AllListeners.Subscribe(this);
-        }
-
-        public int Transactions => Volatile.Read(ref _transactions);
-
-        /// <summary>Connections opened, transactions begun and statements run, together.</summary>
-        public (int ConnectionsOpened, int Transactions, int Commands) Work
-            => (Volatile.Read(ref _connectionsOpened), Volatile.Read(ref _transactions), Volatile.Read(ref _commands));
-
-        public void OnNext(DiagnosticListener listener)
-        {
-            if (listener.Name == DbLoggerCategory.Name)
-                lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
-        }
-
-        public void OnNext(KeyValuePair<string, object?> e)
-        {
-            if (e.Key == RelationalEventId.ConnectionOpening.Name && e.Value is ConnectionEventData c && Ours(c.Connection))
-                Interlocked.Increment(ref _connectionsOpened);
-            else if (e.Key == RelationalEventId.TransactionStarted.Name && e.Value is TransactionEndEventData t && Ours(t.Transaction.Connection))
-                Interlocked.Increment(ref _transactions);
-            else if (e.Key == RelationalEventId.CommandExecuting.Name && e.Value is CommandEventData d && Ours(d.Command.Connection))
-                Interlocked.Increment(ref _commands);
-        }
-
-        private bool Ours(System.Data.Common.DbConnection? connection)
-            => connection is not null && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
-
-        public void OnCompleted() { }
-        public void OnError(Exception error) { }
-
-        public void Dispose()
-        {
-            _all.Dispose();
-            lock (_subscriptions)
-                foreach (var s in _subscriptions) s.Dispose();
-        }
     }
 }
