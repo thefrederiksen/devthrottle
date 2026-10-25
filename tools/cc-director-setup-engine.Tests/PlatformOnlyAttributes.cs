@@ -23,6 +23,24 @@ public sealed class WindowsOnlyTheoryAttribute : TheoryAttribute
 }
 
 /// <summary>
+/// A fact about behaviour only macOS and Linux have, which SKIPS - visibly, with a stated reason - on
+/// Windows, rather than failing for a platform it was never about. The same discipline as
+/// <see cref="WindowsOnlyTheoryAttribute"/>.
+///
+/// For a test that needs real symlink semantics: the retired-launcher purge proves a Unix shim by where
+/// its link points (#3147), and a Windows run takes the text-shim branch instead, so these tests would
+/// be asserting about code that did not run.
+/// </summary>
+public sealed class UnixOnlyFactAttribute : FactAttribute
+{
+    public UnixOnlyFactAttribute(string because)
+    {
+        if (OperatingSystem.IsWindows())
+            Skip = "macOS/Linux-only: " + because;
+    }
+}
+
+/// <summary>
 /// A fact that needs a real zsh to run, which SKIPS - visibly, with a stated reason - where there is
 /// none, rather than reporting a pass for a test that never exercised a shell. The same discipline as
 /// <see cref="WindowsOnlyTheoryAttribute"/>.
