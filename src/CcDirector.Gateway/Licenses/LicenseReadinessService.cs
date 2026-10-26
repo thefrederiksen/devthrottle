@@ -78,9 +78,15 @@ public sealed class LicenseReadinessService
     /// <summary>Every machine of <paramref name="picture"/> on an account, judged at <paramref name="nowUtc"/>. What the
     /// Licenses page shows and what <see cref="TickAsync"/> acts on.</summary>
     public IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture, DateTime nowUtc)
+        => Judge(tenant, picture, _log.ListOpen(tenant), nowUtc);
+
+    // The judgement on sign-in rows already read: the minute check reads them ONCE and hands the same rows to the
+    // stranded alarm, so a Director's answer landing between two reads cannot make the two disagree.
+    private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
+        IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        return LicenseReadinessFold.Judge(picture, _log.ListOpen(tenant), _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
+        return LicenseReadinessFold.Judge(picture, openSignIns, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
             account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId), nowUtc);
     }
 
@@ -138,7 +144,8 @@ public sealed class LicenseReadinessService
         {
             var now = _nowUtc();
             var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
-            var judged = Judge(tenant, picture, now);
+            var openSignIns = _log.ListOpen(tenant);
+            var judged = Judge(tenant, picture, openSignIns, now);
 
             var started = new List<LicenseSignInStart>();
             foreach (var gap in judged.Where(j => j.Fix == LicenseReadinessFixes.StartNow))
@@ -161,7 +168,7 @@ public sealed class LicenseReadinessService
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             // A machine whose stranded alarm is open is that alarm's alone: the five-hour alarm stands down for it.
             var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-                _log.ListOpen(tenant), open);
+                openSignIns, open);
             var alarms = await RaiseKindAsync(tenant, LicenseReadinessFold.AlarmKind,
                 LicenseStrandedAlarm.StandDown(LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), strandedNow),
                 failures, ct).ConfigureAwait(false);

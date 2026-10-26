@@ -29,8 +29,8 @@ namespace CcDirector.Gateway.Licenses;
 /// has just ended well and waits for the machine's next report (<see cref="IsRepairing"/>), the alarm does not open: it
 /// opens only once readiness says no automatic fix is possible (the approver cannot approve, the Director is offline)
 /// or the fix failed (the last sign-in failed, sign-ins end well and the reports still do not show them, or the sign-in
-/// got no answer from the machine). "Running" is bounded: a sign-in whose send got no answer, or that is older than
-/// <see cref="LicenseSignInService.UnansweredAfter"/>, is not a repair (the second review: a Director that is connected
+/// got no answer from the machine). "Running" is bounded: a sign-in open longer than
+/// <see cref="LicenseSignInService.UnansweredAfter"/> is not a repair (the second review: a Director that is connected
 /// and never answers kept one open for days). Its one thing to do is the readiness check's own sentence for that machine
 /// (<see cref="LicenseMachineReadiness.AlarmAction"/>), except for a sign-in that got no answer, where it says so; so the
 /// alarm never tells the owner to do by hand what the Gateway is doing, nor something the Gateway did not say. An alarm
@@ -53,9 +53,11 @@ public static class LicenseStrandedAlarm
 
     /// <summary>
     /// True when the Gateway is repairing the machine itself now, so the alarm holds back: a sign-in starts on this check,
-    /// or one ended well and waits for the machine's next report, or one is RUNNING - its row still <c>pending</c> and
-    /// younger than <see cref="LicenseSignInService.UnansweredAfter"/>. A sign-in whose send got no answer (<c>unknown</c>)
-    /// or that has been open longer than that is not running as far as anyone can tell: a connected Director that never
+    /// or one ended well and waits for the machine's next report, or one is RUNNING - its row still open (<c>pending</c>,
+    /// or <c>unknown</c>) and younger than <see cref="LicenseSignInService.UnansweredAfter"/>, the wait the sign-in service
+    /// gives a sign-in before it settles it. An <c>unknown</c> row counts while it is young, because a send cut off by a
+    /// tunnel that dropped marks it so at once while the Director may be running the sign-in well (the third review). A
+    /// sign-in open longer than that wait is not running as far as anyone can tell: a connected Director that never
     /// answers (issue #4490) keeps such a row open for good, and "signing-in" on it would hold the alarm back for days
     /// (the second review of step 1).
     /// </summary>
@@ -67,7 +69,6 @@ public static class LicenseStrandedAlarm
         {
             LicenseReadinessFixes.StartNow or LicenseReadinessFixes.AwaitingReport => true,
             LicenseReadinessFixes.SigningIn => Running(judgement, openSignIns) is { } row
-                                               && row.State == LicenseLogStates.Pending
                                                && nowUtc - Utc(row.CreatedAtUtc) < LicenseSignInService.UnansweredAfter,
             _ => false,
         };

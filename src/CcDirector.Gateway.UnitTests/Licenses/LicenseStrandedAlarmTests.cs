@@ -505,8 +505,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     // machine-a's Director is connected and answers every command with a timeout, as the Mac Mini's did on 26 October
     // (issue #4490). The sign-in the Gateway starts is marked unknown at once; the minute settle asks again every minute
-    // and settles nothing. That sign-in is not running as far as anyone can tell, so it is no repair: the stranded alarm
-    // opens on the next check, says the sign-in got no answer, and stays open - one email - for days.
+    // and settles nothing. Once it is older than the wait the sign-in service gives a sign-in, it is not running as far as
+    // anyone can tell, so it is no repair: the stranded alarm opens, says the sign-in got no answer, and stays open - one
+    // email - for days.
     [Fact]
     public async Task Tick_ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndStays()
     {
@@ -517,7 +518,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Single(first.Started);
         Assert.Empty(Stranded());
 
-        foreach (var minutes in new[] { 1, 16, 60, 180, 1500, 5000 })
+        foreach (var minutes in new[] { 16, 60, 180, 1500, 5000 })
         {
             Later(minutes);
             await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
@@ -529,6 +530,37 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         }
         Assert.Single(_emails);
         Assert.Single(_pushed);
+    }
+
+    // The third review: a send that times out, or whose tunnel drops, marks the sign-in unknown at once, while the Director
+    // may be running it well. So an unknown sign-in younger than the unanswered wait is still a repair: no alarm at 1
+    // minute or at 14, and the alarm - saying it got no answer, which is then true - once it is older than 15.
+    [Theory]
+    [InlineData(DirectorCommandStatus.Timeout)]
+    [InlineData(DirectorCommandStatus.TunnelDropped)]
+    public async Task Tick_AnUnknownSignIn_IsARepairUntilTheUnansweredWait_ThenTheAlarmOpens(DirectorCommandStatus status)
+    {
+        TheApproverCanApprove();
+        _directorAnswers = true;
+        _directors.AnswerWith(_ => DirectorCommandResult.Fail(status, "The send got no answer."));
+        BothReport();
+        await Tick();
+
+        foreach (var minutes in new[] { 1, 14 })
+        {
+            Later(minutes);
+            await Tick();
+            Assert.Equal(LicenseLogStates.Unknown, Assert.Single(_log.ListOpen(One)).State);
+            Assert.Empty(Stranded());
+        }
+        Assert.Empty(_emails);
+
+        Later(16);
+        await Tick();
+
+        Assert.StartsWith("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer",
+            Assert.Single(Stranded()).Action);
+        Assert.Single(_emails);
     }
 
     // A sign-in still pending, with no answer, for longer than the sign-in service waits before settling one is not running
@@ -553,8 +585,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     }
 
     // The 80-to-97 shape with that deaf Director, five-hour window only: at 85% the five-hour alarm tells the owner that a
-    // sign-in is running; at 97% that line closes as the stranded alarm opens and says it got no answer. Exactly one line
-    // on every check from then on - never two, never none - and two pushes in that order.
+    // sign-in is running; at 97%, while that sign-in is young it is still the five-hour line, and once it is past the
+    // unanswered wait that line closes as the stranded alarm opens and says it got no answer. Exactly one line on every
+    // check - never two, never none - and two pushes in that order.
     [Fact]
     public async Task Tick_From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain()
     {
@@ -573,7 +606,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
             await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
             await Tick();
             var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-            Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
+            Assert.Equal(minutes < 15 ? LicenseReadinessFold.AlarmKind.Key : LicenseStrandedAlarm.Kind.Key, line.Kind);
         }
         Assert.Equal(new[] { LicenseReadinessFold.AlarmKind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
         Assert.Equal(2, _emails.Count);
