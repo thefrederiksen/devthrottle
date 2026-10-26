@@ -15,14 +15,14 @@
   (default false). It is handed to the script, not put on the step as an `if:`, so the script still
   probes and writes a loud warning into the run summary naming what `/healthz` returned.
 - `src/CcDirector.Core.UnitTests/Release/ProductionHealthGateRunsBeforeEveryDeployTests.cs` guards the
-  step's presence, its place before the outgoing reads and the image pin, the absence of any `if:` or
+  step's presence, its place before the outgoing reads, the image pin and the app settings write, the absence of any `if:` or
   `continue-on-error:`, the input's type and default, and the script's pass condition and summary text.
 
 ## What this proof does NOT cover
 
 Production cannot be made unhealthy on purpose and the deploy workflow must not be dispatched for this
 change, so there is no proving run on GitHub. The script was proved against a local fake `/healthz`
-(below) and, read-only, against the live production `/healthz`. The first real deploy after merge is
+(below, and from now on by the web job of `ci.yml`) and, read-only, against the live production `/healthz`. The first real deploy after merge is
 the first time the step runs on a runner.
 
 ## The probe against a local fake /healthz
@@ -32,10 +32,9 @@ code AND the words printed, and the run summary where one is written. Run on dev
 with a 2 second timeout so the hang cases finish quickly. Ports replaced by `<port>`.
 
 ```
-PASS  healthy (exit 0, 1s)
+PASS  healthy (exit 0, 0s)
         Attempt 1/2: http://127.0.0.1:<port>/healthy/healthz -> HTTP 200, commit abc1234
         Production health gate passed: production is healthy on its own commit abc1234.
-PASS  healthy writes commit=abc1234 to the step output
 PASS  bad-gateway (exit 1, 0s)
         Attempt 1/2: http://127.0.0.1:<port>/bad-gateway/healthz -> HTTP 502, body: 502 - Web server received an invalid response while acting as a gateway
         Attempt 2/2: http://127.0.0.1:<port>/bad-gateway/healthz -> HTTP 502, body: 502 - Web server received an invalid response while acting as a gateway
@@ -48,6 +47,23 @@ PASS  bad-gateway (exit 1, 0s)
         -- run summary --
         ### Deploy REFUSED: production is already unhealthy
         Before anything was changed, http://127.0.0.1:<port>/bad-gateway/healthz returned: **HTTP 502, body: 502 - Web server received an invalid response while acting as a gateway** (after 2 attempts, 2s each).
+        Recover first with the rollback workflow: `gh workflow run rollback-hosted-gateway.yml --ref main -f commit=last-known-good`.
+        If this deploy is itself the fix, start it again with `-f deploy_to_unhealthy_production=true`.
+PASS  starting (exit 1, 0s)
+        Attempt 1/2: http://127.0.0.1:<port>/starting/healthz -> HTTP 503, body: {"status":"starting"}
+        Attempt 2/2: http://127.0.0.1:<port>/starting/healthz -> HTTP 503, body: {"status":"starting"}
+        REFUSED: production is already unhealthy, so nothing will be deployed on top of it.
+          http://127.0.0.1:<port>/starting/healthz returned: HTTP 503, body: {"status":"starting"} (after 2 attempts, 2s each).
+          The Gateway answered 503 "starting": it may be part way through a restart. Wait a minute and run
+          this deploy again; if it still refuses, production is down and needs recovery.
+          The next action is recovery, not a deploy: run the rollback workflow, for example
+            gh workflow run rollback-hosted-gateway.yml --ref main -f commit=last-known-good
+          If this deploy IS the fix for the broken production, start it again with
+            -f deploy_to_unhealthy_production=true
+        -- run summary --
+        The Gateway answered 503 "starting", so it may be part way through a restart: wait a minute and run the deploy again before recovering.
+        ### Deploy REFUSED: production is already unhealthy
+        Before anything was changed, http://127.0.0.1:<port>/starting/healthz returned: **HTTP 503, body: {"status":"starting"}** (after 2 attempts, 2s each).
         Recover first with the rollback workflow: `gh workflow run rollback-hosted-gateway.yml --ref main -f commit=last-known-good`.
         If this deploy is itself the fix, start it again with `-f deploy_to_unhealthy_production=true`.
 PASS  refused (exit 1, 0s)
@@ -199,3 +215,37 @@ exit 0
 With an `if: ${{ !inputs.deploy_to_unhealthy_production }}` added to the step and the input's default
 flipped to true, `ProductionHealthGateRunsBeforeEveryDeployTests` failed 2 of 3 (`Collections differ`
 on the step keys, `Sub-string not found` on `default: false`). With the workflow restored, 3 of 3 pass.
+
+## Answers to the review (`docs/evidence/4515-review.md`)
+
+The review approved with no blocking finding and five observations. Each is answered here. After the
+changes the branch was rebased onto origin/main 6fa361f57, the shell proof above was run again (14 of 14
+pass, now including the 503 "starting" case), and the guard tests were run again (4 of 4 pass, with the
+older `HostedImageContractRunsBeforeEveryDeployTests`).
+
+**A. The shell proof runs nowhere automatically - accepted and fixed.** The `web` job of
+`.github/workflows/ci.yml` now runs `bash scripts/check-production-healthy.test.sh` as its first step after
+checkout. That job is on Ubuntu with bash, curl, jq and python3, and the classifier already runs it for any
+change under `scripts/`, which is unclassified and runs every job. On main every job runs. Both script
+headers now say where the proof runs, and that it should still be run by hand after a change to the probe.
+
+**B. The `commit=` step output is dead - accepted and fixed.** The write to `GITHUB_OUTPUT` and its header
+line are removed, and so is the proof case that checked it. The step stays at only `env` and `run`. If
+#4514 needs the live commit, it can add an `id:` and the write back together, and widen the guard in the
+same change.
+
+**C. The guard does not pin the gate ahead of the app settings write - accepted and fixed.** The guard now
+also asserts that the first `az webapp config appsettings set` comes after the gate. Proved by mutation:
+a step placed before the gate that runs `az webapp config appsettings set` makes the guard fail (1 of 4
+failed). With the workflow restored, 4 of 4 pass.
+
+**D. A 503 "starting" answer gets rollback advice - accepted and fixed.** The refusal stays, since a deploy
+onto a Gateway that is part way through a restart is not safe. But when the answer is 503 with
+`"starting"` in the body, the refusal and the run summary now also say the Gateway may be part way through a
+restart, and to wait a minute and run the deploy again before recovering. The proof has a new `starting`
+case that checks both.
+
+**E. The pin assertion searched the raw text, comments included - accepted and fixed.** The guard now finds
+each command only on a line that runs it: the line starts with the command, possibly after `if !`, and
+comment lines are skipped. Proved by mutation: a comment above the gate that quotes both commands leaves
+the guard passing (4 of 4).

@@ -29,7 +29,9 @@
 #   HEALTH_RETRY_DELAY_SECONDS      pause between attempts (default 2)
 #   DEPLOY_TO_UNHEALTHY_PRODUCTION  "true" skips the refusal (default false)
 #   GITHUB_STEP_SUMMARY             when set, the verdict is appended to it
-#   GITHUB_OUTPUT                   when set, commit=<live commit> is written to it on a pass
+#
+# The proof is scripts/check-production-healthy.test.sh, run by the web job of .github/workflows/ci.yml.
+# Run it by hand after every change to this script: the C# guard only reads this file's text.
 #
 # Exit codes: 0 production is healthy, or the escape hatch was used; 1 refused; 2 bad usage.
 
@@ -63,6 +65,7 @@ probe() {
   LIVE_COMMIT=""
   : > "$BODY_FILE"
   local code curl_exit
+  LAST_CODE=""
   code=$(curl -sS -m "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' "$HEALTH_URL" 2>/dev/null)
   curl_exit=$?
   if [ "$curl_exit" -eq 28 ]; then
@@ -73,6 +76,7 @@ probe() {
     OBSERVED="no HTTP response (connection failed, curl exit ${curl_exit}; HTTP 000)"
     return 1
   fi
+  LAST_CODE=$code
   local snippet
   snippet=$(head -c 200 "$BODY_FILE" | tr -d '\r' | tr '\n' ' ')
   if [ "$code" != "200" ]; then
@@ -109,7 +113,6 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
 done
 
 if [ "$healthy" = true ]; then
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "commit=${LIVE_COMMIT}" >> "$GITHUB_OUTPUT"; fi
   echo "Production health gate passed: production is healthy on its own commit ${LIVE_COMMIT}."
   if [ "$OVERRIDE" = "true" ]; then
     echo "NOTE: deploy_to_unhealthy_production was set, but production is healthy, so it changed nothing."
@@ -131,6 +134,11 @@ fi
 
 echo "REFUSED: production is already unhealthy, so nothing will be deployed on top of it."
 echo "  ${HEALTH_URL} returned: ${OBSERVED} (after ${ATTEMPTS} attempts, ${TIMEOUT}s each)."
+if [ "$LAST_CODE" = "503" ] && grep -q '"starting"' "$BODY_FILE" 2>/dev/null; then
+  echo "  The Gateway answered 503 \"starting\": it may be part way through a restart. Wait a minute and run"
+  echo "  this deploy again; if it still refuses, production is down and needs recovery."
+  summary "The Gateway answered 503 \"starting\", so it may be part way through a restart: wait a minute and run the deploy again before recovering."
+fi
 echo "  The next action is recovery, not a deploy: run the rollback workflow, for example"
 echo "    gh workflow run ${ROLLBACK_WORKFLOW} --ref main -f commit=last-known-good"
 echo "  If this deploy IS the fix for the broken production, start it again with"

@@ -4,7 +4,8 @@
 # Nobody can make the real production unhealthy on purpose, so every shape it can take is served here
 # by a small Python server on 127.0.0.1, one path prefix per shape, and the probe is pointed at each.
 # Each case checks the exit code AND the words printed, so a probe that refuses for the wrong reason
-# fails here too. Needs bash, curl, jq and python3. Run from anywhere:
+# fails here too. Needs bash, curl, jq and python3. The web job of .github/workflows/ci.yml runs it;
+# run it by hand too after any change to the probe. Run from anywhere:
 #
 #   bash scripts/check-production-healthy.test.sh
 
@@ -34,6 +35,8 @@ class Handler(BaseHTTPRequestHandler):
         elif shape == "hang":
             time.sleep(30)
             self.reply(200, b'{"commit":"too-late"}')
+        elif shape == "starting":
+            self.reply(503, b'{"status":"starting"}')
         elif shape == "empty":
             self.reply(200, b"")
         elif shape == "no-commit":
@@ -78,11 +81,11 @@ failures=0
 # run_case <name> <url> <expected exit> <expected words> [override] [expected summary words]
 run_case() {
   local name=$1 url=$2 want_exit=$3 want_text=$4 override=${5:-false} want_summary=${6:-}
-  local summary_file="$WORK/summary-$name" output_file="$WORK/output-$name"
-  : > "$summary_file"; : > "$output_file"
+  local summary_file="$WORK/summary-$name"
+  : > "$summary_file"
   local start end got_exit
   start=$(date +%s)
-  GITHUB_STEP_SUMMARY="$summary_file" GITHUB_OUTPUT="$output_file" DEPLOY_TO_UNHEALTHY_PRODUCTION="$override" \
+  GITHUB_STEP_SUMMARY="$summary_file" DEPLOY_TO_UNHEALTHY_PRODUCTION="$override" \
     bash "$PROBE" "$url" > "$WORK/stdout-$name" 2>&1
   got_exit=$?
   end=$(date +%s)
@@ -101,11 +104,10 @@ run_case() {
 }
 
 run_case healthy        "$BASE/healthy"                 0 "Production health gate passed: production is healthy on its own commit abc1234."
-grep -qx "commit=abc1234" "$WORK/output-healthy" \
-  && echo "PASS  healthy writes commit=abc1234 to the step output" \
-  || { echo "FAIL  healthy did not write commit=abc1234 to the step output"; failures=$((failures + 1)); }
 
 run_case bad-gateway    "$BASE/bad-gateway"             1 "returned: HTTP 502"
+run_case starting       "$BASE/starting"                1 "it may be part way through a restart" false \
+  "The Gateway answered 503 \"starting\""
 run_case refused        "http://127.0.0.1:${REFUSED_PORT}" 1 "returned: no HTTP response (connection failed"
 run_case hang           "$BASE/hang"                    1 "returned: no answer within 2s (timed out; HTTP 000)"
 run_case empty-body     "$BASE/empty"                   1 "returned: HTTP 200 with an empty body"

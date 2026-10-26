@@ -42,9 +42,12 @@ public sealed class ProductionHealthGateRunsBeforeEveryDeployTests
         Assert.True(gateAt < outgoingImageAt, "The production health gate runs AFTER the outgoing image is read, so a broken image is recorded as the rollback target.");
         Assert.True(gateAt < deployAt, "The production health gate runs AFTER the deploy step, so a new image is pinned onto a dead production.");
 
-        // Only one place in the workflow may pin an image, and it must come after the gate.
-        var firstPin = workflow.IndexOf("az webapp config container set", StringComparison.Ordinal);
+        // Both commands that change the production site - the image pin and the app settings write, which
+        // restarts the site - must come after the gate wherever they live. Found as commands, not in comments.
+        var firstPin = FirstCommand(workflow, "az webapp config container set");
+        var firstSettingsWrite = FirstCommand(workflow, "az webapp config appsettings set");
         Assert.True(firstPin > gateAt, "Something pins a container image before the production health gate runs.");
+        Assert.True(firstSettingsWrite > gateAt, "Something writes the production app settings, restarting the site, before the production health gate runs.");
 
         var stepEnd = workflow.IndexOf("\n      - name:", gateAt + GateStepName.Length, StringComparison.Ordinal);
         var step = workflow[gateAt..stepEnd];
@@ -97,6 +100,15 @@ public sealed class ProductionHealthGateRunsBeforeEveryDeployTests
         // The proof that runs the script against a fake /healthz is committed beside it.
         Assert.True(File.Exists(Path.Combine(root, "scripts", "check-production-healthy.test.sh")),
             "The fake-server proof of the probe script is missing.");
+    }
+
+    /// <summary>The position of the first line that RUNS <paramref name="command"/> (possibly after <c>if !</c>),
+    /// skipping comment lines, so a comment quoting the command cannot move the answer.</summary>
+    private static int FirstCommand(string workflow, string command)
+    {
+        var m = Regex.Match(workflow, @"^[ \t]*(?:if !\s*)?" + Regex.Escape(command), RegexOptions.Multiline);
+        Assert.True(m.Success, $"The deploy workflow no longer runs '{command}'; this guard cannot place it.");
+        return m.Index;
     }
 
     private static string RepoRoot([CallerFilePath] string thisFile = "")
