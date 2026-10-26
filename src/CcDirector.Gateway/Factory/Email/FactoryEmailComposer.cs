@@ -9,7 +9,21 @@ namespace CcDirector.Gateway.Factory.Email;
 /// <summary>A factory as the email names it: its title, and its seats' names by seat id.</summary>
 /// <param name="Title">The factory's title from the registry, or its id when it is not registered.</param>
 /// <param name="SeatNames">Each seat's name (a role word) by seat id.</param>
-public sealed record FactoryEmailFactory(string Title, IReadOnlyDictionary<string, string> SeatNames);
+/// <param name="Archived">True when the owner archived the factory: it is named where a problem names it, but it gets no
+/// line of its own in the 08:00 email.</param>
+public sealed record FactoryEmailFactory(string Title, IReadOnlyDictionary<string, string> SeatNames, bool Archived = false);
+
+/// <summary>What waits on the owner, for the 08:00 email's "Needs you" section: every asked and escalated row of the
+/// factory activity record that no row corrects - the same items the factory page's "Waiting for you" and the factory
+/// floor's desk show (<see cref="FactoryAgentsFold.OpenWaiting"/>).</summary>
+/// <param name="Items">The open items, in any order; the email orders them.</param>
+/// <param name="Truncated">True when the record held more asked, escalated or correcting rows than one read returns, so
+/// the list may miss an item - and then the email says so.</param>
+public sealed record FactoryEmailNeedsYou(IReadOnlyList<FactoryActivityDto> Items, bool Truncated)
+{
+    /// <summary>Nothing waits on the owner.</summary>
+    public static readonly FactoryEmailNeedsYou None = new(Array.Empty<FactoryActivityDto>(), false);
+}
 
 /// <summary>Everything one factory email is composed from. The composer reads nothing else.</summary>
 /// <param name="Slot">The slot being sent.</param>
@@ -20,6 +34,7 @@ public sealed record FactoryEmailFactory(string Title, IReadOnlyDictionary<strin
 /// <param name="BaseUrl">This Gateway's public base address, or null when it has no remotely reachable one.</param>
 /// <param name="MailDesk">The 08:00 email's Mail Desk section, folded on the Gateway (<see cref="MailDeskEmailFold"/>),
 /// or null when the account's Mail Desk is off or has no mailbox - and then the email is exactly as it was before.</param>
+/// <param name="NeedsYou">What waits on the owner (the 08:00 email only), or null for nothing.</param>
 public sealed record FactoryEmailInput(
     FactoryEmailSlot Slot,
     TimeZoneInfo Zone,
@@ -27,7 +42,8 @@ public sealed record FactoryEmailInput(
     IReadOnlyList<CronFactoryDayDto> Days,
     IReadOnlyDictionary<string, FactoryEmailFactory> Factories,
     string? BaseUrl,
-    MailDeskEmailSection? MailDesk = null);
+    MailDeskEmailSection? MailDesk = null,
+    FactoryEmailNeedsYou? NeedsYou = null);
 
 /// <summary>A composed factory email, or the reason none is sent at this slot.</summary>
 /// <param name="Send">True when this slot sends an email.</param>
@@ -48,7 +64,14 @@ public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subje
 ///
 /// THE OWNER'S RULES:
 ///   - 08:00, every day: the problems still not fixed, whenever they started (a problem fixed yesterday is not open, so
-///     it is not here), then one line per factory - runs done, runs that did not run, seats left open.
+///     it is not here), then what needs the owner, then a line for EVERY factory of the account - its runs counted and
+///     what they did, in the runs' own reported words (the one daily email the owner approved on 26 October 2026,
+///     <c>devthrottle_internal/docs/missions/factories-run-alone-2026-10-26/daily-email-mockup.html</c>).
+///   - "Needs you" is every item a factory run queued for the owner and nobody has handled: the open asked and
+///     escalated rows of the factory activity record, each linking to that item on its factory page. A run never waits
+///     for the answer; the next run reads it.
+///   - What a factory did is never written by a model: it is the line each run's own session reported with its ok
+///     result, verbatim, and a run that reported nothing is said to have reported nothing.
 ///   - 16:00 and midnight: ONLY when the shift that just ended raised a NEW problem - one recorded since the last slot.
 ///     Older open problems are one line pointing to the earlier email, never repeated.
 ///   - Read-only: no buttons. Each factory with a problem links to its factory page, where the problem is handled.
@@ -67,10 +90,26 @@ public static class FactoryEmailComposer
     private const string Accent = "#0066B8";
     private const string Bad = "#B42318";
     private const string BadBack = "#FDF3F2";
+    private const string AccentBack = "#F0F6FC";
     private const string Font = "font-family:'Segoe UI',Arial,sans-serif;";
 
     /// <summary>The heading over a problem whose schedule is in no factory.</summary>
     public const string NoFactoryTitle = "Not in a factory";
+
+    /// <summary>The heading of the 08:00 email's section of items waiting on the owner.</summary>
+    public const string NeedsYouHeading = "Needs you - answer when you like";
+
+    /// <summary>The heading of the 08:00 email's line per factory.</summary>
+    public const string FactoriesHeading = "Last 24 hours - what each factory did";
+
+    /// <summary>The words after when an item was queued.</summary>
+    public const string NextRunActs = "the next run acts on your answer";
+
+    /// <summary>What a run that reported no line with its ok result is said to have done.</summary>
+    public const string ReportedNothing = "reported nothing";
+
+    /// <summary>How many of one seat's reported lines a factory's line quotes before it points to the factory page.</summary>
+    public const int MaxLinesPerSeat = 3;
 
     /// <summary>Compose the email for <paramref name="input"/>'s slot.</summary>
     public static FactoryEmail Compose(FactoryEmailInput input)
@@ -85,15 +124,28 @@ public static class FactoryEmailComposer
     private static FactoryEmail ComposeMorning(FactoryEmailInput input)
     {
         var problems = input.Problems.Where(p => p.State == CronRunProblemStates.Open).ToList();
-        var days = input.Days;
-        if (problems.Count == 0 && days.Count == 0 && input.MailDesk is null)
+        var needsYou = input.NeedsYou ?? FactoryEmailNeedsYou.None;
+        var waiting = FactoryOwnerActions.WaitingOrder(needsYou.Items);
+        if (problems.Count == 0 && input.Days.Count == 0 && input.MailDesk is null && waiting.Count == 0)
             return NotSent("this account has no factory schedules and no open problems, so there is nothing to report");
+
+        // EVERY FACTORY GETS A LINE: each factory the problems fold counted, and each registered factory not archived,
+        // even one with no schedule - it is listed with nothing done rather than left out.
+        var days = input.Days.ToList();
+        foreach (var (id, f) in input.Factories)
+        {
+            if (f.Archived || days.Any(d => string.Equals(d.Factory, id, StringComparison.OrdinalIgnoreCase))) continue;
+            days.Add(new CronFactoryDayDto { Factory = id });
+        }
 
         var local = Local(input.Slot.BoundaryUtc, input.Zone);
         var dayText = local.ToString("dddd d MMMM", CultureInfo.InvariantCulture);
-        var subject = problems.Count == 0
-            ? $"Factories: all clear - {dayText}"
-            : $"Factories: {Count(problems.Count, "problem")} still open - {dayText}";
+        var needsHeadline = waiting.Count == 0 ? null : $"{Count(waiting.Count, "thing")} {(waiting.Count == 1 ? "needs" : "need")} you";
+        var subject = needsHeadline is not null
+            ? $"Factories: {needsHeadline} - {dayText}"
+            : problems.Count == 0
+                ? $"Factories: all clear - {dayText}"
+                : $"Factories: {Count(problems.Count, "problem")} still open - {dayText}";
 
         var done = days.Sum(d => d.Done);
         var didNotRun = days.Sum(d => d.DidNotRun);
@@ -106,12 +158,21 @@ public static class FactoryEmailComposer
             ? $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run"
             : $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(nothingToDo, "run")} with nothing to do, {Count(didNotRun, "run")} did not run")
             + (checkFailed == 0 ? "." : $", {Count(checkFailed, "check")} failed or did not run.");
-        var headline = problems.Count == 0 ? "All clear" : $"{Count(problems.Count, "problem")} still open";
+        if (needsHeadline is not null)
+        {
+            // With items waiting, the headline is theirs, so the summary says how the problems stand.
+            summary += problems.Count == 0 ? " No problems open." : $" {Count(problems.Count, "problem")} still open, listed first.";
+            summary += days.Sum(d => d.LeftOpen) == 0
+                ? " Every run closed on its own; nothing waits for your answer."
+                : " Nothing waits for your answer.";
+        }
+        var headline = needsHeadline ?? (problems.Count == 0 ? "All clear" : $"{Count(problems.Count, "problem")} still open");
+        var headlineColour = needsHeadline is not null ? Accent : problems.Count == 0 ? Ink : Bad;
 
         var html = new StringBuilder();
-        Open(html, subject, $"{local:HH:mm} report - {dayText} - the last 24 hours");
+        Open(html, subject, $"Daily report - {dayText} - the last 24 hours");
         html.Append($"<tr><td style=\"padding:16px 18px 6px;{Font}\">\n");
-        html.Append($"<div style=\"font-size:21px;font-weight:700;color:{(problems.Count == 0 ? Ink : Bad)};\">{E(headline)}</div>\n");
+        html.Append($"<div style=\"font-size:21px;font-weight:700;color:{headlineColour};\">{E(headline)}</div>\n");
         html.Append($"<div style=\"font-size:13.5px;color:{Muted};padding-top:3px;\">{E(summary)}</div>\n");
         html.Append("</td></tr>\n");
 
@@ -121,19 +182,29 @@ public static class FactoryEmailComposer
             ProblemCards(html, input, problems, showOpenFor: true);
         }
 
+        if (waiting.Count > 0)
+        {
+            SectionHeading(html, NeedsYouHeading, problems.Count > 0 ? "20px 18px 4px" : "12px 18px 4px");
+            NeedsYouCards(html, input, waiting, needsYou.Truncated);
+        }
+
         if (days.Count > 0)
         {
-            SectionHeading(html, "Last 24 hours", "20px 18px 4px");
-            FactoryTable(html, input, days);
+            SectionHeading(html, FactoriesHeading, "20px 18px 4px");
+            FactoryLines(html, input, days);
         }
 
         if (input.MailDesk is { } mailDesk)
             MailDeskSection(html, mailDesk);
 
         var footer = new StringBuilder();
-        footer.Append("This email only reports. Each problem is handled on its factory page - ");
-        footer.Append(input.BaseUrl is null ? "open DevThrottle, Factories. " : "open the factory name above. ");
-        footer.Append("A problem leaves this email when the next run of the same job succeeds, or when it is resolved with a reason.");
+        footer.Append("This email only reports. ");
+        footer.Append(input.BaseUrl is null ? "Open DevThrottle, Factories, to act on anything here. " : "Every line opens the Cockpit. ");
+        if (waiting.Count > 0)
+            footer.Append("A factory never waits for you: what needs you is queued above, and the next run reads your answer and acts on it. ");
+        footer.Append(problems.Count > 0
+            ? "Each problem is handled on its factory page. A problem leaves this email when the next run of the same job succeeds, or when it is resolved with a reason."
+            : "Problems, when there are any, are listed first under \"Still not fixed\".");
         if (CronRunResultFold.AnyCheckProblem(problems))
             footer.Append(' ').Append(CronRunResultFold.CheckClearsSentence);
         Close(html, footer.ToString(), $"Sent at {local:HH:mm} {ZoneName(input.Zone)} time to the account that set up these factories.");
@@ -147,28 +218,170 @@ public static class FactoryEmailComposer
             foreach (var p in problems) TextProblem(text, input, p, showOpenFor: true);
             text.AppendLine();
         }
+        if (waiting.Count > 0)
+        {
+            text.AppendLine(NeedsYouHeading.ToUpperInvariant());
+            foreach (var item in waiting)
+            {
+                text.AppendLine($"- {OneLine(NeedsYouTitle(input, item))}");
+                text.AppendLine($"  {OneLine(NeedsYouBody(input, item))}");
+                text.AppendLine($"  {NeedsYouWhen(item, input.Zone)}");
+                if (NeedsYouHref(input, item) is { } href) text.AppendLine($"  {href}");
+            }
+            if (needsYou.Truncated) text.AppendLine(TruncatedSentence);
+            text.AppendLine();
+        }
         if (days.Count > 0)
         {
-            // The two phase 5b columns are there only when a day has one, as in the HTML table.
-            var columns = new List<(string Name, Func<CronFactoryDayDto, int> Of)> { ("done", d => d.Done) };
-            if (nothingToDo > 0) columns.Add(("nothing to do", d => d.NothingToDo));
-            columns.Add(("did not run", d => d.DidNotRun));
-            if (checkFailed > 0) columns.Add(("checks failed or not run", d => d.CheckFailed));
-            columns.Add(("left open", d => d.LeftOpen));
-            text.AppendLine($"LAST 24 HOURS ({string.Join(" / ", columns.Select(c => c.Name))})");
+            text.AppendLine(FactoriesHeading.ToUpperInvariant());
             foreach (var d in OrderedDays(input, days))
-                text.AppendLine($"{TitleOf(input, d.Factory)}: {string.Join(" / ", columns.Select(c => c.Of(d)))}");
+            {
+                text.AppendLine($"{TitleOf(input, d.Factory)} - {RunCounts(d)}");
+                text.AppendLine($"  {OneLine(WhatItDid(input, d))}");
+                if (FactoryHref(input, d) is { } href) text.AppendLine($"  {href}");
+            }
             text.AppendLine();
         }
         if (input.MailDesk is { } mailDeskText)
             TextMailDesk(text, mailDeskText);
         text.AppendLine(footer.ToString());
 
-        var covered = Covered(problems, days);
+        var covered = Covered(problems, days).Concat(waiting.Select(w => w.Factory))
+            .Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (input.MailDesk is { } named && !covered.Contains(named.Factory, StringComparer.OrdinalIgnoreCase))
-            covered = covered.Append(named.Factory).OrderBy(f => f, StringComparer.Ordinal).ToList();
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count, covered);
+            covered.Add(named.Factory);
+        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count,
+            covered.OrderBy(f => f, StringComparer.Ordinal).ToList());
     }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // 08:00: what needs the owner, and what each factory did
+
+    /// <summary>Said under the items when the record could not be read whole.</summary>
+    public const string TruncatedSentence =
+        "The record held more items than one read returns, so this list may miss one. Open DevThrottle, Factories, for the whole list.";
+
+    private static void NeedsYouCards(StringBuilder html, FactoryEmailInput input, IReadOnlyList<FactoryActivityDto> items, bool truncated)
+    {
+        html.Append("<tr><td style=\"padding:0 18px;\">\n");
+        html.Append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n");
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (i > 0)
+                html.Append("<tr><td style=\"height:8px;line-height:8px;font-size:0;\">&nbsp;</td></tr>\n");
+            var title = E(NeedsYouTitle(input, item));
+            var linked = NeedsYouHref(input, item) is { } href
+                ? $"<a href=\"{E(href)}\" style=\"color:{Ink};text-decoration:none;\">{title}</a>"
+                : title;
+            html.Append($"<tr><td style=\"padding:11px 12px;border-left:4px solid {Accent};background:{AccentBack};border-radius:4px;{Font}\">\n");
+            html.Append($"<div style=\"font-size:15px;font-weight:700;\">{linked}</div>\n");
+            html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:3px;\">{E(NeedsYouBody(input, item))}</div>\n");
+            html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:3px;\">{E(NeedsYouWhen(item, input.Zone))}</div>\n");
+            html.Append("</td></tr>\n");
+        }
+        if (truncated)
+            html.Append($"<tr><td style=\"padding:8px 0 0;{Font}font-size:12.5px;color:{Muted};\">{E(TruncatedSentence)}</td></tr>\n");
+        html.Append("</table>\n</td></tr>\n");
+    }
+
+    // "DevThrottle Marketing - make a video public": the factory, then what the item is about (its subject, or the seat
+    // that queued it when it names none).
+    private static string NeedsYouTitle(FactoryEmailInput input, FactoryActivityDto item) =>
+        $"{TitleOf(input, item.Factory)} - {(string.IsNullOrWhiteSpace(item.Subject) ? SeatName(input, item.Factory, item.FactoryAgent) : item.Subject.Trim())}";
+
+    // "Content: ...": the seat that queued it, then the record's own sentence.
+    private static string NeedsYouBody(FactoryEmailInput input, FactoryActivityDto item) =>
+        $"{SeatName(input, item.Factory, item.FactoryAgent)}: {item.What}";
+
+    private static string NeedsYouWhen(FactoryActivityDto item, TimeZoneInfo zone) =>
+        $"Queued {Local(item.OccurredUtc, zone).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)} - {NextRunActs}";
+
+    // The item on its factory page, which marks each waiting item with this anchor.
+    private static string? NeedsYouHref(FactoryEmailInput input, FactoryActivityDto item) =>
+        input.BaseUrl is null ? null : $"{input.BaseUrl.TrimEnd('/')}/factories/{Uri.EscapeDataString(item.Factory)}#item-{item.Id:D}";
+
+    // The factory page; its problems card when the factory has an open problem, as before.
+    private static string? FactoryHref(FactoryEmailInput input, CronFactoryDayDto d) =>
+        input.BaseUrl is null
+            ? null
+            : $"{input.BaseUrl.TrimEnd('/')}/factories/{Uri.EscapeDataString(d.Factory)}{(d.OpenProblems > 0 ? "#problems" : "")}";
+
+    private static void FactoryLines(StringBuilder html, FactoryEmailInput input, IReadOnlyList<CronFactoryDayDto> days)
+    {
+        html.Append("<tr><td style=\"padding:0 18px 6px;\">\n");
+        html.Append($"<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"{Font}\">\n");
+        var ordered = OrderedDays(input, days);
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var d = ordered[i];
+            var rule = i < ordered.Count - 1 ? $"border-bottom:1px solid {Line};" : "";
+            var title = E(TitleOf(input, d.Factory));
+            var name = FactoryHref(input, d) is { } href
+                ? $"<a href=\"{E(href)}\" style=\"color:{Accent};text-decoration:none;font-weight:600;\">{title}</a>"
+                : $"<span style=\"color:{Ink};font-weight:600;\">{title}</span>";
+            var alarming = d.DidNotRun > 0 || d.CheckFailed > 0 || d.LeftOpen > 0;
+            html.Append($"<tr><td style=\"padding:10px 0;{rule}\">\n");
+            html.Append($"<div style=\"font-size:14px;\">{name} <span style=\"color:{(alarming ? Bad : Muted)};font-size:12.5px;\">- {E(RunCounts(d))}</span></div>\n");
+            html.Append($"<div style=\"font-size:13px;color:{Ink};padding-top:3px;\">{E(WhatItDid(input, d))}</div>\n");
+            html.Append("</td></tr>\n");
+        }
+        html.Append("</table>\n</td></tr>\n");
+    }
+
+    /// <summary>"6 runs done", then each other count of the day, only when it is not nought.</summary>
+    private static string RunCounts(CronFactoryDayDto d)
+    {
+        var parts = new List<string> { $"{Count(d.Done, "run")} done" };
+        if (d.NothingToDo > 0) parts.Add($"{Count(d.NothingToDo, "run")} with nothing to do");
+        if (d.DidNotRun > 0) parts.Add($"{Count(d.DidNotRun, "run")} did not run");
+        if (d.CheckFailed > 0) parts.Add($"{Count(d.CheckFailed, "check")} failed or did not run");
+        if (d.LeftOpen > 0) parts.Add($"{Count(d.LeftOpen, "seat")} left open");
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// What the factory's done runs did, seat by seat in the order they first ran: each seat's name and run count, then
+    /// the lines its runs reported, verbatim and once each. A run that reported nothing is said to have reported nothing.
+    /// Never composed by a model.
+    /// </summary>
+    private static string WhatItDid(FactoryEmailInput input, CronFactoryDayDto d)
+    {
+        if (d.DoneRuns.Count == 0)
+            return "No run finished in the last 24 hours.";
+        var seats = new List<string>();
+        foreach (var seat in d.DoneRuns.GroupBy(r => r.Seat, StringComparer.Ordinal))
+        {
+            var runs = seat.ToList();
+            var lines = runs.Where(r => r.Reported is not null).Select(r => r.Reported!).Distinct(StringComparer.Ordinal).ToList();
+            var silent = runs.Count(r => r.Reported is null);
+            var said = new StringBuilder($"{SeatName(input, d.Factory, seat.Key)} ({Count(runs.Count, "run")}):");
+            foreach (var line in lines.Take(MaxLinesPerSeat))
+                said.Append(' ').Append(Sentence(line));
+            if (lines.Count > MaxLinesPerSeat)
+                said.Append($" And {Count(lines.Count - MaxLinesPerSeat, "more line")} on the factory page.");
+            if (silent > 0)
+                said.Append(lines.Count == 0 ? $" {Sentence(ReportedNothing)}" : $" {Count(silent, "run")} {ReportedNothing}.");
+            seats.Add(said.ToString());
+        }
+        return string.Join(" ", seats);
+    }
+
+    // A reported line as a sentence: a full stop added when it has no ending of its own. Its words are not touched.
+    private static string Sentence(string line)
+    {
+        var t = line.Trim();
+        if (t.Length == 0) return t;
+        return t[^1] is '.' or '!' or '?' ? t : t + ".";
+    }
+
+    // A seat's name (its role word) when the registry knows it, otherwise its id.
+    private static string SeatName(FactoryEmailInput input, string? factory, string seat) =>
+        factory is not null && input.Factories.TryGetValue(factory, out var f) && f.SeatNames.TryGetValue(seat, out var name)
+            && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : seat;
 
     // ------------------------------------------------------------------------------------------------------------
     // 08:00: the Mail Desk section, laid out exactly as the Gateway folded it
@@ -378,53 +591,6 @@ public static class FactoryEmailComposer
             html.Append("</td></tr>\n");
         }
         html.Append("</table>\n</td></tr>\n");
-    }
-
-    private static void FactoryTable(StringBuilder html, FactoryEmailInput input, IReadOnlyList<CronFactoryDayDto> days)
-    {
-        html.Append("<tr><td style=\"padding:0 18px 6px;\">\n");
-        html.Append($"<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"{Font}\">\n");
-        html.Append("<tr>\n");
-        html.Append($"<td style=\"padding:6px 0;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\">Factory</td>\n");
-        html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"44\">Done</td>\n");
-        // The column is there only when a check found nothing to do (phase 5b): every other email is unchanged.
-        var showNothingToDo = days.Any(d => d.NothingToDo > 0);
-        if (showNothingToDo)
-            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"64\">Nothing to do</td>\n");
-        html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Did not run</td>\n");
-        // So is the checks column (phase 5b): a timed start's check that failed or did not run in the window, and an
-        // interval start's check that failed.
-        var showCheckFailed = days.Any(d => d.CheckFailed > 0);
-        if (showCheckFailed)
-            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"72\">Checks failed or not run</td>\n");
-        html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"50\">Left open</td>\n");
-        html.Append("</tr>\n");
-        var ordered = OrderedDays(input, days);
-        for (var i = 0; i < ordered.Count; i++)
-        {
-            var d = ordered[i];
-            var rule = i < ordered.Count - 1 ? $"border-bottom:1px solid {Line};" : "";
-            var name = d.OpenProblems > 0
-                ? FactoryName(input, d.Factory, Accent, linkWhenProblem: true, weight: "font-weight:600;")
-                : E(TitleOf(input, d.Factory));
-            html.Append("<tr>\n");
-            html.Append($"<td style=\"padding:9px 0;font-size:14px;color:{Ink};{rule}\">{name}</td>\n");
-            html.Append(NumberCell(d.Done, alarming: false, rule));
-            if (showNothingToDo) html.Append(NumberCell(d.NothingToDo, alarming: false, rule));
-            html.Append(NumberCell(d.DidNotRun, alarming: true, rule));
-            if (showCheckFailed) html.Append(NumberCell(d.CheckFailed, alarming: true, rule));
-            html.Append(NumberCell(d.LeftOpen, alarming: true, rule));
-            html.Append("</tr>\n");
-        }
-        html.Append("</table>\n</td></tr>\n");
-    }
-
-    private static string NumberCell(int value, bool alarming, string rule)
-    {
-        var style = value == 0
-            ? $"color:{Faint};"
-            : alarming ? $"color:{Bad};font-weight:700;" : $"color:{Ink};";
-        return $"<td align=\"right\" style=\"padding:9px 0;font-size:14px;{style}{rule}\">{value.ToString(CultureInfo.InvariantCulture)}</td>\n";
     }
 
     // The factory's name, linked to its factory page when this Gateway has a public address.

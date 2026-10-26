@@ -66,6 +66,13 @@ describe("Waiting for you (Screen 4)", () => {
     expect(client.getFactoryWaiting).toHaveBeenCalledWith("website-business", expect.anything());
   });
 
+  it("marks each item with the anchor the 08:00 factory email links to", async () => {
+    renderWaiting();
+
+    const escalation = await screen.findByTestId("fa-waiting-11111111-1111-1111-1111-111111111111");
+    expect(escalation.id).toBe("item-11111111-1111-1111-1111-111111111111");
+  });
+
   it("I have handled it posts the correction and reloads the list from the Gateway", async () => {
     client.markFactoryItemHandled.mockResolvedValue(undefined);
     renderWaiting();

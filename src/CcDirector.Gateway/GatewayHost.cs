@@ -2909,12 +2909,13 @@ public sealed class GatewayHost : IAsyncDisposable
             factories: tenant => FactoryRegistry.List(tenant).ToDictionary(
                 f => f.Factory,
                 f => new Factory.Email.FactoryEmailFactory(f.Title,
-                    f.Seats.ToDictionary(s => s.Id, s => s.Name, StringComparer.Ordinal)),
+                    f.Seats.ToDictionary(s => s.Id, s => s.Name, StringComparer.Ordinal), Archived: f.ArchivedAtUtc is not null),
                 StringComparer.OrdinalIgnoreCase),
             baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
             store: FactoryEmailReports,
             sender: factoryEmailSender,
-            mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf).Section);
+            mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf).Section,
+            needsYou: tenant => Api.FactoryAgentsViewEndpoints.OpenWaitingOf(FactoryAgentsViewSources(), tenant));
 
         _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
             sweepResults: () =>

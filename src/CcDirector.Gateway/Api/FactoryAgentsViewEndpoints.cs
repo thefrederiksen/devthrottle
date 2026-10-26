@@ -387,6 +387,20 @@ internal static class FactoryAgentsViewEndpoints
         }
     }
 
+    /// <summary>What waits on the owner now, read exactly as the Waiting list reads it: every asked and escalated row
+    /// that no row corrects (<see cref="FactoryAgentsFold.OpenWaiting"/>), and whether any read was cut. The 08:00
+    /// factory email's "Needs you" section.</summary>
+    internal static Factory.Email.FactoryEmailNeedsYou OpenWaitingOf(FactoryAgentsSources sources, TenantId tenant)
+    {
+        var (asked, t1) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, FactoryActivityOutcome.Asked, null, null, true, 0, PageSize));
+        var (escalated, t2) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, FactoryActivityOutcome.Escalated, null, null, true, 0, PageSize));
+        var candidates = asked.Concat(escalated).ToList();
+        var (corrections, t3) = candidates.Count == 0 ? (new List<FactoryActivityDto>(), false) : Corrections(sources, tenant);
+        var open = FactoryAgentsFold.OpenWaiting(candidates, corrections);
+        FileLog.Write($"[FactoryAgentsViewEndpoints] OpenWaitingOf: tenant={tenant.ToLogString()}, open={open.Count}, truncated={t1 || t2 || t3}");
+        return new Factory.Email.FactoryEmailNeedsYou(open, t1 || t2 || t3);
+    }
+
     // Every row that corrects another. A correction may carry any outcome except the quiet ones a trigger writes on
     // its own, so those two are the only ones not read. There is NO time bound: a caller sets a row's own time, so a
     // correction can carry a time earlier than the row it corrects, and a bound on it would keep a handled item on

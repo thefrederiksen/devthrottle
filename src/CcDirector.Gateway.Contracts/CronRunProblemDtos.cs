@@ -198,4 +198,24 @@ public sealed class CronFactoryDayDto
 
     /// <summary>How many of the factory's problems are still open.</summary>
     public int OpenProblems { get; set; }
+
+    /// <summary>Every run counted in <see cref="Done"/>, oldest first, with the line its own session reported - what
+    /// the 08:00 email says each factory did (Factories Run Alone, the one daily email).</summary>
+    public List<CronFactoryDoneRunDto> DoneRuns { get; set; } = new();
+}
+
+/// <summary>One run of a factory that started in the 08:00 email's window and reported ok.</summary>
+public sealed class CronFactoryDoneRunDto
+{
+    /// <summary>The seat the run's schedule names, or the schedule's id when it names none.</summary>
+    public string Seat { get; set; } = "";
+
+    /// <summary>The schedule's name.</summary>
+    public string JobName { get; set; } = "";
+
+    /// <summary>When the run fired.</summary>
+    public DateTime FiredUtc { get; set; }
+
+    /// <summary>The one line the run's session reported with its ok result, verbatim, or null when it reported none.</summary>
+    public string? Reported { get; set; }
 }

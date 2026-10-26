@@ -457,7 +457,17 @@ public static class CronRunResultFold
                 switch (run.Result)
                 {
                     case CronRunResults.Ok:
-                        if (InWindow(run.FiredUtc, fromUtc, toUtc)) day.Done++;
+                        if (InWindow(run.FiredUtc, fromUtc, toUtc))
+                        {
+                            day.Done++;
+                            day.DoneRuns.Add(new CronFactoryDoneRunDto
+                            {
+                                Seat = string.IsNullOrWhiteSpace(job.Seat) ? job.Id : job.Seat.Trim(),
+                                JobName = job.Name,
+                                FiredUtc = run.FiredUtc,
+                                Reported = string.IsNullOrWhiteSpace(run.ResultReason) ? null : run.ResultReason.Trim(),
+                            });
+                        }
                         break;
                     case CronRunResults.NothingToDo:
                         if (InWindow(run.FiredUtc, fromUtc, toUtc)) day.NothingToDo++;
@@ -508,6 +518,8 @@ public static class CronRunResultFold
         }
         foreach (var (factory, seats) in openSeats)
             days[factory].LeftOpen = seats.Count;
+        foreach (var day in days.Values)
+            day.DoneRuns.Sort((a, b) => a.FiredUtc.CompareTo(b.FiredUtc));
 
         return days.Values.OrderBy(d => d.Factory, StringComparer.OrdinalIgnoreCase).ToList();
     }
