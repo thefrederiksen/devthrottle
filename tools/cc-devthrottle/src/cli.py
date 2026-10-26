@@ -1959,6 +1959,19 @@ _ACTIONS = [
         "args": [{"name": "text", "required": True}, {"name": "report", "required": False}],
     },
     {
+        "id": "dev-report-answers",
+        "description": (
+            "Read the owner's stored answers to a dev report - each question, his answer or 'not answered yet', his "
+            "comment and when - from ANY session of the account, so a run that closed is answered in the next. Name "
+            "the report file (its newest report, plus older ones still holding an answer not yet acted on) or the "
+            "report id; --ack with --report marks the answers acted on so the run after does not act twice."
+        ),
+        "command": "cc-dev-reports answers [<file.html>] [--report <id>] [--ack] [--item <id>] [--json]",
+        "mutatesState": True,
+        "args": [{"name": "file", "required": False}, {"name": "report", "required": False},
+                 {"name": "ack", "required": False}, {"name": "item", "required": False}],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",

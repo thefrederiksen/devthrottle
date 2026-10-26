@@ -139,7 +139,7 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
     {
         var (store, _, report) = Sent();
         Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-1"));
-        Assert.Equal(1, store.RefuseWaiting(Team, "s1", DevReportItemStates.SessionEndedState));
+        Assert.Equal((0, 1), store.EndWaiting(Team, "s1"));
         Assert.Empty(store.AnswersBy(Team, "sub-mike", [report.Id]));
 
         Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-2"));
@@ -227,7 +227,7 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
     {
         var (store, _, report) = Sent();
         Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-mike"));
-        Assert.Equal(1, store.RefuseWaiting(Team, "s1", DevReportItemStates.SessionEndedState));
+        Assert.Equal((0, 1), store.EndWaiting(Team, "s1"));
         Assert.Empty(store.AnswersBy(Team, "sub-mike", [report.Id]));
 
         Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-nina", "a-nina"));

@@ -1,10 +1,12 @@
-"""What cc-dev-reports does: publish a report file to the Gateway, and reply to the owner in it.
+"""What cc-dev-reports does: publish a report file to the Gateway, reply to the owner in it, and read the
+owner's stored answers to a report - from any session of the account, not only the one that published it.
 
 Dev Reports mission, phase 2. The Gateway owns every ruling - the shape check, the title, the status,
 the size limit, which report is newest. This module reads a file, sends it, and prints what came back.
 
 Every command produces ONE result dictionary with the same keys whatever happened (`RESULT_KEYS`), so
-`--json` keeps one shape: success fills `report` / `reply`, failure fills `error` / `code` / `errors`.
+`--json` keeps one shape: success fills `report` / `reply` (or `count` / `reports` / `marked` for answers),
+failure fills `error` / `code` / `errors`.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TextIO
 
@@ -37,7 +40,8 @@ MAX_KEY_LENGTH = 512
 EXIT_OK = 0
 EXIT_ERROR = 1
 
-RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "error", "code", "errors")
+RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "count", "reports", "marked",
+               "error", "code", "errors")
 
 
 def key_too_long_sentence(length: int) -> str:
@@ -192,6 +196,53 @@ def reply(text: str, report_id: Optional[str]) -> Dict[str, Any]:
         return _result("reply", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
 
 
+def answers(file_path: Optional[str], report_id: Optional[str], ack: bool,
+            items: Optional[List[str]]) -> Dict[str, Any]:
+    """The owner's stored answers to a report, read by THIS session whoever published it (Factories Run Alone).
+
+    A factory run closes when it is done, so the owner answers after the publishing session is gone; the Gateway stores
+    his answer and the NEXT run reads it here. Name the report by id, or by its FILE: the key is the file's path, so a
+    seat that publishes the same file every run finds its earlier reports - the newest, plus every older one still
+    holding an answer no run has marked acted on. `ack` marks the owner's answers on the named report acted on (all of
+    them, or only `items`), so the run after does not act on them twice.
+    """
+    try:
+        sid = _require_environment()
+        if bool(file_path) == bool(report_id):
+            raise CommandError("Name the report one way: its FILE (the path you published) or --report <id>, not both "
+                               "and not neither.", "bad_arguments")
+        if ack and not report_id:
+            raise CommandError("--ack marks ONE report: pass --report <id>. Read the answers by file first; each report "
+                               "printed carries its id.", "bad_arguments")
+        if items and not ack:
+            raise CommandError("--item names what --ack marks; pass --ack with it.", "bad_arguments")
+        sid_segment = gateway.path_segment(sid)
+        try:
+            if ack:
+                body = {"items": list(items)} if items else {}
+                answer = gateway.post_json(
+                    f"sessions/{sid_segment}/dev-report-answers/{gateway.path_segment(report_id)}/ack", body,
+                    timeout=HTTP_TIMEOUT_SECONDS)
+            else:
+                query = {"report": report_id} if report_id else {"key": report_key(file_path)}
+                answer = gateway.get_json(f"sessions/{sid_segment}/dev-report-answers?{urllib.parse.urlencode(query)}",
+                                          timeout=HTTP_TIMEOUT_SECONDS)
+        except gateway.GatewayError as exc:
+            raise _gateway_failure(exc) from exc
+        reports = (answer or {}).get("reports")
+        if not isinstance(reports, list):
+            raise CommandError("The Gateway's answer carried no list of reports.", "bad_answer")
+        marked = (answer or {}).get("marked") if ack else None
+        if ack and not isinstance(marked, list):
+            raise CommandError("The Gateway accepted the mark but its answer carried no list of what it marked.",
+                               "bad_answer")
+        for report in reports:
+            report["ownerRoute"] = owner_route(str(report.get("id")))
+        return _result("answers", ok=True, count=len(reports), reports=reports, marked=marked)
+    except CommandError as exc:
+        return _result("answers", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
+
+
 # --- Output ---------------------------------------------------------------------------------------
 
 
@@ -228,6 +279,10 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
         axi_output.write_blocks(stream, *blocks)
         return EXIT_ERROR
 
+    if result["command"] == "answers":
+        axi_output.write_blocks(stream, *_answer_blocks(result))
+        return EXIT_OK
+
     report = result["report"]
     if result["command"] == "open":
         blocks = [
@@ -256,3 +311,62 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
         ]
     axi_output.write_blocks(stream, *blocks)
     return EXIT_OK
+
+
+def _acted(entry: Dict[str, Any]) -> str:
+    if not entry.get("actedOnAtUtc"):
+        return "no"
+    return f"{entry['actedOnAtUtc']} by session {entry.get('actedOnSessionId')}"
+
+
+def _answer_blocks(result: Dict[str, Any]) -> List[str]:
+    """The human form of an answers result: the count, what --ack marked, then each report's questions and notes."""
+    blocks = [axi_output.format_count(result["count"])]
+    if result["marked"] is not None:
+        blocks.append(f"marked acted on: {len(result['marked'])}")
+        blocks.extend(f"  {_ascii(str(m.get('itemId')))}" for m in result["marked"])
+    if result["count"] == 0:
+        blocks.append("no dev report in this account was published from that file")
+        return blocks
+    commands = []
+    for report in result["reports"]:
+        blocks.extend([
+            "report:",
+            _line("id", report.get("id")),
+            _line("title", report.get("title")),
+            _line("session", report.get("sessionId")),
+            _line("updated", report.get("updatedAtUtc")),
+            _line("answered", report.get("answered")),
+            _line("notAnswered", report.get("notAnswered")),
+            _line("notActedOn", report.get("notActedOn")),
+            _line("route", report.get("ownerRoute")),
+        ])
+        questions = report.get("questions") or []
+        blocks.append(f"  questions[{len(questions)}]:")
+        for q in questions:
+            blocks.append(f"    {_ascii(str(q.get('id')))}: {axi_output.format_value(q.get('question'))}")
+            if not q.get("inLatestVersion", True):
+                blocks.append("      (no longer in the newest version of the report)")
+            if not q.get("answered"):
+                blocks.append("      answer: not answered yet")
+                continue
+            blocks.append(f"      answer: {axi_output.format_value(q.get('optionLabel'))} "
+                          f"(value {axi_output.format_value(q.get('optionValue'))})")
+            if q.get("comment"):
+                blocks.append(f"      comment: {axi_output.format_value(q.get('comment'))}")
+            blocks.append(f"      answeredAt: {axi_output.format_value(q.get('answeredAtUtc'))}")
+            blocks.append(f"      item: {axi_output.format_value(q.get('itemId'))}")
+            blocks.append(f"      actedOn: {axi_output.format_value(_acted(q))}")
+        notes = report.get("notes") or []
+        blocks.append(f"  notes[{len(notes)}]:")
+        for n in notes:
+            blocks.append(f"    {_ascii(str(n.get('itemId')))}: {axi_output.format_value(n.get('text'))}")
+            if n.get("quote"):
+                blocks.append(f"      on: {axi_output.format_value(n.get('quote'))}")
+            blocks.append(f"      at: {axi_output.format_value(n.get('atUtc'))}")
+            blocks.append(f"      actedOn: {axi_output.format_value(_acted(n))}")
+        if report.get("notActedOn"):
+            commands.append(f"cc-dev-reports answers --report {report.get('id')} --ack")
+    if commands:
+        blocks.append(axi_output.format_help(commands))
+    return blocks

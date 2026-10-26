@@ -384,3 +384,137 @@ def test_non_ascii_from_the_gateway_is_escaped_not_printed(wire, report_file):
     assert result.exit_code == 0
     assert result.output.isascii()
     assert '  title: "Rapport \\u00e9t\\u00e9"' in result.output
+
+
+# --- answers: the owner's stored answers, read by any session of the account -------------------------
+
+
+def _answers_view(report_id=REPORT_ID, acted=None, by=None):
+    return {
+        "id": report_id, "title": "Outreach run", "key": "d:\factory\report.html", "sessionId": "run-one-session",
+        "version": 1, "updatedAtUtc": "2026-10-26T07:00:00Z", "answered": 1, "notAnswered": 1, "noteCount": 1,
+        "notActedOn": 0 if acted else 2,
+        "questions": [
+            {"id": "deploy", "question": "When should we send?", "inLatestVersion": True, "answered": True,
+             "itemId": "a1", "optionValue": "monday", "optionLabel": "Monday", "comment": "after the holiday",
+             "answeredAtUtc": "2026-10-26T09:00:00Z", "status": "saved", "statusLabel": "Saved",
+             "actedOnAtUtc": acted, "actedOnSessionId": by},
+            {"id": "scope", "question": "Which list?", "inLatestVersion": True, "answered": False, "itemId": None,
+             "optionValue": None, "optionLabel": None, "comment": None, "answeredAtUtc": None, "status": None,
+             "statusLabel": None, "actedOnAtUtc": None, "actedOnSessionId": None},
+        ],
+        "notes": [{"itemId": "n1", "text": "Drop the second paragraph", "quote": "the quoted words",
+                   "atUtc": "2026-10-26T09:00:00Z", "status": "saved", "statusLabel": "Saved",
+                   "actedOnAtUtc": acted, "actedOnSessionId": by}],
+    }
+
+
+def test_answers_by_report_prints_each_answer_and_each_open_question(wire):
+    calls = wire((200, {"count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"] == (f"http://gateway.invalid/sessions/{SESSION_ID}/dev-report-answers?report={REPORT_ID}")
+    lines = result.output.splitlines()
+    assert lines[0] == "count: 1"
+    assert "    deploy: When should we send?" in lines
+    assert "      answer: Monday (value monday)" in lines
+    assert "      comment: after the holiday" in lines
+    assert "      answeredAt: 2026-10-26T09:00:00Z" in lines
+    assert "      actedOn: no" in lines
+    assert "    scope: Which list?" in lines
+    assert "      answer: not answered yet" in lines
+    assert "    n1: Drop the second paragraph" in lines
+    assert "      on: the quoted words" in lines
+    assert f"  cc-dev-reports answers --report {REPORT_ID} --ack" in lines
+    assert f"  route: http://gateway.invalid/r/{REPORT_ID}" in lines
+    assert result.output.isascii()
+
+
+def test_answers_by_file_sends_the_same_key_open_publishes_under(wire, report_file):
+    calls = wire((200, {"count": 2, "reports": [_answers_view(OLDER_ID), _answers_view()]}))
+
+    result = runner.invoke(app, ["answers", str(report_file), "--json"])
+
+    assert result.exit_code == 0, result.output
+    query = calls[0]["url"].split("?", 1)[1]
+    assert query == "key=" + __import__("urllib.parse").parse.quote_plus(reports_ops.report_key(str(report_file)))
+    body = json.loads(result.output)
+    assert body["ok"] is True and body["command"] == "answers" and body["count"] == 2
+    assert [r["id"] for r in body["reports"]] == [OLDER_ID, REPORT_ID]
+    assert body["reports"][1]["ownerRoute"] == f"http://gateway.invalid/r/{REPORT_ID}"
+    assert body["marked"] is None
+
+
+def test_answers_nothing_under_that_file_says_so(wire, report_file):
+    wire((200, {"count": 0, "reports": []}))
+
+    result = runner.invoke(app, ["answers", str(report_file)])
+
+    assert result.exit_code == 0
+    assert result.output.splitlines()[0] == "count: 0"
+    assert "no dev report in this account was published from that file" in result.output
+
+
+def test_answers_ack_posts_to_the_report_and_prints_what_it_marked(wire):
+    calls = wire((200, {"marked": [{"itemId": "a1", "kind": "answer", "questionId": "deploy"},
+                                   {"itemId": "n1", "kind": "note", "questionId": None}],
+                        "count": 1, "reports": [_answers_view(acted="2026-10-26T10:00:00Z", by=SESSION_ID)]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == f"http://gateway.invalid/sessions/{SESSION_ID}/dev-report-answers/{REPORT_ID}/ack"
+    assert calls[0]["body"] == {}
+    lines = result.output.splitlines()
+    assert "marked acted on: 2" in lines
+    assert f'      actedOn: 2026-10-26T10:00:00Z by session {SESSION_ID}' in lines
+    assert not any("--ack" in line for line in lines)  # nothing left to mark, so no help line offering it
+
+
+def test_answers_ack_named_items_sends_only_those(wire):
+    calls = wire((200, {"marked": [{"itemId": "a1"}], "count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack", "--item", "a1", "--item", "a2", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["body"] == {"items": ["a1", "a2"]}
+    assert json.loads(result.output)["marked"] == [{"itemId": "a1"}]
+
+
+@pytest.mark.parametrize("args", [
+    ["answers"],
+    ["answers", "some-file.html", "--report", REPORT_ID],
+    ["answers", "some-file.html", "--ack"],
+    ["answers", "--report", REPORT_ID, "--item", "a1"],
+])
+def test_answers_bad_arguments_are_refused_before_any_request(wire, args):
+    calls = wire()
+
+    result = runner.invoke(app, args + ["--json"])
+
+    assert result.exit_code == 1
+    body = json.loads(result.output)
+    assert body["ok"] is False and body["code"] == "bad_arguments"
+    assert calls == []
+
+
+def test_answers_another_accounts_report_prints_the_gateways_refusal(wire):
+    wire((404, {"error": f"There is no dev report {REPORT_ID} here.", "code": "report_not_found"}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID])
+
+    assert result.exit_code == 1
+    assert f"error: There is no dev report {REPORT_ID} here." in result.output.splitlines()
+    assert "code: report_not_found" in result.output.splitlines()
+
+
+def test_answers_json_has_the_same_keys_as_every_other_command(wire):
+    wire((200, {"count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--json"])
+
+    assert tuple(json.loads(result.output).keys()) == reports_ops.RESULT_KEYS

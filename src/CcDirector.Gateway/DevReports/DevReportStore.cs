@@ -562,19 +562,83 @@ internal sealed class DevReportStore
         return settled;
     }
 
-    /// <summary>Refuse every item of a session still waiting (queued or held) - only where it is still waiting at the
-    /// moment of the update. Returns how many were refused.</summary>
-    public int RefuseWaiting(TenantId tenant, string sessionId, DevReportItemStates.State state)
+    /// <summary>
+    /// Settle every item of an ENDED session still waiting (queued or held) - only where it is still waiting at the moment
+    /// of the update. The account owner's own items are SAVED for a later session to read with <c>cc-dev-reports answers</c>
+    /// (Factories Run Alone); a team member's answer is refused "This session has ended", as before, so its question goes
+    /// back to waiting on them. Returns how many were saved and how many refused.
+    /// </summary>
+    public (int Saved, int Refused) EndWaiting(TenantId tenant, string sessionId)
     {
         using var ctx = _db.CreateContext(tenant);
-        var refused = ctx.DevReportItems
+        var waiting = ctx.DevReportItems
             .Where(i => i.SessionId == sessionId
-                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
+                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held));
+        var savedState = DevReportItemStates.SavedState;
+        var saved = waiting.Where(i => i.AnswererSubject == null)
             .ExecuteUpdate(set => set
-                .SetProperty(i => i.Status, state.Status)
-                .SetProperty(i => i.StatusLabel, state.Label));
-        FileLog.Write($"[DevReportStore] RefuseWaiting: sid={sessionId} -> {state.Status} ({state.Label}) items={refused}");
-        return refused;
+                .SetProperty(i => i.Status, savedState.Status)
+                .SetProperty(i => i.StatusLabel, savedState.Label));
+        var endedState = DevReportItemStates.SessionEndedState;
+        var refused = waiting.Where(i => i.AnswererSubject != null)
+            .ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, endedState.Status)
+                .SetProperty(i => i.StatusLabel, endedState.Label));
+        FileLog.Write($"[DevReportStore] EndWaiting: sid={sessionId} saved={saved} refused={refused}");
+        return (saved, refused);
+    }
+
+    /// <summary>
+    /// The account's reports published under <paramref name="key"/> - by ANY session - newest update first (Factories Run
+    /// Alone, the read-answers command). A report is keyed on (session, file path), so every run of a factory seat that
+    /// publishes the same file makes a report of its own; this is how the next run finds the earlier ones. In a team's
+    /// tenant only <paramref name="authorSubject"/>'s reports are read; null reads the whole (personal) account.
+    /// </summary>
+    public IReadOnlyList<DevReportEntity> ListByKey(TenantId tenant, string key, string? authorSubject)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        using var ctx = _db.CreateContext(tenant);
+        var query = ctx.DevReports.AsNoTracking().Where(r => r.Key == key);
+        if (authorSubject is not null)
+            query = query.Where(r => r.AuthorSubject == authorSubject);
+        var rows = query.ToList()
+            .OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.SessionId, StringComparer.Ordinal).ToList();
+        FileLog.Write($"[DevReportStore] ListByKey: tenant={tenant.ToLogString()} key={key} count={rows.Count}");
+        return rows;
+    }
+
+    /// <summary>
+    /// Mark the account owner's items on a report ACTED ON by <paramref name="sessionId"/> (Factories Run Alone): every one
+    /// not yet marked, or only those whose client ids are in <paramref name="clientItemIds"/> when it is given. One
+    /// conditional update, so an item another session marked first keeps that mark. Returns the items this call marked.
+    /// </summary>
+    public IReadOnlyList<DevReportItemEntity> MarkActedOn(TenantId tenant, Guid reportId, IReadOnlyCollection<string>? clientItemIds,
+        string sessionId, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var query = ctx.DevReportItems.Where(i => i.ReportId == reportId && i.AnswererSubject == null && i.ActedOnAtUtc == null);
+            if (clientItemIds is not null)
+                query = query.Where(i => clientItemIds.Contains(i.ClientItemId));
+            var marking = query.AsNoTracking().Select(i => i.Id).ToList();
+            if (marking.Count == 0)
+            {
+                FileLog.Write($"[DevReportStore] MarkActedOn: report={reportId} sid={sessionId} nothing to mark");
+                return [];
+            }
+            ctx.DevReportItems.Where(i => marking.Contains(i.Id) && i.ActedOnAtUtc == null)
+                .ExecuteUpdate(set => set
+                    .SetProperty(i => i.ActedOnAtUtc, nowUtc)
+                    .SetProperty(i => i.ActedOnSessionId, sessionId));
+            // Read back what THIS call wrote: an item a racing call marked first carries that call's session or time.
+            var marked = ctx.DevReportItems.AsNoTracking().Where(i => marking.Contains(i.Id)).ToList()
+                .Where(i => i.ActedOnSessionId == sessionId && i.ActedOnAtUtc == nowUtc)
+                .OrderBy(i => i.Sequence).ToList();
+            FileLog.Write($"[DevReportStore] MarkActedOn: report={reportId} sid={sessionId} marked={marked.Count}");
+            return marked;
+        }
     }
 
     private static bool IsEarlierOwnersAnswer(DevReportItemEntity row, string questionId)

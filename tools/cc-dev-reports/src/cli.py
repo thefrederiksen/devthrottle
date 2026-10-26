@@ -1,9 +1,9 @@
-"""CLI for cc-dev-reports - publish a dev report to the owner, and reply to the owner in it."""
+"""CLI for cc-dev-reports - publish a dev report to the owner, reply to the owner in it, and read his answers."""
 
 from __future__ import annotations
 
 import sys
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -12,7 +12,7 @@ from . import reports_ops
 
 app = typer.Typer(
     name="cc-dev-reports",
-    help="Publish a dev report to the owner through the Gateway, and reply to the owner in it.",
+    help="Publish a dev report to the owner through the Gateway, reply to the owner in it, and read his stored answers.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -29,7 +29,7 @@ def main(
     version: bool = typer.Option(False, "--version", callback=_version, is_eager=True,
                                  help="Print the version and exit."),
 ) -> None:
-    """Publish a dev report to the owner through the Gateway, and reply to the owner in it."""
+    """Publish a dev report to the owner through the Gateway, reply to the owner in it, and read his stored answers."""
 
 
 @app.command("open")
@@ -51,6 +51,24 @@ def reply_command(
 ) -> None:
     """Reply to the owner in a report."""
     result = reports_ops.reply(text, report)
+    raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
+
+
+@app.command("answers")
+def answers_command(
+    file: Optional[str] = typer.Argument(
+        None, help="The report file you published. Finds that file's reports from EVERY session of the account: the "
+                   "newest, plus each older one still holding an answer no session has acted on."),
+    report: Optional[str] = typer.Option(None, "--report", help="The report id, instead of FILE."),
+    ack: bool = typer.Option(False, "--ack",
+                             help="Mark the owner's answers and notes on --report acted on, so a later run skips them."),
+    item: Optional[List[str]] = typer.Option(None, "--item",
+                                             help="With --ack: mark only this item id. Repeat for several."),
+    json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+) -> None:
+    """Read the owner's stored answers to a report - each question, his answer or "not answered yet", his comment
+    and when - from ANY session of the account, not only the one that published it."""
+    result = reports_ops.answers(file, report, ack, item)
     raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
 
 

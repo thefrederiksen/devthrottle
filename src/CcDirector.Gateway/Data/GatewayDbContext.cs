@@ -1356,6 +1356,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.SessionId).HasMaxLength(64);
             b.Property(e => e.Kind).HasMaxLength(16);
             b.Property(e => e.Status).HasMaxLength(32);
+            b.Property(e => e.ActedOnSessionId).HasMaxLength(64);
             // The client item id is the idempotency key: an id already accepted is the same item.
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
             // A turn end drains everything held for one session, across its reports.
@@ -2810,6 +2811,8 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<DevReportCommentEntity>().Property(e => e.ToSubject).UseCollation("C");
             // the member who answered a question on their Questions page (devthrottle_internal#2307), matched the same way.
             modelBuilder.Entity<DevReportItemEntity>().Property(e => e.AnswererSubject).UseCollation("C");
+            // the session that marked an owner's item acted on (Factories Run Alone), a session id like the one above.
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ActedOnSessionId).UseCollation("C");
             // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
             // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
             modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");

@@ -28,6 +28,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("GET", "/repositories")]
     [InlineData("GET", "/worktrees")]
@@ -95,6 +96,7 @@ public sealed class SessionKeyGuardTests
     // session id; the guard cannot read one.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers/22222222-2222-2222-2222-222222222222/ack")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("POST", "/missions")]
@@ -785,6 +787,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/send")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies/again")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers/22222222-2222-2222-2222-222222222222/ack")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers/22222222-2222-2222-2222-222222222222/ack")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-report-answers/22222222-2222-2222-2222-222222222222/unack")]
     [InlineData("GET", "/gateway/admin/turn-verdict-feedback")]
     [InlineData("POST", "/gateway/admin/turn-verdict-feedback")]
     // Somebody else's Director process lifecycle on another machine.

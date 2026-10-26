@@ -21,6 +21,9 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /sessions/{sid}/dev-reports                          the session's reports
 ///   GET  /sessions/{sid}/dev-reports/{reportId}               one report, with items and replies
 ///   POST /sessions/{sid}/dev-reports/{reportId}/replies       the agent replies
+///   GET  /sessions/{sid}/dev-report-answers?report=|key=       the owner's stored answers, read by ANY session of the
+///                                                              account - not only the publisher (Factories Run Alone)
+///   POST /sessions/{sid}/dev-report-answers/{reportId}/ack     mark the owner's answers acted on (<see cref="DevReportAnswers"/>)
 ///
 /// OWNER ROUTES - a device key or the machine token:
 ///   GET  /dev-reports?sessionId=&limit=&after=                one page of the account's reports, newest first
@@ -33,7 +36,7 @@ namespace CcDirector.Gateway.Api;
 /// does not leak.
 ///
 /// WHERE EACH REFUSAL LIVES. A session key reaching an OWNER route is refused by <see cref="SessionKeyGuard"/>,
-/// which is an allow list that names only the four session routes - there is deliberately no second check on
+/// which is an allow list that names only the session routes - there is deliberately no second check on
 /// the owner routes, so the guard is the one place that rule lives and the one thing its revert proof mutates. A
 /// device key or machine token reaching a SESSION route, and a session key naming another session, are refused
 /// HERE, because the guard never sees anything but session keys and never reads an identifier.
@@ -68,7 +71,8 @@ internal static class DevReportEndpoints
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(naming);
-        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (four session routes, four owner routes)");
+        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (six session routes, four owner routes)");
+        var answers = new DevReportAnswers(store, author.Resolve);
 
         // ---------------------------------------------------------------- session routes
 
@@ -194,6 +198,49 @@ internal static class DevReportEndpoints
 
             var reply = store.AddReply(tenant, report.Id, text, DateTime.UtcNow);
             return Results.Json(new { reply = Reply(reply) });
+        });
+
+        // The owner's stored answers, for ANY session of the account (Factories Run Alone). The path still names the CALLER,
+        // and only its own session - the reports it may read are decided by DevReportAnswers: the account's, and in a team's
+        // tenant only the person's own.
+        app.MapGet("/sessions/{sid}/dev-report-answers", (string sid, HttpContext ctx) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] GET /sessions/{sid}/dev-report-answers: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+            var query = ctx.Request.Query;
+            return answers.Read(tenant, sessionId, AuthMiddleware.CallingSession(ctx)!.DirectorId,
+                query["report"].ToString(), query["key"].ToString());
+        });
+
+        app.MapPost("/sessions/{sid}/dev-report-answers/{reportId}/ack", async (string sid, string reportId, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] POST /sessions/{sid}/dev-report-answers/{reportId}/ack: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+
+            // The body is optional: none, or one without "items", marks every item not yet marked.
+            List<string>? itemIds = null;
+            if (ctx.Request.ContentLength is > 0 || ctx.Request.Headers.TransferEncoding.Count > 0)
+            {
+                try
+                {
+                    using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ct);
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                        return Error(400, "bad_request_body", "The body must be an object, with an optional \"items\" array of item id strings.");
+                    if (doc.RootElement.TryGetProperty("items", out var list))
+                    {
+                        if (list.ValueKind != JsonValueKind.Array || list.EnumerateArray().Any(e => e.ValueKind != JsonValueKind.String))
+                            return Error(400, "bad_request_body", "\"items\" must be an array of item id strings.");
+                        itemIds = list.EnumerateArray().Select(e => e.GetString()!).Distinct(StringComparer.Ordinal).ToList();
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    return Error(400, "bad_request_body", $"The body could not be read as JavaScript Object Notation: {ex.Message}");
+                }
+            }
+            return answers.Ack(tenant, sessionId, AuthMiddleware.CallingSession(ctx)!.DirectorId, reportId, itemIds);
         });
 
         // ---------------------------------------------------------------- owner routes

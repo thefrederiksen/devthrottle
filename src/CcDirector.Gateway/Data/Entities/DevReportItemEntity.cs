@@ -83,4 +83,15 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
     /// owner's own notes and answers, which are given on the report's newest version.
     /// </summary>
     public int? SourceVersion { get; set; }
+
+    /// <summary>
+    /// When a session said it had ACTED ON this item (UTC), or null while none has (Factories Run Alone, the read-answers
+    /// command). A factory run closes when it is done, so the owner's answer is usually read by the NEXT run of the seat,
+    /// a different session; this mark is how that run tells the run after it not to act on the same answer twice. Only
+    /// the account owner's own items are marked. Write-once: the first mark stands.
+    /// </summary>
+    public DateTime? ActedOnAtUtc { get; set; }
+
+    /// <summary>The session that marked this item acted on, beside <see cref="ActedOnAtUtc"/>; null while unmarked.</summary>
+    public string? ActedOnSessionId { get; set; }
 }

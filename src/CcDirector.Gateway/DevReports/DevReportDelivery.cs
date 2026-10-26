@@ -39,7 +39,10 @@ internal sealed record DevReportItemUpdate(string Id, string Status, string Stat
 /// stays in the owner's queue instead of reading as delivered while the Gateway never held its words (phase 3
 /// proof, E9: a second browser numbered its first note like the first browser's).</item>
 /// <item>A later answer to the same question replaces an earlier one still waiting (the store applies it).</item>
-/// <item>An ended session refuses every new item, and nothing is stored as deliverable.</item>
+/// <item>An ended session takes nothing into it. The account owner's new items are stored <c>saved</c> - never typed into
+/// any session - so a later session reads them with <c>cc-dev-reports answers</c> (Factories Run Alone: a factory run
+/// closes when it is done, and the next run reads the owner's answer and acts). Before that, they were refused and not
+/// stored at all, so an answer to a run that had closed was lost.</item>
 /// <item>A working session - or one whose machine is not connected - holds the items. It is never interrupted.
 /// An idle one gets them now, in the same request, as ONE prompt.</item>
 /// <item>Everything held for a session is SETTLED by one pass, <see cref="SettleAsync"/>: an ended session refuses
@@ -155,12 +158,12 @@ internal sealed class DevReportDelivery
                 if (seen.Add(item.Id)) fresh.Add(item);
 
             var live = _liveness(tenant, report.SessionId);
-            var refused = new HashSet<string>(StringComparer.Ordinal);
             if (live.Reach == DevReportSessionReach.Ended)
             {
-                // Rule 3: refused, and not stored - a refused item stays in the owner's queue on the page.
-                foreach (var item in fresh) refused.Add(item.Id);
-                FileLog.Write($"[DevReportDelivery] SendAsync: sid={report.SessionId} has ended ({live.Why}); refused {refused.Count} new item(s)");
+                // Rule 3: stored saved, never typed into a session - a later session reads it with `cc-dev-reports answers`.
+                if (fresh.Count > 0)
+                    _store.AddItems(tenant, report, fresh, DevReportItemStates.SavedState, senderKind, _nowUtc());
+                FileLog.Write($"[DevReportDelivery] SendAsync: sid={report.SessionId} has ended ({live.Why}); saved {fresh.Count} new item(s) for a later session");
             }
             else if (fresh.Count > 0)
             {
@@ -180,9 +183,6 @@ internal sealed class DevReportDelivery
                         DevReportItemStates.IdCollisionState.Label));
                 else if (after.TryGetValue(item.Id, out var row))
                     updates.Add(new DevReportItemUpdate(item.Id, row.Status, row.StatusLabel));
-                else if (refused.Contains(item.Id))
-                    updates.Add(new DevReportItemUpdate(item.Id, DevReportItemStates.SessionEndedState.Status,
-                        DevReportItemStates.SessionEndedState.Label));
                 else
                     throw new InvalidOperationException(
                         $"item {item.Id} on report {report.Id} was neither stored nor refused; the send has no state for it");
@@ -210,8 +210,8 @@ internal sealed class DevReportDelivery
 
     /// <summary>
     /// THE ONE SETTLE PASS for a session's unsettled items. Any item left in <c>sending</c> under a claim older than
-    /// <see cref="SendingClaimTimeout"/> is settled delivered-not-confirmed and never sent again. Then, by the session's reach: ended refuses every held item
-    /// "This session has ended"; idle delivers them all as one prompt; busy leaves them held. Returns how many
+    /// <see cref="SendingClaimTimeout"/> is settled delivered-not-confirmed and never sent again. Then, by the session's reach: ended
+    /// saves the account owner's held items for a later session and refuses a team member's "This session has ended"; idle delivers them all as one prompt; busy leaves them held. Returns how many
     /// items this pass sent.
     /// </summary>
     /// <param name="ct">Cancels only the wait for the session's lock; a claimed send runs on the Gateway's lifetime.</param>
@@ -267,9 +267,10 @@ internal sealed class DevReportDelivery
 
     private void RefuseWaitingForEndedSession(TenantId tenant, string sessionId, DevReportSessionLiveness live)
     {
-        var refused = _store.RefuseWaiting(tenant, sessionId, DevReportItemStates.SessionEndedState);
-        if (refused > 0)
-            FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} has ended ({live.Why}); refused {refused} held item(s)");
+        var (saved, refused) = _store.EndWaiting(tenant, sessionId);
+        if (saved + refused > 0)
+            FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} has ended ({live.Why}); saved {saved} of the owner's held item(s) " +
+                          $"for a later session, refused {refused} team member item(s)");
     }
 
     private async Task<int> DrainLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live)
@@ -367,7 +368,7 @@ internal sealed class DevReportDelivery
         if (outcome == DevReportItemStates.SendOutcome.Refused)
         {
             // The Director refused and typed nothing, so the items are held again. Settle on what the Gateway knows now:
-            // an ended session refuses them. Otherwise they wait for the next settle pass - never re-sent in this one, so
+            // an ended session saves or refuses them. Otherwise they wait for the next settle pass - never re-sent in this one, so
             // a Director that keeps refusing a session the roster still shows idle cannot loop here.
             var now = _liveness(tenant, sessionId);
             if (now.Reach == DevReportSessionReach.Ended)
