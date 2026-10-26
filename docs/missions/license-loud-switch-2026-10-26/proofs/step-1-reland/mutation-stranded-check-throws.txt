@@ -1,0 +1,31 @@
+Starting a throwaway PostgreSQL for this run (instance dbed8d40b5, port 58430)...
+PostgreSQL ready. It is destroyed when this run ends.
+
+Building CcDirector.Gateway.DatabaseTests (Debug)...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:59.27
+Running CcDirector.Gateway.DatabaseTests...
+
+Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:24.19]     CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure [FAIL]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure [1 s]
+  Error Message:
+   Assert.DoesNotContain() Failure: Filter matched in collection
+                                                                                                                                    ↓ (pos 12)
+Collection: [···, "2026-10-26 18:41:19.405 [LicenseApproverStore] Fin"···, "2026-10-26 18:41:19.406 [LicenseApproverReadiness]"···, "2026-10-26 18:41:19.425 [LicenseReadinessService] "···, "2026-10-26 18:41:19.425 [LicenseReadinessService] "···, "2026-10-26 18:41:19.509 [SessionUsageStore] Record"···, ···]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure() in D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\Licenses\LicenseHostStartPostgresTests.cs:line 171
+--- End of stack trace from previous location ---
+Results File: <temp>\cc-test-database-d6e82c93\CcDirector.Gateway.DatabaseTests.trx
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 1 s - CcDirector.Gateway.DatabaseTests.dll (net10.0)
+
+Result file: <temp>\cc-test-database-d6e82c93\CcDirector.Gateway.DatabaseTests.trx
+Verdict: outcome=Failed total=1 executed=1 passed=0 failed=1 skipped=0
+
+RESULT: FAILED - 1 test(s) failed (dotnet test exited 1). The output is above.
