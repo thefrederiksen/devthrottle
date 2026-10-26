@@ -482,8 +482,11 @@ public sealed class MailDeskEmailSectionTests : IDisposable
 /// </summary>
 internal static class MailDeskEmailGolden
 {
-    public const string HtmlSha256 = "FF3802F9FE23CFE849EDFB23FA71E5F2A24F155F86C817706563AE8E523CCED6";
-    public const string TextSha256 = "A7C3CEF24B633DC3531678E4FDD7E7CB69D9265E697CBBE371DD087990EEDB80";
+    // Re-pinned on 26 October 2026 for the one daily email the owner approved that day (Factories Run Alone): the 08:00
+    // email's day table became a line per factory saying what its runs did, so the email without the section changed
+    // on purpose. The section itself is untouched.
+    public const string HtmlSha256 = "6AD814FB6FEC3182F7598C57D5A47D99E3C9D79BD30DEFF87C2F81A204A562F9";
+    public const string TextSha256 = "3965C6F2D70279686BBED71CE2FCD1C6F424A9EE15C3AE96F27B932FE62F376E";
 
     public static string Sha256(string text)
         => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));

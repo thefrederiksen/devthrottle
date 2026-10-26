@@ -31,6 +31,7 @@ public sealed class FactoryEmailTests : IDisposable
     private readonly Dictionary<string, SessionEndingFact> _endings = new(StringComparer.Ordinal);
     private DateTime _now;
     private bool _enabled = true;
+    private FactoryEmailNeedsYou _needsYou = FactoryEmailNeedsYou.None;
 
     public void Dispose() => _h.Dispose();
 
@@ -90,6 +91,7 @@ public sealed class FactoryEmailTests : IDisposable
             store: Store,
             sender: sender,
             mailDesk: (_, _, _, _) => null,
+            needsYou: _ => _needsYou,
             now: () => _now);
     }
 
@@ -270,12 +272,13 @@ public sealed class FactoryEmailTests : IDisposable
             card.Items.Select(i => i.What));
         Assert.All(problems.Problems, p => Assert.Equal(CronRunProblems.CheckFailed, p.Kind));
         Assert.Equal(3, problems.Occurrences);
-        // No checked start found nothing to do, so there is no such column; the three failed checks - one timed, two
-        // interval - are counted in the day table as well as listed (the phase 5b quality assurance report's finding 4).
-        Assert.Contains("LAST 24 HOURS (done / did not run / checks failed or not run / left open)", email.Text);
-        Assert.Contains("Outreach: 0 / 0 / 3 / 0", email.Text);
-        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 3 checks failed or did not run.", email.Text);
-        Assert.Contains(">Checks failed or not run</td>", email.Html);
+        // No checked start found nothing to do, so nothing says so; the three failed checks - one timed, two interval -
+        // are counted on the factory's line as well as listed (the phase 5b quality assurance report's finding 4). The
+        // registered Research factory, with no schedule, still gets its line.
+        Assert.Contains("Outreach - 0 runs done, 3 checks failed or did not run", email.Text);
+        Assert.Contains("Research - 0 runs done", email.Text);
+        Assert.Contains("2 factories, 0 runs done, 0 runs did not run, 3 checks failed or did not run.", email.Text);
+        Assert.Contains("- 0 runs done, 3 checks failed or did not run</span>", email.Html);
         Assert.DoesNotContain("with nothing to do", email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
@@ -304,9 +307,8 @@ public sealed class FactoryEmailTests : IDisposable
         var day = Assert.Single(days);
         Assert.Equal(("outreach", 0, 0, 0, 2, 1), (day.Factory, day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed, day.OpenProblems));
         Assert.Equal("Factories: 1 problem still open - Sunday 11 October", email.Subject);
-        Assert.Contains("LAST 24 HOURS (done / did not run / checks failed or not run / left open)", email.Text);
-        Assert.Contains("Outreach: 0 / 0 / 2 / 0", email.Text);
-        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 2 checks failed or did not run.", email.Text);
+        Assert.Contains("Outreach - 0 runs done, 2 checks failed or did not run", email.Text);
+        Assert.Contains("2 factories, 0 runs done, 0 runs did not run, 2 checks failed or did not run.", email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Html);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
         Assert.Single(card.Items);
@@ -328,7 +330,7 @@ public sealed class FactoryEmailTests : IDisposable
         var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), null));
 
         Assert.Equal(new[] { ("outreach", 0) }, days.Select(d => (d.Factory, d.CheckFailed)));
-        Assert.Contains("LAST 24 HOURS (done / did not run / left open)", email.Text);
+        Assert.Contains("Outreach - 1 run done" + Environment.NewLine, email.Text);
         Assert.DoesNotContain("check", email.Text, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -397,10 +399,9 @@ public sealed class FactoryEmailTests : IDisposable
         // The 02:00 check did fail in the window, so the day counts it, even though the 03:00 check cleared it.
         Assert.Equal((0, 1, 0, 1), (day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed));
         Assert.Equal("Factories: all clear - Sunday 11 October", email.Subject);
-        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run, 1 check failed or did not run.", email.Text);
-        Assert.Contains("LAST 24 HOURS (done / nothing to do / did not run / checks failed or not run / left open)", email.Text);
-        Assert.Contains("Outreach: 0 / 1 / 0 / 1 / 0", email.Text);
-        Assert.Contains("Nothing to do", email.Html);
+        Assert.Contains("2 factories, 0 runs done, 1 run with nothing to do, 0 runs did not run, 1 check failed or did not run.", email.Text);
+        Assert.Contains("Outreach - 0 runs done, 1 run with nothing to do, 1 check failed or did not run", email.Text);
+        Assert.Contains("1 run with nothing to do", email.Html);
     }
 
     [Fact]
@@ -515,7 +516,7 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.True(email.Send);
         Assert.Equal("Factories: all clear - Sunday 11 October", email.Subject);
         Assert.Contains("All clear", email.Html);
-        Assert.Contains("open DevThrottle, Factories.", email.Html);
+        Assert.Contains("Open DevThrottle, Factories, to act on anything here.", email.Html);
     }
 
     [Fact]
@@ -738,6 +739,283 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Null(Store.Get(TenantId.Local, Guid.NewGuid()));
     }
 
+    // ---- the one daily email (Factories Run Alone, the owner's yes of 26 October 2026) --------------------------------
+
+    private static FactoryActivityDto Waiting(string factory, string agent, string? subject, string what, DateTime atUtc,
+        string outcome = FactoryActivityOutcome.Asked, string? id = null) => new()
+    {
+        Id = id is null ? Guid.NewGuid() : Guid.Parse(id),
+        Factory = factory,
+        FactoryAgent = agent,
+        Subject = subject,
+        What = what,
+        Outcome = outcome,
+        Actor = "session-1",
+        OccurredUtc = atUtc,
+        RecordedUtc = atUtc,
+    };
+
+    [Fact]
+    public void Compose_MorningWithItemsWaiting_ListsThemAfterTheProblems_EachLinkedToItsItem_AndTheSubjectCountsThem()
+    {
+        var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
+        var problem = Problem("research", "scout", "Night scan", TorontoTime(2026, 10, 11, 2), CronRunProblems.DidNotRun,
+            "its machine was offline when it was due", started: false);
+        var days = new[] { new CronFactoryDayDto { Factory = "outreach", Done = 1 }, new CronFactoryDayDto { Factory = "research", OpenProblems = 1 } };
+        var asked = Waiting("outreach", "sender", "a reply asks for a price", "a prospect asked what a build costs.",
+            TorontoTime(2026, 10, 11, 6), id: "22222222-2222-2222-2222-222222222222");
+        var escalated = Waiting("outreach", "sender", null, "the mailbox password was refused.", TorontoTime(2026, 10, 10, 9),
+            FactoryActivityOutcome.Escalated, id: "11111111-1111-1111-1111-111111111111");
+
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, new[] { problem }, days, Factories(),
+            "https://gateway.example.test", NeedsYou: new FactoryEmailNeedsYou(new[] { asked, escalated }, false)));
+
+        Assert.Equal("Factories: 2 things need you - Sunday 11 October", email.Subject);
+        Assert.Contains(">2 things need you</div>", email.Html);
+        Assert.Contains("2 factories, 1 run done, 0 runs did not run. 1 problem still open, listed first. Every run closed on its own; nothing waits for your answer.", email.Text);
+        // Still not fixed keeps its place first; Needs you comes next, then the factories.
+        var problems = email.Html.IndexOf("Still not fixed", StringComparison.Ordinal);
+        var needs = email.Html.IndexOf(FactoryEmailComposer.NeedsYouHeading, StringComparison.Ordinal);
+        var factories = email.Html.IndexOf(FactoryEmailComposer.FactoriesHeading, StringComparison.Ordinal);
+        Assert.True(problems > 0 && problems < needs && needs < factories, $"order: problems {problems}, needs you {needs}, factories {factories}");
+        // Decisions first, then questions: the escalation, with no subject, is titled by its seat.
+        Assert.True(email.Html.IndexOf("Outreach - Sender", StringComparison.Ordinal) < email.Html.IndexOf("Outreach - a reply asks for a price", StringComparison.Ordinal));
+        Assert.Contains("href=\"https://gateway.example.test/factories/outreach#item-11111111-1111-1111-1111-111111111111\"", email.Html);
+        Assert.Contains("href=\"https://gateway.example.test/factories/outreach#item-22222222-2222-2222-2222-222222222222\"", email.Html);
+        Assert.Contains("Sender: a prospect asked what a build costs.", email.Html);
+        Assert.Contains("Queued Sun 11 Oct 06:00 - the next run acts on your answer", email.Html);
+        // The plain text says the same, link included.
+        Assert.Contains("NEEDS YOU - ANSWER WHEN YOU LIKE", email.Text);
+        Assert.Contains("- Outreach - a reply asks for a price", email.Text);
+        Assert.Contains("  https://gateway.example.test/factories/outreach#item-22222222-2222-2222-2222-222222222222", email.Text);
+        Assert.Contains("A factory never waits for you", email.Html);
+        Assert.Equal(1, email.ProblemCount);
+        Assert.DoesNotContain(FactoryEmailComposer.TruncatedSentence, email.Html);
+    }
+
+    [Fact]
+    public void Compose_MorningWithNothingWaiting_HasNoNeedsYouSection_AndKeepsTheOldSubjects()
+    {
+        var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
+        var days = new[] { new CronFactoryDayDto { Factory = "outreach", Done = 4 } };
+        var problem = Problem("outreach", "sender", "Morning send", TorontoTime(2026, 10, 11, 1), CronRunProblems.Reported, "stuck");
+
+        var clear = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(), days, Factories(),
+            "https://gateway.example.test", NeedsYou: FactoryEmailNeedsYou.None));
+        var open = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, new[] { problem }, days, Factories(),
+            "https://gateway.example.test"));
+
+        Assert.Equal("Factories: all clear - Sunday 11 October", clear.Subject);
+        Assert.Equal("Factories: 1 problem still open - Sunday 11 October", open.Subject);
+        Assert.DoesNotContain(FactoryEmailComposer.NeedsYouHeading, clear.Html);
+        Assert.DoesNotContain(FactoryEmailComposer.NeedsYouHeading.ToUpperInvariant(), clear.Text);
+        Assert.DoesNotContain("A factory never waits for you", clear.Html);
+        Assert.Contains("2 factories, 4 runs done, 0 runs did not run.", clear.Text);
+        Assert.DoesNotContain("nothing waits for your answer", clear.Text);
+    }
+
+    [Fact]
+    public void Compose_MorningWithACutRecord_SaysTheListMayMissAnItem()
+    {
+        var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
+        var item = Waiting("outreach", "sender", "a question", "which list?", TorontoTime(2026, 10, 11, 6));
+
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(),
+            Array.Empty<CronFactoryDayDto>(), Factories(), null, NeedsYou: new FactoryEmailNeedsYou(new[] { item }, true)));
+
+        Assert.True(email.Send);
+        Assert.Equal("Factories: 1 thing needs you - Sunday 11 October", email.Subject);
+        Assert.Contains(FactoryEmailComposer.TruncatedSentence, email.Html);
+        Assert.Contains(FactoryEmailComposer.TruncatedSentence, email.Text);
+        // No public address: nothing is linked, and the footer says where to go instead.
+        Assert.DoesNotContain("href=", email.Html);
+        Assert.Contains("Open DevThrottle, Factories, to act on anything here.", email.Html);
+    }
+
+    [Fact]
+    public void Compose_EveryFactoryOfTheAccount_GetsALineLinkedToItsPage_ButAnArchivedOneDoesNot()
+    {
+        var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
+        var factories = new Dictionary<string, FactoryEmailFactory>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["outreach"] = new("Outreach", new Dictionary<string, string> { ["sender"] = "Sender" }),
+            ["research"] = new("Research", new Dictionary<string, string> { ["scout"] = "Scout" }),
+            ["website"] = new("Website", new Dictionary<string, string>()),
+            ["old"] = new("Old Factory", new Dictionary<string, string>(), Archived: true),
+        };
+        // Only Outreach has a schedule; Research has an open problem.
+        var days = new[]
+        {
+            new CronFactoryDayDto { Factory = "outreach", Done = 2, LeftOpen = 1,
+                DoneRuns = { new() { Seat = "sender", JobName = "Morning send", FiredUtc = TorontoTime(2026, 10, 10, 9), Reported = "sent 18 emails" } } },
+            new CronFactoryDayDto { Factory = "research", DidNotRun = 1, OpenProblems = 1 },
+        };
+
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(), days, factories,
+            "https://gateway.example.test"));
+
+        Assert.Contains("href=\"https://gateway.example.test/factories/outreach\"", email.Html);
+        Assert.Contains("href=\"https://gateway.example.test/factories/research#problems\"", email.Html);
+        Assert.Contains("href=\"https://gateway.example.test/factories/website\"", email.Html);
+        Assert.DoesNotContain("Old Factory", email.Html);
+        Assert.Contains("3 factories, 2 runs done, 1 run did not run.", email.Text);
+        Assert.Contains("Outreach - 2 runs done, 1 seat left open", email.Text);
+        Assert.Contains("Research - 0 runs done, 1 run did not run", email.Text);
+        Assert.Contains("Website - 0 runs done", email.Text);
+        Assert.Contains("No run finished in the last 24 hours.", email.Html);
+        Assert.Equal(new[] { "outreach", "research", "website" }, email.Factories);
+    }
+
+    [Fact]
+    public void Compose_WhatEachFactoryDid_IsEachRunsOwnReportedLine_AndARunThatReportedNothingSaysSo()
+    {
+        // Arrange: through the real run history and fold. The Sender's two runs reported a line each (one twice), and
+        // one reported nothing; the Scout's one run reported nothing at all.
+        Job("cj_send", "Morning send", "outreach", "sender");
+        Job("cj_scan", "Night scan", "research", "scout");
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok, reason: "  sent 18 emails  "));
+        AppendRun("cj_send", Run("s2", TorontoTime(2026, 10, 10, 13), CronRunResults.Ok, reason: "answered 3 replies and queued 1 for you."));
+        AppendRun("cj_send", Run("s3", TorontoTime(2026, 10, 10, 17), CronRunResults.Ok, reason: "sent 18 emails"));
+        AppendRun("cj_send", Run("s4", TorontoTime(2026, 10, 10, 21), CronRunResults.Ok));
+        AppendRun("cj_send", Run("s0", TorontoTime(2026, 10, 9, 9), CronRunResults.Ok, reason: "before the window"));
+        AppendRun("cj_scan", Run("s5", TorontoTime(2026, 10, 11, 2), CronRunResults.Ok));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        // Act
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
+
+        // Assert: the fold trims surrounding whitespace; the email preserves each line and counts repeated reports.
+        var outreach = days.Single(d => d.Factory == "outreach");
+        Assert.Equal(new[] { "sent 18 emails", "answered 3 replies and queued 1 for you.", "sent 18 emails", null },
+            outreach.DoneRuns.Select(r => r.Reported));
+        Assert.Contains("Sender (4 runs): 2 runs reported: sent 18 emails. 1 run reported: answered 3 replies and queued 1 for you. 1 run reported nothing.", email.Text);
+        Assert.Contains("Scout (1 run): 1 run reported nothing.", email.Text);
+        Assert.Contains("Outreach - 4 runs done", email.Text);
+        Assert.DoesNotContain("before the window", email.Text);
+    }
+
+    [Fact]
+    public void Compose_ASeatWithManyDifferentLines_ShowsEveryLineAndItsRunCount()
+    {
+        var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
+        var day = new CronFactoryDayDto { Factory = "outreach", Done = 5 };
+        var reports = new[] { "sent 1 emails", "sent 2 emails", "sent 1 emails", "sent 3 emails", "sent 2 emails" };
+        for (var i = 0; i < reports.Length; i++)
+            day.DoneRuns.Add(new() { Seat = "sender", JobName = "Send", FiredUtc = TorontoTime(2026, 10, 10, 9 + i), Reported = reports[i] });
+
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(), new[] { day },
+            Factories(), null));
+
+        const string expected = "Sender (5 runs): 2 runs reported: sent 1 emails. 2 runs reported: sent 2 emails. 1 run reported: sent 3 emails.";
+        Assert.Contains(expected, email.Text);
+        Assert.Contains(expected, email.Html);
+        Assert.DoesNotContain("more lines on the factory page", email.Text);
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_TheMorningReadsWhatWaits_TheSixteenCheckIsLeftAsItWas()
+    {
+        Job("cj_send", "Morning send", "outreach", "sender");
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 11, 7), CronRunResults.Ok, reason: "sent 4 emails"));
+        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 30), CronRunResults.Problem, CronRunProblems.RanPastShift,
+            "it had not reported and was still open when its morning shift ended", resultUtc: TorontoTime(2026, 10, 11, 16, 1)));
+        _needsYou = new FactoryEmailNeedsYou(new[] { Waiting("outreach", "sender", "a reply asks for a price", "a draft is ready.", TorontoTime(2026, 10, 11, 6)) }, false);
+        var sender = new FakeSender();
+
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        _now = TorontoTime(2026, 10, 11, 16, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+
+        Assert.Equal(2, sender.Sent.Count);
+        Assert.Equal("Factories: 1 thing needs you - Sunday 11 October", sender.Sent[0].Subject);
+        Assert.Contains("Outreach - a reply asks for a price", sender.Sent[0].Html);
+        Assert.Equal("Factories: 1 new problem in the morning shift - Sunday 11 October", sender.Sent[1].Subject);
+        Assert.DoesNotContain("a reply asks for a price", sender.Sent[1].Html);
+        Assert.DoesNotContain(FactoryEmailComposer.NeedsYouHeading, sender.Sent[1].Html);
+    }
+
+    /// <summary>
+    /// The one daily email composed from the sample data of the mockup the owner approved on 26 October 2026
+    /// (<c>devthrottle_internal/docs/missions/factories-run-alone-2026-10-26/daily-email-mockup.html</c>). The HTML is
+    /// written to <c>%TEMP%/factory-email-fixture/daily-0800.html</c> so it can be screenshot beside the mockup.
+    /// </summary>
+    [Fact]
+    public void Compose_TheApprovedDailyMockupsSampleData_RendersEverySectionOfTheMockup()
+    {
+        var slot = FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 27, 8), Toronto);
+        var factories = new Dictionary<string, FactoryEmailFactory>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["development-sales"] = new("Development Sales", new Dictionary<string, string> { ["sender"] = "Sender", ["reply-desk"] = "Reply Desk" }),
+            ["devthrottle-marketing"] = new("DevThrottle Marketing", new Dictionary<string, string> { ["content"] = "Content", ["heycatch"] = "HeyCatch" }),
+            ["cc-factory"] = new("CC Factory", new Dictionary<string, string> { ["cost-sweep"] = "Cost Sweep" }),
+            ["cpmc"] = new("CPMC", new Dictionary<string, string> { ["boss"] = "Boss" }),
+            ["mindzie-outreach"] = new("mindzie LinkedIn Outreach", new Dictionary<string, string> { ["replier"] = "Replier" }),
+        };
+        CronFactoryDoneRunDto Ran(string seat, int day, int hour, string? said) =>
+            new() { Seat = seat, JobName = seat, FiredUtc = TorontoTime(2026, 10, day, hour), Reported = said };
+        var days = new[]
+        {
+            new CronFactoryDayDto { Factory = "development-sales", Done = 6, DoneRuns =
+            {
+                Ran("sender", 26, 9, "Sent 18 emails."), Ran("reply-desk", 26, 10, "Answered 3 replies and queued 1 for you."),
+                Ran("reply-desk", 26, 12, null), Ran("reply-desk", 26, 14, null), Ran("reply-desk", 26, 16, null), Ran("reply-desk", 26, 18, null),
+            } },
+            new CronFactoryDayDto { Factory = "devthrottle-marketing", Done = 2, DoneRuns =
+            {
+                Ran("content", 27, 5, "Made 1 video and queued it for your yes."), Ran("heycatch", 27, 6, "Nothing new."),
+            } },
+            new CronFactoryDayDto { Factory = "cc-factory", Done = 1, DoneRuns = { Ran("cost-sweep", 27, 2, "Cancelled one unused subscription line.") } },
+            new CronFactoryDayDto { Factory = "cpmc", Done = 2, DoneRuns =
+            {
+                Ran("boss", 26, 9, "Checked for replies: none."), Ran("boss", 26, 21, "Checked for replies: none."),
+            } },
+            new CronFactoryDayDto { Factory = "mindzie-outreach", Done = 3, DoneRuns =
+            {
+                Ran("replier", 26, 10, "Sent 20 replies."), Ran("replier", 26, 15, "1 refused by its limits: a link in a message (logged, run carried on)."),
+                Ran("replier", 26, 20, null),
+            } },
+        };
+        var needsYou = new FactoryEmailNeedsYou(new[]
+        {
+            Waiting("development-sales", "reply-desk", "a reply asks for a price",
+                "a prospect asked what a two-week build costs. A draft is ready for you.", TorontoTime(2026, 10, 26, 16, 35),
+                id: "22222222-2222-2222-2222-222222222222"),
+            Waiting("devthrottle-marketing", "content", "make a video public",
+                "\"Why one checkout per agent\" is rendered and checked. Public needs your yes.", TorontoTime(2026, 10, 27, 5, 40),
+                id: "11111111-1111-1111-1111-111111111111"),
+        }, false);
+
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(), days, factories,
+            "https://gateway.devthrottle.com", NeedsYou: needsYou));
+
+        Assert.Equal("Factories: 2 things need you - Tuesday 27 October", email.Subject);
+        Assert.Contains("Daily report - Tuesday 27 October - the last 24 hours", email.Html);
+        Assert.Contains("5 factories, 14 runs done, 0 runs did not run. No problems open. Every run closed on its own; nothing waits for your answer.", email.Html);
+        // Newest first: the video (05:40 today) before the price (16:35 yesterday), as in the mockup.
+        Assert.True(email.Html.IndexOf("DevThrottle Marketing - make a video public", StringComparison.Ordinal)
+                    < email.Html.IndexOf("Development Sales - a reply asks for a price", StringComparison.Ordinal));
+        Assert.Contains("Content: &quot;Why one checkout per agent&quot; is rendered and checked. Public needs your yes.", email.Html);
+        Assert.Contains("Queued Tue 27 Oct 05:40 - the next run acts on your answer", email.Html);
+        Assert.Contains("Queued Mon 26 Oct 16:35 - the next run acts on your answer", email.Html);
+        Assert.Contains("href=\"https://gateway.devthrottle.com/factories/devthrottle-marketing#item-11111111-1111-1111-1111-111111111111\"", email.Html);
+        foreach (var id in factories.Keys)
+            Assert.Contains($"href=\"https://gateway.devthrottle.com/factories/{id}\"", email.Html);
+        Assert.Contains("- 6 runs done</span>", email.Html);
+        Assert.Contains("Sender (1 run): 1 run reported: Sent 18 emails. Reply Desk (5 runs): 1 run reported: Answered 3 replies and queued 1 for you. 4 runs reported nothing.", email.Html);
+        Assert.Contains("Boss (2 runs): 2 runs reported: Checked for replies: none.", email.Html);
+        Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", email.Html);
+        Assert.All(email.Html, c => Assert.True(c < 128, $"non-ASCII character {(int)c} in the email body"));
+        Assert.All(email.Text, c => Assert.True(c < 128, $"non-ASCII character {(int)c} in the plain-text body"));
+
+        var dir = Path.Combine(Path.GetTempPath(), "factory-email-fixture");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "daily-0800.html"), email.Html);
+        File.WriteAllText(Path.Combine(dir, "daily-0800.txt"), email.Text);
+    }
+
     // ---- the approved mockup, rendered from a fixture ----------------------------------------------------------------
 
     /// <summary>
@@ -781,7 +1059,9 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Contains("Reported a problem: Build failed - two pages are missing their images.", report.Html);
         Assert.Contains("Started Fri 9 Oct 17:05 - evening shift - open 38 hours", report.Html);
         Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", report.Html);
-        Assert.Contains(">Docs</td>", report.Html); // no problem: not a link
+        // Every factory is linked to its page now; one with a problem to its problems card.
+        Assert.Contains("href=\"https://gateway.devthrottle.com/factories/docs\"", report.Html);
+        Assert.Contains("href=\"https://gateway.devthrottle.com/factories/research#problems\"", report.Html);
         // No check anywhere: no check column and no word about how a check clears - the email reads as it always has.
         Assert.DoesNotContain("Checks failed", report.Html);
         Assert.DoesNotContain(CronRunResultFold.CheckClearsSentence, report.Html);

@@ -59,7 +59,8 @@ export function WaitingItem({ item, onHandled }: { item: FactoryWaitingItem; onH
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="fa-waiting-item" data-testid={`fa-waiting-${item.id}`}>
+    // The id is the 08:00 factory email's link to this item ("/factories/x#item-<id>"); the page scrolls to it.
+    <div className="fa-waiting-item" id={`item-${item.id}`} data-testid={`fa-waiting-${item.id}`}>
       <div className="fa-waiting-head">
         <ToneChip word={item.word} tone={item.tone} />
         {item.subject !== null && <strong>{item.subject}</strong>}
