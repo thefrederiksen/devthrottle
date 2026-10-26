@@ -392,6 +392,38 @@ public sealed class FactoryPageViewDto
     /// <summary>"Delete" with its confirm when archived, else null (issue #4324): only an archived factory can be
     /// deleted.</summary>
     public FactoryOwnerActionDto? Delete { get; set; }
+
+    /// <summary>"The Boss": the Boss's why, goal and limits from the published definition's <c>boss.md</c>, the last
+    /// block of the Overview, below the drawing (the owner, 26 October 2026). Every part says "not set yet" when the file
+    /// or its heading is missing, and on a factory that is not published yet.</summary>
+    public FactoryBossBlockDto Boss { get; set; } = new();
+}
+
+/// <summary>"The Boss" on a factory's page: its heading and three parts, in order - why, goal, limits.</summary>
+public sealed class FactoryBossBlockDto
+{
+    /// <summary>"The Boss".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>Why, goal and limits, in that order.</summary>
+    public List<FactoryBossPartDto> Parts { get; set; } = new();
+}
+
+/// <summary>One part of the Boss block: its heading and either the text written under it in <c>boss.md</c> or "not set
+/// yet".</summary>
+public sealed class FactoryBossPartDto
+{
+    /// <summary>"why", "goal" or "limits".</summary>
+    public string Key { get; set; } = "";
+
+    /// <summary>"Why", "Goal", "Limits the Boss cannot change".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>The text under the part's heading in <c>boss.md</c>, exactly as written (markdown). Null when not set.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>"not set yet" when the part is not set, else null.</summary>
+    public string? EmptyText { get; set; }
 }
 
 /// <summary>"What we are doing now" on a factory's page: the heading, who wrote it and when, and the text as written -

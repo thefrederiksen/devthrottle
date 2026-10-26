@@ -108,27 +108,47 @@
   margin: 0;
 }
 
-.fa-now-text {
+.fa-now-text,
+.fa-boss-text {
   font-size: 14px;
   line-height: 1.6;
   max-width: 78ch;
   overflow-wrap: anywhere;
 }
 
-.fa-now-text > :first-child {
+.fa-now-text > :first-child,
+.fa-boss-text > :first-child {
   margin-top: 0;
 }
 
-.fa-now-text > :last-child {
+.fa-now-text > :last-child,
+.fa-boss-text > :last-child {
   margin-bottom: 0;
 }
 
-.fa-now-text pre {
+.fa-now-text pre,
+.fa-boss-text pre {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
   overflow-x: auto;
+}
+
+/* The Boss: its why, goal and limits from the definition's boss.md, last on the Overview (owner, 26 October 2026). */
+.fa-boss-part {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fa-boss-part-title {
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.fa-boss-part .fa-dim {
+  margin: 0;
 }
 
 .fa-definition {

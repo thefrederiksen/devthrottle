@@ -1274,6 +1274,49 @@ epo", Seed = "/help" };
     };
 
     [Fact]
+    public void Page_Boss_FromTheBossFile_CarriesTheThreePartsInOrder_InTheGatewaysWords()
+    {
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with
+        {
+            BossFile = "## The why\nTo keep the house warm.\n\n## The goal\nSave money.\n\n## Limits\n1. Never buy.\n",
+        };
+
+        var boss = FactoriesScreenFold.Page(WarmForward(), input).Boss;
+
+        Assert.Equal("The Boss", boss.Heading);
+        Assert.Equal(new[] { "why", "goal", "limits" }, boss.Parts.Select(p => p.Key));
+        Assert.Equal(new[] { "Why", "Goal", "Limits the Boss cannot change" }, boss.Parts.Select(p => p.Heading));
+        Assert.Equal(new[] { "To keep the house warm.", "Save money.", "1. Never buy." }, boss.Parts.Select(p => p.Text));
+        Assert.All(boss.Parts, p => Assert.Null(p.EmptyText));
+    }
+
+    [Fact]
+    public void Page_Boss_NoBossFile_SaysNotSetYetThreeTimes()
+    {
+        var boss = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, jobs: Running())).Boss;
+
+        Assert.Equal("The Boss", boss.Heading);
+        Assert.Equal(new[] { "Why", "Goal", "Limits the Boss cannot change" }, boss.Parts.Select(p => p.Heading));
+        Assert.All(boss.Parts, p =>
+        {
+            Assert.Null(p.Text);
+            Assert.Equal("not set yet", p.EmptyText);
+        });
+    }
+
+    [Fact]
+    public void DraftPage_Boss_SaysNotSetYetInEveryPart()
+    {
+        var draft = new CcDirector.Gateway.Factory.Definition.UnpublishedFactory("newco", "NewCo", 1, 3, 2, null);
+
+        var boss = CcDirector.Gateway.Factory.Definition.FactoryNewFold.DraftPage(draft).Boss;
+
+        Assert.Equal("The Boss", boss.Heading);
+        Assert.Equal(new[] { "why", "goal", "limits" }, boss.Parts.Select(p => p.Key));
+        Assert.All(boss.Parts, p => Assert.Equal("not set yet", p.EmptyText));
+    }
+
+    [Fact]
     public void ReadNow_NeverWritten_IsNull()
     {
         Assert.Null(CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(null, "warmforward",

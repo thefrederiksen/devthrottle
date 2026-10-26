@@ -5770,7 +5770,9 @@ public sealed class GatewayHost : IAsyncDisposable
             LiveSessions: tenant => PushedSessions.SnapshotFresh(tenant, _streamStaleAfter).Select(p => p.Session).ToList(),
             // "What we are doing now" on a factory's page: its newest "now" working document (the owner, 26 October 2026).
             NowDocument: (tenant, factory) => Api.FactoriesScreenEndpoints.ReadNow(
-                _factoryDocuments.Get(tenant, factory, Factory.FactoriesScreenFold.NowDocumentName), factory, _sessionHistory.FactoryOf));
+                _factoryDocuments.Get(tenant, factory, Factory.FactoriesScreenFold.NowDocumentName), factory, _sessionHistory.FactoryOf),
+            // The Boss's why, goal and limits on a factory's page: its published definition's boss.md (the owner, 26 October 2026).
+            BossFile: (tenant, factory) => Api.FactoriesScreenEndpoints.ReadBossFile(FactoryDefinitions, tenant, factory));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,

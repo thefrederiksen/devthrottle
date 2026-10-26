@@ -55,6 +55,27 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     private static string SeatText(FactoryDefinitionStore store, int version)
         => store.Find(A, TheFactory, version)!.Files["seats/boss.yaml"];
 
+    [Fact]
+    public void ReadBossFile_IsThePublishedVersionsBossMd_NeverADraftsOne()
+    {
+        var store = NewStore();
+        var withBoss = Definition("v1");
+        withBoss["boss.md"] = "## The why\nPublished why.\n";
+        Assert.Equal(FactoryDefinitionOutcome.Saved, SaveByOwner(store, withBoss, expect: null).Outcome);
+
+        // Nothing is published yet, so the page reads no boss.md, whatever the draft holds.
+        Assert.Null(CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadBossFile(store, A, TheFactory));
+
+        Assert.Equal(FactoryDefinitionOutcome.Published, PublishByOwner(store, 1).Outcome);
+        Assert.Equal("## The why\nPublished why.\n", CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadBossFile(store, A, TheFactory));
+
+        // A newer draft changes nothing until it is published; once a version without boss.md is, there is none.
+        Assert.Equal(FactoryDefinitionOutcome.Saved, SaveByOwner(store, Definition("v2"), expect: 1).Outcome);
+        Assert.Equal("## The why\nPublished why.\n", CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadBossFile(store, A, TheFactory));
+        Assert.Equal(FactoryDefinitionOutcome.Published, PublishByOwner(store, 2, Now.AddMinutes(10)).Outcome);
+        Assert.Null(CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadBossFile(store, A, TheFactory));
+    }
+
     private FactoryDefinitionStore WithALongHistory(int versions)
     {
         var store = NewStore();
