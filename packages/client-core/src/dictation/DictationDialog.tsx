@@ -655,6 +655,10 @@ export function DictationDialog({
               className="dictate-btn dictate-pause"
               onClick={onPauseResume}
               disabled={actionsDisabled}
+              // While recording this button is a bare glyph - two bars, no text - so without a label
+              // it reached a screen reader as an unnamed button sitting between Cancel and Send. The
+              // label follows what pressing it DOES, which flips with the state.
+              aria-label={isPaused ? "Resume recording" : "Pause recording"}
             >
               {isPaused ? "Resume" : <span className="dictate-pause-glyph"><i /><i /></span>}
             </button>
