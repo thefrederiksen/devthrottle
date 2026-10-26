@@ -1,0 +1,108 @@
+﻿Building once, then running 12 test project(s)...
+D:\ReposFred\devthrottle.worktrees\loud-switch-2\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [D:\ReposFred\devthrottle.worktrees\loud-switch-2\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+
+Build succeeded.
+
+D:\ReposFred\devthrottle.worktrees\loud-switch-2\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [D:\ReposFred\devthrottle.worktrees\loud-switch-2\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:16.78
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:29.85
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:27.17
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:12.43
+  parked CcDirector.Gateway.UnitTests: 119 class(es) this change can reach - runs after the default suites
+  started CcDirector.Core.UnitTests
+  started CcDirector.Avalonia.Tests
+  started CcDirector.Engine.Tests
+  started CcDirector.HostedAgent.Tests
+  started CcDirector.Launcher.Tests
+  started CcDirector.Terminal.Avalonia.Tests
+  started CcDirector.Reclaim.Tests
+  started CcDirector.DeliveryQualification.Tests
+  started CcDirector.RuleHook.Tests
+  started cc-director-setup.Tests
+  started cc-director-setup-engine.Tests
+  started cc-director-setup-cli.Tests
+
+Waiting.
+
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  2788, Skipped:     0, Total:  2788, Duration: 1 
+m 40 s - CcDirector.Core.UnitTests.dll (net10.0)
+  FAIL  CcDirector.Avalonia.Tests  (no summary line - see 
+C:\Users\soren\AppData\Local\Temp\cc-test-local-47174406\CcDirector.Avalonia.Tests.log)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 23 s 
+- CcDirector.Engine.Tests.dll (net10.0)
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 
+36 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   234, Skipped:     0, Total:   234, Duration: 24 
+s - CcDirector.Launcher.Tests.dll (net10.0)
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:   111, Skipped:     0, Total:   111, 
+Duration: 23 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 22 
+s - CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  CcDirector.DeliveryQualification.Tests  Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, 
+Duration: 13 s - CcDirector.DeliveryQualification.Tests.dll (net10.0)
+  PASS  CcDirector.RuleHook.Tests  Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 14 
+s - CcDirector.RuleHook.Tests.dll (net10.0)
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    43, Skipped:     0, Total:    43, Duration: 12 s 
+- CcDirectorSetup.Tests.dll (net10.0)
+  FAIL  cc-director-setup-engine.Tests  Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, 
+Duration: 42 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    75, Skipped:     0, Total:    75, Duration: 
+8 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+  started CcDirector.Gateway.UnitTests (119 affected class(es))
+  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed:  2311, Skipped:     0, Total:  2311, Duration: 
+4 m 11 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  commit 9f749917da15cd29dbe6d4a31c17f93721428c32  tree DIRTY (1 changed or untracked)  parked=False 
+configuration=Debug suite filter=Gate!=Quarantine
+  CcDirector.Core.UnitTests                outcome=Completed    total=2788   executed=2788
+  CcDirector.Avalonia.Tests                outcome=NO-TRX       total=0      executed=0
+  CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
+  CcDirector.Launcher.Tests                outcome=Completed    total=234    executed=234
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=111    executed=111
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=307    executed=307
+  CcDirector.DeliveryQualification.Tests   outcome=Completed    total=151    executed=151
+  CcDirector.RuleHook.Tests                outcome=Completed    total=70     executed=70
+  cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
+  cc-director-setup-engine.Tests           outcome=Failed       total=1014   executed=1008
+  cc-director-setup-cli.Tests              outcome=Completed    total=75     executed=75
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=2311   executed=2311
+
+Run folder: C:\Users\soren\AppData\Local\Temp\cc-test-local-47174406 (kept after a red run; deleted after a green one 
+unless -KeepRun)
+
+Parked suite CcDirector.Gateway.UnitTests ran the tests this change can reach (see its line in the TRX verdict).
+
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Gateway.Tests
+
+Run '.\scripts\test-local.ps1 -Parked' before merging, or say in the pull request why not.
+(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
+RESULT: OVER BUDGET - 1 suite(s) exceeded the 120-second ceiling and were STOPPED:
+  CcDirector.Avalonia.Tests
+
+This is NOT a test failure. It means the suite no longer belongs in the default run.
+Park it in $parkedProjects, or make it fit. Do not raise the ceiling to make this go away -
+the ceiling is the point, and every second added to it is paid by every person and agent
+on every change, forever.
+Temporary folders deleted: the test processes had left 217.7 MB in them.
+Run folder kept: C:\Users\soren\AppData\Local\Temp\cc-test-local-47174406
