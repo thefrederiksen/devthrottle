@@ -85,66 +85,27 @@ jobs:
           tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
 
+      # The image resolution is a script shared with the deploy's automatic rollback (issue #4514), so the
+      # repository is checked out for it. Nothing else here reads the checkout.
+      - uses: actions/checkout@v5
+
       # Resolve the commit to an immutable digest BEFORE anything is changed. A commit whose image was
       # never built, or has been cleaned out of the registry, must fail here - where production is still
       # untouched - and not after the site has been pinned to something that cannot be pulled.
+      #
+      # scripts/resolve-gateway-image.sh takes the three forms - last-known-good, sha256:..., or a short
+      # commit - and prints digest= and commit= for GITHUB_OUTPUT; on a miss it lists the tags that do
+      # exist. It is the ONE copy of this resolution: the deploy workflow's automatic rollback uses it too,
+      # because it cannot dispatch this workflow from inside the concurrency group it already holds. Its
+      # proof is scripts/rollback-to-last-known-good.test.sh. The input is passed through the environment,
+      # never pasted into the shell text.
       - name: Find the image for that commit
         id: target
+        env:
+          COMMIT_INPUT: ${{ inputs.commit }}
         run: |
-          # Three forms, because the registry keeps only three commits by name:
-          #   last-known-good - the moving tag the deploy puts on each image that passed its whole deploy
-          #   sha256:...      - a raw digest, the way back to an image whose tags have all been purged
-          #                     (the digest of anything ever deployed is in that deploy run's log)
-          #   anything else   - a short commit, resolved as ci-<commit>
-          case "${{ inputs.commit }}" in
-            last-known-good) TAG="last-known-good" ;;
-            sha256:*)        TAG="${{ inputs.commit }}" ;;
-            *)               TAG="ci-${{ inputs.commit }}" ;;
-          esac
-          case "$TAG" in
-            sha256:*) REF_ARG="${IMAGE_NAME}@${TAG}" ;;
-            *)        REF_ARG="${IMAGE_NAME}:${TAG}" ;;
-          esac
-          if ! DIGEST=$(az acr repository show --name "$ACR" --image "$REF_ARG" \
-                          --query digest --output tsv 2>/dev/null) || [ -z "$DIGEST" ]; then
-            echo "ERROR: no image '$REF_ARG' in registry $ACR."
-            echo "       Production has NOT been changed by this run."
-            echo ""
-            echo "       The registry keeps the three newest deploys by name, plus 'live' (what production"
-            echo "       is running) and 'last-known-good'. Anything older has been purged. If you need an"
-            echo "       image older than that, its digest is in its own deploy run's log and can be passed"
-            echo "       here as sha256:... - but only if the manifest still exists."
-            echo ""
-            echo "       Tags that do exist, most recent first:"
-            az acr repository show-tags --name "$ACR" --repository "$IMAGE_NAME" \
-              --orderby time_desc --top 20 --output tsv | sed 's/^/         /'
-            exit 1
-          fi
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-
-          # Which commit does that image carry? For a ci-<commit> tag it is in the name; for a moving tag
-          # or a digest it is not, and the wait below checks production by commit, so read it off the
-          # image's OWN tags. `acr repository show-manifests` reads the same thing and is DEPRECATED;
-          # `acr manifest list-metadata` is the replacement, and both were verified against this registry
-          # on 2026-09-20.
-          if [ "$TAG" = "ci-${{ inputs.commit }}" ]; then
-            COMMIT="${{ inputs.commit }}"
-          else
-            # ITS ABSENCE MUST NOT REFUSE THE ROLLBACK (review finding). The purge keeps only the three
-            # newest ci- tags, so the last known good loses its ci- tag within three deploys while the
-            # image itself stays pullable on the moving tag. Refusing then would disarm the emergency
-            # lever at exactly the moment it is needed: the designated recovery image present, pullable,
-            # and rejected. Without a commit this run can verify that production comes back HEALTHY but
-            # not WHICH code it is running, and it says so rather than pretending otherwise.
-            COMMIT=$(az acr manifest list-metadata --registry "$ACR" --name "$IMAGE_NAME"                        --query "[?digest=='${DIGEST}'].tags[]" -o tsv 2>/dev/null                      | grep '^ci-' | head -n1 | sed 's/^ci-//' || true)
-            if [ -z "$COMMIT" ]; then
-              echo "NOTE: ${TAG} carries no ci-<commit> tag, so the checks below verify that production"
-              echo "      comes back HEALTHY, not which commit it is running. What it reports is printed"
-              echo "      at the end of this run."
-            fi
-          fi
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-          echo "Rolling back to ${TAG} = commit ${COMMIT} (${DIGEST})."
+          set -euo pipefail
+          bash scripts/resolve-gateway-image.sh "$COMMIT_INPUT" | tee -a "$GITHUB_OUTPUT"
 
       # What production runs right now, recorded before it is replaced. This is the way FORWARD again if
       # the rollback turns out to be the wrong call, and it is the only record of it once the pin changes.
