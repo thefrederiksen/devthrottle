@@ -1006,6 +1006,20 @@ describe("The owner's actions (round 2)", () => {
   });
 });
 
+describe("A factory's Overview - the stylesheet", () => {
+  // jsdom applies no stylesheet, so the proof of the layout is the stylesheet itself. The Overview is read top to bottom
+  // (owner, 26 Oct 2026): one column, so every card - the now card and Needs you included - is the page's full width.
+  // An auto-fit grid of columns left a lone card in a 320px column with the rest of its row empty.
+  const css = readFileSync(join(__dirname, "factory.css"), "utf8");
+
+  it("lays the Overview out as one full-width column, at every width", () => {
+    const rules = [...css.matchAll(/\.fa-overview \{([^}]*)\}/g)].map((m) => m[1]);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(css).not.toMatch(/\.fa-overview > [^{]*\{[^}]*grid-column/);
+  });
+});
+
 describe("Factories at phone width (mockup 4)", () => {
   // jsdom applies no media queries, so the proof is the stylesheet itself: under the phone width the list's rows
   // become cards and its heading row is hidden, so nothing scrolls sideways at 390px.
