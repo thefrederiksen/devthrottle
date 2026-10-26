@@ -342,6 +342,12 @@ jobs:
       - name: Prove the deploy boot proof against fake Gateway images
         run: bash scripts/prove-image-boots.test.sh
 
+      # The deploy's automatic rollback (issue #4514), proved the same way: the script and its image
+      # resolver against a fake az, a fake gh and a fake /healthz, including the 2026-10-26 shape where the
+      # outgoing record named the broken image. It checks what was PINNED, not only what was printed.
+      - name: Prove the deploy automatic rollback picks last-known-good, against fakes
+        run: bash scripts/rollback-to-last-known-good.test.sh
+
       # The version comes from .nvmrc, which is also what scripts/check-node-version.mjs reads, so the
       # pinned version lives in exactly one file and a developer machine cannot quietly drift off it.
       - name: Setup Node

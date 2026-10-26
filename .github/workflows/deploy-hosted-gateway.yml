@@ -87,6 +87,7 @@ permissions:
   id-token: write   # required for the Azure OIDC login
   contents: read
   checks: read      # required to read the shipping commit's check runs (the green-only gate)
+  issues: write     # the automatic rollback opens or comments on its alert issue (issue #4514)
 
 env:
   AZURE_RG: rg-devthrottle-hosted-gateway
@@ -152,6 +153,7 @@ jobs:
       settings_gap_seconds: ${{ steps.readiness.outputs.settings_gap_seconds }}
       restart_observed: ${{ steps.readiness.outputs.restart_observed }}
       time_to_healthy_seconds: ${{ steps.readiness.outputs.time_to_healthy_seconds }}
+      auto_rollback: ${{ steps.readiness.outputs.auto_rollback }}
 
     steps:
       # Check out the exact commit the run was started against (the branch/tag chosen in the UI, or
@@ -506,9 +508,29 @@ jobs:
       # deploy's outage. `az webapp config container set` returns before the restart finishes, so the step
       # then waits for production to serve the new commit, sustained.
       #
-      # If production never serves the new commit, the run FAILS and prints the exact rollback command. It
-      # does not roll back by itself: whether the old image is the better one is a human decision, and the
-      # new image may be one restart away from healthy.
+      # IF PRODUCTION NEVER SERVES THE NEW COMMIT, THIS STEP ROLLS BACK BY ITSELF, AND THE RUN STILL FAILS.
+      # It re-pins the image tagged last-known-good, waits for the same sustained 200 on that commit, opens
+      # or comments on an alert issue naming both commits, and exits red whatever the rollback did. That is
+      # scripts/rollback-to-last-known-good.sh, proved against fakes by its .test.sh beside it.
+      #
+      # THIS REVERSES AN EARLIER DECISION, ON THE OWNER'S RULING (issue #4514, 2026-10-26). The step used to
+      # print the rollback command and stop, on the reasoning that whether the old image is the better one is
+      # a human decision and the new image may be one restart away from healthy. Measured on 2026-10-26, that
+      # cost thirty minutes: the deploy knew production was dead at 20:59, the owner dispatched the rollback
+      # by hand at 21:02, and everything in between was waiting for a person. The "one restart away"
+      # argument is thin against this step's own rule - it has already waited 600 seconds for three 200s in
+      # a row. The asymmetry decides it: an unneeded rollback costs about two minutes, the accepted outage of
+      # any deploy; waiting for a human cost thirty.
+      #
+      # THE TARGET IS last-known-good, NEVER THE OUTGOING IMAGE recorded above. last-known-good moves only
+      # when a deploy passes its entire watch, and the `retain` job refuses to move it when production is no
+      # longer running the image. The outgoing record has no such guarantee: on 2026-10-26 it named the
+      # already-broken image, with commit "unknown". So the script is not handed the outgoing record at all.
+      # It runs inside this job, which already holds the hosted-gateway-production group, so it must never
+      # dispatch rollback-hosted-gateway.yml (that would wait for this job, which waits for it); it shares
+      # that workflow's image resolution, scripts/resolve-gateway-image.sh, instead. One target, one pin,
+      # one wait: if last-known-good cannot be resolved or does not come up, it says so and stops.
+      # ProductionRollsBackToLastKnownGoodTests guards all of this from the default gate.
       - name: Deploy the new image in place and measure the outage
         id: readiness
         run: |
@@ -647,17 +669,18 @@ jobs:
 
           if [ "$streak" -lt 3 ]; then
             echo "ERROR: production never served a sustained 200 on commit $TARGET within 600s."
-            echo "       PRODUCTION MAY BE DOWN RIGHT NOW. The image it ran before this deploy was:"
-            echo "         ${{ steps.outgoing_image.outputs.image }}"
-            if [ -n "$OUTGOING" ]; then
-              echo "       To put that back (commit $OUTGOING), with the owner's go:"
-              echo "         gh workflow run rollback-hosted-gateway.yml --repo ${GITHUB_REPOSITORY} --ref main -f commit=$OUTGOING"
-            else
-              echo "       The outgoing commit is unknown (the live image predates the /healthz commit field),"
-              echo "       so the rollback target must be read from the image above by hand."
-            fi
-            echo "       The failing container's own startup output is in the platform container log for $APP."
+            echo "       PRODUCTION MAY BE DOWN RIGHT NOW. The failing container's own startup output is in the"
+            echo "       platform container log for $APP."
             echo "outcome=failed" >> "$GITHUB_OUTPUT"
+            # The automatic rollback (see the comment above this step). Its exit code is reported, never
+            # passed on: whatever it did, this deploy failed and the run ends red. `|| rc=$?` because the step
+            # shell runs with -e, which would otherwise end the step before the line that says so.
+            rc=0
+            FAILED_COMMIT="$TARGET" FAILED_DIGEST="${{ steps.digest.outputs.digest }}" \
+              RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              GH_TOKEN="${{ github.token }}" GH_REPO="${GITHUB_REPOSITORY}" \
+              bash scripts/rollback-to-last-known-good.sh || rc=$?
+            echo "The automatic rollback exited $rc. This deploy FAILED; the run is red on purpose."
             exit 1
           fi
 
@@ -1405,6 +1428,10 @@ jobs:
             no)      ROLLBACK="no" ;;
             *)       ROLLBACK="not-measured" ;;
           esac
+          # A deploy that never came up rolled itself back (issue #4514); the watch did not run, so this is
+          # the only rollback word that applies. The outcome stays "failed": a recovery is not a deploy.
+          AUTO_ROLLBACK="${{ needs.deploy.outputs.auto_rollback }}"
+          if [ -n "$AUTO_ROLLBACK" ]; then ROLLBACK="automatic-${AUTO_ROLLBACK}"; fi
           OUTAGE_S="${{ steps.outage.outputs.true_outage_seconds }}"
           TOTAL_S="${{ steps.outage.outputs.total_unavailable_seconds }}"
           STATE_LEFT="${{ steps.outage.outputs.site_state_left_running }}"; STATE_LEFT="${STATE_LEFT:-not-measured}"

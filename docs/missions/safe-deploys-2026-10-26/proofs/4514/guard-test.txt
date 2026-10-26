@@ -1,0 +1,18 @@
+dotnet test src/CcDirector.Core.UnitTests --filter ProductionRollsBackToLastKnownGood on devlinux, 2026-10-26T23:43:57Z
+
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the script tries a second image", expectedViolation: "pins 2 times") [17 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the old does-not-roll-back decision is back", expectedViolation: "still records the old decision") [5 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the manual rollback workflow keeps its own copy of"···, expectedViolation: "resolves images itself again") [3 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the failure branch hands the outgoing image to the"···, expectedViolation: "hands the outgoing record to the rollback") [11 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the script resolves the outgoing commit instead of"···, expectedViolation: "The rollback script reads an outgoing value") [2 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the failure branch no longer calls the rollback", expectedViolation: "no longer runs bash scripts/rollback-to-last-known"···) [2 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the failure branch dispatches the rollback workflo"···, expectedViolation: "The deploy step dispatches a workflow") [2 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the issue permission is gone", expectedViolation: "no longer grants issues: write") [4 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the script resolves another tag instead of last-kn"···, expectedViolation: "resolves [live]") [4 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the failure branch ends green after the rollback", expectedViolation: "does not end with exit 1") [28 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.Violations_CatchEachMutation(mutation: "the script dispatches the rollback workflow", expectedViolation: "The rollback script dispatches a workflow") [4 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.RollbackProof_IsCommittedBesideTheScripts [< 1 ms]
+  Passed CcDirector.Core.UnitTests.Release.ProductionRollsBackToLastKnownGoodTests.DeployWorkflow_RollsBackToLastKnownGood_WhenTheNewImageNeverComesUp [3 ms]
+
+Whole CcDirector.Core.UnitTests suite:
+Passed!  - Failed:     0, Passed:  2788, Skipped:    23, Total:  2811, Duration: 14 s - CcDirector.Core.UnitTests.dll (net10.0)
