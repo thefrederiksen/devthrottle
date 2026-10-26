@@ -104,7 +104,7 @@ public sealed class ProductionRollsBackToLastKnownGoodTests
                 break;
             case "the script tries a second image":
                 script = ReplaceOnce(script, "# 4. WAIT, ONCE",
-                    "az webapp config container set --resource-group \"$AZURE_RG\" --name \"$APP\" --docker-custom-image-name \"$OTHER\"\n# 4. WAIT, ONCE");
+                    "az webapp config container set --resource-group \"$AZURE_RG\" --name \"$APP\" \"$OTHER\"\n# 4. WAIT, ONCE");
                 break;
             case "the manual rollback workflow keeps its own copy of the resolution":
                 rollbackWorkflow = ReplaceOnce(rollbackWorkflow, "          bash scripts/resolve-gateway-image.sh",
