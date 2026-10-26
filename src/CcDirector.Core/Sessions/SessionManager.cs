@@ -1240,7 +1240,23 @@ public sealed class SessionManager : IDisposable
                 var hookSettings = ClaudeHooksDirectory is { } hooksDirectory
                     ? CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled(hooksDirectory)
                     : CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
-                args = FactoryKitLaunch.ClaudeArguments(args, hookSettings, kitLaunch);
+                // A SCHEDULED FACTORY RUN NEVER PROMPTS (the owner, 26 October 2026): it is started without the folder's
+                // settings files, given everything in them but their ask and deny rules in its own --settings, and pointed
+                // at the folder's instructions. Every other session gets today's line. Like the kit, a run whose
+                // settings cannot be read stops here with the reason, rather than starting on a guess.
+                if (CcDirector.Core.Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
+                {
+                    var run = CcDirector.Core.Claude.ScheduledFactoryRunSettings.Compose(id, workingDirectory,
+                        kitLaunch?.SettingsPath ?? hookSettings,
+                        ClaudeHooksDirectory ?? CcDirector.Core.Claude.ClaudeHookInstaller.DefaultDirectory(), MachineSettingsHome);
+                    envVars[CcDirector.Core.Claude.ScheduledFactoryRunSettings.InstructionsEnvVar] = "1";
+                    args = CcDirector.Core.Claude.ScheduledFactoryRunSettings.ClaudeArguments(args, run, kitLaunch?.PluginDirectory);
+                    var runLine = CcDirector.Core.Claude.ScheduledFactoryRunSettings.LogLine(run);
+                    _log?.Invoke(runLine);
+                    FileLog.Write($"[SessionManager] CreateSession: session={id}: {runLine}");
+                }
+                else
+                    args = FactoryKitLaunch.ClaudeArguments(args, hookSettings, kitLaunch);
                 if (kitLaunch?.SettingsPath is { } seatSettings)
                     _log?.Invoke($"Started with the seat's own settings, its hooks and its rules (--settings \"{seatSettings}\").");
                 else if (!string.IsNullOrEmpty(hookSettings))
@@ -1472,6 +1488,10 @@ public sealed class SessionManager : IDisposable
             // A factory session that did not start leaves no copy of its factory's notes behind.
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
+
+            // A scheduled factory run's own settings file goes with it.
+            if (Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
+                Claude.ScheduledFactoryRunSettings.DeleteFor(id, ClaudeHooksDirectory ?? Claude.ClaudeHookInstaller.DefaultDirectory());
 
             // Nor a kit - unless it is a restored seat's own folder, whose work/ belongs to the seat, not to this create.
             DiscardFreshKit(factoryKit, kitDirectory);
@@ -2226,6 +2246,10 @@ public sealed class SessionManager : IDisposable
             // The session's copy of its factory's notes goes with it (Factory Memory mission, phase 3a).
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
+
+            // A scheduled factory run's own settings file goes with it.
+            if (Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
+                Claude.ScheduledFactoryRunSettings.DeleteFor(id, ClaudeHooksDirectory ?? Claude.ClaudeHookInstaller.DefaultDirectory());
 
             // And a seat's kit, with its work/ folder (Factory Definition mission, phase 5): the session has ended. Unless a
             // smart shutdown or drain captured it for a restore, which hands the folder back: then it is kept, and the
