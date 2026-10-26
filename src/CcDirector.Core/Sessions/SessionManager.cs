@@ -1240,15 +1240,17 @@ public sealed class SessionManager : IDisposable
                 var hookSettings = ClaudeHooksDirectory is { } hooksDirectory
                     ? CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled(hooksDirectory)
                     : CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
-                // A SCHEDULED FACTORY RUN NEVER PROMPTS (the owner, 26 October 2026): it is started without the folder's
-                // settings files, given everything in them but their ask and deny rules in its own --settings, and pointed
-                // at the folder's instructions. Every other session gets today's line. Like the kit, a run whose
-                // settings cannot be read stops here with the reason, rather than starting on a guess.
+                // A SCHEDULED FACTORY RUN NEVER PROMPTS (the owner, 26 October 2026): it is started without any settings
+                // file - the user's, the folder's or the folder's local one - given everything in them but their ask and
+                // deny rules in its own --settings, and pointed at the instructions, skills and servers those sources
+                // would have brought. Every other session gets today's line. Like the kit, a run whose settings cannot be
+                // read stops here with the reason, rather than starting on a guess.
                 if (CcDirector.Core.Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
                 {
                     var run = CcDirector.Core.Claude.ScheduledFactoryRunSettings.Compose(id, workingDirectory,
                         kitLaunch?.SettingsPath ?? hookSettings,
-                        ClaudeHooksDirectory ?? CcDirector.Core.Claude.ClaudeHookInstaller.DefaultDirectory(), MachineSettingsHome);
+                        ClaudeHooksDirectory ?? CcDirector.Core.Claude.ClaudeHookInstaller.DefaultDirectory(), MachineSettingsHome,
+                        MachineSettingsEnvironment);
                     envVars[CcDirector.Core.Claude.ScheduledFactoryRunSettings.InstructionsEnvVar] = "1";
                     args = CcDirector.Core.Claude.ScheduledFactoryRunSettings.ClaudeArguments(args, run, kitLaunch?.PluginDirectory);
                     var runLine = CcDirector.Core.Claude.ScheduledFactoryRunSettings.LogLine(run);
@@ -1489,7 +1491,7 @@ public sealed class SessionManager : IDisposable
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
 
-            // A scheduled factory run's own settings file goes with it.
+            // A scheduled factory run's own settings file and server list go with it.
             if (Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
                 Claude.ScheduledFactoryRunSettings.DeleteFor(id, ClaudeHooksDirectory ?? Claude.ClaudeHookInstaller.DefaultDirectory());
 
@@ -2247,7 +2249,7 @@ public sealed class SessionManager : IDisposable
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
 
-            // A scheduled factory run's own settings file goes with it.
+            // A scheduled factory run's own settings file and server list go with it.
             if (Claude.ScheduledFactoryRunSettings.IsScheduledFactoryRun(session.OriginKind, session.Factory))
                 Claude.ScheduledFactoryRunSettings.DeleteFor(id, ClaudeHooksDirectory ?? Claude.ClaudeHookInstaller.DefaultDirectory());
 
