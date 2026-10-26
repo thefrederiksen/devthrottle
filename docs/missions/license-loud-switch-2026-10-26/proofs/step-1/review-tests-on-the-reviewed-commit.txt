@@ -1,0 +1,99 @@
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> <worktree>\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.AgentBrain -> <worktree>\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> <worktree>\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Gateway.Contracts -> <worktree>\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> <worktree>\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> <worktree>\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> <worktree>\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> <worktree>\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> <worktree>\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> <worktree>\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> <worktree>\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> <worktree>\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> <worktree>\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for <worktree>\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:18.66]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm [FAIL]
+[xUnit.net 00:00:19.12]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt [FAIL]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm [575 ms]
+  Error Message:
+   Assert.Single() Failure: The collection contained 2 items
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "No machine is set to approve sign-ins for account-"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }, LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 444
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt [140 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+            ↓ (pos 1)
+Expected: "Start the Director on machine-a."
+Actual:   "Sign machine-a in to account-b@example.co"···
+            ↑ (pos 1)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheDirectorIsOffline_NoAutomaticFix_OpensTheAlarm_SayingToStartIt() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 229
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:19.68]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewayStartsItsOwnSignIn_OpensNoAlarm [FAIL]
+[xUnit.net 00:00:20.12]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens [FAIL]
+[xUnit.net 00:00:20.79]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_From80To97OfTheFiveHourWindow_TheFiveHourAlarmHandsOverToTheStrandedAlarm [FAIL]
+[xUnit.net 00:00:20.92]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_AMachineOnATiredAccountReadyForNoAccountWithRoom_OpensOneAlarmForIt [FAIL]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewayStartsItsOwnSignIn_OpensNoAlarm [195 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewayStartsItsOwnSignIn_OpensNoAlarm() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 349
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens [165 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Nothing to do yet: DevThrottle is signing it in; i"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }, LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 489
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_From80To97OfTheFiveHourWindow_TheFiveHourAlarmHandsOverToTheStrandedAlarm [141 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: Tuple (1, 1)
+Actual:   Tuple (0, 1)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_From80To97OfTheFiveHourWindow_TheFiveHourAlarmHandsOverToTheStrandedAlarm() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 468
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_AMachineOnATiredAccountReadyForNoAccountWithRoom_OpensOneAlarmForIt [135 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "No machine is set to approve sign-ins for"···
+Actual:   "Sign machine-a in to account-b@example.co"···
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_AMachineOnATiredAccountReadyForNoAccountWithRoom_OpensOneAlarmForIt() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 197
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:21.72]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_WhileTheGatewaysSignInRuns_OpensNoAlarm [FAIL]
+[xUnit.net 00:00:22.06]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInEndedWell_AndWaitsForTheReport_OpensNoAlarm [FAIL]
+[xUnit.net 00:00:22.20]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed [FAIL]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_WhileTheGatewaysSignInRuns_OpensNoAlarm [240 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_WhileTheGatewaysSignInRuns_OpensNoAlarm() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 367
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInEndedWell_AndWaitsForTheReport_OpensNoAlarm [163 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInEndedWell_AndWaitsForTheReport_OpensNoAlarm() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 384
+--- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed [142 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [LicenseAlarmEntity { AccountEmail = "account-a@example.com", Action = "Sign machine-a in to account-b@example.com from th"···, ClosedAtUtc = null, EmailSentAtUtc = 2026-10-11T03:12:00.0000000Z, EmailState = "owner-emailed", ··· }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedAlarmTests.Tick_TheGatewaysSignInFailed_OpensTheAlarm_SayingItFailed() in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedAlarmTests.cs:line 397
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     9, Passed:    14, Skipped:     0, Total:    23, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
