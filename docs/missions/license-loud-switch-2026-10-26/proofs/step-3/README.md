@@ -37,16 +37,21 @@ No verdict is built by hand.
   report is three days old, so what it holds is not current and it is not stranded by this rule.
 
 Every check matches what a person would read: the machine's name and the account addresses (all `example.com`). No
-check depends on a sentence's wording, because steps 1 and 2 have not written theirs yet.
+check depends on a sentence's wording, because steps 1 and 2 have not written theirs yet. Each surface is matched so
+that one machine's words cannot answer for another's (review finding 2):
+- **Banner:** by the entry's own `machineName` and `accountEmail` fields (the machine, and the account it is stuck on),
+  with the needed account looked for in that entry's own text.
+- **Email:** line by line. An alarm email gives each alarm its own line, or for one alarm its own paragraph.
+- **Push:** by its machine field.
 
 ## Each case, in plain words
 
 | Case | What it asserts | On `aa1c515af` |
 |---|---|---|
 | `OutOfWeek_26October_DevlinuxIsSwitchedToTheAccountWithRoom` | devlinux is sent exactly one switch, from dev to soren.frederiksen. | PASS. This part worked on the day. It guards the replay: if it failed, the picture would be wrong, not the Gateway. |
-| `OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner` (SOREN_NORTH, Mac) | The owner gets an email naming the machine, dev and soren.frederiksen, a push naming the machine, and a banner line naming all three. No automatic sign-in was started. Every push and banner line names SOREN_NORTH or the Mac, and no email names SORENLAPTOP. | **FAIL x2**: "emails sent: 0 ... pushes sent: 0 ... banner lines: []". |
+| `OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner` (SOREN_NORTH, Mac) | The owner gets an email line naming the machine, dev and soren.frederiksen. There is a push about the machine, and a banner entry about the machine on dev whose text names soren.frederiksen. No automatic sign-in was started. Every push and every banner entry is about SOREN_NORTH or the Mac, never SORENLAPTOP. | **FAIL x2**: "emails sent: 0 ... pushes sent: 0 ... banner lines: []". |
 | `EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning` (SOREN_NORTH, Mac) | The same three surfaces and the same rule about naming only those two machines, for the 80% weekly picture. | **FAIL x2**: the same. |
-| `FiveHourAtEighty_25October_TheAlarmThatExistsToday_IsHeard` (SOREN_NORTH, Mac) | The 25 October picture with the dev account's FIVE-HOUR window at 85%, which today's alarm covers. The same three surfaces name the machine and both accounts. | PASS. This proves the recorders and the banner read can hear an alarm. |
+| `FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard` (SOREN_NORTH, Mac) | The 25 October picture with the dev account's FIVE-HOUR window at 85%, which today's alarm covers. The same three surfaces name the machine and both accounts. | PASS. This proves the recorders and the banner read can hear an alarm. |
 | `OutOfWeek_26October_WithTheSignInHeld_EveryMachineIsSwitched_AndNothingIsLoud` | Negative control: the 26 October picture with SOREN_NORTH and the Mac each holding a soren.frederiksen sign-in. All three live machines are switched to soren.frederiksen. There is no email, no push and no banner line, including about the stale SORENLAPTOP. | PASS. |
 | `EightyOfWeek_25October_WithTheSignInHeld_NothingIsLoud` | Negative control: the 25 October picture with the sign-in held. No switch, no email, no push, no banner line. | PASS. |
 | `UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing` (dev five-hour/weekly at 80/50, 20/80, 97/50, 20/97) | Boundary for issue #4249 ("usage limits are not to be policed or flagged"). Every machine, SORENLAPTOP included, holds a sign-in for the account with room. There is no email, no push and no banner line, whatever the usage. | PASS x4. |
@@ -71,8 +76,22 @@ check depends on a sentence's wording, because steps 1 and 2 have not written th
 On this code, today's five-hour alarm (`not-ready-five-hour`) also raises a line, a push and an email for **SORENLAPTOP**
 when its report is three days old ("SORENLAPTOP is not ready to switch off dev@example.com, which is at 80% of its 5-hour
 window ..."). The instrument check above does not assert anything about the stale machine. The replay's positive cases
-do: any loud outcome that names SORENLAPTOP fails them. So if step 1 or step 2 raises its alarm through a path that
+do: a push or a banner entry about SORENLAPTOP fails them. So if step 1 or step 2 raises its alarm through a path that
 includes stale machines, these tests will fail on it.
+
+## What a green run proves, and what it does not (review finding 1)
+
+The cases match no alarm kind, so they cannot tell step 1's alarm from step 2's. Step 1 alarms when the account is
+tired, at 97% or more. Step 2 alarms when either window is at 80% or more. 100% is above 80%, so once step 2 is built,
+the 26 October cases pass with or without step 1.
+
+- **A green run after both steps proves** that the Gateway is loud about a stranded machine at 80% and at 100%.
+- **A green run does not prove** that step 1's alarm in particular exists.
+
+The evidence for step 1 is its own test class (`LicenseStrandedAlarmTests`, pull request 4493) and its run of this
+replay, made before step 2 existed. On 26 October I ran this revised replay on step 1's branch
+(`origin/loud-switch-1-stranded-event`) in a throwaway worktree, since removed: 13 tests, 11 passed, 2 failed. The two
+26 October loud cases pass; the two 25 October warning cases fail and are left for step 2.
 
 ## When this passes
 

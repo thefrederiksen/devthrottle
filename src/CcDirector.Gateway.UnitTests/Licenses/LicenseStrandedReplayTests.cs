@@ -44,7 +44,8 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// (<see cref="LicenseSwitchService.TickAsync"/>), each built over the same store, the same license alarm, one recorder of
 /// owner emails and one recorder of pushes. What is asserted is only what a person would see: the emails the Gateway
 /// sent, the pushes it sent, and the banner it answers on GET /gateway/licenses/alarms - matched on the machine's name
-/// and the accounts, never on a wording.
+/// and the accounts, never on a wording: the banner by its machine and account fields, the email line by line, the push
+/// by its machine field.
 ///
 /// THE CASES. Positive: on the 26th devlinux is switched to soren.frederiksen@ (it is today; this guards the replay
 /// itself), and SOREN_NORTH and the Mac are each told about loudly - an email, a push and a banner line naming the
@@ -57,6 +58,11 @@ namespace CcDirector.Gateway.Tests.Licenses;
 ///
 /// Written before the fix: on the code it was cut from, every positive case fails naming the surfaces that stayed silent, and the
 /// negative control and boundary pass (docs/missions/license-loud-switch-2026-10-26/proofs/step-3/README.md).
+///
+/// WHAT A GREEN RUN PROVES. The cases match no alarm kind, so they cannot tell step 1's alarm (a tired account) from
+/// step 2's (either window at 80% or more): 100% is above 80%, so once step 2 is built the 26 October cases pass with or
+/// without step 1. A green replay proves the Gateway is loud about a stranded machine at 80% and at 100%; step 1's own
+/// proof is its own test class and its run of this replay made before step 2 existed.
 /// </summary>
 public sealed class LicenseStrandedReplayTests : IDisposable
 {
@@ -250,55 +256,75 @@ public sealed class LicenseStrandedReplayTests : IDisposable
         await _signIns.WhenIdleAsync();
     }
 
+    /// <summary>One line of the banner: the machine and the account the alarm is about, as fields, and its text.</summary>
+    private sealed record BannerEntry(string? MachineName, string? AccountEmail, string Text);
+
     /// <summary>GET /gateway/licenses/alarms for the owner: the banner's lines, as every Cockpit page and the phone show them.</summary>
-    private List<string> BannerLines()
+    private List<BannerEntry> Banner()
     {
         var ctx = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
         ctx.Response.Body = new MemoryStream();
         LicenseEndpoints.Alarms(ctx, _ => Owner, _alarms, () => _now).ExecuteAsync(ctx).GetAwaiter().GetResult();
         Assert.Equal(200, ctx.Response.StatusCode);
         var json = JsonDocument.Parse(Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray())).RootElement;
-        return json.GetProperty("alarms").EnumerateArray().Select(a => a.GetProperty("text").GetString() ?? "").ToList();
+        return json.GetProperty("alarms").EnumerateArray()
+            .Select(a => new BannerEntry(Field(a, "machineName"), Field(a, "accountEmail"), a.GetProperty("text").GetString() ?? ""))
+            .ToList();
     }
+
+    private static string? Field(JsonElement alarm, string name)
+        => alarm.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static bool Same(string? a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The lines of an email, subject first: an alarm email gives each alarm its own line (or, for one alarm, its
+    /// own paragraph), so matching within one line keeps one machine's words from answering for another's.</summary>
+    private static IEnumerable<string> Lines(LicenseOwnerEmail email)
+        => new[] { email.Subject }.Concat(email.BodyText.Split('\n'));
 
     private static bool Names(string text, params string[] words) => words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The owner was told loudly about <paramref name="machine"/>: an email naming it and the accounts, a push
-    /// naming it (a push never carries an account: it shows on a locked screen), and a banner line naming it and the
-    /// accounts.</summary>
-    private void AssertToldLoudly(string machine, params string[] accounts)
+    /// <summary>The owner was told loudly about <paramref name="machine"/>: an email line naming it, the account it is
+    /// stuck on and the account it needs; a push about it (a push never carries an account: it shows on a locked screen);
+    /// and a banner line about it and the account it is stuck on, naming the account it needs.</summary>
+    private void AssertToldLoudly(string machine, string stuckOn, string needs)
     {
         // The picture itself: the account it needs has an approver that cannot approve, so no automatic sign-in was
         // started - the gap stood, as it did on the day.
         Assert.Empty(_directors.Of(LicenseContract.SignInVerb));
 
-        // All three surfaces are looked at before failing, so a failure says which of them stayed silent.
-        var named = new[] { machine }.Concat(accounts).ToArray();
-        var banner = BannerLines();
+        // All three surfaces are looked at before failing, so a failure says which of them stayed silent. The banner is
+        // matched on its fields (the machine, and the account it is stuck on) and the needed account in that entry's own
+        // text; the email line by line; the push by its machine field.
+        var named = new[] { machine, stuckOn, needs };
+        var banner = Banner();
         var silent = new List<string>();
-        if (!_emails.Any(e => Names(e.Subject + "\n" + e.BodyText, named)))
-            silent.Add($"no owner email names {string.Join(", ", named)} (emails sent: {_emails.Count})");
-        if (!_pushed.Any(p => Names(p.MachineName, machine)))
-            silent.Add($"no push names {machine} (pushes sent: {_pushed.Count})");
-        if (!banner.Any(line => Names(line, named)))
-            silent.Add($"no banner line names {string.Join(", ", named)} (banner lines: [{string.Join(" | ", banner)}])");
+        if (!_emails.Any(e => Lines(e).Any(line => Names(line, named))))
+            silent.Add($"no line of an owner email names {string.Join(", ", named)} (emails sent: {_emails.Count})");
+        if (!_pushed.Any(p => Same(p.MachineName, machine)))
+            silent.Add($"no push is about {machine} (pushes sent: {_pushed.Count})");
+        if (!banner.Any(b => Same(b.MachineName, machine) && Same(b.AccountEmail, stuckOn) && Names(b.Text, needs)))
+            silent.Add($"no banner line is about {machine} on {stuckOn} and names {needs} "
+                       + $"(banner lines: [{string.Join(" | ", banner.Select(b => $"{b.MachineName}/{b.AccountEmail}: {b.Text}"))}])");
         Assert.True(silent.Count == 0, $"The owner was not told about {machine}: {string.Join("; ", silent)}.");
     }
 
-    /// <summary>Every loud outcome names a stranded machine: never the stale one, whose holdings are not current.</summary>
+    /// <summary>Every alarm that opened is about a stranded machine: never the stale one, whose holdings are not current.
+    /// Read from the push and the banner entry each opened alarm has, by their machine field - the email is built from the
+    /// same alarms, and may name another machine in another role (a skipped machine, an approver's machine).</summary>
     private void AssertOnlyTheStrandedAreNamed()
     {
-        var banner = BannerLines();
-        Assert.All(_pushed, p => Assert.Contains(p.MachineName, new[] { SorenNorth, Mac }));
-        Assert.All(banner, line => Assert.True(Names(line, SorenNorth) || Names(line, Mac), $"A banner line names neither stranded machine: {line}"));
-        Assert.DoesNotContain(_emails, e => Names(e.Subject + "\n" + e.BodyText, SorenLaptop));
+        var stranded = new[] { SorenNorth, Mac };
+        Assert.All(_pushed, p => Assert.Contains(stranded, m => Same(p.MachineName, m)));
+        Assert.All(Banner(), b => Assert.True(stranded.Any(m => Same(b.MachineName, m)),
+            $"A banner line is about {b.MachineName ?? "no machine"}, not a stranded one: {b.Text}"));
     }
 
     private void AssertNothingLoud()
     {
         Assert.Empty(_emails);
         Assert.Empty(_pushed);
-        Assert.Empty(BannerLines());
+        Assert.Empty(Banner());
     }
 
     // ----- positive: the real pictures -----
@@ -324,7 +350,7 @@ public sealed class LicenseStrandedReplayTests : IDisposable
 
         await OneMinuteAsync();
 
-        AssertToldLoudly(machine, Dev, SorenFrederiksen);
+        AssertToldLoudly(machine, stuckOn: Dev, needs: SorenFrederiksen);
         AssertOnlyTheStrandedAreNamed();
     }
 
@@ -337,14 +363,14 @@ public sealed class LicenseStrandedReplayTests : IDisposable
 
         await OneMinuteAsync();
 
-        AssertToldLoudly(machine, Dev, SorenFrederiksen);
+        AssertToldLoudly(machine, stuckOn: Dev, needs: SorenFrederiksen);
         AssertOnlyTheStrandedAreNamed();
     }
 
     [Theory]
     [InlineData(SorenNorth)]
     [InlineData(Mac)]
-    public async Task FiveHourAtEighty_25October_TheAlarmThatExistsToday_IsHeard(string machine)
+    public async Task FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard(string machine)
     {
         // The instrument check: the same 25 October picture, but with the dev account's FIVE-HOUR window at 85%, which
         // the alarm already covers. It passes on the code the replay was cut from, so the cases above fail because the
@@ -354,7 +380,7 @@ public sealed class LicenseStrandedReplayTests : IDisposable
 
         await OneMinuteAsync();
 
-        AssertToldLoudly(machine, Dev, SorenFrederiksen);
+        AssertToldLoudly(machine, stuckOn: Dev, needs: SorenFrederiksen);
     }
 
     // ----- negative control: the same pictures, with the sign-in held -----
