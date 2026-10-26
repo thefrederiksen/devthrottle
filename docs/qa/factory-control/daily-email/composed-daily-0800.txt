@@ -15,19 +15,19 @@ NEEDS YOU - ANSWER WHEN YOU LIKE
 
 LAST 24 HOURS - WHAT EACH FACTORY DID
 CC Factory - 1 run done
-  Cost Sweep (1 run): Cancelled one unused subscription line.
+  Cost Sweep (1 run): 1 run reported: Cancelled one unused subscription line.
   https://gateway.devthrottle.com/factories/cc-factory
 CPMC - 2 runs done
-  Boss (2 runs): Checked for replies: none.
+  Boss (2 runs): 2 runs reported: Checked for replies: none.
   https://gateway.devthrottle.com/factories/cpmc
 Development Sales - 6 runs done
-  Sender (1 run): Sent 18 emails. Reply Desk (5 runs): Answered 3 replies and queued 1 for you. 4 runs reported nothing.
+  Sender (1 run): 1 run reported: Sent 18 emails. Reply Desk (5 runs): 1 run reported: Answered 3 replies and queued 1 for you. 4 runs reported nothing.
   https://gateway.devthrottle.com/factories/development-sales
 DevThrottle Marketing - 2 runs done
-  Content (1 run): Made 1 video and queued it for your yes. HeyCatch (1 run): Nothing new.
+  Content (1 run): 1 run reported: Made 1 video and queued it for your yes. HeyCatch (1 run): 1 run reported: Nothing new.
   https://gateway.devthrottle.com/factories/devthrottle-marketing
 mindzie LinkedIn Outreach - 3 runs done
-  Replier (3 runs): Sent 20 replies. 1 refused by its limits: a link in a message (logged, run carried on). 1 run reported nothing.
+  Replier (3 runs): 1 run reported: Sent 20 replies. 1 run reported: 1 refused by its limits: a link in a message (logged, run carried on). 1 run reported nothing.
   https://gateway.devthrottle.com/factories/mindzie-outreach
 
 This email only reports. Every line opens the Cockpit. A factory never waits for you: what needs you is queued above, and the next run reads your answer and acts on it. Problems, when there are any, are listed first under "Still not fixed".

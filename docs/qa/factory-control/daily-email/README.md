@@ -13,7 +13,8 @@ The owner approved the format on 26 October 2026 (Factories Run Alone mission): 
 Differences from the mockup, all deliberate:
 
 - Factories are listed in name order, not in the mockup's hand-picked order.
-- Each seat's part of a factory's line starts with its run count, for example "Reply Desk (5 runs):", so that
-  "4 runs reported nothing" has something to count against. The words after it are the runs' own reported lines,
-  verbatim; the mockup paraphrased them ("Sender sent 18 emails").
+- Each seat's part of a factory's line starts with its run count, for example "Reply Desk (5 runs):". It shows every
+  distinct reported line, in the order it first appeared, with the number of runs that reported it; runs with no line are
+  counted as "reported nothing". The reported words are preserved. Surrounding whitespace is trimmed and a full stop
+  is added when the line has no ending punctuation. The mockup paraphrased the reports ("Sender sent 18 emails").
 - The summary says "0 runs did not run", as the 08:00 email always has, where the mockup says "0 did not run".

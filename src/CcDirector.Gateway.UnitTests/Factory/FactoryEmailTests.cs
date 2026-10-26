@@ -873,7 +873,7 @@ public sealed class FactoryEmailTests : IDisposable
         // one reported nothing; the Scout's one run reported nothing at all.
         Job("cj_send", "Morning send", "outreach", "sender");
         Job("cj_scan", "Night scan", "research", "scout");
-        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok, reason: "sent 18 emails"));
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok, reason: "  sent 18 emails  "));
         AppendRun("cj_send", Run("s2", TorontoTime(2026, 10, 10, 13), CronRunResults.Ok, reason: "answered 3 replies and queued 1 for you."));
         AppendRun("cj_send", Run("s3", TorontoTime(2026, 10, 10, 17), CronRunResults.Ok, reason: "sent 18 emails"));
         AppendRun("cj_send", Run("s4", TorontoTime(2026, 10, 10, 21), CronRunResults.Ok));
@@ -886,29 +886,32 @@ public sealed class FactoryEmailTests : IDisposable
         var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
         var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
 
-        // Assert: the day carries each run's line, oldest first, and the email quotes them once each, word for word.
+        // Assert: the fold trims surrounding whitespace; the email preserves each line and counts repeated reports.
         var outreach = days.Single(d => d.Factory == "outreach");
         Assert.Equal(new[] { "sent 18 emails", "answered 3 replies and queued 1 for you.", "sent 18 emails", null },
             outreach.DoneRuns.Select(r => r.Reported));
-        Assert.Contains("Sender (4 runs): sent 18 emails. answered 3 replies and queued 1 for you. 1 run reported nothing.", email.Text);
-        Assert.Contains("Scout (1 run): reported nothing.", email.Text);
+        Assert.Contains("Sender (4 runs): 2 runs reported: sent 18 emails. 1 run reported: answered 3 replies and queued 1 for you. 1 run reported nothing.", email.Text);
+        Assert.Contains("Scout (1 run): 1 run reported nothing.", email.Text);
         Assert.Contains("Outreach - 4 runs done", email.Text);
         Assert.DoesNotContain("before the window", email.Text);
     }
 
     [Fact]
-    public void Compose_ASeatWithManyDifferentLines_QuotesThreeAndPointsToTheFactoryPage()
+    public void Compose_ASeatWithManyDifferentLines_ShowsEveryLineAndItsRunCount()
     {
         var slot = FactoryEmailSlots.DueAt(TorontoTime(2026, 10, 11, 8, 5), Toronto)!;
         var day = new CronFactoryDayDto { Factory = "outreach", Done = 5 };
-        for (var i = 1; i <= 5; i++)
-            day.DoneRuns.Add(new() { Seat = "sender", JobName = "Send", FiredUtc = TorontoTime(2026, 10, 10, 8 + i), Reported = $"sent {i} emails" });
+        var reports = new[] { "sent 1 emails", "sent 2 emails", "sent 1 emails", "sent 3 emails", "sent 2 emails" };
+        for (var i = 0; i < reports.Length; i++)
+            day.DoneRuns.Add(new() { Seat = "sender", JobName = "Send", FiredUtc = TorontoTime(2026, 10, 10, 9 + i), Reported = reports[i] });
 
         var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, Array.Empty<CronRunProblemDto>(), new[] { day },
             Factories(), null));
 
-        Assert.Contains("Sender (5 runs): sent 1 emails. sent 2 emails. sent 3 emails. And 2 more lines on the factory page.", email.Text);
-        Assert.DoesNotContain("sent 4 emails", email.Text);
+        const string expected = "Sender (5 runs): 2 runs reported: sent 1 emails. 2 runs reported: sent 2 emails. 1 run reported: sent 3 emails.";
+        Assert.Contains(expected, email.Text);
+        Assert.Contains(expected, email.Html);
+        Assert.DoesNotContain("more lines on the factory page", email.Text);
     }
 
     [Fact]
@@ -1001,8 +1004,8 @@ public sealed class FactoryEmailTests : IDisposable
         foreach (var id in factories.Keys)
             Assert.Contains($"href=\"https://gateway.devthrottle.com/factories/{id}\"", email.Html);
         Assert.Contains("- 6 runs done</span>", email.Html);
-        Assert.Contains("Sender (1 run): Sent 18 emails. Reply Desk (5 runs): Answered 3 replies and queued 1 for you. 4 runs reported nothing.", email.Html);
-        Assert.Contains("Boss (2 runs): Checked for replies: none.", email.Html);
+        Assert.Contains("Sender (1 run): 1 run reported: Sent 18 emails. Reply Desk (5 runs): 1 run reported: Answered 3 replies and queued 1 for you. 4 runs reported nothing.", email.Html);
+        Assert.Contains("Boss (2 runs): 2 runs reported: Checked for replies: none.", email.Html);
         Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", email.Html);
         Assert.All(email.Html, c => Assert.True(c < 128, $"non-ASCII character {(int)c} in the email body"));
         Assert.All(email.Text, c => Assert.True(c < 128, $"non-ASCII character {(int)c} in the plain-text body"));

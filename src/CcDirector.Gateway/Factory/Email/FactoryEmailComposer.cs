@@ -108,9 +108,6 @@ public static class FactoryEmailComposer
     /// <summary>What a run that reported no line with its ok result is said to have done.</summary>
     public const string ReportedNothing = "reported nothing";
 
-    /// <summary>How many of one seat's reported lines a factory's line quotes before it points to the factory page.</summary>
-    public const int MaxLinesPerSeat = 3;
-
     /// <summary>Compose the email for <paramref name="input"/>'s slot.</summary>
     public static FactoryEmail Compose(FactoryEmailInput input)
     {
@@ -343,7 +340,8 @@ public static class FactoryEmailComposer
 
     /// <summary>
     /// What the factory's done runs did, seat by seat in the order they first ran: each seat's name and run count, then
-    /// the lines its runs reported, verbatim and once each. A run that reported nothing is said to have reported nothing.
+    /// every distinct reported line with the number of runs that reported it, in the order each line first appeared.
+    /// A run that reported nothing is counted.
     /// Never composed by a model.
     /// </summary>
     private static string WhatItDid(FactoryEmailInput input, CronFactoryDayDto d)
@@ -354,21 +352,21 @@ public static class FactoryEmailComposer
         foreach (var seat in d.DoneRuns.GroupBy(r => r.Seat, StringComparer.Ordinal))
         {
             var runs = seat.ToList();
-            var lines = runs.Where(r => r.Reported is not null).Select(r => r.Reported!).Distinct(StringComparer.Ordinal).ToList();
-            var silent = runs.Count(r => r.Reported is null);
+            var lines = runs.Select(r => r.Reported).OfType<string>()
+                .Where(line => !string.IsNullOrWhiteSpace(line)).Select(line => line.Trim())
+                .GroupBy(line => line, StringComparer.Ordinal);
+            var silent = runs.Count(r => string.IsNullOrWhiteSpace(r.Reported));
             var said = new StringBuilder($"{SeatName(input, d.Factory, seat.Key)} ({Count(runs.Count, "run")}):");
-            foreach (var line in lines.Take(MaxLinesPerSeat))
-                said.Append(' ').Append(Sentence(line));
-            if (lines.Count > MaxLinesPerSeat)
-                said.Append($" And {Count(lines.Count - MaxLinesPerSeat, "more line")} on the factory page.");
+            foreach (var line in lines)
+                said.Append(' ').Append(Count(line.Count(), "run")).Append(" reported: ").Append(Sentence(line.Key));
             if (silent > 0)
-                said.Append(lines.Count == 0 ? $" {Sentence(ReportedNothing)}" : $" {Count(silent, "run")} {ReportedNothing}.");
+                said.Append($" {Count(silent, "run")} {ReportedNothing}.");
             seats.Add(said.ToString());
         }
         return string.Join(" ", seats);
     }
 
-    // A reported line as a sentence: a full stop added when it has no ending of its own. Its words are not touched.
+    // A reported line keeps its words; surrounding whitespace is trimmed and a missing ending mark is added.
     private static string Sentence(string line)
     {
         var t = line.Trim();
