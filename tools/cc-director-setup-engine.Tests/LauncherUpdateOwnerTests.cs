@@ -110,6 +110,14 @@ public class LauncherUpdateOwnerTests : IDisposable
             witnessTimeout: TimeSpan.FromMilliseconds(400))
         {
             SwapLockName = _swapLockName,
+            // STATED, not inherited from the platform. SwapOrder defaults to PlaceThenRestart on macOS and
+            // StopThenPlaceThenStart everywhere else, and the tests built on this factory assert the
+            // stop-first sequence - that the launcher was asked to quit and then stopped by process id.
+            // PlaceThenRestart deliberately stops NOTHING, so on a Mac those assertions were being made
+            // against the wrong order and failed on correct code, while passing on Windows. The macOS order
+            // has its own tests, which state it the same way: OnASupervisedMachine_TheFileIsReplacedBEFORE-
+            // TheSupervisorIsAsked and the two WhereNoListenerCanBeSeen cases.
+            SwapOrder = LauncherSwapOrder.StopThenPlaceThenStart,
             ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = root => { quitRequests?.Add(root); return false; },
@@ -119,16 +127,32 @@ public class LauncherUpdateOwnerTests : IDisposable
                 running.RemoveAll(p => p.Pid == pid);
                 return true;
             },
-            StartLauncher = _ =>
-            {
-                startedNewBuild = true;
-                running.Add(InstalledLauncher(2002));
-                WriteRegistration(2002, StagedVersion);
-                return 2002;
-            },
+            StartLauncher = _ => StartTheNewBuild(),
+            // macOS swaps with PlaceThenRestart (LauncherUpdateOwner.SwapOrder), which asks the launcher's
+            // SUPERVISOR to restart it rather than starting one here. Left at its default this ran the real
+            // DefaultRestartLauncher -> LauncherLaunchdAutostart.Kickstart() ->
+            // "launchctl kickstart -k gui/<uid>/com.devthrottle.cc-launcher" - the hard-coded label of the
+            // MACHINE'S OWN launcher. So each of these tests SIGTERMed and restarted the real launcher
+            // twice, once for the swap's bring-up and once for the rollback's (measured: one test took
+            // launchd's run count from 193 to 195). The witness never saw the new build either, because
+            // only the start marks it started, so every swap test here rolled back on every Mac while
+            // passing on Windows - unseen, because CI runs the .NET suites on windows-latest only.
+            // A supervisor restart brings up the same new build, so it is the same fake.
+            RestartLauncher = () => StartTheNewBuild() > 0,
             GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
             StopSettleTimeout = TimeSpan.FromMilliseconds(200),
         };
+
+        // Idempotent on the pid: the rollback path brings a launcher up twice, and one process cannot be
+        // running under the same id twice.
+        int StartTheNewBuild()
+        {
+            startedNewBuild = true;
+            running.RemoveAll(p => p.Pid == 2002);
+            running.Add(InstalledLauncher(2002));
+            WriteRegistration(2002, StagedVersion);
+            return 2002;
+        }
     }
 
     [Fact]
@@ -404,16 +428,23 @@ public class LauncherUpdateOwnerTests : IDisposable
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = _ => false,
             StopProcess = pid => { running.RemoveAll(p => p.Pid == pid); return true; },
-            StartLauncher = _ =>
-            {
-                startedNewBuild = true;
-                running.Add(InstalledLauncher(2002));
-                WriteRegistration(2002, StagedVersion, declaresCommandSignal: true);
-                return 2002;
-            },
+            StartLauncher = _ => StartTheNewBuild(),
+            // On macOS the swap is PlaceThenRestart, which asks the SUPERVISOR to restart the launcher.
+            // Without this the default ran the real "launchctl kickstart -k" against the machine's own
+            // launcher and never marked the new build started - so THE MAC test could not pass on a Mac.
+            RestartLauncher = () => StartTheNewBuild() > 0,
             GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
             StopSettleTimeout = TimeSpan.FromMilliseconds(200),
         };
+
+        int StartTheNewBuild()
+        {
+            startedNewBuild = true;
+            running.RemoveAll(p => p.Pid == 2002);
+            running.Add(InstalledLauncher(2002));
+            WriteRegistration(2002, StagedVersion, declaresCommandSignal: true);
+            return 2002;
+        }
 
         var result = await owner.RunOnceAsync();
 
@@ -451,15 +482,23 @@ public class LauncherUpdateOwnerTests : IDisposable
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = _ => false,
             StopProcess = pid => { running.RemoveAll(p => p.Pid == pid); return true; },
-            StartLauncher = _ =>
-            {
-                running.Add(InstalledLauncher(2002));
-                WriteRegistration(2002, StagedVersion, declaresCommandSignal: false);
-                return 2002;
-            },
+            StartLauncher = _ => StartTheNewBuild(),
+            // The supervisor restart is faked for the same reason as everywhere else here: left at its
+            // default, macOS's PlaceThenRestart ran the real "launchctl kickstart -k" against this
+            // machine's own launcher. This test reached its rollback either way, so it passed while
+            // restarting the real launcher - the right answer for the wrong reason.
+            RestartLauncher = () => StartTheNewBuild() > 0,
             GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
             StopSettleTimeout = TimeSpan.FromMilliseconds(200),
         };
+
+        int StartTheNewBuild()
+        {
+            running.RemoveAll(p => p.Pid == 2002);
+            running.Add(InstalledLauncher(2002));
+            WriteRegistration(2002, StagedVersion, declaresCommandSignal: false);
+            return 2002;
+        }
 
         var result = await owner.RunOnceAsync();
 
