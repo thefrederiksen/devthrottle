@@ -28,7 +28,9 @@ namespace CcDirector.Gateway.Licenses;
 /// ready for. A machine ready for none is left behind: it is not switched, it holds back no other machine, and it
 /// is switched on a later tick by this same rule the moment it is ready, while the account is still tired. Only when
 /// NO account has room is it the no-room event and its one owner email; an account with room that some machine is
-/// not ready for is no such event.
+/// not ready for is no such event. It is a STRANDED machine instead (<see cref="StrandedMachines"/>): one per machine,
+/// raised as its own license alarm by the readiness check, because left alone it stays on the tired account with no
+/// word to anyone (the 26 October 2026 defect).
 ///
 /// Who decides "which machines": the machines that are on the account and can be sent a switch now. A
 /// stale machine (no accepted report for <see cref="LicenseContract.MachineStaleAfter"/>) or one with an
@@ -120,7 +122,8 @@ public static class LicenseDecisionEngine
             skipped.AddRange(plan.LeftBehind.Select(r => new LicenseSkippedMachine(r.MachineName, r.OsUser, source,
                 "it " + NotReadyClause(r, r.TargetAccountEmail) + " and " + SwitchesWhenReady(r))));
             if (plan.Moves.Count == 0)
-                continue; // an account has room and no machine on this one is ready for it yet: no event, no email
+                continue; // an account has room and no machine on this one is ready for it yet: not the no-room event -
+                          // each machine left behind is stranded (StrandedMachines), which the readiness check raises
 
             var explanation = ThresholdExplanation(snapshot, source, tired, judged.Ranked[0], plan);
             foreach (var (machine, target) in plan.Moves)
@@ -248,6 +251,32 @@ public static class LicenseDecisionEngine
         return JudgeTired(snapshot, readings, source) is { } judged
             ? NothingSwitchedEmail(snapshot, readings, source, judged)
             : null;
+    }
+
+    /// <summary>
+    /// Every machine STRANDED now: on an account in use whose fresh reading shows a tired window, able to be sent a
+    /// switch (not stale, not mid-switch, not refused, not reporting it cannot run one) and not held, while some account
+    /// has room - and ready for none of the accounts with room. They are exactly the machines <see cref="Decide"/> leaves
+    /// behind on this picture, named against the best account with room, the one each would go to if it were ready.
+    /// A machine when NO account has room is the no-room case, never this; a held machine is the switch-keeps-failing
+    /// case, never this. An account merely near or at its limit with every machine on it ready gives nothing (the ruling
+    /// of 17 October 2026, issue #4249: usage limits are not policed). In ordinal order of account, then the picture's
+    /// order of machines.
+    /// </summary>
+    public static IReadOnlyList<LicenseStrandedMachine> StrandedMachines(LicenseSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var readings = IndexReadings(snapshot.Accounts);
+        var stranded = new List<LicenseStrandedMachine>();
+        foreach (var source in AccountsInUse(snapshot))
+        {
+            if (JudgeTired(snapshot, readings, source) is not { } judged || judged.Ranked.Count == 0 || judged.Free.Count == 0)
+                continue; // not tired on a fresh reading, no account has room, or nothing on it can be sent a switch
+            var plan = PlanMoves(judged.Free, judged.Ranked, snapshot.NowUtc);
+            stranded.AddRange(plan.LeftBehind.Select(r =>
+                new LicenseStrandedMachine(r.MachineName, r.OsUser, source, DescribeWindows(judged.Tired), r)));
+        }
+        return stranded;
     }
 
     /// <summary>
@@ -507,8 +536,8 @@ public static class LicenseDecisionEngine
 
     // The one owner email of the event when nothing can be switched for a tired account, or null when something
     // can - or when no machine on it could be sent a switch at all (stale or mid-switch), which is no event. An
-    // account with room that no free machine is ready for is no event either: the owner is not told "no room" when
-    // there is room (the 16 October 2026 defect).
+    // account with room that no free machine is ready for is no such event either: the owner is not told "no room" when
+    // there is room (the 16 October 2026 defect). Each of those machines is stranded instead (StrandedMachines).
     private static LicenseOwnerEmail? NothingSwitchedEmail(LicenseSnapshot snapshot,
         IReadOnlyDictionary<string, LicenseAccountReading> readings, string source, TiredAccount judged)
     {
