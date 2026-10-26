@@ -34,7 +34,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 ///   3. it did real work on the data: the stranded alarm is OPEN for machine-a on account A, and its one owner email
 ///      went out - so a check that read nothing could not pass;
 ///   4. a second check keeps it open quietly (no second email) and still fails nothing;
-///   5. the host still answers /healthz with 200 after both checks.
+///   5. the host still answers /healthz with 200 after both checks;
+///   6. no step hangs: the start, each /healthz, each minute check and the stop must each finish within
+///      <see cref="HungAfter"/>, or the test fails with a sentence naming the step that hung.
 ///
 /// Gated by [RequiresPostgresFact]: it runs under scripts\test-database.ps1 and reports SKIPPED anywhere else.
 /// </summary>
@@ -91,7 +93,7 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
                 lock (_emails) _emails.Add((tenant, email));
                 return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
             };
-            await _gateway.StartAsync();
+            await Bounded(_gateway.StartAsync(), "the hosted host's StartAsync");
             _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         }
         catch
@@ -109,7 +111,7 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
         try
         {
             if (_gateway is not null)
-                await _gateway.StopAsync();
+                await Bounded(_gateway.StopAsync(), "the hosted host's StopAsync");
         }
         finally
         {
@@ -148,13 +150,40 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
         Holdings = holdings.ToList(),
     };
 
-    private async Task<HttpStatusCode> Healthz() => (await _http.GetAsync("healthz")).StatusCode;
+    private async Task<HttpStatusCode> Healthz(string when)
+        => (await Bounded(_http.GetAsync("healthz"), $"GET /healthz {when}")).StatusCode;
+
+    /// <summary>
+    /// The longest any one step may take before the test calls it hung: an UPPER BOUND, never what decides a normal
+    /// pass (the recorded runs take 1 to 3 seconds for the whole test). A hang is exactly what was suspected of step 1
+    /// in production - a Gateway that stopped answering - so a step that never returns must FAIL, naming itself, rather
+    /// than stall the run with no verdict (the review of pull request 4525, finding F1).
+    /// </summary>
+    private static readonly TimeSpan HungAfter = TimeSpan.FromMinutes(2);
+
+    private static async Task Bounded(Task step, string name)
+    {
+        try
+        {
+            await step.WaitAsync(HungAfter);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"{name} did not finish within {HungAfter.TotalMinutes:0} minutes: it hung.");
+        }
+    }
+
+    private static async Task<T> Bounded<T>(Task<T> step, string name)
+    {
+        await Bounded((Task)step, name);
+        return await step;
+    }
 
     [RequiresPostgresFact]
     public async Task AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure()
     {
         var gateway = _gateway!;
-        Assert.Equal(HttpStatusCode.OK, await Healthz());
+        Assert.Equal(HttpStatusCode.OK, await Healthz("before the check"));
 
         // One account, with two Directors whose stream connections are registered, so the tenant is in the host's
         // per-tenant pass and its machines count as connected - the shape of a real account on the hosted Gateway.
@@ -165,7 +194,7 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
         gateway.LicenseStore.ApplyReport(tenant, "dir-machine-b", 2, Report(MachineB, Holding(B, true, 2)), Now, TimeSpan.Zero);
 
         using var log = new CapturedLog();
-        await gateway.RunLicenseSwitchCheckAsync();
+        await Bounded(gateway.RunLicenseSwitchCheckAsync(), "the first license minute check (RunLicenseSwitchCheckAsync)");
 
         var first = log.Lines();
         Assert.DoesNotContain(first, l => l.Contains("[License", StringComparison.Ordinal) && l.Contains("FAILED", StringComparison.Ordinal));
@@ -178,13 +207,13 @@ public sealed class LicenseHostStartPostgresTests : IAsyncLifetime
         // answers this, so a host that quietly kept its data anywhere else fails here.
         Assert.Equal(1L, OpenStrandedRowsInPostgres(tenant));
 
-        await gateway.RunLicenseSwitchCheckAsync();
+        await Bounded(gateway.RunLicenseSwitchCheckAsync(), "the second license minute check (RunLicenseSwitchCheckAsync)");
 
         Assert.DoesNotContain(log.Lines(), l => l.Contains("FAILED", StringComparison.Ordinal)
                                                 && (l.Contains("[License", StringComparison.Ordinal) || l.Contains("[GatewayHost] license", StringComparison.Ordinal)));
         Assert.Equal(alarm.Id, Assert.Single(gateway.LicenseAlarms.ListOpen(tenant), a => a.Kind == LicenseStrandedAlarm.Kind.Key).Id);
         Assert.Single(_emails);
-        Assert.Equal(HttpStatusCode.OK, await Healthz());
+        Assert.Equal(HttpStatusCode.OK, await Healthz("after both checks"));
     }
 
     private long OpenStrandedRowsInPostgres(TenantId tenant)
