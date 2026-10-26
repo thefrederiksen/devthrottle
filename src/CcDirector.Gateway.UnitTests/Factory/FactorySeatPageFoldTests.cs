@@ -97,7 +97,7 @@ public sealed class FactorySeatPageFoldTests
 
         Assert.Equal("Goal", page.Goal.Heading);
         Assert.Equal("Cut the propane bill by a third this season.", page.Goal.Text);
-        Assert.Equal("No number posted yet", page.GoalNumber.EmptyText);
+        Assert.Equal("Not measured", page.GoalNumber.EmptyText);
         Assert.Equal("3 notes in the factory's memory. Memory belongs to the whole factory, not to one seat.", page.LeftBehind.MemoryText);
         Assert.Equal("/factories/warmforward/memory", page.LeftBehind.MemoryHref);
     }

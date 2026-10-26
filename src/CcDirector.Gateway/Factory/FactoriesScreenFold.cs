@@ -375,7 +375,7 @@ public static class FactoriesScreenFold
     internal static FactoryGoalNumberCardDto GoalNumberCard(GoalNumberDto? n, RegisteredFactoryDto f, TimeZoneInfo zone, DateTime now)
     {
         if (n is null)
-            return new FactoryGoalNumberCardDto { Heading = "Goal number", EmptyText = "No number posted yet" };
+            return new FactoryGoalNumberCardDto { Heading = "Goal number", EmptyText = "Not measured" };
         var asOf = DateOnly.TryParseExact(n.AsOf, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
             ? d.ToString("d MMM yyyy", CultureInfo.InvariantCulture)
             : n.AsOf;

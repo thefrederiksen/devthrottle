@@ -419,7 +419,7 @@ public sealed class FactoryGoalNumberCardDto
     public string? LinkHref { get; set; }
     public string? LinkLabel { get; set; }
 
-    /// <summary>"No number posted yet" when none, else null.</summary>
+    /// <summary>"Not measured" when no number was ever posted, else null. Never a 0 in its place.</summary>
     public string? EmptyText { get; set; }
 }
 

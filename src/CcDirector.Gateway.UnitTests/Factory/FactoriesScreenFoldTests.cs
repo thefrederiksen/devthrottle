@@ -553,9 +553,20 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("https://example.com/how", card.LinkHref);
         Assert.Equal("How it is measured", card.LinkLabel);
 
+        Assert.Null(card.EmptyText);
+    }
+
+    [Fact]
+    public void Page_GoalNumber_NonePosted_SaysNotMeasured_AndNeverShowsAZero()
+    {
         var none = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() })).GoalNumber;
-        Assert.Equal("No number posted yet", none.EmptyText);
+
+        Assert.Equal("Goal number", none.Heading);
+        Assert.Equal("Not measured", none.EmptyText);
         Assert.Null(none.ValueText);
+        Assert.Null(none.AsOfText);
+        Assert.Null(none.LinkHref);
+        Assert.Null(none.LinkLabel);
     }
 
     [Fact]
