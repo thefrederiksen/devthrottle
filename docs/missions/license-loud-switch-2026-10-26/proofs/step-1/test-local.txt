@@ -1,0 +1,113 @@
+Building once, then running 12 test project(s)...
+<worktree>\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [<worktree>\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+
+Build succeeded.
+
+<worktree>\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [<worktree>\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:25.36
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:09.39
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:07.57
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:08.84
+  parked CcDirector.Gateway.UnitTests: 30 class(es) this change can reach - runs after the default suites
+  started CcDirector.Core.UnitTests
+  started CcDirector.Avalonia.Tests
+  started CcDirector.Engine.Tests
+  started CcDirector.HostedAgent.Tests
+  started CcDirector.Launcher.Tests
+  started CcDirector.Terminal.Avalonia.Tests
+  started CcDirector.Reclaim.Tests
+  started CcDirector.DeliveryQualification.Tests
+  started CcDirector.RuleHook.Tests
+  started cc-director-setup.Tests
+  started cc-director-setup-engine.Tests
+  started cc-director-setup-cli.Tests
+
+Waiting.
+
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  2756, Skipped:     0, Total:  2756, Duration: 35 
+s - CcDirector.Core.UnitTests.dll (net10.0)
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:  1209, Skipped:     0, Total:  1209, Duration: 1 
+m - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 10 s 
+- CcDirector.Engine.Tests.dll (net10.0)
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 
+28 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   234, Skipped:     0, Total:   234, Duration: 35 
+s - CcDirector.Launcher.Tests.dll (net10.0)
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:   111, Skipped:     0, Total:   111, 
+Duration: 25 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 15 
+s - CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  CcDirector.DeliveryQualification.Tests  Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, 
+Duration: 8 s - CcDirector.DeliveryQualification.Tests.dll (net10.0)
+  PASS  CcDirector.RuleHook.Tests  Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 10 
+s - CcDirector.RuleHook.Tests.dll (net10.0)
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    43, Skipped:     0, Total:    43, Duration: 8 s 
+- CcDirectorSetup.Tests.dll (net10.0)
+  FAIL  cc-director-setup-engine.Tests  Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, 
+Duration: 14 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    75, Skipped:     0, Total:    75, Duration: 
+8 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+  started CcDirector.Gateway.UnitTests (30 affected class(es))
+  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed:   665, Skipped:     0, Total:   665, Duration: 
+1 m 11 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  commit 8ef7c9b5faf021375389d94556558540fbf8195b  tree clean  parked=False configuration=Debug suite 
+filter=Gate!=Quarantine
+  CcDirector.Core.UnitTests                outcome=Completed    total=2756   executed=2756
+  CcDirector.Avalonia.Tests                outcome=Completed    total=1209   executed=1209
+  CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
+  CcDirector.Launcher.Tests                outcome=Completed    total=234    executed=234
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=111    executed=111
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=307    executed=307
+  CcDirector.DeliveryQualification.Tests   outcome=Completed    total=151    executed=151
+  CcDirector.RuleHook.Tests                outcome=Completed    total=70     executed=70
+  cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
+  cc-director-setup-engine.Tests           outcome=Failed       total=1014   executed=1008
+  cc-director-setup-cli.Tests              outcome=Completed    total=75     executed=75
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=665    executed=665
+
+Run folder: <temp>\cc-test-local-5135d682 (kept after a red run; deleted after a green one 
+unless -KeepRun)
+
+Parked suite CcDirector.Gateway.UnitTests ran the tests this change can reach (see its line in the TRX verdict).
+
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Gateway.Tests
+
+Run '.\scripts\test-local.ps1 -Parked' before merging, or say in the pull request why not.
+(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
+RESULT: FAILED in 1 project(s):
+  cc-director-setup-engine.Tests -> 
+<temp>\cc-test-local-5135d682\cc-director-setup-engine.Tests.log
+      Test run for <worktree>\tools\cc-director-setup-engine.Tests\bin\Debug\net1
+0.0\CcDirector.Setup.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+      A total of 1 test files matched the specified pattern.
+      Results File: <temp>\cc-test-local-5135d682\cc-director-setup-engine.Tests.trx
+      
+      Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, Duration: 14 s - 
+CcDirector.Setup.Engine.Tests.dll (net10.0)
+
+Logs kept in <temp>\cc-test-local-5135d682
+Temporary folders deleted: the test processes had left 2.1 MB in them.
+Run folder kept: <temp>\cc-test-local-5135d682
