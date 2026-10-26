@@ -33,7 +33,8 @@ public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyLis
 /// policy folder named by <c>CLAUDE_CODE_MANAGED_SETTINGS_PATH</c> (which this build does not read). The only launch
 /// that ran the command was one that did not load the file. That holds for the user's own
 /// <c>~/.claude/settings.json</c> as much as for the folder's (review 2, finding 1), and the Director itself writes ask
-/// rules there (<see cref="Agents.DenyRulesBecomeAsk"/>), so the run loads none: <c>--setting-sources ""</c>.
+/// rules there (<see cref="Agents.DenyRulesBecomeAsk"/>), so the run loads none: <c>--setting-sources=</c>, an empty
+/// list written with no quotes so it reaches Claude Code the same way on every platform.
 ///
 /// WHAT THE RUN IS GIVEN BACK. Not loading a source also loses what else it brings, so each is handed back by a flag
 /// Claude Code reads without loading a settings file:
@@ -46,7 +47,7 @@ public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyLis
 /// or a <c>.claude/rules</c> folder, and the folder holding the user's own <c>.claude</c>, with
 /// <see cref="InstructionsEnvVar"/> set, which is what makes Claude Code read the instructions of an added folder;</item>
 /// <item><c>--plugin-dir</c> for the user's <c>.claude</c> and every <c>.claude</c> from the working folder up that holds
-/// skills, commands or agents, so they are in the run's skill list (named <c>&lt;folder&gt;:&lt;skill&gt;</c>; a bare
+/// skills, commands, agents or output styles (a custom <c>outputStyle</c> is then named by its plugin), so they are in the run's skill list (named <c>&lt;folder&gt;:&lt;skill&gt;</c>; a bare
 /// <c>/skill</c> still runs them) - <c>--add-dir</c> alone does not list them (review 2, finding 2);</item>
 /// <item><c>--mcp-config</c> with the servers Claude Code would have started: the user's, every <c>.mcp.json</c> from the
 /// working folder up but those the settings disable, and the folder's own from <c>~/.claude.json</c>.</item>
@@ -127,6 +128,9 @@ public static class ScheduledFactoryRunSettings
         var folders = FoldersUp(workingDirectory);
         var state = Read(stateFile);
         var servers = McpServers(folders, merged, state);
+        var instructions = InstructionFolders(workingDirectory, userFolder);
+        var skills = SkillFolders(workingDirectory, userFolder);
+        NameTheOutputStyleByItsPlugin(merged, skills, userFolder);
 
         var target = SettingsPathFor(sessionId, hooksDirectory);
         SessionHookFiles.WriteAtomic(target, merged.ToJsonString(Indented) + "\n");
@@ -136,15 +140,13 @@ public static class ScheduledFactoryRunSettings
             mcpConfig = McpConfigPathFor(sessionId, hooksDirectory);
             SessionHookFiles.WriteAtomic(mcpConfig, new JsonObject { ["mcpServers"] = servers }.ToJsonString(Indented) + "\n");
         }
-        var instructions = InstructionFolders(workingDirectory, userFolder);
-        var skills = SkillFolders(workingDirectory, userFolder);
         FileLog.Write($"[ScheduledFactoryRunSettings] Compose: session={sessionId}, settings={target}, instructions={instructions.Count}, " +
                       $"skills={skills.Count}, servers={servers.Count}, setAside={setAside.Count}");
         return new ScheduledFactoryRunLaunch(target, instructions, skills, mcpConfig, setAside);
     }
 
     /// <summary>
-    /// The Claude Code launch line of a scheduled factory run: <paramref name="args"/>, then <c>--setting-sources ""</c>,
+    /// The Claude Code launch line of a scheduled factory run: <paramref name="args"/>, then <c>--setting-sources=</c>,
     /// an <c>--add-dir</c> per instruction folder, the run's one <c>--settings</c>, a <c>--plugin-dir</c> per skill folder
     /// and one more when a seat has factory skills, and <c>--mcp-config</c> when the run has servers. Every folder flag is
     /// followed by another flag, so none takes a word meant for something else.
@@ -152,7 +154,9 @@ public static class ScheduledFactoryRunSettings
     public static string ClaudeArguments(string args, ScheduledFactoryRunLaunch launch, string? pluginDirectory)
     {
         ArgumentNullException.ThrowIfNull(launch);
-        var line = $"{args} --setting-sources \"\"".Trim();
+        // "=" with nothing after it: an empty source list with no quote characters, so every way the Director starts a
+        // process - CreateProcessW, a cmd /s /c shim, the Unix splitter - hands Claude Code the same word.
+        var line = $"{args} --setting-sources=".Trim();
         foreach (var folder in launch.InstructionFolders)
             line += $" --add-dir \"{folder}\"";
         line += $" --settings \"{launch.SettingsPath}\"";
@@ -174,7 +178,7 @@ public static class ScheduledFactoryRunSettings
             : $"{launch.RulesSetAside.Count} ask or deny rule(s) set aside: {string.Join("; ", launch.RulesSetAside)}";
         var skills = launch.SkillFolders.Count == 0 ? "none" : string.Join(", ", launch.SkillFolders);
         return "SCHEDULED FACTORY RUN: started without any settings file's ask and deny rules, so nothing waits on a person " +
-               $"(--setting-sources \"\", the other settings in --settings \"{launch.SettingsPath}\", " +
+               $"(--setting-sources=, the other settings in --settings \"{launch.SettingsPath}\", " +
                $"instructions from {string.Join(", ", launch.InstructionFolders)}, skills from {skills}, " +
                $"servers from {launch.McpConfigPath ?? "nowhere"}); {rules}.";
     }
@@ -222,7 +226,8 @@ public static class ScheduledFactoryRunSettings
 
     /// <summary>
     /// The user's configuration folder, then every <c>.claude</c> folder from the working folder up, never a drive's
-    /// root's, that holds a <c>skills</c>, <c>commands</c> or <c>agents</c> folder. Claude Code loads each as a plugin.
+    /// root's, that holds a <c>skills</c>, <c>commands</c>, <c>agents</c> or <c>output-styles</c> folder. Claude Code
+    /// loads each as a plugin.
     /// </summary>
     internal static List<string> SkillFolders(string workingDirectory, string userFolder)
     {
@@ -236,6 +241,47 @@ public static class ScheduledFactoryRunSettings
                 folders.Add(claude);
         }
         return folders;
+    }
+
+    /// <summary>
+    /// A custom output style lives in an <c>output-styles</c> folder that Claude Code reads only from the settings
+    /// sources it loaded, so under the empty source list <c>"outputStyle": "x"</c> finds nothing and the run silently
+    /// gets the default style (review 2b). The same folder, loaded as a plugin, offers the style as
+    /// <c>&lt;folder name&gt;:x</c>, and that name was proven to apply it. So when a loaded folder holds the style - the
+    /// nearest folder first, then the user's, as Claude Code looks - the run's settings name it that way. A built-in
+    /// style (no file anywhere) is left as it is.
+    /// </summary>
+    private static void NameTheOutputStyleByItsPlugin(JsonObject settings, List<string> skillFolders, string userFolder)
+    {
+        if (settings["outputStyle"] is not JsonValue value || !value.TryGetValue<string>(out var style) || string.IsNullOrWhiteSpace(style))
+            return;
+        var user = Trim(Path.GetFullPath(userFolder));
+        var order = skillFolders.Where(f => !string.Equals(f, user, PathComparison)).Concat(skillFolders.Where(f => string.Equals(f, user, PathComparison)));
+        foreach (var folder in order)
+        {
+            if (!HoldsOutputStyle(Path.Combine(folder, "output-styles"), style)) continue;
+            var named = $"{Path.GetFileName(folder)}:{style}";
+            settings["outputStyle"] = named;
+            FileLog.Write($"[ScheduledFactoryRunSettings] NameTheOutputStyleByItsPlugin: {style} -> {named} ({folder})");
+            return;
+        }
+    }
+
+    // A style file is named by its front matter's "name:", or by its file name when it has none.
+    private static bool HoldsOutputStyle(string stylesFolder, string style)
+    {
+        if (!Directory.Exists(stylesFolder)) return false;
+        foreach (var file in Directory.EnumerateFiles(stylesFolder, "*.md"))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var lines = File.ReadLines(file).Take(20).ToList();
+            if (lines.Count > 0 && lines[0].Trim() == "---")
+                foreach (var line in lines.Skip(1).TakeWhile(l => l.Trim() != "---"))
+                    if (line.StartsWith("name:", StringComparison.Ordinal))
+                        name = line["name:".Length..].Trim().Trim('"', '\'');
+            if (string.Equals(name, style, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -305,7 +351,8 @@ public static class ScheduledFactoryRunSettings
     private static bool HoldsSkills(string claudeFolder)
         => Directory.Exists(Path.Combine(claudeFolder, "skills"))
            || Directory.Exists(Path.Combine(claudeFolder, "commands"))
-           || Directory.Exists(Path.Combine(claudeFolder, "agents"));
+           || Directory.Exists(Path.Combine(claudeFolder, "agents"))
+           || Directory.Exists(Path.Combine(claudeFolder, "output-styles"));
 
     /// <summary>The file as Claude Code reads it - comments and trailing commas allowed - or null when it is missing.
     /// Opened for reading only, beside a Claude Code that may be rewriting it.</summary>

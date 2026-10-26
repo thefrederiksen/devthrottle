@@ -33,7 +33,7 @@ Today, for every Claude Code session:
 
 For a scheduled factory run (`ScheduledFactoryRunSettings`, called from `SessionManager.CreateSession`):
 
-    <args> --setting-sources ""
+    <args> --setting-sources=
            --add-dir "<working folder>" [--add-dir "<each folder above it with instructions>"] [--add-dir "<the folder holding the user's .claude>"]
            --settings "<claude-hooks>/scheduled-factory-runs/<session id>.json"
            [--plugin-dir "<the user's .claude>"] [--plugin-dir "<each .claude from the working folder up with skills, commands or agents>"]
@@ -44,10 +44,11 @@ with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the run's environment.
 | What a settings source brought | How the run gets it back |
 |---|---|
 | Ask and deny rules, from the user's file, the folder's file and its local file | Not at all. That is the point. |
-| Everything else in those three files, and the Director's own settings (hooks, a seat's kit) | The run's own `--settings` file: the four merged in Claude Code's order, ask and deny removed, nothing else changed. Hooks, environment, model, allow rules, default mode and enabled plugins stay. |
+| Everything else in those three files, and the Director's own settings (hooks, a seat's kit) | The run's own `--settings` file: the four merged in Claude Code's order, ask and deny removed, nothing else changed. Hooks, environment, model, allow rules, default mode and enabled plugins stay; a custom output style is renamed (below). |
 | CLAUDE.md and `.claude/rules` of the working folder and the folders above it | `--add-dir` for each, with the environment variable set. |
 | The user's own `~/.claude/CLAUDE.md` and `~/.claude/rules` | `--add-dir` for the folder that holds `~/.claude` (Claude Code reads an added folder's `.claude/CLAUDE.md` and `.claude/rules`). |
-| Skills, commands and agents in `~/.claude` and in every `.claude` from the working folder up | `--plugin-dir` for each such `.claude` folder. They are listed as `<folder name>:<skill>` (for example `.claude:website-ceo`); a bare `/website-ceo` still runs. |
+| Skills, commands, agents and output styles in `~/.claude` and in every `.claude` from the working folder up | `--plugin-dir` for each such `.claude` folder. Skills are listed as `<folder name>:<skill>` (for example `.claude:website-ceo`); a bare `/website-ceo` still runs. |
+| A custom `outputStyle` (review 2b) | Its file is found only through a loaded source, so under the empty list the style was silently dropped. The same file, loaded as a plugin, is offered as `<folder name>:<style>`, so the run's settings name it that way: the nearest folder holding the style first, then the user's. A built-in style is left as it is. |
 | Servers: the user's (`.claude.json`), every `.mcp.json` from the working folder up, the folder's own in `.claude.json` | One `--mcp-config` file holding them, nearest winning a name, less those a settings file or `.claude.json` names in `disabledMcpjsonServers`. |
 
 - The launch log says what was set aside, file by file and rule by rule, and where instructions, skills and servers
@@ -95,6 +96,10 @@ The test folder (seat outside the home, as on the Windows machines where seats l
     nest/seat/.claude/skills/seat-probe/   a skill
     nest/seat/.claude/settings.json        {"env": {"PROBE_ENV": "ENVOK"}} plus the case's rules
 
+Every `new` line uses `--setting-sources=`, the form that ships. The empty list was first written `--setting-sources ""`
+(also proved: the same transcripts at commit 1115ad292); `=` with nothing after it means the same to
+Claude Code and has no quote characters, see "What is platform specific".
+
 `ordinary` is today's line (`--dangerously-skip-permissions --model haiku --settings <Director hooks file>`), `branch`
 is the line this pull request first proposed (`--setting-sources user` plus `--add-dir`), `new` is this change.
 
@@ -115,6 +120,8 @@ What each launch knows (13-15), asked without reading any file:
 | servers | parentmcp, usermcp | **usermcp only** | parentmcp, usermcp |
 | skills | user-probe, seat-probe, review-probe | **user-probe only** (finding 2) | `.claude:user-probe`, `.claude:seat-probe`, `.claude:review-probe` |
 | typing `/review-probe` (16-17) | ran the skill | | ran the skill |
+| a custom output style in the user's folder (18-19) | applied (GANNET2) | | applied (GANNET2); before the review 2b fix: NOSTYLE (22) |
+| the same style also in the seat folder, which wins (20-21) | applied the folder's (PUFFIN8) | | applied the folder's (PUFFIN8) |
 
 The folder's `env` value (ENVOK) reached the command in `new`, and the Director's hooks (UserPromptSubmit, PreToolUse,
 PostToolUse, Stop) ran. The `branch` knowledge run was given the Director's hooks file rather than its own composed
@@ -149,9 +156,10 @@ measured in round 2:
 | Launch | Lost |
 |---|---|
 | `--setting-sources user` (the first proposal) | user ask rules still load (finding 1); folder and parent skills not listed (finding 2); `.mcp.json` servers |
-| `--setting-sources ""` alone | everything a source brings: every CLAUDE.md, the user's skills, every server |
+| `--setting-sources=` (or `""`) alone | everything a source brings: every CLAUDE.md, the user's skills, every server |
 | plus `--add-dir` for each folder and the environment variable | folder CLAUDE.md and rules back; the user's CLAUDE.md back when the folder holding `.claude` is added; skills and servers still lost |
-| plus `--plugin-dir` for each `.claude` with skills | skills back, named `<folder>:<skill>`; bare `/skill` works |
+| plus `--plugin-dir` for each `.claude` with skills | skills back, named `<folder>:<skill>`; bare `/skill` works; a custom output style still lost under its plain name |
+| plus the style named `<folder>:<style>` in the run's settings | output style back |
 | plus `--mcp-config` | servers back |
 
 A `--plugin-dir` pointed at a `.claude` folder does not bring that folder's settings back: with user ask, folder ask,
@@ -173,10 +181,14 @@ Transcripts: `scheduled-factory-run-never-prompts/PROOF-1-without-change.txt` an
 The mechanism is the same on Windows, Linux and macOS: every flag is Claude Code's own and takes the same values. The
 round 2 runs were on Linux; round 1 was on Windows, where the factory seats run. What differs, and is handled:
 
-- **The empty argument.** `--setting-sources ""` must reach Claude Code as an empty word. On Linux and macOS the
-  Director splits the line itself (`UnixProcessHost.TokenizeArgs`), and a unit test proves the result is an empty
-  argument. On Windows the line is passed to the process as it is, where `""` is an empty argument by the standard
-  command-line rules; this was not run on Windows in round 2.
+- **The empty source list.** It is written `--setting-sources=`: one word, no quote characters. On Windows
+  `ProcessHost` hands `CreateProcessW` the line unchanged, and a `.cmd` shim is wrapped as `cmd /s /c ""<shim>" <args>"`
+  (`CommandLineLauncher.Build`); on Linux and macOS the Director splits the line itself
+  (`UnixProcessHost.TokenizeArgs`, unit-tested to give `--setting-sources=` as one word). A word with no quotes and no
+  spaces comes through all three unchanged, so nothing about the empty value depends on any platform's quoting rules.
+  Claude Code was proved to read `--setting-sources=` as an empty list on Linux (user and folder ask rules both present,
+  ran with no prompt). It was not run on Windows; the first Windows scheduled factory run should show the
+  "SCHEDULED FACTORY RUN" line in its launch log and start without an error about `--setting-sources`.
 - **Folder keys in `.claude.json`.** Claude Code files a folder's own servers under its path; on Windows with forward
   slashes. The match turns back slashes into forward ones on both sides and ignores case on Windows.
 - **Locations.** The user's folder is `CLAUDE_CONFIG_DIR` when set, else `<home>/.claude`; `.claude.json` is in the
@@ -186,7 +198,7 @@ round 2 runs were on Linux; round 1 was on Windows, where the factory seats run.
 
 ## Unit tests
 
-`src/CcDirector.Core.UnitTests/Claude/ScheduledFactoryRunSettingsTests.cs`, 29 tests:
+`src/CcDirector.Core.UnitTests/Claude/ScheduledFactoryRunSettingsTests.cs`, 32 tests:
 
 - which session is one: only origin `schedule` with a factory; `human`, `agent`, `unknown`, none, and a schedule
   with no factory are not;
@@ -199,15 +211,16 @@ round 2 runs were on Linux; round 1 was on Windows, where the factory seats run.
 - the instruction folders: the working folder, each folder above it with instructions (not one holding only skills),
   the folder holding the user's `.claude`; the skill folders: the user's, then each `.claude` with skills, commands or
   agents, the user's loaded once;
-- the launch line's exact shape, and that on Linux and macOS the empty source list reaches Claude Code as an empty
-  argument;
-- through the real create on the Studio backend: a scheduled factory run gets `--setting-sources ""`, one
+- a custom output style named by the plugin that loads it, the folder's before the user's, a built-in one left alone;
+- the launch line's exact shape, and that on Linux and macOS the empty source list reaches Claude Code as one word;
+- through the real create on the Studio backend: a scheduled factory run gets `--setting-sources=`, one
   `--settings` (its own file, holding the Director's hooks and no ask or deny), `--add-dir`, `--mcp-config`, and the
   environment variable, and both its files are deleted when the session is removed; a session a person opens, a
   session an agent opens, and a schedule that is not a factory's get today's line with the shared hooks file and none
   of it.
 
-Revert check: with the user's file left out of the merge, exactly the two tests about the user's settings fail.
+Revert checks: with the user's file left out of the merge, exactly the two tests about the user's settings fail; with
+the output style left unrenamed, exactly the two custom-style tests fail.
 
 ## Other agents, and what this does not cover
 

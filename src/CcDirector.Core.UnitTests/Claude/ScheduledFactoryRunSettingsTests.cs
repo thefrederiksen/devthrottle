@@ -203,6 +203,53 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
         Assert.Equal(new[] { "moved" }, servers.Select(p => p.Key));
     }
 
+    // ---------- a custom output style (review 2b) ----------
+
+    private static void Style(string claudeFolder, string file, string? frontMatterName)
+    {
+        Directory.CreateDirectory(Path.Combine(claudeFolder, "output-styles"));
+        var head = frontMatterName is null ? "" : $"---\nname: {frontMatterName}\ndescription: d\n---\n";
+        File.WriteAllText(Path.Combine(claudeFolder, "output-styles", file), head + "Be brief.\n");
+    }
+
+    [Fact]
+    public void Compose_AUsersCustomOutputStyle_IsNamedByThePluginThatLoadsIt()
+    {
+        var user = UserFolder("{\"outputStyle\": \"probe-style\"}");
+        Style(user, "probe.md", "probe-style");
+        var folder = Folder(settings: null);
+
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        Assert.Equal(".claude:probe-style", ReadJson(launch.SettingsPath)["outputStyle"]!.GetValue<string>());
+        Assert.Contains(user, launch.SkillFolders);
+    }
+
+    [Fact]
+    public void Compose_AStyleInTheFolderAndTheUsers_TheFoldersWins()
+    {
+        var user = UserFolder("{\"outputStyle\": \"house\"}");
+        Style(user, "house.md", null);
+        var folder = Folder(settings: null);
+        var folderClaude = Path.Combine(folder, ".claude");
+        Style(folderClaude, "house.md", null);
+
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        Assert.Equal(".claude:house", ReadJson(launch.SettingsPath)["outputStyle"]!.GetValue<string>());
+        Assert.Contains(folderClaude, launch.SkillFolders);
+    }
+
+    [Fact]
+    public void Compose_ABuiltInOutputStyle_IsLeftAsItIs()
+    {
+        UserFolder("{\"outputStyle\": \"Explanatory\"}");
+
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), Folder(settings: null), null, HooksDirectory, Home, NoEnvironment);
+
+        Assert.Equal("Explanatory", ReadJson(launch.SettingsPath)["outputStyle"]!.GetValue<string>());
+    }
+
     // ---------- the servers it is given ----------
 
     [Fact]
@@ -340,7 +387,7 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
 
         var line = ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, @"C:\kit\claude-plugin");
 
-        Assert.Equal("--dangerously-skip-permissions --setting-sources \"\" --add-dir \"D:\\repo\\seat\" --add-dir \"D:\\repo\" " +
+        Assert.Equal("--dangerously-skip-permissions --setting-sources= --add-dir \"D:\\repo\\seat\" --add-dir \"D:\\repo\" " +
                      "--add-dir \"C:\\Users\\owner\" --settings \"C:\\hooks\\run.json\" --plugin-dir \"C:\\Users\\owner\\.claude\" " +
                      "--plugin-dir \"D:\\repo\\.claude\" --plugin-dir \"C:\\kit\\claude-plugin\" --mcp-config \"C:\\hooks\\run.mcp.json\"", line);
     }
@@ -352,17 +399,17 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
 
         var line = ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, null);
 
-        Assert.Equal("--dangerously-skip-permissions --setting-sources \"\" --add-dir \"/repo/seat\" --settings \"/hooks/run.json\"", line);
+        Assert.Equal("--dangerously-skip-permissions --setting-sources= --add-dir \"/repo/seat\" --settings \"/hooks/run.json\"", line);
     }
 
     [Fact]
-    public void ClaudeArguments_OnLinuxAndMacOS_TheEmptySourceListReachesClaudeCodeAsAnEmptyArgument()
+    public void ClaudeArguments_OnLinuxAndMacOS_TheEmptySourceListReachesClaudeCodeAsOneWord()
     {
         var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null, Array.Empty<string>());
 
         var argv = UnixProcessHost.TokenizeArgs(ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, null));
 
-        Assert.Equal(new[] { "--dangerously-skip-permissions", "--setting-sources", "", "--add-dir", "/repo/seat", "--settings", "/hooks/run.json" }, argv);
+        Assert.Equal(new[] { "--dangerously-skip-permissions", "--setting-sources=", "--add-dir", "/repo/seat", "--settings", "/hooks/run.json" }, argv);
     }
 
     // ---------- through the real create ----------
@@ -410,7 +457,7 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
 
         var arguments = Backend(session).StartedArguments;
         var own = ScheduledFactoryRunSettings.SettingsPathFor(session.Id, HooksDirectory);
-        Assert.Contains("--setting-sources \"\"", arguments);
+        Assert.Contains("--setting-sources=", arguments);
         Assert.Contains($"--add-dir \"{folder}\"", arguments);
         Assert.Contains($"--settings \"{own}\"", arguments);
         Assert.Equal(1, arguments.Split("--settings ").Length - 1);
