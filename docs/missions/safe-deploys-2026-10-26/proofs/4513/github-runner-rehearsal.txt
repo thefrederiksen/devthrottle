@@ -1,0 +1,25 @@
+A good image passes the boot proof	2026-10-26T22:26:18.9958694Z Boot proof: image rehearsal/gateway:good, expected commit b100654, bounded wait 180s.
+A good image passes the boot proof	2026-10-26T22:26:26.8696611Z Throwaway PostgreSQL is accepting connections.
+A good image passes the boot proof	2026-10-26T22:26:27.0699323Z Polling http://127.0.0.1:32768/healthz
+A good image passes the boot proof	2026-10-26T22:26:27.1034438Z   0s: not yet - HTTP 000
+A good image passes the boot proof	2026-10-26T22:26:30.6118902Z   3s: not yet - HTTP 503
+A good image passes the boot proof	2026-10-26T22:26:33.6524331Z   6s: not yet - HTTP 503
+A good image passes the boot proof	2026-10-26T22:26:36.6931721Z   9s: pass 1 of 3 - HTTP 200, commit b100654, status ok
+A good image passes the boot proof	2026-10-26T22:26:39.7315719Z   12s: pass 2 of 3 - HTTP 200, commit b100654, status ok
+A good image passes the boot proof	2026-10-26T22:26:42.7703094Z   15s: pass 3 of 3 - HTTP 200, commit b100654, status ok
+A good image passes the boot proof	2026-10-26T22:26:42.7716388Z BOOT PROOF PASSED: rehearsal/gateway:good served 3 consecutive healthy /healthz answers on commit b100654, 3s apart, 15s after it started.
+A good image passes the boot proof	2026-10-26T22:26:42.7717937Z ----- the last lines the Gateway printed -----
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:43.0948480Z ^[[36;1mecho "REHEARSAL: the broken image failed the boot proof (exit 1), as it must."^[[0m
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:44.0311216Z Boot proof: image rehearsal/gateway:broken, expected commit b100654, bounded wait 180s.
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:45.3909825Z Throwaway PostgreSQL is accepting connections.
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:45.5639666Z Polling http://127.0.0.1:32769/healthz
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:45.5967419Z   0s: not yet - HTTP 000
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6155296Z BOOT PROOF FAILED: the Gateway container exited after 3s instead of serving.
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6156050Z ----- the Gateway container's state -----
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6271885Z running=false exit=139 oom=false error=
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6284271Z ----- the Gateway container's stdout and stderr -----
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6406537Z Unhandled exception. System.IO.FileNotFoundException: Could not load file or assembly 'CcDirector.Gateway, Version=2.31.1.0, Culture=neutral, PublicKeyToken=null'. The system cannot find the file specified.
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6408512Z File name: 'CcDirector.Gateway, Version=2.31.1.0, Culture=neutral, PublicKeyToken=null'
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6409315Z    at Program.<Main>$(String[] args)
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.6419196Z ----- end of the Gateway container's output -----
+A deliberately broken image fails the boot proof and prints its output	2026-10-26T22:26:48.8317693Z REHEARSAL: the broken image failed the boot proof (exit 1), as it must.

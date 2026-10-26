@@ -413,6 +413,20 @@ jobs:
             echo "$dll refused to start without the hosted contract (exit 2)."
           done
 
+      # THE IMAGE BOOTS, PROVED BEFORE PRODUCTION IS TOUCHED (issue #4513). The step above proves the image
+      # refuses to start WITHOUT the hosted contract; nothing proved it starts WITH it, so production asked
+      # first - on 2026-10-26 commit 86b37ace5 was pinned and never answered HTTP (#4516). This boots the exact
+      # digest about to be deployed with the contract satisfied (hosted mode on, auth left on, an https public
+      # URL, and a throwaway PostgreSQL) and requires three consecutive HTTP 200s on /healthz, three seconds
+      # apart, each carrying this run's commit, inside a bounded wait. Anything less fails here, prints the
+      # container's own stdout and stderr, and the deploy stops with production untouched. The logic lives in
+      # the script so the very same check can be run on any machine against any image.
+      - name: Prove the built image boots and serves before production is touched
+        env:
+          IMAGE: ${{ env.ACR }}.azurecr.io/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+          BOOT_NAME_SUFFIX: ${{ github.run_id }}
+        run: bash scripts/prove-image-boots.sh "$IMAGE" "${{ steps.short.outputs.short }}"
+
       # REFUSE TO DEPLOY ONTO A PRODUCTION SITE THAT IS ALREADY DOWN (issue #4515). On 2026-10-26 the 20:41
       # deploy pinned a second image onto a production site the 20:38 deploy had already left dead, then
       # polled it for 600 seconds; its outgoing commit read "unknown" and its outgoing image was the broken

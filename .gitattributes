@@ -22,3 +22,8 @@ src/CcDirector.Gateway/MailDesk/Template/** text eol=lf
 # pinned with them, because a test holds the two equal byte for byte.
 src/CcDirector.Gateway/MailDesk/Prompts/*.txt text eol=lf
 docs/qa/mail-desk/phase-0/c-model/prompts/*.txt text eol=lf
+
+# Shell scripts run under bash on Linux runners and in Linux containers, where a carriage return at the end of a line
+# is part of the command. A Windows checkout that converted them would break the script, and the guard tests that read
+# them. Pin them.
+*.sh text eol=lf

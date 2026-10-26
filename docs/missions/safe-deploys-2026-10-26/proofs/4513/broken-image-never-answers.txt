@@ -1,0 +1,68 @@
+Boot proof: image bootgate-broken:hang, expected commit 86b37ace5, bounded wait 180s.
+Throwaway PostgreSQL is accepting connections.
+Polling http://127.0.0.1:32771/healthz
+  0s: not yet - HTTP 000
+  3s: not yet - HTTP 000
+  6s: not yet - HTTP 000
+  9s: not yet - HTTP 000
+  12s: not yet - HTTP 000
+  15s: not yet - HTTP 000
+  18s: not yet - HTTP 000
+  21s: not yet - HTTP 000
+  24s: not yet - HTTP 000
+  28s: not yet - HTTP 000
+  31s: not yet - HTTP 000
+  34s: not yet - HTTP 000
+  37s: not yet - HTTP 000
+  40s: not yet - HTTP 000
+  43s: not yet - HTTP 000
+  46s: not yet - HTTP 000
+  49s: not yet - HTTP 000
+  52s: not yet - HTTP 000
+  55s: not yet - HTTP 000
+  58s: not yet - HTTP 000
+  61s: not yet - HTTP 000
+  64s: not yet - HTTP 000
+  67s: not yet - HTTP 000
+  70s: not yet - HTTP 000
+  73s: not yet - HTTP 000
+  77s: not yet - HTTP 000
+  80s: not yet - HTTP 000
+  83s: not yet - HTTP 000
+  86s: not yet - HTTP 000
+  89s: not yet - HTTP 000
+  92s: not yet - HTTP 000
+  95s: not yet - HTTP 000
+  98s: not yet - HTTP 000
+  101s: not yet - HTTP 000
+  104s: not yet - HTTP 000
+  107s: not yet - HTTP 000
+  110s: not yet - HTTP 000
+  113s: not yet - HTTP 000
+  116s: not yet - HTTP 000
+  119s: not yet - HTTP 000
+  122s: not yet - HTTP 000
+  126s: not yet - HTTP 000
+  129s: not yet - HTTP 000
+  132s: not yet - HTTP 000
+  135s: not yet - HTTP 000
+  138s: not yet - HTTP 000
+  141s: not yet - HTTP 000
+  144s: not yet - HTTP 000
+  147s: not yet - HTTP 000
+  150s: not yet - HTTP 000
+  153s: not yet - HTTP 000
+  156s: not yet - HTTP 000
+  159s: not yet - HTTP 000
+  162s: not yet - HTTP 000
+  165s: not yet - HTTP 000
+  168s: not yet - HTTP 000
+  171s: not yet - HTTP 000
+  175s: not yet - HTTP 000
+  178s: not yet - HTTP 000
+BOOT PROOF FAILED: no 3 consecutive healthy answers within 180s (last: HTTP 000).
+----- the Gateway container's state -----
+running=true exit=0 oom=false error=
+----- the Gateway container's stdout and stderr -----
+----- end of the Gateway container's output -----
+rc=1

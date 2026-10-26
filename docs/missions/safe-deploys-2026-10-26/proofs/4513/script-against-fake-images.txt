@@ -1,0 +1,147 @@
+PASS  healthy (exit 0, 14s)
+        Boot proof: image boot-proof-fake-2059836:healthy, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32781/healthz
+          0s: not yet - HTTP 000
+          3s: pass 1 of 3 - HTTP 200, commit abc1234, status ok
+          6s: pass 2 of 3 - HTTP 200, commit abc1234, status ok
+          9s: pass 3 of 3 - HTTP 200, commit abc1234, status ok
+        BOOT PROOF PASSED: boot-proof-fake-2059836:healthy served 3 consecutive healthy /healthz answers on commit abc1234, 3s apart, 9s after it started.
+        ----- the last lines the Gateway printed -----
+        fake gateway starting, shape=healthy
+PASS  starting-then-healthy (exit 0, 21s)
+        Boot proof: image boot-proof-fake-2059836:starting-then-healthy, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32782/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 503
+          6s: not yet - HTTP 503
+          9s: pass 1 of 3 - HTTP 200, commit abc1234, status ok
+          12s: pass 2 of 3 - HTTP 200, commit abc1234, status ok
+          15s: pass 3 of 3 - HTTP 200, commit abc1234, status ok
+        BOOT PROOF PASSED: boot-proof-fake-2059836:starting-then-healthy served 3 consecutive healthy /healthz answers on commit abc1234, 3s apart, 15s after it started.
+        ----- the last lines the Gateway printed -----
+        fake gateway starting, shape=starting-then-healthy
+PASS  crash (exit 1, 7s)
+        Boot proof: image boot-proof-fake-2059836:crash, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32783/healthz
+          0s: not yet - HTTP 000
+        BOOT PROOF FAILED: the Gateway container exited after 3s instead of serving.
+        ----- the Gateway container's state -----
+        running=false exit=3 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=crash
+        FAKE GATEWAY CRASHED: the startup threw
+        ----- end of the Gateway container's output -----
+PASS  silent (exit 1, 20s)
+        Boot proof: image boot-proof-fake-2059836:silent, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32784/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 000
+          6s: not yet - HTTP 000
+          9s: not yet - HTTP 000
+          12s: not yet - HTTP 000
+          15s: not yet - HTTP 000
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 000).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=silent
+        ----- end of the Gateway container's output -----
+PASS  empty (exit 1, 17s)
+        Boot proof: image boot-proof-fake-2059836:empty, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32785/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 200 with an EMPTY body
+          7s: not yet - HTTP 200 with an EMPTY body
+          10s: not yet - HTTP 200 with an EMPTY body
+          13s: not yet - HTTP 200 with an EMPTY body
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 200 with an EMPTY body).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=empty
+        ----- end of the Gateway container's output -----
+PASS  not-json (exit 1, 17s)
+        Boot proof: image boot-proof-fake-2059836:not-json, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32786/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 200 with a body that is not a JSON object
+          7s: not yet - HTTP 200 with a body that is not a JSON object
+          10s: not yet - HTTP 200 with a body that is not a JSON object
+          13s: not yet - HTTP 200 with a body that is not a JSON object
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 200 with a body that is not a JSON object).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=not-json
+        ----- end of the Gateway container's output -----
+PASS  array (exit 1, 24s)
+        Boot proof: image boot-proof-fake-2059836:array, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32787/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 200 with a body that is not a JSON object
+          6s: not yet - HTTP 200 with a body that is not a JSON object
+          9s: not yet - HTTP 200 with a body that is not a JSON object
+          12s: not yet - HTTP 200 with a body that is not a JSON object
+          16s: not yet - HTTP 200 with a body that is not a JSON object
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 200 with a body that is not a JSON object).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=array
+        ----- end of the Gateway container's output -----
+PASS  no-commit (exit 1, 19s)
+        Boot proof: image boot-proof-fake-2059836:no-commit, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32788/healthz
+          1s: not yet - HTTP 000
+          4s: not yet - HTTP 200 carrying commit '<none>', not abc1234
+          7s: not yet - HTTP 200 carrying commit '<none>', not abc1234
+          10s: not yet - HTTP 200 carrying commit '<none>', not abc1234
+          13s: not yet - HTTP 200 carrying commit '<none>', not abc1234
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 200 carrying commit '<none>', not abc1234).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=no-commit
+        ----- end of the Gateway container's output -----
+PASS  wrong-commit (exit 1, 21s)
+        Boot proof: image boot-proof-fake-2059836:wrong-commit, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32789/healthz
+          0s: not yet - HTTP 000
+          3s: not yet - HTTP 200 carrying commit 'fff0000', not abc1234
+          6s: not yet - HTTP 200 carrying commit 'fff0000', not abc1234
+          9s: not yet - HTTP 200 carrying commit 'fff0000', not abc1234
+          12s: not yet - HTTP 200 carrying commit 'fff0000', not abc1234
+          15s: not yet - HTTP 200 carrying commit 'fff0000', not abc1234
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: HTTP 200 carrying commit 'fff0000', not abc1234).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=wrong-commit
+        ----- end of the Gateway container's output -----
+PASS  flapping (exit 1, 21s)
+        Boot proof: image boot-proof-fake-2059836:flapping, expected commit abc1234, bounded wait 15s.
+        Throwaway PostgreSQL is accepting connections.
+        Polling http://127.0.0.1:32790/healthz
+          0s: not yet - HTTP 000
+          3s: pass 1 of 3 - HTTP 200, commit abc1234, status ok
+          6s: pass 2 of 3 - HTTP 200, commit abc1234, status ok
+          9s: the run of passes is broken, starting again from zero
+          9s: not yet - HTTP 503
+          12s: pass 1 of 3 - HTTP 200, commit abc1234, status ok
+          16s: pass 2 of 3 - HTTP 200, commit abc1234, status ok
+        BOOT PROOF FAILED: no 3 consecutive healthy answers within 15s (last: pass 2).
+        ----- the Gateway container's state -----
+        running=true exit=0 oom=false error=
+        ----- the Gateway container's stdout and stderr -----
+        fake gateway starting, shape=flapping
+        ----- end of the Gateway container's output -----
+All boot proof cases passed.
