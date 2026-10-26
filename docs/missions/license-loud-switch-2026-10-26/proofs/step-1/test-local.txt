@@ -7,25 +7,25 @@ Build succeeded.
     1 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:01:25.36
+Time Elapsed 00:00:59.98
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:09.39
+Time Elapsed 00:00:15.17
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:07.57
+Time Elapsed 00:00:23.18
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:08.84
+Time Elapsed 00:00:14.50
   parked CcDirector.Gateway.UnitTests: 30 class(es) this change can reach - runs after the default suites
   started CcDirector.Core.UnitTests
   started CcDirector.Avalonia.Tests
@@ -42,38 +42,38 @@ Time Elapsed 00:00:08.84
 
 Waiting.
 
-  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  2756, Skipped:     0, Total:  2756, Duration: 35 
+  FAIL  CcDirector.Core.UnitTests  Failed!  - Failed:     1, Passed:  2755, Skipped:     0, Total:  2756, Duration: 58 
 s - CcDirector.Core.UnitTests.dll (net10.0)
   PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:  1209, Skipped:     0, Total:  1209, Duration: 1 
-m - CcDirector.Avalonia.Tests.dll (net10.0)
-  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 10 s 
+m 11 s - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 19 s 
 - CcDirector.Engine.Tests.dll (net10.0)
   PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 
-28 s - CcDirector.HostedAgent.Tests.dll (net10.0)
-  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   234, Skipped:     0, Total:   234, Duration: 35 
+35 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   234, Skipped:     0, Total:   234, Duration: 31 
 s - CcDirector.Launcher.Tests.dll (net10.0)
   PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:   111, Skipped:     0, Total:   111, 
-Duration: 25 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
-  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 15 
-s - CcDirector.Reclaim.Tests.dll (net10.0)
+Duration: 19 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 8 s 
+- CcDirector.Reclaim.Tests.dll (net10.0)
   PASS  CcDirector.DeliveryQualification.Tests  Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, 
-Duration: 8 s - CcDirector.DeliveryQualification.Tests.dll (net10.0)
-  PASS  CcDirector.RuleHook.Tests  Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 10 
+Duration: 9 s - CcDirector.DeliveryQualification.Tests.dll (net10.0)
+  PASS  CcDirector.RuleHook.Tests  Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 8 
 s - CcDirector.RuleHook.Tests.dll (net10.0)
   PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    43, Skipped:     0, Total:    43, Duration: 8 s 
 - CcDirectorSetup.Tests.dll (net10.0)
   FAIL  cc-director-setup-engine.Tests  Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, 
-Duration: 14 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+Duration: 9 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
   PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    75, Skipped:     0, Total:    75, Duration: 
-8 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+9 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
   started CcDirector.Gateway.UnitTests (30 affected class(es))
-  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed:   665, Skipped:     0, Total:   665, Duration: 
-1 m 11 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed:   676, Skipped:     0, Total:   676, Duration: 
+1 m 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
-  commit 8ef7c9b5faf021375389d94556558540fbf8195b  tree clean  parked=False configuration=Debug suite 
+  commit 87a47eae28ea89bd6140f50390c3bc57ecbe7721  tree clean  parked=False configuration=Debug suite 
 filter=Gate!=Quarantine
-  CcDirector.Core.UnitTests                outcome=Completed    total=2756   executed=2756
+  CcDirector.Core.UnitTests                outcome=Failed       total=2756   executed=2756
   CcDirector.Avalonia.Tests                outcome=Completed    total=1209   executed=1209
   CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
   CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
@@ -85,9 +85,9 @@ filter=Gate!=Quarantine
   cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
   cc-director-setup-engine.Tests           outcome=Failed       total=1014   executed=1008
   cc-director-setup-cli.Tests              outcome=Completed    total=75     executed=75
-  CcDirector.Gateway.UnitTests             outcome=Completed    total=665    executed=665
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=676    executed=676
 
-Run folder: <temp>\cc-test-local-5135d682 (kept after a red run; deleted after a green one 
+Run folder: <temp>\cc-test-local-29bc413e (kept after a red run; deleted after a green one 
 unless -KeepRun)
 
 Parked suite CcDirector.Gateway.UnitTests ran the tests this change can reach (see its line in the TRX verdict).
@@ -97,17 +97,25 @@ COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not 
 
 Run '.\scripts\test-local.ps1 -Parked' before merging, or say in the pull request why not.
 (Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
-RESULT: FAILED in 1 project(s):
+RESULT: FAILED in 2 project(s):
+  CcDirector.Core.UnitTests -> <temp>\cc-test-local-29bc413e\CcDirector.Core.UnitTests.log
+      Test run for <worktree>\src\CcDirector.Core.UnitTests\bin\Debug\net10.0\CcD
+irector.Core.UnitTests.dll (.NETCoreApp,Version=v10.0)
+      A total of 1 test files matched the specified pattern.
+      Results File: <temp>\cc-test-local-29bc413e\CcDirector.Core.UnitTests.trx
+      
+      Failed!  - Failed:     1, Passed:  2755, Skipped:     0, Total:  2756, Duration: 58 s - 
+CcDirector.Core.UnitTests.dll (net10.0)
   cc-director-setup-engine.Tests -> 
-<temp>\cc-test-local-5135d682\cc-director-setup-engine.Tests.log
+<temp>\cc-test-local-29bc413e\cc-director-setup-engine.Tests.log
       Test run for <worktree>\tools\cc-director-setup-engine.Tests\bin\Debug\net1
 0.0\CcDirector.Setup.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
       A total of 1 test files matched the specified pattern.
-      Results File: <temp>\cc-test-local-5135d682\cc-director-setup-engine.Tests.trx
+      Results File: <temp>\cc-test-local-29bc413e\cc-director-setup-engine.Tests.trx
       
-      Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, Duration: 14 s - 
+      Failed!  - Failed:    10, Passed:   998, Skipped:     6, Total:  1014, Duration: 9 s - 
 CcDirector.Setup.Engine.Tests.dll (net10.0)
 
-Logs kept in <temp>\cc-test-local-5135d682
-Temporary folders deleted: the test processes had left 2.1 MB in them.
-Run folder kept: <temp>\cc-test-local-5135d682
+Logs kept in <temp>\cc-test-local-29bc413e
+Temporary folders deleted: the test processes had left 2 MB in them.
+Run folder kept: <temp>\cc-test-local-29bc413e

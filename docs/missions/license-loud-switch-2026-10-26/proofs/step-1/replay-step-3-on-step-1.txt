@@ -1,8 +1,8 @@
 
   Determining projects to restore...
   All projects are up-to-date for restore.
-  CcDirector.Terminal.Core -> <worktree>\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
   CcDirector.Gateway.Contracts -> <worktree>\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> <worktree>\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
   CcDirector.AgentBrain -> <worktree>\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
   CcDirector.TrayUi -> <worktree>\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
   CcDirector.Core -> <worktree>\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
@@ -17,50 +17,50 @@
 Test run for <worktree>\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
 [xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
-[xUnit.net 00:00:00.24]   Discovering: CcDirector.Gateway.UnitTests
-[xUnit.net 00:00:02.02]   Discovered:  CcDirector.Gateway.UnitTests
-[xUnit.net 00:00:02.05]   Starting:    CcDirector.Gateway.UnitTests
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "Mac-mini") [10 s]
-[xUnit.net 00:00:13.32]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "Mac-mini") [FAIL]
-[xUnit.net 00:00:13.32]       The owner was not told about Mac-mini: no owner email names Mac-mini, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push names Mac-mini (pushes sent: 0); no banner line names Mac-mini, dev@example.com, soren.frederiksen@example.com (banner lines: []).
-[xUnit.net 00:00:13.32]       Stack Trace:
-[xUnit.net 00:00:13.32]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(285,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String[] accounts)
-[xUnit.net 00:00:13.32]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(340,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine)
-[xUnit.net 00:00:13.32]         --- End of stack trace from previous location ---
-[xUnit.net 00:00:13.43]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "SOREN_NORTH") [FAIL]
-[xUnit.net 00:00:13.43]       The owner was not told about SOREN_NORTH: no owner email names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push names SOREN_NORTH (pushes sent: 0); no banner line names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (banner lines: []).
-[xUnit.net 00:00:13.43]       Stack Trace:
-[xUnit.net 00:00:13.43]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(285,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String[] accounts)
-[xUnit.net 00:00:13.43]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(340,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine)
-[xUnit.net 00:00:13.43]         --- End of stack trace from previous location ---
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "SOREN_NORTH") [350 ms]
-  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "Mac-mini") [183 ms]
+[xUnit.net 00:00:00.56]   Discovering: CcDirector.Gateway.UnitTests
+[xUnit.net 00:00:03.71]   Discovered:  CcDirector.Gateway.UnitTests
+[xUnit.net 00:00:03.75]   Starting:    CcDirector.Gateway.UnitTests
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "Mac-mini") [14 s]
+[xUnit.net 00:00:19.44]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "Mac-mini") [FAIL]
+[xUnit.net 00:00:19.44]       The owner was not told about Mac-mini: no line of an owner email names Mac-mini, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push is about Mac-mini (pushes sent: 0); no banner line is about Mac-mini on dev@example.com and names soren.frederiksen@example.com (banner lines: []).
+[xUnit.net 00:00:19.44]       Stack Trace:
+[xUnit.net 00:00:19.44]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(309,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String stuckOn, String needs)
+[xUnit.net 00:00:19.44]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(366,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine)
+[xUnit.net 00:00:19.44]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:19.62]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "SOREN_NORTH") [FAIL]
+[xUnit.net 00:00:19.62]       The owner was not told about SOREN_NORTH: no line of an owner email names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push is about SOREN_NORTH (pushes sent: 0); no banner line is about SOREN_NORTH on dev@example.com and names soren.frederiksen@example.com (banner lines: []).
+[xUnit.net 00:00:19.62]       Stack Trace:
+[xUnit.net 00:00:19.62]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(309,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String stuckOn, String needs)
+[xUnit.net 00:00:19.62]         <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs(366,0): at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine)
+[xUnit.net 00:00:19.62]         --- End of stack trace from previous location ---
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "SOREN_NORTH") [505 ms]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "Mac-mini") [382 ms]
   Error Message:
-   The owner was not told about Mac-mini: no owner email names Mac-mini, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push names Mac-mini (pushes sent: 0); no banner line names Mac-mini, dev@example.com, soren.frederiksen@example.com (banner lines: []).
+   The owner was not told about Mac-mini: no line of an owner email names Mac-mini, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push is about Mac-mini (pushes sent: 0); no banner line is about Mac-mini on dev@example.com and names soren.frederiksen@example.com (banner lines: []).
   Stack Trace:
-     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String[] accounts) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 285
-   at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 340
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String stuckOn, String needs) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 309
+   at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 366
 --- End of stack trace from previous location ---
-  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "SOREN_NORTH") [113 ms]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "SOREN_NORTH") [187 ms]
   Error Message:
-   The owner was not told about SOREN_NORTH: no owner email names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push names SOREN_NORTH (pushes sent: 0); no banner line names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (banner lines: []).
+   The owner was not told about SOREN_NORTH: no line of an owner email names SOREN_NORTH, dev@example.com, soren.frederiksen@example.com (emails sent: 0); no push is about SOREN_NORTH (pushes sent: 0); no banner line is about SOREN_NORTH on dev@example.com and names soren.frederiksen@example.com (banner lines: []).
   Stack Trace:
-     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String[] accounts) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 285
-   at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 340
+     at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.AssertToldLoudly(String machine, String stuckOn, String needs) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 309
+   at CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(String machine) in <worktree>\src\CcDirector.Gateway.UnitTests\Licenses\LicenseStrandedReplayTests.cs:line 366
 --- End of stack trace from previous location ---
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_WithTheSignInHeld_NothingIsLoud [244 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 97) [292 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 97, devWeekly: 50) [283 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 80, devWeekly: 50) [326 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 80) [332 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEighty_25October_TheAlarmThatExistsToday_IsHeard(machine: "Mac-mini") [256 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEighty_25October_TheAlarmThatExistsToday_IsHeard(machine: "SOREN_NORTH") [229 ms]
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_DevlinuxIsSwitchedToTheAccountWithRoom [245 ms]
-[xUnit.net 00:00:15.88]   Finished:    CcDirector.Gateway.UnitTests
-  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_WithTheSignInHeld_EveryMachineIsSwitched_AndNothingIsLoud [225 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_WithTheSignInHeld_NothingIsLoud [161 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 97) [187 ms]
+[xUnit.net 00:00:21.44]   Finished:    CcDirector.Gateway.UnitTests
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 97, devWeekly: 50) [306 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 80, devWeekly: 50) [231 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 80) [172 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard(machine: "Mac-mini") [164 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard(machine: "SOREN_NORTH") [182 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_DevlinuxIsSwitchedToTheAccountWithRoom [163 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_WithTheSignInHeld_EveryMachineIsSwitched_AndNothingIsLoud [233 ms]
 
 Test Run Failed.
 Total tests: 13
      Passed: 11
      Failed: 2
- Total time: 16.4644 Seconds
+ Total time: 24.7882 Seconds
