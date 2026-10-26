@@ -403,15 +403,15 @@ describe("A factory's page (mockup 2)", () => {
     screenClient.getFactoryPage.mockResolvedValue({
       ...FACTORY_PAGE,
       failures: null,
-      waiting: { ...FACTORY_PAGE.waiting, heading: "Needs you", items: [], emptyText: "Nothing today.", orderText: null, bulkHandled: null, bulkHandledNote: null },
+      waiting: { ...FACTORY_PAGE.waiting, heading: "Needs you (fixture)", items: [], emptyText: "Nothing today. (fixture)", orderText: null, bulkHandled: null, bulkHandledNote: null },
     });
     renderAt("/factories/warmforward");
 
     const waiting = await screen.findByTestId("fa-page-waiting");
     expect(screen.getByTestId("fa-page-problems")).toBeTruthy();
     expect(waiting.id).toBe("waiting");
-    expect(within(waiting).getByRole("heading").textContent).toBe("Needs you");
-    expect(within(waiting).getByText("Nothing today.")).toBeTruthy();
+    expect(within(waiting).getByRole("heading").textContent).toBe("Needs you (fixture)");
+    expect(within(waiting).getByText("Nothing today. (fixture)")).toBeTruthy();
     expect(screen.getByTestId("fa-page-problems").compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
