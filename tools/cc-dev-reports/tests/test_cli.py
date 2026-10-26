@@ -389,7 +389,7 @@ def test_non_ascii_from_the_gateway_is_escaped_not_printed(wire, report_file):
 # --- answers: the owner's stored answers, read by any session of the account -------------------------
 
 
-def _answers_view(report_id=REPORT_ID, acted=None, by=None):
+def _answers_view(report_id=REPORT_ID, acted=None, by=None, claimed_at=None, claimed_by=None):
     return {
         "id": report_id, "title": "Outreach run", "key": "d:\factory\report.html", "sessionId": "run-one-session",
         "version": 1, "updatedAtUtc": "2026-10-26T07:00:00Z", "answered": 1, "notAnswered": 1, "noteCount": 1,
@@ -398,14 +398,16 @@ def _answers_view(report_id=REPORT_ID, acted=None, by=None):
             {"id": "deploy", "question": "When should we send?", "inLatestVersion": True, "answered": True,
              "itemId": "a1", "optionValue": "monday", "optionLabel": "Monday", "comment": "after the holiday",
              "answeredAtUtc": "2026-10-26T09:00:00Z", "status": "saved", "statusLabel": "Saved",
-             "actedOnAtUtc": acted, "actedOnSessionId": by},
+             "actedOnAtUtc": acted, "actedOnSessionId": by,
+             "actionClaimedAtUtc": claimed_at, "actionClaimedSessionId": claimed_by},
             {"id": "scope", "question": "Which list?", "inLatestVersion": True, "answered": False, "itemId": None,
              "optionValue": None, "optionLabel": None, "comment": None, "answeredAtUtc": None, "status": None,
              "statusLabel": None, "actedOnAtUtc": None, "actedOnSessionId": None},
         ],
         "notes": [{"itemId": "n1", "text": "Drop the second paragraph", "quote": "the quoted words",
                    "atUtc": "2026-10-26T09:00:00Z", "status": "saved", "statusLabel": "Saved",
-                   "actedOnAtUtc": acted, "actedOnSessionId": by}],
+                   "actedOnAtUtc": acted, "actedOnSessionId": by,
+                   "actionClaimedAtUtc": claimed_at, "actionClaimedSessionId": claimed_by}],
     }
 
 
@@ -428,7 +430,7 @@ def test_answers_by_report_prints_each_answer_and_each_open_question(wire):
     assert "      answer: not answered yet" in lines
     assert "    n1: Drop the second paragraph" in lines
     assert "      on: the quoted words" in lines
-    assert f"  cc-dev-reports answers --report {REPORT_ID} --ack" in lines
+    assert f"  cc-dev-reports answers --report {REPORT_ID} --claim" in lines
     assert f"  route: http://gateway.invalid/r/{REPORT_ID}" in lines
     assert result.output.isascii()
 
@@ -485,11 +487,82 @@ def test_answers_ack_named_items_sends_only_those(wire):
     assert json.loads(result.output)["marked"] == [{"itemId": "a1"}]
 
 
+def test_answers_claim_by_report_lists_only_items_returned_as_claimed(wire):
+    claimed_view = _answers_view(claimed_at="2026-10-26T10:00:00Z", claimed_by=SESSION_ID)
+    calls = wire((200, {"claimed": [{"itemId": "a1", "kind": "answer", "questionId": "deploy"},
+                                    {"itemId": "n1", "kind": "note", "questionId": None}],
+                  "count": 1, "reports": [claimed_view]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--claim", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == f"http://gateway.invalid/sessions/{SESSION_ID}/dev-report-answers/{REPORT_ID}/claim"
+    body = json.loads(result.output)
+    assert body["claimed"] == [
+        {"itemId": "a1", "kind": "answer", "questionId": "deploy", "reportId": REPORT_ID},
+        {"itemId": "n1", "kind": "note", "questionId": None, "reportId": REPORT_ID},
+    ]
+    assert body["reports"][0]["questions"][0]["actionClaimedSessionId"] == SESSION_ID
+    assert body["marked"] is None
+
+
+def test_answers_claim_named_items_sends_only_those(wire):
+    calls = wire((200, {"claimed": [{"itemId": "a1", "kind": "answer", "questionId": "deploy"}],
+                    "count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--claim", "--item", "a1", "--item", "n1", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["body"] == {"items": ["a1", "n1"]}
+    assert json.loads(result.output)["claimed"] == [
+        {"itemId": "a1", "kind": "answer", "questionId": "deploy", "reportId": REPORT_ID}
+    ]
+
+
+def test_answers_claim_by_file_claims_every_report_with_unacted_items(wire, report_file):
+    older = _answers_view(OLDER_ID)
+    newest = _answers_view()
+    old_claim = _answers_view(OLDER_ID, claimed_at="2026-10-26T10:00:00Z", claimed_by=SESSION_ID)
+    new_claim = _answers_view(claimed_at="2026-10-26T10:00:00Z", claimed_by=SESSION_ID)
+    calls = wire(
+        (200, {"count": 2, "reports": [older, newest]}),
+        (200, {"claimed": [{"itemId": "a1", "kind": "answer", "questionId": "deploy"}],
+               "count": 1, "reports": [old_claim]}),
+        (200, {"claimed": [{"itemId": "n1", "kind": "note", "questionId": None}],
+               "count": 1, "reports": [new_claim]}),
+    )
+
+    result = runner.invoke(app, ["answers", str(report_file), "--claim", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert [call["method"] for call in calls] == ["GET", "POST", "POST"]
+    assert calls[1]["url"].endswith(f"/{OLDER_ID}/claim")
+    assert calls[2]["url"].endswith(f"/{REPORT_ID}/claim")
+    body = json.loads(result.output)
+    assert body["count"] == 2
+    assert [claim["reportId"] for claim in body["claimed"]] == [OLDER_ID, REPORT_ID]
+    assert [report["questions"][0]["actionClaimedSessionId"] for report in body["reports"]] == [SESSION_ID, SESSION_ID]
+
+
+def test_answers_claim_does_not_offer_claim_for_item_owned_by_another_session(wire):
+    other = _answers_view(claimed_at="2026-10-26T10:00:00Z", claimed_by="other-session")
+    wire((200, {"count": 1, "reports": [other]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID])
+
+    assert result.exit_code == 0, result.output
+    assert "actionClaimed: 2026-10-26T10:00:00Z by session other-session" in result.output
+    assert "--claim" not in result.output
+
+
 @pytest.mark.parametrize("args", [
     ["answers"],
     ["answers", "some-file.html", "--report", REPORT_ID],
     ["answers", "some-file.html", "--ack"],
+    ["answers", "some-file.html", "--item", "a1"],
     ["answers", "--report", REPORT_ID, "--item", "a1"],
+    ["answers", "--report", REPORT_ID, "--claim", "--ack"],
 ])
 def test_answers_bad_arguments_are_refused_before_any_request(wire, args):
     calls = wire()

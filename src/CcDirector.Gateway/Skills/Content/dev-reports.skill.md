@@ -8,9 +8,11 @@
 cc-dev-reports open <file.html>  # publish it. Prints the one address the owner clicks.
 cc-dev-reports reply "<text>"    # answer the owner inside the report, later
 cc-dev-reports answers <file.html>  # read his stored answers - from any session, even a later run
+cc-dev-reports answers <file.html> --claim  # reserve unacted answers before acting on them
 ```
 
-Publishing the same file again makes a new version of the same report.
+Publishing the same file again from the same session makes a new version; publishing it from a later
+session makes a new report.
 
 ## Two commands both called "report". Do not confuse them
 
@@ -105,17 +107,24 @@ closes. He answers whenever he likes; the answer is stored, never lost, even tho
 ended. The NEXT run reads it and acts:
 
 ```bash
-cc-dev-reports answers <file.html>              # the answers to that report file, from any earlier run
-cc-dev-reports answers --report <id> --ack      # once you have ACTED on them, so the run after does not act twice
+cc-dev-reports answers <file.html> --claim        # reserve unacted answers before acting
+cc-dev-reports answers --report <id> --ack        # after the action succeeds
 ```
 
-- **Name the same file every run.** A report belongs to the session that published it, so each run's
-  publish is a report of its own. `answers <file.html>` finds every report published from that file in
-  your account: the newest, plus each older one still holding an answer no run has acted on.
+- **Name the same file every run.** Each run's publish is a report of its own. `answers <file.html>`
+  finds the newest report plus every older one still holding an unacted answer or note. It returns all
+  such reports; it does not stop at a fixed count. A factory seat reads only reports stamped with its
+  factory and seat identity, even when another seat uses the same absolute path.
+- **Claim before you act.** Two runs can overlap after the scheduler finishes starting the first
+  session. Use `--claim` and act only on ids listed under `claimed for this session`. A claim shown for
+  another session belongs to that session; do not act on it. The Gateway allows a new claim after the
+  previous claiming session has ended.
 - Each question prints his chosen option (label and value), his comment and when he answered - or
   `not answered yet`. His notes on the report print too, with the words they were attached to.
-- **Mark it once you have acted**: `--ack` marks every answer and note on that report; `--item <id>`
-  (repeatable) marks only those. A later answer to the same question is new and shows as not acted on.
+- **Acknowledge only after the action succeeds**: `--ack` marks this session's claimed answers and
+  notes on that report. `--item <id>` (repeatable) marks only those. An unclaimed item or an item
+  claimed by another session cannot be acknowledged by this session. A later answer to the same
+  question is new and shows as not acted on.
 - `--json` gives the same thing as data. `--report <id>` reads one report by its id.
 - You read only your own account's reports; in a team, only the reports of the person behind your
   session.

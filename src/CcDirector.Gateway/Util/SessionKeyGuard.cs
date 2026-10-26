@@ -614,8 +614,9 @@ public static class SessionKeyGuard
             // route checks the session and the report are the caller's own.
             if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-reports" && s[4] == "replies") return true;
 
-            // MARK the owner's answers on a report acted on, so the run after does not act on them twice (Factories Run
-            // Alone). One literal five-segment shape; the route checks the session is the caller's and the report its account's.
+            // CLAIM the owner's answers before acting, and mark them acted on afterwards (Factories Run Alone). Each
+            // operation has one literal five-segment shape; the routes check the session is the caller's and the report its account's.
+            if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-report-answers" && s[4] == "claim") return true;
             if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-report-answers" && s[4] == "ack") return true;
 
             // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:

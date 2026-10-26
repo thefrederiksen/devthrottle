@@ -94,4 +94,10 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
 
     /// <summary>The session that marked this item acted on, beside <see cref="ActedOnAtUtc"/>; null while unmarked.</summary>
     public string? ActedOnSessionId { get; set; }
+
+    /// <summary>The session that claimed this item before acting, or null while no session holds it.</summary>
+    public string? ActionClaimedSessionId { get; set; }
+
+    /// <summary>When the action claim was taken or renewed (UTC). A claim can be taken over only after its session ended.</summary>
+    public DateTime? ActionClaimedAtUtc { get; set; }
 }

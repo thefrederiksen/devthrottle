@@ -254,6 +254,29 @@ public sealed class CronEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task RunNow_AfterCreateReturns_DoesNotWaitForTheFactorySeatSessionToEnd()
+    {
+        var store = NewJobStore();
+        var history = NewHistory();
+        var starter = new RecordingStarter();
+        var scheduledSeat = Recurring();
+        scheduledSeat.Factory = "site-factory";
+        scheduledSeat.Seat = "reader";
+        var created = store.Create(scheduledSeat);
+        var engine = Engine(store, history, starter, new FakeClock(DateTime.UtcNow));
+
+        var first = await engine.RunNowAsync(created.Id, CancellationToken.None);
+        var second = await engine.RunNowAsync(created.Id, CancellationToken.None);
+
+        Assert.Equal(CronFireOutcome.Fired, first.Outcome);
+        Assert.Equal(CronFireOutcome.Fired, second.Outcome);
+        Assert.Equal(2, starter.StartCount);
+        Assert.Equal("unknown", first.Record!.TaskStatus);
+        Assert.Equal("unknown", second.Record!.TaskStatus);
+        Assert.Equal(2, history.List(created.Id).Count);
+    }
+
+    [Fact]
     public async Task RunNow_NoSuchJob_ReturnsNoSuchJob()
     {
         var engine = Engine(NewJobStore(), NewHistory(), new RecordingStarter(), new FakeClock(DateTime.UtcNow));

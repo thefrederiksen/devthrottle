@@ -69,7 +69,10 @@ step. `cc-ship --help` is the whole command list.
 mission document, design or findings a PERSON asked you for is one HTML file published with
 `cc-dev-reports open` - never a file path handed over, never markdown, never an artifact. It lands on
 his phone or in the Cockpit, inside the report rather than on a list; it can carry questions he answers
-by tapping an option; and `cc-dev-reports reply` answers him in it afterwards.
+by tapping an option; and `cc-dev-reports reply` answers him in it afterwards. Publishing the same
+file again from the same session makes a new version; a later session creates a new report.
+On a later factory run, read with `cc-dev-reports answers <file>`, claim with `--claim` before
+acting, and use `--ack` only after the action succeeds. Act only on item ids the claim returns.
 
 The shape is checked on publish and is easy to get wrong - the status is one of exactly three words.
 **Read `cc-devthrottle skill get dev-reports` before you write one.** Do not confuse it with

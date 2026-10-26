@@ -46,7 +46,7 @@ internal sealed class DevReportStore
     /// publish to it again (<see cref="DevReportInheritance"/>).</param>
     public (DevReportEntity Report, bool Created) Publish(
         TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
-        string? authorSubject = null)
+        string? authorSubject = null, DevReportFactorySeatIdentity? factorySeat = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
         ArgumentException.ThrowIfNullOrEmpty(key);
@@ -63,12 +63,12 @@ internal sealed class DevReportStore
             // read "no report yet" and both insert; the unique index refuses the loser. Re-reading makes the second
             // attempt a new version of the report the other process wrote - the answer one process gives - instead of
             // a raw 500. A second failure is a fault and surfaces.
-            try { return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, bytes, hash, BeforePublishWriteForTests); }
+            try { return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, factorySeat, bytes, hash, BeforePublishWriteForTests); }
             catch (DbUpdateException ex)
             {
                 FileLog.Write($"[DevReportStore] Publish: sid={sessionId} key={key} lost a race with another writer " +
                               $"({ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
-                return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, bytes, hash, beforeWrite: null);
+                return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, factorySeat, bytes, hash, beforeWrite: null);
             }
         }
     }
@@ -79,7 +79,7 @@ internal sealed class DevReportStore
 
     private (DevReportEntity Report, bool Created) PublishOnce(
         TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
-        string? authorSubject, byte[] bytes, string hash, Action? beforeWrite)
+        string? authorSubject, DevReportFactorySeatIdentity? factorySeat, byte[] bytes, string hash, Action? beforeWrite)
     {
         using var ctx = _db.CreateContext(tenant);
         using var tx = ctx.Database.BeginTransaction();
@@ -94,8 +94,23 @@ internal sealed class DevReportStore
                 Key = key,
                 PublishedAtUtc = nowUtc,
                 AuthorSubject = authorSubject,
+                Factory = factorySeat?.Factory,
+                FactorySeat = factorySeat?.Seat,
             };
             ctx.DevReports.Add(report);
+        }
+        else if (factorySeat is not null)
+        {
+            if (report.Factory is null && report.FactorySeat is null)
+            {
+                report.Factory = factorySeat.Factory;
+                report.FactorySeat = factorySeat.Seat;
+            }
+            else if (!string.Equals(report.Factory, factorySeat.Factory, StringComparison.OrdinalIgnoreCase)
+                     || !string.Equals(report.FactorySeat, factorySeat.Seat, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Report {report.Id} was republished from a different factory seat.");
+            }
         }
         report.Version += 1;
         report.Title = title;
@@ -589,28 +604,92 @@ internal sealed class DevReportStore
     }
 
     /// <summary>
-    /// The account's reports published under <paramref name="key"/> - by ANY session - newest update first (Factories Run
-    /// Alone, the read-answers command). A report is keyed on (session, file path), so every run of a factory seat that
-    /// publishes the same file makes a report of its own; this is how the next run finds the earlier ones. In a team's
+    /// The account's reports published under <paramref name="key"/> - by any session - newest update first (Factories Run
+    /// Alone, the read-answers command). A report is keyed on (session, file path), so every run that publishes the same
+    /// file makes a report of its own. A factory-seat read is narrowed by stable factory and seat identity. In a team's
     /// tenant only <paramref name="authorSubject"/>'s reports are read; null reads the whole (personal) account.
     /// </summary>
-    public IReadOnlyList<DevReportEntity> ListByKey(TenantId tenant, string key, string? authorSubject)
+    public IReadOnlyList<DevReportEntity> ListByKey(TenantId tenant, string key, string? authorSubject,
+        DevReportFactorySeatIdentity? factorySeat = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(key);
         using var ctx = _db.CreateContext(tenant);
         var query = ctx.DevReports.AsNoTracking().Where(r => r.Key == key);
         if (authorSubject is not null)
             query = query.Where(r => r.AuthorSubject == authorSubject);
+        if (factorySeat is not null)
+            query = query.Where(r => (r.Factory == factorySeat.Factory && r.FactorySeat == factorySeat.Seat)
+                                     || (r.Factory == null && r.FactorySeat == null));
         var rows = query.ToList()
             .OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.SessionId, StringComparer.Ordinal).ToList();
         FileLog.Write($"[DevReportStore] ListByKey: tenant={tenant.ToLogString()} key={key} count={rows.Count}");
         return rows;
     }
 
+    /// <summary>The other sessions holding an unacted-on owner item claim on the named items.</summary>
+    public IReadOnlyList<string> ActionClaimSessions(TenantId tenant, Guid reportId,
+        IReadOnlyCollection<string> clientItemIds, string exceptSessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(exceptSessionId);
+        if (clientItemIds.Count == 0) return [];
+        using var ctx = _db.CreateContext(tenant);
+        var sessions = ctx.DevReportItems.AsNoTracking()
+            .Where(i => i.ReportId == reportId && clientItemIds.Contains(i.ClientItemId)
+                        && i.AnswererSubject == null && i.ActedOnAtUtc == null
+                        && i.ActionClaimedSessionId != null && i.ActionClaimedSessionId != exceptSessionId)
+            .Select(i => i.ActionClaimedSessionId)
+            .Distinct()
+            .ToList()
+            .OfType<string>()
+            .ToList();
+        FileLog.Write($"[DevReportStore] ActionClaimSessions: report={reportId} other sessions={sessions.Count}");
+        return sessions;
+    }
+
     /// <summary>
-    /// Mark the account owner's items on a report ACTED ON by <paramref name="sessionId"/> (Factories Run Alone): every one
+    /// Atomically claim the named unacted-on owner items for one session. A claim held by a session the Gateway has
+    /// recorded as ended may be taken over. The conditional update is the exclusivity boundary across Gateway processes.
+    /// </summary>
+    public IReadOnlyList<DevReportItemEntity> ClaimUnactedItems(TenantId tenant, Guid reportId,
+        IReadOnlyCollection<string> clientItemIds, string sessionId, IReadOnlyCollection<string> endedClaimSessionIds,
+        DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        if (clientItemIds.Count == 0) return [];
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var claimable = ctx.DevReportItems.Where(i =>
+                i.ReportId == reportId && clientItemIds.Contains(i.ClientItemId)
+                && i.AnswererSubject == null && i.ActedOnAtUtc == null
+                && (i.ActionClaimedSessionId == null || i.ActionClaimedSessionId == sessionId
+                    || (i.ActionClaimedSessionId != null && endedClaimSessionIds.Contains(i.ActionClaimedSessionId))));
+            var ids = claimable.AsNoTracking().Select(i => i.Id).ToList();
+            if (ids.Count == 0)
+            {
+                FileLog.Write($"[DevReportStore] ClaimUnactedItems: report={reportId} sid={sessionId} nothing to claim");
+                return [];
+            }
+
+            ctx.DevReportItems.Where(i => ids.Contains(i.Id) && i.ActedOnAtUtc == null
+                    && (i.ActionClaimedSessionId == null || i.ActionClaimedSessionId == sessionId
+                        || (i.ActionClaimedSessionId != null && endedClaimSessionIds.Contains(i.ActionClaimedSessionId))))
+                .ExecuteUpdate(set => set
+                    .SetProperty(i => i.ActionClaimedAtUtc, nowUtc)
+                    .SetProperty(i => i.ActionClaimedSessionId, sessionId));
+
+            var claimed = ctx.DevReportItems.AsNoTracking()
+                .Where(i => ids.Contains(i.Id) && i.ActionClaimedSessionId == sessionId && i.ActionClaimedAtUtc == nowUtc)
+                .OrderBy(i => i.Sequence).ToList();
+            FileLog.Write($"[DevReportStore] ClaimUnactedItems: report={reportId} sid={sessionId} claimed={claimed.Count}");
+            return claimed;
+        }
+    }
+
+    /// <summary>
+    /// Mark the account owner's items claimed by <paramref name="sessionId"/> ACTED ON (Factories Run Alone): every one
     /// not yet marked, or only those whose client ids are in <paramref name="clientItemIds"/> when it is given. One
-    /// conditional update, so an item another session marked first keeps that mark. Returns the items this call marked.
+    /// conditional update, so another claimant cannot mark the item for this session. Returns the items this call marked.
     /// </summary>
     public IReadOnlyList<DevReportItemEntity> MarkActedOn(TenantId tenant, Guid reportId, IReadOnlyCollection<string>? clientItemIds,
         string sessionId, DateTime nowUtc)
@@ -619,7 +698,8 @@ internal sealed class DevReportStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var query = ctx.DevReportItems.Where(i => i.ReportId == reportId && i.AnswererSubject == null && i.ActedOnAtUtc == null);
+            var query = ctx.DevReportItems.Where(i => i.ReportId == reportId && i.AnswererSubject == null
+                && i.ActedOnAtUtc == null && i.ActionClaimedSessionId == sessionId);
             if (clientItemIds is not null)
                 query = query.Where(i => clientItemIds.Contains(i.ClientItemId));
             var marking = query.AsNoTracking().Select(i => i.Id).ToList();
@@ -628,7 +708,8 @@ internal sealed class DevReportStore
                 FileLog.Write($"[DevReportStore] MarkActedOn: report={reportId} sid={sessionId} nothing to mark");
                 return [];
             }
-            ctx.DevReportItems.Where(i => marking.Contains(i.Id) && i.ActedOnAtUtc == null)
+            ctx.DevReportItems.Where(i => marking.Contains(i.Id) && i.ActedOnAtUtc == null
+                    && i.ActionClaimedSessionId == sessionId)
                 .ExecuteUpdate(set => set
                     .SetProperty(i => i.ActedOnAtUtc, nowUtc)
                     .SetProperty(i => i.ActedOnSessionId, sessionId));

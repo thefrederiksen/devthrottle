@@ -1939,7 +1939,8 @@ _ACTIONS = [
         "description": (
             "REPORT TO THE OWNER. Any report, write-up, mission document, design or findings a PERSON asked "
             "you for is one self-contained HTML file published with this - never a file path, never markdown, "
-            "never an artifact. Publishing the same file again makes a new version. It prints one address the "
+            "never an artifact. Publishing the same file from the same session makes a new version; a later session "
+            "creates a new report. It prints one address the "
             "owner clicks, and it lands him inside the report on whatever device he opens it with. The shape is "
             "checked on publish and is easy to get wrong: read it first with 'cc-devthrottle skill get "
             "dev-reports'. Not to be confused with 'session report', which reaches a SESSION, never the owner."
@@ -1963,13 +1964,15 @@ _ACTIONS = [
         "description": (
             "Read the owner's stored answers to a dev report - each question, his answer or 'not answered yet', his "
             "comment and when - from ANY session of the account, so a run that closed is answered in the next. Name "
-            "the report file (its newest report, plus older ones still holding an answer not yet acted on) or the "
-            "report id; --ack with --report marks the answers acted on so the run after does not act twice."
+            "the report file (its newest report, plus every older one still holding an unacted item) or the report id. "
+            "Factory seats are scoped by factory and seat identity, even if their file paths match. Claim with --claim "
+            "before acting and act only on returned claimed item ids; use --ack after the action succeeds."
         ),
-        "command": "cc-dev-reports answers [<file.html>] [--report <id>] [--ack] [--item <id>] [--json]",
+        "command": "cc-dev-reports answers [<file.html>] [--report <id>] [--claim|--ack] [--item <id>] [--json]",
         "mutatesState": True,
         "args": [{"name": "file", "required": False}, {"name": "report", "required": False},
-                 {"name": "ack", "required": False}, {"name": "item", "required": False}],
+                 {"name": "claim", "required": False}, {"name": "ack", "required": False},
+                 {"name": "item", "required": False}],
     },
     {
         "id": "browser-list",

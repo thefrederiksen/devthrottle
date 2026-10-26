@@ -30,6 +30,8 @@ public sealed class DevReportAnswersTests : IDisposable
     private readonly string _runOne = Guid.NewGuid().ToString("D");
     private readonly string _runTwo = Guid.NewGuid().ToString("D");
     private readonly string _reader = Guid.NewGuid().ToString("D");
+    private readonly Dictionary<string, DevReportFactorySeatIdentity> _seats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DevReportSessionLiveness> _liveness = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _now = Now;
 
     /// <summary>Who the caller's Director belongs to: a personal account unless a test says otherwise.</summary>
@@ -39,11 +41,16 @@ public sealed class DevReportAnswersTests : IDisposable
     {
         _db = _h.Open();
         _store = new DevReportStore(_db);
+        _seats[_reader] = new DevReportFactorySeatIdentity("outreach", "writer");
     }
 
     public void Dispose() => _h.Dispose();
 
-    private DevReportAnswers Answers() => new(_store, (_, _) => _author, () => _now);
+    private DevReportAnswers Answers() => new(_store, (_, _) => _author,
+        (_, sessionId) => _seats.GetValueOrDefault(sessionId),
+        (_, sessionId) => _liveness.GetValueOrDefault(sessionId)
+                          ?? new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "the session is still live"),
+        () => _now);
 
     /// <summary>The owner's send through the real delivery, to a session the roster says has ENDED.</summary>
     private Task<IReadOnlyList<DevReportItemUpdate>> OwnerSends(DevReportEntity report, params DevReportItem[] items)
@@ -67,7 +74,17 @@ public sealed class DevReportAnswersTests : IDisposable
         "<section data-dev-report=\"detail\"><p>D</p></section>";
 
     private DevReportEntity Publish(string sessionId, TenantId? tenant = null, string? author = null, string key = Key)
-        => _store.Publish(tenant ?? Tenant, sessionId, key, Html, "waiting-on-you", "Outreach run", _now, author).Report;
+    {
+        _seats.TryAdd(sessionId, new DevReportFactorySeatIdentity("outreach", "writer"));
+        return _store.Publish(tenant ?? Tenant, sessionId, key, Html, "waiting-on-you", "Outreach run", _now, author,
+            _seats.GetValueOrDefault(sessionId)).Report;
+    }
+
+    private DevReportEntity PublishLegacy(string sessionId, string key = Key)
+    {
+        _seats.TryAdd(sessionId, new DevReportFactorySeatIdentity("outreach", "writer"));
+        return _store.Publish(Tenant, sessionId, key, Html, "waiting-on-you", "Outreach run", _now).Report;
+    }
 
     private static DevReportItem Answer(string id, string questionId, string value, string comment = "")
         => new(id, DevReportItem.Answer, "", null, questionId, "When should we send?", value, value == "monday" ? "Monday" : "Tonight", comment);
@@ -212,7 +229,7 @@ public sealed class DevReportAnswersTests : IDisposable
     {
         // Run one publishes and closes; the owner answers it. Run two publishes the same file again - a NEW report, because
         // a report is keyed on (session, file). The answer is on run one's report, and a key read must not hide it.
-        var first = Publish(_runOne);
+        var first = PublishLegacy(_runOne);
         await OwnerSends(first, Answer("a1", "deploy", "monday"));
         _now = Now.AddDays(1);
         var second = Publish(_runTwo);
@@ -222,10 +239,96 @@ public sealed class DevReportAnswersTests : IDisposable
         Assert.Equal(new[] { second.Id.ToString("D"), first.Id.ToString("D") },
             before.GetProperty("reports").EnumerateArray().Select(r => r.GetProperty("id").GetString()));
 
+        await Run(Answers().Claim(Tenant, _reader, DirectorId, first.Id.ToString("D"), null));
         await Run(Answers().Ack(Tenant, _reader, DirectorId, first.Id.ToString("D"), null));
         var (_, after) = await Run(Answers().Read(Tenant, _reader, DirectorId, null, Key));
 
         Assert.Equal(second.Id.ToString("D"), Assert.Single(after.GetProperty("reports").EnumerateArray()).GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Read_ByKey_SharedByTwoSeatsReturnsOnlyTheCallersSeat()
+    {
+        var mine = Publish(_runOne);
+        await OwnerSends(mine, Answer("mine", "deploy", "monday"));
+        var otherSession = Guid.NewGuid().ToString("D");
+        _seats[otherSession] = new DevReportFactorySeatIdentity("outreach", "boss");
+        var theirs = Publish(otherSession);
+        await OwnerSends(theirs, Answer("theirs", "deploy", "tonight"));
+
+        var (status, body) = await Run(Answers().Read(Tenant, _reader, DirectorId, null, Key));
+
+        Assert.Equal(200, status);
+        var report = Assert.Single(body.GetProperty("reports").EnumerateArray());
+        Assert.Equal(mine.Id.ToString("D"), report.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Read_ByKey_ReturnsEveryOlderReportWithUnactedAnswers()
+    {
+        var ids = new List<string>();
+        for (var i = 0; i < 21; i++)
+        {
+            _now = Now.AddMinutes(i);
+            var report = Publish(Guid.NewGuid().ToString("D"));
+            ids.Add(report.Id.ToString("D"));
+            await OwnerSends(report, Answer($"answer-{i}", "deploy", "monday"));
+        }
+        _now = Now.AddDays(1);
+        Publish(Guid.NewGuid().ToString("D"));
+
+        var (status, body) = await Run(Answers().Read(Tenant, _reader, DirectorId, null, Key));
+        var reports = body.GetProperty("reports").EnumerateArray().ToList();
+
+        Assert.Equal(200, status);
+        Assert.Equal(22, body.GetProperty("count").GetInt32());
+        Assert.All(ids, id => Assert.Contains(reports, report => report.GetProperty("id").GetString() == id));
+    }
+
+    [Fact]
+    public async Task Claim_TwoSessionsThatReadFirst_CanOnlyClaimAndAcknowledgeOnce()
+    {
+        var report = Publish(_runOne);
+        await OwnerSends(report, Answer("a1", "deploy", "monday"), Note("n1", "words"));
+        var secondReader = Guid.NewGuid().ToString("D");
+        _seats[secondReader] = new DevReportFactorySeatIdentity("outreach", "writer");
+
+        var (_, firstRead) = await Run(Answers().Read(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+        var (_, secondRead) = await Run(Answers().Read(Tenant, secondReader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Equal(2, firstRead.GetProperty("reports")[0].GetProperty("notActedOn").GetInt32());
+        Assert.Equal(2, secondRead.GetProperty("reports")[0].GetProperty("notActedOn").GetInt32());
+
+        var (_, firstClaim) = await Run(Answers().Claim(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+        var (_, secondClaim) = await Run(Answers().Claim(Tenant, secondReader, DirectorId, report.Id.ToString("D"), null));
+
+        Assert.Equal(new[] { "a1", "n1" }, firstClaim.GetProperty("claimed").EnumerateArray().Select(i => i.GetProperty("itemId").GetString()));
+        Assert.Empty(secondClaim.GetProperty("claimed").EnumerateArray());
+        Assert.Equal(_reader, Question(secondClaim.GetProperty("reports")[0], "deploy")
+            .GetProperty("actionClaimedSessionId").GetString());
+        var (_, deniedAck) = await Run(Answers().Ack(Tenant, secondReader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Empty(deniedAck.GetProperty("marked").EnumerateArray());
+
+        var (_, acknowledged) = await Run(Answers().Ack(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Equal(2, acknowledged.GetProperty("marked").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Claim_AnEndedSessionCanBeReplaced_AndItsLateAckMarksNothing()
+    {
+        var report = Publish(_runOne);
+        await OwnerSends(report, Answer("a1", "deploy", "monday"));
+        await Run(Answers().Claim(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+        var nextReader = Guid.NewGuid().ToString("D");
+        _seats[nextReader] = new DevReportFactorySeatIdentity("outreach", "writer");
+        _liveness[_reader] = new DevReportSessionLiveness(DevReportSessionReach.Ended, null, "the prior run ended");
+
+        var (_, reclaimed) = await Run(Answers().Claim(Tenant, nextReader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Equal("a1", Assert.Single(reclaimed.GetProperty("claimed").EnumerateArray()).GetProperty("itemId").GetString());
+        var (_, oldAck) = await Run(Answers().Ack(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Empty(oldAck.GetProperty("marked").EnumerateArray());
+
+        var (_, currentAck) = await Run(Answers().Ack(Tenant, nextReader, DirectorId, report.Id.ToString("D"), null));
+        Assert.Equal("a1", Assert.Single(currentAck.GetProperty("marked").EnumerateArray()).GetProperty("itemId").GetString());
     }
 
     [Fact]
@@ -234,6 +337,7 @@ public sealed class DevReportAnswersTests : IDisposable
         var report = Publish(_runOne);
         await OwnerSends(report, Answer("a1", "deploy", "monday"), Note("n1", "words"));
         _now = Now.AddHours(3);
+        await Run(Answers().Claim(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
 
         var (status, body) = await Run(Answers().Ack(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
 
@@ -257,6 +361,7 @@ public sealed class DevReportAnswersTests : IDisposable
     {
         var report = Publish(_runOne);
         await OwnerSends(report, Answer("a1", "deploy", "monday"), Note("n1", "words"));
+        await Run(Answers().Claim(Tenant, _reader, DirectorId, report.Id.ToString("D"), ["a1"]));
 
         var (_, body) = await Run(Answers().Ack(Tenant, _reader, DirectorId, report.Id.ToString("D"), ["a1", "no-such-item"]));
 
@@ -269,6 +374,7 @@ public sealed class DevReportAnswersTests : IDisposable
     {
         var report = Publish(_runOne);
         await OwnerSends(report, Answer("a1", "deploy", "monday"));
+        await Run(Answers().Claim(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
         await Run(Answers().Ack(Tenant, _reader, DirectorId, report.Id.ToString("D"), null));
         _now = Now.AddHours(1);
         await OwnerSends(report, Answer("a2", "deploy", "tonight"));

@@ -57,18 +57,19 @@ def reply_command(
 @app.command("answers")
 def answers_command(
     file: Optional[str] = typer.Argument(
-        None, help="The report file you published. Finds that file's reports from EVERY session of the account: the "
-                   "newest, plus each older one still holding an answer no session has acted on."),
+        None, help="The report file you published. Finds the newest report and every older report still holding an "
+                   "unacted item. A factory seat reads only its own factory and seat, even when paths are shared."),
     report: Optional[str] = typer.Option(None, "--report", help="The report id, instead of FILE."),
     ack: bool = typer.Option(False, "--ack",
-                             help="Mark the owner's answers and notes on --report acted on, so a later run skips them."),
+                             help="After acting, mark this session's claimed items on --report acted on."),
+    claim: bool = typer.Option(False, "--claim",
+                               help="Claim unacted answers and notes before acting. Only act on item ids reported as claimed."),
     item: Optional[List[str]] = typer.Option(None, "--item",
-                                             help="With --ack: mark only this item id. Repeat for several."),
+                                             help="With --ack or --claim: use only this item id. Repeat for several; requires --report."),
     json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 ) -> None:
-    """Read the owner's stored answers to a report - each question, his answer or "not answered yet", his comment
-    and when - from ANY session of the account, not only the one that published it."""
-    result = reports_ops.answers(file, report, ack, item)
+    """Read stored answers and notes. Claim before acting; acknowledge only after the action succeeds."""
+    result = reports_ops.answers(file, report, ack, claim, item)
     raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
 
 

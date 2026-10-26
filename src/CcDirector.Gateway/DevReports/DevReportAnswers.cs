@@ -15,11 +15,10 @@ namespace CcDirector.Gateway.DevReports;
 /// the session that published the report is gone. The answer cannot be typed into it; it is stored
 /// (<see cref="DevReportItemStates.SavedState"/>) and the next run - a different session - reads it here.
 ///
-/// HOW THE NEXT RUN FINDS THE REPORT. By its id, always; or by its KEY, the report file's path, across every session of
-/// the account. A factory seat publishes the same file every run, so the key is the seat's identity across runs - and,
-/// unlike the factory and seat columns on the session record, which only a DEFINED factory's seat carries, every report
-/// has one. A key read returns the newest report under that key, plus every older one still holding an item no session
-/// has marked acted on, so an answer left on run N's report is not hidden by run N+1 publishing again.
+/// HOW THE NEXT RUN FINDS THE REPORT. By its id, always; or by its KEY, the report file's path. A key read from a
+/// factory seat is narrowed to reports from that same factory and seat. Scheduled sessions carry that identity in
+/// session history; older scheduled sessions can still be resolved through their run record. A key read returns the
+/// newest matching report plus every older one still holding an item no session has marked acted on.
 ///
 /// WHO MAY READ. A session of the same account - any session, not only the one that published, which is the point. In a
 /// team's tenant a report is a person's (<see cref="DevReportAuthor"/>), so a session reads only the reports of the person
@@ -29,21 +28,26 @@ namespace CcDirector.Gateway.DevReports;
 /// </summary>
 internal sealed class DevReportAnswers
 {
-    /// <summary>The most reports one key read returns.</summary>
-    public const int MaxReportsPerKey = 20;
-
     /// <summary>The most item ids one acted-on mark may name.</summary>
     public const int MaxAckItems = 500;
 
     private readonly DevReportStore _store;
     private readonly Func<TenantId, string, DevReportAuthorAnswer> _author;
+    private readonly Func<TenantId, string, DevReportFactorySeatIdentity?> _factorySeatOf;
+    private readonly Func<TenantId, string, DevReportSessionLiveness> _sessionLiveness;
     private readonly Func<DateTime> _nowUtc;
 
     /// <param name="author">Who the calling session's Director belongs to in this tenant - <see cref="DevReportAuthor.Resolve"/>.</param>
-    public DevReportAnswers(DevReportStore store, Func<TenantId, string, DevReportAuthorAnswer> author, Func<DateTime>? nowUtc = null)
+    /// <param name="factorySeatOf">The stable factory and seat of a session, or null when it is not a seat.</param>
+    /// <param name="sessionLiveness">The Gateway's current reach to a session, used to take over claims only after it ended.</param>
+    public DevReportAnswers(DevReportStore store, Func<TenantId, string, DevReportAuthorAnswer> author,
+        Func<TenantId, string, DevReportFactorySeatIdentity?> factorySeatOf,
+        Func<TenantId, string, DevReportSessionLiveness> sessionLiveness, Func<DateTime>? nowUtc = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _author = author ?? throw new ArgumentNullException(nameof(author));
+        _factorySeatOf = factorySeatOf ?? throw new ArgumentNullException(nameof(factorySeatOf));
+        _sessionLiveness = sessionLiveness ?? throw new ArgumentNullException(nameof(sessionLiveness));
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
     }
 
@@ -60,17 +64,53 @@ internal sealed class DevReportAnswers
         List<DevReportEntity> reports;
         if (hasReport)
         {
-            if (Find(tenant, reportId!, person.Subject) is not { } report) return NotFound(reportId!);
+            var id = reportId ?? "";
+            if (Find(tenant, id, person.Subject) is not { } report) return NotFound(id);
             reports = [report];
         }
         else
         {
-            reports = Select(tenant, _store.ListByKey(tenant, key!, person.Subject));
+            var seat = _factorySeatOf(tenant, callerSessionId);
+            var matching = _store.ListByKey(tenant, key ?? "", person.Subject, seat);
+            if (seat is not null)
+                matching = matching.Where(r => MatchesSeat(tenant, r, seat)).ToList();
+            reports = Select(tenant, matching);
         }
 
         var views = reports.Select(r => View(tenant, r, _store.Items(tenant, r.Id))).ToList();
         FileLog.Write($"[DevReportAnswers] Read: sid={callerSessionId} reports={views.Count}");
         return Results.Json(new { count = views.Count, reports = views });
+    }
+
+    /// <summary>Claim the report's currently unacted-on owner items before the calling session acts on them.</summary>
+    public IResult Claim(TenantId tenant, string callerSessionId, string callerDirectorId, string reportId,
+        IReadOnlyList<string>? itemIds)
+    {
+        FileLog.Write($"[DevReportAnswers] Claim: tenant={tenant.ToLogString()} sid={callerSessionId} report={reportId} items={itemIds?.Count.ToString() ?? "(all)"}");
+        if (itemIds is { Count: > MaxAckItems })
+            return Error(400, "too_many_items", $"An action claim may name at most {MaxAckItems} items; it named {itemIds.Count}.");
+        if (Person(tenant, callerDirectorId) is not { } person) return UnknownPerson();
+        if (Find(tenant, reportId, person.Subject) is not { } report) return NotFound(reportId);
+
+        var view = View(tenant, report, _store.Items(tenant, report.Id));
+        var eligible = UnactedItemIds(view);
+        if (itemIds is not null)
+            eligible = eligible.Where(id => itemIds.Contains(id)).ToList();
+
+        var endedClaimers = new List<string>();
+        foreach (var claimedBy in _store.ActionClaimSessions(tenant, report.Id, eligible, callerSessionId))
+            if (_sessionLiveness(tenant, claimedBy).Reach == DevReportSessionReach.Ended)
+                endedClaimers.Add(claimedBy);
+
+        var claimed = _store.ClaimUnactedItems(tenant, report.Id, eligible, callerSessionId, endedClaimers, _nowUtc());
+        view = View(tenant, report, _store.Items(tenant, report.Id));
+        FileLog.Write($"[DevReportAnswers] Claim: report={report.Id} sid={callerSessionId} claimed={claimed.Count}");
+        return Results.Json(new
+        {
+            claimed = claimed.Select(i => new { itemId = i.ClientItemId, kind = i.Kind, questionId = i.Kind == DevReportItem.Answer ? i.QuestionId : null }).ToList(),
+            count = 1,
+            reports = new[] { view },
+        });
     }
 
     /// <summary>
@@ -85,7 +125,10 @@ internal sealed class DevReportAnswers
         if (Person(tenant, callerDirectorId) is not { } person) return UnknownPerson();
         if (Find(tenant, reportId, person.Subject) is not { } report) return NotFound(reportId);
 
-        var marked = _store.MarkActedOn(tenant, report.Id, itemIds, callerSessionId, _nowUtc());
+        var eligible = UnactedItemIds(View(tenant, report, _store.Items(tenant, report.Id)));
+        if (itemIds is not null)
+            eligible = eligible.Where(id => itemIds.Contains(id)).ToList();
+        var marked = _store.MarkActedOn(tenant, report.Id, eligible, callerSessionId, _nowUtc());
         var view = View(tenant, report, _store.Items(tenant, report.Id));
         FileLog.Write($"[DevReportAnswers] Ack: report={report.Id} sid={callerSessionId} marked={marked.Count}");
         return Results.Json(new
@@ -122,7 +165,7 @@ internal sealed class DevReportAnswers
 
         var notes = owners.Where(i => i.Kind == DevReportItem.Note).OrderBy(i => i.Sequence)
             .Select(n => new NoteView(n.ClientItemId, n.Text, Quote(n.AnchorJson), n.SentAtUtc, n.Status, n.StatusLabel,
-                n.ActedOnAtUtc, n.ActedOnSessionId))
+                n.ActedOnAtUtc, n.ActedOnSessionId, n.ActionClaimedAtUtc, n.ActionClaimedSessionId))
             .ToList();
 
         var notActedOn = questions.Count(q => q.Answered && q.ActedOnAtUtc is null) + notes.Count(n => n.ActedOnAtUtc is null);
@@ -133,9 +176,18 @@ internal sealed class DevReportAnswers
 
     private static QuestionAnswerView Question(string id, string text, bool inLatestVersion, DevReportItemEntity? answer)
         => answer is null
-            ? new QuestionAnswerView(id, text, inLatestVersion, false, null, null, null, null, null, null, null, null, null)
+            ? new QuestionAnswerView(id, text, inLatestVersion, false, null, null, null, null, null, null, null, null, null, null, null)
             : new QuestionAnswerView(id, text, inLatestVersion, true, answer.ClientItemId, answer.OptionValue, answer.OptionLabel,
-                answer.Comment, answer.SentAtUtc, answer.Status, answer.StatusLabel, answer.ActedOnAtUtc, answer.ActedOnSessionId);
+                answer.Comment, answer.SentAtUtc, answer.Status, answer.StatusLabel, answer.ActedOnAtUtc, answer.ActedOnSessionId,
+                answer.ActionClaimedAtUtc, answer.ActionClaimedSessionId);
+
+    private static List<string> UnactedItemIds(ReportAnswersView view)
+    {
+        var ids = view.Questions.Where(q => q.Answered && q.ActedOnAtUtc is null)
+            .Select(q => q.ItemId)
+            .Concat(view.Notes.Where(n => n.ActedOnAtUtc is null).Select(n => n.ItemId));
+        return ids.OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+    }
 
     private static string? Quote(string? anchorJson)
     {
@@ -148,10 +200,10 @@ internal sealed class DevReportAnswers
     private List<DevReportEntity> Select(TenantId tenant, IReadOnlyList<DevReportEntity> underKey)
     {
         var chosen = new List<DevReportEntity>();
-        for (var i = 0; i < underKey.Count && chosen.Count < MaxReportsPerKey; i++)
+        for (var i = 0; i < underKey.Count; i++)
         {
             var report = underKey[i];
-            if (i == 0 || _store.Items(tenant, report.Id).Any(it => it.AnswererSubject is null && it.ActedOnAtUtc is null))
+            if (i == 0 || View(tenant, report, _store.Items(tenant, report.Id)).NotActedOn > 0)
                 chosen.Add(report);
         }
         return chosen;
@@ -177,6 +229,14 @@ internal sealed class DevReportAnswers
         return report;
     }
 
+    private bool MatchesSeat(TenantId tenant, DevReportEntity report, DevReportFactorySeatIdentity expected)
+    {
+        if (report.Factory is null && report.FactorySeat is null)
+            return expected.Matches(_factorySeatOf(tenant, report.SessionId));
+        return string.Equals(report.Factory, expected.Factory, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(report.FactorySeat, expected.Seat, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IResult UnknownPerson()
         => Error(403, "report_author_unknown",
             "DevThrottle cannot tell which member of the team this session belongs to, so it reads no report's answers inside the team.");
@@ -199,9 +259,19 @@ internal sealed record ReportAnswersView(
 /// <summary>One question and the owner's latest answer to it, or <c>Answered</c> false.</summary>
 internal sealed record QuestionAnswerView(
     string Id, string Question, bool InLatestVersion, bool Answered, string? ItemId, string? OptionValue, string? OptionLabel,
-    string? Comment, DateTime? AnsweredAtUtc, string? Status, string? StatusLabel, DateTime? ActedOnAtUtc, string? ActedOnSessionId);
+    string? Comment, DateTime? AnsweredAtUtc, string? Status, string? StatusLabel, DateTime? ActedOnAtUtc,
+    string? ActedOnSessionId, DateTime? ActionClaimedAtUtc, string? ActionClaimedSessionId);
 
 /// <summary>One of the owner's notes on the report, with the words it was anchored to.</summary>
 internal sealed record NoteView(
     string ItemId, string Text, string? Quote, DateTime AtUtc, string Status, string StatusLabel,
-    DateTime? ActedOnAtUtc, string? ActedOnSessionId);
+    DateTime? ActedOnAtUtc, string? ActedOnSessionId, DateTime? ActionClaimedAtUtc, string? ActionClaimedSessionId);
+
+/// <summary>The stable identity shared by runs of one factory seat.</summary>
+internal sealed record DevReportFactorySeatIdentity(string Factory, string Seat)
+{
+    public bool Matches(DevReportFactorySeatIdentity? other)
+        => other is not null
+           && string.Equals(Factory, other.Factory, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(Seat, other.Seat, StringComparison.OrdinalIgnoreCase);
+}

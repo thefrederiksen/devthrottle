@@ -1330,6 +1330,8 @@ public sealed class GatewayDbContext : DbContext
             b.ToTable("dev_reports");
             b.HasKey(e => e.Id);
             b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.FactorySeat).HasMaxLength(64);
             b.Property(e => e.Status).HasMaxLength(32);
             // Publishing the same key again for the same session is a new version of the same report, never a
             // second report - so the natural key is unique, led by the tenant.
@@ -1357,6 +1359,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Kind).HasMaxLength(16);
             b.Property(e => e.Status).HasMaxLength(32);
             b.Property(e => e.ActedOnSessionId).HasMaxLength(64);
+            b.Property(e => e.ActionClaimedSessionId).HasMaxLength(64);
             // The client item id is the idempotency key: an id already accepted is the same item.
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
             // A turn end drains everything held for one session, across its reports.
@@ -2813,6 +2816,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<DevReportItemEntity>().Property(e => e.AnswererSubject).UseCollation("C");
             // the session that marked an owner's item acted on (Factories Run Alone), a session id like the one above.
             modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ActedOnSessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ActionClaimedSessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.FactorySeat).UseCollation("C");
             // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
             // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
             modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");
