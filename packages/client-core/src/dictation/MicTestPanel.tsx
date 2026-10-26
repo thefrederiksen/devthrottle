@@ -188,7 +188,7 @@ export function MicTestPanel({ className }: MicTestPanelProps) {
     const tick = () => {
       const active = recorderRef.current;
       if (active === null) return;
-      setLevel(active.level());
+      setLevel(active.displayLevel());
       setElapsed((performance.now() - startedAtRef.current) / 1000);
       frameRef.current = requestAnimationFrame(tick);
     };

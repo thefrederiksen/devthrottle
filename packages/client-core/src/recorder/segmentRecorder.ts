@@ -20,7 +20,7 @@
 // The live level meter reuses the dictation recorder's RMS math (display-only, never touches the
 // captured audio).
 
-import { rmsLevel } from "../dictation/recorder";
+import { peakBandLevel } from "../dictation/recorder";
 
 /** Fixed segment length, matching the Android recorder's one-minute rotation. */
 export const SEGMENT_MS = 60_000;
@@ -28,8 +28,10 @@ export const SEGMENT_MS = 60_000;
 /** How long to wait for the microphone to open before failing loudly (see dictation/recorder.ts). */
 const MIC_OPEN_TIMEOUT_MS = 8000;
 
-// The equalizer time window (see dictation/recorder.ts LEVEL_FFT_SIZE).
-const LEVEL_FFT_SIZE = 512;
+// The analysis window for the level meter. 2048, matching dictation/recorder.ts, because the band
+// calibration the meter is read through only holds at that window's frequency resolution - this
+// page's bar and the dictation dialog's bars must mean the same thing.
+const LEVEL_FFT_SIZE = 2048;
 
 // Pick a MediaRecorder container the browser actually supports, preferring Opus-in-WebM (what every
 // Chromium/Firefox phone produces). Exported for tests.
@@ -83,7 +85,7 @@ export class SegmentRecorder {
   private mimeType = "";
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private levelData: Uint8Array | null = null;
+  private levelData: Float32Array | null = null;
   private rotateTimer: ReturnType<typeof setTimeout> | null = null;
 
   private nextIndex = 0;
@@ -127,11 +129,18 @@ export class SegmentRecorder {
     return this.audioCtx?.sampleRate ?? 48000;
   }
 
-  /** Current input level in 0..1, sampled live from the waveform. 0 when idle or paused. */
-  level(): number {
+  /**
+   * Current input level in 0..1 for the on-screen meter. 0 when idle or paused.
+   *
+   * Read through the same band calibration as the dictation dialog's equalizer, so a given voice
+   * fills this page's bar by the same amount it fills the tallest bar there. It used to be a raw
+   * loudness on a linear scale, which only looked right on a microphone held close to the mouth and
+   * drew a stub for anything further away. Display-only: it never touches the captured audio.
+   */
+  displayLevel(): number {
     if (this.analyser === null || this.levelData === null || this.paused) return 0;
-    this.analyser.getByteTimeDomainData(this.levelData);
-    return rmsLevel(this.levelData);
+    this.analyser.getFloatTimeDomainData(this.levelData);
+    return peakBandLevel(this.levelData, this.audioCtx?.sampleRate ?? 48000);
   }
 
   /** Open the microphone and begin capturing. Fails loudly if the mic does not open in time. */
@@ -238,7 +247,7 @@ export class SegmentRecorder {
     this.analyser = this.audioCtx.createAnalyser();
     this.analyser.fftSize = LEVEL_FFT_SIZE;
     source.connect(this.analyser);
-    this.levelData = new Uint8Array(this.analyser.fftSize);
+    this.levelData = new Float32Array(this.analyser.fftSize);
 
     if (this.mimeType === "") this.mimeType = pickMimeType();
   }

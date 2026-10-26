@@ -110,6 +110,21 @@ const fftRe = new Float64Array(LEVEL_FFT_SIZE);
 const fftIm = new Float64Array(LEVEL_FFT_SIZE);
 
 /**
+ * One 0..1 loudness for a simple level meter, off the SAME calibration as the equalizer's bars: the
+ * tallest band. A screen showing a single bar and a screen showing nine must agree about how loud a
+ * given voice is, or the two are measuring different things and the user is right to distrust both.
+ *
+ * This is for DISPLAY. It is gated like the bars are, so a quiet room reads zero - which is why it is
+ * not the reading the liveness alarm uses. See rmsLevel and MicRecorder.level() for that.
+ */
+export function peakBandLevel(samples: Float32Array, sampleRate: number): number {
+  const bands = computeBands(samples, sampleRate);
+  let peak = 0;
+  for (const b of bands) if (b > peak) peak = b;
+  return peak;
+}
+
+/**
  * Turn a window of the live waveform into nine 0..1 bar heights - a genuine spectrum, so each bar is
  * driven by a different part of the voice and they move independently.
  *
@@ -488,6 +503,17 @@ export class MicRecorder {
     if (this.audioCtx !== null && this.audioCtx.state === "suspended") void this.audioCtx.resume();
     this.analyser.getFloatTimeDomainData(this.bandData);
     return computeBands(this.bandData, this.audioCtx?.sampleRate ?? 48000);
+  }
+
+  /**
+   * One 0..1 loudness for the simple level meters (the Test microphone and Test transcription
+   * screens), off the same calibration as the equalizer's bars so a given voice fills those meters
+   * by the same amount as it fills the tallest bar in the dictation dialog. Display-only.
+   */
+  displayLevel(): number {
+    let peak = 0;
+    for (const b of this.bands()) if (b > peak) peak = b;
+    return peak;
   }
 
   /** Current input level in 0..1, sampled live from the waveform. Returns 0 when not recording. */

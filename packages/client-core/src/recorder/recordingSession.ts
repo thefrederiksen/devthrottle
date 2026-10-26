@@ -247,8 +247,8 @@ export const recordingSession = {
   segmentCount(): number {
     return recorder?.segmentCount ?? 0;
   },
-  level(): number {
-    return recorder?.level() ?? 0;
+  displayLevel(): number {
+    return recorder?.displayLevel() ?? 0;
   },
   /** True whenever a capture exists in ANY non-idle phase - including starting (the durable shell
    *  may exist) and stopping (the final segment may still be flushing to disk). The service-worker

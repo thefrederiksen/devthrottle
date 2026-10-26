@@ -191,18 +191,25 @@ describe("the dictation equalizer", () => {
     for (let i = 0; i < 9; i++) expect(Math.abs(after[i] - before[i])).toBeLessThan(2);
   });
 
+  // While recording, Pause renders as a bare glyph - two bars, no text - so without a label it
+  // reached a screen reader as an unnamed button sitting between Cancel and Send.
+  it("gives the Pause control an accessible name that says what pressing it does", async () => {
+    await openRecording();
+    const pause = screen.getByRole("button", { name: "Pause recording" });
+    expect(pause).toBeTruthy();
+
+    pause.click();
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Resume recording" })).toBeTruthy();
+  });
+
   it("parks the bars on the floor when the microphone is not capturing", async () => {
     await openRecording();
     for (let i = 0; i < 40; i++) await tick();
     expect(Math.max(...barHeights())).toBeGreaterThan(50);
 
     // Pause stops capture; the meter must stop dancing rather than freeze mid-bounce.
-    // Selected by class rather than by accessible name: while recording the Pause control renders as
-    // a bare glyph with no text and no aria-label, so it has no accessible name to query by. That is
-    // a real gap, but it belongs to the buttons and not to the meter, so it is not fixed here.
-    const pause = document.querySelector<HTMLButtonElement>(".dictate-pause");
-    expect(pause).not.toBeNull();
-    pause?.click();
+    screen.getByRole("button", { name: "Pause recording" }).click();
     await act(async () => {});
     await tick();
     expect(barHeights().every((h) => h === 8)).toBe(true);

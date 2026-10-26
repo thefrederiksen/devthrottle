@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MicRecorder, computeBands, rmsLevel, STOP_TAIL_MS } from "./recorder";
+import { MicRecorder, computeBands, peakBandLevel, rmsLevel, STOP_TAIL_MS } from "./recorder";
 
 // snapshotFlushed() is the tail-loss fix for the turn-taking paths (Car Mode "Over and out" and the
 // end-phrase watch): a bare snapshot() only sees chunks MediaRecorder has already delivered, so the
@@ -280,6 +280,21 @@ describe("computeBands - parity with the Director's meter", () => {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
     }
+  });
+
+  // The single-bar meters (Test microphone, Test transcription, the mobile recorder page) read this
+  // instead of a raw loudness, so that a given voice fills a one-bar meter by the same amount it
+  // fills the tallest bar of the nine. Before, those screens were on the old linear scale while the
+  // dictation dialog was on this one, which is two screens disagreeing about the same microphone.
+  it("gives the one-bar meters the same reading as the tallest bar", () => {
+    for (const db of [-42, -32, -26, -20, -14]) {
+      const w = voice(db);
+      expect(peakBandLevel(w, SR)).toBe(Math.max(...computeBands(w, SR)));
+    }
+  });
+
+  it("reads a silent window as zero for the one-bar meters too", () => {
+    expect(peakBandLevel(new Float32Array(2048), SR)).toBe(0);
   });
 
   // The band edges are frequencies, not bin numbers, so a device running at another rate must put the

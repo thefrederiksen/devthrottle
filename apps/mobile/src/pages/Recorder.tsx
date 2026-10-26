@@ -203,7 +203,7 @@ export function Recorder() {
     const t = setInterval(() => {
       setElapsedMs(recordingSession.elapsedMs());
       setSegmentCount(recordingSession.segmentCount());
-      setLevel(recordingSession.level());
+      setLevel(recordingSession.displayLevel());
     }, TICK_MS);
     return () => clearInterval(t);
   }, [phase]);
