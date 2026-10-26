@@ -163,6 +163,13 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         }));
     }
 
+    // A Director that is connected and never answers in time: every command comes back as a timeout.
+    private void TheDirectorTimesOut()
+    {
+        _directorAnswers = true;
+        _directors.AnswerWith(_ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "The Director did not answer within 60 seconds."));
+    }
+
     private void TheDirectorAdds()
     {
         _directorAnswers = true;
@@ -473,10 +480,10 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Equal(2, _emails.Count);
     }
 
-    // At 97% while the Gateway is signing machine-a in itself: the stranded alarm owns the machine and is held back, so the
-    // five-hour alarm stands down too - nothing is loud while the Gateway repairs it.
+    // At 97% while the Gateway is signing machine-a in itself: the stranded alarm is held back, so it owns nothing, and the
+    // five-hour alarm keeps its one line saying what is being done (the second review's ruling: never none).
     [Fact]
-    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens()
+    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_OnlyTheFiveHourAlarmIsOpen()
     {
         TheApproverCanApprove();
         _aFiveHour = 97;
@@ -486,9 +493,90 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         var tick = await Tick();
 
         Assert.Single(tick.Started);
-        Assert.Empty(_alarms.ListOpen(One));
-        Assert.Empty(_emails);
-        Assert.Empty(_pushed);
+        Assert.Empty(Stranded());
+        var line = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(LicenseReadinessFold.AlarmKind.Key, line.Kind);
+        Assert.StartsWith("Nothing to do yet: DevThrottle is signing it in", line.Action);
+        Assert.Single(_emails);
+        Assert.Single(_pushed);
+    }
+
+    // ----- the second review: a Director that is connected and never answers -----
+
+    // machine-a's Director is connected and answers every command with a timeout, as the Mac Mini's did on 26 October
+    // (issue #4490). The sign-in the Gateway starts is marked unknown at once; the minute settle asks again every minute
+    // and settles nothing. That sign-in is not running as far as anyone can tell, so it is no repair: the stranded alarm
+    // opens on the next check, says the sign-in got no answer, and stays open - one email - for days.
+    [Fact]
+    public async Task Tick_ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndStays()
+    {
+        TheApproverCanApprove();
+        TheDirectorTimesOut();
+        BothReport();
+        var first = await Tick();
+        Assert.Single(first.Started);
+        Assert.Empty(Stranded());
+
+        foreach (var minutes in new[] { 1, 16, 60, 180, 1500, 5000 })
+        {
+            Later(minutes);
+            await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
+            await Tick();
+            Assert.Equal(LicenseLogStates.Unknown, Assert.Single(_log.ListOpen(One)).State);
+            var alarm = Assert.Single(Stranded());
+            Assert.Equal("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer from "
+                         + "the machine, so restart the Director on machine-a.", alarm.Action);
+        }
+        Assert.Single(_emails);
+        Assert.Single(_pushed);
+    }
+
+    // A sign-in still pending, with no answer, for longer than the sign-in service waits before settling one is not running
+    // either: the alarm holds back for that wait and opens after it.
+    [Fact]
+    public async Task Tick_ASignInPendingLongerThanTheUnansweredWait_IsNoRepair_TheAlarmOpens()
+    {
+        TheApproverCanApprove();
+        BothReport();
+        await Tick();
+
+        Later(14);
+        await Tick();
+        Assert.Empty(Stranded());
+
+        Later(16);
+        await Tick();
+
+        Assert.Equal(LicenseLogStates.Pending, Assert.Single(_log.ListOpen(One)).State);
+        Assert.Single(Stranded());
+        Assert.Single(_emails);
+    }
+
+    // The 80-to-97 shape with that deaf Director, five-hour window only: at 85% the five-hour alarm tells the owner that a
+    // sign-in is running; at 97% that line closes as the stranded alarm opens and says it got no answer. Exactly one line
+    // on every check from then on - never two, never none - and two pushes in that order.
+    [Fact]
+    public async Task Tick_From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain()
+    {
+        TheApproverCanApprove();
+        TheDirectorTimesOut();
+        _aFiveHour = 85;
+        _aWeekly = 50;
+        BothReport();
+        await Tick();
+        Assert.Single(FiveHour());
+
+        _aFiveHour = 97;
+        foreach (var minutes in new[] { 5, 16, 30, 90 })
+        {
+            Later(minutes);
+            await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
+            await Tick();
+            var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
+            Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
+        }
+        Assert.Equal(new[] { LicenseReadinessFold.AlarmKind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
+        Assert.Equal(2, _emails.Count);
     }
 
     // ----- what it is not -----

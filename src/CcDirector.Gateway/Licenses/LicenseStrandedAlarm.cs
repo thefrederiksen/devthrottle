@@ -26,17 +26,22 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// LOUD ONLY ABOUT WHAT THE GATEWAY CANNOT REPAIR (the Tech Lead's ruling on the review of step 1). The readiness check
 /// starts a sign-in by itself for a machine that is not ready, when it can. While that repair is starting, running, or
-/// has just ended well and waits for the machine's next report (<see cref="Repairing"/>), the alarm does not open: it
+/// has just ended well and waits for the machine's next report (<see cref="IsRepairing"/>), the alarm does not open: it
 /// opens only once readiness says no automatic fix is possible (the approver cannot approve, the Director is offline)
-/// or the fix failed (the last sign-in failed, or sign-ins end well and the reports still do not show them). Its one
-/// thing to do is the readiness check's own sentence for that machine (<see cref="LicenseMachineReadiness.AlarmAction"/>),
-/// so the alarm never tells the owner to do by hand what the Gateway is doing, nor something the Gateway did not say. An
-/// alarm already open stays open while a later retry runs: a retry is not yet a fix.
+/// or the fix failed (the last sign-in failed, sign-ins end well and the reports still do not show them, or the sign-in
+/// got no answer from the machine). "Running" is bounded: a sign-in whose send got no answer, or that is older than
+/// <see cref="LicenseSignInService.UnansweredAfter"/>, is not a repair (the second review: a Director that is connected
+/// and never answers kept one open for days). Its one thing to do is the readiness check's own sentence for that machine
+/// (<see cref="LicenseMachineReadiness.AlarmAction"/>), except for a sign-in that got no answer, where it says so; so the
+/// alarm never tells the owner to do by hand what the Gateway is doing, nor something the Gateway did not say. An alarm
+/// already open stays open while a later retry runs: a retry is not yet a fix.
 ///
-/// ONE MACHINE, ONE FAULT, ONE ALARM (the same ruling). From the threshold up this alarm owns the machine: the five-hour
-/// readiness alarm stands down for every machine the engine names stranded, repaired or not, and for every machine whose
-/// stranded alarm is open (<see cref="StandDown"/>). So at 80% of the five-hour window the owner hears once, and at 97%
-/// the five-hour line closes and this one opens - the "again" of the owner's decision D1 - never two lines at once.
+/// ONE MACHINE, ONE FAULT, ONE LINE (the same ruling, and its second form). From the threshold up this alarm owns the
+/// machine once it is OPEN: the five-hour readiness alarm stands down for every machine whose stranded alarm is open
+/// (<see cref="StandDown"/>), and for no other. While the stranded alarm is held back because the Gateway is repairing,
+/// the five-hour alarm, if its window is high, keeps its line and says what is being done. So at 80% of the five-hour
+/// window the owner hears once, and at 97% the five-hour line closes as this one opens - the "again" of the owner's
+/// decision D1 - never two lines at once, and never none for a machine that is stuck.
 ///
 /// Only the stranded machine is loud. An account near or at its limit with every machine on it ready raises nothing
 /// (the ruling of 17 October 2026, issue #4249).
@@ -46,12 +51,32 @@ public static class LicenseStrandedAlarm
     /// <summary>The kind every stranded machine's alarm is raised under.</summary>
     public static readonly LicenseAlarmKind Kind = new("stranded-on-full-account", "Stuck on a full account");
 
-    /// <summary>The readiness fixes that mean the Gateway is repairing the machine itself now: a sign-in starting on
-    /// this check, one running, or one that ended well and waits for the machine's next report.</summary>
-    public static readonly IReadOnlySet<string> Repairing = new HashSet<string>(StringComparer.Ordinal)
+    /// <summary>
+    /// True when the Gateway is repairing the machine itself now, so the alarm holds back: a sign-in starts on this check,
+    /// or one ended well and waits for the machine's next report, or one is RUNNING - its row still <c>pending</c> and
+    /// younger than <see cref="LicenseSignInService.UnansweredAfter"/>. A sign-in whose send got no answer (<c>unknown</c>)
+    /// or that has been open longer than that is not running as far as anyone can tell: a connected Director that never
+    /// answers (issue #4490) keeps such a row open for good, and "signing-in" on it would hold the alarm back for days
+    /// (the second review of step 1).
+    /// </summary>
+    public static bool IsRepairing(LicenseMachineReadiness judgement, IReadOnlyList<LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
     {
-        LicenseReadinessFixes.StartNow, LicenseReadinessFixes.SigningIn, LicenseReadinessFixes.AwaitingReport,
-    };
+        ArgumentNullException.ThrowIfNull(judgement);
+        ArgumentNullException.ThrowIfNull(openSignIns);
+        return judgement.Fix switch
+        {
+            LicenseReadinessFixes.StartNow or LicenseReadinessFixes.AwaitingReport => true,
+            LicenseReadinessFixes.SigningIn => Running(judgement, openSignIns) is { } row
+                                               && row.State == LicenseLogStates.Pending
+                                               && nowUtc - Utc(row.CreatedAtUtc) < LicenseSignInService.UnansweredAfter,
+            _ => false,
+        };
+    }
+
+    // The sign-in the readiness fold calls running for this machine and account: the oldest open row, the same read.
+    private static LicenseSwitchLogEntity? Running(LicenseMachineReadiness judgement, IReadOnlyList<LicenseSwitchLogEntity> openSignIns)
+        => openSignIns.Where(r => r.MachineId == judgement.MachineId && r.ToAccountEmail == judgement.TargetAccountEmail)
+            .OrderBy(r => r.CreatedAtUtc).FirstOrDefault();
 
     /// <summary>
     /// The stranded alarms that are true now: one for each stranded machine, and one for each machine whose alarm is open
@@ -61,14 +86,18 @@ public static class LicenseStrandedAlarm
     /// <param name="machines">The picture's machines with their ids (<see cref="LicenseOverview.Machines"/>).</param>
     /// <param name="judged">The readiness check's judgement of every machine on this same picture
     /// (<see cref="LicenseReadinessFold.Judge"/>): whether the Gateway is repairing a machine, and the one thing to do.</param>
+    /// <param name="openSignIns">The tenant's sign-in rows that have not ended (<see cref="LicenseSignInLog.ListOpen"/>):
+    /// whether a sign-in the readiness fold calls running is still running (<see cref="IsRepairing"/>).</param>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
     /// <see cref="Kind"/> are looked at.</param>
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseAlarmEntity> openAlarms)
+        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
+        IReadOnlyList<LicenseAlarmEntity> openAlarms)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(judged);
+        ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(openAlarms);
         var conditions = new List<LicenseAlarmCondition>();
         foreach (var stranded in LicenseDecisionEngine.StrandedMachines(snapshot))
@@ -83,9 +112,14 @@ public static class LicenseStrandedAlarm
                     $"Stranded machine {machine.MachineId:N} has no readiness judgement for {stranded.NeededAccountEmail}.");
             var isOpen = openAlarms.Any(a => a.Kind == Kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
                                              && a.AccountEmail == stranded.AccountEmail);
-            if (!isOpen && judgement.Fix is { } fix && Repairing.Contains(fix))
+            var repairing = IsRepairing(judgement, openSignIns, snapshot.NowUtc);
+            if (!isOpen && repairing)
                 continue; // the Gateway is signing it in itself: nothing for the owner to do yet
-            var action = judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
+            // A sign-in the fold calls running that got no answer: the fold's "nothing to do yet" would be untrue.
+            var action = judgement.Fix == LicenseReadinessFixes.SigningIn && !repairing
+                ? Unanswered(label, Running(judgement, openSignIns)
+                                    ?? throw new InvalidOperationException("A machine that is signing in has no open sign-in row."))
+                : judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
             conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, Problem(label, stranded), action));
         }
 
@@ -137,24 +171,39 @@ public static class LicenseStrandedAlarm
             : $"{label} is stuck on an account that is out of room and cannot switch to the account it needs; the Licenses page names both.";
     }
 
+    // The one thing to do when the Gateway's own sign-in got no answer: the machine's Director is not answering.
+    private static string Unanswered(string label, LicenseSwitchLogEntity row)
+    {
+        var action = $"The sign-in to {row.ToAccountEmail} that DevThrottle sent to {label} at {Clock(row.CreatedAtUtc)} got no "
+                     + $"answer from the machine, so restart the Director on {label}.";
+        return action.Length <= LicenseAlarmService.MaxSentenceLength
+            ? action
+            : $"The sign-in DevThrottle sent to {label} at {Clock(row.CreatedAtUtc)} got no answer from the machine, so restart its Director.";
+    }
+
     /// <summary>
-    /// The five-hour readiness alarms that may still be raised: every one EXCEPT those for a machine and account this
-    /// alarm owns - a machine the engine names stranded now, whether or not its alarm is held back while the Gateway
-    /// repairs it, and a machine whose stranded alarm stays open (<paramref name="stranded"/>). One machine, one fault,
-    /// one alarm (the class summary). Pure.
+    /// The five-hour readiness alarms that may still be raised: every one EXCEPT those for a machine and account whose
+    /// stranded alarm is open after this check (<paramref name="stranded"/>, the conditions this check raises). A stranded
+    /// machine whose alarm is held back while the Gateway repairs it keeps its five-hour alarm, so a stuck machine always
+    /// has exactly one line, never two and never none (the Tech Lead's ruling on the second review). Pure.
     /// </summary>
-    public static IReadOnlyList<LicenseAlarmCondition> StandDown(IReadOnlyList<LicenseAlarmCondition> fiveHour, LicenseSnapshot snapshot,
-        IReadOnlyList<LicenseMachineView> machines, IReadOnlyList<LicenseAlarmCondition> stranded)
+    public static IReadOnlyList<LicenseAlarmCondition> StandDown(IReadOnlyList<LicenseAlarmCondition> fiveHour,
+        IReadOnlyList<LicenseAlarmCondition> stranded)
     {
         ArgumentNullException.ThrowIfNull(fiveHour);
-        ArgumentNullException.ThrowIfNull(snapshot);
-        ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(stranded);
         var owned = new HashSet<(Guid?, string?)>(stranded.Select(c => (c.MachineId, Normalize(c.AccountEmail))));
-        foreach (var named in LicenseDecisionEngine.StrandedMachines(snapshot))
-            owned.Add((machines.Single(m => SameMachine(m, named.MachineName, named.OsUser)).MachineId, named.AccountEmail));
         return fiveHour.Where(c => !owned.Contains((c.MachineId, Normalize(c.AccountEmail)))).ToList();
     }
+
+    private static string Clock(DateTime utc) => Utc(utc).ToString("HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static DateTime Utc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        _ => value.ToUniversalTime(),
+    };
 
     private static string? Normalize(string? email) => email is null ? null : LicenseStore.NormalizeEmail(email);
 
