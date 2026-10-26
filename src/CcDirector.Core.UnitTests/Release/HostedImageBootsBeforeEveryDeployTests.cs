@@ -25,7 +25,8 @@ public sealed class HostedImageBootsBeforeEveryDeployTests
     [Fact]
     public void DeployWorkflow_BootsTheBuiltImage_AfterTheDigestAndBeforeTheProductionPin()
     {
-        var workflow = File.ReadAllText(Path.Combine(RepoRoot(), ".github", "workflows", "deploy-hosted-gateway.yml"));
+        // Line endings are normalised so a Windows checkout that converts them reads the same text.
+        var workflow = File.ReadAllText(Path.Combine(RepoRoot(), ".github", "workflows", "deploy-hosted-gateway.yml")).Replace("\r\n", "\n");
 
         var digestAt = workflow.IndexOf(DigestStepName, StringComparison.Ordinal);
         var bootAt = workflow.IndexOf(BootStepName, StringComparison.Ordinal);
@@ -46,13 +47,16 @@ public sealed class HostedImageBootsBeforeEveryDeployTests
 
         // It boots the image this run built, by digest, and expects this run's commit.
         Assert.Contains("@${{ steps.digest.outputs.digest }}", step, StringComparison.Ordinal);
-        Assert.Contains($"bash {ScriptPath} \"$IMAGE\" \"${{{{ steps.short.outputs.short }}}}\"", step, StringComparison.Ordinal);
+        // The run line is the whole line, so a trailing `|| true` cannot make the step unable to fail.
+        var runLines = Regex.Matches(step, @"^        run: (.*)$", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(new[] { $"bash {ScriptPath} \"$IMAGE\" \"${{{{ steps.short.outputs.short }}}}\"" }, runLines);
     }
 
     [Fact]
     public void BootScript_PassConditionIsThreeConsecutiveHealthyAnswersCarryingTheCommit()
     {
-        var script = File.ReadAllText(Path.Combine(RepoRoot(), ScriptPath));
+        var root = RepoRoot();
+        var script = File.ReadAllText(Path.Combine(root, ScriptPath)).Replace("\r\n", "\n");
 
         // The contract is satisfied, not bypassed: hosted on, an https public URL, a real database, and neither
         // auth-disable flag set anywhere.
@@ -77,6 +81,14 @@ public sealed class HostedImageBootsBeforeEveryDeployTests
         Assert.Contains(" logs \"$GW\" 2>&1", script, StringComparison.Ordinal);
         Assert.Matches(new Regex(@"^fail\(\) \{\n(?:.*\n)*?  exit 1\n\}", RegexOptions.Multiline), script);
         Assert.Contains("set -euo pipefail", script, StringComparison.Ordinal);
+
+        // This guard reads text only. What the script DOES - pass a healthy fake, fail every unhealthy shape and
+        // print the container's output - is proved by running it against fake Gateway images, in the web job of
+        // continuous integration, so an early `exit 0` goes red there.
+        Assert.True(File.Exists(Path.Combine(root, "scripts", "prove-image-boots.test.sh")),
+            "The fake-image proof of the boot script is missing.");
+        var ci = File.ReadAllText(Path.Combine(root, ".github", "workflows", "ci.yml")).Replace("\r\n", "\n");
+        Assert.Matches(new Regex(@"^        run: bash scripts/prove-image-boots\.test\.sh$", RegexOptions.Multiline), ci);
     }
 
     private static string RepoRoot([CallerFilePath] string thisFile = "")

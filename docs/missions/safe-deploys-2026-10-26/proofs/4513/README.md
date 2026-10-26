@@ -86,6 +86,39 @@ pass. Adding `continue-on-error: true` to the new step makes
 `DeployWorkflow_BootsTheBuiltImage_AfterTheDigestAndBeforeTheProductionPin` fail ("Collections differ"),
 so the guard catches a switched-off step.
 
+## The review, and what was done about it
+
+The review is `review.md` in this folder (the reviewer seat, head `2239e529a`).
+
+**Finding 1 (defect): the guard fails on correct code on a Windows checkout. ACCEPTED, fixed two ways.**
+- The guard now normalises carriage return plus line feed to line feed when it reads the workflow, the
+  script and `ci.yml`, the way its two siblings do.
+- `.gitattributes` gains `*.sh text eol=lf`. A Windows checkout now keeps line feeds in every shell
+  script, which also matters on the runner, where a carriage return would break the script itself. All
+  43 shell scripts were already stored with line feeds (`git ls-files --eol`), so the rule changes no
+  file in the repository.
+- Re-run of the reviewer's mutations: the script converted to carriage return plus line feed (M1) now
+  passes, and so does the workflow converted the same way (M2).
+
+**Finding 2 (low): the guard pins text, not behaviour. ACCEPTED, fixed for both shapes the reviewer found.**
+- `|| true` on the run line (M9): the guard now requires the step to have exactly one `run:` line, equal
+  to the whole expected command. With `|| true` appended it fails ("Failed: 1").
+- An early `exit 0` in the script (M10): no text check can rule that out, so the script now has a
+  behavioural proof, `scripts/prove-image-boots.test.sh`, in the same shape as #4515's
+  `check-production-healthy.test.sh`. It builds fake Gateway images (a small Python server on port 7878,
+  from `python:3.12-alpine`) and runs the real script against ten shapes. Each case checks the exit code,
+  the words printed, and that no container or network is left behind:
+  - two pass: healthy, and starting with a 503 before turning healthy;
+  - eight fail: a crash (its stderr must appear in the output), up but silent, an empty body, an HTML
+    body, a JSON array, no commit, the wrong commit, and flapping (200, 200, 503).
+
+  All ten pass (`script-against-fake-images.txt`). With `exit 0` inserted after `trap cleanup EXIT`, all
+  ten go red ("10 case(s) FAILED"). The web job of `.github/workflows/ci.yml` runs it beside the #4515
+  proof, and the guard now fails if that line leaves `ci.yml` or the test file is deleted.
+- **What this still does not cover:** the behavioural proof runs in continuous integration's web job,
+  not in the local gate, so an `exit 0` reaches main green locally and goes red in the next full run.
+  That matches how #4515 is proved.
+
 ## The local gate
 
 `scripts/test-local.ps1` on devlinux, summarised in `test-local.txt`. Every suite passed except two:

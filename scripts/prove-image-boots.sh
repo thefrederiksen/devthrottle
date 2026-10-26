@@ -25,6 +25,9 @@
 # ON FAILURE it prints the container's stdout and stderr (the output that otherwise exists only in the
 # Azure platform log) and exits 1. Both containers and the network are removed whatever happens.
 #
+# Its behaviour is proved against fake Gateway images by scripts/prove-image-boots.test.sh, run by the web job of
+# .github/workflows/ci.yml.
+#
 # Environment (all optional):
 #   BOOT_TIMEOUT_SECONDS  the bounded wait for three passes, counted from the Gateway container's start (default 180)
 #   BOOT_NAME_SUFFIX      appended to the container and network names, so two runs never collide (default: process id)

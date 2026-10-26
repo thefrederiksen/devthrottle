@@ -336,6 +336,12 @@ jobs:
       - name: Prove the deploy production health gate against a fake /healthz
         run: bash scripts/check-production-healthy.test.sh
 
+      # The same for the deploy's boot proof (issue #4513): scripts/prove-image-boots.sh run against fake Gateway
+      # images, one per healthy and unhealthy /healthz shape, so a script that stops failing goes red here. The
+      # runner has Docker; the fake is built from python:3.12-alpine.
+      - name: Prove the deploy boot proof against fake Gateway images
+        run: bash scripts/prove-image-boots.test.sh
+
       # The version comes from .nvmrc, which is also what scripts/check-node-version.mjs reads, so the
       # pinned version lives in exactly one file and a developer machine cannot quietly drift off it.
       - name: Setup Node
