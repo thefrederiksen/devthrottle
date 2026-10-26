@@ -236,18 +236,6 @@ function Overview({
   );
 }
 
-// Why the factory exists, one line under its name and above the goal (owner, 26 October 2026).
-function WhyLine({ page }: { page: FactoryPageView }) {
-  const { why } = page;
-  return (
-    <p className="fa-goal-line" data-testid="fa-why">
-      <span className="fa-goal-label">{why.heading}:</span>{" "}
-      {why.text !== null && <span className="dt-private">{why.text}</span>}
-      {why.emptyText !== null && <span className="fa-dim">{why.emptyText}</span>}
-    </p>
-  );
-}
-
 // The goal and its number, as one line under the factory's name (owner, 18 October 2026).
 function GoalLine({ page }: { page: FactoryPageView }) {
   const { goal, goalNumber } = page;
@@ -284,6 +272,18 @@ function GoalLine({ page }: { page: FactoryPageView }) {
           </>
         )}
       </span>
+    </p>
+  );
+}
+
+// Why the factory exists, one line under its name and above the goal (owner, 26 October 2026).
+function WhyLine({ page }: { page: FactoryPageView }) {
+  const { why } = page;
+  return (
+    <p className="fa-goal-line" data-testid="fa-why">
+      <span className="fa-goal-label">{why.heading}:</span>{" "}
+      {why.text !== null && <span className="dt-private">{why.text}</span>}
+      {why.emptyText !== null && <span className="fa-dim">{why.emptyText}</span>}
     </p>
   );
 }
