@@ -1,0 +1,277 @@
+Boot proof: image bootgate-diag:86b37ace5, expected commit deadbeef0, bounded wait 180s.
+Throwaway PostgreSQL is accepting connections.
+Polling http://127.0.0.1:32772/healthz
+  0s: not yet - HTTP 000
+  3s: not yet - HTTP 000
+  7s: not yet - HTTP 503
+  10s: not yet - HTTP 503
+  13s: not yet - HTTP 503
+  16s: not yet - HTTP 503
+  20s: not yet - HTTP 503
+  23s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  26s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  29s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  32s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  35s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  38s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  41s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  44s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  47s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  50s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  53s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  56s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  60s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  63s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  66s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  69s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  72s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  75s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  78s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  81s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  84s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  87s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  90s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  93s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  96s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  99s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  103s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  106s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  109s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  112s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  115s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  118s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  121s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  124s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  127s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  130s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  133s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  136s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  139s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  142s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  146s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  149s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  152s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  155s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  158s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  161s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  164s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  167s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  170s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  173s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  176s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+  179s: not yet - HTTP 200 carrying commit '86b37ace5', not deadbeef0
+BOOT PROOF FAILED: no 3 consecutive healthy answers within 180s (last: HTTP 200 carrying commit '86b37ace5', not deadbeef0).
+----- the Gateway container's state -----
+running=true exit=0 oom=false error=
+----- the Gateway container's stdout and stderr -----
+2026-10-26 22:18:14.065 [Program] CC Director Gateway starting, log: /tmp/devthrottle/logs/director/director-2026-10-26-ce4a2146bb1b.log
+2026-10-26 22:18:14.076 [Program] hosted container: machine=d7386c020a87 pid=1 instance=<unset>
+2026-10-26 22:18:14.093 [HostedStartupContract] hosted image: full hosted contract satisfied (hosted mode + auth + HTTPS public URL + PostgreSQL). Starting.
+2026-10-26 22:18:14.222 [GatewayWorker] ExecuteAsync: port=7878
+2026-10-26 22:18:14.224 [GatewayService] Autostart registration skipped (not requested)
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /app
+2026-10-26 22:18:14.251 [BoxDesktopOrigin] CC_BOXES_DESKTOP_ORIGIN is not set: box desktops are not served on any host
+2026-10-26 22:18:14.282 [PreLaunchGrace] FromEnvironment: CC_GATEWAY_PRICING_LAUNCH_UTC=2026-10-13T20:32:00Z CC_GATEWAY_REMOTE_ACCESS_GRACE_CUTOFF_UTC=not set
+2026-10-26 22:18:14.282 [GatewayHost] options: hosted=True (from the environment)
+2026-10-26 22:18:14.319 [GatewayAuth] Generated new token at /home/gateway/cc-director/config/director/gateway-token.txt
+2026-10-26 22:18:14.324 [BoxesSwitch] Factory Boxes is on for 0 configured account(s) (DEVTHROTTLE_BOXES_TENANT_IDS)
+2026-10-26 22:18:14.325 [MissionStore] Initialized: FilePath=/home/gateway/cc-director/missions.json unattributedRows=quarantined
+2026-10-26 22:18:14.394 [GatewayStatsStore] Open: source=DerivedFromGatewayDatabase target=postgres host=boot-proof-db-1904604 database=gateway application=gateway-stats - the statistics migration and its connection failures are NON-FATAL to startup.
+2026-10-26 22:18:15.531 [GatewayStatsStore] Migrate: 4 pending statistics migration(s), applying: 20260730161529_InitialGatewayStats, 20260731124549_HighwaterEvolutionAndConcurrencyTables, 20260801170503_TenantRequiredNoDefaultAndNonEmpty, 20260801223743_TenantIsAnAllowlistedSpelling
+2026-10-26 22:18:16.481 [GatewayStatsStore] Migrate: applied 4 statistics migration(s)
+2026-10-26 22:18:16.487 [GatewayStatsStore] Open: ready, source=DerivedFromGatewayDatabase target=postgres host=boot-proof-db-1904604 database=gateway application=gateway-stats
+2026-10-26 22:18:16.487 [GatewayHost] statistics store: source=DerivedFromGatewayDatabase target=postgres host=boot-proof-db-1904604 database=gateway application=gateway-stats
+2026-10-26 22:18:16.488 [GatewayHost] input statistics on hosted are resolved ON FIRST USE from the statistics store's context factory; no local file is opened on this path under any circumstance
+2026-10-26 22:18:16.491 [FactoryAgentsConfig] IsEnabled: factoryAgents.enabled=False
+2026-10-26 22:18:16.491 [GatewayHost] factory agents switch: OFF (config.json factoryAgents.enabled)
+2026-10-26 22:18:16.491 [TeamsReleaseSwitch] IsReleased: CC_GATEWAY_TEAMS=not 1 (dark)
+2026-10-26 22:18:16.491 [GatewayHost] teams release switch: OFF - team routes not mapped (CC_GATEWAY_TEAMS)
+2026-10-26 22:18:16.491 [GatewayHost] auth gate booted ON (enforced by default, issue #917 - a per-device key or the shared token is required, even on the tailnet; set CC_GATEWAY_NO_AUTH=1 to disable for debugging)
+2026-10-26 22:18:16.493 [GatewayHost] brain tool: ClaudeCode, model: opus
+2026-10-26 22:18:16.495 This Gateway serves account tenants but its NOTIFY_OWNER_SERVICE_TOKEN setting is missing or shorter than 32 characters, so it cannot record which account an AI call is for and makes no AI call for an account. Set it to the same secret as the website's GATEWAY_SERVICE_TOKEN.
+2026-10-26 22:18:16.509 [PushedSessionStore] UseHolderRule: per-session lookups answer through TeamSessionHolderRule in the tenants it governs
+2026-10-26 22:18:16.686 [GatewayHost] AdoptMissionNoteWhys FAILED (non-fatal, the notes table is untouched and the WHYs can still be recovered): The Gateway database is not open yet. The listener binds before the database is connected so that a slow database cannot stop the site from starting; requests that need data must wait for /healthz to report ready.
+2026-10-26 22:18:16.700 [GatewayHost] DevThrottle credential service not built: no local operating-system credential store on this platform (Linux); Account stays null
+2026-10-26 22:18:16.707 [TeamMentorSwitch] IsOn: teams=dark CC_GATEWAY_TEAM_MENTOR=not 1 - writer OFF
+2026-10-26 22:18:16.762 [WebPushVapidStore] Generated a new VAPID key pair at /home/gateway/cc-director/config/gateway/webpush-vapid.json
+2026-10-26 22:18:16.815 [GatewayHost] DevThrottle device registration not built: no credential service on this host
+2026-10-26 22:18:16.815 [GatewayHost] DevThrottle sign-in flow not built: no credential service on this host
+2026-10-26 22:18:16.815 [GatewayHost] DevThrottle token refresh not built: no credential service on this host
+2026-10-26 22:18:16.892 [GatewayHost] StartAsync: port=7878
+2026-10-26 22:18:16.894 [HeldDeliveryDriver] attached to the typed prompt store
+2026-10-26 22:18:16.894 [GatewayHost] hosted: NOT seeding the key vault from the environment - the global vault is denied on hosted
+2026-10-26 22:18:16.895 [DirectorRegistry] Start: watching /home/gateway/cc-director/config/director/instances
+2026-10-26 22:18:16.896 [LauncherRegistry] Sweep timer started (30s interval)
+2026-10-26 22:18:16.896 [GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)
+2026-10-26 22:18:16.905 [GatewayHost] StartAsync: session supervisor armed (auto-recovery on a transient transport fault)
+2026-10-26 22:18:16.906 [GatewayHost] StartAsync: rule evaluator armed (standing instructions, dry run unless promoted)
+2026-10-26 22:18:16.908 [TurnLogSwitchStore] Refresh FAILED - the previous decisions still stand: The Gateway database is not open yet. The listener binds before the database is connected so that a slow database cannot stop the site from starting; requests that need data must wait for /healthz to report ready.
+2026-10-26 22:18:16.908 [TurnLogSwitchStore] Start: 0 decision(s) on record, refreshing every 30s
+2026-10-26 22:18:16.909 [GatewayHost] StartAsync: turn log armed (records nothing unless an administrator has switched a machine on)
+2026-10-26 22:18:16.913 [TurnEndWatcher] Start: reconcile=15s for non-pushing Directors
+2026-10-26 22:18:16.913 [GatewayHost] StartAsync: starting the voice-mode sweep (standing voice-mode intent -> new sessions)
+2026-10-26 22:18:17.026 [ErrorReporter] gateway: started, store=/home/gateway/cc-director/error-reports, attachedToProcessLog=True, maxPerHour=600
+2026-10-26 22:18:17.027 [GatewayRequestErrors] Use: every answer of 400 or more carries X-Correlation-Id
+2026-10-26 22:18:17.028 [GatewayAccountFailures] Attach: the Gateway's account failures now reach the error store
+2026-10-26 22:18:17.030 [CronRunFailureReporter] reading failed runs from 2026-10-26T16:18:17.0302961Z (no checkpoint yet)
+2026-10-26 22:18:17.030 [CronRunFailureReporter] Start: reporting failed runs recorded from 2026-10-26T16:18:17.0302961Z, every 30s
+2026-10-26 22:18:17.031 [ScheduleFailureNotifier] reading failed runs from 2026-10-26T22:03:17.0317134Z
+2026-10-26 22:18:17.032 [ScheduleFailureNotifier] Start: telling owners of failed runs every 30s
+2026-10-26 22:18:17.032 [TrafficMeter] counting bytes out per route, caller and hour; read at GET /diag/traffic
+2026-10-26 22:18:17.034 [TeamsDarkRoutes] Teams is not released: every team route answers 404
+2026-10-26 22:18:17.036 [GatewayHost] team endpoint gate installed after routing
+2026-10-26 22:18:17.102 [GatewayHost] DirectorHub mapped at /director-stream; /sessions serves from the push cache when fresh
+2026-10-26 22:18:17.104 [GatewayHost] LauncherHub mapped at /launcher-stream (hosted and self-host); connections are keyed (tenant, machine) and Hello aborts on an unresolved tenant
+2026-10-26 22:18:17.106 [NetDiagRollupStore] Load: no store file at /home/gateway/cc-director/netdiag-rollup.json; starting empty
+2026-10-26 22:18:17.114 [GatewayEndpoints] mapped Gateway-native /missions routes
+2026-10-26 22:18:17.116 [HostedRouteDeny] group family=gateway-shutdown prefix='/shutdown' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.117 [HostedRouteDeny] exclusive family=gateway-shutdown pattern='' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.118 [RecordingEndpoints] mapping /ingest recording + dictionary routes PER-TENANT (issues #2058/#2060); hosted=True - each route resolves the caller's tenant and answers 403 when none resolves
+2026-10-26 22:18:17.122 [CommQueueEndpoints] mapping /comm-queue; hosted=True - on hosted the whole group is refused via the shared refusal primitive
+2026-10-26 22:18:17.122 [HostedRouteDeny] group family=comm-queue prefix='/comm-queue' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.123 [HostedRouteDeny] exclusive family=comm-queue pattern='' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.125 [NetDiagResultStore] Load: no store file at /home/gateway/cc-director/diagnostics-results.json; starting empty
+2026-10-26 22:18:17.133 [GatewayEndpoints] mapped POST /sessions/{sid}/mission (attach an existing session to a Mission)
+2026-10-26 22:18:17.146 [GatewayAccountFactory] ResolveSigningSecret: DEVTHROTTLE_JWT_SIGNING_SECRET not set; using placeholder (a backend-signed token would not verify until the secret is configured)
+2026-10-26 22:18:17.146 [DevThrottleSigningKeys] ResolvePublicKeySet: using the embedded production public key set
+2026-10-26 22:18:17.151 [JwtAccessTokenValidator] ParsePublicKeySet: 1 P-256 verification key(s) configured
+2026-10-26 22:18:17.155 [WingmanInstructionsEndpoint] mapping /gateway/wingman/instructions; hosted=True - on hosted the whole group is refused via the shared refusal primitive (issue #1853)
+2026-10-26 22:18:17.155 [HostedRouteDeny] group family=wingman-instructions prefix='/gateway/wingman/instructions' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.155 [HostedRouteDeny] exclusive family=wingman-instructions pattern='' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='/versions' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='/revert' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='/default' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='/update' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HostedRouteDeny] exclusive family=wingman-instructions pattern='/switch-to-default' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.156 [HeldDeliveryDriver] attached to the dictation delivery core
+2026-10-26 22:18:17.157 [VaultEndpoints] mapping /vault/keys; hosted=True - on hosted the whole group is refused via the shared refusal primitive
+2026-10-26 22:18:17.157 [HostedRouteDeny] group family=key-vault prefix='/vault/keys' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.157 [HostedRouteDeny] exclusive family=key-vault pattern='' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.157 [HostedRouteDeny] exclusive family=key-vault pattern='/{name}' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.157 [HostedRouteDeny] exclusive family=key-vault pattern='/{name}' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.157 [HostedRouteDeny] exclusive family=key-vault pattern='/{name}' - handler discarded, covered by the catch-all refusal, no per-route refusal mapped
+2026-10-26 22:18:17.157 [AiModelsEndpoint] mapping the model settings; hosted=True - per-account model setters serve; the catalog + test-chat (shared credential) are refused via the shared refusal primitive (issues #1863, #2022)
+2026-10-26 22:18:17.158 [HostedRouteDeny] group family=model-settings prefix='' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.164 [WorkflowRunEndpoints] mapped /gateway/workflow-runs routes
+2026-10-26 22:18:17.165 [GovernanceEventEndpoints] mapped /gateway/governance/events routes
+2026-10-26 22:18:17.166 [GovernanceSpendEndpoints] mapped /gateway/governance/session-spend + hosted-ai-spend routes
+2026-10-26 22:18:17.166 [GovernanceAuditEndpoints] mapped /gateway/governance/audit-events routes
+2026-10-26 22:18:17.167 [FactoryAgentsViewEndpoints] mapped /gateway/factory-agents/switch (machine switch=off, per account otherwise)
+2026-10-26 22:18:17.167 [FactoryActivityEndpoints] mapped /gateway/factory/activity
+2026-10-26 22:18:17.168 [FactoryMapEndpoints] mapped /gateway/factory/map
+2026-10-26 22:18:17.168 [FactoryRegistryEndpoints] mapped /gateway/factory/registry, /gateway/factory/registry/{factory}/purpose and /gateway/factory/goal-numbers
+2026-10-26 22:18:17.170 [FactoryAgentsViewEndpoints] mapped /gateway/factory-agents views, activity, waiting, reports, pause and resume
+2026-10-26 22:18:17.171 [FactoriesScreenEndpoints] mapped /gateway/factories, its factory page, its Seats tab and a failure's Handled
+2026-10-26 22:18:17.171 [FactoriesScreenEndpoints] mapped /gateway/factories/{factory}/drawing
+2026-10-26 22:18:17.172 [FactoriesScreenEndpoints] mapped /gateway/factories/{factory}/seats/{seat} and its brief editor, history and versions
+2026-10-26 22:18:17.172 [FactoryDefinitionTabEndpoints] mapped /gateway/factories/{factory}/definition and its history, versions, export and import, and /gateway/factories/new
+2026-10-26 22:18:17.173 [FactoryRecordsTabEndpoints] mapped /gateway/factories/{factory}/records and its journal, documents and attachments
+2026-10-26 22:18:17.173 [FactoryOwnerActionEndpoints] mapped /gateway/factories/{factory}/waiting/handled-older, /archive, /restore and /delete
+2026-10-26 22:18:17.174 [FactoryTalkEndpoints] mapped /gateway/factory-agents/factories/{factory}/seats/{seat}/talk and /gateway/factory-agents/factories/{factory}/problems/{runId}/handle
+2026-10-26 22:18:17.174 [FactoryManagerEndpoints] mapped /gateway/factory-manager, /gateway/factory/name-check, /gateway/factory-agents/factory-manager and /gateway/factory-agents/factory-manager/talk
+2026-10-26 22:18:17.175 [AdminFactoryAgentsEndpoint] mapped /gateway/admin/factory-agents (service-token authorized)
+2026-10-26 22:18:17.176 [MailDeskTemplate] Load: reading the embedded Mail Desk template
+2026-10-26 22:18:17.203 [MailDeskTemplate] Load: 4 files (checks/screen.py, factory.yaml, seats/boss.yaml, seats/mail-desk.yaml), version 38bdd920bc8e
+2026-10-26 22:18:17.204 [AdminMailDeskEndpoint] mapped /gateway/admin/mail-desk (service-token authorized)
+2026-10-26 22:18:17.206 [MailDeskEndpoints] mapped /gateway/mail-desk/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions and settings
+2026-10-26 22:18:17.206 [GovernanceReportEndpoints] mapped /gateway/governance/outcome-ledger route
+2026-10-26 22:18:17.207 [MorningReportEndpoint] mapped /gateway/reports/morning (service-token authorized, read-only)
+2026-10-26 22:18:17.207 [ReportRecipientsEndpoint] mapped /gateway/reports/recipients (service-token authorized, read-only)
+2026-10-26 22:18:17.210 [AdminTrialEndpoint] mapped /gateway/admin/trials/extend (service-token authorized, hosted only)
+2026-10-26 22:18:17.210 [AdminTurnLogEndpoint] mapped /gateway/admin/turn-log (service-token authorized)
+2026-10-26 22:18:17.210 [AdminAccountLookupEndpoint] mapped /gateway/admin/accounts (service-token authorized)
+2026-10-26 22:18:17.211 [InstallReportEndpoints] mapped /install-reports (public, bounded) + /gateway/admin/install-reports (service-token authorized)
+2026-10-26 22:18:17.212 [DirectorErrorEndpoints] mapped POST+GET /gateway/director-errors and GET /gateway/director-errors/groups (device credential, account-scoped) + GET /gateway/admin/director-errors, GET /gateway/admin/director-errors/groups, GET /gateway/admin/director-errors/summaries, PUT /gateway/admin/director-errors/linked-issue (service-token authorized); store=/home/gateway/cc-director/error-reports
+2026-10-26 22:18:17.212 [AdminCronRunEndpoints] mapped GET /gateway/admin/cron-runs (service-token authorized)
+2026-10-26 22:18:17.212 [ClientErrorEndpoints] mapped POST /client-errors (account-scoped, into the error store at /home/gateway/cc-director/error-reports)
+2026-10-26 22:18:17.213 [WebsiteErrorEndpoints] mapped POST /gateway/admin/website-errors (website error token, component website only) + POST /gateway/admin/website-error-token (service-token authorized)
+2026-10-26 22:18:17.213 [AdminTurnVerdictFeedbackEndpoint] mapped /gateway/admin/turn-verdict-feedback (service-token authorized)
+2026-10-26 22:18:17.215 [FleetManagerEndpoints] mapped /gateway/fleet-manager/outcomes, /preferences (and lessons), /digest and /events
+2026-10-26 22:18:17.217 [FleetManagerPlacementEndpoints] mapped /gateway/fleet-manager/placement, /gateway/fleet-manager/start, /gateway/fleet-manager/restart and /gateway/fleet-manager/move
+2026-10-26 22:18:17.217 [RaisedSessionEndpoints] mapped /sessions/{sid}/raise and /sessions/{sid}/lower
+2026-10-26 22:18:17.218 [FleetMessageLinkEndpoints] mapped POST/GET /fleet/links and DELETE /fleet/links/{id}
+2026-10-26 22:18:17.218 [SecretTransferEndpoints] mapped GET /gateway/secrets/machines, POST/GET /gateway/secrets/transfers, GET /gateway/secrets/transfers/{id}, POST /gateway/secrets/transfers/{id}/answer
+2026-10-26 22:18:17.219 [LicenseEndpoints] mapped GET /gateway/licenses, GET /gateway/licenses/forecast, GET /gateway/licenses/log, PUT /gateway/licenses/accounts/renewal, POST /gateway/licenses/switch-now, POST /gateway/licenses/machines/forget
+2026-10-26 22:18:17.219 [LicenseEndpoints] mapped GET /gateway/licenses/usage, PUT /gateway/licenses/accounts/price
+2026-10-26 22:18:17.219 [LicenseEndpoints] mapped GET /gateway/licenses/plan
+2026-10-26 22:18:17.220 [LicenseEndpoints] mapped GET /gateway/licenses/alarms
+2026-10-26 22:18:17.220 [LicenseSignInEndpoints] mapped GET, PUT and DELETE /gateway/licenses/approvers, POST /gateway/licenses/sign-ins/add-spare, POST /gateway/licenses/sign-ins/renew
+2026-10-26 22:18:17.220 [FleetMessageLinkRequestEndpoints] mapped POST/GET /fleet/link-requests and POST /fleet/link-requests/{id}/answer
+2026-10-26 22:18:17.222 [AlertEndpoints] mapped GET /gateway/alerts, POST /gateway/alerts/seen, POST /gateway/alerts/clear, POST /gateway/alerts/{id}/clear
+2026-10-26 22:18:17.223 [FleetManagerHandOverEndpoints] mapped /gateway/fleet-manager/hand-over
+2026-10-26 22:18:17.223 [FleetManagerPageEndpoints] mapped /gateway/fleet-manager/page and /gateway/fleet-manager/standing
+2026-10-26 22:18:17.224 [FleetManagerWalkthroughEndpoints] mapped /gateway/fleet-manager/walkthrough and its answered, snoozed and close verbs
+2026-10-26 22:18:17.225 [TranscriptionAnalysisEndpoint] mapping /transcription history PER-TENANT (issue #2059); hosted=True - each route resolves the caller's tenant, 403 when unresolved
+2026-10-26 22:18:17.227 [WorkListEndpoints] mapped /lists routes
+2026-10-26 22:18:17.229 [CronJobEndpoints] mapped /cron/jobs routes
+2026-10-26 22:18:17.230 [CronPauseEndpoint] mapped /cron/pause
+2026-10-26 22:18:17.232 [FactoryMemoryEndpoints] mapped /factory-memory/notes and its note, history and restore routes
+2026-10-26 22:18:17.233 [FactoryBriefEndpoints] mapped /factory-briefs/{factory}/{seat} and its draft, history, versions, publish and restore routes
+2026-10-26 22:18:17.235 [FactoryDefinitionEndpoints] mapped /factory-definitions/{factory} and its draft, history, versions, diff, publish, restore, export and check-state routes, /factory-definitions/import and /factory-definition-schemas
+2026-10-26 22:18:17.235 [FactoryDefinitionEndpoints] mapped /factory-definitions/create
+2026-10-26 22:18:17.237 [FactoryRecordEndpoints] mapped /factory-records/{factory}/journal, /documents and /attachments
+2026-10-26 22:18:17.237 [FactoryKitEndpoints] mapped /factory-definitions/{factory}/versions/{version}/kit
+2026-10-26 22:18:17.237 [CronRunEndpoints] mapped /cron/jobs/{id}/run + /runs routes
+2026-10-26 22:18:17.238 [CronRunResultEndpoints] mapped /cron/runs/result, /cron/runs/{runId}/resolve, /cron/problems
+2026-10-26 22:18:17.239 [FactoryEmailEndpoints] mapped /gateway/factory-email (GET, PUT), /gateway/factory-emails, /gateway/factory-emails/{id}
+2026-10-26 22:18:17.240 [TriggerEndpoints] mapped /triggers and the Director's /directors/{directorId}/triggers routes
+2026-10-26 22:18:17.241 [FactoryCheckEndpoints] mapped /directors/{directorId}/factory-checks/{factory}/{version} and /factory-check-inputs/{factory}/{version}
+2026-10-26 22:18:17.241 [WorkListRunnerEndpoints] mapped /lists/{name}/run route
+2026-10-26 22:18:17.241 [MachineEndpoints] mapping /launchers + /machines; hosted=True - every route authorizes against the CALLING tenant, resolved from the authenticated device key
+2026-10-26 22:18:17.245 [DevReportEndpoints] mapping the dev report routes (seven session routes, four owner routes)
+2026-10-26 22:18:17.247 [DirectorRestartRequestEndpoints] mapping the restart-request routes - the request is a RECORD; the restart route's guard is untouched
+2026-10-26 22:18:17.247 [SessionColourLegendEndpoints] mapping GET /gateway/session-colours - what every session colour means
+2026-10-26 22:18:17.248 [SavedSessionFilterEndpoints] mapping GET/POST /gateway/session-filters and PUT/DELETE /gateway/session-filters/{id}
+2026-10-26 22:18:17.248 [SettingsEndpoints] mapping the owner settings; hosted=True - per-account routes serve; machine/global routes are refused via the shared refusal primitive (issues #1863, #2022)
+2026-10-26 22:18:17.248 [HostedRouteDeny] group family=owner-settings prefix='' hosted=True - on hosted EVERY route in this group is refused on EVERY request shape, with no argument binding
+2026-10-26 22:18:17.252 [StatsPageEndpoint] mapping /stats (redirect to /your-throttle) and /stats/data; hosted=True - turn figures come from the submission ledger; a self-hosted Gateway answers available=false
+2026-10-26 22:18:17.255 [RepoStateEndpoints] mapped /gateway/repostate (device-authenticated, write-only)
+2026-10-26 22:18:17.256 [SkillPlacementEndpoints] mapped /gateway/skills/placement (POST report, GET fleet view)
+2026-10-26 22:18:17.256 [MobileApp] serving /mobile from /app/wwwroot/mobile (exists=True)
+2026-10-26 22:18:17.257 [CockpitReactApp] serving the Cockpit from /app/wwwroot/c (exists=True)
+2026-10-26 22:18:17.563 [HostedRefusalRouteSpace] validated 4 exclusive-prefix claim(s) and 11 refusal route(s) against 604 mapped route(s)
+2026-10-26 22:18:17.617 [GatewayHost] listener bound; opening the database
+2026-10-26 22:18:17.619 [GatewayDatabase] Open: provider=Postgres target=postgres host=boot-proof-db-1904604 database=gateway
+2026-10-26 22:18:19.060 [GatewayDatabase] Migrate: 113 pending migration(s), applying: 20260718120027_InitialPostgres, 20260718220815_AddTenants, 20260719064524_CompositeTenantKeys, 20260719201740_CallerSuppliedKeysScopedByTenant, 20260722150839_AddDeviceCredentials, 20260722174151_AddTenantSettings, 20260724121829_AddDictationTranscripts, 20260724135228_AddDictationSuggestionDismissals, 20260724141554_AddWorkflowTenantOverrides, 20260724165917_AddActivityEvents, 20260724182054_AddDictionarySuggestionScreening, 20260724211742_AddRepoState, 20260724212205_AddAccountTrials, 20260726154359_AddSessionHistory, 20260727053525_AddSessionSupervisionColumns, 20260727191107_AddSessionOriginColumns, 20260727193940_AddSessionCostAndInterruptionColumns, 20260728200447_AddSkillLibrary, 20260729031843_SkillDirectoryFiles, 20260729173140_SkillPlacementState, 20260803154516_AddSessionKeys, 20260811011357_AddTrialExtensions, 20260819142129_AddSessionDirectorVersion, 20260902003423_AddSessionTurns, 20260902063400_AddKnownRepositories, 20260902214209_AddSessionRules, 20260904193212_AddTurnLogSwitches, 20260906023310_AddSubmissionProvenanceToActivityEvents, 20260907122719_AddWorkspaces, 20260915003658_AddTurnVerdicts, 20260915212810_AddTurnVerdictAnsweredAt, 20260915225132_AddTurnVerdictTraces, 20260916005624_AddTurnVerdictSupersededAt, 20260916195948_AddFleetMessages, 20260917090009_AddFleetManagerOutcomes, 20260917090109_AddFleetManagerMarkHistory, 20260917094441_AddFleetMessageReplyMarks, 20260917101851_AddDevReports, 20260917103105_AddTurnVerdictTraceRowAndClock, 20260917110009_AddFleetManagerEvents, 20260917110109_AddFleetManagerEventDelivery, 20260917110209_AddFleetOutcomeAdvice, 20260917110309_RemoveAssistantSettings, 20260917110409_AddFleetManagerEventOutcomeAnswer, 20260917110509_AddTurnVerdictAnswerChoice, 20260917110609_AddFleetOutcomeStopIdentity, 20260918181205_AddWingmanNarrationCallTrace, 20260920021806_AddDiscoveredRepositories, 20260920053001_AddRaisedSessions, 20260921084515_AddFactoryActivity, 20260921105238_AddFactoryTriggers, 20260921131114_IndexFactoryActivityReads, 20260921203258_AddTriggerStartName, 20260927212206_AddFleetMessageUnreachableNotice, 20260928123825_AddSessionAndScheduleFactory, 20260928124407_AddFactoryMemoryNotes, 20261003182436_AddTeams, 20261003233544_AddTeamInvitations, 20261004214416_AddTeamMentor, 20261005031815_AddFleetMessageLinks, 20261005124444_AddTeamRequests, 20261005160425_AddFleetMessageLinkRequests, 20261005184813_AddFleetManagerLessons, 20261005234644_AddDevReportSharing, 20261006140813_AddFactoryRegistry, 20261006171258_AddTeamQuestionAnswers, 20261007052952_ArchiveFactories, 20261007070501_AddTeamBills, 20261007180154_AddLinkRequestRequestedAmount, 20261008043117_AddScheduleSeat, 20261008191614_AddTeamGovernance, 20261008200010_AddFactoryPurpose, 20261008212232_AddTeamShowcase, 20261008220319_RenameCeoSeatToBossSeat, 20261010221006_AddSecretTransfers, 20261011151344_AddLicenseSwitching, 20261012222036_AddCronRunResults, 20261012234113_AddFactoryEmailReports, 20261013062011_AddLicenseRenewal, 20261013203245_AddFactorySeatBriefs, 20261014003248_AddBriefVersionToCronRuns, 20261014061624_AddLicenseSwitchHold, 20261014191142_AddFactoryDefinitionVersions, 20261014235159_AddFactoryRecords, 20261015115148_AddSavedSessionFilters, 20261015131909_AddSessionHistoryOs, 20261015142302_AddBriefVersionKindToCronRuns, 20261015161336_AddSessionHistoryFactorySeat, 20261015201624_AddFactoryCheckState, 20261015214452_AddDueChecks, 20261016140259_AddSessionNameToCronRuns, 20261016183115_AddApiModeReceipts, 20261016211807_AddFactoryDefinitionPublisher, 20261017082512_AddLicenseAlarms, 20261017121456_AddLicenseMachineCannotSwitch, 20261018015844_AddApiModeReceiptPromptText, 20261018153213_AddMailDesk, 20261019001414_AddApiModeConversationItems, 20261019020053_AddApiModeReceiptDirectorIndex, 20261020002913_AddSessionRuleChanges, 20261020014715_AddSessionRuleKindsAndHookFirings, 20261020020021_AddTriggerBackupMachines, 20261020020345_AddMailDeskChannelChecks, 20261020020549_AddMailDeskDecisionAttempts, 20261020214503_AddSessionUsage, 20261021034145_AddLicenseReadErrorSince, 20261021145244_AddFactoryDefinitionOwnerApproval, 20261023224254_AddFactoryAttachmentRemoval, 20261024125415_TrimFactoryDocumentVersionsToThree, 20261024235609_AddScheduleFailureNotices, 20261025095255_AddAlertMarks, 20261026131404_AddDevReportItemActedOn, 20261026171237_AddDevReportActionClaimsAndSeatIdentity
+2026-10-26 22:18:20.698 [GatewayInputStatsAggregator] LoadMirror: 0 live session(s), 0 wingman session(s), 0 repo(s), 0 agent(s), 0 model(s), 0 checkout(s), 0 seeded, 0 tenant(s) with an agents-since stamp, modelsSince='' from the statistics store's context factory (hosted)
+2026-10-26 22:18:20.698 [GatewaySessionConcurrencyStore] ctor: fleet concurrency is recorded in the statistics database, not in a shared file
+2026-10-26 22:18:20.698 [LateStatsObservers] statistics are now AVAILABLE on the hosted store (source=DerivedFromGatewayDatabase target=postgres host=boot-proof-db-1904604 database=gateway application=gateway-stats); resolved on first use, so a store that opened after the startup deadline is served rather than lost
+2026-10-26 22:18:21.917 [FleetManagerEventSweep] sweep FAILED: System.InvalidOperationException: The Gateway database is not open yet. The listener binds before the database is connected so that a slow database cannot stop the site from starting; requests that need data must wait for /healthz to report ready.
+2026-10-26 22:18:22.218 [FleetManagerReplacementSweep] sweep FAILED: System.InvalidOperationException: The Gateway database is not open yet. The listener binds before the database is connected so that a slow database cannot stop the site from starting; requests that need data must wait for /healthz to report ready.
+2026-10-26 22:18:34.078 [GatewayDatabase] Migrate: applied 113 migration(s)
+2026-10-26 22:18:34.081 [GatewayDatabase] Open: ready, provider=Postgres target=postgres host=boot-proof-db-1904604 database=gateway, attempt=1
+2026-10-26 22:18:34.081 [GatewayHost] database open
+2026-10-26 22:18:34.194 [DeviceRegistryImporter] ReadLegacyFile: no file at /home/gateway/cc-director/config/director/devices.json - importing zero devices
+2026-10-26 22:18:34.366 [DeviceRegistryImporter] Import: migrated 0 device(s) from /home/gateway/cc-director/config/director/devices.json into device_credentials (marker written)
+2026-10-26 22:18:34.418 [DeviceRegistry] InitializeAuthority: database registry ready, imported=0, importSkipped=False
+2026-10-26 22:18:34.443 [DeviceRegistry] ReinstateRevokedBefore: reason=entitlement_lost, tenants=0, reinstated=0, tenantsSkipped=0
+2026-10-26 22:18:34.443 [PreFreeTierKeyReinstatement] reinstated 0 device credential(s) cancelled before the free tier
+2026-10-26 22:18:34.524 [WorkListStore] Load: 0 list(s) present, staleClaimsReleased=0
+2026-10-26 22:18:34.602 [FactoryScheduleLinkBackfill] Run: accounts=0, linked=0, alreadyLinked=0, skipped=0
+2026-10-26 22:18:34.815 [BuiltInSkillSeeder] Seeded built-in skill: id=dev-throttle, v1, hash=ba3d6905ed09
+2026-10-26 22:18:34.829 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-comms, v1, hash=f0f13c2b199d
+2026-10-26 22:18:34.838 [BuiltInSkillSeeder] Seeded built-in skill: id=move-session, v1, hash=44638cf48287
+2026-10-26 22:18:34.850 [BuiltInSkillSeeder] Seeded built-in skill: id=terminology, v1, hash=911327a2ddf6
+2026-10-26 22:18:34.871 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-manager, v1, hash=a5afd4fbdd73
+2026-10-26 22:18:34.882 [BuiltInSkillSeeder] Seeded built-in skill: id=devthrottle-method, v1, hash=f8ffc6dc3dff
+2026-10-26 22:18:34.891 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-naming, v1, hash=cf652172a45e
+2026-10-26 22:18:34.900 [BuiltInSkillSeeder] Seeded built-in skill: id=foreground-only, v1, hash=ed88516c2dfe
+2026-10-26 22:18:34.914 [BuiltInSkillSeeder] Seeded built-in skill: id=checks-that-fail-open, v1, hash=11c04e336bdb
+2026-10-26 22:18:34.924 [BuiltInSkillSeeder] Seeded built-in skill: id=proof-covers-the-wrong-thing, v1, hash=c21f086becd6
+2026-10-26 22:18:34.934 [BuiltInSkillSeeder] Seeded built-in skill: id=destructive-sweeps-lean-to-keep, v1, hash=da9296323c0b
+2026-10-26 22:18:34.944 [BuiltInSkillSeeder] Seeded built-in skill: id=dev-reports, v1, hash=7bd79d66712d
+2026-10-26 22:18:35.102 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=mission, v1, hash=311a7708801e
+2026-10-26 22:18:35.119 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=standalone, v1, hash=2fd6c9cca662
+2026-10-26 22:18:35.130 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=standalone-with-review, v1, hash=89eccb5a9329
+2026-10-26 22:18:35.153 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=fleet-manager, v1, hash=a85d44d6119e
+2026-10-26 22:18:35.225 [GatewayHost] startup stores loaded; now serving
+2026-10-26 22:18:35.226 [GatewayHost] listening on http://0.0.0.0:7878 (all interfaces, auth-gated; version 2.31.1)
+2026-10-26 22:18:35.226 [GatewayHost] startup complete - standard-output log mirror off; the per-container file is the record from here
+----- end of the Gateway container's output -----
+rc=1

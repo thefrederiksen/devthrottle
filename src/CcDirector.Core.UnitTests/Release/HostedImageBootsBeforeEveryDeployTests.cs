@@ -73,7 +73,8 @@ public sealed class HostedImageBootsBeforeEveryDeployTests
 
         // Bounded, and a failure prints what the container said and fails the step.
         Assert.Contains("BOOT_TIMEOUT_SECONDS", script, StringComparison.Ordinal);
-        Assert.Contains("docker logs \"$GW\" 2>&1", script, StringComparison.Ordinal);
+        // The container's own output: stdout and stderr together, the whole log, not a tail.
+        Assert.Contains(" logs \"$GW\" 2>&1", script, StringComparison.Ordinal);
         Assert.Matches(new Regex(@"^fail\(\) \{\n(?:.*\n)*?  exit 1\n\}", RegexOptions.Multiline), script);
         Assert.Contains("set -euo pipefail", script, StringComparison.Ordinal);
     }

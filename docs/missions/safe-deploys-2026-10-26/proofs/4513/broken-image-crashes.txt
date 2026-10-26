@@ -1,0 +1,14 @@
+Boot proof: image bootgate-broken:crash, expected commit 86b37ace5, bounded wait 180s.
+Throwaway PostgreSQL is accepting connections.
+Polling http://127.0.0.1:32770/healthz
+  0s: not yet - HTTP 000
+BOOT PROOF FAILED: the Gateway container exited after 3s instead of serving.
+----- the Gateway container's state -----
+running=false exit=139 oom=false error=
+----- the Gateway container's stdout and stderr -----
+Unhandled exception. System.IO.FileNotFoundException: Could not load file or assembly 'CcDirector.Gateway, Version=2.31.1.0, Culture=neutral, PublicKeyToken=null'. The system cannot find the file specified.
+
+File name: 'CcDirector.Gateway, Version=2.31.1.0, Culture=neutral, PublicKeyToken=null'
+   at Program.<Main>$(String[] args)
+----- end of the Gateway container's output -----
+rc=1

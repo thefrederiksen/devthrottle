@@ -1,0 +1,21 @@
+scripts/test-local.ps1 on devlinux (pwsh, EnableWindowsTargeting=true), commit b1006544 plus the fix below.
+
+  FAIL  CcDirector.Core.UnitTests  Failed!  - Failed:     1, Passed:  2771, Skipped:    23, Total:  2795, Duration: 16 s - CcDirector.Core.UnitTests.dll (net10.0)
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:  1209, Skipped:     0, Total:  1209, Duration: 50 s - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 15 s - CcDirector.Engine.Tests.dll (net10.0)
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 20 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   234, Skipped:     0, Total:   234, Duration: 733 ms - CcDirector.Launcher.Tests.dll (net10.0)
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:   111, Skipped:     0, Total:   111, Duration: 7 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   307, Skipped:     0, Total:   307, Duration: 4 s - CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  CcDirector.DeliveryQualification.Tests  Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 366 ms - CcDirector.DeliveryQualification.Tests.dll (net10.0)
+  PASS  CcDirector.RuleHook.Tests  Passed!  - Failed:     0, Passed:    70, Skipped:     0, Total:    70, Duration: 516 ms - CcDirector.RuleHook.Tests.dll (net10.0)
+  FAIL  cc-director-setup.Tests  (no summary line - see /tmp/cc-test-local-3498a361/cc-director-setup.Tests.log)
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:  1013, Skipped:     0, Total:  1013, Duration: 9 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    75, Skipped:     0, Total:    75, Duration: 299 ms - CcDirector.Setup.Cli.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.UnitTests  Passed!  - Failed:     0, Passed: 16466, Skipped:     0, Total: 16466, Duration: 20 m 52 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+  PASS  CcDirector.Core.Tests  Passed!  - Failed:     0, Passed:  4634, Skipped:    12, Total:  4646, Duration: 38 s - CcDirector.Core.Tests.dll (net10.0)
+RESULT: NEVER RAN - a suite did not run, or did not finish. This run is not a verdict on anything.
+
+Core.UnitTests rerun after the fix:
+
+Passed!  - Failed:     0, Passed:  2772, Skipped:    23, Total:  2795, Duration: 14 s - CcDirector.Core.UnitTests.dll (net10.0)

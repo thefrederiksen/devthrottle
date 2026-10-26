@@ -1,0 +1,45 @@
+Boot proof: image bootgate-diag:b6d6acbc6, expected commit b6d6acbc6, bounded wait 180s.
+Throwaway PostgreSQL is accepting connections.
+Polling http://127.0.0.1:32769/healthz
+  0s: not yet - HTTP 000
+  3s: not yet - HTTP 000
+  7s: not yet - HTTP 503
+  10s: not yet - HTTP 503
+  13s: not yet - HTTP 503
+  16s: not yet - HTTP 503
+  19s: pass 1 of 3 - HTTP 200, commit b6d6acbc6, status ok
+  22s: pass 2 of 3 - HTTP 200, commit b6d6acbc6, status ok
+  25s: pass 3 of 3 - HTTP 200, commit b6d6acbc6, status ok
+BOOT PROOF PASSED: bootgate-diag:b6d6acbc6 served 3 consecutive healthy /healthz answers on commit b6d6acbc6, 3s apart, 25s after it started.
+----- the last lines the Gateway printed -----
+2026-10-26 22:13:01.272 [FleetManagerReplacementSweep] sweep FAILED: System.InvalidOperationException: The Gateway database is not open yet. The listener binds before the database is connected so that a slow database cannot stop the site from starting; requests that need data must wait for /healthz to report ready.
+2026-10-26 22:13:12.273 [GatewayDatabase] Migrate: applied 113 migration(s)
+2026-10-26 22:13:12.277 [GatewayDatabase] Open: ready, provider=Postgres target=postgres host=boot-proof-db-1889631 database=gateway, attempt=1
+2026-10-26 22:13:12.277 [GatewayHost] database open
+2026-10-26 22:13:12.456 [DeviceRegistryImporter] ReadLegacyFile: no file at /home/gateway/cc-director/config/director/devices.json - importing zero devices
+2026-10-26 22:13:12.653 [DeviceRegistryImporter] Import: migrated 0 device(s) from /home/gateway/cc-director/config/director/devices.json into device_credentials (marker written)
+2026-10-26 22:13:12.692 [DeviceRegistry] InitializeAuthority: database registry ready, imported=0, importSkipped=False
+2026-10-26 22:13:12.707 [DeviceRegistry] ReinstateRevokedBefore: reason=entitlement_lost, tenants=0, reinstated=0, tenantsSkipped=0
+2026-10-26 22:13:12.707 [PreFreeTierKeyReinstatement] reinstated 0 device credential(s) cancelled before the free tier
+2026-10-26 22:13:12.766 [WorkListStore] Load: 0 list(s) present, staleClaimsReleased=0
+2026-10-26 22:13:12.816 [FactoryScheduleLinkBackfill] Run: accounts=0, linked=0, alreadyLinked=0, skipped=0
+2026-10-26 22:13:12.991 [BuiltInSkillSeeder] Seeded built-in skill: id=dev-throttle, v1, hash=ba3d6905ed09
+2026-10-26 22:13:13.010 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-comms, v1, hash=f0f13c2b199d
+2026-10-26 22:13:13.019 [BuiltInSkillSeeder] Seeded built-in skill: id=move-session, v1, hash=44638cf48287
+2026-10-26 22:13:13.028 [BuiltInSkillSeeder] Seeded built-in skill: id=terminology, v1, hash=911327a2ddf6
+2026-10-26 22:13:13.048 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-manager, v1, hash=a5afd4fbdd73
+2026-10-26 22:13:13.056 [BuiltInSkillSeeder] Seeded built-in skill: id=devthrottle-method, v1, hash=f8ffc6dc3dff
+2026-10-26 22:13:13.073 [BuiltInSkillSeeder] Seeded built-in skill: id=fleet-naming, v1, hash=cf652172a45e
+2026-10-26 22:13:13.082 [BuiltInSkillSeeder] Seeded built-in skill: id=foreground-only, v1, hash=ed88516c2dfe
+2026-10-26 22:13:13.096 [BuiltInSkillSeeder] Seeded built-in skill: id=checks-that-fail-open, v1, hash=11c04e336bdb
+2026-10-26 22:13:13.105 [BuiltInSkillSeeder] Seeded built-in skill: id=proof-covers-the-wrong-thing, v1, hash=c21f086becd6
+2026-10-26 22:13:13.119 [BuiltInSkillSeeder] Seeded built-in skill: id=destructive-sweeps-lean-to-keep, v1, hash=da9296323c0b
+2026-10-26 22:13:13.133 [BuiltInSkillSeeder] Seeded built-in skill: id=dev-reports, v1, hash=7bd79d66712d
+2026-10-26 22:13:13.329 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=mission, v1, hash=311a7708801e
+2026-10-26 22:13:13.343 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=standalone, v1, hash=2fd6c9cca662
+2026-10-26 22:13:13.351 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=standalone-with-review, v1, hash=89eccb5a9329
+2026-10-26 22:13:13.371 [BuiltInWorkflowSeeder] Seeded built-in workflow: id=fleet-manager, v1, hash=a85d44d6119e
+2026-10-26 22:13:13.424 [GatewayHost] startup stores loaded; now serving
+2026-10-26 22:13:13.424 [GatewayHost] listening on http://0.0.0.0:7878 (all interfaces, auth-gated; version 2.31.1)
+2026-10-26 22:13:13.424 [GatewayHost] startup complete - standard-output log mirror off; the per-container file is the record from here
+rc=0
