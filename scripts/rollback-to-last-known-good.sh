@@ -165,6 +165,11 @@ finish() {
 
 echo "AUTOMATIC ROLLBACK: commit ${FAILED_COMMIT} never came up. Putting production back on last-known-good."
 echo "  The target is the image tagged last-known-good, and only that image (issue #4514)."
+# Review note on #4527: on 2026-10-26 the owner dispatched the manual rollback three minutes after the
+# deploy failed. Started now, it would queue behind this job in the shared group and then re-pin a
+# production that has just recovered - one more restart for nothing.
+echo "  Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then"
+echo "  restart production again. Read this run's verdict below first."
 
 # 1. RESOLVE. Before anything is changed, so a missing tag leaves production exactly as it is.
 if ! resolved=$(bash "$RESOLVER" last-known-good); then

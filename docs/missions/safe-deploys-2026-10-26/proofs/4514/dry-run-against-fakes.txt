@@ -1,0 +1,356 @@
+bash scripts/rollback-to-last-known-good.test.sh on devlinux, 2026-10-26T23:43:39Z, commit 41972095b plus the warning line in this commit
+
+== target selection ==
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:39; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 1s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  replay-2026-10-26: exit 0
+PASS  replay-2026-10-26: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  replay-2026-10-26: never pinned sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1
+PASS  replay-2026-10-26: says 'AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.'
+PASS  replay-2026-10-26: says 'This deploy is still a FAILURE: the run ends red.'
+PASS  replay-2026-10-26: output auto_rollback=recovered
+PASS  replay-2026-10-26: output serving_commit_after_rollback=lkg1234
+PASS  replay-2026-10-26: says 'Hosted Gateway deploy failed and was rolled back automatically'
+PASS  replay-2026-10-26: says '| Commit that failed to come up | `bad5678`'
+PASS  replay-2026-10-26: says '| Commit production serves now | `lkg1234` |'
+PASS  replay-2026-10-26: says '### Deploy FAILED - automatic rollback: recovered'
+PASS  replay-2026-10-26: made no unexpected az or gh call
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:40; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 0s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  outgoing-is-another-image: exit 0
+PASS  outgoing-is-another-image: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  outgoing-is-another-image: never pinned sha256:2222222222220000000000000000000000000000000000000000000000000002
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        NOTE: last-known-good carries no ci-<commit> tag, so production can be checked for coming back
+              HEALTHY on it, not for which commit it is running.
+        Resolved last-known-good = commit <unknown> (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit <unknown: no ci- tag left on it> (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:40; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 1s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving again on commit lkg1234: 3 consecutive 200s, 0s or more after the rollback pin. last-known-good carries no ci- tag any more, so the commit could not be checked against the image - only that it is not the failed one.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  lkg-without-ci-tag: exit 0
+PASS  lkg-without-ci-tag: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  lkg-without-ci-tag: says 'carries no ci-<commit> tag'
+PASS  lkg-without-ci-tag: says 'the commit could not be checked against the image'
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        NOTE: last-known-good carries no ci-<commit> tag, so production can be checked for coming back
+              HEALTHY on it, not for which commit it is running.
+        Resolved last-known-good = commit <unknown> (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit <unknown: no ci- tag left on it> (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:41; waiting for a sustained 200...
+        production HTTP 200 commit=bad5678 (rolling back, 0s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 0s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 0s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 1s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 1s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 1s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 1s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 1s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 2s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 2s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 2s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 2s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 3s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 3s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 3s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 3s since the pin)
+        production HTTP 200 commit=bad5678 (rolling back, 3s since the pin)
+        
+        AUTOMATIC ROLLBACK: last-known-good was pinned but production did NOT come back.
+        Production is pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001, and it did NOT serve a sustained 200 within 4s. PRODUCTION IS PROBABLY DOWN. Two images failed to come up in a row, so the fault is very unlikely to be the code: look at the platform container log for app-fake, and at whether the site itself was stopped. No other image was tried, and none should be pinned in the hope that it starts.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  lkg-without-ci-tag-serves-failed-commit: exit 1
+PASS  lkg-without-ci-tag-serves-failed-commit: output auto_rollback=not-recovered
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:45; waiting for a sustained 200...
+        production HTTP 200 commit=zzz0000 (rolling back, 0s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 0s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 0s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 0s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 1s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 1s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 1s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 1s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 2s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 2s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 2s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 2s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 3s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 3s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 3s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 3s since the pin)
+        production HTTP 200 commit=zzz0000 (rolling back, 3s since the pin)
+        
+        AUTOMATIC ROLLBACK: last-known-good was pinned but production did NOT come back.
+        Production is pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001, and it did NOT serve a sustained 200 on commit lkg1234 within 4s. PRODUCTION IS PROBABLY DOWN. Two images failed to come up in a row, so the fault is very unlikely to be the code: look at the platform container log for app-fake, and at whether the site itself was stopped. No other image was tried, and none should be pinned in the hope that it starts.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  serves-wrong-commit: exit 1
+PASS  serves-wrong-commit: output auto_rollback=not-recovered
+== no target, or a target that does not come up: say so and stop ==
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        ERROR: no image 'devthrottle-gateway:last-known-good' in registry crfake.
+               Production has NOT been changed by this resolution.
+        
+               The registry keeps the three newest deploys by name, plus 'live' (what production
+               is running) and 'last-known-good'. Anything older has been purged. If you need an
+               image older than that, its digest is in its own deploy run's log and can be passed
+               as sha256:... - but only if the manifest still exists.
+        
+               Tags that do exist, most recent first:
+                 ci-bad5678
+                 live
+                 ci-old9999
+                 ci-lkg1234
+        
+        AUTOMATIC ROLLBACK: last-known-good could not be resolved; production was NOT rolled back.
+        The registry has no image tagged last-known-good, so there is nothing trustworthy to go back to. NO ROLLBACK WAS ATTEMPTED and production is still pinned to the failed image sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1. PRODUCTION IS PROBABLY STILL DOWN. A person must choose a commit and run the rollback workflow (rollback-hosted-gateway.yml) by hand.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  lkg-missing: exit 3
+PASS  lkg-missing: pinned exactly [nothing]
+PASS  lkg-missing: output auto_rollback=unresolved
+PASS  lkg-missing: says 'last-known-good could not be resolved; production was NOT rolled back.'
+PASS  lkg-missing: says 'PRODUCTION IS PROBABLY STILL DOWN'
+PASS  lkg-missing: says 'last-known-good could not be resolved'
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit bad5678 (sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1).
+        
+        AUTOMATIC ROLLBACK: last-known-good is the image that just failed; production was NOT rolled back.
+        last-known-good is the very image this deploy pinned (sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1), so re-pinning it would only restart the same failure. NO ROLLBACK WAS ATTEMPTED. PRODUCTION IS PROBABLY STILL DOWN. A person must choose an older commit and run the rollback workflow (rollback-hosted-gateway.yml) by hand.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  lkg-is-the-failed-image: exit 3
+PASS  lkg-is-the-failed-image: pinned exactly [nothing]
+PASS  lkg-is-the-failed-image: output auto_rollback=same-as-failed
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:49; waiting for a sustained 200...
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 1s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 1s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 1s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 1s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 2s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 2s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 2s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 2s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 2s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 3s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 3s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 3s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 3s since the pin)
+        
+        AUTOMATIC ROLLBACK: last-known-good was pinned but production did NOT come back.
+        Production is pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001, and it did NOT serve a sustained 200 on commit lkg1234 within 4s. PRODUCTION IS PROBABLY DOWN. Two images failed to come up in a row, so the fault is very unlikely to be the code: look at the platform container log for app-fake, and at whether the site itself was stopped. No other image was tried, and none should be pinned in the hope that it starts.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  repin-does-not-come-up: exit 1
+PASS  repin-does-not-come-up: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  repin-does-not-come-up: output auto_rollback=not-recovered
+PASS  repin-does-not-come-up: says 'last-known-good was pinned but production did NOT come back.'
+PASS  repin-does-not-come-up: says 'No other image was tried'
+PASS  repin-does-not-come-up: says '| Commit production serves now | `none - /healthz reported no commit` |'
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        ERROR: (fake) the site refused the image
+        
+        AUTOMATIC ROLLBACK: the re-pin of last-known-good failed; production was NOT rolled back.
+        Pinning crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 was refused by Azure, so production is still pinned to the failed image sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1. PRODUCTION IS PROBABLY STILL DOWN. No other image was tried.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  pin-refused: exit 1
+PASS  pin-refused: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  pin-refused: output auto_rollback=pin-failed
+== the wait follows the deploy's rule ==
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:53; waiting for a sustained 200...
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 0s since the pin)
+        production HTTP 502 commit=<none> (rolling back, 1s since the pin)
+        production 200 commit=lkg1234 (streak 1, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 1s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  streak-must-be-unbroken: exit 0
+PASS  streak-must-be-unbroken: reached streak 3
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:54; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 4, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 5, 1s since the rollback pin)
+        production 200 commit=lkg1234 (streak 6, 2s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 2s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  settle-is-respected: exit 0
+PASS  settle-is-respected: waited 2s >= 2s
+== the alert issue ==
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:56; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 0s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: commented on the open issue #4600 ("Hosted Gateway deploy failed and was rolled back automatically").
+PASS  issue-already-open: exit 0
+PASS  issue-already-open: commented, did not open a second
+PASS  issue-already-open: says '4600'
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:56; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 1s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        WARNING: writing the alert issue FAILED. Nobody has been told by issue. Its text:
+        ## production was put back on last-known-good and came up.
+        
+        | | |
+        |---|---|
+        | Commit that failed to come up | `bad5678` (`sha256:ee646d181b87000000000000000000000000000000000000000000000000bad1`) |
+        | Rollback target | last-known-good: commit `lkg1234` (`sha256:1111111111110000000000000000000000000000000000000000000000000001`) |
+        | Commit production serves now | `lkg1234` |
+        | Deploy run | https://github.com/example/repo/actions/runs/1 |
+        
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        
+        The deploy run is red. An automatic rollback is a recovery, never a successful deploy.
+        The failing container's own startup output is in the platform container log for `app-fake`.
+        Do not redeploy `bad5678` until the reason it did not start is named.
+PASS  issue-write-fails: exit 0
+PASS  issue-write-fails: says 'WARNING: writing the alert issue FAILED'
+== the workflow's own failure branch, run the way GitHub runs it ==
+        ERROR: production never served a sustained 200 on commit bad5678 within 600s.
+               PRODUCTION MAY BE DOWN RIGHT NOW. The failing container's own startup output is in the
+               platform container log for app-fake.
+        AUTOMATIC ROLLBACK: commit bad5678 never came up. Putting production back on last-known-good.
+          The target is the image tagged last-known-good, and only that image (issue #4514).
+          Do NOT start the manual rollback workflow while this runs: it would wait behind this job and then
+          restart production again. Read this run's verdict below first.
+        Resolved last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001).
+          last-known-good = commit lkg1234 (sha256:1111111111110000000000000000000000000000000000000000000000000001)
+        Production pinned to last-known-good crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001 at 23:43:57; waiting for a sustained 200...
+        production 200 commit=lkg1234 (streak 1, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 2, 0s since the rollback pin)
+        production 200 commit=lkg1234 (streak 3, 0s since the rollback pin)
+        
+        AUTOMATIC ROLLBACK: production was put back on last-known-good and came up.
+        Production is serving last-known-good commit lkg1234 again: 3 consecutive 200s on it, 0s or more after the rollback pin.
+        This deploy is still a FAILURE: the run ends red.
+        Alert written: opened https://github.com/example/repo/issues/999 ("Hosted Gateway deploy failed and was rolled back automatically").
+        The automatic rollback exited 0. This deploy FAILED; the run is red on purpose.
+PASS  workflow-branch: exit 1
+PASS  workflow-branch: pinned exactly [crfake.azurecr.io/devthrottle-gateway@sha256:1111111111110000000000000000000000000000000000000000000000000001]
+PASS  workflow-branch: output outcome=failed
+PASS  workflow-branch: output auto_rollback=recovered
+PASS  workflow-branch: says 'The automatic rollback exited 0. This deploy FAILED; the run is red on purpose.'
+PASS  workflow-branch: says '| Commit that failed to come up | `bad5678`'
+PASS  workflow-branch-rollback-fails: exit 1
+PASS  workflow-branch-rollback-fails: pinned exactly [nothing]
+PASS  workflow-branch-rollback-fails: says 'The automatic rollback exited 3. This deploy FAILED; the run is red on purpose.'
+== the shared resolver ==
+PASS  resolver: a short commit resolves through ci-<commit>
+PASS  resolver: last-known-good resolves with its commit
+PASS  resolver: a digest resolves with its commit
+PASS  resolver: an unknown commit exits 1 and prints no output lines
+PASS  resolver: says 'ERROR: no image 'devthrottle-gateway:ci-nosuch1' in registry crfake.'
+PASS  resolver: says 'last-known-good'
+
+ALL CASES PASSED
+exit=0
