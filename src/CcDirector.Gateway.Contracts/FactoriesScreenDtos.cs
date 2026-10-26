@@ -712,7 +712,7 @@ public sealed class FactoryPageEmailItemDto
     /// <summary>Its subject line, as sent.</summary>
     public string Title { get; set; } = "";
 
-    /// <summary>"Morning report" or "Shift check".</summary>
+    /// <summary>"Morning report", or "Shift check" on a check kept from before 26 October 2026.</summary>
     public string KindText { get; set; } = "";
 
     /// <summary>"Sent today 08:00".</summary>

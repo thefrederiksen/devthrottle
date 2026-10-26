@@ -12,9 +12,10 @@ public delegate (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> D
 
 /// <summary>
 /// THE GATEWAY CHECKS AND SENDS THE FACTORY EMAIL, AS PLAIN CODE - NOT AN AGENT (the owner, 10 October 2026). For each
-/// account whose factory email is switched on, at 08:00, 16:00 and midnight in the account's own time zone
+/// account whose factory email is switched on, once a day at 08:00 in the account's own time zone
 /// (<see cref="FactoryEmailSlots"/>): compose the slot's email from the one problems fold, keep it, and send it through
-/// the owner-email primitive (<see cref="IFactoryEmailSender"/>).
+/// the owner-email primitive (<see cref="IFactoryEmailSender"/>). A problem raised later in the day is sent nothing of
+/// its own: it is still open at the next 08:00, so that email lists it.
 ///
 /// ONCE PER SLOT. The kept row per account and slot (<see cref="FactoryEmailStore"/>) is the record that a slot was
 /// handled, so a restart, a deploy or a second tick never sends it again. The row is written BEFORE the send and
@@ -101,11 +102,10 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             // its slot - a problem raised after the cut-off waits for the next email, and one resolved after it is
             // still listed here, as it was open then.
             var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
-            // The Mail Desk section is the 08:00 email's only, over the same 24 hours.
-            var mailDesk = slot.Kind == FactoryEmailKinds.Morning ? _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone) : null;
-            // So is "Needs you": what waits on the owner as the email is composed, so an item handled before then is not
-            // listed. The 16:00 and midnight checks are left exactly as they were.
-            var needsYou = slot.Kind == FactoryEmailKinds.Morning ? _needsYou(tenant) : null;
+            // The Mail Desk section, over the same 24 hours.
+            var mailDesk = _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone);
+            // "Needs you": what waits on the owner as the email is composed, so an item handled before then is not listed.
+            var needsYou = _needsYou(tenant);
             var email = FactoryEmailComposer.Compose(new FactoryEmailInput(
                 slot, zone, problems.Problems, days, _factories(tenant), _baseUrl(), mailDesk, needsYou));
             if (!email.Send)
@@ -161,7 +161,7 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             }
         });
 
-        if (result.Sent && slot.Kind == FactoryEmailKinds.Morning)
+        if (result.Sent)
             _store.Prune(tenant, now);
         return result.Sent ? $"slot {slot.Key}: sent" : $"slot {slot.Key}: not sent ({result.Error})";
     }

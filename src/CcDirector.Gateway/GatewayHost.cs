@@ -1302,8 +1302,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan SuggestionSweepInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SuggestionSweepStartupDelay = TimeSpan.FromMinutes(2);
 
-    // The factory email (Factory Control, step 4): the 08:00 report and the 16:00 / midnight checks, composed and sent
-    // by the Gateway itself. The sweep ticks every few minutes for every account; an account whose factory email is off
+    // The factory email (Factory Control, step 4): the 08:00 report, one email a day, composed and sent by the Gateway
+    // itself. The sweep ticks every few minutes for every account; an account whose factory email is off
     // costs one setting read. Guarded against overlap; created in StartAsync, disposed in StopAsync.
     private Factory.Email.FactoryEmailSweep? _factoryEmailSweep;
     internal Factory.Email.FactoryEmailStore? FactoryEmailReports { get; private set; }

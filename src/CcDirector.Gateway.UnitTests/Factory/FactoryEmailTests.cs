@@ -14,8 +14,9 @@ namespace CcDirector.Gateway.Tests.Factory;
 
 /// <summary>
 /// THE FACTORY EMAIL (Factory Control, step 4; the owner's rulings and his approval of the mockups, 10 October 2026).
-/// The Gateway composes and sends it itself: at 08:00 every day, the problems still not fixed and one line per factory;
-/// at 16:00 and midnight, only when the shift that just ended raised a NEW problem. Once per slot, whatever restarts.
+/// The Gateway composes and sends it itself, ONE EMAIL A DAY (the owner, 26 October 2026): at 08:00, the problems still not
+/// fixed, what needs the owner and one line per factory. Nothing at 16:00 or midnight: a problem raised in the day shows
+/// first in the next 08:00 email. Once per day, whatever restarts.
 /// Switched off, nothing at all. All times are Toronto time, the owner's account, both daylight-saving days included.
 /// </summary>
 public sealed class FactoryEmailTests : IDisposable
@@ -144,22 +145,7 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Equal("2026-10-11T08", slot!.Key);
         Assert.Equal(FactoryEmailKinds.Morning, slot.Kind);
         Assert.Equal(TorontoTime(2026, 10, 11, 8), slot.BoundaryUtc);
-        Assert.Equal(WorkShifts.Night, slot.EndedShift.Name);
         Assert.Equal(TorontoTime(2026, 10, 10, 8), slot.DayStartUtc);
-    }
-
-    [Theory]
-    [InlineData(16, "2026-10-11T16", WorkShifts.Morning)]
-    [InlineData(0, "2026-10-12T00", WorkShifts.Evening)]
-    public void DueAt_AfterSixteenOrMidnight_IsACheckOfTheShiftThatEnded(int hour, string key, string endedShift)
-    {
-        var at = hour == 0 ? TorontoTime(2026, 10, 12, 0, 5) : TorontoTime(2026, 10, 11, hour, 5);
-
-        var slot = FactoryEmailSlots.DueAt(at, Toronto);
-
-        Assert.Equal(key, slot!.Key);
-        Assert.Equal(FactoryEmailKinds.Check, slot.Kind);
-        Assert.Equal(endedShift, slot.EndedShift.Name);
     }
 
     [Fact]
@@ -179,7 +165,6 @@ public sealed class FactoryEmailTests : IDisposable
 
         Assert.Equal("2026-11-01T08", slot!.Key);
         Assert.Equal(new DateTime(2026, 11, 1, 13, 0, 0, DateTimeKind.Utc), slot.BoundaryUtc);
-        Assert.Equal(new DateTime(2026, 11, 1, 4, 0, 0, DateTimeKind.Utc), slot.PreviousBoundaryUtc);
         Assert.Equal(TimeSpan.FromHours(25), slot.BoundaryUtc - slot.DayStartUtc);
     }
 
@@ -192,7 +177,6 @@ public sealed class FactoryEmailTests : IDisposable
 
         Assert.Equal("2026-03-08T08", slot!.Key);
         Assert.Equal(new DateTime(2026, 3, 8, 12, 0, 0, DateTimeKind.Utc), slot.BoundaryUtc);
-        Assert.Equal(new DateTime(2026, 3, 8, 5, 0, 0, DateTimeKind.Utc), slot.PreviousBoundaryUtc);
         Assert.Equal(TimeSpan.FromHours(23), slot.BoundaryUtc - slot.DayStartUtc);
     }
 
@@ -545,49 +529,6 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.DoesNotContain("<script", email.Html, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ---- the 16:00 and midnight checks ------------------------------------------------------------------------------
-
-    [Fact]
-    public async Task SweepTenantAsync_SixteenWithNoNewProblem_SendsNothing()
-    {
-        Job("cj_scan", "Night scan", "research", "scout");
-        // Open, but recorded at 02:00 - already in the 08:00 report.
-        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
-            resultUtc: TorontoTime(2026, 10, 11, 2)));
-        _now = TorontoTime(2026, 10, 11, 16, 5);
-        var sender = new FakeSender();
-
-        var said = await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        Assert.Empty(sender.Sent);
-        Assert.Contains("nothing to send", said);
-        Assert.Equal(FactoryEmailStates.NothingToSend, Store.Find(TenantId.Local, "2026-10-11T16")!.State);
-    }
-
-    [Fact]
-    public async Task SweepTenantAsync_SixteenWithANewProblem_SendsTheCheck()
-    {
-        Job("cj_scan", "Night scan", "research", "scout");
-        Job("cj_send", "Morning send", "outreach", "sender");
-        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline",
-            resultUtc: TorontoTime(2026, 10, 11, 2)));
-        // New: the Sender's 14:30 run was still going at 16:00, recorded a minute after the boundary.
-        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 30), CronRunResults.Problem, CronRunProblems.RanPastShift,
-            "it had not reported and was still open when its morning shift ended", resultUtc: TorontoTime(2026, 10, 11, 16, 1)));
-        _now = TorontoTime(2026, 10, 11, 16, 5);
-        var sender = new FakeSender();
-
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        var (subject, html) = Assert.Single(sender.Sent);
-        Assert.Equal("Factories: 1 new problem in the morning shift - Sunday 11 October", subject);
-        Assert.Contains("Sender - Morning send", html);
-        Assert.Contains("Ran past its shift", html);
-        Assert.DoesNotContain("Night scan", html);
-        Assert.Contains("Also still open from before: 1 problem, listed in this morning&#39;s 08:00 report.", html);
-        Assert.Equal(FactoryEmailStates.Sent, Store.Find(TenantId.Local, "2026-10-11T16")!.State);
-    }
-
     // ---- once per slot, and the switch -------------------------------------------------------------------------------
 
     [Fact]
@@ -709,32 +650,35 @@ public sealed class FactoryEmailTests : IDisposable
     [Fact]
     public async Task List_AFactory_IsItsSentEmailsNewestFirst_AndGetHasTheHtmlAsSent()
     {
+        var sender = new FakeSender();
+        // Saturday: the account has no schedule yet, so its 08:00 has nothing to send - kept, not sent.
+        _now = TorontoTime(2026, 10, 10, 8, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
         Job("cj_scan", "Night scan", "research", "scout");
         Job("cj_send", "Morning send", "outreach", "sender");
         AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach and research
-        _now = TorontoTime(2026, 10, 11, 16, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // nothing new: kept, not sent
-        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 18), CronRunResults.Problem, CronRunProblems.Reported, "bounced",
-            resultUtc: TorontoTime(2026, 10, 11, 18, 30)));
-        _now = TorontoTime(2026, 10, 12, 0, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach only
+        _now = TorontoTime(2026, 10, 12, 8, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent: the problem is still open
 
         var research = Store.List(TenantId.Local, "research", kind: null, limit: 10, allStates: false);
         var outreach = Store.List(TenantId.Local, "Outreach", kind: null, limit: 10, allStates: false);
+        var docs = Store.List(TenantId.Local, "docs", kind: null, limit: 10, allStates: false);
         var everything = Store.List(TenantId.Local, factory: null, kind: null, limit: 10, allStates: true);
 
-        var only = Assert.Single(research.Emails);
-        Assert.Equal(("2026-10-11T08", "08:00", "Factories: 1 problem still open - Sunday 11 October"), (only.SlotKey, only.Slot, only.Title));
-        Assert.Equal(new[] { "outreach", "research" }, only.Factories);
-        Assert.NotNull(only.SentUtc);
-        Assert.Null(only.Html);
-        Assert.Equal(new[] { "2026-10-12T00", "2026-10-11T08" }, outreach.Emails.Select(e => e.SlotKey));
-        Assert.Equal(new[] { "2026-10-12T00", "2026-10-11T16", "2026-10-11T08" }, everything.Emails.Select(e => e.SlotKey));
+        Assert.Equal(new[] { "2026-10-12T08", "2026-10-11T08" }, research.Emails.Select(e => e.SlotKey));
+        var first = research.Emails[1];
+        Assert.Equal(("2026-10-11T08", "08:00", "Factories: 1 problem still open - Sunday 11 October"), (first.SlotKey, first.Slot, first.Title));
+        Assert.Equal(new[] { "outreach", "research" }, first.Factories);
+        Assert.NotNull(first.SentUtc);
+        Assert.Null(first.Html);
+        Assert.Equal(new[] { "2026-10-12T08", "2026-10-11T08" }, outreach.Emails.Select(e => e.SlotKey));
+        Assert.Equal(0, docs.Count);
+        Assert.Equal(new[] { "2026-10-12T08", "2026-10-11T08", "2026-10-10T08" }, everything.Emails.Select(e => e.SlotKey));
+        Assert.Equal(FactoryEmailStates.NothingToSend, everything.Emails[2].State);
 
-        var full = Store.Get(TenantId.Local, Guid.Parse(only.Id))!;
+        var full = Store.Get(TenantId.Local, Guid.Parse(first.Id))!;
         Assert.Equal(sender.Sent[0].Html, full.Html);
         Assert.Null(Store.Get(TenantId.Local, Guid.NewGuid()));
     }
@@ -915,26 +859,137 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     [Fact]
-    public async Task SweepTenantAsync_TheMorningReadsWhatWaits_TheSixteenCheckIsLeftAsItWas()
+    public async Task SweepTenantAsync_AProblemRecordedAtThreeInTheAfternoon_IsSentNothingThatDay_AndShowsInTheNextEightOClockEmail()
     {
+        // Arrange - Sunday's 08:00 email goes out with nothing open; at 15:00 the Sender's run reports a problem.
         Job("cj_send", "Morning send", "outreach", "sender");
         AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 11, 7), CronRunResults.Ok, reason: "sent 4 emails"));
-        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 30), CronRunResults.Problem, CronRunProblems.RanPastShift,
-            "it had not reported and was still open when its morning shift ended", resultUtc: TorontoTime(2026, 10, 11, 16, 1)));
-        _needsYou = new FactoryEmailNeedsYou(new[] { Waiting("outreach", "sender", "a reply asks for a price", "a draft is ready.", TorontoTime(2026, 10, 11, 6)) }, false);
         var sender = new FakeSender();
-
         _now = TorontoTime(2026, 10, 11, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);
-        _now = TorontoTime(2026, 10, 11, 16, 5);
+        AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 50), CronRunResults.Problem, CronRunProblems.Reported,
+            "the inbox would not load", resultUtc: TorontoTime(2026, 10, 11, 15)));
+        _needsYou = new FactoryEmailNeedsYou(new[] { Waiting("outreach", "sender", "a reply asks for a price", "a draft is ready.", TorontoTime(2026, 10, 11, 15, 30)) }, false);
+
+        // Act - a tick every quarter of an hour for the rest of the day, 16:05 and 00:05 among them, then Monday's 08:00.
+        var said = new List<string>();
+        var sweep = Sweep(sender);
+        for (var at = TorontoTime(2026, 10, 11, 15, 5); at < TorontoTime(2026, 10, 12, 8, 5); at = at.AddMinutes(15))
+        {
+            _now = at;
+            said.Add(await sweep.SweepTenantAsync(TenantId.Local));
+        }
+        _now = TorontoTime(2026, 10, 12, 8, 5);
         await Sweep(sender).SweepTenantAsync(TenantId.Local);
 
+        // Assert - nothing between the two 08:00 emails: no email, no kept row, and the problem is first in Monday's.
+        Assert.All(said, s => Assert.Equal("no slot due", s));
+        Assert.Null(Store.Find(TenantId.Local, "2026-10-11T16"));
+        Assert.Null(Store.Find(TenantId.Local, "2026-10-12T00"));
         Assert.Equal(2, sender.Sent.Count);
-        Assert.Equal("Factories: 1 thing needs you - Sunday 11 October", sender.Sent[0].Subject);
-        Assert.Contains("Outreach - a reply asks for a price", sender.Sent[0].Html);
-        Assert.Equal("Factories: 1 new problem in the morning shift - Sunday 11 October", sender.Sent[1].Subject);
-        Assert.DoesNotContain("a reply asks for a price", sender.Sent[1].Html);
-        Assert.DoesNotContain(FactoryEmailComposer.NeedsYouHeading, sender.Sent[1].Html);
+        Assert.Equal("Factories: all clear - Sunday 11 October", sender.Sent[0].Subject);
+        var (subject, html) = sender.Sent[1];
+        Assert.Equal("Factories: 1 thing needs you - Monday 12 October", subject);
+        Assert.Contains("1 problem still open, listed first.", html);
+        var stillNotFixed = html.IndexOf("Still not fixed", StringComparison.Ordinal);
+        Assert.True(stillNotFixed > 0, "Monday's 08:00 email has a \"Still not fixed\" section");
+        var problem = html.IndexOf("Reported a problem: the inbox would not load.", StringComparison.Ordinal);
+        Assert.True(problem > stillNotFixed && problem < html.IndexOf(FactoryEmailComposer.NeedsYouHeading, StringComparison.Ordinal),
+            "the 15:00 problem is listed under \"Still not fixed\", before what needs you");
+        Assert.Contains("Started Sun 11 Oct 14:50 - morning shift - open 17 hours", html);
+        Assert.Contains("Outreach - a reply asks for a price", html);
+        var kept = Store.Find(TenantId.Local, "2026-10-12T08")!;
+        Assert.Equal((FactoryEmailKinds.Morning, FactoryEmailStates.Sent, 1), (kept.Kind, kept.State, kept.ProblemCount));
+    }
+
+    [Fact]
+    public void DueAt_EveryMinuteOfADay_IsTheEightOClockEmailOnly_DaylightSavingDaysIncluded()
+    {
+        foreach (var day in new[] { new DateTime(2026, 10, 11), new DateTime(2026, 11, 1), new DateTime(2026, 3, 8) })
+        {
+            var start = TorontoTime(day.Year, day.Month, day.Day, 0);
+            var end = TorontoTime(day.AddDays(1).Year, day.AddDays(1).Month, day.AddDays(1).Day, 0);
+            var eight = TorontoTime(day.Year, day.Month, day.Day, 8);
+            var due = new List<DateTime>();
+            for (var at = start; at < end; at = at.AddMinutes(1))
+            {
+                if (FactoryEmailSlots.DueAt(at, Toronto) is not { } slot) continue;
+                Assert.Equal((FactoryEmailKinds.Morning, eight, $"{day:yyyy-MM-dd}T08"), (slot.Kind, slot.BoundaryUtc, slot.Key));
+                due.Add(at);
+            }
+            Assert.Equal(eight + FactoryEmailSlots.Settle, due.First());
+            Assert.Equal(eight + FactoryEmailSlots.LateWindow, due.Last());
+            Assert.Equal(116, due.Count); // 08:05 to 10:00, nothing at 16:00 or midnight
+        }
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(0)]
+    public void AtBoundary_TheSixteenOrMidnightBoundary_Throws(int hour)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, hour), Toronto));
+
+        Assert.Contains("sent at 08:00 only", ex.Message);
+    }
+
+    [Fact]
+    public void Compose_TheEightOClockEmail_IsByteForByteWhatItWasBeforeTheChecksWereRemoved()
+    {
+        var cases = FactoryEmailMorningGolden.Cases();
+        Assert.Equal(FactoryEmailMorningGolden.Hashes.Select(h => h.Case), cases.Select(c => c.Case));
+        foreach (var ((name, input), golden) in cases.Zip(FactoryEmailMorningGolden.Hashes))
+        {
+            var email = FactoryEmailComposer.Compose(input);
+
+            Assert.True(email.Send, name);
+            Assert.Equal((name, golden.Subject), (name, FactoryEmailMorningGolden.Sha256(email.Subject)));
+            Assert.Equal((name, golden.Html), (name, FactoryEmailMorningGolden.Sha256(email.Html)));
+            Assert.Equal((name, golden.Text), (name, FactoryEmailMorningGolden.Sha256(email.Text)));
+        }
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_AKeptSixteenCheckFromBefore_IsLeftAsItIs_StillListed_AndPrunedWithTheRest()
+    {
+        // Arrange - a 16:00 check kept from before one email a day, its send left failed, and a sent midnight check.
+        Store.Save(TenantId.Local, "2026-10-11T16", r =>
+        {
+            r.Kind = FactoryEmailKinds.Check; r.BoundaryUtc = TorontoTime(2026, 10, 11, 16); r.ComposedAtUtc = TorontoTime(2026, 10, 11, 16, 5);
+            r.State = FactoryEmailStates.Failed; r.Detail = "the service said no"; r.Subject = "Factories: 1 new problem in the morning shift - Sunday 11 October";
+            r.Html = "<p>check</p>"; r.Text = "check"; r.ProblemCount = 1; r.FactoriesJson = "[\"outreach\"]"; r.Attempts = 1;
+        });
+        Store.Save(TenantId.Local, "2026-10-12T00", r =>
+        {
+            r.Kind = FactoryEmailKinds.Check; r.BoundaryUtc = TorontoTime(2026, 10, 12, 0); r.ComposedAtUtc = TorontoTime(2026, 10, 12, 0, 5);
+            r.State = FactoryEmailStates.Sent; r.SentAtUtc = TorontoTime(2026, 10, 12, 0, 5); r.Subject = "Factories: 1 new problem in the evening shift - Sunday 11 October";
+            r.Html = "<p>midnight</p>"; r.Text = "midnight"; r.ProblemCount = 1; r.FactoriesJson = "[\"outreach\"]"; r.Attempts = 1;
+        });
+        var sender = new FakeSender();
+
+        // Act - the Gateway ticks inside what was the failed check's retry window.
+        _now = TorontoTime(2026, 10, 11, 16, 9);
+        var said = await Sweep(sender).SweepTenantAsync(TenantId.Local);
+
+        // Assert - it is not tried again, and the factory page still lists and names the sent one.
+        Assert.Equal("no slot due", said);
+        Assert.Empty(sender.Sent);
+        var failed = Store.Find(TenantId.Local, "2026-10-11T16")!;
+        Assert.Equal((FactoryEmailStates.Failed, 1), (failed.State, failed.Attempts));
+        var checks = Store.List(TenantId.Local, "outreach", FactoryEmailKinds.Check, limit: 10, allStates: false);
+        var midnight = Assert.Single(checks.Emails);
+        Assert.Equal(("2026-10-12T00", "00:00", "<p>midnight</p>"), (midnight.SlotKey, midnight.Slot, Store.Get(TenantId.Local, Guid.Parse(midnight.Id))!.Html));
+        Assert.Equal("Shift check", FactoryEmailsFold.KindText(midnight.Kind));
+
+        // Act - an 08:00 email sent more than 30 days on prunes both, as it prunes every row that old.
+        Job("cj_send", "Morning send", "outreach", "sender");
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 11, 12, 7), CronRunResults.Ok));
+        _now = TorontoTime(2026, 11, 12, 8, 5);
+        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+
+        Assert.Single(sender.Sent);
+        Assert.Null(Store.Find(TenantId.Local, "2026-10-11T16"));
+        Assert.Null(Store.Find(TenantId.Local, "2026-10-12T00"));
     }
 
     /// <summary>
@@ -1019,7 +1074,7 @@ public sealed class FactoryEmailTests : IDisposable
     // ---- the approved mockup, rendered from a fixture ----------------------------------------------------------------
 
     /// <summary>
-    /// The 08:00 report and the 16:00 check composed from the same sample data the approved mockups show. The HTML is
+    /// The 08:00 report composed from the same sample data the approved mockups show. The HTML is
     /// written to <c>%TEMP%/factory-email-fixture/</c> so it can be screenshot beside the mockup.
     /// </summary>
     [Fact]
@@ -1066,21 +1121,9 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.DoesNotContain("Checks failed", report.Html);
         Assert.DoesNotContain(CronRunResultFold.CheckClearsSentence, report.Html);
 
-        var check = FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, 16), Toronto);
-        var fresh = Problem("docs", "writer", "Release notes", TorontoTime(2026, 10, 11, 14, 30), CronRunProblems.RanPastShift,
-            "still working at 16:00 and has not said how it went", recordedUtc: TorontoTime(2026, 10, 11, 16, 1));
-        var older = problems.Select(p => { p.RaisedAtUtc = TorontoTime(2026, 10, 11, 3); return p; });
-        var checkEmail = FactoryEmailComposer.Compose(new FactoryEmailInput(check, Toronto, older.Append(fresh).ToList(),
-            Array.Empty<CronFactoryDayDto>(), factories, "https://gateway.devthrottle.com"));
-
-        Assert.Equal("Factories: 1 new problem in the morning shift - Sunday 11 October", checkEmail.Subject);
-        Assert.Contains("16:00 check - Sunday 11 October - morning shift, 08:00 to 16:00", checkEmail.Html);
-        Assert.Contains("Also still open from before: 3 problems", checkEmail.Html);
-
         var dir = Path.Combine(Path.GetTempPath(), "factory-email-fixture");
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "morning-0800.html"), report.Html);
-        File.WriteAllText(Path.Combine(dir, "check-1600.html"), checkEmail.Html);
     }
 
     [Fact]

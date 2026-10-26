@@ -2409,16 +2409,19 @@ USAGE: cc-devthrottle factory email status [--json]
        cc-devthrottle factory email show <id> [--json]
 ```
 
-It ships OFF. Switched on, the account is sent:
+It ships OFF. Switched on, the account is sent ONE email a day:
 
 - **08:00, every day** - every problem still open (from the same list `run problems` reads; a problem fixed
-  yesterday is not open, so it is not there), then one line per factory for the last 24 hours: runs done,
-  runs that did not run, seats left open. Each factory with a problem links to its factory page.
-- **16:00 and midnight, only when something went wrong** - only when the shift that just ended raised a NEW
-  problem. Older open problems are one line pointing to the 08:00 report.
+  yesterday is not open, so it is not there), then what needs you, then one line per factory for the last
+  24 hours: runs done, runs that did not run, seats left open. Each factory with a problem links to its
+  factory page.
 
-The times are the account's own time zone. Each slot is sent once, whatever restarts; a failed send is tried
-again for two hours, then the slot is closed. A team account is told it is not supported yet - the email is
+Nothing else is sent. A problem raised after 08:00 is still open at the next 08:00, so it shows first in that
+email, under "Still not fixed". (Until 26 October 2026 a check was also sent at 16:00 and midnight when a shift
+raised a new problem; those already sent are still listed, with `--kind check`, until they are 30 days old.)
+
+The time is the account's own time zone. The email is sent once a day, whatever restarts; a failed send is
+tried again for two hours, then that day's email is closed. A team account is told it is not supported yet - the email is
 not sent, and no address is guessed.
 
 `factory email list` lists the kept emails that were sent, newest first: the id, the slot (local date and

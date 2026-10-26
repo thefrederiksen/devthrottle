@@ -113,6 +113,9 @@ def test_on_PutsEnabledTrue_AndSaysItIsOn(gateway_answering):
     assert gw.calls[0]["method"] == "PUT"
     assert gw.calls[0]["body"] == {"enabled": True}
     assert "Switched the factory email on." in result.stdout
+    # One factory email a day (the owner, 26 October 2026): no word of a 16:00 or midnight email.
+    assert "sent once a day, at 08:00" in result.stdout
+    assert "16:00" not in result.stdout and "midnight" not in result.stdout
 
 
 def test_off_TheGatewaySaysStillOn_FailsAndSaysSo(gateway_answering):

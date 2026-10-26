@@ -128,8 +128,8 @@ public static class CronRunResultFold
     /// <param name="factory">Only problems of this factory's schedules, or null for all.</param>
     /// <param name="includeClosed">True to list cleared and resolved problems too.</param>
     /// <param name="asOfUtc">The instant to describe: a problem raised after it is left out, and a clear or resolve
-    /// after it has not happened yet. The 16:00 and midnight checks read the state as it stood when their shift
-    /// ended.</param>
+    /// after it has not happened yet. The 08:00 email reads the state as it stood at its own cut-off, however late in its
+    /// window it is composed.</param>
     /// <param name="definitionTriggerRuns">The SECOND SOURCE (Factory Definition, phase 5b, design 3.5): every
     /// definition trigger of the account with its checks, newest first. A failed check is a <c>check-failed</c>
     /// problem in the same shape (<see cref="TriggerProblems"/>). Command triggers are never handed in: their failures

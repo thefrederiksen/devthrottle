@@ -454,25 +454,6 @@ public sealed class MailDeskEmailSectionTests : IDisposable
         Assert.True(email.Send);
         Assert.Contains(MailDeskEmailFold.Heading, email.Html);
     }
-
-    [Fact]
-    public void Compose_TheFourPMCheck_NeverCarriesTheSection()
-    {
-        // The sweep hands the section to the 08:00 email only; the check emails do not lay it out even if given one.
-        Channel();
-        var check = FactoryEmailSlots.DueAt(TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 10, 19, 16, 5, 0), Toronto), Toronto)!;
-        var problem = new CronRunProblemDto
-        {
-            RunId = "r1", JobId = "j1", JobName = "Morning send", Kind = CronRunProblems.Reported, Sentence = "Reported a problem.",
-            State = CronRunProblemStates.Open, RaisedAtUtc = check.BoundaryUtc.AddHours(-1), WhenText = "Started", Shift = "morning",
-        };
-
-        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(check, Toronto, new[] { problem },
-            Array.Empty<CronFactoryDayDto>(), new Dictionary<string, FactoryEmailFactory>(StringComparer.OrdinalIgnoreCase), null, Section()));
-
-        Assert.True(email.Send);
-        Assert.DoesNotContain(MailDeskEmailFold.Heading, email.Html);
-    }
 }
 
 /// <summary>
