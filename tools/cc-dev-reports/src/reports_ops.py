@@ -277,11 +277,45 @@ def answers(file_path: Optional[str], report_id: Optional[str], ack: bool, claim
         if ack and not isinstance(marked, list):
             raise CommandError("The Gateway accepted the mark but its answer carried no list of what it marked.",
                                "bad_answer")
+        if ack:
+            _refuse_an_ack_that_left_items_unacted(reports, marked, items)
         for report in reports:
             report["ownerRoute"] = owner_route(str(report.get("id")))
         return _result("answers", ok=True, count=len(reports), reports=reports, claimed=claimed, marked=marked)
     except CommandError as exc:
         return _result("answers", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
+
+
+def _refuse_an_ack_that_left_items_unacted(reports: List[Any], marked: List[Any], items: Optional[List[str]]) -> None:
+    """An acknowledgement that did not mark what it was meant to is a failure, not a quiet zero.
+
+    The Gateway marks only items whose claim this session holds. Marking nothing while the report still has unacted
+    items means the run acted without a claim (or lost it), so the next run would claim and act on them again. With
+    `--item`, every named item still unacted after the call is a failure. Without it, marking nothing while unacted
+    items remain is a failure; marking some is not, because another live session may hold the rest. Marking nothing
+    because nothing is left to mark is a harmless re-run.
+    """
+    marked_ids = {m.get("itemId") for m in marked if isinstance(m, dict)}
+    unacted: Dict[str, Optional[str]] = {}
+    for report in reports:
+        entries = [q for q in (report.get("questions") or []) if q.get("answered")]
+        entries.extend(report.get("notes") or [])
+        for entry in entries:
+            if entry.get("itemId") and not entry.get("actedOnAtUtc"):
+                unacted[entry["itemId"]] = entry.get("actionClaimedSessionId")
+    if items:
+        left = [i for i in items if i in unacted and i not in marked_ids]
+    elif not marked_ids:
+        left = list(unacted)
+    else:
+        left = []
+    if not left:
+        return
+    held = [f"{i} ({'claimed by session ' + unacted[i] if unacted[i] else 'not claimed'})" for i in left]
+    raise CommandError(
+        f"The acknowledgement marked {len(marked_ids)} item(s) and left {len(left)} still not acted on. This session "
+        "does not hold their claim, so they stay open and the next run will act on them again. Claim first "
+        "(--claim), act only on the ids it returns, then acknowledge.", "not_marked", errors=held)
 
 
 def _claimed_items(items: List[Any], report_id: str) -> List[Dict[str, Any]]:

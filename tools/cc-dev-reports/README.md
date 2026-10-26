@@ -43,7 +43,10 @@ The next run - a different session - reads it:
   claim to named ids. By file, `--claim` reserves every unacted item on each returned report.
 - After the action succeeds, run `answers --report <id> --ack` to mark this session's claimed items
   acted on. `--item` limits the mark to named ids. An unclaimed or other-session item cannot be
-  acknowledged by this session. A later answer to the same question is a new item.
+  acknowledged by this session. An ack that leaves items unacted because this session does not
+  hold their claim (it marked nothing while some remain, or a named `--item` stayed open) exits 1
+  with code `not_marked` and lists each one with its holder; an ack with nothing left to mark exits
+  0. A later answer to the same question is a new item.
 - A session reads only its own account's reports; in a team's account, only those of the person
   behind the session. Another account's report is `report_not_found`.
 - Needs `CC_GATEWAY_URL`, `CC_GATEWAY_SESSION_KEY` and `CC_SESSION_ID` (every DevThrottle session

@@ -487,6 +487,65 @@ def test_answers_ack_named_items_sends_only_those(wire):
     assert json.loads(result.output)["marked"] == [{"itemId": "a1"}]
 
 
+def test_answers_ack_that_marks_nothing_while_items_stay_unacted_fails_and_names_them(wire):
+    # The run acted without claiming: the Gateway marks nothing, and both items are still open.
+    wire((200, {"marked": [], "count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack", "--json"])
+
+    assert result.exit_code == 1, result.output
+    body = json.loads(result.output)
+    assert body["ok"] is False and body["code"] == "not_marked"
+    assert "left 2 still not acted on" in body["error"]
+    assert body["errors"] == ["a1 (not claimed)", "n1 (not claimed)"]
+
+
+def test_answers_ack_that_marks_nothing_names_the_session_holding_the_claim(wire):
+    other = _answers_view(claimed_at="2026-10-26T10:00:00Z", claimed_by="other-session")
+    wire((200, {"marked": [], "count": 1, "reports": [other]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack"])
+
+    assert result.exit_code == 1, result.output
+    lines = result.output.splitlines()
+    assert "code: not_marked" in lines
+    assert "  a1 (claimed by session other-session)" in lines
+
+
+def test_answers_ack_that_marks_nothing_because_nothing_is_left_succeeds(wire):
+    done = _answers_view(acted="2026-10-26T10:00:00Z", by=SESSION_ID)
+    wire((200, {"marked": [], "count": 1, "reports": [done]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["marked"] == []
+
+
+def test_answers_ack_that_marks_some_while_another_session_holds_the_rest_succeeds(wire):
+    view = _answers_view()
+    view["notActedOn"] = 1
+    view["questions"][0].update(actedOnAtUtc="2026-10-26T10:00:00Z", actedOnSessionId=SESSION_ID)
+    view["notes"][0].update(actionClaimedAtUtc="2026-10-26T10:00:00Z", actionClaimedSessionId="other-session")
+    wire((200, {"marked": [{"itemId": "a1"}], "count": 1, "reports": [view]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack"])
+
+    assert result.exit_code == 0, result.output
+    assert "marked acted on: 1" in result.output.splitlines()
+
+
+def test_answers_ack_named_item_left_unacted_fails(wire):
+    wire((200, {"marked": [{"itemId": "a1"}], "count": 1, "reports": [_answers_view()]}))
+
+    result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--ack", "--item", "a1", "--item", "n1", "--json"])
+
+    assert result.exit_code == 1, result.output
+    body = json.loads(result.output)
+    assert body["code"] == "not_marked"
+    assert body["errors"] == ["n1 (not claimed)"]
+
+
 def test_answers_claim_by_report_lists_only_items_returned_as_claimed(wire):
     claimed_view = _answers_view(claimed_at="2026-10-26T10:00:00Z", claimed_by=SESSION_ID)
     calls = wire((200, {"claimed": [{"itemId": "a1", "kind": "answer", "questionId": "deploy"},
