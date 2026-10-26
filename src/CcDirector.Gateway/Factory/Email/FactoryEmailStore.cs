@@ -14,7 +14,7 @@ public static class FactoryEmailStates
     /// <summary>The email was sent.</summary>
     public const string Sent = "sent";
 
-    /// <summary>The slot had nothing to send (a check with no new problem, or an account with no factory schedules).</summary>
+    /// <summary>The slot had nothing to send (an account with no factory schedules, no open problem and nothing waiting).</summary>
     public const string NothingToSend = "nothing-to-send";
 
     /// <summary>The send failed. It is tried again until the slot's late window closes.</summary>
@@ -32,8 +32,14 @@ public static class FactoryEmailStates
 ///   - <see cref="List"/>: one factory's (or the account's) SENT emails, newest first - id, slot, sent time, title,
 ///     the factories covered. <c>GET /gateway/factory-emails?factory=&amp;kind=&amp;limit=N</c>.
 ///   - <see cref="Get"/>: one email's HTML exactly as sent, by id. <c>GET /gateway/factory-emails/{id}</c>.
-/// A slot that had nothing to send, or failed, has a row too; <c>state=all</c> lists those, so "no 16:00 check today"
-/// can be told apart from "the 16:00 check failed".
+/// A slot that had nothing to send, or failed, has a row too; <c>state=all</c> lists those, so "nothing to report this
+/// morning" can be told apart from "this morning's email failed".
+///
+/// THE KEPT 16:00 AND MIDNIGHT CHECKS (sent until 26 October 2026, when the owner chose one email a day) are LEFT as
+/// they are, not migrated and not deleted: each is a true record of an email that was sent, the factory page still
+/// lists and reads them, and <see cref="Prune"/> drops them with every other row once they are
+/// <see cref="Retention"/> old. Nothing reads them to decide a send - the sweep looks up the 08:00 slot's key only, and
+/// a check's key (<c>...T16</c>, <c>...T00</c>) is never one - so a check row left failed is never tried again.
 /// </summary>
 public sealed class FactoryEmailStore
 {
@@ -98,7 +104,8 @@ public sealed class FactoryEmailStore
             query = query.Where(r => r.State == FactoryEmailStates.Sent);
         if (!string.IsNullOrWhiteSpace(kind))
             query = query.Where(r => r.Kind == kind);
-        // At most three rows a day for the retention period, so the factory filter reads the JSON list in memory.
+        // At most one row a day for the retention period (three, on the days the 16:00 and midnight checks were still
+        // sent), so the factory filter reads the JSON list in memory.
         var emails = query.OrderByDescending(r => r.BoundaryUtc).ToList()
             .Select(r => ToDto(r, includeHtml: false))
             .Where(d => wanted is null || d.Factories.Contains(wanted, StringComparer.OrdinalIgnoreCase))

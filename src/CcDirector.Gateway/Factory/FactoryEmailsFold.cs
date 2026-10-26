@@ -28,7 +28,7 @@ public static class FactoryEmailsFold
         return new FactoryPageEmailsDto
         {
             Heading = "Reports emailed to you",
-            Note = "The morning reports and shift checks that covered this factory, kept for 30 days. Read opens one as it was sent.",
+            Note = "The morning reports that covered this factory, kept for 30 days. Read opens one as it was sent.",
             Items = items,
             EmptyText = items.Count == 0
                 ? "No report has covered this factory yet. Reports are sent only when the factory email is switched on."
@@ -59,7 +59,8 @@ public static class FactoryEmailsFold
         };
     }
 
-    /// <summary>An email's kind in words. Every kind is named; any other value throws.</summary>
+    /// <summary>An email's kind in words. Every kind is named, a check kept from before one email a day included; any other
+    /// value throws.</summary>
     public static string KindText(string kind) => kind switch
     {
         FactoryEmailKinds.Morning => "Morning report",

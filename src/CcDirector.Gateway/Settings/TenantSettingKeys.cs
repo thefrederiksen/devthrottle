@@ -320,8 +320,7 @@ public static class TenantSettingKeys
     public const string DemoMode = "demo_mode";
 
     /// <summary>
-    /// Whether this account is sent the factory email - the 08:00 report and the 16:00 / midnight checks (Factory
-    /// Control, step 4). Stored as "true"/"false". OFF unless switched on: it ships off, and the account's first real
+    /// Whether this account is sent the factory email - the 08:00 report, one email a day (Factory Control, step 4). Stored as "true"/"false". OFF unless switched on: it ships off, and the account's first real
     /// report is checked before it is turned on for anyone (the owner's ruling, 10 October 2026). Anything stored that
     /// is not exactly "true" reads as off.
     /// </summary>

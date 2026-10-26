@@ -228,7 +228,7 @@ factory_goal_number_app = typer.Typer(
 factory_app.add_typer(factory_goal_number_app, name="goal-number")
 factory_email_app = typer.Typer(
     cls=AxiGroup,
-    help="The factory email: the 08:00 report and the 16:00 and midnight checks.",
+    help="The factory email: one report a day, at 08:00.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -1238,7 +1238,7 @@ _ACTIONS = [
     },
     {
         "id": "factory-email-status",
-        "description": "Show whether this account is sent the factory email (the 08:00 report and the 16:00 / midnight checks).",
+        "description": "Show whether this account is sent the factory email (one report a day, at 08:00).",
         "command": "cc-devthrottle factory email status",
         "mutatesState": False,
         "args": [],
@@ -4954,7 +4954,7 @@ def factory_email_on(
 ) -> None:
     """Switch the factory email on for this account.
 
-    It is sent at 08:00 every day, and at 16:00 and midnight only when something went wrong.
+    It is sent once a day, at 08:00. A problem raised later in the day is in the next 08:00 email.
     """
     factory_email_ops.switch("on", json_output)
 

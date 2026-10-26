@@ -1,8 +1,8 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// One kept factory email (Factory Control, step 4): an 08:00 report or a 16:00 / midnight check of one account, as it
-/// was composed. A row of <c>GET /gateway/factory-emails</c>, which the factory page reads to list the emails that
+/// One kept factory email (Factory Control, step 4): an 08:00 report of one account - or, kept from before 26 October
+/// 2026, a 16:00 / midnight check - as it was composed. A row of <c>GET /gateway/factory-emails</c>, which the factory page reads to list the emails that
 /// covered a factory; the body itself comes from <c>GET /gateway/factory-emails/{id}</c>.
 /// </summary>
 public sealed class FactoryEmailDto
@@ -13,10 +13,10 @@ public sealed class FactoryEmailDto
     /// <summary>The slot's key: the boundary's local date and hour, for example <c>2026-10-11T08</c>.</summary>
     public string SlotKey { get; set; } = "";
 
-    /// <summary>The slot's local time: <c>08:00</c>, <c>16:00</c> or <c>00:00</c>.</summary>
+    /// <summary>The slot's local time: <c>08:00</c> (<c>16:00</c> or <c>00:00</c> on a kept check).</summary>
     public string Slot { get; set; } = "";
 
-    /// <summary><c>morning-report</c> or <c>check</c>.</summary>
+    /// <summary><c>morning-report</c>, or <c>check</c> on a check kept from before 26 October 2026.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The shift boundary the slot is at (UTC).</summary>
@@ -62,6 +62,6 @@ public sealed class FactoryEmailsDto
 /// <summary>The answer of <c>GET</c> and <c>PUT /gateway/factory-email</c>: whether this account's factory email is on.</summary>
 public sealed class FactoryEmailSwitchDto
 {
-    /// <summary>True when the 08:00 report and the 16:00 / midnight checks are sent to this account.</summary>
+    /// <summary>True when the 08:00 report, the one factory email a day, is sent to this account.</summary>
     public bool Enabled { get; set; }
 }

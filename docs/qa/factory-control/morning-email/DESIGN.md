@@ -1,5 +1,12 @@
 # The factory email - design (Factory Control mission, step 4, part A)
 
+> **Superseded in part on 26 October 2026: there is ONE factory email a day, at 08:00.** The owner, verbatim:
+> "Yes, one email a day - a new problem shows first in the next 08:00 email." The 16:00 and midnight checks
+> described below are no longer sent: they are no slot at all (`Factory/Email/FactoryEmailSlots.cs`), and a
+> problem raised after 08:00 is still open at the next 08:00, so it is listed there under "Still not fixed".
+> Checks already kept stay readable until the 30-day retention drops them. The 08:00 email is unchanged. The
+> rest of this document is the design as it was approved on 10 October 2026, kept as the record.
+
 Written 10 October 2026 against origin/main at `fe2aaccc3` (product) and `ddfe5ba2` (devthrottle_internal).
 The owner approved both mockups as shown, and the 16:00 / midnight rule, on 10 October 2026. Part B (built, see
 the last section) follows this design; it ships switched off.

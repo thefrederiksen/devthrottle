@@ -259,7 +259,7 @@ export interface FactoryPageEmailItem {
   id: string;
   /** Its subject line, as sent. */
   title: string;
-  /** "Morning report" or "Shift check". */
+  /** "Morning report", or "Shift check" on a check kept from before 26 October 2026. */
   kindText: string;
   /** "Sent today 08:00". */
   whenText: string;

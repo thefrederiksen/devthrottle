@@ -59,8 +59,9 @@ public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subje
 
 /// <summary>
 /// THE FACTORY EMAIL (Factory Control, step 4), composed exactly to the mockups the owner approved on 10 October 2026
-/// (<c>docs/qa/factory-control/morning-email/</c>). Pure: no store, no clock, no I/O - every fact arrives in
-/// <see cref="FactoryEmailInput"/>, folded by the Gateway, and is rendered here verbatim.
+/// (<c>docs/qa/factory-control/morning-email/</c>) and 26 October 2026. ONE EMAIL A DAY, at 08:00 (the owner, 26 October
+/// 2026: "one email a day - a new problem shows first in the next 08:00 email"). Pure: no store, no clock, no I/O -
+/// every fact arrives in <see cref="FactoryEmailInput"/>, folded by the Gateway, and is rendered here verbatim.
 ///
 /// THE OWNER'S RULES:
 ///   - 08:00, every day: the problems still not fixed, whenever they started (a problem fixed yesterday is not open, so
@@ -72,8 +73,8 @@ public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subje
 ///     for the answer; the next run reads it.
 ///   - What a factory did is never written by a model: it is the line each run's own session reported with its ok
 ///     result, verbatim, and a run that reported nothing is said to have reported nothing.
-///   - 16:00 and midnight: ONLY when the shift that just ended raised a NEW problem - one recorded since the last slot.
-///     Older open problems are one line pointing to the earlier email, never repeated.
+///   - A problem raised after 08:00 is not emailed when it is raised: it is open, so the next 08:00 email lists it
+///     under "Still not fixed". There is no 16:00 or midnight email.
 ///   - Read-only: no buttons. Each factory with a problem links to its factory page, where the problem is handled.
 ///   - Role words only - a seat is named by its role, never a person.
 ///   - The Mail Desk section (Mail Desk mission, phase 3, section 9) is in the 08:00 email only, after the factories,
@@ -108,18 +109,10 @@ public static class FactoryEmailComposer
     /// <summary>What a run that reported no line with its ok result is said to have done.</summary>
     public const string ReportedNothing = "reported nothing";
 
-    /// <summary>Compose the email for <paramref name="input"/>'s slot.</summary>
+    /// <summary>Compose the 08:00 email for <paramref name="input"/>'s slot.</summary>
     public static FactoryEmail Compose(FactoryEmailInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        return input.Slot.Kind == FactoryEmailKinds.Morning ? ComposeMorning(input) : ComposeCheck(input);
-    }
-
-    // ------------------------------------------------------------------------------------------------------------
-    // 08:00
-
-    private static FactoryEmail ComposeMorning(FactoryEmailInput input)
-    {
         var problems = input.Problems.Where(p => p.State == CronRunProblemStates.Open).ToList();
         var needsYou = input.NeedsYou ?? FactoryEmailNeedsYou.None;
         var waiting = FactoryOwnerActions.WaitingOrder(needsYou.Items);
@@ -176,7 +169,7 @@ public static class FactoryEmailComposer
         if (problems.Count > 0)
         {
             SectionHeading(html, "Still not fixed", "12px 18px 4px");
-            ProblemCards(html, input, problems, showOpenFor: true);
+            ProblemCards(html, input, problems);
         }
 
         if (waiting.Count > 0)
@@ -212,7 +205,7 @@ public static class FactoryEmailComposer
         if (problems.Count > 0)
         {
             text.AppendLine("STILL NOT FIXED");
-            foreach (var p in problems) TextProblem(text, input, p, showOpenFor: true);
+            foreach (var p in problems) TextProblem(text, input, p);
             text.AppendLine();
         }
         if (waiting.Count > 0)
@@ -470,72 +463,6 @@ public static class FactoryEmailComposer
     private static string OneLine(string s) => new(s.Select(c => char.IsControl(c) ? ' ' : c).ToArray());
 
     // ------------------------------------------------------------------------------------------------------------
-    // 16:00 and midnight
-
-    private static FactoryEmail ComposeCheck(FactoryEmailInput input)
-    {
-        var slot = input.Slot;
-        var open = input.Problems.Where(p => p.State == CronRunProblemStates.Open).ToList();
-        var fresh = open.Where(p => IsNew(p, slot)).ToList();
-        if (fresh.Count == 0)
-            return NotSent($"the {slot.EndedShift.Name} shift raised no new problem");
-        var older = open.Count(p => p.RaisedAtUtc <= slot.PreviousCutoffUtc);
-
-        var boundary = Local(slot.BoundaryUtc, input.Zone);
-        var shiftLocal = Local(slot.EndedShift.StartUtc, input.Zone);
-        var dayText = shiftLocal.ToString("dddd d MMMM", CultureInfo.InvariantCulture);
-        var midnight = boundary.Hour == 0;
-        var checkName = midnight ? "Midnight check" : $"{boundary:HH:mm} check";
-        var shiftHours = $"{shiftLocal:HH:mm} to {(midnight ? "24:00" : boundary.ToString("HH:mm", CultureInfo.InvariantCulture))}";
-        var headline = $"{Count(fresh.Count, "new problem")} in the {slot.EndedShift.Name} shift";
-        var subject = $"Factories: {headline} - {dayText}";
-
-        var html = new StringBuilder();
-        Open(html, subject, $"{checkName} - {dayText} - {slot.EndedShift.Name} shift, {shiftHours}");
-        html.Append($"<tr><td style=\"padding:16px 18px 6px;{Font}\">\n");
-        html.Append($"<div style=\"font-size:21px;font-weight:700;color:{Bad};\">{E(headline)}</div>\n");
-        html.Append("</td></tr>\n");
-        ProblemCards(html, input, fresh, showOpenFor: false, topPadding: "10px");
-
-        string? olderLine = null;
-        if (older > 0)
-        {
-            olderLine = midnight
-                ? $"Also still open from before: {Count(older, "problem")}, listed in today's 08:00 report and 16:00 check."
-                : $"Also still open from before: {Count(older, "problem")}, listed in this morning's 08:00 report.";
-            html.Append($"<tr><td style=\"padding:14px 18px 16px;{Font}font-size:13.5px;color:{Muted};\">\n{E(olderLine)}\n</td></tr>\n");
-        }
-        else
-        {
-            html.Append("<tr><td style=\"height:14px;line-height:14px;font-size:0;\">&nbsp;</td></tr>\n");
-        }
-
-        var footer = fresh.Count == 1
-            ? "This email only reports. Handle the problem on its factory page - "
-            : "This email only reports. Handle each problem on its factory page - ";
-        footer += input.BaseUrl is null ? "open DevThrottle, Factories." : "open the factory name above.";
-        Close(html, footer, "The 16:00 and midnight checks are sent only when something went wrong.");
-
-        var text = new StringBuilder();
-        text.AppendLine(subject).AppendLine();
-        text.AppendLine(headline).AppendLine();
-        foreach (var p in fresh) TextProblem(text, input, p, showOpenFor: false);
-        if (olderLine is not null) text.AppendLine().AppendLine(olderLine);
-        text.AppendLine().AppendLine(footer);
-
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), fresh.Count,
-            Covered(fresh, Array.Empty<CronFactoryDayDto>()));
-    }
-
-    /// <summary>A problem is NEW at a check when it was raised after the previous slot's cut-off and by this one's.</summary>
-    public static bool IsNew(CronRunProblemDto problem, FactoryEmailSlot slot)
-    {
-        ArgumentNullException.ThrowIfNull(problem);
-        ArgumentNullException.ThrowIfNull(slot);
-        return problem.RaisedAtUtc > slot.PreviousCutoffUtc && problem.RaisedAtUtc <= slot.CutoffUtc;
-    }
-
-    // ------------------------------------------------------------------------------------------------------------
     // Pieces
 
     private static FactoryEmail NotSent(string reason) => new(false, reason, "", "", "", 0, Array.Empty<string>());
@@ -571,10 +498,9 @@ public static class FactoryEmailComposer
     private static void SectionHeading(StringBuilder html, string text, string padding) =>
         html.Append($"<tr><td style=\"padding:{padding};{Font}font-size:11.5px;font-weight:700;letter-spacing:0.6px;color:{Faint};text-transform:uppercase;\">\n{E(text)}\n</td></tr>\n");
 
-    private static void ProblemCards(StringBuilder html, FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems,
-        bool showOpenFor, string topPadding = "0")
+    private static void ProblemCards(StringBuilder html, FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems)
     {
-        html.Append($"<tr><td style=\"padding:{topPadding} 18px 0;\">\n");
+        html.Append("<tr><td style=\"padding:0 18px 0;\">\n");
         html.Append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n");
         for (var i = 0; i < problems.Count; i++)
         {
@@ -585,7 +511,7 @@ public static class FactoryEmailComposer
             html.Append($"<div style=\"font-size:15px;font-weight:700;\">{FactoryName(input, p.Factory, Ink, linkWhenProblem: true)}</div>\n");
             html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:3px;\">{E(SeatLine(input, p))}</div>\n");
             html.Append($"<div style=\"font-size:13.5px;color:{Bad};padding-top:3px;font-weight:600;\">{E(p.Sentence)}</div>\n");
-            html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:3px;\">{E(WhenLine(p, showOpenFor))}</div>\n");
+            html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:3px;\">{E(WhenLine(p))}</div>\n");
             html.Append("</td></tr>\n");
         }
         html.Append("</table>\n</td></tr>\n");
@@ -620,19 +546,19 @@ public static class FactoryEmailComposer
     /// <summary>"Started Fri 10 Oct 09:00 - morning shift - open 22 hours", or "Due ..." for a run that never started.
     /// When it started and how long it has been open are the problems fold's own words (<c>WhenText</c>,
     /// <c>OpenForText</c>), counted at the instant the email describes; nothing is worked out again here.</summary>
-    private static string WhenLine(CronRunProblemDto p, bool showOpenFor)
+    private static string WhenLine(CronRunProblemDto p)
     {
         var line = $"{p.WhenText} - {p.Shift} shift";
-        if (showOpenFor && !string.IsNullOrWhiteSpace(p.OpenForText))
+        if (!string.IsNullOrWhiteSpace(p.OpenForText))
             line += " - " + p.OpenForText;
         return line;
     }
 
-    private static void TextProblem(StringBuilder text, FactoryEmailInput input, CronRunProblemDto p, bool showOpenFor)
+    private static void TextProblem(StringBuilder text, FactoryEmailInput input, CronRunProblemDto p)
     {
         text.AppendLine($"- {(p.Factory is null ? NoFactoryTitle : TitleOf(input, p.Factory))}: {SeatLine(input, p)}");
         text.AppendLine($"  {p.Sentence}");
-        text.AppendLine($"  {WhenLine(p, showOpenFor)}");
+        text.AppendLine($"  {WhenLine(p)}");
         if (p.Factory is not null && input.BaseUrl is not null)
             text.AppendLine($"  {input.BaseUrl.TrimEnd('/')}/factories/{Uri.EscapeDataString(p.Factory)}#problems");
     }

@@ -1,6 +1,6 @@
 """`cc-devthrottle factory email` - the factory email (Factory Control, step 4).
 
-- `factory email status` - is this account sent the factory email (the 08:00 report, and the 16:00 / midnight checks).
+- `factory email status` - is this account sent the factory email (one report a day, at 08:00).
 - `factory email on` / `factory email off` - switch it. It ships off.
 - `factory email list [--factory ID] [--kind morning-report|check] [--count N] [--all] [--json]` - the kept emails,
   newest first (sent ones; every slot with --all); the factory page reads the same list.
@@ -65,8 +65,8 @@ def _print_switch(enabled: bool, changed: Optional[str], json_output: bool) -> N
     if changed:
         lines.append(changed)
     lines.append(f"factory email: {'on' if enabled else 'off'}")
-    lines.append("sent at 08:00 every day, and at 16:00 and midnight only when something went wrong, to the account "
-                 "that set up the factories" if enabled else "nothing is sent to this account")
+    lines.append("sent once a day, at 08:00, to the account that set up the factories" if enabled
+                 else "nothing is sent to this account")
     next_commands = [f"{_EMAIL} off" if enabled else f"{_EMAIL} on", _LIST]
     axi_output.write_blocks(sys.stdout, "\n".join(lines), axi_output.format_help(next_commands))
 

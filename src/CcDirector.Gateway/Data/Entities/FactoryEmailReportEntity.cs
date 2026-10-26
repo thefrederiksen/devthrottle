@@ -2,7 +2,8 @@ namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
 /// ONE FACTORY EMAIL SLOT of one account (Factory Control, step 4), in the <c>factory_email_reports</c> table: the
-/// 08:00 report or a 16:00 / midnight check, as composed, and what became of it.
+/// 08:00 report (or a 16:00 / midnight check kept from before 26 October 2026, when those were last sent), as composed,
+/// and what became of it.
 ///
 /// It is two things at once, on purpose. It is the record that a slot was HANDLED - one row per account and slot,
 /// unique, so a restart or a deploy never sends a slot twice. And it is the composed report KEPT, so the factory page
@@ -13,7 +14,7 @@ public sealed class FactoryEmailReportEntity : GatewayMintedKeyEntity
     /// <summary>The slot's key, unique per account: the boundary's local date and hour, for example <c>2026-10-11T08</c>.</summary>
     public string SlotKey { get; set; } = "";
 
-    /// <summary><c>morning-report</c> or <c>check</c> (<c>Factory.Email.FactoryEmailKinds</c>).</summary>
+    /// <summary><c>morning-report</c>, or <c>check</c> on a kept check (<c>Factory.Email.FactoryEmailKinds</c>).</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The shift boundary the slot is at (UTC).</summary>

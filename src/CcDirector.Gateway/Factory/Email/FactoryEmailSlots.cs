@@ -3,42 +3,42 @@ using CcDirector.Gateway.Running;
 
 namespace CcDirector.Gateway.Factory.Email;
 
-/// <summary>The three kinds of factory email, one per shift boundary.</summary>
+/// <summary>The kinds of factory email a kept row can carry.</summary>
 public static class FactoryEmailKinds
 {
-    /// <summary>08:00, every day: every problem still open, then one line per factory for the last 24 hours.</summary>
+    /// <summary>08:00, every day: every problem still open, then one line per factory for the last 24 hours. The only
+    /// factory email the Gateway sends.</summary>
     public const string Morning = "morning-report";
 
-    /// <summary>16:00 and midnight: sent only when the shift that just ended raised a new problem.</summary>
+    /// <summary>The 16:00 and midnight check, sent until 26 October 2026, when the owner chose one factory email a day.
+    /// No slot is a check any more and nothing writes this kind; it stays defined only so the checks already kept are
+    /// still read, listed and named until the store's retention drops them.</summary>
     public const string Check = "check";
 }
 
 /// <summary>
-/// One email slot: a shift boundary in the account's time zone, and what is sent at it.
+/// One email slot: the 08:00 shift boundary of one day in the account's time zone.
 /// </summary>
 /// <param name="Key">The slot's key, unique per account: the boundary's local date and hour, for example
-/// <c>2026-10-11T08</c>. A midnight boundary carries the date of the day it starts.</param>
-/// <param name="Kind">One of the <see cref="FactoryEmailKinds"/>.</param>
-/// <param name="BoundaryUtc">The boundary (the end of <see cref="EndedShift"/>).</param>
-/// <param name="EndedShift">The shift that ended at the boundary.</param>
-/// <param name="PreviousBoundaryUtc">The boundary before this one - where the last slot's new problems were counted to.</param>
+/// <c>2026-10-11T08</c>.</param>
+/// <param name="Kind">Always <see cref="FactoryEmailKinds.Morning"/>.</param>
+/// <param name="BoundaryUtc">The boundary: the end of the night shift.</param>
 /// <param name="DayStartUtc">24 wall-clock hours before the boundary (three shifts back), the start of the 08:00 report's
 /// one line per factory.</param>
 public sealed record FactoryEmailSlot(
-    string Key, string Kind, DateTime BoundaryUtc, WorkShift EndedShift, DateTime PreviousBoundaryUtc, DateTime DayStartUtc)
+    string Key, string Kind, DateTime BoundaryUtc, DateTime DayStartUtc)
 {
     /// <summary>The cut-off for problems this slot reports: the boundary plus <see cref="FactoryEmailSlots.Settle"/>, so a
     /// "ran past its shift" the cron sweep records just after the boundary is counted in the shift it belongs to.</summary>
     public DateTime CutoffUtc => BoundaryUtc + FactoryEmailSlots.Settle;
-
-    /// <summary>Where the previous slot's cut-off was: a check's NEW problems were recorded after this.</summary>
-    public DateTime PreviousCutoffUtc => PreviousBoundaryUtc + FactoryEmailSlots.Settle;
 }
 
 /// <summary>
-/// WHEN THE FACTORY EMAIL IS SENT (Factory Control, step 4, the owner's ruling of 10 October 2026): at 08:00, 16:00 and
-/// midnight in the account's time zone - the three shift boundaries <see cref="WorkShifts"/> owns. The boundaries are
-/// worked out there and nowhere else, so a slot is always exactly the end of a shift, daylight-saving days included.
+/// WHEN THE FACTORY EMAIL IS SENT: once a day, at 08:00 in the account's time zone - the start of the morning shift
+/// <see cref="WorkShifts"/> owns (the owner, 26 October 2026: "one email a day - a new problem shows first in the next
+/// 08:00 email"). The boundary is worked out there and nowhere else, so the slot is always exactly the end of the night
+/// shift, daylight-saving days included. The 16:00 and midnight boundaries are no slot at all: a problem raised in the
+/// day waits, open, for the next 08:00 email's "Still not fixed".
 ///
 /// A slot is DUE from <see cref="Settle"/> after its boundary - the cron sweep runs every minute, and that is long
 /// enough for it to record the "ran past its shift" problems of the shift that just ended - until
@@ -54,20 +54,25 @@ public static class FactoryEmailSlots
     public static readonly TimeSpan LateWindow = TimeSpan.FromHours(2);
 
     /// <summary>
-    /// The slot due at <paramref name="nowUtc"/>, or null when none is (inside a slot's settle time, or past its late
-    /// window). Pure.
+    /// The slot due at <paramref name="nowUtc"/>, or null when none is (outside the 08:00 email's window: inside its settle
+    /// time, past its late window, or any other hour of the day). Pure.
     /// </summary>
     public static FactoryEmailSlot? DueAt(DateTime nowUtc, TimeZoneInfo zone)
     {
         ArgumentNullException.ThrowIfNull(zone);
         var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
-        var boundary = WorkShifts.ShiftOf(now - Settle, zone).StartUtc;
+        // The late window is shorter than any morning shift, so a due slot always lies in the morning shift's start.
+        var shift = WorkShifts.ShiftOf(now - Settle, zone);
+        if (shift.Name != WorkShifts.Morning)
+            return null;
+        var boundary = shift.StartUtc;
         if (now < boundary + Settle || now > boundary + LateWindow)
             return null;
         return AtBoundary(boundary, zone);
     }
 
-    /// <summary>The slot at a shift boundary. Throws when <paramref name="boundaryUtc"/> is not one. Pure.</summary>
+    /// <summary>The slot at a day's 08:00 boundary. Throws when <paramref name="boundaryUtc"/> is not the start of a
+    /// morning shift. Pure.</summary>
     public static FactoryEmailSlot AtBoundary(DateTime boundaryUtc, TimeZoneInfo zone)
     {
         ArgumentNullException.ThrowIfNull(zone);
@@ -75,13 +80,14 @@ public static class FactoryEmailSlots
         var starting = WorkShifts.ShiftOf(boundary, zone);
         if (starting.StartUtc != boundary)
             throw new ArgumentException($"{boundary:o} is not the start of a shift in {zone.Id}", nameof(boundaryUtc));
+        if (starting.Name != WorkShifts.Morning)
+            throw new ArgumentException(
+                $"{boundary:o} starts the {starting.Name} shift in {zone.Id}; the factory email is sent at 08:00 only", nameof(boundaryUtc));
 
-        var ended = WorkShifts.ShiftOf(boundary.AddTicks(-1), zone);
-        var previous = ended.StartUtc;
-        var dayStart = WorkShifts.ShiftOf(WorkShifts.ShiftOf(previous.AddTicks(-1), zone).StartUtc.AddTicks(-1), zone).StartUtc;
+        var night = WorkShifts.ShiftOf(boundary.AddTicks(-1), zone);
+        var dayStart = WorkShifts.ShiftOf(WorkShifts.ShiftOf(night.StartUtc.AddTicks(-1), zone).StartUtc.AddTicks(-1), zone).StartUtc;
         var local = TimeZoneInfo.ConvertTimeFromUtc(boundary, zone);
-        var kind = starting.Name == WorkShifts.Morning ? FactoryEmailKinds.Morning : FactoryEmailKinds.Check;
         var key = local.ToString("yyyy-MM-dd'T'HH", CultureInfo.InvariantCulture);
-        return new FactoryEmailSlot(key, kind, boundary, ended, previous, dayStart);
+        return new FactoryEmailSlot(key, FactoryEmailKinds.Morning, boundary, dayStart);
     }
 }
