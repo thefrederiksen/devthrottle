@@ -16,6 +16,9 @@ namespace CcDirector.Gateway.DevReports;
 /// <item><c>replaced</c> - a later answer to the same question superseded this one while it was still held.</item>
 /// <item><c>refused</c> - the session has ended, or the item's id is one the report already holds with different
 /// content. Either way the Gateway does not hold the item and the page keeps it queued.</item>
+/// <item><c>saved</c> - the account owner's item for a session that has ended: stored, never typed into any session,
+/// and read by a later session with <c>cc-dev-reports answers</c> (Factories Run Alone: a factory run closes when it is
+/// done, and the NEXT run reads the owner's answer and acts on it).</item>
 /// <item><c>queued</c> - accepted, while the send request is still deciding.</item>
 /// </list>
 /// </summary>
@@ -27,6 +30,7 @@ internal static class DevReportItemStates
     public const string Delivered = "delivered";
     public const string Replaced = "replaced";
     public const string Refused = "refused";
+    public const string Saved = "saved";
 
     /// <summary>One status and the words the owner sees for it.</summary>
     internal readonly record struct State(string Status, string Label);
@@ -55,6 +59,7 @@ internal static class DevReportItemStates
     public static readonly State UnconfirmedState = new(Delivered, "Sent to the session, not confirmed");
     public static readonly State ReplacedState = new(Replaced, "Replaced by a later answer");
     public static readonly State SessionEndedState = new(Refused, "This session has ended");
+    public static readonly State SavedState = new(Saved, "Saved for the next session to read: this session has ended");
     public static readonly State IdCollisionState = new(Refused,
         "Not sent: a different note already has this id. Remove this one and write it again");
 

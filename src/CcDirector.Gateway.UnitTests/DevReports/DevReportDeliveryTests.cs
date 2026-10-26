@@ -281,16 +281,21 @@ public sealed class DevReportDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task SendAsync_EndedSession_RefusesEveryNewItemAndStoresNothing()
+    public async Task SendAsync_EndedSession_SavesEveryNewItemForALaterSession_AndTypesNothing()
     {
+        // Factories Run Alone: a factory run closes when it is done, so the owner answers a report whose session has
+        // ended. The answer is STORED, never typed anywhere, for the next run to read with `cc-dev-reports answers`.
         var store = Store();
         var report = Publish(store);
         _reach = DevReportSessionReach.Ended;
 
         var updates = await Delivery(store).SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
 
-        Assert.All(updates, u => Assert.Equal(("refused", "This session has ended"), (u.Status, u.StatusLabel)));
-        Assert.Empty(store.Items(Tenant, report.Id));
+        var saved = (DevReportItemStates.SavedState.Status, DevReportItemStates.SavedState.Label);
+        Assert.All(updates, u => Assert.Equal(saved, (u.Status, u.StatusLabel)));
+        Assert.Equal(new[] { "n1", "a1" }, store.Items(Tenant, report.Id).Select(i => i.ClientItemId));
+        Assert.All(store.Items(Tenant, report.Id), row => Assert.Equal(saved, (row.Status, row.StatusLabel)));
+        Assert.Empty(store.OpenItemCounts(Tenant, [report.Id]));
         Assert.Empty(_prompts);
     }
 
@@ -470,7 +475,7 @@ public sealed class DevReportDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task SettleAsync_HeldAndTheSessionHasEnded_RefusesThemAndTypesNothing()
+    public async Task SettleAsync_HeldAndTheSessionHasEnded_SavesThemForALaterSessionAndTypesNothing()
     {
         var store = Store();
         var report = Publish(store);
@@ -482,14 +487,14 @@ public sealed class DevReportDeliveryTests : IDisposable
 
         Assert.Empty(_prompts);
         Assert.All(store.Items(Tenant, report.Id),
-            row => Assert.Equal(("refused", "This session has ended"), (row.Status, row.StatusLabel)));
+            row => Assert.Equal((DevReportItemStates.SavedState.Status, DevReportItemStates.SavedState.Label), (row.Status, row.StatusLabel)));
         Assert.Empty(store.OpenItemCounts(Tenant, [report.Id]));
     }
 
     [Theory]
     [InlineData(DirectorCommandStatus.Conflict, "session has exited")]
     [InlineData(DirectorCommandStatus.NotFound, "session not found")]
-    public async Task SettleAsync_DirectorRefusesAndTheSessionHasEnded_IsRefusedNotDelivered(DirectorCommandStatus status, string error)
+    public async Task SettleAsync_DirectorRefusesAndTheSessionHasEnded_IsSavedNotDelivered(DirectorCommandStatus status, string error)
     {
         // Review High 4, with the Director's real refusal (SessionCommandExecutor.PromptAsync): the roster still
         // said idle, the session exited before the prompt reached its Director, and the Director refused it.
@@ -507,7 +512,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
 
         var row = store.Items(Tenant, report.Id).Single();
-        Assert.Equal(("refused", "This session has ended"), (row.Status, row.StatusLabel));
+        Assert.Equal((DevReportItemStates.SavedState.Status, DevReportItemStates.SavedState.Label), (row.Status, row.StatusLabel));
         Assert.Null(row.DeliveredAtUtc);
     }
 

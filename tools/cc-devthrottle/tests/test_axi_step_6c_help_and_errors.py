@@ -358,6 +358,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # Issue #3240: how a session reports TO THE OWNER was missing from the catalogue entirely, so an
     # agent that asked the machine what it could do was told about worktree pools and not about this.
     "dev-report-open", "dev-report-reply",
+    # Factories Run Alone: a later run reads the owner's stored answers to a report and marks them acted on.
+    "dev-report-answers",
     # The Website Business Factory: the factory activity record a business tool writes before it acts.
     "factory-record", "factory-activity",
     # The Factory Memory mission, phase 3a: a factory session reads and writes its factory's notes.

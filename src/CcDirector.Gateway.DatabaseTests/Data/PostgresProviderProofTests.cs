@@ -212,14 +212,22 @@ public sealed class PostgresProviderProofTests
             //   it, who it was sent to, whose comment goes to whom.
             // - Who answered a question on their Questions page (devthrottle_internal#2307): dev_report_items.AnswererSubject,
             //   matched exactly - a later answer replaces only the same person's.
+            // - A later run acting on the owner's answers (Factories Run Alone): dev_report_items.ActedOnSessionId and
+            //   ActionClaimedSessionId, the sessions that acknowledged and claimed an item, and dev_reports.Factory and
+            //   FactorySeat, the seat a key read is narrowed to. Each is compared for exact equality in a conditional
+            //   update or a read's filter.
             ("dev_report_comments", "FromSubject"),
             ("dev_report_comments", "ToSubject"),
+            ("dev_report_items", "ActedOnSessionId"),
+            ("dev_report_items", "ActionClaimedSessionId"),
             ("dev_report_items", "AnswererSubject"),
             ("dev_report_items", "ClientItemId"),
             ("dev_report_items", "SessionId"),
             ("dev_report_recipients", "RecipientSubject"),
             ("dev_report_recipients", "SentBySubject"),
             ("dev_reports", "AuthorSubject"),
+            ("dev_reports", "Factory"),
+            ("dev_reports", "FactorySeat"),
             ("dev_reports", "Key"),
             ("dev_reports", "SessionId"),
             ("device_credentials", "DeviceId"),

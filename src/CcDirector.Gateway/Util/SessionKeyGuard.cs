@@ -486,6 +486,10 @@ public static class SessionKeyGuard
             // The OWNER's reads under /dev-reports are deliberately NOT here: a session key is never the owner.
             if (s.Length == 3 && s[0] == "sessions" && s[2] == "dev-reports") return true;
             if (s.Length == 4 && s[0] == "sessions" && s[2] == "dev-reports") return true;
+            // The owner's STORED ANSWERS to a report (Factories Run Alone): a factory run closes when it is done, so the next
+            // run - a different session - reads the answers given to the last one. The route checks the path names the
+            // caller's own session, and reads only the account's reports (in a team, only the person's own).
+            if (s.Length == 3 && s[0] == "sessions" && s[2] == "dev-report-answers") return true;
 
             // One mission, one workflow run. Scheduled jobs are handled by IsScheduleRoute below, which
             // owns every /cron shape in one place rather than splitting the reads away from the writes.
@@ -609,6 +613,11 @@ public static class SessionKeyGuard
             // REPLY on one of this session's own dev reports (issue #2958). One literal five-segment shape; the
             // route checks the session and the report are the caller's own.
             if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-reports" && s[4] == "replies") return true;
+
+            // CLAIM the owner's answers before acting, and mark them acted on afterwards (Factories Run Alone). Each
+            // operation has one literal five-segment shape; the routes check the session is the caller's and the report its account's.
+            if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-report-answers" && s[4] == "claim") return true;
+            if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-report-answers" && s[4] == "ack") return true;
 
             // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:
             // GET /gateway/admin/turn-verdict-feedback serves the daily corpus pull, which is a server with no

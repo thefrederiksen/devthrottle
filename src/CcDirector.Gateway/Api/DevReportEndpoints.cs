@@ -21,6 +21,10 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /sessions/{sid}/dev-reports                          the session's reports
 ///   GET  /sessions/{sid}/dev-reports/{reportId}               one report, with items and replies
 ///   POST /sessions/{sid}/dev-reports/{reportId}/replies       the agent replies
+///   GET  /sessions/{sid}/dev-report-answers?report=|key=       the owner's stored answers, read by ANY session of the
+///                                                              account - not only the publisher (Factories Run Alone)
+///   POST /sessions/{sid}/dev-report-answers/{reportId}/claim   claim those answers before acting
+///   POST /sessions/{sid}/dev-report-answers/{reportId}/ack     mark the owner's answers acted on (<see cref="DevReportAnswers"/>)
 ///
 /// OWNER ROUTES - a device key or the machine token:
 ///   GET  /dev-reports?sessionId=&limit=&after=                one page of the account's reports, newest first
@@ -33,7 +37,7 @@ namespace CcDirector.Gateway.Api;
 /// does not leak.
 ///
 /// WHERE EACH REFUSAL LIVES. A session key reaching an OWNER route is refused by <see cref="SessionKeyGuard"/>,
-/// which is an allow list that names only the four session routes - there is deliberately no second check on
+/// which is an allow list that names only the session routes - there is deliberately no second check on
 /// the owner routes, so the guard is the one place that rule lives and the one thing its revert proof mutates. A
 /// device key or machine token reaching a SESSION route, and a session key naming another session, are refused
 /// HERE, because the guard never sees anything but session keys and never reads an identifier.
@@ -62,13 +66,16 @@ internal static class DevReportEndpoints
     /// <param name="author">Who wrote a report published in a team's tenant (devthrottle_internal#2309): asked at every
     /// publish, it records nothing for a personal account and refuses a team's session whose person cannot be named.</param>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportDelivery delivery, HostedTenantBoundary? boundary,
-        Func<TenantId, string, DevReportSessionNaming> naming, DevReportAuthor author)
+        Func<TenantId, string, DevReportSessionNaming> naming,
+        Func<TenantId, string, DevReportFactorySeatIdentity?> factorySeatOf, DevReportAuthor author)
     {
         ArgumentNullException.ThrowIfNull(author);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(naming);
-        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (four session routes, four owner routes)");
+        ArgumentNullException.ThrowIfNull(factorySeatOf);
+        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (seven session routes, four owner routes)");
+        var answers = new DevReportAnswers(store, author.Resolve, factorySeatOf, delivery.Liveness);
 
         // ---------------------------------------------------------------- session routes
 
@@ -147,7 +154,7 @@ internal static class DevReportEndpoints
 
             var title = DevReportTitle.Read(html, key);
             var (report, created) = DevReportAuthor.PublishAs(store, authorAnswer, tenant, sessionId, key, html, verdict.Status!, title,
-                DateTime.UtcNow);
+                DateTime.UtcNow, factorySeatOf(tenant, sessionId));
             return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
         });
 
@@ -194,6 +201,43 @@ internal static class DevReportEndpoints
 
             var reply = store.AddReply(tenant, report.Id, text, DateTime.UtcNow);
             return Results.Json(new { reply = Reply(reply) });
+        });
+
+        // The owner's stored answers, for any session of the account (Factories Run Alone). The path still names only the
+        // CALLER's session. DevReportAnswers decides which reports it may read: the account's and, in a team's tenant,
+        // only the person's own; a factory seat's key read is also narrowed to that seat.
+        app.MapGet("/sessions/{sid}/dev-report-answers", (string sid, HttpContext ctx) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] GET /sessions/{sid}/dev-report-answers: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+            var query = ctx.Request.Query;
+            return answers.Read(tenant, sessionId, AuthMiddleware.CallingSession(ctx)!.DirectorId,
+                query["report"].ToString(), query["key"].ToString());
+        });
+
+        app.MapPost("/sessions/{sid}/dev-report-answers/{reportId}/ack", async (string sid, string reportId, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] POST /sessions/{sid}/dev-report-answers/{reportId}/ack: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+
+            var parsed = await ReadItemIdsAsync(ctx, ct);
+            if (parsed.Error is not null) return parsed.Error;
+            var itemIds = parsed.ItemIds;
+            return answers.Ack(tenant, sessionId, AuthMiddleware.CallingSession(ctx)!.DirectorId, reportId, itemIds);
+        });
+
+        app.MapPost("/sessions/{sid}/dev-report-answers/{reportId}/claim", async (string sid, string reportId, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] POST /sessions/{sid}/dev-report-answers/{reportId}/claim: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+
+            var parsed = await ReadItemIdsAsync(ctx, ct);
+            if (parsed.Error is not null) return parsed.Error;
+            var itemIds = parsed.ItemIds;
+            return answers.Claim(tenant, sessionId, AuthMiddleware.CallingSession(ctx)!.DirectorId, reportId, itemIds);
         });
 
         // ---------------------------------------------------------------- owner routes
@@ -471,6 +515,27 @@ internal static class DevReportEndpoints
         if (string.IsNullOrEmpty(raw)) return DefaultListPageSize;
         return int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
                && n >= 1 && n <= MaxListPageSize ? n : null;
+    }
+
+    private static async Task<(List<string>? ItemIds, IResult? Error)> ReadItemIdsAsync(HttpContext ctx, CancellationToken ct)
+    {
+        if (ctx.Request.ContentLength is not > 0 && ctx.Request.Headers.TransferEncoding.Count == 0)
+            return (null, null);
+        try
+        {
+            using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ct);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return (null, Error(400, "bad_request_body", "The body must be an object, with an optional \"items\" array of item id strings."));
+            if (!doc.RootElement.TryGetProperty("items", out var list)) return (null, null);
+            if (list.ValueKind != JsonValueKind.Array || list.EnumerateArray().Any(e => e.ValueKind != JsonValueKind.String))
+                return (null, Error(400, "bad_request_body", "\"items\" must be an array of item id strings."));
+            var itemIds = list.EnumerateArray().Select(e => e.GetString() ?? "").Distinct(StringComparer.Ordinal).ToList();
+            return (itemIds, null);
+        }
+        catch (JsonException ex)
+        {
+            return (null, Error(400, "bad_request_body", $"The body could not be read as JavaScript Object Notation: {ex.Message}"));
+        }
     }
 
     private static IResult Error(int status, string code, string error)

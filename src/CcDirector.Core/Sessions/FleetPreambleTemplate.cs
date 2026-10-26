@@ -48,6 +48,9 @@ public static class FleetPreambleTemplate
         "                                       published with this - never a file path, never markdown, never\n" +
         "                                       an artifact. The shape is checked and it is easy to get wrong:\n" +
         "                                       read it first with 'cc-devthrottle skill get dev-reports'.\n" +
+        "  cc-dev-reports answers <file.html>   the owner's stored answers to that report, from ANY session -\n" +
+        "                                       a run that closed is answered in the next. --report <id> --ack\n" +
+        "                                       once you have acted, so the run after does not act twice.\n" +
         "  cc-devthrottle session raise \"...\"  blocked on a decision: put your hand up to that session\n" +
         "  cc-devthrottle session spawn <repo>  open a new session on this Director\n" +
         "  cc-devthrottle message inbox         read the messages waiting for you (reading marks them read)\n" +

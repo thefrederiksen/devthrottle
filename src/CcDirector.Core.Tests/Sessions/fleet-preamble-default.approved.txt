@@ -18,6 +18,9 @@ You can reach the fleet. This command is already on your PATH:
                                        published with this - never a file path, never markdown, never
                                        an artifact. The shape is checked and it is easy to get wrong:
                                        read it first with 'cc-devthrottle skill get dev-reports'.
+  cc-dev-reports answers <file.html>   the owner's stored answers to that report, from ANY session -
+                                       a run that closed is answered in the next. --report <id> --ack
+                                       once you have acted, so the run after does not act twice.
   cc-devthrottle session raise "..."  blocked on a decision: put your hand up to that session
   cc-devthrottle session spawn <repo>  open a new session on this Director
   cc-devthrottle message inbox         read the messages waiting for you (reading marks them read)

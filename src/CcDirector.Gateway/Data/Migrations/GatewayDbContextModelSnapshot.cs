@@ -686,6 +686,14 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("AuthorSubject")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactorySeat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -737,6 +745,20 @@ namespace CcDirector.Gateway.Data.Migrations
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportItemEntity", b =>
                 {
                     b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ActedOnAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActedOnSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ActionClaimedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActionClaimedSessionId")
+                        .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("AnchorJson")

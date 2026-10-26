@@ -14,7 +14,13 @@ public sealed class DevReportEntity : GatewayMintedKeyEntity
     /// <summary>The session that published the report (the calling session key's own id).</summary>
     public string SessionId { get; set; } = "";
 
-    /// <summary>The report key the tool chose - the file's full path. Same key, same report, new version.</summary>
+    /// <summary>The factory and seat that published it, when the session is a scheduled or defined factory seat.</summary>
+    public string? Factory { get; set; }
+
+    /// <summary>The seat identity paired with <see cref="Factory"/>; stored on the report so lookup remains stable after run history ages out.</summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>The report key the tool chose - the file's full path. Within one session, the same key updates this report.</summary>
     public string Key { get; set; } = "";
 
     /// <summary>The latest version's title, read by the Gateway from the parsed document.</summary>

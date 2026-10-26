@@ -1,9 +1,9 @@
-"""CLI for cc-dev-reports - publish a dev report to the owner, and reply to the owner in it."""
+"""CLI for cc-dev-reports - publish a dev report to the owner, reply to the owner in it, and read his answers."""
 
 from __future__ import annotations
 
 import sys
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -12,7 +12,7 @@ from . import reports_ops
 
 app = typer.Typer(
     name="cc-dev-reports",
-    help="Publish a dev report to the owner through the Gateway, and reply to the owner in it.",
+    help="Publish a dev report to the owner through the Gateway, reply to the owner in it, and read his stored answers.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -29,7 +29,7 @@ def main(
     version: bool = typer.Option(False, "--version", callback=_version, is_eager=True,
                                  help="Print the version and exit."),
 ) -> None:
-    """Publish a dev report to the owner through the Gateway, and reply to the owner in it."""
+    """Publish a dev report to the owner through the Gateway, reply to the owner in it, and read his stored answers."""
 
 
 @app.command("open")
@@ -51,6 +51,25 @@ def reply_command(
 ) -> None:
     """Reply to the owner in a report."""
     result = reports_ops.reply(text, report)
+    raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
+
+
+@app.command("answers")
+def answers_command(
+    file: Optional[str] = typer.Argument(
+        None, help="The report file you published. Finds the newest report and every older report still holding an "
+                   "unacted item. A factory seat reads only its own factory and seat, even when paths are shared."),
+    report: Optional[str] = typer.Option(None, "--report", help="The report id, instead of FILE."),
+    ack: bool = typer.Option(False, "--ack",
+                             help="After acting, mark this session's claimed items on --report acted on."),
+    claim: bool = typer.Option(False, "--claim",
+                               help="Claim unacted answers and notes before acting. Only act on item ids reported as claimed."),
+    item: Optional[List[str]] = typer.Option(None, "--item",
+                                             help="With --ack or --claim: use only this item id. Repeat for several; requires --report."),
+    json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+) -> None:
+    """Read stored answers and notes. Claim before acting; acknowledge only after the action succeeds."""
+    result = reports_ops.answers(file, report, ack, claim, item)
     raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
 
 

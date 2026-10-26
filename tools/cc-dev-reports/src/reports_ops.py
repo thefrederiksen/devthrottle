@@ -1,10 +1,12 @@
-"""What cc-dev-reports does: publish a report file to the Gateway, and reply to the owner in it.
+"""What cc-dev-reports does: publish a report file to the Gateway, reply to the owner in it, and read the
+owner's stored answers to a report from a later session. Factory-seat key reads are scoped to the same seat.
 
 Dev Reports mission, phase 2. The Gateway owns every ruling - the shape check, the title, the status,
 the size limit, which report is newest. This module reads a file, sends it, and prints what came back.
 
 Every command produces ONE result dictionary with the same keys whatever happened (`RESULT_KEYS`), so
-`--json` keeps one shape: success fills `report` / `reply`, failure fills `error` / `code` / `errors`.
+`--json` keeps one shape: success fills `report` / `reply` (or `count` / `reports` / `claimed` / `marked` for answers),
+failure fills `error` / `code` / `errors`.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TextIO
 
@@ -37,7 +40,8 @@ MAX_KEY_LENGTH = 512
 EXIT_OK = 0
 EXIT_ERROR = 1
 
-RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "error", "code", "errors")
+RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "count", "reports", "claimed", "marked",
+               "error", "code", "errors")
 
 
 def key_too_long_sentence(length: int) -> str:
@@ -192,6 +196,135 @@ def reply(text: str, report_id: Optional[str]) -> Dict[str, Any]:
         return _result("reply", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
 
 
+def answers(file_path: Optional[str], report_id: Optional[str], ack: bool, claim: bool,
+            items: Optional[List[str]]) -> Dict[str, Any]:
+    """Read stored answers, claim them before acting, then acknowledge only after the action succeeds.
+
+    A factory run closes when it is done, so the owner answers after the publishing session is gone; the Gateway stores
+    his answer and the NEXT run reads it here. Name the report by id, or by its FILE: the key is the file's path and a
+    factory seat reads only its own reports. The newest report and every older report with unacted items are returned.
+    `--claim` atomically reserves the unacted items for this session; act only on ids in `claimed`. `--ack` marks only
+    this session's claimed items after the action succeeds. With `--report`, either option accepts `--item` to name
+    specific item ids.
+    """
+    try:
+        sid = _require_environment()
+        if bool(file_path) == bool(report_id):
+            raise CommandError("Name the report one way: its FILE (the path you published) or --report <id>, not both "
+                               "and not neither.", "bad_arguments")
+        if ack and claim:
+            raise CommandError("Claim before acting, then acknowledge afterward; do not combine --claim and --ack.",
+                               "bad_arguments")
+        if ack and not report_id:
+            raise CommandError("--ack marks ONE report: pass --report <id>. Read the answers by file first; each report "
+                               "printed carries its id.", "bad_arguments")
+        if items and not (ack or claim):
+            raise CommandError("--item names what --ack marks or --claim reserves; pass one of those options with it.",
+                               "bad_arguments")
+        if items and not report_id:
+            raise CommandError("--item requires --report <id>.", "bad_arguments")
+        sid_segment = gateway.path_segment(sid)
+        claimed: Optional[List[Dict[str, Any]]] = None
+        marked: Optional[List[Dict[str, Any]]] = None
+        try:
+            if ack:
+                body = {"items": list(items)} if items else {}
+                answer = gateway.post_json(
+                    f"sessions/{sid_segment}/dev-report-answers/{gateway.path_segment(report_id)}/ack", body,
+                    timeout=HTTP_TIMEOUT_SECONDS)
+                marked = (answer or {}).get("marked")
+                if not isinstance(marked, list):
+                    raise CommandError("The Gateway accepted the mark but its answer carried no list of what it marked.",
+                                       "bad_answer")
+                reports = (answer or {}).get("reports")
+            elif claim and report_id:
+                body = {"items": list(items)} if items else {}
+                answer = gateway.post_json(
+                    f"sessions/{sid_segment}/dev-report-answers/{gateway.path_segment(report_id)}/claim", body,
+                    timeout=HTTP_TIMEOUT_SECONDS)
+                claimed = (answer or {}).get("claimed")
+                if not isinstance(claimed, list):
+                    raise CommandError("The Gateway accepted the claim but its answer carried no list of what it claimed.",
+                                       "bad_answer")
+                reports = (answer or {}).get("reports")
+                claimed = _claimed_items(claimed, report_id)
+            else:
+                query = {"report": report_id} if report_id else {"key": report_key(file_path)}
+                answer = gateway.get_json(f"sessions/{sid_segment}/dev-report-answers?{urllib.parse.urlencode(query)}",
+                                          timeout=HTTP_TIMEOUT_SECONDS)
+                reports = (answer or {}).get("reports")
+                if claim:
+                    if not isinstance(reports, list):
+                        raise CommandError("The Gateway's answer carried no list of reports.", "bad_answer")
+                    claimed = []
+                    for report in reports:
+                        if not report.get("notActedOn"):
+                            continue
+                        claim_answer = gateway.post_json(
+                            f"sessions/{sid_segment}/dev-report-answers/{gateway.path_segment(str(report.get('id')))}/claim",
+                            {}, timeout=HTTP_TIMEOUT_SECONDS)
+                        report_claimed = (claim_answer or {}).get("claimed")
+                        claim_reports = (claim_answer or {}).get("reports")
+                        if not isinstance(report_claimed, list) or not isinstance(claim_reports, list) or len(claim_reports) != 1:
+                            raise CommandError("The Gateway accepted a claim but its answer carried no claimed items and report.",
+                                               "bad_answer")
+                        claimed.extend(_claimed_items(report_claimed, str(report.get("id"))))
+                        report.update(claim_reports[0])
+        except gateway.GatewayError as exc:
+            raise _gateway_failure(exc) from exc
+        if not isinstance(reports, list):
+            raise CommandError("The Gateway's answer carried no list of reports.", "bad_answer")
+        if ack and not isinstance(marked, list):
+            raise CommandError("The Gateway accepted the mark but its answer carried no list of what it marked.",
+                               "bad_answer")
+        if ack:
+            _refuse_an_ack_that_left_items_unacted(reports, marked, items)
+        for report in reports:
+            report["ownerRoute"] = owner_route(str(report.get("id")))
+        return _result("answers", ok=True, count=len(reports), reports=reports, claimed=claimed, marked=marked)
+    except CommandError as exc:
+        return _result("answers", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
+
+
+def _refuse_an_ack_that_left_items_unacted(reports: List[Any], marked: List[Any], items: Optional[List[str]]) -> None:
+    """An acknowledgement that did not mark what it was meant to is a failure, not a quiet zero.
+
+    The Gateway marks only items whose claim this session holds. Marking nothing while the report still has unacted
+    items means the run acted without a claim (or lost it), so the next run would claim and act on them again. With
+    `--item`, every named item still unacted after the call is a failure. Without it, marking nothing while unacted
+    items remain is a failure; marking some is not, because another live session may hold the rest. Marking nothing
+    because nothing is left to mark is a harmless re-run.
+    """
+    marked_ids = {m.get("itemId") for m in marked if isinstance(m, dict)}
+    unacted: Dict[str, Optional[str]] = {}
+    for report in reports:
+        entries = [q for q in (report.get("questions") or []) if q.get("answered")]
+        entries.extend(report.get("notes") or [])
+        for entry in entries:
+            if entry.get("itemId") and not entry.get("actedOnAtUtc"):
+                unacted[entry["itemId"]] = entry.get("actionClaimedSessionId")
+    if items:
+        left = [i for i in items if i in unacted and i not in marked_ids]
+    elif not marked_ids:
+        left = list(unacted)
+    else:
+        left = []
+    if not left:
+        return
+    held = [f"{i} ({'claimed by session ' + unacted[i] if unacted[i] else 'not claimed'})" for i in left]
+    raise CommandError(
+        f"The acknowledgement marked {len(marked_ids)} item(s) and left {len(left)} still not acted on. This session "
+        "does not hold their claim, so they stay open and the next run will act on them again. Claim first "
+        "(--claim), act only on the ids it returns, then acknowledge.", "not_marked", errors=held)
+
+
+def _claimed_items(items: List[Any], report_id: str) -> List[Dict[str, Any]]:
+    if any(not isinstance(item, dict) or not isinstance(item.get("itemId"), str) or not item["itemId"]
+           for item in items):
+        raise CommandError("The Gateway's claim list contained an item without an id.", "bad_answer")
+    return [dict(item, reportId=report_id) for item in items]
+
+
 # --- Output ---------------------------------------------------------------------------------------
 
 
@@ -228,6 +361,10 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
         axi_output.write_blocks(stream, *blocks)
         return EXIT_ERROR
 
+    if result["command"] == "answers":
+        axi_output.write_blocks(stream, *_answer_blocks(result))
+        return EXIT_OK
+
     report = result["report"]
     if result["command"] == "open":
         blocks = [
@@ -256,3 +393,84 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
         ]
     axi_output.write_blocks(stream, *blocks)
     return EXIT_OK
+
+
+def _acted(entry: Dict[str, Any]) -> str:
+    if not entry.get("actedOnAtUtc"):
+        return "no"
+    return f"{entry['actedOnAtUtc']} by session {entry.get('actedOnSessionId')}"
+
+
+def _action_claim(entry: Dict[str, Any]) -> str:
+    if not entry.get("actionClaimedSessionId"):
+        return "no"
+    return f"{entry.get('actionClaimedAtUtc')} by session {entry['actionClaimedSessionId']}"
+
+
+def _answer_blocks(result: Dict[str, Any]) -> List[str]:
+    """The human form of an answers result: claims and marks, then each report's questions and notes."""
+    blocks = [axi_output.format_count(result["count"])]
+    if result["claimed"] is not None:
+        blocks.append(f"claimed for this session: {len(result['claimed'])}")
+        blocks.extend(
+            f"  {_ascii(str(c.get('reportId')))}/{_ascii(str(c.get('itemId')))}" for c in result["claimed"]
+        )
+    if result["marked"] is not None:
+        blocks.append(f"marked acted on: {len(result['marked'])}")
+        blocks.extend(f"  {_ascii(str(m.get('itemId')))}" for m in result["marked"])
+    if result["count"] == 0:
+        blocks.append("no dev report in this account was published from that file")
+        return blocks
+    commands = []
+    current_session = os.environ.get("CC_SESSION_ID")
+    for report in result["reports"]:
+        blocks.extend([
+            "report:",
+            _line("id", report.get("id")),
+            _line("title", report.get("title")),
+            _line("session", report.get("sessionId")),
+            _line("updated", report.get("updatedAtUtc")),
+            _line("answered", report.get("answered")),
+            _line("notAnswered", report.get("notAnswered")),
+            _line("notActedOn", report.get("notActedOn")),
+            _line("route", report.get("ownerRoute")),
+        ])
+        questions = report.get("questions") or []
+        blocks.append(f"  questions[{len(questions)}]:")
+        for q in questions:
+            blocks.append(f"    {_ascii(str(q.get('id')))}: {axi_output.format_value(q.get('question'))}")
+            if not q.get("inLatestVersion", True):
+                blocks.append("      (no longer in the newest version of the report)")
+            if not q.get("answered"):
+                blocks.append("      answer: not answered yet")
+                continue
+            blocks.append(f"      answer: {axi_output.format_value(q.get('optionLabel'))} "
+                          f"(value {axi_output.format_value(q.get('optionValue'))})")
+            if q.get("comment"):
+                blocks.append(f"      comment: {axi_output.format_value(q.get('comment'))}")
+            blocks.append(f"      answeredAt: {axi_output.format_value(q.get('answeredAtUtc'))}")
+            blocks.append(f"      item: {axi_output.format_value(q.get('itemId'))}")
+            blocks.append(f"      actedOn: {axi_output.format_value(_acted(q))}")
+            blocks.append(f"      actionClaimed: {axi_output.format_value(_action_claim(q))}")
+        notes = report.get("notes") or []
+        blocks.append(f"  notes[{len(notes)}]:")
+        for n in notes:
+            blocks.append(f"    {_ascii(str(n.get('itemId')))}: {axi_output.format_value(n.get('text'))}")
+            if n.get("quote"):
+                blocks.append(f"      on: {axi_output.format_value(n.get('quote'))}")
+            blocks.append(f"      at: {axi_output.format_value(n.get('atUtc'))}")
+            blocks.append(f"      actedOn: {axi_output.format_value(_acted(n))}")
+            blocks.append(f"      actionClaimed: {axi_output.format_value(_action_claim(n))}")
+        if report.get("notActedOn"):
+            entries = [q for q in questions if q.get("answered") and not q.get("actedOnAtUtc")]
+            entries.extend(n for n in notes if not n.get("actedOnAtUtc"))
+            can_claim = any(not entry.get("actionClaimedSessionId") for entry in entries)
+            owns_claim = bool(current_session) and any(
+                entry.get("actionClaimedSessionId") == current_session for entry in entries)
+            if can_claim:
+                commands.append(f"cc-dev-reports answers --report {report.get('id')} --claim")
+            if owns_claim:
+                commands.append(f"cc-dev-reports answers --report {report.get('id')} --ack")
+    if commands:
+        blocks.append(axi_output.format_help(commands))
+    return blocks

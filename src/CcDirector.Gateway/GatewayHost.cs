@@ -6690,11 +6690,11 @@ public sealed class GatewayHost : IAsyncDisposable
             directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
             findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
-        // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
+        // Dev reports (issue #2958): seven session routes (publish, list, read, reply, answer read, claim and ack -
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
         Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming,
-            new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership));
+            DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
@@ -7907,6 +7907,30 @@ public sealed class GatewayHost : IAsyncDisposable
         if (!string.IsNullOrEmpty(history?.EndingKind))
             return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
         return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
+    /// <summary>
+    /// The identity shared by reports from one factory seat. Session history supplies it when available; the run record
+    /// supplies it for scheduled sessions whose history predates the seat field.
+    /// </summary>
+    private DevReports.DevReportFactorySeatIdentity? DevReportFactorySeatOf(TenantId tenant, string sessionId)
+    {
+        var history = _sessionHistory.FactoryOf(sessionId);
+        var run = _cronRuns.FindBySession(tenant, sessionId)?.Run;
+        if (!string.IsNullOrWhiteSpace(run?.Factory) && !string.IsNullOrWhiteSpace(run.Seat))
+        {
+            if (!string.IsNullOrWhiteSpace(history.Factory)
+                && !string.Equals(history.Factory, run.Factory, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Scheduled session {sessionId} has conflicting factory identity in its history and run record.");
+            if (!string.IsNullOrWhiteSpace(history.Seat)
+                && !string.Equals(history.Seat, run.Seat, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Scheduled session {sessionId} has conflicting seat identity in its history and run record.");
+            return new DevReports.DevReportFactorySeatIdentity(run.Factory, run.Seat);
+        }
+
+        if (string.IsNullOrWhiteSpace(history.Factory) || string.IsNullOrWhiteSpace(history.Seat))
+            return null;
+        return new DevReports.DevReportFactorySeatIdentity(history.Factory, history.Seat);
     }
 
     /// <summary>

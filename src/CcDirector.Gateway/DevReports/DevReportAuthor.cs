@@ -57,13 +57,14 @@ internal sealed class DevReportAuthor
     /// </summary>
     /// <exception cref="InvalidOperationException">The answer is a refusal; the route answers it before reaching here.</exception>
     public static (DevReportEntity Report, bool Created) PublishAs(DevReportStore store, DevReportAuthorAnswer author,
-        TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc)
+        TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
+        DevReportFactorySeatIdentity? factorySeat = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(author);
         if (author.Refused)
             throw new InvalidOperationException("A refused author publishes nothing; the route answers the refusal first.");
-        return store.Publish(tenant, sessionId, key, html, status, title, nowUtc, author.Subject);
+        return store.Publish(tenant, sessionId, key, html, status, title, nowUtc, author.Subject, factorySeat);
     }
 }
 
