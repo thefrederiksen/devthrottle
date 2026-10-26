@@ -6,6 +6,7 @@ against the contract's LicenseHolding (missions/license-switching/contract.md se
 """
 
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -55,9 +56,26 @@ def file_backend(monkeypatch):
     monkeypatch.setattr("src.license_store.sys.platform", "win32")
 
 
+def _pinned_to_now(real):
+    """`real`, called with now=NOW unless the caller passed a now of its own, by keyword or by position."""
+    signature = inspect.signature(real)
+
+    def pinned(*args, **kwargs):
+        if "now" not in signature.bind_partial(*args, **kwargs).arguments:
+            kwargs["now"] = lambda: NOW
+        return real(*args, **kwargs)
+
+    return pinned
+
+
 @pytest.fixture
-def machine(tmp_path):
+def machine(tmp_path, monkeypatch):
     """An isolated machine: account A active in the default folder, account B added to the store as a spare."""
+    # The commands call these with the real clock, and every key here ends five hours after NOW (15 January 2027,
+    # 13:00 UTC), so without this the command tests would change their answers from that day on. Pinned here,
+    # every command test sees the same moment as the rest of this file; a caller that passes its own now keeps it.
+    for name in ("read_usage", "read_with_refresh", "refresh_spare"):
+        monkeypatch.setattr(license_usage, name, _pinned_to_now(getattr(license_usage, name)))
     default = tmp_path / "default"
     _sign_in(default, "Account-A@example.com", ACCESS_A, REFRESH_A, 3600 * 5)
     _sign_in(tmp_path / "login-b", "account-b@example.com", ACCESS_B, REFRESH_B, 3600 * 5)

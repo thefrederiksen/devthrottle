@@ -381,6 +381,12 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.setenv("CC_LICENSE_DEFAULT_CONFIG_DIR", str(tmp_path / "default"))
     monkeypatch.setenv("CC_LICENSE_STORE_DIR", str(tmp_path / "store"))
     monkeypatch.setattr(license_signin, "start_claude_login", lambda folder, email: FakeLogin(folder, email))
+    # The commands call these with the real clock, and "due" means a sign-in ends within five days of now, so
+    # without this the answers changed on 26 October 2026, five days before account A's fixed end. Pinned here,
+    # every command test sees the same day as the rest of this file.
+    sign_in, renew_due = license_signin.sign_in, license_signin.renew_due
+    monkeypatch.setattr(license_signin, "sign_in", lambda *a, **k: sign_in(*a, **{"now": lambda: NOW, **k}))
+    monkeypatch.setattr(license_signin, "renew_due", lambda *a, **k: renew_due(*a, **{"now": lambda: NOW, **k}))
     return tmp_path
 
 
