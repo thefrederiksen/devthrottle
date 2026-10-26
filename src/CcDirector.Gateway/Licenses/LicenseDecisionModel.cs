@@ -146,23 +146,6 @@ public sealed record LicenseBar(string AccountEmail, string Window, DateTime Bar
 /// usable again only once all of them have reset.</param>
 public sealed record LicenseExhaustion(string AccountEmail, DateTime StartedAtUtc, DateTime EndsAtUtc);
 
-/// <summary>
-/// A machine STRANDED on a tired account (<see cref="LicenseDecisionEngine.StrandedMachines"/>): it is on an account in
-/// use that a fresh reading shows at or over the threshold, it could be sent a switch now, some other account has room,
-/// and it is ready for none of them - so the automatic switch leaves it where it is.
-/// </summary>
-/// <param name="MachineName">The machine.</param>
-/// <param name="OsUser">The machine's user.</param>
-/// <param name="AccountEmail">The tired account it is stuck on, lower-cased.</param>
-/// <param name="Tired">The tired windows in words: "100% of its weekly limit".</param>
-/// <param name="Readiness">Its readiness for the account it needs: the best account with room, the one it would go to
-/// if it were ready (<see cref="LicenseReadiness.TargetAccountEmail"/>), and why it is not.</param>
-public sealed record LicenseStrandedMachine(string MachineName, string OsUser, string AccountEmail, string Tired, LicenseReadiness Readiness)
-{
-    /// <summary>The account it needs a sign-in for.</summary>
-    public string NeededAccountEmail => Readiness.TargetAccountEmail;
-}
-
 /// <summary>The account that has room again first while no account has room (<see cref="LicenseDecisionEngine.FirstBackWithRoom"/>).</summary>
 /// <param name="AccountEmail">The account, lower-cased.</param>
 /// <param name="BackAtUtc">When it has room again: the latest reset among its windows at or over the threshold, or the
