@@ -374,6 +374,11 @@ public sealed class FactoryPageViewDto
     public FactoryPageEmailsDto? Emails { get; set; }
 
     public FactoryPageWaitingDto Waiting { get; set; } = new();
+
+    /// <summary>The seats, one line each, under "Needs you" and above the drawing (the owner, 26 October 2026). Folded
+    /// from the Seats tab's rows, in its order with the boss first.</summary>
+    public FactorySeatsCardDto Seats { get; set; } = new();
+
     public FactoryBossLatestDto BossLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
 
@@ -496,6 +501,29 @@ public sealed class FactoryGoalNumberCardDto
 }
 
 /// <summary>What is waiting on the owner from this factory: the "Needs you" card, always shown on the page.</summary>
+/// <summary>The Overview's seats card: one finished line per seat, each linking to the seat's page.</summary>
+public sealed class FactorySeatsCardDto
+{
+    /// <summary>"Seats".</summary>
+    public string Heading { get; set; } = "";
+    public List<FactorySeatLineDto> Lines { get; set; } = new();
+}
+
+/// <summary>One seat on the Overview: its name, when it runs and its last run, in the Seats tab's words.</summary>
+public sealed class FactorySeatLineDto
+{
+    public string SeatId { get; set; } = "";
+
+    /// <summary>"Boss - Every day at 07:00. Last run: Today 07:00 - succeeded."</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>The tone of the last run, the same one the Seats tab colours it with.</summary>
+    public string Tone { get; set; } = "";
+
+    /// <summary>The seat's own page, the Seats tab's "Open seat" address.</summary>
+    public string Href { get; set; } = "";
+}
+
 public sealed class FactoryPageWaitingDto
 {
     /// <summary>"Needs you".</summary>

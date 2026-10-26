@@ -212,6 +212,23 @@ export interface FactoryGoalNumberCard {
   emptyText: string | null;
 }
 
+/** The Overview's seats card. Every word is the Gateway's, folded from the Seats tab's rows. */
+export interface FactorySeatsCard {
+  /** "Seats". */
+  heading: string;
+  lines: FactorySeatLine[];
+}
+
+/** One seat on the Overview: "Boss - Daily 07:00. Last run: Today 07:00 - succeeded." */
+export interface FactorySeatLine {
+  seatId: string;
+  text: string;
+  /** The last run's tone, the one the Seats tab colours it with. */
+  tone: FactoryTone;
+  /** The seat's own page. */
+  href: string;
+}
+
 export interface FactoryPageWaiting {
   heading: string;
   items: FactoryWaitingItem[];
@@ -434,6 +451,8 @@ export interface FactoryPageView {
    *  null when the view was folded without them. */
   emails: FactoryPageEmails | null;
   waiting: FactoryPageWaiting;
+  /** The seats, one line each, under "Needs you" and above the drawing; the Seats tab's rows, boss first. */
+  seats: FactorySeatsCard;
   bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
   truncatedText: string | null;

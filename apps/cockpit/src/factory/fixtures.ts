@@ -499,6 +499,23 @@ export const FACTORY_PAGE: FactoryPageView = {
     },
     bulkHandledNote: null,
   },
+  seats: {
+    heading: "Seats (fixture)",
+    lines: [
+      {
+        seatId: "nora-hale",
+        text: "Boss - Daily 07:00. Last run: Today 07:00 - failed. (fixture)",
+        tone: "red",
+        href: "/factories/warmforward/seats/nora-hale",
+      },
+      {
+        seatId: "value-hunter",
+        text: "Value Hunter - Talk only. Last run: Not run yet. (fixture)",
+        tone: "grey",
+        href: "/factories/warmforward/seats/value-hunter",
+      },
+    ],
+  },
   bossLatest: {
     heading: "Latest from the boss",
     lines: [

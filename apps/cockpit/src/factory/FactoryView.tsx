@@ -23,7 +23,7 @@ import { FactoryDrawingPanel } from "./FactoryDrawing";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { FactoryDefinitionTab } from "./FactoryDefinitionTab";
 import { FactoryRecordsTab } from "./FactoryRecordsTab";
-import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
+import { OwnerActionButton, TalkButton, ToneChip, toneClass } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
@@ -207,10 +207,10 @@ function Overview({
 }) {
   // The Overview, read top to bottom (owner, 26 October 2026): is it working (open problems and failures), what we are
   // doing now in the boss's words, then "Needs you" - always shown, so "nothing needs me" is said rather than left to a
-  // missing block - the drawing of what the factory does, and below it the Boss's why, goal and limits
-  // ("Below the fold: the Boss's limits, the drawing"). The goal is in the header; emails, the boss's latest
-  // and the last talk are on Activity.
-  const { failures, problems, waiting } = page;
+  // missing block - then the seats, one line each with their last run, the drawing of what the factory does, and below
+  // it the Boss's why, goal and limits ("Below the fold: the Boss's limits, the drawing"). The goal is in the header;
+  // emails, the boss's latest and the last talk are on Activity.
+  const { failures, problems, waiting, seats } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
       {problems !== null && problems.items.length > 0 && <ProblemsCard problems={problems} onChanged={onChanged} />}
@@ -234,6 +234,18 @@ function Overview({
             ))}
           </div>
         )}
+      </section>
+      <section className="fa-panel" data-testid="fa-seats-card">
+        <h2 className="fa-section-title">{seats.heading}</h2>
+        <ul className="fa-seat-lines">
+          {seats.lines.map((line) => (
+            <li key={line.seatId}>
+              <Link className={`fa-lastrun ${toneClass(line.tone)}`} to={line.href} data-testid="fa-seat-line">
+                {line.text}
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
       <FactoryDrawingPanel factory={page.id} showStatus />
       <BossBlock boss={page.boss} />
