@@ -11,15 +11,17 @@ namespace CcDirector.Gateway.Licenses;
 /// <param name="Started">The sign-ins this check started.</param>
 /// <param name="Alarms">What the 80% not-ready alarm did; null when the check did not run or its raise failed.</param>
 /// <param name="NoRoomAlarms">What the 80% no-room alarm did; null when the check did not run or its raise failed.</param>
+/// <param name="StrandedAlarms">What the stranded-machine alarm did (<see cref="LicenseStrandedAlarm"/>); null when the
+/// check did not run or its raise failed.</param>
 public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness> Judged, IReadOnlyList<LicenseSignInStart> Started,
-    LicenseAlarmRaised? Alarms, LicenseAlarmRaised? NoRoomAlarms)
+    LicenseAlarmRaised? Alarms, LicenseAlarmRaised? NoRoomAlarms, LicenseAlarmRaised? StrandedAlarms = null)
 {
     public static readonly LicenseReadinessTick NotRun = new(Array.Empty<LicenseMachineReadiness>(), Array.Empty<LicenseSignInStart>(), null, null);
 }
 
 /// <summary>
-/// Readiness is checked every minute and missing sign-ins are fixed at once. Only a readiness gap at high five-hour
-/// use can raise an alarm. Weekly use and no room are status on the Licenses page.
+/// Readiness is checked every minute and missing sign-ins are fixed at once. Two things raise an alarm: a readiness gap
+/// at high five-hour use, and a machine stranded on a tired account. Weekly use and no room are status on the Licenses page.
 ///
 /// Once a minute, for each tenant, <see cref="TickAsync"/>:
 /// 1. judges every machine on an account against the account it would switch to next (<see cref="LicenseReadinessFold"/>);
@@ -29,7 +31,10 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 ///    Licenses log says it was automatic. That service refuses a second sign-in while one is open for the same machine
 ///    and account, and this check relies on it;
 /// 3. raises the short-window readiness alarm and closes retired weekly and no-room alarms. Each kind is reconciled
-///    independently so a failure cannot stop the other kinds from closing.
+///    independently so a failure cannot stop the other kinds from closing;
+/// 4. raises the stranded-machine alarm (<see cref="LicenseStrandedAlarm"/>): a machine on a tired account that is
+///    ready for no account with room, while one has room, and that this check is not already repairing. That is a
+///    machine that cannot switch - a fault - not usage. The five-hour alarm stands down for every machine whose stranded alarm is open.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -73,9 +78,15 @@ public sealed class LicenseReadinessService
     /// <summary>Every machine of <paramref name="picture"/> on an account, judged at <paramref name="nowUtc"/>. What the
     /// Licenses page shows and what <see cref="TickAsync"/> acts on.</summary>
     public IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture, DateTime nowUtc)
+        => Judge(tenant, picture, _log.ListOpen(tenant), nowUtc);
+
+    // The judgement on sign-in rows already read: the minute check reads them ONCE and hands the same rows to the
+    // stranded alarm, so a Director's answer landing between two reads cannot make the two disagree.
+    private IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture,
+        IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        return LicenseReadinessFold.Judge(picture, _log.ListOpen(tenant), _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
+        return LicenseReadinessFold.Judge(picture, openSignIns, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
             account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId), nowUtc);
     }
 
@@ -133,7 +144,8 @@ public sealed class LicenseReadinessService
         {
             var now = _nowUtc();
             var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
-            var judged = Judge(tenant, picture, now);
+            var openSignIns = _log.ListOpen(tenant);
+            var judged = Judge(tenant, picture, openSignIns, now);
 
             var started = new List<LicenseSignInStart>();
             foreach (var gap in judged.Where(j => j.Fix == LicenseReadinessFixes.StartNow))
@@ -154,19 +166,25 @@ public sealed class LicenseReadinessService
             // The old kind mixed weekly and short-window conditions. Emptying it closes every stored weekly alarm.
             var retired = await RaiseKindAsync(tenant, LicenseReadinessFold.RetiredAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
+            // A machine whose stranded alarm is open is that alarm's alone: the five-hour alarm stands down for it.
+            var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+                openSignIns, open);
             var alarms = await RaiseKindAsync(tenant, LicenseReadinessFold.AlarmKind,
-                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
+                LicenseStrandedAlarm.StandDown(LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), strandedNow),
+                failures, ct).ConfigureAwait(false);
             // No room is status on the Licenses page. Emptying the retired kind closes its stored rows.
             var noRoom = await RaiseKindAsync(tenant, LicenseReadinessFold.NoRoomAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
-            if (started.Count + Changed(retired) + Changed(alarms) + Changed(noRoom) > 0)
+            var stranded = await RaiseKindAsync(tenant, LicenseStrandedAlarm.Kind, strandedNow, failures, ct).ConfigureAwait(false);
+            if (started.Count + Changed(retired) + Changed(alarms) + Changed(noRoom) + Changed(stranded) > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
                               + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, retiredClosed={retired?.Closed}, "
                               + $"alarmsOpened={alarms?.Opened}, alarmsStillOpen={alarms?.StillOpen}, alarmsClosed={alarms?.Closed}, "
-                              + $"noRoomClosed={noRoom?.Closed}");
+                              + $"noRoomClosed={noRoom?.Closed}, strandedOpened={stranded?.Opened}, strandedStillOpen={stranded?.StillOpen}, "
+                              + $"strandedClosed={stranded?.Closed}");
             if (failures.Count > 0)
                 throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
-            return new LicenseReadinessTick(judged, started, alarms, noRoom);
+            return new LicenseReadinessTick(judged, started, alarms, noRoom, stranded);
         }
         catch (Exception ex)
         {
