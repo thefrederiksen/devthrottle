@@ -400,13 +400,13 @@ describe("A factory's page (mockup 2)", () => {
       talk: null,
       bossText: "No boss named",
       goal: { heading: "Goal", text: null, note: null, emptyText: "No goal set yet" },
-      goalNumber: { heading: "Goal number", valueText: null, asOfText: null, linkHref: null, linkLabel: null, emptyText: "No number posted yet" },
+      goalNumber: { heading: "Goal number", valueText: null, asOfText: null, linkHref: null, linkLabel: null, emptyText: "Not measured" },
     });
     renderAt("/factories/warmforward");
 
     await screen.findByTestId("fa-overview");
     expect(screen.getByText("No goal set yet")).toBeTruthy();
-    expect(screen.getByText("No number posted yet")).toBeTruthy();
+    expect(screen.getByText("Not measured")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Talk/ })).toBeNull();
   });
 
