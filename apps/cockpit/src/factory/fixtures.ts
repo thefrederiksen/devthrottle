@@ -367,6 +367,7 @@ export const FACTORY_PAGE: FactoryPageView = {
     { key: "records", label: "Records" },
     { key: "definition", label: "Definition" },
   ],
+  why: { heading: "Why", text: "Cut the house's heating bill without anyone touching the thermostat. (fixture)", emptyText: null },
   goal: {
     heading: "Goal",
     text: "A cash engine of $15,000-$40,000 a year that runs without your time.",

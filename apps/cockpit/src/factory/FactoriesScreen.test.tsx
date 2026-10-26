@@ -462,6 +462,31 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.queryByRole("button", { name: /^Talk/ })).toBeNull();
   });
 
+  it("shows why the factory exists in the Gateway's words, under the name and above the goal line", async () => {
+    renderAt("/factories/warmforward");
+
+    const why = await screen.findByTestId("fa-why");
+    expect(why.textContent).toBe("Why: Cut the house's heating bill without anyone touching the thermostat. (fixture)");
+    const text = within(why).getByText("Cut the house's heating bill without anyone touching the thermostat. (fixture)");
+    expect(text.className).toContain("dt-private");
+    const title = document.querySelector("h1.ui-page-title")!;
+    const goal = screen.getByTestId("fa-goal");
+    expect(title.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(why.compareDocumentPosition(goal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the Gateway's one line when no why is written", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      why: { heading: "Why", text: null, emptyText: "No why written yet. (fixture)" },
+    });
+    renderAt("/factories/warmforward");
+
+    const why = await screen.findByTestId("fa-why");
+    expect(why.textContent).toBe("Why: No why written yet. (fixture)");
+    expect(why.querySelector(".dt-private")).toBeNull();
+  });
+
   it("fixes the Activity tab to this factory", async () => {
     renderAt("/factories/warmforward/activity");
 

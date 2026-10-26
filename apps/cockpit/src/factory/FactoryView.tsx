@@ -104,6 +104,7 @@ export function FactoryView() {
               {text}
             </p>
           ))}
+          {tab !== "seats" && <WhyLine page={page} />}
           {tab !== "seats" && <GoalLine page={page} />}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.bossText}</span>
@@ -295,6 +296,18 @@ function GoalLine({ page }: { page: FactoryPageView }) {
           </>
         )}
       </span>
+    </p>
+  );
+}
+
+// Why the factory exists, one line under its name and above the goal (owner, 26 October 2026).
+function WhyLine({ page }: { page: FactoryPageView }) {
+  const { why } = page;
+  return (
+    <p className="fa-goal-line" data-testid="fa-why">
+      <span className="fa-goal-label">{why.heading}:</span>{" "}
+      {why.text !== null && <span className="dt-private">{why.text}</span>}
+      {why.emptyText !== null && <span className="fa-dim">{why.emptyText}</span>}
     </p>
   );
 }

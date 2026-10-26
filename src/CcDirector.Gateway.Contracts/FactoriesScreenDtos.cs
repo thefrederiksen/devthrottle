@@ -351,6 +351,9 @@ public sealed class FactoryPageViewDto
     /// <summary>Overview, Seats (n), Activity, Reports, Memory, Documents - in that order.</summary>
     public List<FactoryTabDto> Tabs { get; set; } = new();
 
+    /// <summary>Why the factory exists, one line under its name, above the goal (the owner, 26 October 2026).</summary>
+    public FactoryWhyCardDto Why { get; set; } = new();
+
     public FactoryGoalCardDto Goal { get; set; } = new();
     public FactoryGoalNumberCardDto GoalNumber { get; set; } = new();
 
@@ -423,6 +426,20 @@ public sealed class FactoryGoalCardDto
     public string? Note { get; set; }
 
     /// <summary>"No goal set yet" when there is no goal, else null.</summary>
+    public string? EmptyText { get; set; }
+}
+
+/// <summary>Why the factory exists: the purpose its definition states.</summary>
+public sealed class FactoryWhyCardDto
+{
+    /// <summary>"Why".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>The purpose, as written in the factory's definition; null when none is written.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>One line saying no why is written yet (or, on a draft, that it starts when the factory is published);
+    /// null when there is a why.</summary>
     public string? EmptyText { get; set; }
 }
 

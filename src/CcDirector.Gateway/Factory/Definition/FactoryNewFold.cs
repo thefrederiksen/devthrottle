@@ -109,6 +109,7 @@ public static class FactoryNewFold
             SeatCountText = $"{FactoriesScreenFold.Count(d.SeatCount, "seat")} in the draft",
             ComputerText = d.Machine is null ? "no machine yet" : $"will run on {d.Machine}",
             Tabs = tabs,
+            Why = new FactoryWhyCardDto { Heading = FactoriesScreenFold.WhyHeading, EmptyText = notYet },
             Goal = new FactoryGoalCardDto { Heading = "Goal", EmptyText = notYet },
             GoalNumber = new FactoryGoalNumberCardDto { Heading = "Goal number", EmptyText = notYet },
             Waiting = new FactoryPageWaitingDto { Heading = "Waiting on you", EmptyText = "Nothing is waiting on you." },
