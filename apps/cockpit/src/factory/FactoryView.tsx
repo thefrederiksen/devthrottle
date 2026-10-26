@@ -204,38 +204,36 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  // The Overview (owner, 18 October 2026): what we are doing now, in the boss's words (owner, 26 October 2026), how the
-  // newest run went, the drawing of what the factory does, and only what needs the owner. The goal is in the header;
-  // emails, the boss's latest and the last talk are on Activity.
+  // The Overview, read top to bottom (owner, 26 October 2026): is it working (open problems and failures), what we are
+  // doing now in the boss's words, then "Needs you" - always shown, so "nothing needs me" is said rather than left to a
+  // missing block - and the drawing of what the factory does last. The goal is in the header; emails, the boss's latest
+  // and the last talk are on Activity.
   const { failures, problems, waiting } = page;
-  const nothing = (problems === null || problems.items.length === 0) && failures === null && waiting.emptyText !== null;
   return (
     <div className="fa-overview" data-testid="fa-overview">
-      {page.now !== null && <NowCard now={page.now} />}
-      <FactoryDrawingPanel factory={page.id} showStatus />
       {problems !== null && problems.items.length > 0 && <ProblemsCard problems={problems} onChanged={onChanged} />}
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
-      {(waiting.emptyText === null || nothing) && (
-        <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
-          <h2 className="fa-section-title">{waiting.heading}</h2>
-          {waiting.orderText !== null && <p className="fa-dim">{waiting.orderText}</p>}
-          {waiting.bulkHandled !== null && (
-            <div className="fa-bulk">
-              <OwnerActionButton action={waiting.bulkHandled} onDone={onDone} />
-            </div>
-          )}
-          {waiting.bulkHandledNote !== null && <p className="fa-dim">{waiting.bulkHandledNote}</p>}
-          {waiting.emptyText !== null ? (
-            <p className="fa-dim">{waiting.emptyText}</p>
-          ) : (
-            <div className="fa-waiting">
-              {waiting.items.map((item) => (
-                <WaitingItem key={item.id} item={item} onHandled={onChanged} />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+      {page.now !== null && <NowCard now={page.now} />}
+      <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
+        <h2 className="fa-section-title">{waiting.heading}</h2>
+        {waiting.orderText !== null && <p className="fa-dim">{waiting.orderText}</p>}
+        {waiting.bulkHandled !== null && (
+          <div className="fa-bulk">
+            <OwnerActionButton action={waiting.bulkHandled} onDone={onDone} />
+          </div>
+        )}
+        {waiting.bulkHandledNote !== null && <p className="fa-dim">{waiting.bulkHandledNote}</p>}
+        {waiting.emptyText !== null ? (
+          <p className="fa-dim">{waiting.emptyText}</p>
+        ) : (
+          <div className="fa-waiting">
+            {waiting.items.map((item) => (
+              <WaitingItem key={item.id} item={item} onHandled={onChanged} />
+            ))}
+          </div>
+        )}
+      </section>
+      <FactoryDrawingPanel factory={page.id} showStatus />
     </div>
   );
 }

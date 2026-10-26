@@ -90,7 +90,7 @@ PAGE = {
         ],
     },
     "waiting": {
-        "heading": "Waiting on you",
+        "heading": "Needs you",
         "items": [
             {"id": ASKED_ROW, "word": "asked", "subject": "Spend", "what": "May I buy a second domain?",
              "by": "Boss, today 06:20", "link": None},
@@ -103,7 +103,7 @@ PAGE = {
 RUNNING_PAGE = {
     "id": "warmforward", "title": "WarmForward", "statusWord": "RUNNING", "statusTone": "ok",
     "statusReason": "Nothing failed and nothing is waiting on you.",
-    "failures": None, "waiting": {"heading": "Waiting on you", "items": [], "emptyText": "Nothing is waiting on you."},
+    "failures": None, "waiting": {"heading": "Needs you", "items": [], "emptyText": "Nothing today."},
     "truncatedText": None,
 }
 
