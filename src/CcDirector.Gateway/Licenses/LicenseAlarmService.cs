@@ -111,8 +111,9 @@ public sealed class LicenseAlarmService
     public static readonly TimeSpan HoldDown = TimeSpan.FromHours(6);
 
     // These conditions are status, not faults. The old mixed-window kind is retired too: its rows cannot prove
-    // whether the weekly window alone raised them. Short-window readiness now has its own kind.
-    private static readonly string[] RetiredKinds = ["machine-silent", "no-room-at-80", "not-ready-at-80"];
+    // whether the weekly window alone raised them. The five-hour-only kind that replaced it is retired in turn: the
+    // 80% warning ("cannot-switch-at-80") covers both windows, for a machine that cannot switch only.
+    private static readonly string[] RetiredKinds = ["machine-silent", "no-room-at-80", "not-ready-at-80", "not-ready-five-hour"];
 
     private readonly GatewayDatabase _db;
     private readonly LicenseOwnerEmailSender _mail;

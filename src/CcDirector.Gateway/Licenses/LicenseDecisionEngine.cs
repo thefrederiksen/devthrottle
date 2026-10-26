@@ -264,14 +264,29 @@ public static class LicenseDecisionEngine
     /// order of machines.
     /// </summary>
     public static IReadOnlyList<LicenseStrandedMachine> StrandedMachines(LicenseSnapshot snapshot)
+        => MachinesThatCannotSwitch(snapshot, ThresholdPercent);
+
+    /// <summary>
+    /// <see cref="StrandedMachines"/> with the account's use judged at <paramref name="atPercent"/> instead of the
+    /// threshold: every machine on an account in use whose fresh reading shows either window at or above
+    /// <paramref name="atPercent"/>, that could be sent a switch now and is not held, while some account has room - and
+    /// that is ready for none of the accounts with room. The 80% warning (<see cref="LicenseCannotSwitchAlarm"/>) asks
+    /// this at 80, the stranded alarm at the threshold: ONE rule, so the warning and the alarm can never disagree about
+    /// which machine cannot switch. "An account with room" is the same at any level (both windows under the threshold),
+    /// so only which accounts in use are looked at changes. In <see cref="StrandedMachines"/>' order, its
+    /// <see cref="LicenseStrandedMachine.Tired"/> naming every window at or above <paramref name="atPercent"/>.
+    /// </summary>
+    public static IReadOnlyList<LicenseStrandedMachine> MachinesThatCannotSwitch(LicenseSnapshot snapshot, double atPercent)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        if (atPercent is <= 0 or > ThresholdPercent)
+            throw new ArgumentOutOfRangeException(nameof(atPercent), atPercent, $"A use level above 0 and at most {ThresholdPercent}.");
         var readings = IndexReadings(snapshot.Accounts);
         var stranded = new List<LicenseStrandedMachine>();
         foreach (var source in AccountsInUse(snapshot))
         {
-            if (JudgeTired(snapshot, readings, source) is not { } judged || judged.Ranked.Count == 0 || judged.Free.Count == 0)
-                continue; // not tired on a fresh reading, no account has room, or nothing on it can be sent a switch
+            if (JudgeAt(snapshot, readings, source, atPercent) is not { } judged || judged.Ranked.Count == 0 || judged.Free.Count == 0)
+                continue; // not at the level on a fresh reading, no account has room, or nothing on it can be sent a switch
             var plan = PlanMoves(judged.Free, judged.Ranked, snapshot.NowUtc);
             stranded.AddRange(plan.LeftBehind.Select(r =>
                 new LicenseStrandedMachine(r.MachineName, r.OsUser, source, DescribeWindows(judged.Tired), r)));
@@ -473,10 +488,16 @@ public static class LicenseDecisionEngine
     /// True when the window is at or over the threshold and its reset time, if known, is still ahead of
     /// <paramref name="nowUtc"/>. Shared with the forecast so both read a pre-reset reading the same way.
     /// </summary>
-    public static bool IsTired(LicenseWindowReading window, DateTime nowUtc)
+    public static bool IsTired(LicenseWindowReading window, DateTime nowUtc) => IsAtOrAbove(window, nowUtc, ThresholdPercent);
+
+    /// <summary>
+    /// True when the window is at or above <paramref name="percent"/> and its reset time, if known, is still ahead of
+    /// <paramref name="nowUtc"/>: <see cref="IsTired"/> at another level, read the same way.
+    /// </summary>
+    public static bool IsAtOrAbove(LicenseWindowReading window, DateTime nowUtc, double percent)
     {
         ArgumentNullException.ThrowIfNull(window);
-        return window.Utilization >= ThresholdPercent && (window.ResetsAtUtc is not { } reset || reset > nowUtc);
+        return window.Utilization >= percent && (window.ResetsAtUtc is not { } reset || reset > nowUtc);
     }
 
     // ----- the rule's parts -----
@@ -519,11 +540,16 @@ public static class LicenseDecisionEngine
 
     // Null when the account's reading is stale or shows no tired window.
     private static TiredAccount? JudgeTired(LicenseSnapshot snapshot, IReadOnlyDictionary<string, LicenseAccountReading> readings, string source)
+        => JudgeAt(snapshot, readings, source, ThresholdPercent);
+
+    // JudgeTired with the windows judged at atPercent: null when the reading is stale or shows no window at that level.
+    private static TiredAccount? JudgeAt(LicenseSnapshot snapshot, IReadOnlyDictionary<string, LicenseAccountReading> readings, string source,
+        double atPercent)
     {
         var now = snapshot.NowUtc;
         if (!readings.TryGetValue(source, out var reading) || IsReadingStale(reading, now))
             return null;
-        var tired = TiredWindows(reading, now);
+        var tired = WindowsAt(reading, now, atPercent);
         if (tired.Count == 0)
             return null;
         var (eligible, skipped) = SplitMachines(snapshot, source);
@@ -631,12 +657,14 @@ public static class LicenseDecisionEngine
     /// <summary>Why a machine whose reports are refused is not sent a switch, as a clause the skip sentences end with.</summary>
     public const string ReportsRefusedWhy = "its reports are being refused, so what it holds now is not known";
 
-    private static List<TiredWindow> TiredWindows(LicenseAccountReading reading, DateTime now)
+    private static List<TiredWindow> TiredWindows(LicenseAccountReading reading, DateTime now) => WindowsAt(reading, now, ThresholdPercent);
+
+    private static List<TiredWindow> WindowsAt(LicenseAccountReading reading, DateTime now, double percent)
     {
         var tired = new List<TiredWindow>();
-        if (reading.FiveHour is { } five && IsTired(five, now))
+        if (reading.FiveHour is { } five && IsAtOrAbove(five, now, percent))
             tired.Add(new TiredWindow(LicenseWindowNames.FiveHour, five.Utilization, five.ResetsAtUtc));
-        if (reading.SevenDay is { } week && IsTired(week, now))
+        if (reading.SevenDay is { } week && IsAtOrAbove(week, now, percent))
             tired.Add(new TiredWindow(LicenseWindowNames.SevenDay, week.Utilization, week.ResetsAtUtc));
         return tired;
     }

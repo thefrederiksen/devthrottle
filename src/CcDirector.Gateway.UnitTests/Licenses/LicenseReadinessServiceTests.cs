@@ -19,8 +19,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// account they would switch to next - except that machine-a holds no sign-in for it (the 16 October picture), while
 /// machine-b does. What these hold down: every readiness sentence word for word; one sign-in per gap and none while it
 /// runs; the retry waits, each one, read from the Licenses log so they survive a restart; no sign-in without an approver
-/// that can approve; under 80% no alarm but the fixing runs; at 80% one alarm, kept, then closed by itself; and nothing
-/// at all for a tenant whose machines never reported.
+/// that can approve; under 80% no alarm but the fixing runs; at 80% of either window, for a machine the Gateway cannot
+/// sign in by itself, one warning (LicenseCannotSwitchAlarm), kept, then closed by itself; and nothing at all for a
+/// tenant whose machines never reported.
 /// </summary>
 public sealed class LicenseReadinessServiceTests : IDisposable
 {
@@ -465,7 +466,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Throws<ArgumentOutOfRangeException>(() => LicenseReadinessFold.RetryWait(0));
     }
 
-    // ----- the 80% alarm -----
+    // ----- the 80% warning (LicenseCannotSwitchAlarmTests holds its whole rule) -----
 
     // Under 80%: not ready, no alarm - and the fixing still runs.
     [Fact]
@@ -484,39 +485,64 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(_pushed);
     }
 
-    // At 80% of the weekly limit and not ready: one alarm opens, naming the machine, the account in use, the account it
-    // would switch to and why, and the one thing to do. The next check raises no second alarm and sends nothing more.
+    // At 80% of the WEEKLY limit (the 24-25 October case, step 2 of "Licenses - Loud When Stranded"), a machine that cannot
+    // switch and that the Gateway cannot sign in by itself: one warning opens, naming the machine, the account it is on,
+    // the account it needs and why, and the one thing to do. The next check raises no second one and sends nothing more.
     [Fact]
-    public async Task Tick_At80OfTheWeeklyLimit_NotReady_ShowsStatusAndSendsNoAlarm()
+    public async Task Tick_At80OfTheWeeklyLimit_NoAutomaticFix_OpensOneWarning_AndTheNextCheckSendsNothingMore()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aWeekly = 80;
         BothReport();
 
         var first = await Tick();
         _now = T0.AddMinutes(1);
         BothReport();
-        var second = await Tick();
+        await Tick();
 
-        Assert.Equal(LicenseReadinessStates.NotReady, Of(first, MachineA).State);
-        Assert.Equal(LicenseReadinessStates.NotReady, Of(second, MachineA).State);
-        Assert.Single(first.Started);
-        Assert.Empty(_alarms.ListOpen(One));
-        Assert.Empty(_emails);
-        Assert.Empty(_pushed);
+        Assert.Empty(first.Started);
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
+        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and cannot switch to account-b@example.com, "
+                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. Set an approver for account-b@example.com on the Licenses page.",
+            alarm.Action);
+        Assert.Single(_emails);
+        Assert.Single(_pushed);
     }
 
     // The 5-hour window counts too: either window at 80% is enough.
     [Fact]
-    public async Task Tick_At80OfTheFiveHourWindow_NotReady_OpensTheAlarm()
+    public async Task Tick_At80OfTheFiveHourWindow_NoAutomaticFix_OpensTheWarning()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85.5;
         BothReport();
 
         await Tick();
 
-        Assert.Equal("machine-a is not ready to switch off account-a@example.com, which is at 85.5% of its 5-hour window: "
-                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.",
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85.5% of its 5-hour window, and cannot switch to account-b@example.com, "
+                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.",
             Assert.Single(_alarms.ListOpen(One)).Problem);
+    }
+
+    // At 80% while the Gateway's own sign-in for the machine runs, nothing opens: the owner is told only what the Gateway
+    // cannot fix (step 1's rule, which binds the warning too).
+    [Fact]
+    public async Task Tick_At80_WhileTheGatewaysSignInRuns_OpensNoWarning()
+    {
+        _aWeekly = 90;
+        BothReport();
+
+        var tick = await Tick();
+        _now = T0.AddMinutes(5);
+        BothReport();
+        await Tick();
+
+        Assert.Single(tick.Started);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
+        Assert.Empty(_pushed);
     }
 
     // The one thing to do follows the reason: start the Director; or the approver's own sentence.
@@ -542,6 +568,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     [Fact]
     public async Task Tick_TheMachineBecomesReady_TheAlarmCloses()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85;
         BothReport();
         await Tick();
@@ -561,6 +588,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     [Fact]
     public async Task Tick_TheAccountFallsUnder80_TheAlarmCloses()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85;
         BothReport();
         await Tick();
@@ -594,6 +622,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     [Fact]
     public async Task Tick_AnOpenAlarm_StaysOpenWhileTheReadingIsStale_AndClosesOnAFreshReadingUnder80()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85;
         BothReport();
         await Tick();
@@ -605,8 +634,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         var still = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal(opened.Id, still.Id);
         Assert.Equal((0, 1, 0), (stale.Alarms!.Opened, stale.Alarms.StillOpen, stale.Alarms.Closed));
-        Assert.Equal("machine-a is not ready to switch off account-a@example.com, which was at or above 80% at its last fresh reading: "
-                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.", still.Problem);
+        Assert.Equal(opened.Problem, still.Problem);
         Assert.Single(_emails);
 
         _aFiveHour = 40;
@@ -622,6 +650,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     [Fact]
     public async Task Tick_TheMachineLeavesTheAccount_TheAlarmCloses()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85;
         BothReport();
         await Tick();
@@ -656,9 +685,10 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Single(_emails);
     }
 
-    // Review finding 1: a sign-in that ended well and is not reported yet is said as such.
+    // A sign-in that ended well and is not reported yet is a repair still under way (step 1's rule): no warning opens
+    // while the machine's next report is awaited.
     [Fact]
-    public async Task Tick_At80_AfterASignInEndedWell_TheAlarmSaysItWaitsForTheReport()
+    public async Task Tick_At80_AfterASignInEndedWell_WhileItsReportIsAwaited_OpensNoWarning()
     {
         TheDirectorAdds();
         _aFiveHour = 85;
@@ -667,10 +697,11 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         _now = T0.AddMinutes(1);
         BothReport();
 
-        await Tick();
+        var tick = await Tick();
 
-        Assert.Equal("It was signed in at 03:12 UTC and its next report should show it; if this stays, sign machine-a in to "
-                     + "account-b@example.com from the Licenses page.", Assert.Single(_alarms.ListOpen(One)).Action);
+        Assert.Equal(LicenseReadinessFixes.AwaitingReport, Of(tick, MachineA).Fix);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
     }
 
     // Review finding 3: "a sign-in is running" is the same read Start refuses by - every open row, however old - so a
@@ -889,19 +920,20 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(_pushed);
     }
 
-    // A machine not ready while another account HAS room still gets the not-ready alarm, unchanged - and no no-room alarm.
+    // A machine that cannot switch while another account HAS room gets the 80% warning - and no no-room alarm.
     [Fact]
-    public async Task Tick_At80_NotReady_WhileAnotherAccountHasRoom_RaisesOnlyTheNotReadyAlarm()
+    public async Task Tick_At80_CannotSwitch_WhileAnotherAccountHasRoom_RaisesOnlyTheWarning()
     {
+        _approverWhyNot = _approverReadiness.WhyNotReady;
         _aFiveHour = 85;
         BothReport();
 
         var tick = await Tick();
 
         var alarm = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal(("not-ready-five-hour", MachineA), (alarm.Kind, alarm.MachineName));
-        Assert.Equal("machine-a is not ready to switch off account-a@example.com, which is at 85% of its 5-hour window: "
-                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA), (alarm.Kind, alarm.MachineName));
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its 5-hour window, and cannot switch to account-b@example.com, "
+                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
         Assert.Equal((0, 0, 0), (tick.NoRoomAlarms!.Opened, tick.NoRoomAlarms.StillOpen, tick.NoRoomAlarms.Closed));
     }
 }

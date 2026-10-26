@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Licenses;
 /// <see cref="LicenseLogKinds.CannotSwitch"/> (contract section 12.1), where a Director reports that it cannot RUN a
 /// switch at all. A stranded machine can run one; it holds no usable sign-in for any account with room to switch to.
 ///
-/// OPENED ONLY ON A FRESH READING, CLOSED ONLY ON A FACT - the rule the five-hour readiness alarm keeps. It opens only
+/// OPENED ONLY ON A FRESH READING, CLOSED ONLY ON A FACT - the rule the 80% warning keeps too. It opens only
 /// when the engine names the machine stranded, which needs a fresh reading of the account at or over the threshold. It
 /// closes when the machine is no longer on the account, when the account is no longer tired (a fresh reading under the
 /// threshold, or every tired window's reset time has passed), or when a fresh judgement of the machine finds it no
@@ -37,11 +37,11 @@ namespace CcDirector.Gateway.Licenses;
 /// already open stays open while a later retry runs: a retry is not yet a fix.
 ///
 /// ONE MACHINE, ONE FAULT, ONE LINE (the same ruling, and its second form). From the threshold up this alarm owns the
-/// machine once it is OPEN: the five-hour readiness alarm stands down for every machine whose stranded alarm is open
-/// (<see cref="StandDown"/>), and for no other. While the stranded alarm is held back because the Gateway is repairing,
-/// the five-hour alarm, if its window is high, keeps its line and says what is being done. So at 80% of the five-hour
-/// window the owner hears once, and at 97% the five-hour line closes as this one opens - the "again" of the owner's
-/// decision D1 - never two lines at once, and never none for a machine that is stuck.
+/// machine once it is OPEN: the 80% warning (<see cref="LicenseCannotSwitchAlarm"/>, the same rule at 80%) stands down
+/// for every machine whose stranded alarm is open (<see cref="StandDown"/>), and for no other. A warning already open
+/// while the stranded alarm is held back for a repair keeps its line. So at 80% of either window the owner hears once,
+/// and at 97% the warning's line closes as this one opens - the "again" of the owner's decision D1 - never two lines
+/// at once. Neither opens while the Gateway's own repair runs, and a repair is bounded, so a stuck machine is loud.
 ///
 /// Only the stranded machine is loud. An account near or at its limit with every machine on it ready raises nothing
 /// (the ruling of 17 October 2026, issue #4249).
@@ -94,14 +94,29 @@ public static class LicenseStrandedAlarm
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
         IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
         IReadOnlyList<LicenseAlarmEntity> openAlarms)
+        => ConditionsAt(snapshot, machines, judged, openSignIns, openAlarms, Kind, LicenseDecisionEngine.ThresholdPercent, Problem);
+
+    /// <summary>
+    /// The rule of <see cref="Conditions"/> at any use level, shared with the 80% warning
+    /// (<see cref="LicenseCannotSwitchAlarm"/>) so the two cannot drift: the machines
+    /// <see cref="LicenseDecisionEngine.MachinesThatCannotSwitch"/> names at <paramref name="atPercent"/>, each with the
+    /// readiness check's own action, and each open alarm of <paramref name="kind"/> that cannot be judged now. A machine
+    /// the Gateway is repairing (<see cref="IsRepairing"/>) opens nothing at either level; an alarm already open stays.
+    /// </summary>
+    internal static IReadOnlyList<LicenseAlarmCondition> ConditionsAt(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
+        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
+        IReadOnlyList<LicenseAlarmEntity> openAlarms, LicenseAlarmKind kind, double atPercent,
+        Func<string, LicenseStrandedMachine, string> problem)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(judged);
         ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(openAlarms);
+        ArgumentNullException.ThrowIfNull(kind);
+        ArgumentNullException.ThrowIfNull(problem);
         var conditions = new List<LicenseAlarmCondition>();
-        foreach (var stranded in LicenseDecisionEngine.StrandedMachines(snapshot))
+        foreach (var stranded in LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, atPercent))
         {
             var machine = machines.Single(m => SameMachine(m, stranded.MachineName, stranded.OsUser));
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
@@ -111,7 +126,7 @@ public static class LicenseStrandedAlarm
                                                         && j.TargetAccountEmail == stranded.NeededAccountEmail)
                 ?? throw new InvalidOperationException(
                     $"Stranded machine {machine.MachineId:N} has no readiness judgement for {stranded.NeededAccountEmail}.");
-            var isOpen = openAlarms.Any(a => a.Kind == Kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
+            var isOpen = openAlarms.Any(a => a.Kind == kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
                                              && a.AccountEmail == stranded.AccountEmail);
             var repairing = IsRepairing(judgement, openSignIns, snapshot.NowUtc);
             if (!isOpen && repairing)
@@ -121,24 +136,24 @@ public static class LicenseStrandedAlarm
                 ? Unanswered(label, Running(judgement, openSignIns)
                                     ?? throw new InvalidOperationException("A machine that is signing in has no open sign-in row."))
                 : judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
-            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, Problem(label, stranded), action));
+            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, problem(label, stranded), action));
         }
 
-        foreach (var open in openAlarms.Where(a => a.Kind == Kind.Key && a.ClosedAtUtc is null))
+        foreach (var open in openAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc is null))
         {
             if (conditions.Any(c => c.MachineId == open.MachineId && c.AccountEmail == open.AccountEmail))
                 continue;
             if (machines.FirstOrDefault(m => m.MachineId == open.MachineId) is not { } machine)
                 continue; // the machine is gone from the picture: forgotten, so nothing is stranded on it
-            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail))
+            if (StaysOpenUnjudged(snapshot, machine, open.AccountEmail, atPercent))
                 conditions.Add(new LicenseAlarmCondition(open.MachineId, open.MachineName, open.AccountEmail, open.Problem, open.Action));
         }
         return conditions;
     }
 
-    // An open alarm whose machine is still on the account, on an account still tired as far as is known, that cannot be
-    // judged afresh now. Anything else is a fact that ends it.
-    private static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string account)
+    // An open alarm whose machine is still on the account, on an account still at the level as far as is known, that
+    // cannot be judged afresh now. Anything else is a fact that ends it.
+    private static bool StaysOpenUnjudged(LicenseSnapshot snapshot, LicenseMachineView machine, string account, double atPercent)
     {
         var now = snapshot.NowUtc;
         var state = snapshot.Machines.FirstOrDefault(m => SameMachine(machine, m.MachineName, m.OsUser));
@@ -147,7 +162,8 @@ public static class LicenseStrandedAlarm
         var reading = snapshot.Accounts.FirstOrDefault(r => LicenseStore.NormalizeEmail(r.AccountEmail) == account);
         if (reading is null)
             return false;
-        var stillTired = new[] { reading.FiveHour, reading.SevenDay }.Any(w => w is not null && LicenseDecisionEngine.IsTired(w, now));
+        var stillTired = new[] { reading.FiveHour, reading.SevenDay }
+            .Any(w => w is not null && LicenseDecisionEngine.IsAtOrAbove(w, now, atPercent));
         if (!stillTired)
             return false; // the account reset, or a fresh reading shows it under the threshold
         if (LicenseDecisionEngine.IsReadingStale(reading, now))
@@ -183,18 +199,19 @@ public static class LicenseStrandedAlarm
     }
 
     /// <summary>
-    /// The five-hour readiness alarms that may still be raised: every one EXCEPT those for a machine and account whose
-    /// stranded alarm is open after this check (<paramref name="stranded"/>, the conditions this check raises). A stranded
-    /// machine whose alarm is held back while the Gateway repairs it keeps its five-hour alarm, so a stuck machine always
-    /// has exactly one line, never two and never none (the Tech Lead's ruling on the second review). Pure.
+    /// The 80% warnings (<see cref="LicenseCannotSwitchAlarm"/>) that may still be raised: every one EXCEPT those for a
+    /// machine and account whose stranded alarm is open after this check (<paramref name="stranded"/>, the conditions this
+    /// check raises). A stranded machine whose alarm is held back while the Gateway repairs it keeps a warning already
+    /// open, so a stuck machine has one line, never two (the Tech Lead's ruling on the second review of step 1), and a
+    /// fresh picture at 100% sends one email and one push, not two (the ruling on step 2). Pure.
     /// </summary>
-    public static IReadOnlyList<LicenseAlarmCondition> StandDown(IReadOnlyList<LicenseAlarmCondition> fiveHour,
+    public static IReadOnlyList<LicenseAlarmCondition> StandDown(IReadOnlyList<LicenseAlarmCondition> warnings,
         IReadOnlyList<LicenseAlarmCondition> stranded)
     {
-        ArgumentNullException.ThrowIfNull(fiveHour);
+        ArgumentNullException.ThrowIfNull(warnings);
         ArgumentNullException.ThrowIfNull(stranded);
         var owned = new HashSet<(Guid?, string?)>(stranded.Select(c => (c.MachineId, Normalize(c.AccountEmail))));
-        return fiveHour.Where(c => !owned.Contains((c.MachineId, Normalize(c.AccountEmail)))).ToList();
+        return warnings.Where(c => !owned.Contains((c.MachineId, Normalize(c.AccountEmail)))).ToList();
     }
 
     private static string Clock(DateTime utc) => Utc(utc).ToString("HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);

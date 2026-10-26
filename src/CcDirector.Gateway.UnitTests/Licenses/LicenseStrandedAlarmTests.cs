@@ -22,8 +22,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// these hold down: one email, one push and one banner line when it opens, naming the machine, the account it is stuck on,
 /// the account it needs and the one thing to do; nothing more on the next check; each of the three closes; a Gateway that
 /// restarts sends nothing again; no alarm while the Gateway is signing the machine in itself, and the alarm once that
-/// fails (review finding 2); one alarm per machine when the five-hour window is high too, and the five-hour alarm handing
-/// over to this one at 97% (review finding 1); the no-room case unchanged; and the #4249 boundary.
+/// fails (review finding 2); one alarm per machine when the five-hour window is high too, and the 80% warning
+/// (step 2's "cannot-switch-at-80", which replaced the five-hour alarm) handing over to this one at 97% (review finding
+/// 1); the no-room case unchanged; and the #4249 boundary.
 /// </summary>
 public sealed class LicenseStrandedAlarmTests : IDisposable
 {
@@ -132,7 +133,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     private List<LicenseAlarmEntity> Stranded() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key).ToList();
 
-    private List<LicenseAlarmEntity> FiveHour() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseReadinessFold.AlarmKind.Key).ToList();
+    private List<LicenseAlarmEntity> Warning() => _alarms.ListOpen(One).Where(a => a.Kind == LicenseCannotSwitchAlarm.Kind.Key).ToList();
 
     private async Task<LicenseAlarmEntity> OpenTheAlarm()
     {
@@ -437,7 +438,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     // ----- review finding 1: one machine, one fault, one alarm -----
 
-    // A fresh picture at 97% of the five-hour window: the five-hour alarm and the stranded alarm would both be true for
+    // A fresh picture at 97% of the five-hour window: the 80% warning and the stranded alarm would both be true for
     // machine-a. Exactly one alarm, one email, one push and one banner line.
     [Fact]
     public async Task Tick_At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm()
@@ -455,17 +456,17 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
     }
 
-    // The progression the owner asked for (D1): at 80% of the five-hour window the five-hour alarm tells him once; at 97%
+    // The progression the owner asked for (D1): at 80% of the five-hour window the 80% warning tells him once; at 97%
     // its line closes and the stranded alarm is the "again" - two emails and two pushes in all, in that order, and never
     // two banner lines at once.
     [Fact]
-    public async Task Tick_From80To97OfTheFiveHourWindow_TheFiveHourAlarmHandsOverToTheStrandedAlarm()
+    public async Task Tick_From80To97OfTheFiveHourWindow_TheWarningHandsOverToTheStrandedAlarm()
     {
         _aFiveHour = 85;
         _aWeekly = 50;
         BothReport();
         await Tick();
-        Assert.Single(FiveHour());
+        Assert.Single(Warning());
         Assert.Empty(Stranded());
 
         _aFiveHour = 97;
@@ -473,17 +474,18 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         var tick = await Tick();
 
         Assert.Equal((1, 1), (tick.Alarms!.Closed, tick.StrandedAlarms!.Opened));
-        Assert.Empty(FiveHour());
+        Assert.Empty(Warning());
         Assert.Single(Stranded());
         Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-        Assert.Equal(new[] { LicenseReadinessFold.AlarmKind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
+        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
         Assert.Equal(2, _emails.Count);
     }
 
-    // At 97% while the Gateway is signing machine-a in itself: the stranded alarm is held back, so it owns nothing, and the
-    // five-hour alarm keeps its one line saying what is being done (the second review's ruling: never none).
+    // At 97% while the Gateway is signing machine-a in itself: neither the stranded alarm nor the 80% warning opens. Step
+    // 1's rule binds the warning too (step 2): no alarm while the Gateway's own sign-in runs. The repair is bounded, so a
+    // machine it does not fix is loud once that wait is over (the deaf-Director tests below).
     [Fact]
-    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_OnlyTheFiveHourAlarmIsOpen()
+    public async Task Tick_At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens()
     {
         TheApproverCanApprove();
         _aFiveHour = 97;
@@ -493,12 +495,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         var tick = await Tick();
 
         Assert.Single(tick.Started);
-        Assert.Empty(Stranded());
-        var line = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal(LicenseReadinessFold.AlarmKind.Key, line.Kind);
-        Assert.StartsWith("Nothing to do yet: DevThrottle is signing it in", line.Action);
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
+        Assert.Empty(_pushed);
     }
 
     // ----- the second review: a Director that is connected and never answers -----
@@ -584,10 +583,10 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Single(_emails);
     }
 
-    // The 80-to-97 shape with that deaf Director, five-hour window only: at 85% the five-hour alarm tells the owner that a
-    // sign-in is running; at 97%, while that sign-in is young it is still the five-hour line, and once it is past the
-    // unanswered wait that line closes as the stranded alarm opens and says it got no answer. Exactly one line on every
-    // check - never two, never none - and two pushes in that order.
+    // The 80-to-97 shape with that deaf Director: at 85% nothing opens while the Gateway's sign-in is young; past the
+    // unanswered wait the 80% warning opens and says the sign-in got no answer; at 97% that line closes as the stranded
+    // alarm opens - the "again". Once the warning is open there is exactly one line on every check, never two, and two
+    // pushes in that order.
     [Fact]
     public async Task Tick_From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain()
     {
@@ -597,18 +596,26 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         _aWeekly = 50;
         BothReport();
         await Tick();
-        Assert.Single(FiveHour());
+        Later(5);
+        await Tick();
+        Assert.Empty(_alarms.ListOpen(One));
+
+        Later(16);
+        await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
+        await Tick();
+        Assert.StartsWith("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer",
+            Assert.Single(Warning()).Action);
 
         _aFiveHour = 97;
-        foreach (var minutes in new[] { 5, 16, 30, 90 })
+        foreach (var minutes in new[] { 20, 30, 90 })
         {
             Later(minutes);
             await _signIns.SettleUnansweredAsync(One, CancellationToken.None);
             await Tick();
             var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
-            Assert.Equal(minutes < 15 ? LicenseReadinessFold.AlarmKind.Key : LicenseStrandedAlarm.Kind.Key, line.Kind);
+            Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
         }
-        Assert.Equal(new[] { LicenseReadinessFold.AlarmKind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
+        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
         Assert.Equal(2, _emails.Count);
     }
 
