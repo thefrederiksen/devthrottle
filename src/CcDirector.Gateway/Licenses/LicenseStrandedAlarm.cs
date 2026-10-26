@@ -24,6 +24,20 @@ namespace CcDirector.Gateway.Licenses;
 /// machine is stale, mid-switch, refused or held - an open alarm stays open: a banner line that vanished because a fact
 /// is not known for a minute would read as fixed.
 ///
+/// LOUD ONLY ABOUT WHAT THE GATEWAY CANNOT REPAIR (the Tech Lead's ruling on the review of step 1). The readiness check
+/// starts a sign-in by itself for a machine that is not ready, when it can. While that repair is starting, running, or
+/// has just ended well and waits for the machine's next report (<see cref="Repairing"/>), the alarm does not open: it
+/// opens only once readiness says no automatic fix is possible (the approver cannot approve, the Director is offline)
+/// or the fix failed (the last sign-in failed, or sign-ins end well and the reports still do not show them). Its one
+/// thing to do is the readiness check's own sentence for that machine (<see cref="LicenseMachineReadiness.AlarmAction"/>),
+/// so the alarm never tells the owner to do by hand what the Gateway is doing, nor something the Gateway did not say. An
+/// alarm already open stays open while a later retry runs: a retry is not yet a fix.
+///
+/// ONE MACHINE, ONE FAULT, ONE ALARM (the same ruling). From the threshold up this alarm owns the machine: the five-hour
+/// readiness alarm stands down for every machine the engine names stranded, repaired or not, and for every machine whose
+/// stranded alarm is open (<see cref="StandDown"/>). So at 80% of the five-hour window the owner hears once, and at 97%
+/// the five-hour line closes and this one opens - the "again" of the owner's decision D1 - never two lines at once.
+///
 /// Only the stranded machine is loud. An account near or at its limit with every machine on it ready raises nothing
 /// (the ruling of 17 October 2026, issue #4249).
 /// </summary>
@@ -32,27 +46,47 @@ public static class LicenseStrandedAlarm
     /// <summary>The kind every stranded machine's alarm is raised under.</summary>
     public static readonly LicenseAlarmKind Kind = new("stranded-on-full-account", "Stuck on a full account");
 
+    /// <summary>The readiness fixes that mean the Gateway is repairing the machine itself now: a sign-in starting on
+    /// this check, one running, or one that ended well and waits for the machine's next report.</summary>
+    public static readonly IReadOnlySet<string> Repairing = new HashSet<string>(StringComparer.Ordinal)
+    {
+        LicenseReadinessFixes.StartNow, LicenseReadinessFixes.SigningIn, LicenseReadinessFixes.AwaitingReport,
+    };
+
     /// <summary>
     /// The stranded alarms that are true now: one for each stranded machine, and one for each machine whose alarm is open
     /// and cannot be judged now (the class summary). Pure.
     /// </summary>
     /// <param name="snapshot">The picture the readiness check judges on (<see cref="LicensePicture.Snapshot"/>).</param>
     /// <param name="machines">The picture's machines with their ids (<see cref="LicenseOverview.Machines"/>).</param>
+    /// <param name="judged">The readiness check's judgement of every machine on this same picture
+    /// (<see cref="LicenseReadinessFold.Judge"/>): whether the Gateway is repairing a machine, and the one thing to do.</param>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
     /// <see cref="Kind"/> are looked at.</param>
     public static IReadOnlyList<LicenseAlarmCondition> Conditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseAlarmEntity> openAlarms)
+        IReadOnlyList<LicenseMachineReadiness> judged, IReadOnlyList<LicenseAlarmEntity> openAlarms)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(machines);
+        ArgumentNullException.ThrowIfNull(judged);
         ArgumentNullException.ThrowIfNull(openAlarms);
         var conditions = new List<LicenseAlarmCondition>();
         foreach (var stranded in LicenseDecisionEngine.StrandedMachines(snapshot))
         {
             var machine = machines.Single(m => SameMachine(m, stranded.MachineName, stranded.OsUser));
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
-            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail,
-                Problem(label, stranded), Action(label, stranded)));
+            // Judged on the same picture against the same account: NextTarget is the best account with room, which is the
+            // account a stranded machine is named against. Anything else is a defect, not a case to word around.
+            var judgement = judged.SingleOrDefault(j => j.MachineId == machine.MachineId && j.IsGap
+                                                        && j.TargetAccountEmail == stranded.NeededAccountEmail)
+                ?? throw new InvalidOperationException(
+                    $"Stranded machine {machine.MachineId:N} has no readiness judgement for {stranded.NeededAccountEmail}.");
+            var isOpen = openAlarms.Any(a => a.Kind == Kind.Key && a.ClosedAtUtc is null && a.MachineId == machine.MachineId
+                                             && a.AccountEmail == stranded.AccountEmail);
+            if (!isOpen && judgement.Fix is { } fix && Repairing.Contains(fix))
+                continue; // the Gateway is signing it in itself: nothing for the owner to do yet
+            var action = judgement.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
+            conditions.Add(new LicenseAlarmCondition(machine.MachineId, label, stranded.AccountEmail, Problem(label, stranded), action));
         }
 
         foreach (var open in openAlarms.Where(a => a.Kind == Kind.Key && a.ClosedAtUtc is null))
@@ -103,15 +137,26 @@ public static class LicenseStrandedAlarm
             : $"{label} is stuck on an account that is out of room and cannot switch to the account it needs; the Licenses page names both.";
     }
 
-    // The one thing to do: sign the machine in to the account it needs.
-    private static string Action(string label, LicenseStrandedMachine stranded)
+    /// <summary>
+    /// The five-hour readiness alarms that may still be raised: every one EXCEPT those for a machine and account this
+    /// alarm owns - a machine the engine names stranded now, whether or not its alarm is held back while the Gateway
+    /// repairs it, and a machine whose stranded alarm stays open (<paramref name="stranded"/>). One machine, one fault,
+    /// one alarm (the class summary). Pure.
+    /// </summary>
+    public static IReadOnlyList<LicenseAlarmCondition> StandDown(IReadOnlyList<LicenseAlarmCondition> fiveHour, LicenseSnapshot snapshot,
+        IReadOnlyList<LicenseMachineView> machines, IReadOnlyList<LicenseAlarmCondition> stranded)
     {
-        var action = $"Sign {label} in to {stranded.NeededAccountEmail} from the Licenses page; it then switches off "
-                     + $"{stranded.AccountEmail} by itself.";
-        return action.Length <= LicenseAlarmService.MaxSentenceLength
-            ? action
-            : $"Sign {label} in to the account the Licenses page names; it then switches by itself.";
+        ArgumentNullException.ThrowIfNull(fiveHour);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(machines);
+        ArgumentNullException.ThrowIfNull(stranded);
+        var owned = new HashSet<(Guid?, string?)>(stranded.Select(c => (c.MachineId, Normalize(c.AccountEmail))));
+        foreach (var named in LicenseDecisionEngine.StrandedMachines(snapshot))
+            owned.Add((machines.Single(m => SameMachine(m, named.MachineName, named.OsUser)).MachineId, named.AccountEmail));
+        return fiveHour.Where(c => !owned.Contains((c.MachineId, Normalize(c.AccountEmail)))).ToList();
     }
+
+    private static string? Normalize(string? email) => email is null ? null : LicenseStore.NormalizeEmail(email);
 
     // The Gateway's machine is (machine name, operating system user) without regard to case (contract section 2.4).
     private static bool SameMachine(LicenseMachineView machine, string machineName, string osUser)

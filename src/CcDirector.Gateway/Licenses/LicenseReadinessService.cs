@@ -33,7 +33,8 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 /// 3. raises the short-window readiness alarm and closes retired weekly and no-room alarms. Each kind is reconciled
 ///    independently so a failure cannot stop the other kinds from closing;
 /// 4. raises the stranded-machine alarm (<see cref="LicenseStrandedAlarm"/>): a machine on a tired account that is
-///    ready for no account with room, while one has room. That is a machine that cannot switch - a fault - not usage.
+///    ready for no account with room, while one has room, and that this check is not already repairing. That is a
+///    machine that cannot switch - a fault - not usage. The five-hour alarm stands down for every machine it owns.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -158,13 +159,15 @@ public sealed class LicenseReadinessService
             // The old kind mixed weekly and short-window conditions. Emptying it closes every stored weekly alarm.
             var retired = await RaiseKindAsync(tenant, LicenseReadinessFold.RetiredAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
+            // From the threshold up a stranded machine is the stranded alarm's alone: the five-hour alarm stands down for it.
+            var strandedNow = LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, open);
             var alarms = await RaiseKindAsync(tenant, LicenseReadinessFold.AlarmKind,
-                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
+                LicenseStrandedAlarm.StandDown(LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open),
+                    picture.Snapshot, picture.Overview.Machines, strandedNow), failures, ct).ConfigureAwait(false);
             // No room is status on the Licenses page. Emptying the retired kind closes its stored rows.
             var noRoom = await RaiseKindAsync(tenant, LicenseReadinessFold.NoRoomAlarmKind,
                 Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
-            var stranded = await RaiseKindAsync(tenant, LicenseStrandedAlarm.Kind,
-                LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, open), failures, ct).ConfigureAwait(false);
+            var stranded = await RaiseKindAsync(tenant, LicenseStrandedAlarm.Kind, strandedNow, failures, ct).ConfigureAwait(false);
             if (started.Count + Changed(retired) + Changed(alarms) + Changed(noRoom) + Changed(stranded) > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
                               + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, retiredClosed={retired?.Closed}, "
