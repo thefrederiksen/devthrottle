@@ -509,6 +509,12 @@ export const FACTORY_PAGE: FactoryPageView = {
     allHref: "/factories?tab=activity&factory=warmforward&agent=nora-hale",
   },
   lastTalk: { heading: "Last talk with you", text: "None yet." },
+  now: {
+    heading: "What we are doing now (fixture)",
+    byLine: "Written by the boss, today 14:20 (fixture)",
+    text: "Defining the Boss with you: why is set; goal next.\n\n- Content makes one Short a day, unlisted. (fixture)",
+    emptyText: null,
+  },
   truncatedText: null,
   archive: {
     action: "archive",

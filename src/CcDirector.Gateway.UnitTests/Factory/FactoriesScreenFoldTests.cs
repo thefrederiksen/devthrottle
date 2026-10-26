@@ -1094,4 +1094,159 @@ epo", Seed = "/help" };
         Assert.Empty(FactoriesScreenFold.FolderDenyTexts(f, sessions));
         Assert.Empty(FactoriesScreenFold.Page(f, Inputs(new[] { f }, jobs: Running())).FolderDenyTexts);
     }
+    // ---------- "What we are doing now" (the owner, 26 October 2026) ----------
+
+    private const string NowText = "Defining the Boss with you: why is set; goal next.\n\n- Content makes one Short a day, unlisted.";
+
+    private static FactoryNowDocument NowBy(string kind, string? seat = null, DateTime? at = null) =>
+        new(NowText, kind, at ?? Now.AddHours(-1), seat);
+
+    [Fact]
+    public void Page_Now_WrittenByTheBossSession_ShowsTheTextAsWritten_UnderTheBossByLine()
+    {
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("session", "nora-hale") };
+
+        var card = FactoriesScreenFold.Page(WarmForward(), input).Now!;
+
+        Assert.Equal("What we are doing now", card.Heading);
+        Assert.Equal("Written by the boss, today 09:00", card.ByLine);
+        Assert.Equal(NowText, card.Text);
+        Assert.Null(card.EmptyText);
+    }
+
+    [Fact]
+    public void Page_Now_WrittenByAnotherSeat_NamesThatSeat_InThatSeatsClock()
+    {
+        // The Savings Engineer runs by a Toronto schedule, so its time is told in Toronto time and named, as its other
+        // lines on the page are.
+        var jobs = new[] { Job("cj_ceo", "15 6 * * *"), Job("cj_save", "0 6 * * *", zone: "America/Toronto") };
+        var input = Inputs(new[] { WarmForward() }, jobs: jobs) with { Now = NowBy("session", "savings-engineer") };
+
+        var card = FactoriesScreenFold.Page(WarmForward(), input).Now!;
+
+        Assert.Equal("Written by Savings Engineer, today 05:00 (America/Toronto)", card.ByLine);
+        Assert.Equal(NowText, card.Text);
+    }
+
+    [Fact]
+    public void Page_Now_WrittenByThePerson_SaysYou()
+    {
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("person", at: Now.AddDays(-2)) };
+
+        var card = FactoriesScreenFold.Page(WarmForward(), input).Now!;
+
+        Assert.Equal("Written by you, 4 Oct 10:00", card.ByLine);
+        Assert.Equal(NowText, card.Text);
+    }
+
+    [Fact]
+    public void Page_Now_FromTheOneTimeUpload_SaysUploaded()
+    {
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("upload", at: Now.AddDays(-1)) };
+
+        Assert.Equal("Uploaded, yesterday 10:00", FactoriesScreenFold.Page(WarmForward(), input).Now!.ByLine);
+    }
+
+    [Fact]
+    public void Page_Now_ASessionWithNoSeatOfTheFactory_SaysASession_NeverAnId()
+    {
+        var noSeat = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("session", seat: null) };
+        var unknownSeat = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("session", seat: "gone-seat") };
+
+        Assert.Equal("Written by a session, today 09:00", FactoriesScreenFold.Page(WarmForward(), noSeat).Now!.ByLine);
+        Assert.Equal("Written by a session, today 09:00", FactoriesScreenFold.Page(WarmForward(), unknownSeat).Now!.ByLine);
+    }
+
+    [Fact]
+    public void Page_Now_NothingWritten_SaysSoInOneLine_WithNoTextAndNoByLine()
+    {
+        var card = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, jobs: Running())).Now!;
+
+        Assert.Equal("What we are doing now", card.Heading);
+        Assert.Equal("The boss has not written what we are doing now yet.", card.EmptyText);
+        Assert.Null(card.Text);
+        Assert.Null(card.ByLine);
+    }
+
+    [Fact]
+    public void Page_Now_NothingWritten_AndNoBoss_DoesNotBlameABoss()
+    {
+        var f = Factory("tallyhand", "Tallyhand", null, Seat("builder", "Builder", "Builder"));
+
+        var card = FactoriesScreenFold.Page(f, Inputs(new[] { f })).Now!;
+
+        Assert.Equal("Nobody has written what we are doing now yet.", card.EmptyText);
+    }
+
+    [Fact]
+    public void Page_Now_AWriterKindThePageDoesNotKnow_Throws()
+    {
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("robot") };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoriesScreenFold.Page(WarmForward(), input));
+        Assert.Contains("'robot'", ex.Message);
+    }
+
+    [Fact]
+    public void List_HasNoNowBlock_EvenWhenInputsCarryOne()
+    {
+        // The list's rows have no "now" field to fill; this pins that the list fold leaves the page's block alone and
+        // the JSON of the list never carries it.
+        var input = Inputs(new[] { WarmForward() }, jobs: Running()) with { Now = NowBy("session", "nora-hale") };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(FactoriesScreenFold.List(input));
+
+        Assert.DoesNotContain("Defining the Boss", json);
+        Assert.DoesNotContain("What we are doing now", json);
+    }
+
+    // ---------- reading the "now" document's writer ----------
+
+    private static CcDirector.Gateway.Data.Entities.FactoryDocumentVersionEntity NowEntity(string kind, string? authorId) => new()
+    {
+        Factory = "warmforward", Name = "now", Version = 4, Text = NowText, AuthorKind = kind, AuthorId = authorId,
+        WrittenAtUtc = Now.AddHours(-1),
+    };
+
+    [Fact]
+    public void ReadNow_NeverWritten_IsNull()
+    {
+        Assert.Null(CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(null, "warmforward",
+            _ => throw new InvalidOperationException("no session to look up")));
+    }
+
+    [Fact]
+    public void ReadNow_ASessionOfThisFactory_KeepsTheSeatItsHistoryRowRecords()
+    {
+        var read = CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(NowEntity("session", "s-1"), "warmforward",
+            id => id == "s-1" ? CcDirector.Gateway.History.SessionFactoryLookup.In("warmforward", "nora-hale", 3)
+                              : CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)!;
+
+        Assert.Equal("nora-hale", read.WriterSeat);
+        Assert.Equal(NowText, read.Text);
+        Assert.Equal("session", read.AuthorKind);
+        Assert.Equal(Now.AddHours(-1), read.WrittenAtUtc);
+    }
+
+    [Fact]
+    public void ReadNow_ASessionOfAnotherFactory_OrNotKnown_HasNoSeat()
+    {
+        var other = CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(NowEntity("session", "s-1"), "warmforward",
+            _ => CcDirector.Gateway.History.SessionFactoryLookup.In("tallyhand", "nora-hale", 3))!;
+        var unknown = CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(NowEntity("session", "s-1"), "warmforward",
+            _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)!;
+
+        Assert.Null(other.WriterSeat);
+        Assert.Null(unknown.WriterSeat);
+    }
+
+    [Fact]
+    public void ReadNow_APerson_IsNotLookedUpAsASession()
+    {
+        var read = CcDirector.Gateway.Api.FactoriesScreenEndpoints.ReadNow(NowEntity("person", "device-1"), "warmforward",
+            _ => throw new InvalidOperationException("a person is not a session"))!;
+
+        Assert.Equal("person", read.AuthorKind);
+        Assert.Null(read.WriterSeat);
+    }
 }

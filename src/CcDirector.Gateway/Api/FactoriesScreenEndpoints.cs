@@ -1,6 +1,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
 using CcDirector.Gateway.Factory.Definition;
@@ -22,6 +23,8 @@ namespace CcDirector.Gateway.Api;
 /// <param name="Unpublished">Every factory with a definition and nothing published (Factory Definition, phase 6b), from
 /// the definition store - registered or not; <see cref="FactoriesScreenEndpoints.Unpublished"/> keeps the ones the
 /// registry does not hold. Null where a host has no definition store: then there are none.</param>
+/// <param name="NowDocument">One factory's newest <c>now</c> working document, with the seat that wrote it
+/// (<see cref="FactoriesScreenEndpoints.ReadNow"/>), or null when it was never written. Read for a factory's page only.</param>
 internal sealed record FactoriesScreenSources(
     FactoryAgentsSources Activity,
     FactoryRegistryStore Registry,
@@ -31,7 +34,8 @@ internal sealed record FactoriesScreenSources(
     Func<TenantId, string, FactoryEmailsDto> Emails,
     Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null,
     Func<TenantId, bool>? SchedulerPaused = null,
-    Func<TenantId, IReadOnlyList<SessionDto>>? LiveSessions = null);
+    Func<TenantId, IReadOnlyList<SessionDto>>? LiveSessions = null,
+    Func<TenantId, string, FactoryNowDocument?>? NowDocument = null);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -93,6 +97,8 @@ internal static class FactoriesScreenEndpoints
                     return Results.Json(FactoryNewFold.DraftPage(draft));
                 }
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
+                // "What we are doing now" is on the page only, so only the page reads it.
+                input = input with { Now = sources.NowDocument?.Invoke(tenant, registered.Factory) };
                 var dto = FactoriesScreenFold.Page(registered, input);
                 dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory));
                 dto.Emails = FactoryEmailsFold.Card(registered, sources.Emails(tenant, registered.Factory),
@@ -453,6 +459,27 @@ internal static class FactoriesScreenEndpoints
             ? null
             : sources.LiveSessions(tenant);
         return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks, runs, Sessions: sessions);
+    }
+
+    /// <summary>
+    /// A factory's newest <c>now</c> document as its page reads it, or null when it was never written. A session writer's
+    /// seat is read from its history row (<paramref name="sessionFactoryOf"/>) - the one place a session's factory and
+    /// seat are recorded - and kept only when that row puts the session in THIS factory; otherwise the page says "a
+    /// session" rather than guess.
+    /// </summary>
+    internal static FactoryNowDocument? ReadNow(FactoryDocumentVersionEntity? doc, string factory,
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
+    {
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
+        if (doc is null) return null;
+        string? seat = null;
+        if (doc.AuthorKind == FactoryRecordAuthorKinds.Session && !string.IsNullOrWhiteSpace(doc.AuthorId))
+        {
+            var who = sessionFactoryOf(doc.AuthorId);
+            if (who.IsInAFactory && string.Equals(who.Factory, factory, StringComparison.OrdinalIgnoreCase)) seat = who.Seat;
+        }
+        FileLog.Write($"[FactoriesScreenEndpoints] ReadNow: {factory} v{doc.Version} by {doc.AuthorKind}, seat={seat ?? "(none)"}");
+        return new FactoryNowDocument(doc.Text, doc.AuthorKind, doc.WrittenAtUtc, seat);
     }
 
     /// <summary>How many of a seat's rows after its newest start are read to tell how that run ended.</summary>
