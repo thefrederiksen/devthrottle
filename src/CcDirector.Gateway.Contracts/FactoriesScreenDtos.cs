@@ -463,14 +463,14 @@ public sealed class FactoryGoalNumberCardDto
     public string? EmptyText { get; set; }
 }
 
-/// <summary>What is waiting on the owner from this factory.</summary>
+/// <summary>What is waiting on the owner from this factory: the "Needs you" card, always shown on the page.</summary>
 public sealed class FactoryPageWaitingDto
 {
-    /// <summary>"Waiting on you".</summary>
+    /// <summary>"Needs you".</summary>
     public string Heading { get; set; } = "";
     public List<FactoryWaitingItemDto> Items { get; set; } = new();
 
-    /// <summary>"Nothing is waiting on you." when empty, else null.</summary>
+    /// <summary>"Nothing today." when empty, else null.</summary>
     public string? EmptyText { get; set; }
 
     /// <summary>The order the items are in, said once: "Decisions first, then questions; newest first in each." Null

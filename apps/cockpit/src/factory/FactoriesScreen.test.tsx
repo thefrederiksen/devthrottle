@@ -367,7 +367,7 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.queryByTestId("fa-last-talk")).toBeNull();
   });
 
-  it("shows what we are doing now first on the Overview, above the drawing, in the Gateway's words", async () => {
+  it("shows what we are doing now on the Overview, under the open problems and above the drawing, in the Gateway's words", async () => {
     renderAt("/factories/warmforward");
 
     const now = await screen.findByTestId("fa-now");
@@ -378,11 +378,49 @@ describe("A factory's page (mockup 2)", () => {
     expect(text.className).toContain("dt-private");
     expect(text.querySelector("p")!.textContent).toBe("Defining the Boss with you: why is set; goal next.");
     expect(text.querySelector("li")!.textContent).toBe("Content makes one Short a day, unlisted. (fixture)");
-    // It is the first block of the Overview, before the drawing.
+    // It comes after the open problems (is it working) and before the drawing (owner, 26 Oct 2026).
     const overview = screen.getByTestId("fa-overview");
-    expect(overview.firstElementChild).toBe(now);
+    const problems = within(overview).getByTestId("fa-page-problems");
+    expect(problems.compareDocumentPosition(now) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const drawing = within(overview).getByTestId("fd-panel");
     expect(now.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("reads top to bottom: open problems, failures, what we are doing now, Needs you, then the drawing", async () => {
+    renderAt("/factories/warmforward");
+
+    const overview = await screen.findByTestId("fa-overview");
+    const order = ["fa-page-problems", "fa-page-failing", "fa-now", "fa-page-waiting", "fd-panel"].map((id) =>
+      within(overview).getByTestId(id),
+    );
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(overview.lastElementChild).toBe(within(overview).getByTestId("fd-panel"));
+  });
+
+  it("always shows Needs you: with open problems and nothing waiting it says the Gateway's empty line", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      failures: null,
+      waiting: { ...FACTORY_PAGE.waiting, heading: "Needs you (fixture)", items: [], emptyText: "Nothing today. (fixture)", orderText: null, bulkHandled: null, bulkHandledNote: null },
+    });
+    renderAt("/factories/warmforward");
+
+    const waiting = await screen.findByTestId("fa-page-waiting");
+    expect(screen.getByTestId("fa-page-problems")).toBeTruthy();
+    expect(waiting.id).toBe("waiting");
+    expect(within(waiting).getByRole("heading").textContent).toBe("Needs you (fixture)");
+    expect(within(waiting).getByText("Nothing today. (fixture)")).toBeTruthy();
+    expect(screen.getByTestId("fa-page-problems").compareDocumentPosition(waiting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the Needs you heading verbatim above its items when something waits", async () => {
+    renderAt("/factories/warmforward");
+
+    const waiting = await screen.findByTestId("fa-page-waiting");
+    expect(within(waiting).getByRole("heading").textContent).toBe("Needs you (fixture)");
+    expect(within(waiting).getByText("Is the Bunkie Bathroom meant to be at 20 C?")).toBeTruthy();
   });
 
   it("keeps each line break of plain text, and shows raw HTML in it as text", async () => {
@@ -965,6 +1003,20 @@ describe("The owner's actions (round 2)", () => {
 
     expect((await screen.findByTestId("fa-notice")).textContent).toBe("Tallyhand is back on the Factories list. (fixture)");
     expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(FACTORY_LIST.archivedRows[0].restore);
+  });
+});
+
+describe("A factory's Overview - the stylesheet", () => {
+  // jsdom applies no stylesheet, so the proof of the layout is the stylesheet itself. The Overview is read top to bottom
+  // (owner, 26 Oct 2026): one column, so every card - the now card and Needs you included - is the page's full width.
+  // An auto-fit grid of columns left a lone card in a 320px column with the rest of its row empty.
+  const css = readFileSync(join(__dirname, "factory.css"), "utf8");
+
+  it("lays the Overview out as one full-width column, at every width", () => {
+    const rules = [...css.matchAll(/\.fa-overview \{([^}]*)\}/g)].map((m) => m[1]);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(css).not.toMatch(/\.fa-overview > [^{]*\{[^}]*grid-column/);
   });
 });
 

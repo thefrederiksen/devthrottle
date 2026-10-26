@@ -112,7 +112,7 @@ public static class FactoryNewFold
             Why = new FactoryWhyCardDto { Heading = FactoriesScreenFold.WhyHeading, EmptyText = notYet },
             Goal = new FactoryGoalCardDto { Heading = "Goal", EmptyText = notYet },
             GoalNumber = new FactoryGoalNumberCardDto { Heading = "Goal number", EmptyText = notYet },
-            Waiting = new FactoryPageWaitingDto { Heading = "Waiting on you", EmptyText = "Nothing is waiting on you." },
+            Waiting = new FactoryPageWaitingDto { Heading = FactoriesScreenFold.NeedsYouHeading, EmptyText = FactoriesScreenFold.NothingNeedsYouText },
             BossLatest = new FactoryBossLatestDto { Heading = "Latest from the boss", EmptyText = notYet },
             LastTalk = new FactoryLastTalkDto { Heading = "Last talk", Text = notYet },
         };

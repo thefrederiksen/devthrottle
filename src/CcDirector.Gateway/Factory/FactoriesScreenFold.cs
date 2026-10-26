@@ -281,9 +281,9 @@ public static class FactoriesScreenFold
             Failures = FailuresCard(factory, input),
             Waiting = new FactoryPageWaitingDto
             {
-                Heading = "Waiting on you",
+                Heading = NeedsYouHeading,
                 Items = FactoryOwnerActions.WaitingOrder(open).Select(r => PageWaitingItem(factory, r, input)).ToList(),
-                EmptyText = open.Count == 0 ? "Nothing is waiting on you." : null,
+                EmptyText = open.Count == 0 ? NothingNeedsYouText : null,
                 OrderText = open.Count == 0 ? null : FactoryOwnerActions.WaitingOrderText,
                 BulkHandled = FactoryOwnerActions.BulkHandledAction(factory, open, zone, now),
                 BulkHandledNote = FactoryOwnerActions.BulkHandledNote(open, now),
@@ -362,6 +362,13 @@ public static class FactoriesScreenFold
         item.HandledBusyLabel = FactoryOwnerActions.HandledBusyLabel;
         return item;
     }
+
+    /// <summary>The heading of the card on a factory's page that lists what needs the owner (the owner, 26 October 2026).</summary>
+    public const string NeedsYouHeading = "Needs you";
+
+    /// <summary>What that card says when nothing needs the owner. The card is always shown, so "nothing needs me" is
+    /// said, never left to be read from a missing block.</summary>
+    public const string NothingNeedsYouText = "Nothing today.";
 
     public static List<FactoryTabDto> PageTabs(int seats) => new()
     {

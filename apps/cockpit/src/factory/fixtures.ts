@@ -461,7 +461,7 @@ export const FACTORY_PAGE: FactoryPageView = {
     ],
   },
   waiting: {
-    heading: "Waiting on you",
+    heading: "Needs you (fixture)",
     items: [
       {
         id: "w1",

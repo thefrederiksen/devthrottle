@@ -635,7 +635,31 @@ public sealed class FactoriesScreenFoldTests
         };
         var waiting = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, rows)).Waiting;
         Assert.Equal("Is the bunkie meant to be at 20 C?", Assert.Single(waiting.Items).What);
+        Assert.Equal("Needs you", waiting.Heading);
         Assert.Null(waiting.EmptyText);
+    }
+
+    [Fact]
+    public void Page_Waiting_NothingOpen_IsHeadedNeedsYou_AndSaysNothingToday()
+    {
+        var rows = new[] { Row("other", "x", FactoryActivityOutcome.Asked, "Not this factory.", Now.AddHours(-3)) };
+
+        var waiting = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, rows)).Waiting;
+
+        Assert.Equal("Needs you", waiting.Heading);
+        Assert.Empty(waiting.Items);
+        Assert.Equal("Nothing today.", waiting.EmptyText);
+    }
+
+    [Fact]
+    public void DraftPage_Waiting_IsHeadedNeedsYou_AndSaysNothingToday()
+    {
+        var draft = new CcDirector.Gateway.Factory.Definition.UnpublishedFactory("newco", "NewCo", 1, 3, 2, null);
+
+        var waiting = CcDirector.Gateway.Factory.Definition.FactoryNewFold.DraftPage(draft).Waiting;
+
+        Assert.Equal("Needs you", waiting.Heading);
+        Assert.Equal("Nothing today.", waiting.EmptyText);
     }
 
     [Fact]

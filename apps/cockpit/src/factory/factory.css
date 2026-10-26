@@ -818,19 +818,17 @@ a.fa-tab {
   text-decoration: none;
 }
 
+/* The Overview reads top to bottom (owner, 26 Oct 2026): every card - problems, failures, what we are doing now, Needs
+   you, the drawing - is one row the full width of the page. A grid of auto-fit columns put a lone card in a 320px
+   column with the rest of its row empty. */
 .fa-overview {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
 .fa-overview > * {
   min-width: 0;
-}
-
-/* The drawing is the Overview's first row and takes its whole width (owner, 18 Oct 2026). */
-.fa-overview > .fd-panel {
-  grid-column: 1 / -1;
 }
 
 .fa-goal-text,
@@ -959,9 +957,6 @@ a.fa-tab {
   }
   .fa-tab {
     padding: 8px 10px;
-  }
-  .fa-overview {
-    grid-template-columns: minmax(0, 1fr);
   }
   .fa-error {
     overflow-wrap: anywhere;
