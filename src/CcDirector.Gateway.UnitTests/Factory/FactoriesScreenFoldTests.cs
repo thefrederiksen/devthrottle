@@ -522,6 +522,47 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void Page_Why_WithAPurpose_IsThePurposeTrimmed_UnderTheHeadingWhy()
+    {
+        var f = WarmForward();
+        f.Purpose = "  Get people to the site and convert them into users. ";
+
+        var why = FactoriesScreenFold.Page(f, Inputs(new[] { f })).Why;
+
+        Assert.Equal("Why", why.Heading);
+        Assert.Equal("Get people to the site and convert them into users.", why.Text);
+        Assert.Null(why.EmptyText);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public void Page_Why_NoPurpose_SaysNoneIsWritten_AndWhereItIsSet(string? purpose)
+    {
+        var f = WarmForward();
+        f.Purpose = purpose;
+
+        var why = FactoriesScreenFold.Page(f, Inputs(new[] { f })).Why;
+
+        Assert.Equal("Why", why.Heading);
+        Assert.Null(why.Text);
+        Assert.Equal("No why written yet. It is set in the purpose line of the factory's definition.", why.EmptyText);
+    }
+
+    [Fact]
+    public void DraftPage_Why_SaysItStartsWhenPublished_AsTheOtherCardsDo()
+    {
+        var draft = new CcDirector.Gateway.Factory.Definition.UnpublishedFactory("newco", "NewCo", 1, 3, 2, null);
+
+        var page = CcDirector.Gateway.Factory.Definition.FactoryNewFold.DraftPage(draft);
+
+        Assert.Equal("Why", page.Why.Heading);
+        Assert.Null(page.Why.Text);
+        Assert.Equal(CcDirector.Gateway.Factory.Definition.FactoryNewFold.NotYetText("NewCo"), page.Why.EmptyText);
+        Assert.Equal(page.Goal.EmptyText, page.Why.EmptyText);
+    }
+
+    [Fact]
     public void Page_Goal_WithAndWithout()
     {
         var withGoal = WarmForward();

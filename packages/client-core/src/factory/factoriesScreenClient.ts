@@ -186,6 +186,16 @@ export interface FactoryOutsideScheduleRow {
   reason: string;
 }
 
+/** Why the factory exists, one line under its name. Every word is the Gateway's. */
+export interface FactoryWhyCard {
+  /** "Why". */
+  heading: string;
+  /** The purpose its definition states; null when none is written. */
+  text: string | null;
+  /** One line saying no why is written yet; null when there is a why. */
+  emptyText: string | null;
+}
+
 export interface FactoryGoalCard {
   heading: string;
   text: string | null;
@@ -374,6 +384,8 @@ export interface FactoryPageView {
   talk: FactoryTalkTarget | null;
   /** Overview, Floor, Seats (n), Activity, Reports, Memory, Definition. */
   tabs: FactoryTab[];
+  /** Why the factory exists, under its name and above the goal. */
+  why: FactoryWhyCard;
   goal: FactoryGoalCard;
   goalNumber: FactoryGoalNumberCard;
   /** What is failing now (where FAILING links to); null when nothing is. */

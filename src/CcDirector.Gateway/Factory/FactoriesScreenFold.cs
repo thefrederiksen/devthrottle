@@ -260,6 +260,7 @@ public static class FactoriesScreenFold
             ComputerText = $"runs on {factory.Computer}",
             Talk = BossTalk(factory),
             Tabs = PageTabs(factory.Seats.Count),
+            Why = WhyCard(factory),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
             Failures = FailuresCard(factory, input),
@@ -360,6 +361,19 @@ public static class FactoriesScreenFold
         // The Definition tab replaced the Documents tab, whose only sentence promised it (Factory Definition, phase 6).
         new() { Key = "definition", Label = "Definition" },
     };
+
+    /// <summary>The heading of the why line under a factory's name.</summary>
+    public const string WhyHeading = "Why";
+
+    /// <summary>The line a factory's page shows when its definition states no purpose.</summary>
+    public const string NoWhyText = "No why written yet. It is set in the purpose line of the factory's definition.";
+
+    /// <summary>WHY THE FACTORY EXISTS (the owner, 26 October 2026): the purpose its definition states, one line under its
+    /// name, or one line saying none is written yet.</summary>
+    internal static FactoryWhyCardDto WhyCard(RegisteredFactoryDto f) =>
+        string.IsNullOrWhiteSpace(f.Purpose)
+            ? new FactoryWhyCardDto { Heading = WhyHeading, EmptyText = NoWhyText }
+            : new FactoryWhyCardDto { Heading = WhyHeading, Text = f.Purpose.Trim() };
 
     internal static FactoryGoalCardDto GoalCard(RegisteredFactoryDto f)
     {
