@@ -42,7 +42,19 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
         _dir = Path.Combine(Path.GetTempPath(), "unattended-" + Guid.NewGuid().ToString("N"));
         _releaseDir = Path.Combine(_dir, "release");
         Directory.CreateDirectory(_releaseDir);
-        _layout = new InstallLayout(Path.Combine(_dir, "cc-director"));
+
+        // The home folder and the Applications folder are fixed inside the sandbox, not read off the
+        // machine. On macOS PathFor(Director) is MacAppsDir/Director.app, and MacAppsDir asks
+        // MacAppsFolder to probe the disk - which answers /Applications on any Mac whose user can
+        // write it. So the plain InstallLayout(root) constructor put this test's Director placement,
+        // and its "is it there?" assert, on the REAL installed application: the assert passed off the
+        // machine's live app rather than off anything the test installed, and the install target was
+        // the live app. Nothing was written only because the runner skips the .zip.
+        _layout = new InstallLayout(
+            Path.Combine(_dir, "cc-director"),
+            defaultRoot: null,
+            homeDir: _dir,
+            macAppsDir: Path.Combine(_dir, "Applications"));
     }
 
     public void Dispose()
@@ -110,10 +122,22 @@ public sealed class UnattendedInstallRoundTripTests : IDisposable
     /// it, but it is installed by PythonToolsInstaller as its own step - which this file says above it does not cover -
     /// and BuildRelease fabricates no bundle. Leaving it in made these tests expect a placement nothing performs, on
     /// every system.
+    ///
+    /// An ARCHIVE asset is excluded for the same reason, and it is the macOS Director: UpdateRunner reports a
+    /// <c>.zip</c> as Skipped rather than placing it, because extraction is MacAppPlacer's step and not this runner's
+    /// (the class summary above already says the macOS run covers the launcher only). Leaving it in asked for a
+    /// placement and a recorded version that nothing here performs, so these tests failed on every Mac on correct
+    /// code - unseen, because CI runs the .NET suites on windows-latest only. The rule mirrors UpdateRunner's own.
     /// </summary>
     private static IEnumerable<Component> PlacedByThisRunner() =>
         ComponentRegistry.ForRole(ComponentRegistry.Apps, InstallRole.Workstation)
-            .Where(c => c.Kind != ComponentKind.ToolsBundle && c.AssetFor(HostPlatform.Current) is not null);
+            .Where(c => c.Kind != ComponentKind.ToolsBundle
+                        && c.AssetFor(HostPlatform.Current) is string asset
+                        && !IsArchive(asset));
+
+    /// <summary>An asset this runner extracts rather than places - UpdateRunner's rule, stated once.</summary>
+    private static bool IsArchive(string assetName) =>
+        assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
 
     private static int CountOf(UpdateRunResult r, ApplyStatus status) => r.Results.Count(x => x.Status == status);
 
