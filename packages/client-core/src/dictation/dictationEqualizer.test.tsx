@@ -172,6 +172,25 @@ describe("the dictation equalizer", () => {
     expect(Math.abs(at60 - at120)).toBeLessThan(1);
   });
 
+  // The dialog still re-renders once a second for the timer, and the bar heights are written outside
+  // React. If a re-render reset them - by re-running the inline ref callback, or by React re-applying
+  // the JSX style - the strip would twitch back to the floor once a second, which is a worse artefact
+  // than the one being fixed. This pins that it does not.
+  it("keeps the bar heights across the once-a-second timer re-render", async () => {
+    await openRecording();
+    for (let i = 0; i < 40; i++) await tick();
+    const before = barHeights();
+    expect(Math.max(...before)).toBeGreaterThan(50);
+
+    // Cross a second boundary, which is the only thing that still re-renders the dialog.
+    await tick(1100);
+    const after = barHeights();
+
+    // The heights moved only by one frame of easing, not back to the floor.
+    expect(Math.min(...after)).toBeGreaterThan(9);
+    for (let i = 0; i < 9; i++) expect(Math.abs(after[i] - before[i])).toBeLessThan(2);
+  });
+
   it("parks the bars on the floor when the microphone is not capturing", async () => {
     await openRecording();
     for (let i = 0; i < 40; i++) await tick();
