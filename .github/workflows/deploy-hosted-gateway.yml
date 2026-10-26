@@ -74,6 +74,14 @@ on:
         type: choice
         options: [unchanged, 'on', 'off']
         default: unchanged
+      # The escape hatch for the production health gate (issue #4515). The gate refuses to deploy onto a
+      # production site that is already down; when the deploy IS the fix for that, set this to true. The
+      # gate still probes and says loudly in the run summary that it was skipped.
+      # Example: gh workflow run deploy-hosted-gateway.yml --ref main -f deploy_to_unhealthy_production=true
+      deploy_to_unhealthy_production:
+        description: 'Deploy even though production is already unhealthy. Only when this deploy is the fix; recover with the rollback workflow otherwise.'
+        type: boolean
+        default: false
 
 permissions:
   id-token: write   # required for the Azure OIDC login
@@ -404,6 +412,23 @@ jobs:
             fi
             echo "$dll refused to start without the hosted contract (exit 2)."
           done
+
+      # REFUSE TO DEPLOY ONTO A PRODUCTION SITE THAT IS ALREADY DOWN (issue #4515). On 2026-10-26 the 20:41
+      # deploy pinned a second image onto a production site the 20:38 deploy had already left dead, then
+      # polled it for 600 seconds; its outgoing commit read "unknown" and its outgoing image was the broken
+      # one. So before anything below READS the outgoing record or CHANGES production, require production to
+      # be healthy on its own commit: /healthz answers 200 with JSON carrying a non-empty commit. Anything
+      # else - no connection, a 502, no answer inside the short per-request timeout, no commit - refuses the
+      # deploy and points at the rollback workflow. The probe is scripts/check-production-healthy.sh, proved
+      # against a local fake /healthz by scripts/check-production-healthy.test.sh.
+      #
+      # The escape hatch is the deploy_to_unhealthy_production input: the script still probes, lets the
+      # deploy go on, and writes a loud warning into the run summary. It is passed to the script rather than
+      # put on the step as an `if:`, so the gate cannot be switched off without the run saying so.
+      - name: Refuse to deploy onto a production site that is already unhealthy
+        env:
+          DEPLOY_TO_UNHEALTHY_PRODUCTION: ${{ inputs.deploy_to_unhealthy_production }}
+        run: bash scripts/check-production-healthy.sh "$GATEWAY_URL"
 
       # Read the commit the LIVE service is running BEFORE the deploy - this is the OUTGOING build, and the
       # /healthz .commit field (added alongside this workflow) is what makes it readable. Used for two

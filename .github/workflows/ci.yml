@@ -329,6 +329,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The deploy's production health gate (issue #4515) is a shell script, and the C# guard only reads
+      # its text. This runs its behavioural proof - the probe against a local fake /healthz for every
+      # unhealthy shape - so a script that stops refusing goes red here. It lives in this job because the
+      # job is on Ubuntu with bash, curl, jq and python3, and a change under scripts/ already runs it.
+      - name: Prove the deploy production health gate against a fake /healthz
+        run: bash scripts/check-production-healthy.test.sh
+
       # The version comes from .nvmrc, which is also what scripts/check-node-version.mjs reads, so the
       # pinned version lives in exactly one file and a developer machine cannot quietly drift off it.
       - name: Setup Node
