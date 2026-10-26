@@ -8,6 +8,7 @@
 // captured audio.
 
 import { resolveMicrophoneIdentity } from "./deviceIdentity";
+import { fft } from "./micQuality";
 
 // Pick a MediaRecorder container the browser actually supports, preferring Opus-in-WebM (what
 // every Chromium/Firefox phone produces). The captured blob is transcoded to WAV before upload,
@@ -38,17 +39,132 @@ const FLUSH_BACKSTOP_MS = 500;
 // recorder's StopTailMs.
 export const STOP_TAIL_MS = 250;
 
-// The equalizer time window. getByteTimeDomainData fills this many samples of the live waveform; at a
-// typical 48 kHz that is ~11 ms, a long enough window for a steady loudness reading yet short enough to
-// track speech syllables so the bars actually bob rather than crawl.
-const LEVEL_FFT_SIZE = 512;
+// The equalizer time window, in samples. 2048 at 48 kHz is a ~43 ms window with 23.4 Hz frequency
+// bins - deliberately the SAME window and the SAME bin width as the Director's meter (1024 samples at
+// 24 kHz), because the band calibration below is the Director's and only transfers if the spectrum it
+// is measured against is the same shape. It is also short enough to track speech syllables, which run
+// 150 ms and up, so the bars bob with the voice rather than crawling.
+const LEVEL_FFT_SIZE = 2048;
+
+// ---- the equalizer's nine bands: the Director's meter, ported ------------------------------------
+// The browser meter used to be ONE loudness number fanned across nine bars by a fixed triangle, on a
+// LINEAR scale (`rms * 3.2`). Two consequences, and they are why the Cockpit's bars looked dead while
+// the phone's looked fine on identical code. First, all nine bars were the same number scaled by a
+// constant, so they rose and fell as one hill and never read as a spectrum. Second, a linear scale
+// reaches full height only around -10 dBFS - a shout - so every level this product itself calls
+// healthy (micQuality.ts: -42 dBFS is poor, -32 fair, and the Gateway's fold targets -20) was drawn in
+// the bottom fifth of the well. A phone held at the chin runs 15-20 dB hotter than a microphone across
+// a desk, so the same constant landed the phone in the part of the scale that moves and the desktop in
+// the part that does not.
+//
+// What replaces it is the Director's meter (CcDirector.Avalonia/Voice/MicAudioCapture.cs): a real
+// per-band spectrum, each band gated, normalised against a ceiling calibrated to well-projected
+// speech, and bent by a square root so normal speech fills most of the bar. The numbers below are the
+// Director's own, and they are reproduced rather than re-invented: the browser FFT is normalised by
+// 1/N exactly as NAudio's forward transform is, so a given sound produces the same band magnitudes on
+// both surfaces. recorder.test.ts pins the calibration points that proves it.
+const BAND_COUNT = 9;
+
+// Speech-band edges, log-spaced low to high. Speech energy clusters at the bottom, so log spacing
+// spreads visible motion across all nine bars instead of pinning it to the leftmost one or two.
+const BAND_LOW_HZ = 80;
+const BAND_HIGH_HZ = 5000;
+
+// Gate and ceiling for one band's average bin magnitude. The gate trims idle hiss so a quiet room sits
+// genuinely at rest; the ceiling sits at loud, well-projected speech. Calibrated to a HEALTHY speaking
+// level and not a quiet one, so deliberately quiet input reads low and the meter says "you are too
+// quiet" instead of being scaled up to flatter a faint signal.
+const BAND_NOISE_FLOOR = 0.0003;
+const BAND_CEILING = 0.018;
+
+/** Log-spaced band edges in Hz, BAND_COUNT + 1 of them. */
+function buildBandEdgesHz(): number[] {
+  const edges = new Array<number>(BAND_COUNT + 1);
+  const logLo = Math.log(BAND_LOW_HZ);
+  const logHi = Math.log(BAND_HIGH_HZ);
+  for (let i = 0; i <= BAND_COUNT; i++) edges[i] = Math.exp(logLo + (logHi - logLo) * (i / BAND_COUNT));
+  return edges;
+}
+const BAND_EDGES_HZ = buildBandEdgesHz();
+
+/** Hann window, built once for the fixed analysis size. */
+function buildHannWindow(size: number): Float64Array {
+  const w = new Float64Array(size);
+  for (let i = 0; i < size; i++) w[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (size - 1)));
+  return w;
+}
+const HANN_WINDOW = buildHannWindow(LEVEL_FFT_SIZE);
+
+/** Gate, normalise against the ceiling, then bend by a square root - the perceptual curve that lifts
+ *  normal speech most of the way up the bar. The Director's ShapeBand, unchanged. */
+function shapeBand(mag: number): number {
+  if (mag <= BAND_NOISE_FLOOR) return 0;
+  const norm = (mag - BAND_NOISE_FLOOR) / (BAND_CEILING - BAND_NOISE_FLOOR);
+  return Math.sqrt(Math.min(1, Math.max(0, norm)));
+}
+
+// Scratch buffers for the per-frame transform. Reused across frames: this runs on every animation
+// frame for as long as the microphone is open, and allocating two arrays of 2048 doubles sixty times a
+// second is garbage the meter does not need to make.
+const fftRe = new Float64Array(LEVEL_FFT_SIZE);
+const fftIm = new Float64Array(LEVEL_FFT_SIZE);
+
+/**
+ * Turn a window of the live waveform into nine 0..1 bar heights - a genuine spectrum, so each bar is
+ * driven by a different part of the voice and they move independently.
+ *
+ * Windows the samples with a Hann window, transforms, normalises by 1/N (matching NAudio's forward
+ * transform, which is what the Director's calibration was measured against), averages the magnitudes
+ * within each log-spaced speech band, and shapes each band through the gate, ceiling and square root.
+ *
+ * `samples` are the raw waveform in -1..1 (getFloatTimeDomainData). `sampleRate` comes from the live
+ * AudioContext, so the band edges land on the same FREQUENCIES whatever rate the device runs at.
+ * Pure and display-only: it never touches the captured audio.
+ */
+export function computeBands(samples: Float32Array, sampleRate: number): number[] {
+  const bands = new Array<number>(BAND_COUNT).fill(0);
+  if (samples.length === 0 || sampleRate <= 0) return bands;
+
+  // Right-align the most recent samples into the transform buffer and zero-pad the front, so a short
+  // window still reads the newest audio rather than being rejected.
+  const take = Math.min(samples.length, LEVEL_FFT_SIZE);
+  const srcStart = samples.length - take;
+  const destStart = LEVEL_FFT_SIZE - take;
+  for (let i = 0; i < LEVEL_FFT_SIZE; i++) {
+    fftRe[i] = i >= destStart ? samples[srcStart + (i - destStart)] * HANN_WINDOW[i] : 0;
+    fftIm[i] = 0;
+  }
+  fft(fftRe, fftIm);
+
+  const binWidthHz = sampleRate / LEVEL_FFT_SIZE;
+  const usableBins = LEVEL_FFT_SIZE / 2;
+  for (let band = 0; band < BAND_COUNT; band++) {
+    const loBin = Math.max(1, Math.floor(BAND_EDGES_HZ[band] / binWidthHz));
+    let hiBin = Math.min(usableBins - 1, Math.floor(BAND_EDGES_HZ[band + 1] / binWidthHz));
+    if (hiBin < loBin) hiBin = loBin;
+    let sum = 0;
+    let n = 0;
+    for (let bin = loBin; bin <= hiBin; bin++) {
+      // 1/N normalisation applied here rather than inside the shared fft(), which other callers read
+      // unnormalised.
+      const re = fftRe[bin] / LEVEL_FFT_SIZE;
+      const im = fftIm[bin] / LEVEL_FFT_SIZE;
+      sum += Math.sqrt(re * re + im * im);
+      n++;
+    }
+    bands[band] = shapeBand(n > 0 ? sum / n : 0);
+  }
+  return bands;
+}
 
 // Turn a window of live waveform samples (getByteTimeDomainData: bytes centred on 128, silence = 128)
-// into a 0..1 loudness for the equalizer. Root-mean-square of the samples' deviation from the centre is
-// the instantaneous loudness - it responds immediately to how loud the speaker is right now, unlike the
-// old frequency-bin average (which diluted voice energy across mostly-empty high bins) and needs no
-// analyser smoothing (which only lagged the meter). A modest gain lets normal speech fill the bars while
-// the clamp keeps a shout at full scale. Pure and display-only: it never touches the captured audio.
+// into a 0..1 loudness. This is NOT what the bars draw any more - computeBands() above does that - and
+// it is deliberately kept: it is the LIVENESS clock behind the "nothing is coming from your microphone"
+// alarm, and for that job it must be UNGATED. A live microphone in a quiet room never reads exact zero,
+// so any reading above zero proves the meter's audio graph is running. The band shaper gates idle hiss
+// away to a true zero on purpose, which makes it the wrong instrument for that question: a genuine pause
+// for thought would read identically to a dead analyser and the alarm would fire on a thinking speaker.
+// Pure and display-only: it never touches the captured audio.
 export function rmsLevel(timeDomain: Uint8Array): number {
   if (timeDomain.length === 0) return 0;
   let sumSquares = 0;
@@ -105,6 +221,9 @@ export class MicRecorder {
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private levelData: Uint8Array | null = null;
+  // Separate waveform buffer for the band meter. getFloatTimeDomainData gives the raw -1..1
+  // samples the transform needs, without the 8-bit quantisation the byte read imposes.
+  private bandData: Float32Array | null = null;
 
   // One-shot latch + callback for the honest "the microphone is now capturing your voice" moment:
   // fired when the FIRST real audio chunk lands, not merely when start() returned. The dialog uses
@@ -244,6 +363,7 @@ export class MicRecorder {
     this.analyser.fftSize = LEVEL_FFT_SIZE;
     source.connect(this.analyser);
     this.levelData = new Uint8Array(this.analyser.fftSize);
+    this.bandData = new Float32Array(this.analyser.fftSize);
     // The meter's context can be born SUSPENDED: it is created here, after the async getUserMedia
     // round trip, so the browser's autoplay policy may no longer credit it to the user's click. A
     // suspended analyser reads flat centre-line samples forever - loudness 0 - so the equalizer sits
@@ -350,6 +470,24 @@ export class MicRecorder {
       }
     });
     return this.snapshot();
+  }
+
+  /**
+   * The nine equalizer bar heights (0..1) for the audio arriving right now - a real spectrum, so each
+   * bar is driven by a different part of the voice and the bars move independently of each other.
+   *
+   * Returns nine zeros when there is no live audio graph, and all-zero whenever every band sits under
+   * the gate (a quiet room), which is what parks the bars at rest. Display-only: it never touches the
+   * captured audio. Liveness is NOT read from this - see level(), which is ungated for that reason.
+   */
+  bands(): number[] {
+    if (!this.analyser || !this.bandData) return new Array<number>(BAND_COUNT).fill(0);
+    // Same self-healing suspended-context guard level() carries: this runs every animation frame, so a
+    // context the browser refused to start is re-asked until it runs. While suspended the read below is
+    // the flat centre line and every band honestly reads zero.
+    if (this.audioCtx !== null && this.audioCtx.state === "suspended") void this.audioCtx.resume();
+    this.analyser.getFloatTimeDomainData(this.bandData);
+    return computeBands(this.bandData, this.audioCtx?.sampleRate ?? 48000);
   }
 
   /** Current input level in 0..1, sampled live from the waveform. Returns 0 when not recording. */
@@ -467,5 +605,6 @@ export class MicRecorder {
     this.audioCtx = null;
     this.analyser = null;
     this.levelData = null;
+    this.bandData = null;
   }
 }

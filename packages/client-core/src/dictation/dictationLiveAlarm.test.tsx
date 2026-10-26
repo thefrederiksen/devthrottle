@@ -39,6 +39,11 @@ vi.mock("./recorder", () => {
     level() {
       return clocks.level;
     }
+    // The bars read the band spectrum; the alarm reads level(). This fake answers both so the alarm
+    // is exercised through the real animation loop.
+    bands() {
+      return new Array(9).fill(clocks.level);
+    }
     msSinceLastAudio() {
       return clocks.sinceAudio;
     }
@@ -47,7 +52,7 @@ vi.mock("./recorder", () => {
     }
     dispose() {}
   }
-  return { MicRecorder, rmsLevel: () => 0 };
+  return { MicRecorder, rmsLevel: () => 0, computeBands: () => new Array(9).fill(0) };
 });
 
 vi.mock("../api/client", () => ({

@@ -112,6 +112,41 @@ export interface DictationDialogProps {
 
 const BAR_COUNT = 9;
 
+// Bar geometry, as a percentage of the well. The floor is what a bar sits at when there is nothing to
+// show, so the strip still reads as an equalizer at rest rather than vanishing.
+const BAR_FLOOR_PCT = 8;
+const BAR_CEILING_PCT = 92;
+
+// Attack and decay, straight from the Director: a bar springs most of the way to a new peak at once
+// and falls away slowly, so loud beats pop and quiet stretches settle instead of flickering. The
+// Director applies these on a fixed 33 ms timer; this loop runs on animation frames, whose interval
+// varies by display (16.7 ms at 60 Hz, 8.3 ms at 120 Hz), so the fraction is re-derived from the
+// frame's own elapsed time against that same 33 ms time constant. Without that, the meter would ease
+// twice as fast on a 120 Hz screen as on a 60 Hz one.
+const EASE_TICK_MS = 33;
+const EASE_RISE = 0.7;
+const EASE_FALL = 0.32;
+
+/** The fraction of the remaining distance to travel in `dtMs`, for a coefficient defined per 33 ms. */
+function easeFraction(perTick: number, dtMs: number): number {
+  if (dtMs <= 0) return 0;
+  return 1 - Math.pow(1 - perTick, Math.min(4, dtMs / EASE_TICK_MS));
+}
+
+/** Park every bar on the floor - nothing is being captured, so the meter must not dance. */
+function parkBars(
+  refs: Array<HTMLSpanElement | null>,
+  heights: number[],
+  targets: number[],
+): void {
+  for (let i = 0; i < refs.length; i++) {
+    heights[i] = BAR_FLOOR_PCT;
+    targets[i] = BAR_FLOOR_PCT;
+    const el = refs[i];
+    if (el !== null) el.style.height = `${BAR_FLOOR_PCT}%`;
+  }
+}
+
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -168,7 +203,14 @@ export function DictationDialog({
   const [captureWarning, setCaptureWarning] = useState<string>("");
   const [errorText, setErrorText] = useState<string>("");
   const [elapsed, setElapsed] = useState<number>(0);
-  const [levels, setLevels] = useState<number[]>(() => new Array(BAR_COUNT).fill(0));
+  // The equalizer's bars are deliberately NOT React state. They change sixty times a second, and
+  // putting that through setState re-rendered this whole dialog - transcript box and all - sixty
+  // times a second for a purely decorative strip. The targets and the eased current heights live in
+  // refs and are written straight onto the bar elements, which is what the Director does (it assigns
+  // Border.Height) and is why its meter stays smooth while the rest of the window is busy.
+  const barRefs = useRef<Array<HTMLSpanElement | null>>(new Array(BAR_COUNT).fill(null));
+  const barTargets = useRef<number[]>(new Array(BAR_COUNT).fill(0));
+  const barHeights = useRef<number[]>(new Array(BAR_COUNT).fill(0));
   // The LIVE alarm (capture stalled / hearing nothing), as opposed to captureWarning above, which is
   // the sticky post-clip measurement. This one describes the microphone right now, so it clears by
   // itself the moment audio comes back - a warning that outlived its cause would train the user to
@@ -223,19 +265,46 @@ export function DictationDialog({
       setLiveWarning("");
     }
     let raf = 0;
-    const tick = () => {
+    let lastFrame = performance.now();
+    // The timer reads m:ss, so it only needs a re-render when the displayed SECOND changes - not on
+    // every frame, which is what it used to do.
+    let shownSecond = -1;
+    if (stage !== "recording") parkBars(barRefs.current, barHeights.current, barTargets.current);
+    // The frame's OWN timestamp, not performance.now() read inside the body. They share a time
+    // origin, so this changes nothing about the elapsed-time reading - but it makes the easing use
+    // the interval the browser actually scheduled, which is what keeps the decay rate identical on a
+    // 60 Hz and a 120 Hz display (and what lets a test step frames deterministically).
+    const tick = (now: number) => {
+      const dt = now - lastFrame;
+      lastFrame = now;
       if (stage === "recording") {
-        const now = performance.now();
-        setElapsed(elapsedBeforeRef.current + (now - segmentStartRef.current));
+        const elapsedNow = elapsedBeforeRef.current + (now - segmentStartRef.current);
+        const second = Math.floor(elapsedNow / 1000);
+        if (second !== shownSecond) {
+          shownSecond = second;
+          setElapsed(elapsedNow);
+        }
         const recorder = recorderRef.current;
-        const level = recorder.level();
-        const next = new Array(BAR_COUNT).fill(0).map((_, i) => {
-          // Centre bars react most, so it reads as an equalizer rather than a flat bar.
-          const centre = (BAR_COUNT - 1) / 2;
-          const falloff = 1 - Math.abs(i - centre) / (centre + 1);
-          return Math.min(1, level * (0.55 + falloff));
-        });
-        setLevels(next);
+
+        // Nine independent bands - a real spectrum, so each bar is driven by a different part of the
+        // voice. Eased toward rather than snapped to, fast up and slow down, and written straight to
+        // the elements so no React render is involved.
+        const bands = recorder.bands();
+        const targets = barTargets.current;
+        const heights = barHeights.current;
+        for (let i = 0; i < BAR_COUNT; i++) {
+          targets[i] = BAR_FLOOR_PCT + (BAR_CEILING_PCT - BAR_FLOOR_PCT) * Math.min(1, Math.max(0, bands[i] ?? 0));
+          const diff = targets[i] - heights[i];
+          heights[i] += diff * easeFraction(diff >= 0 ? EASE_RISE : EASE_FALL, dt);
+          if (heights[i] < BAR_FLOOR_PCT) heights[i] = BAR_FLOOR_PCT;
+          const el = barRefs.current[i];
+          if (el !== null) el.style.height = `${heights[i].toFixed(1)}%`;
+        }
+
+        // Liveness is read from the UNGATED loudness, never from the bars: the band shaper gates a
+        // quiet room to a true zero on purpose, so a speaker pausing for thought would otherwise look
+        // exactly like a dead microphone.
+        recorder.level();
 
         // Capture stalling is reported ahead of silence: it is the one that is actively losing the
         // user's words, and a stalled recorder usually goes silent too, so reporting both at once
@@ -530,11 +599,16 @@ export function DictationDialog({
 
         {!isError && (
           <div className="dictate-eq" aria-hidden="true">
-            {levels.map((v, i) => (
+            {Array.from({ length: BAR_COUNT }, (_, i) => (
               <span key={i} className="dictate-eq-well">
                 <span
+                  ref={(el) => {
+                    barRefs.current[i] = el;
+                  }}
                   className={`dictate-eq-bar ${stage !== "recording" ? "dictate-eq-bar-idle" : ""}`}
-                  style={{ height: `${8 + v * 84}%` }}
+                  // The height is owned by the animation loop, which writes it straight onto this
+                  // element; this is only the resting height before the first frame runs.
+                  style={{ height: `${BAR_FLOOR_PCT}%` }}
                 />
               </span>
             ))}

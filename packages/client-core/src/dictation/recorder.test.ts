@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MicRecorder, rmsLevel, STOP_TAIL_MS } from "./recorder";
+import { MicRecorder, computeBands, rmsLevel, STOP_TAIL_MS } from "./recorder";
 
 // snapshotFlushed() is the tail-loss fix for the turn-taking paths (Car Mode "Over and out" and the
 // end-phrase watch): a bare snapshot() only sees chunks MediaRecorder has already delivered, so the
@@ -176,6 +176,128 @@ describe("rmsLevel", () => {
     const v = rmsLevel(random);
     expect(v).toBeGreaterThanOrEqual(0);
     expect(v).toBeLessThanOrEqual(1);
+  });
+});
+
+// ===== the equalizer's nine bands: the Director's meter, ported ===================================
+// The Cockpit's bars sat as stubs while the Director's bounced, on a desk microphone that was working
+// fine. Two causes, both pinned here. The old meter fanned ONE loudness number across nine bars with a
+// fixed triangle (so the bars could never move independently), on a LINEAR scale that only filled the
+// well at about -10 dBFS - a shout - which put every level this product calls healthy in the bottom
+// fifth of the bar.
+//
+// These tests are a CROSS-IMPLEMENTATION CALIBRATION, and that is the point of them. The expected
+// percentages are not taste: they are the output of the Director's own ComputeBands (the verbatim C#
+// in CcDirector.Avalonia/Voice/MicAudioCapture.cs) fed the identical signal. Both implementations were
+// run against this generator and agreed on all nine bands at all eight levels. If this file ever
+// disagrees with those numbers, the browser meter has drifted away from the Director and that is the
+// defect, not the test.
+describe("computeBands - parity with the Director's meter", () => {
+  const SR = 48000;
+
+  // Scale a waveform to an exact RMS level in dBFS, then quantise to 16 bits exactly as the Director's
+  // PCM capture path does, so the two implementations are compared on identical samples.
+  function scale(x: Float64Array, dbfs: number): Float32Array {
+    let sum = 0;
+    for (const v of x) sum += v * v;
+    const gain = Math.pow(10, dbfs / 20) / Math.sqrt(sum / x.length);
+    const out = new Float32Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      out[i] = Math.round(Math.max(-1, Math.min(1, x[i] * gain)) * 32767) / 32767;
+    }
+    return out;
+  }
+
+  // A speech-like periodic signal: a 120 Hz fundamental with harmonics rolling off, band-limited to
+  // 5 kHz. Not real speech, but it has the spectral SHAPE the band meter sees, which is what a
+  // calibration needs - and it is reproducible, which a recording of a voice is not.
+  function voice(dbfs: number, sampleRate = SR, n = 2048): Float32Array {
+    const x = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / sampleRate;
+      let s = 0;
+      for (let h = 1; h * 120 <= 5000; h++) s += Math.sin(2 * Math.PI * h * 120 * t + h) / h;
+      x[i] = s;
+    }
+    return scale(x, dbfs);
+  }
+
+  const pct = (v: number) => Math.round(v * 100);
+
+  // The Director's own output for this signal, band by band. Reproduced exactly by this port.
+  const DIRECTOR: Array<[number, number[]]> = [
+    [-45, [16, 14, 0, 0, 0, 0, 0, 0, 0]],
+    [-42, [20, 18, 7, 0, 0, 0, 0, 0, 0]],
+    [-36, [32, 29, 16, 12, 5, 0, 0, 0, 0]],
+    [-32, [41, 38, 23, 18, 12, 4, 0, 0, 0]],
+    [-26, [60, 55, 34, 29, 21, 14, 7, 0, 0]],
+    [-20, [85, 79, 50, 43, 32, 24, 17, 12, 4]],
+    [-14, [100, 100, 72, 62, 48, 36, 27, 21, 14]],
+    [-10, [100, 100, 92, 79, 61, 46, 35, 28, 20]],
+  ];
+
+  for (const [db, expected] of DIRECTOR) {
+    it(`matches the Director band for band at ${db} dBFS`, () => {
+      expect(computeBands(voice(db), SR).map(pct)).toEqual(expected);
+    });
+  }
+
+  // The headline of the whole change. These are the levels the product itself rules on in
+  // micQuality.ts (-42 poor, -32 fair) and in the Gateway's fold (-20 the target), and under the old
+  // linear meter they drew 10%, 15% and 35%. A meter that cannot separate "poor" from "on target"
+  // across most of its travel is not telling the user anything.
+  it("spends its travel on the levels the product actually rules on", () => {
+    const peak = (db: number) => pct(Math.max(...computeBands(voice(db), SR)));
+    expect(peak(-42)).toBe(20); // poor: visibly low, and honest about it
+    expect(peak(-32)).toBe(41); // fair
+    expect(peak(-26)).toBe(60); // good - the Director's documented "normal speech ~60%"
+    expect(peak(-20)).toBe(85); // the Gateway's target speaking level
+    expect(peak(-14)).toBe(100); // loud
+  });
+
+  // What the fixed triangle could NEVER do, at any loudness: nine genuinely different numbers. This is
+  // the difference between an equalizer and one hill that pulses.
+  it("drives the nine bars independently rather than as one scaled hill", () => {
+    const bands = computeBands(voice(-20), SR);
+    expect(new Set(bands.map(pct)).size).toBeGreaterThanOrEqual(7);
+    // Voice energy clusters low, so the spectrum slopes down - it is not a centre-peaked triangle.
+    expect(bands[0]).toBeGreaterThan(bands[8]);
+  });
+
+  it("parks every bar at rest for a silent window (the gate)", () => {
+    expect(computeBands(new Float32Array(2048), SR)).toEqual(new Array(9).fill(0));
+  });
+
+  it("reads an empty window, or an unknown sample rate, as nine zeros rather than throwing", () => {
+    expect(computeBands(new Float32Array(0), SR)).toEqual(new Array(9).fill(0));
+    expect(computeBands(voice(-20), 0)).toEqual(new Array(9).fill(0));
+  });
+
+  it("keeps every band inside 0..1 even for a full-scale input", () => {
+    const full = new Float32Array(2048);
+    for (let i = 0; i < full.length; i++) full[i] = i % 2 === 0 ? -1 : 1;
+    for (const v of computeBands(full, SR)) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
+  // The band edges are frequencies, not bin numbers, so a device running at another rate must put the
+  // same voice in the same bars. A calibration that only held at 48 kHz would be one that held only on
+  // the machine it was written on - browsers run audio at 44.1 kHz just as often.
+  //
+  // Bands 1 to 8 are held tight. Band 0 is NOT, and the reason is worth writing down rather than
+  // hiding behind a loose tolerance: it spans 80 to 122 Hz, which at this window is under two
+  // frequency bins wide, so which bin the speaker's fundamental lands in - and whether the bin next to
+  // it falls inside the band at all - changes with the bin width. The same narrow lowest band exists
+  // in the Director, and widening the window to steady it would cost the snappiness that makes the
+  // bars track syllables. The effect is a lowest bar that reads somewhat lower at 44.1 kHz; it is
+  // still plainly moving, which is what this meter is for.
+  it("places the same voice in the same bands at a different sample rate", () => {
+    const at48 = computeBands(voice(-20, 48000), 48000).map(pct);
+    const at44 = computeBands(voice(-20, 44100), 44100).map(pct);
+    for (let i = 1; i < 9; i++) expect(Math.abs(at48[i] - at44[i])).toBeLessThanOrEqual(3);
+    expect(at44[0]).toBeGreaterThan(50);
   });
 });
 

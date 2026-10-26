@@ -86,7 +86,9 @@
   width: 100%;
   background: var(--attention);
   border-radius: 3px;
-  transition: height 60ms linear;
+  /* No height transition. The meter eases the bars itself, with a fast attack and a slow decay (the
+     Director's curve); a CSS transition on top of that only smears one easing over another and makes
+     the bars lag the voice. */
 }
 
 .dictate-eq-bar-idle {
