@@ -103,6 +103,34 @@
   margin: 4px 0 0;
 }
 
+/* What we are doing now: the boss's own words, first on the Overview (owner, 26 October 2026). */
+.fa-now .fa-dim {
+  margin: 0;
+}
+
+.fa-now-text {
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 78ch;
+  overflow-wrap: anywhere;
+}
+
+.fa-now-text > :first-child {
+  margin-top: 0;
+}
+
+.fa-now-text > :last-child {
+  margin-bottom: 0;
+}
+
+.fa-now-text pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
 .fa-definition {
   margin: 0;
   color: var(--text-dim);

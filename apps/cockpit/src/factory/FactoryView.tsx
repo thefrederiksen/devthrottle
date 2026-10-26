@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   getFactoryPage,
   getFactorySeats,
+  type FactoryNowCard,
   type FactoryPageView,
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
+import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { getCronJob, setCronJobEnabled, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
 import { Button, ErrorBanner, LoadingState } from "../components";
@@ -201,12 +203,14 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  // The Overview (owner, 18 October 2026): how the newest run went, the drawing of what the factory does, and only
-  // what needs the owner. The goal is in the header; emails, the boss's latest and the last talk are on Activity.
+  // The Overview (owner, 18 October 2026): what we are doing now, in the boss's words (owner, 26 October 2026), how the
+  // newest run went, the drawing of what the factory does, and only what needs the owner. The goal is in the header;
+  // emails, the boss's latest and the last talk are on Activity.
   const { failures, problems, waiting } = page;
   const nothing = (problems === null || problems.items.length === 0) && failures === null && waiting.emptyText !== null;
   return (
     <div className="fa-overview" data-testid="fa-overview">
+      {page.now !== null && <NowCard now={page.now} />}
       <FactoryDrawingPanel factory={page.id} showStatus />
       {problems !== null && problems.items.length > 0 && <ProblemsCard problems={problems} onChanged={onChanged} />}
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
@@ -232,6 +236,26 @@ function Overview({
         </section>
       )}
     </div>
+  );
+}
+
+// What we are doing now: the boss's newest "now" document, under the Gateway's by-line. The text is the document as
+// written, rendered as markdown by the renderer the Cockpit uses for every other written body, keeping each line break so
+// plain text reads as it was typed (raw HTML in it is shown inert, and only safe links survive).
+function NowCard({ now }: { now: FactoryNowCard }) {
+  return (
+    <section className="fa-panel fa-now" data-testid="fa-now">
+      <h2 className="fa-section-title">{now.heading}</h2>
+      {now.byLine !== null && <p className="fa-dim" data-testid="fa-now-by">{now.byLine}</p>}
+      {now.text !== null && (
+        <div
+          className="fa-now-text dt-private"
+          data-testid="fa-now-text"
+          dangerouslySetInnerHTML={{ __html: markdownToHtml(now.text, { keepLineBreaks: true }) }}
+        />
+      )}
+      {now.emptyText !== null && <p className="fa-dim">{now.emptyText}</p>}
+    </section>
   );
 }
 

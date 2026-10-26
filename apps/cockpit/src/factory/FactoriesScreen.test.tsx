@@ -367,6 +367,58 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.queryByTestId("fa-last-talk")).toBeNull();
   });
 
+  it("shows what we are doing now first on the Overview, above the drawing, in the Gateway's words", async () => {
+    renderAt("/factories/warmforward");
+
+    const now = await screen.findByTestId("fa-now");
+    expect(within(now).getByRole("heading").textContent).toBe("What we are doing now (fixture)");
+    expect(screen.getByTestId("fa-now-by").textContent).toBe("Written by the boss, today 14:20 (fixture)");
+    // The text is the boss's own: markdown rendered, a blank line a new paragraph, a dash a list item.
+    const text = screen.getByTestId("fa-now-text");
+    expect(text.className).toContain("dt-private");
+    expect(text.querySelector("p")!.textContent).toBe("Defining the Boss with you: why is set; goal next.");
+    expect(text.querySelector("li")!.textContent).toBe("Content makes one Short a day, unlisted. (fixture)");
+    // It is the first block of the Overview, before the drawing.
+    const overview = screen.getByTestId("fa-overview");
+    expect(overview.firstElementChild).toBe(now);
+    const drawing = within(overview).getByTestId("fd-panel");
+    expect(now.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps each line break of plain text, and shows raw HTML in it as text", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      now: { heading: "What we are doing now", byLine: "Written by you, today 09:00", text: "Line one\nLine two <b>not bold</b>", emptyText: null },
+    });
+    renderAt("/factories/warmforward");
+
+    const text = await screen.findByTestId("fa-now-text");
+    expect(text.querySelectorAll("br")).toHaveLength(1);
+    expect(text.querySelector("b")).toBeNull();
+    expect(text.textContent).toContain("<b>not bold</b>");
+  });
+
+  it("shows the one empty line the Gateway sends when the boss has written nothing yet", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      now: { heading: "What we are doing now", byLine: null, text: null, emptyText: "The boss has not written what we are doing now yet." },
+    });
+    renderAt("/factories/warmforward");
+
+    const now = await screen.findByTestId("fa-now");
+    expect(within(now).getByText("The boss has not written what we are doing now yet.")).toBeTruthy();
+    expect(screen.queryByTestId("fa-now-by")).toBeNull();
+    expect(screen.queryByTestId("fa-now-text")).toBeNull();
+  });
+
+  it("has no now block when the Gateway folded the page without one", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({ ...FACTORY_PAGE, now: null });
+    renderAt("/factories/warmforward");
+
+    await screen.findByTestId("fa-overview");
+    expect(screen.queryByTestId("fa-now")).toBeNull();
+  });
+
   it("shows the boss's latest and the last talk on the Activity tab", async () => {
     renderAt("/factories/warmforward/activity");
 

@@ -20,6 +20,8 @@ namespace CcDirector.Gateway.Factory;
 /// "started" row and that session's later rows, for a seat whose newest start is older than <see cref="Activity"/>'s
 /// window. Without them a weekly seat would read "- started" or "never ran" on the list. Empty on a factory's page.</param>
 /// <param name="SchedulerPaused">Whether Pause everything is on: then nothing is due, and no next start is shown.</param>
+/// <param name="Now">The newest version of the working document named <c>now</c> of the factory in view, or null when it
+/// was never written. Read for a factory's page only; the list never reads it.</param>
 public sealed record FactoriesScreenInputs(
     IReadOnlyList<RegisteredFactoryDto> Registry,
     FactoryFoldInputs Activity,
@@ -29,7 +31,19 @@ public sealed record FactoriesScreenInputs(
     IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> ScheduleRuns,
     IReadOnlyList<FactoryActivityDto>? LastRunRows = null,
     bool SchedulerPaused = false,
-    IReadOnlyList<SessionDto>? Sessions = null);
+    IReadOnlyList<SessionDto>? Sessions = null,
+    FactoryNowDocument? Now = null);
+
+/// <summary>
+/// The newest version of a factory's working document named <c>now</c>, as the factory's page reads it.
+/// </summary>
+/// <param name="Text">The document's text, exactly as written.</param>
+/// <param name="AuthorKind">Who wrote it: <c>session</c>, <c>person</c> or <c>upload</c>.</param>
+/// <param name="WrittenAtUtc">When this version was written.</param>
+/// <param name="WriterSeat">For a session writer: the seat of THIS factory its history row records. Null for a person,
+/// for the upload, and for a session whose history row records no seat of this factory - which the page then calls "a
+/// session", never by its id.</param>
+public sealed record FactoryNowDocument(string Text, string AuthorKind, DateTime WrittenAtUtc, string? WriterSeat);
 
 /// <summary>
 /// THE FACTORIES SCREEN, FOLDED ONCE (Factories screen mission, phase B; critical rule 7). The list of factories, one
@@ -262,6 +276,7 @@ public static class FactoriesScreenFold
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
+            Now = NowCard(factory, input.Now, input.Schedules, zone, now),
             Failures = FailuresCard(factory, input),
             Waiting = new FactoryPageWaitingDto
             {
@@ -370,6 +385,54 @@ public static class FactoriesScreenFold
             ? $" Approved {d.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}."
             : "";
         return new FactoryGoalCardDto { Heading = "Goal", Text = f.GoalText.Trim(), Note = "Only you change the goal." + approved };
+    }
+
+    /// <summary>The name of the working document the boss rewrites after every talk with the owner and at the end of every
+    /// run (the owner, 26 October 2026).</summary>
+    public const string NowDocumentName = "now";
+
+    /// <summary>The heading of the first block on a factory's Overview.</summary>
+    public const string NowHeading = "What we are doing now";
+
+    /// <summary>
+    /// "WHAT WE ARE DOING NOW" (the owner, 26 October 2026: "the boss needs to update the site so I can read it directly
+    /// on the site what we're doing"). The text of the newest <c>now</c> document, untouched, under a by-line saying who
+    /// wrote it and when: the boss, another seat by its name, the owner ("you"), or the one-time upload. A session whose
+    /// history row records no seat of this factory is "a session" - its id is never printed. The time is told in the
+    /// writer's seat clock, as that seat's lines are everywhere else on the page; anyone else's in the account's.
+    /// </summary>
+    internal static FactoryNowCardDto NowCard(RegisteredFactoryDto f, FactoryNowDocument? doc, IReadOnlyList<CronJobDto> schedules,
+        TimeZoneInfo zone, DateTime now)
+    {
+        if (doc is null)
+            return new FactoryNowCardDto
+            {
+                Heading = NowHeading,
+                EmptyText = Boss(f) is null
+                    ? "Nobody has written what we are doing now yet."
+                    : "The boss has not written what we are doing now yet.",
+            };
+        string byLine;
+        if (doc.AuthorKind == Data.Entities.FactoryRecordAuthorKinds.Person)
+            byLine = $"Written by you, {When(doc.WrittenAtUtc, zone, now, capital: false)}";
+        else if (doc.AuthorKind == Data.Entities.FactoryRecordAuthorKinds.Upload)
+            byLine = $"Uploaded, {When(doc.WrittenAtUtc, zone, now, capital: false)}";
+        else if (doc.AuthorKind == Data.Entities.FactoryRecordAuthorKinds.Session)
+        {
+            var seat = doc.WriterSeat is null ? null : f.Seats.FirstOrDefault(s => SameId(s.Id, doc.WriterSeat));
+            if (seat is null)
+                byLine = $"Written by a session, {When(doc.WrittenAtUtc, zone, now, capital: false)}";
+            else
+            {
+                var who = SameId(seat.Id, f.BossSeat ?? "") ? "the boss" : seat.Name;
+                byLine = $"Written by {who}, {SeatClock(SchedulesOf(seat, schedules), zone).When(doc.WrittenAtUtc, now, capital: false)}";
+            }
+        }
+        else
+            throw new InvalidOperationException(
+                $"The '{NowDocumentName}' document of '{f.Factory}' was written by '{doc.AuthorKind}', which is not a session, a " +
+                "person or the upload. Give it a by-line in FactoriesScreenFold.NowCard.");
+        return new FactoryNowCardDto { Heading = NowHeading, ByLine = byLine, Text = doc.Text };
     }
 
     internal static FactoryGoalNumberCardDto GoalNumberCard(GoalNumberDto? n, RegisteredFactoryDto f, TimeZoneInfo zone, DateTime now)

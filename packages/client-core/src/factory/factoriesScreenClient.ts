@@ -339,6 +339,19 @@ export interface FactoryBossLatest {
   allHref: string | null;
 }
 
+/** "What we are doing now": the newest version of the factory's working document named "now", which the boss
+ *  rewrites after every talk with the owner and at the end of every run. Every word is the Gateway's. */
+export interface FactoryNowCard {
+  /** "What we are doing now". */
+  heading: string;
+  /** "Written by the boss, today 14:20"; null when nothing has been written. */
+  byLine: string | null;
+  /** The document's text exactly as written (plain text or markdown); null when nothing has been written. */
+  text: string | null;
+  /** "The boss has not written what we are doing now yet." when nothing has been written, else null. */
+  emptyText: string | null;
+}
+
 export interface FactoryLastTalk {
   heading: string;
   text: string;
@@ -376,6 +389,9 @@ export interface FactoryPageView {
   tabs: FactoryTab[];
   goal: FactoryGoalCard;
   goalNumber: FactoryGoalNumberCard;
+  /** "What we are doing now", first on the Overview; null when the view was folded without it (a factory that is not
+   *  published yet). */
+  now: FactoryNowCard | null;
   /** What is failing now (where FAILING links to); null when nothing is. */
   failures: FactoryPageFailures | null;
   /** The open problems of this factory's scheduled runs, each with Handle the issue and Resolve (Factory Control,

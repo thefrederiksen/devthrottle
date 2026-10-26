@@ -354,6 +354,11 @@ public sealed class FactoryPageViewDto
     public FactoryGoalCardDto Goal { get; set; } = new();
     public FactoryGoalNumberCardDto GoalNumber { get; set; } = new();
 
+    /// <summary>"What we are doing now": the newest version of the factory's working document named <c>now</c>, which
+    /// the boss rewrites after every talk with the owner and at the end of every run (the owner, 26 October 2026). First
+    /// on the Overview. Null when the view was folded without it (a factory that is not published yet).</summary>
+    public FactoryNowCardDto? Now { get; set; }
+
     /// <summary>What is failing now, where FAILING links to (<c>#failing</c>). Null when nothing is.</summary>
     public FactoryPageFailuresDto? Failures { get; set; }
 
@@ -384,6 +389,24 @@ public sealed class FactoryPageViewDto
     /// <summary>"Delete" with its confirm when archived, else null (issue #4324): only an archived factory can be
     /// deleted.</summary>
     public FactoryOwnerActionDto? Delete { get; set; }
+}
+
+/// <summary>"What we are doing now" on a factory's page: the heading, who wrote it and when, and the text as written -
+/// or one line saying nothing has been written yet.</summary>
+public sealed class FactoryNowCardDto
+{
+    /// <summary>"What we are doing now".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>"Written by the boss, today 14:20", "Written by Content, yesterday 05:12", "Written by you, 24 Oct 09:00",
+    /// "Uploaded, 20 Oct 11:00". Null when nothing has been written.</summary>
+    public string? ByLine { get; set; }
+
+    /// <summary>The document's text exactly as written (plain text or markdown). Null when nothing has been written.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>"The boss has not written what we are doing now yet." when nothing has been written, else null.</summary>
+    public string? EmptyText { get; set; }
 }
 
 /// <summary>The goal, as the owner approved it.</summary>

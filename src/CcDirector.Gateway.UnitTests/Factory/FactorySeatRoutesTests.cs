@@ -51,6 +51,8 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
     private WebApplication? _app;
     private HttpClient _http = null!;
     private int _memoryNotes;
+    private CcDirector.Gateway.Factory.Records.FactoryDocumentStore _documents = null!;
+    private int _nowReads;
 
     public async ValueTask DisposeAsync()
     {
@@ -83,6 +85,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         _registry = new FactoryRegistryStore(_db);
         _record = new FactoryActivityRecord(_db);
         _briefs = new FactoryBriefStore(_db, _registry);
+        _documents = new CcDirector.Gateway.Factory.Records.FactoryDocumentStore(_db);
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -130,7 +133,15 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             tenant => _schedules.ListAll(tenant),
             (_, _, _) => new Dictionary<string, IReadOnlyList<CronRunRecord>>(),
             (_, f) => new CronRunProblemsDto { Factory = f },
-            (_, f) => new FactoryEmailsDto { Factory = f });
+            (_, f) => new FactoryEmailsDto { Factory = f },
+            // As the host wires it: the newest "now" document, its writer's seat read from session history - here,
+            // the one session is WarmForward's boss.
+            NowDocument: (tenant, f) =>
+            {
+                _nowReads++;
+                return FactoriesScreenEndpoints.ReadNow(_documents.Get(tenant, f, FactoriesScreenFold.NowDocumentName), f,
+                    id => id == SessionId ? SessionFactoryLookup.In("warmforward", "boss", 1) : SessionFactoryLookup.NotKnown);
+            });
         FactoriesScreenEndpoints.Map(app, _ => T, sources, isDefined: (_, _) => false);
         // No factory here has a definition, so the seat page and the brief routes read the brief store, as before phase 4.
         var defined = new FactoryDefinitionBriefs(new FactoryDefinitionStore(_db), _briefs);
@@ -571,6 +582,43 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         // A session reads and writes a brief through /factory-briefs, where the factory rule answers it. The owner's
         // screen views are refused at the guard, before any route runs.
         Assert.False(SessionKeyGuard.Check(verb, path).Allowed);
+    }
+
+    // ---------- "What we are doing now" (the owner, 26 October 2026) ----------
+
+    [Fact]
+    public async Task Page_ShowsTheNewestNowDocument_ByTheBoss_AndTheListNeverReadsIt()
+    {
+        await StartAsync();
+        Seed();
+        _documents.Write(T, "warmforward", "now", "First draft.", 0, "session", SessionId, Now.AddHours(-3));
+        _documents.Write(T, "warmforward", "now", "Scout scans twice a day.\nNext: the goal.", 1, "session", SessionId, Now.AddHours(-1));
+
+        var list = await _http.GetAsync("gateway/factories");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Equal(0, _nowReads);
+        Assert.DoesNotContain("Scout scans twice a day", await list.Content.ReadAsStringAsync());
+
+        var page = (await _http.GetFromJsonAsync<FactoryPageViewDto>("gateway/factories/warmforward", Web))!;
+
+        Assert.Equal(1, _nowReads);
+        Assert.Equal("What we are doing now", page.Now!.Heading);
+        Assert.Equal("Scout scans twice a day.\nNext: the goal.", page.Now.Text);
+        Assert.Equal("Written by the boss, today 14:00", page.Now.ByLine);
+        Assert.Null(page.Now.EmptyText);
+    }
+
+    [Fact]
+    public async Task Page_WithNoNowDocument_SaysTheBossHasNotWrittenIt()
+    {
+        await StartAsync();
+        Seed();
+
+        var page = (await _http.GetFromJsonAsync<FactoryPageViewDto>("gateway/factories/warmforward", Web))!;
+
+        Assert.Equal("The boss has not written what we are doing now yet.", page.Now!.EmptyText);
+        Assert.Null(page.Now.Text);
+        Assert.Null(page.Now.ByLine);
     }
 
     // ---------- take a schedule off a seat ----------
