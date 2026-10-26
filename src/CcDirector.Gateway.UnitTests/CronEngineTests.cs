@@ -263,7 +263,7 @@ public sealed class CronEngineTests : IDisposable
         scheduledSeat.Factory = "site-factory";
         scheduledSeat.Seat = "reader";
         var created = store.Create(scheduledSeat);
-        var engine = Engine(store, history, starter, new FakeClock(DateTime.UtcNow));
+        var engine = Engine(store, history, starter, new FakeClock(created.NextRunUtc!.Value.AddMinutes(1)));
 
         var first = await engine.RunNowAsync(created.Id, CancellationToken.None);
         var second = await engine.RunNowAsync(created.Id, CancellationToken.None);
