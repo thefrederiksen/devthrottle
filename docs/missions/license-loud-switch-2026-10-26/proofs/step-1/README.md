@@ -1,7 +1,8 @@
 # Step 1 proof: a machine stranded on a full account is one alarm
 
 Branch `loud-switch-1-stranded-event`, cut from origin/main at aa1c515af. The change is commit 8ef7c9b5f. The answer to
-the review is commit 87a47eae2. The outputs below were run on 87a47eae2 unless the table says otherwise. Local temporary
+the first review is commit 87a47eae2, and to the second review commit efea76b5a. The outputs below were run on
+efea76b5a unless the table says otherwise. Local temporary
 paths are written as `<temp>`, and the worktree as `<worktree>`.
 
 ## What changed, in plain words
@@ -20,15 +21,20 @@ uses to leave them behind. The readiness check raises one license alarm per mach
 - **When it closes:** by itself, when the machine moves off the account, when the account resets, or when the machine
   becomes ready and is switched.
 
-The review asked for two more rules, and both are in:
+The two reviews asked for more rules, and all are in:
 
 - **It is loud only about what the Gateway cannot repair.** While the Gateway's own sign-in for that machine is starting,
   running, or has just ended well and waits for the next report, the alarm does not open. It opens when no automatic fix
   is possible (no approver can approve, or the Director is offline), or when the fix failed. Its "one thing to do" is the
   readiness check's own sentence for that machine.
-- **One machine, one fault, one alarm.** From 97% up the stranded alarm owns the machine, and the five-hour alarm stands
-  down for it. At 80% of the five-hour window the owner hears once. At 97% that line closes and the stranded alarm is the
-  "again" of decision D1.
+- **"Running" is bounded.** A sign-in counts as running only while its row is pending and younger than the sign-in
+  service's unanswered wait (15 minutes). A Director that is connected but never answers (the Mac Mini on 26 October,
+  issue #4490) left its sign-in open for good. Now, once the sign-in got no answer or is older than that, the alarm opens
+  and says the sign-in sent at that time got no answer from the machine, so restart its Director.
+- **One machine, one fault, one line.** The five-hour alarm stands down for a machine only when its stranded alarm is
+  actually open. At 80% of the five-hour window the owner hears once. At 97% that line closes and the stranded alarm is the
+  "again" of decision D1. While the stranded alarm is held back for a real repair, the five-hour line stays, so a stuck
+  machine never has two lines and never none.
 
 The kind is not called "cannot-switch", because `LicenseLogKinds.CannotSwitch` already means a Director that reports it
 cannot run a switch at all.
@@ -37,10 +43,10 @@ cannot run a switch at all.
 
 | File | What it is | Result |
 |---|---|---|
-| `licenses-filter.txt` | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"` | 1301 passed, 0 failed |
-| `review-tests-on-the-reviewed-commit.txt` | the new alarm tests run against the reviewed code (8ef7c9b5f's `LicenseStrandedAlarm.cs` and `LicenseReadinessService.cs`) | 9 failed, 14 passed: the tests see both findings |
-| `test-local.txt` | `.\scripts\test-local.ps1`, the default gate, including the parked Gateway.UnitTests classes this change can reach | red in two suites this change does not touch, see below |
-| `test-local-rerun.txt` | `.\scripts\test-local.ps1 -RerunFailed` on that run | the Core test passed alone; the 10 Mac tests failed again |
+| `licenses-filter.txt` | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"` | 1304 passed, 0 failed |
+| `review-tests-on-the-reviewed-commit.txt` | on 87a47eae2: the first review's alarm tests run against 8ef7c9b5f's `LicenseStrandedAlarm.cs` and `LicenseReadinessService.cs` | 9 failed, 14 passed: the tests see both first-review findings |
+| `second-review-tests-with-the-old-repair-rule.txt` | on efea76b5a with one line put back to the old rule ("signing-in" is always a repair) | 3 failed, 23 passed: the three deaf-Director tests see the second finding |
+| `test-local.txt` | `.\scripts\test-local.ps1`, the default gate, including the parked Gateway.UnitTests classes this change can reach | red only in the known Mac installer tests, see below |
 | `test-local-gateway.txt`, `test-local-gateway-rerun.txt` | `-Gateway` and its re-run, on 8ef7c9b5f (before the review answer) | 1809 passed, 3 skipped, 1 failed, and that one passed alone |
 | `replay-step-3-on-step-1.txt` | the step 3 replay (`LicenseStrandedReplayTests`, commit 1ad23b948), cherry-picked locally and not committed here | 11 passed, 2 failed, see below |
 
@@ -48,8 +54,8 @@ cannot run a switch at all.
 
 - **`cc-director-setup-engine.Tests`: 10 failures in `MacAppNameAndPlaceTests`.** These are known (#4484). They fail on
   Windows on main too, as the reviewer observed on aa1c515af.
-- **`CcDirector.Core.UnitTests`: `ApiModeSessionHostTests.TurnStartBound_TurnBeginsInTime_NeverRestarts`** failed once and
-  passed on its own re-run. Core is not touched by this change.
+- **`CcDirector.Core.UnitTests`: `ApiModeSessionHostTests.TurnStartBound_TurnBeginsInTime_NeverRestarts`** failed once on
+  87a47eae2 and passed on its own re-run; it passed in the gate on efea76b5a. Core is not touched by this change.
 - **`Gateway.Tests`: `RecordingCompletenessGateHttpTests.Complete_EmptyCapture_Returns400_NamedError`** failed once and
   passed on its own re-run. It is a recordings test.
 
@@ -102,8 +108,16 @@ check and the real alarm service, on a throwaway SQLite file with the test's own
   - `..._At97OfTheFiveHourWindow_AStrandedMachine_GetsOneAlarm`: one alarm, one email, one push, one banner line.
   - `..._From80To97OfTheFiveHourWindow_TheFiveHourAlarmHandsOverToTheStrandedAlarm`: the five-hour alarm at 80%, then
     at 97% its line closes and the stranded one opens. Two pushes in that order, two emails, never two lines at once.
-  - `..._At97OfTheFiveHourWindow_WhileTheGatewayRepairs_NeitherAlarmOpens`: neither alarm opens while the Gateway
-    repairs the machine.
+  - `..._At97OfTheFiveHourWindow_WhileTheGatewayRepairs_OnlyTheFiveHourAlarmIsOpen`: while the Gateway really repairs
+    the machine, the stranded alarm holds back and the five-hour line stays, saying what is being done.
+- Second review, a Director that is connected and never answers (real store, sign-in service and alarm service, with the
+  minute settle `SettleUnansweredAsync` run on every step):
+  - `..._ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndStays`: the sign-in times out
+    and stays unknown for 5000 minutes; the alarm opens on the next check, says it got no answer, and sends one email.
+  - `..._ASignInPendingLongerThanTheUnansweredWait_IsNoRepair_TheAlarmOpens`: a sign-in still pending with no answer holds
+    the alarm back for 15 minutes, and no longer.
+  - `..._From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain`: the 85-then-97 shape with
+    that Director has exactly one banner line on every check, and two pushes in order.
 - What it is not: `..._NoAccountHasRoom_RaisesNoStrandedAlarm_AndTheNoRoomStatusIsUnchanged`, plus
   `..._AtTheLimit_EveryMachineReady_RaisesNothing` (weekly 100%, five-hour 97%, both 100%) and
   `..._NearTheLimit_AMachineNotReady_RaisesNoStrandedAlarm`, which pin the #4249 boundary.
