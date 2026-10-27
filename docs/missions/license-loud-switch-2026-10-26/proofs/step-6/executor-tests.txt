@@ -1,0 +1,25 @@
+
+Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-6-investigate\src\CcDirector.Avalonia.Tests\bin\Debug\net10.0\CcDirector.Avalonia.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:03.50]   Discovering: CcDirector.Avalonia.Tests
+[xUnit.net 00:00:06.20]   Discovered:  CcDirector.Avalonia.Tests
+[xUnit.net 00:00:06.21]   Starting:    CcDirector.Avalonia.Tests
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_UnreadablePayloadOrBadSwitchId_IsBadRequestWithNoBody(payload: "{\"switchId\":\"../../escape\",\"targetAccountEmai"...) [345 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_UnreadablePayloadOrBadSwitchId_IsBadRequestWithNoBody(payload: "") [2 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_UnreadablePayloadOrBadSwitchId_IsBadRequestWithNoBody(payload: "{\"switchId\":\"6F1C2A9E4B7D4E0F9A3C5B8D2E1F7A40\""...) [2 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_UnreadablePayloadOrBadSwitchId_IsBadRequestWithNoBody(payload: "{\"switchId\":\"6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40\""...) [2 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_UnreadablePayloadOrBadSwitchId_IsBadRequestWithNoBody(payload: "not json") [2 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.AreaFor_LicenseSwitch_IsOwnedByTheLicenseArea [15 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAndResumeAsync_Refusal_StartsNoResume [50 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_Refusal_IsStillOk [8 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAsync_GoodRequest_IsOkCarryingTheResultInCamelCase [8 ms]
+[xUnit.net 00:00:06.74]   Finished:    CcDirector.Avalonia.Tests
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAndResumeAsync_VerifiedSwitch_StartsTheResumeOnceWithItsResult [7 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAndResumeAsync_UnreadablePayload_StartsNoResume [3 ms]
+  Passed CcDirector.Avalonia.Tests.Licenses.LicenseSwitchExecutorTests.SwitchAndResumeAsync_SameSwitchIdAgain_StartsNoSecondResume [6 ms]
+
+Test Run Successful.
+Total tests: 12
+     Passed: 12
+ Total time: 9.1668 Seconds

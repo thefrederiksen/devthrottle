@@ -1,0 +1,29 @@
+.\scripts\test-local.ps1 at commit 101db5e2e (tree clean, Debug). Copied from the TRX verdict on the console.
+
+  CcDirector.Core.UnitTests                outcome=Completed    total=2831   executed=2831
+  CcDirector.Avalonia.Tests                outcome=Completed    total=1213   executed=1213
+  CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
+  CcDirector.Launcher.Tests                outcome=Completed    total=234    executed=234
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=111    executed=111
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=307    executed=307
+  CcDirector.DeliveryQualification.Tests   outcome=Completed    total=151    executed=151
+  CcDirector.RuleHook.Tests                outcome=Completed    total=70     executed=70
+  cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
+  cc-director-setup-engine.Tests           outcome=Failed       total=1014   executed=1008
+  cc-director-setup-cli.Tests              outcome=Completed    total=75     executed=75
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=3775   executed=3775   (242 reachable classes)
+  CcDirector.Core.Tests                    outcome=Completed    total=624    executed=624    (74 reachable classes)
+
+RESULT: FAILED in 1 project: cc-director-setup-engine.Tests, 10 failed, 998 passed, 6 skipped.
+All ten are MacAppNameAndPlaceTests (macOS-only folder and file-address tests run on Windows). They are red on
+origin/main too and are filed as issue #4484. This change touches nothing under tools/.
+
+The run reported a COVERAGE GAP for the parked CcDirector.Gateway.Tests, so it was run as well:
+
+.\scripts\test-local.ps1 -Gateway at commit 101db5e2e (tree clean, Debug):
+  CcDirector.Gateway.Tests.shard1of4       outcome=Completed    total=426    executed=426
+  CcDirector.Gateway.Tests.shard2of4       outcome=Completed    total=482    executed=482
+  CcDirector.Gateway.Tests.shard3of4       outcome=Completed    total=428    executed=425
+  CcDirector.Gateway.Tests.shard4of4       outcome=Completed    total=477    executed=477
+RESULT: GREEN at commit 101db5e2e23dec322c6dee03570089d3a6a56a1f, tree clean.

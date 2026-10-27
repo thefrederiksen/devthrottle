@@ -90,6 +90,58 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
         Assert.Equal(LicenseSwitchReasonCodes.SpareNotHeld, body.ReasonCode);
     }
 
+    // The Loud When Stranded mission, step 6: the sessions stopped on a usage limit are resumed after a verified switch,
+    // and after nothing else.
+
+    [Fact]
+    public async Task SwitchAndResumeAsync_VerifiedSwitch_StartsTheResumeOnceWithItsResult()
+    {
+        var started = new List<LicenseSwitchResult>();
+
+        await LicenseSwitchExecutor.SwitchAndResumeAsync(_licenses.Coordinator, Command(Payload(SwitchId)), Record(started), CancellationToken.None);
+
+        var result = Assert.Single(started);
+        Assert.Equal(SwitchId, result.SwitchId);
+        Assert.True(result.VerifiedByUsageRead);
+    }
+
+    [Fact]
+    public async Task SwitchAndResumeAsync_SameSwitchIdAgain_StartsNoSecondResume()
+    {
+        var started = new List<LicenseSwitchResult>();
+        await LicenseSwitchExecutor.SwitchAndResumeAsync(_licenses.Coordinator, Command(Payload(SwitchId)), Record(started), CancellationToken.None);
+
+        await LicenseSwitchExecutor.SwitchAndResumeAsync(_licenses.Coordinator, Command(Payload(SwitchId)), Record(started), CancellationToken.None);
+
+        Assert.Single(started);
+    }
+
+    [Fact]
+    public async Task SwitchAndResumeAsync_Refusal_StartsNoResume()
+    {
+        var started = new List<LicenseSwitchResult>();
+
+        await LicenseSwitchExecutor.SwitchAndResumeAsync(_licenses.Coordinator, Command(Payload(SwitchId, target: "account-c@example.com")), Record(started), CancellationToken.None);
+
+        Assert.Empty(started);
+    }
+
+    [Fact]
+    public async Task SwitchAndResumeAsync_UnreadablePayload_StartsNoResume()
+    {
+        var started = new List<LicenseSwitchResult>();
+
+        await LicenseSwitchExecutor.SwitchAndResumeAsync(_licenses.Coordinator, Command("not json"), Record(started), CancellationToken.None);
+
+        Assert.Empty(started);
+    }
+
+    private static Func<LicenseSwitchResult, Task> Record(List<LicenseSwitchResult> started) => result =>
+    {
+        started.Add(result);
+        return Task.CompletedTask;
+    };
+
     /// <summary>Account A active, account B spare; a switch exchanges them.</summary>
     private sealed class OneSpareTool : ILicenseCommandLine
     {
