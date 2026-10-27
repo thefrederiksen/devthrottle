@@ -130,7 +130,7 @@ internal static class SessionCommandExecutor
         // machine that receives it, each by running the machine's cc-secrets with the payload on standard input.
         new SecretTransferExecutor(),
         // The License Switching mission: exchanging this machine's active Claude sign-in with a spare, decided by the
-        // Gateway. Only the key holder carries it out; it touches the key store and types into no session.
+        // Gateway. Only the key holder carries it out; the switch touches the key store; after a verified one, sessions stopped on a usage limit get one "continue".
         new LicenseSwitchExecutor(),
         // The License Switching mission, contract section 8: signing an account in on this machine when the Gateway
         // asks, approving another machine's sign-in in a browser profile here, and taking that approval back.

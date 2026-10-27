@@ -5584,6 +5584,18 @@ public sealed class Session : IDisposable
     internal void ApplyWingmanActivityState(ActivityState newState) =>
         ApplyResolvedActivityState(newState, SessionStateSources.Wingman, Clock.GetUtcNow(), isFallback: false);
 
+    /// <summary>When input last reached this session's terminal by any route, or null when none has (see
+    /// <see cref="_lastInputAtUtcTicks"/>). A FACT, read by the Loud When Stranded mission's step 6 so a session given
+    /// input after its usage-limit reply is not prompted again.</summary>
+    public DateTime? LastInputAtUtc
+    {
+        get
+        {
+            var ticks = Volatile.Read(ref _lastInputAtUtcTicks);
+            return ticks == DateTimeOffset.MinValue.UtcTicks ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
     /// <summary>Record that input is reaching the terminal now (see <see cref="_lastInputAtUtcTicks"/>).</summary>
     private void StampInput() => Volatile.Write(ref _lastInputAtUtcTicks, Clock.GetUtcNow().UtcTicks);
 

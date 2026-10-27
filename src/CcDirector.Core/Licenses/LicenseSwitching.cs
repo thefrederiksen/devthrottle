@@ -46,6 +46,8 @@ public sealed class LicenseSwitching : IDisposable
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
         Results = new LicenseSwitchResultStore(Path.Combine(directorFolder, "switch-results"), utcNow);
         Coordinator = new LicenseSwitchCoordinator(tool, HolderLock, Results, Reporter, utcNow, enabled);
+        LimitResumes = new LimitResumeStore(Path.Combine(directorFolder, "limit-resumes"), utcNow);
+        Resumer = new LimitStoppedSessionResumer(LimitResumes, utcNow);
         Approvals = new LicenseApprovalExchange();
         SignInResults = new LicenseSignInResultStore(Path.Combine(directorFolder, "sign-in-results"), utcNow);
         SignIns = new LicenseSignInCoordinator(tool, HolderLock, SignInResults, Reporter, Approvals, utcNow, enabled, signInDelay, BrowserLane);
@@ -74,6 +76,12 @@ public sealed class LicenseSwitching : IDisposable
     public LicenseSwitchResultStore Results { get; }
 
     public LicenseSwitchCoordinator Coordinator { get; }
+
+    /// <summary>Every usage-limit reply a <c>continue</c> was sent for (the Loud When Stranded mission, step 6).</summary>
+    public LimitResumeStore LimitResumes { get; }
+
+    /// <summary>After a verified switch, sends one <c>continue</c> to each session stopped on a usage-limit reply.</summary>
+    public LimitStoppedSessionResumer Resumer { get; }
 
     /// <summary>The approvals this Director is waiting for from another machine (contract 8.3).</summary>
     public LicenseApprovalExchange Approvals { get; }
@@ -133,6 +141,7 @@ public sealed class LicenseSwitching : IDisposable
         }
         FileLog.Write("[LicenseSwitching] Start");
         Results.Prune();
+        LimitResumes.Prune();
         SignInResults.Prune();
         Reporter.Start(Background.BackgroundJobs.Default);
         Renewer.Start(Background.BackgroundJobs.Default);
