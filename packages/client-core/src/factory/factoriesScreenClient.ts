@@ -217,6 +217,10 @@ export interface FactorySeatsCard {
   /** "Seats". */
   heading: string;
   lines: FactorySeatLine[];
+  /** "See how it runs on the Floor". */
+  floorLabel: string;
+  /** The factory's Floor tab, where the drawing is. */
+  floorHref: string;
 }
 
 /** One seat on the Overview: "Boss - Daily 07:00. Last run: Today 07:00 - succeeded." */

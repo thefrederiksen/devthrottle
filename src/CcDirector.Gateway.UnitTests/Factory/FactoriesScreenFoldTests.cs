@@ -1380,6 +1380,9 @@ epo", Seed = "/help" };
         Assert.Equal("Boss - Daily 07:00. Last run: Today 07:00 - failed.", card.Lines[0].Text);
         Assert.Equal(FactoryTone.Red, card.Lines[0].Tone);
         Assert.Equal("/factories/warmforward/seats/nora-hale", card.Lines[0].Href);
+        // The card ends with the smaller link to the Floor, where the drawing is (owner, 26 Oct 2026).
+        Assert.Equal("See how it runs on the Floor", card.FloorLabel);
+        Assert.Equal("/factories/warmforward/floor", card.FloorHref);
     }
 
     [Fact]

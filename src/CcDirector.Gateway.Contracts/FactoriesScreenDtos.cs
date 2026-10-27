@@ -507,6 +507,12 @@ public sealed class FactorySeatsCardDto
     /// <summary>"Seats".</summary>
     public string Heading { get; set; } = "";
     public List<FactorySeatLineDto> Lines { get; set; } = new();
+
+    /// <summary>"See how it runs on the Floor".</summary>
+    public string FloorLabel { get; set; } = "";
+
+    /// <summary>The factory's Floor tab, where the drawing is.</summary>
+    public string FloorHref { get; set; } = "";
 }
 
 /// <summary>One seat on the Overview: its name, when it runs and its last run, in the Seats tab's words.</summary>

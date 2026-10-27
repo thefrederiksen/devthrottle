@@ -151,6 +151,25 @@
   margin: 0;
 }
 
+/* The why leads the Overview in large type (owner, 26 Oct 2026). */
+.fa-boss-part-why .fa-boss-text {
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 600;
+  max-width: none;
+}
+
+.fa-boss-goal-number {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.fa-seats-floor {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .fa-definition {
   margin: 0;
   color: var(--text-dim);
@@ -948,6 +967,9 @@ a.fa-tab {
 /* Phone width (mockup 4): the list's rows become cards - name and status on top, then what is waiting, then Talk -
    and nothing scrolls sideways at 390px. The page's tabs wrap; its tables scroll inside their own frame. */
 @media (max-width: 640px) {
+  .fa-boss-part-why .fa-boss-text {
+    font-size: 19px;
+  }
   .fa-flist {
     background: transparent;
     border: none;

@@ -105,8 +105,8 @@ export function FactoryView() {
               {text}
             </p>
           ))}
-          {tab !== "seats" && <WhyLine page={page} />}
-          {tab !== "seats" && <GoalLine page={page} />}
+          {tab !== "seats" && tab !== "overview" && <WhyLine page={page} />}
+          {tab !== "seats" && tab !== "overview" && <GoalLine page={page} />}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.bossText}</span>
             <span>{page.seatCountText}</span>
@@ -154,7 +154,7 @@ export function FactoryView() {
       {notYet === null && tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
       {notYet === null && tab === "floor" && (
         <>
-          <FactoryDrawingPanel factory={page.id} />
+          <FactoryDrawingPanel factory={page.id} showStatus />
           <FactoryFloorPanel factory={page.id} full />
         </>
       )}
@@ -205,14 +205,16 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  // The Overview, read top to bottom (owner, 26 October 2026): is it working (open problems and failures), what we are
-  // doing now in the boss's words, then "Needs you" - always shown, so "nothing needs me" is said rather than left to a
-  // missing block - then the seats, one line each with their last run, the drawing of what the factory does, and below
-  // it the Boss's why, goal and limits ("Below the fold: the Boss's limits, the drawing"). The goal is in the header;
-  // emails, the boss's latest and the last talk are on Activity.
+  // The Overview, read top to bottom (owner, 26 October 2026: "the overview needs to be why the factory is there, and
+  // the goal, and then a smaller link to the factory floor where you can see how it actually runs"): the Boss's why, in
+  // large type, its goal and limits; then is it working (open problems and failures), what we are doing now in the
+  // boss's words, "Needs you" - always shown, so "nothing needs me" is said rather than left to a missing block - and
+  // the seats, one line each with their last run, ending with the link to the Floor, where the drawing is. Emails, the
+  // boss's latest and the last talk are on Activity.
   const { failures, problems, waiting, seats } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
+      <BossBlock boss={page.boss} page={page} />
       {problems !== null && problems.items.length > 0 && <ProblemsCard problems={problems} onChanged={onChanged} />}
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
       {page.now !== null && <NowCard now={page.now} />}
@@ -246,31 +248,40 @@ function Overview({
             </li>
           ))}
         </ul>
+        <p className="fa-seats-floor">
+          <Link className="fa-link" to={seats.floorHref} data-testid="fa-seats-floor">
+            {seats.floorLabel}
+          </Link>
+        </p>
       </section>
-      <FactoryDrawingPanel factory={page.id} showStatus />
-      <BossBlock boss={page.boss} />
     </div>
   );
 }
 
-// The Boss (owner, 26 October 2026: "Below the fold: the Boss's limits, the drawing, and the run history"): its why,
-// goal and limits from the published definition's boss.md, the last block of the Overview, below the drawing. Each part's
-// text is rendered as the "now" text is, keeping each line break; a part the Gateway found nothing for says so, dimmed.
-function BossBlock({ boss }: { boss: FactoryBossBlock }) {
+// The Boss: its why, goal and limits from the published definition's boss.md, first on the Overview (owner, 26 October
+// 2026), the why in large type. Each part's text is markdown, rendered as written - a line wrapped in the file reads as
+// one sentence, a list stays a list; a part the Gateway found nothing for says so, dimmed. The goal's number sits under
+// the goal, since the header's goal line is not shown on the Overview.
+function BossBlock({ boss, page }: { boss: FactoryBossBlock; page: FactoryPageView }) {
   return (
     <section className="fa-panel fa-boss" data-testid="fa-boss-block">
       <h2 className="fa-section-title">{boss.heading}</h2>
       {boss.parts.map((part) => (
-        <div className="fa-boss-part" key={part.key} data-testid={`fa-boss-${part.key}`}>
+        <div className={`fa-boss-part fa-boss-part-${part.key}`} key={part.key} data-testid={`fa-boss-${part.key}`}>
           <h3 className="fa-boss-part-title">{part.heading}</h3>
           {part.text !== null && (
             <div
               className="fa-boss-text dt-private"
               data-testid={`fa-boss-${part.key}-text`}
-              dangerouslySetInnerHTML={{ __html: markdownToHtml(part.text, { keepLineBreaks: true }) }}
+              dangerouslySetInnerHTML={{ __html: markdownToHtml(part.text) }}
             />
           )}
           {part.emptyText !== null && <p className="fa-dim">{part.emptyText}</p>}
+          {part.key === "goal" && (
+            <p className="fa-boss-goal-number">
+              <GoalNumber page={page} />
+            </p>
+          )}
         </div>
       ))}
     </section>
@@ -297,47 +308,57 @@ function NowCard({ now }: { now: FactoryNowCard }) {
   );
 }
 
-// The goal and its number, as one line under the factory's name (owner, 18 October 2026).
+// The goal and its number, as one line under the factory's name (owner, 18 October 2026) - on every tab but Seats and
+// the Overview, which shows the Boss's goal in full.
 function GoalLine({ page }: { page: FactoryPageView }) {
-  const { goal, goalNumber } = page;
+  const { goal } = page;
   return (
     <p className="fa-goal-line" data-testid="fa-goal">
       <span className="fa-goal-label">{goal.heading}:</span>{" "}
       {goal.text !== null && <span className="dt-private">{goal.text}</span>}
       {goal.emptyText !== null && <span className="fa-dim">{goal.emptyText}</span>}
       {goal.note !== null && <span className="fa-dim"> {goal.note}</span>}
-      <span className="fa-goal-number" data-testid="fa-goal-number">
-        {(goalNumber.emptyText !== null || goalNumber.valueText !== null) && (
-          <span className="fa-goal-sep" aria-hidden="true">
-            {" | "}
-          </span>
-        )}
-        {goalNumber.emptyText !== null && <span className="fa-dim">{goalNumber.emptyText}</span>}
-        {goalNumber.valueText !== null && (
-          <>
-            <strong title={goalNumber.heading}>{goalNumber.valueText}</strong>
-            {goalNumber.asOfText !== null && (
-              <>
-                {" "}
-                <span className="fa-dim">{goalNumber.asOfText}</span>
-              </>
-            )}
-            {goalNumber.linkHref !== null && (
-              <>
-                {" "}
-                <a className="fa-link" href={goalNumber.linkHref} target="_blank" rel="noopener noreferrer">
-                  {goalNumber.linkLabel}
-                </a>
-              </>
-            )}
-          </>
-        )}
-      </span>
+      <GoalNumber page={page} separated />
     </p>
   );
 }
 
-// Why the factory exists, one line under its name and above the goal (owner, 26 October 2026).
+// The goal's number: the boss's newest, as of when and how it is measured - or the Gateway's "Not measured".
+function GoalNumber({ page, separated = false }: { page: FactoryPageView; separated?: boolean }) {
+  const { goalNumber } = page;
+  return (
+    <span className="fa-goal-number" data-testid="fa-goal-number">
+      {separated && (goalNumber.emptyText !== null || goalNumber.valueText !== null) && (
+        <span className="fa-goal-sep" aria-hidden="true">
+          {" | "}
+        </span>
+      )}
+      {goalNumber.emptyText !== null && <span className="fa-dim">{goalNumber.emptyText}</span>}
+      {goalNumber.valueText !== null && (
+        <>
+          <strong title={goalNumber.heading}>{goalNumber.valueText}</strong>
+          {goalNumber.asOfText !== null && (
+            <>
+              {" "}
+              <span className="fa-dim">{goalNumber.asOfText}</span>
+            </>
+          )}
+          {goalNumber.linkHref !== null && (
+            <>
+              {" "}
+              <a className="fa-link" href={goalNumber.linkHref} target="_blank" rel="noopener noreferrer">
+                {goalNumber.linkLabel}
+              </a>
+            </>
+          )}
+        </>
+      )}
+    </span>
+  );
+}
+
+// Why the factory exists, one line under its name and above the goal (owner, 26 October 2026) - on every tab but Seats
+// and the Overview, which leads with the Boss's why in full.
 function WhyLine({ page }: { page: FactoryPageView }) {
   const { why } = page;
   return (

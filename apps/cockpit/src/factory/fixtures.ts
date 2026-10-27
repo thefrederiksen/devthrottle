@@ -515,6 +515,8 @@ export const FACTORY_PAGE: FactoryPageView = {
         href: "/factories/warmforward/seats/value-hunter",
       },
     ],
+    floorLabel: "See how it runs on the Floor (fixture)",
+    floorHref: "/factories/warmforward/floor",
   },
   bossLatest: {
     heading: "Latest from the boss",
