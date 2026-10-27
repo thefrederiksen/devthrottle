@@ -90,19 +90,21 @@ public sealed class LicenseBrowserOpener : ILicenseBrowserOpener
     /// <summary>
     /// A BROWSER THAT IS ALREADY RUNNING IS READ WHERE IT IS, AND NEVER CLOSED (the Delivery Lead's ruling on step 4).
     /// The daily approver check reads every profile on the machine, and a session or a night-time factory may be driving
-    /// one of them: launching an up profile is a no-op, and the put-back stops only a profile this run started. The tool
-    /// drives it under a browser-harness daemon of its own, so the session's daemon is never moved or ended either.
+    /// one of them: the put-back stops only a profile this run STARTED, and "started" is decided from a definite answer.
+    /// A probe that did not answer in time is not "stopped" - a running browser on a busy machine looks like that, and
+    /// starting it would open a second window while stopping it after would close the session's browser - so on doubt
+    /// the run starts nothing, stops nothing, and the check says why. The tool drives the profile under a
+    /// browser-harness daemon of its own, so the session's daemon is never moved or ended either.
     /// </summary>
     public async Task<LicenseOpenedBrowser> OpenAsync(string idOrName, CancellationToken cancellationToken)
     {
         FileLog.Write($"[LicenseBrowserOpener] OpenAsync: profile={idOrName}");
         var browser = _control.Find(idOrName)
             ?? throw new LicenseCommandLineException($"No browser profile \"{idOrName}\" is on this machine.");
-        var wasUp = await _control.IsUpAsync(browser, cancellationToken);
+        bool startedHere;
         try
         {
-            if (!wasUp)
-                await _control.LaunchAsync(browser.Id, cancellationToken);
+            startedHere = await _control.StartIfStoppedAsync(browser, cancellationToken);
         }
         catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or System.ComponentModel.Win32Exception)
         {
@@ -110,10 +112,10 @@ public sealed class LicenseBrowserOpener : ILicenseBrowserOpener
             throw new LicenseCommandLineException($"The browser profile \"{browser.Name}\" did not start on this machine: {ex.Message}");
         }
         var attach = _control.AttachInfoFor(browser);
-        FileLog.Write($"[LicenseBrowserOpener] OpenAsync: profile={browser.Id} is up, wasUp={wasUp}");
+        FileLog.Write($"[LicenseBrowserOpener] OpenAsync: profile={browser.Id} is up, startedHere={startedHere}");
         return new LicenseOpenedBrowser(browser.Id, browser.Name, attach.BuName, attach.BuCdpUrl, async () =>
         {
-            if (wasUp)
+            if (!startedHere)
             {
                 FileLog.Write($"[LicenseBrowserOpener] put back: profile={browser.Id} was already running, left running");
                 return;
@@ -136,15 +138,13 @@ public sealed class LicenseBrowserOpener : ILicenseBrowserOpener
 /// test's stand-ins.</summary>
 internal sealed record LicenseBrowserControl(
     Func<string, AutomationBrowser?> Find,
-    Func<AutomationBrowser, CancellationToken, Task<bool>> IsUpAsync,
-    Func<string, CancellationToken, Task> LaunchAsync,
+    Func<AutomationBrowser, CancellationToken, Task<bool>> StartIfStoppedAsync,
     Func<AutomationBrowser, AttachInfo> AttachInfoFor,
     Func<string, CancellationToken, Task> StopAsync)
 {
     public static readonly LicenseBrowserControl ThisMachine = new(
         AutomationBrowserRegistry.Find,
-        (browser, ct) => AutomationBrowserService.IsUpAsync(browser, ct),
-        (id, ct) => AutomationBrowserService.LaunchAsync(id, ct),
+        (browser, ct) => AutomationBrowserService.StartIfStoppedAsync(browser, ct),
         AutomationBrowserRegistry.AttachInfoFor,
         (id, ct) => AutomationBrowserService.StopAsync(id, ct));
 }

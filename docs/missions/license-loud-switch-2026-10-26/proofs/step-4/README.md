@@ -52,7 +52,14 @@ including the in-process profile start. Second, it runs under Task Scheduler, so
 **The check never breaks a session using a browser profile** (the Delivery Lead's ruling on review observation 1).
 Sessions and night-time factories drive these profiles, and the daily check reads every one of them.
 - A profile whose browser is already running is read through that running browser, and the Director never starts it
-  again or closes it (`LicenseBrowserOpener`).
+  again or closes it (`LicenseBrowserOpener`). "Running or not" is decided from a definite answer only
+  (`AutomationBrowserService.StartIfStoppedAsync`). Up means running. A refused connection means stopped. A probe with
+  no answer within 10 seconds starts nothing and stops nothing, and the check says why. The browser service's usual
+  probe reads a two-second timeout as "not running", and on Windows a closed port is refused only after about two
+  seconds (`harness/refused-after-two-seconds.txt`). So the old probe never saw "refused" here, and one slow probe of a
+  running browser would have opened a second window and then closed the session's browser.
+- The run's daemon name keeps to browser-harness's 64-character limit. A profile name too long for the run's suffix is
+  cut, with a short hash of the whole name, so every profile that worked before still works.
 - The tool drives every profile under a browser-harness daemon of the run's own (`run_daemon_name`), attached by
   `BU_CDP_URL`, and ends only that daemon. Until now it ran under the profile's own daemon name. That moved a driving
   session's current tab to the approval page, and the closing `--reload` ended that session's daemon under it.
@@ -60,13 +67,17 @@ Sessions and night-time factories drive these profiles, and the daily check read
 
 Proven three ways:
 - Tests: `LicenseBrowserOpenerTests` (a running profile is neither started nor stopped; a stopped one is started and
-  stopped again once) and `tests/test_license_browser_daemon.py` (the profile's own daemon is never used or reloaded,
-  even when the browser step fails; the session route leaves a running profile running).
-- The daemon tests fail with the run's own name taken out.
-- `harness/run-own-daemon.log`, the same Task Scheduler harness on 27 October: mindzie was already running, answered
-  **`can-approve`** through that browser, and was "left running". agent-browser was stopped, so it was started, read,
-  and "stopped again". `harness/daemons-before-and-after.txt` records that no browser-harness daemon alive before the
-  run was ended by it, and that it left none of its own behind.
+  stopped again once; a running profile whose first probe is slow is neither started nor stopped; only a refused
+  connection means stopped) and `tests/test_license_browser_daemon.py` (the profile's own daemon is never used or
+  reloaded, even when the browser step fails; every name of 1 to 64 characters gives a daemon name browser-harness
+  takes; the session route leaves a running profile running).
+- Each fix's tests fail with the fix taken out: the run's own daemon name (2 tests), the length limit (7), and "no
+  answer is not stopped" (the slow-probe test).
+- `harness/run-definite-probe.log`, the same Task Scheduler harness on 27 October with the definite probe: mindzie
+  probed `Up`, answered **`can-approve`** through its running browser, and was "left running". agent-browser probed
+  `Refused`, so it was started, read, and "stopped again". `harness/daemons-before-and-after.txt` records that no
+  browser-harness daemon alive before the run was ended by it, and that it left none of its own behind.
+  `harness/run-own-daemon.log` is the earlier run, before the definite probe, with the same result.
 
 **Owed to the Delivery Lead's QA after the release:** the real Director's own daily check on SOREN_NORTH, shown by a
 log line with `state=can-approve` for the mindzie profile.

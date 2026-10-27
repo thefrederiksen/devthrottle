@@ -156,8 +156,10 @@ public sealed class LicenseApproverAlarmTests : IDisposable
     {
         // The 26 October shape: the approver's check failed with the longest detail a row takes, and two machines need
         // its account. Naming the account a second time took that sentence past 400 and dropped both machines' names.
+        // The second machine's name is long enough that the old sentence passes 400 here too (checked below).
+        const string machineC = "machine-c-of-the-night-factory";
         var alarm = WithReadiness();
-        _licenses.ApplyReport(One, "dir-c", ++_sequence, Report("machine-c", _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
+        _licenses.ApplyReport(One, "dir-c", ++_sequence, Report(machineC, _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
         _connected.Add("dir-c");
         ApproverOf(B, LicenseApproverStates.CheckFailed, _now, MachineB, detail: new string('d', 199) + ".");
 
@@ -165,8 +167,13 @@ public sealed class LicenseApproverAlarmTests : IDisposable
 
         var forB = Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
         Assert.StartsWith("The approver for account-b@example.com (browser profile \"Work Chrome\" on machine-b)", forB.Problem);
-        Assert.EndsWith(new string('d', 199) + ". machine-a and machine-c cannot be signed in to it until it can.", forB.Problem);
+        const string clause = " machine-a and " + machineC + " cannot be signed in to it until it can.";
+        Assert.EndsWith(new string('d', 199) + "." + clause, forB.Problem);
         Assert.True(forB.Problem.Length <= LicenseAlarmService.MaxSentenceLength);
+        // The shape the test is for: the sentence that named the account a second time is past the limit.
+        var healthText = forB.Problem[..^clause.Length];
+        Assert.True((healthText + " machine-a and " + machineC + " cannot be signed in to " + B + " until it can.").Length
+                    > LicenseAlarmService.MaxSentenceLength);
         Assert.DoesNotContain(_logged, l => l.Contains("[LicenseApproverAlarm] Broken:"));
     }
 

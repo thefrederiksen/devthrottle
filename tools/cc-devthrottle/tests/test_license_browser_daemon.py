@@ -9,9 +9,12 @@ process or reaches a browser.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -51,6 +54,32 @@ def test_runHarness_AProfileARunningSessionDrives_NeverUsesOrReloadsTheProfilesO
         (["--reload"], own, "http://work-chrome.attach.example"),
     ]
     assert all(name != "work-chrome" for _, name, _ in harness.calls)
+
+
+# browser-harness takes a daemon name of [A-Za-z0-9_-]{1,64} and refuses anything else ("invalid BU_NAME").
+_DAEMON_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+@pytest.mark.parametrize("length", [1, 18, 49, 50, 51, 64])
+@pytest.mark.parametrize("pid", [7, 99999, 4294967295])
+def test_runDaemonName_EveryProfileNameBrowserHarnessTakes_GivesANameItTakesToo(length, pid):
+    profile = ("p" * length)[:length]
+
+    name = license_signin.run_daemon_name(profile, pid)
+
+    assert _DAEMON_NAME.fullmatch(name), (len(name), name)
+    assert name != profile and name.endswith(f"-license-{pid}")
+
+
+def test_runDaemonName_AShortProfileName_IsKeptWholeSoTheDaemonIsReadable():
+    assert license_signin.run_daemon_name("work-chrome", 31648) == "work-chrome-license-31648"
+
+
+def test_runDaemonName_TwoLongProfileNamesThatShareABeginning_StayApart():
+    first = "a-very-long-browser-profile-name-the-owner-typed-for-the-factory-1"[:64]
+    second = first[:-1] + "2"
+
+    assert license_signin.run_daemon_name(first, 99999) != license_signin.run_daemon_name(second, 99999)
 
 
 def test_runHarness_TheBrowserStepFails_StillEndsOnlyItsOwnDaemon(monkeypatch):

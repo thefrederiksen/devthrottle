@@ -1,0 +1,11 @@
+How long Windows takes to refuse a connection to a closed loopback port, SOREN_NORTH, 27 October 2026.
+Port 9313 is agent-browser's debug port; the browser was stopped. PowerShell, System.Net.Sockets.TcpClient.Connect:
+
+ConnectionRefused after 2100 ms
+ConnectionRefused after 2029 ms
+ConnectionRefused after 2033 ms
+
+So the browser service's 2-second probe never sees "refused" for a stopped browser here: it times out first, and a
+timeout is all it ever reports. The first run of the definite probe kept that 2-second wait and read the stopped
+agent-browser as "no answer" (state=check-failed, nothing started or stopped). The definite probe now waits 10 seconds:
+run-definite-probe.log.

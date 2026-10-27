@@ -55,6 +55,7 @@ never logged, and no error message carries it.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import inspect
 import json
 import logging
@@ -601,10 +602,22 @@ def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> 
 RunHarness = Callable[[str, Dict[str, str], float], str]
 
 
-def run_daemon_name(profile_daemon: str) -> str:
+#: browser-harness refuses a daemon name longer than this ("invalid BU_NAME"), before it does anything.
+DAEMON_NAME_LIMIT = 64
+
+
+def run_daemon_name(profile_daemon: str, pid: Optional[int] = None) -> str:
     """The browser-harness daemon name for ONE run of this tool against the profile whose own daemon is
-    ``profile_daemon``: never the profile's own name, which a session driving that profile is using."""
-    return f"{profile_daemon}-license-{os.getpid()}"
+    ``profile_daemon``: never the profile's own name, which a session driving that profile is using.
+
+    Every profile name browser-harness takes (up to 64 characters) still works: when the profile's name and this
+    run's suffix would pass the limit, the profile's name is cut and a short hash of the whole of it keeps two long
+    names that share a beginning apart."""
+    suffix = f"-license-{os.getpid() if pid is None else pid}"
+    if len(profile_daemon) + len(suffix) <= DAEMON_NAME_LIMIT:
+        return profile_daemon + suffix
+    digest = hashlib.sha256(profile_daemon.encode("utf-8")).hexdigest()[:8]
+    return f"{profile_daemon[:DAEMON_NAME_LIMIT - len(suffix) - len(digest) - 1]}-{digest}{suffix}"
 
 
 def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> str:
