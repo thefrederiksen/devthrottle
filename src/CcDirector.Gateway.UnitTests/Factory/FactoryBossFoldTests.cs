@@ -187,6 +187,51 @@ public sealed class FactoryBossFoldTests
         Assert.False(parts.ContainsKey("limits"));
     }
 
+    // Each heading form the Delivery Lead named (27 October 2026): with or without "The", in any case, with words after it.
+    [Theory]
+    [InlineData("Why", "why")]
+    [InlineData("The why", "why")]
+    [InlineData("WHY", "why")]
+    [InlineData("The Why (E2)", "why")]
+    [InlineData("Goal", "goal")]
+    [InlineData("The goal", "goal")]
+    [InlineData("The goal (E3)", "goal")]
+    [InlineData("Limits", "limits")]
+    [InlineData("Limits the Boss cannot change without the owner's approval (E4)", "limits")]
+    public void Block_HeadingForm_FillsItsPart(string heading, string key)
+    {
+        var block = FactoryBossFold.Block($"# A factory\n\n## {heading}\n\nThe text.\n");
+
+        var part = Assert.Single(block.Parts, p => p.Key == key);
+        Assert.Equal("The text.", part.Text);
+        Assert.Null(part.EmptyText);
+        Assert.All(block.Parts.Where(p => p.Key != key), p => Assert.Equal("not set yet", p.EmptyText));
+    }
+
+    [Fact]
+    public void Block_WhatTheBossMayDo_IsUnderNoPart()
+    {
+        var block = FactoryBossFold.Block("## What the Boss may do\n\nEverything else.\n");
+
+        Assert.All(block.Parts, p =>
+        {
+            Assert.Null(p.Text);
+            Assert.Equal("not set yet", p.EmptyText);
+        });
+    }
+
+    [Fact]
+    public void Split_ThePartsWordLaterInTheHeading_IsNotThatPart()
+    {
+        Assert.Empty(FactoryBossFold.Split("## What is the goal\nNot the goal.\n"));
+    }
+
+    [Fact]
+    public void Split_AnEmptyHeading_IsUnderNoPart()
+    {
+        Assert.Empty(FactoryBossFold.Split("##\nText.\n"));
+    }
+
     [Fact]
     public void Split_WindowsLineEndings_ReadTheSameAsUnix()
     {
