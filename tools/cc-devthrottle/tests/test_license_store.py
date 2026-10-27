@@ -1438,19 +1438,93 @@ def backups_holding(world: World, key: str) -> list[str]:
     return [f for f in world.backups() if world.key_at(f) == key]
 
 
-def test_keptCopy_SignedOutByHand_TheCopyIsDroppedAndNothingIsKept(world):
-    # `/logout` revokes the sign-in on the server: a spare made from the copy would be dead, so none is made.
+def test_keptCopy_NothingActive_TheCopyIsKept_AndAnotherSignInThenKeepsAAsASpare(world):
+    # An empty default folder is what a `/logout` leaves - and what a moment of Claude Code's own save of a login
+    # looks like - so it proves nothing, and the copy is kept as it is. When another account's sign-in arrives, A is
+    # kept as a spare. After a real `/logout` that spare is revoked: loud (the usage read reports it refused) and
+    # removable (`license remove`), never a login deleted quietly.
     a_key = world.sign_in(world.default, ACCOUNT_A)
     world.store().held_accounts()
     world.backend().delete(world.default)
     (Path(world.default) / ".claude.json").write_text("{}", encoding="utf-8")
-    world.gone_ok = frozenset({a_key})
+
+    first = world.store()
+    assert first.held_accounts() == [] and first.last_kept == []
+    assert world.key_at(_copy(world)) == a_key and world.email_at(_copy(world)) == ACCOUNT_A
+
+    world.sign_in(world.default, ACCOUNT_C)
+    second = world.store()
+
+    assert [(h.email, h.role) for h in second.held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_keptCopy_NothingActiveThenTheSameAccountAgain_TheCopyFollowsIt_AndNothingIsKept(world):
+    old = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    world.backend().delete(world.default)
+    new = world.sign_in(world.default, ACCOUNT_A)
+    world.gone_ok = frozenset({old})
 
     store = world.store()
 
-    assert store.held_accounts() == [] and store.last_kept == []
-    assert world.key_at(_copy(world)) is None and world.email_at(_copy(world)) is None
+    assert [(h.email, h.role) for h in store.held_accounts()] == [(ACCOUNT_A, "active")]
+    assert world.key_at(_copy(world)) == new and store.last_kept == []
+
+
+def _part_way_through_saving_a_login(world: World, account_block: str) -> None:
+    """The default folder as Claude Code's own save of a login leaves it part way (read from Claude Code 2.1.311): the
+    credentials rewritten WITHOUT the sign-in, and the account block still the old one or already cleared."""
+    world.backend().write(world.default, HeldKey(json.dumps({"someOtherField": True})))
+    if account_block == "cleared":
+        (Path(world.default) / ".claude.json").write_text(json.dumps({"numStartups": 7}), encoding="utf-8")
+
+
+@pytest.mark.parametrize("account_block", ["intact", "cleared"])
+def test_keptCopy_StoreOpenedWhileClaudeCodeSavesALogin_TheCopyIsUntouched_AndAIsKeptOnceTheLoginLands(
+        world, account_block):
+    # Review of pull request 4532, finding 1: the Director opens the store every 30 seconds, and one open can land
+    # inside Claude Code's save of a hand login. Read there, the default folder is neither A nor C. The copy must come
+    # out of that open exactly as it went in - not rewritten with the half-written document, not dropped - so that
+    # when C's login lands, A is kept once, as a spare, with its own key.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    _part_way_through_saving_a_login(world, account_block)
+
+    mid = world.store()
+    mid.held_accounts()
+
+    assert world.key_at(_copy(world)) == a_key and world.email_at(_copy(world)) == ACCOUNT_A
+    assert mid.last_kept == []
+
+    c_key = world.sign_in(world.default, ACCOUNT_C)
+    after = world.store()
+
+    assert [(h.email, h.role) for h in after.held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key
+    assert world.key_at(_copy(world)) == c_key
     world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("kind", ["file", "keychain"])
+def test_keptCopy_AKeepACrashInterrupted_IsReportedByTheRunThatFinishesIt(tmp_path, kind):
+    world = World(tmp_path, kind)
+    world.removed = set()
+    world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    world.sign_in(world.default, ACCOUNT_C)
+
+    def crash_at_the_move(label):
+        if label == "rename-folder":
+            raise SimulatedCrash(label)
+
+    with pytest.raises(SimulatedCrash):
+        world.store(checkpoint=crash_at_the_move).held_accounts()
+    store = world.store()
+    store.held_accounts()
+
+    assert [(k.account, k.kept_in) for k in store.last_kept] == [(ACCOUNT_A, _spare(world, ACCOUNT_A))]
 
 
 def test_keptCopy_TheReplacedAccountsSpareFolderExists_TheCopyIsNeverWrittenOver_AndTheNextOpenKeepsIt(world):

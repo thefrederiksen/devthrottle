@@ -38,7 +38,8 @@ The Gateway learns of the new spare with no change: every usage report the Direc
 
 The 26 October overwrite was neither of the paths above: the owner typed `/login` inside a session, and Claude Code
 wrote the new sign-in over the active one. Nothing of ours runs before that write. But the key store is opened every
-two minutes by the Director (its usage read), so it now keeps a COPY of the active sign-in, in
+30 seconds by the Director (`license list`; its usage read every two minutes), so it now keeps a COPY of the active
+sign-in, in
 `<store>/active-copy/`, brought up to date every time it is opened and every time the store itself writes the active
 key (a renewal, a sign-in). When the store finds the default folder holding another account, and the copy's account
 held nowhere, the copy is moved - journaled, like the heal - into that account's spare folder. The replaced account
@@ -47,8 +48,19 @@ is a spare again, with its own sign-in, on the next open; the Director's next re
 Why a copy is safe here, when the store's first rule is that a key is never copied: that rule exists because two
 copies that are both USED share one refresh token, and a refresh in one kills the other (measured,
 `missions/license-switching/spare-refresh.md`). This copy is never used - never listed, renewed, refreshed or
-switched to - so it never rotates the token. It is dropped, not kept, when its account is held elsewhere (a switch
-put it away) or when the default folder holds no sign-in (a `/logout`, which revokes the sign-in on the server).
+switched to - so it never rotates the token. It is deleted in one case only: its account is held elsewhere (a switch
+put it away).
+
+While Claude Code is part way through saving a login, nothing is decided. Its save first rewrites the credentials
+WITHOUT the sign-in, then writes the account block, then the new tokens (read from Claude Code 2.1.311). A store
+opened in that moment finds a credentials document holding no access and refresh token, or a key with no account
+block; the copy is left exactly as it was, and the next open decides (the review of this pull request, finding 1: it
+used to overwrite or drop the copy there, and the replaced account was lost).
+
+An empty default folder is not proof of anything either: it is what `/logout` leaves, and what a moment of that save
+can look like. The copy is kept until another sign-in arrives. After a real `/logout` followed by a login to another
+account, the revoked sign-in becomes a spare that the usage read reports refused - the Gateway never switches onto a
+refused spare - and `license remove` clears it. Loud and removable, never a login deleted quietly.
 
 Why the copy still works after the login, read from the installed Claude Code 2.1.311 (the program only; no sign-in
 was touched): `/logout` revokes - its logout routine posts the refresh token to the token endpoint's `/revoke` -
@@ -56,10 +68,10 @@ but installing a new login calls that routine with `preserveInProcessTokens: tru
 replaced sign-in is still alive on the server.
 
 The one thing it cannot do: when Claude Code refreshes the active sign-in (about every eight hours) and a hand sign-in
-replaces it before the store is opened again (within two minutes on a Director), the copy is one refresh behind, and
+replaces it before the store is opened again (within 30 seconds on a Director), the copy is one refresh behind, and
 the refresh spent its refresh token (`invalid_grant`, measured). The account is still kept as a spare, and the next
-usage read finds its sign-in refused and reports it. About two minutes in eight hours, so roughly 1 hand sign-in in
-240. A test pins this so it is never mistaken for more.
+usage read finds its sign-in refused and reports it. About 30 seconds in eight hours, so roughly 1 hand sign-in in
+960. A test pins this so it is never mistaken for more.
 
 The way to sign in by hand with nothing at risk is `license sign-in --make-active`. No Director (C#) path replaces
 the active login: the Director only adds spares and renews in place through this same tool, so no C# was changed.
@@ -120,9 +132,14 @@ The kept copy, in `tests/test_license_store.py` (each on the credentials file an
 - `test_keptCopy_ClaudeCodeRefreshesTheActiveSignIn_TheNextOpenTakesTheNewKey`.
 - `test_keptCopy_ActiveRefreshedThenReplacedBeforeTheNextOpen_TheKeptSpareHoldsTheKeyTheCopyHad` - the limit above.
 - `test_keptCopy_ASwitchPutsTheActiveAway_TheCopyIsDroppedSoTheAccountIsKeptOnce`.
-- `test_keptCopy_SignedOutByHand_TheCopyIsDroppedAndNothingIsKept`.
+- `test_keptCopy_StoreOpenedWhileClaudeCodeSavesALogin_TheCopyIsUntouched_AndAIsKeptOnceTheLoginLands` - the
+  review's finding 1, both half states (the credentials gutted with the old account block intact, and with it
+  cleared): the open in the middle leaves the copy as it was, and when C's login lands A is a spare with its own key.
+- `test_keptCopy_NothingActive_TheCopyIsKept_AndAnotherSignInThenKeepsAAsASpare`.
+- `test_keptCopy_NothingActiveThenTheSameAccountAgain_TheCopyFollowsIt_AndNothingIsKept`.
 - `test_keptCopy_TheReplacedAccountsSpareFolderExists_TheCopyIsNeverWrittenOver_AndTheNextOpenKeepsIt`.
 - `test_keptCopy_CrashAtEveryChangePoint_TheReplacedAccountIsKeptOnceAndNeverLost`.
+- `test_keptCopy_AKeepACrashInterrupted_IsReportedByTheRunThatFinishesIt`.
 - `tests/test_license_cli.py::test_list_HandSignInToAnAccountNotHeld_KeepsTheReplacedOneAsASpare_AndSaysSo`.
 
 Changed, because they encoded the loss this step removes: the heal tests (`test_heal_*`,
@@ -132,15 +149,19 @@ heal's change points; keeping the account has a crash test of its own. And
 `test_refresh_key_ActiveKey_AfterRenewal_*` now finds the renewed key in the default folder and the kept copy, and the
 spent token nowhere.
 
-Revert check: with `_keep_active_copy` returning at once, 28 test runs failed - 14 of the 16 new kept-copy runs
-(the signed-out pair passes either way, since it asserts nothing is kept) and the changed ones above. Restored, all
-pass.
+Revert checks:
+
+- With `_keep_active_copy` returning at once, 28 test runs failed: 14 of the first 16 kept-copy runs, plus the
+  changed tests above. The 2 that passed were the signed-out pair, which then asserted that nothing was kept.
+- With the store put back to the version the review read (commit f4e991c42), exactly the 8 runs written for the
+  review's finding 1 fail: both half states on both backends, the nothing-active case, and the crash-recovery
+  report. Restored, all pass.
 
 `FakeSecurity` and `World` moved from `test_license_store.py` to `tests/license_store_world.py`, so each test file
 collects on its own: importing one test file from another resolved `tests` to an unrelated installed package on a
 machine that has one.
 
-`tool-tests-output.txt`: the whole `tools/cc-devthrottle` suite, 5,353 passed and 6 skipped, on Python 3.11 with
+`tool-tests-output.txt`: the whole `tools/cc-devthrottle` suite, 5,361 passed and 6 skipped, on Python 3.11 with
 the dependency floors the CI job installs, and both license test files collecting alone on the machine's own Python.
 No C# was touched, so `scripts\test-local.ps1` was not run.
 

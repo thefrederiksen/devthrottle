@@ -38,7 +38,8 @@ THE RULES THIS MODULE EXISTS TO KEEP:
   replaced is still kept - as a spare, the next time the store is opened (the owner's decision of 26 October 2026).
   It does not break the rule above, because the copy is never USED: never listed, renewed, refreshed or switched to,
   so it can never rotate the refresh token the active sign-in holds. A refresh of the active sign-in leaves the copy
-  stale until the next open (a few minutes for a Director). See ``_keep_active_copy``.
+  stale until the next open (30 seconds for a Director). While Claude Code is part way through saving a login,
+  the store decides nothing and leaves the copy as it is. See ``_keep_active_copy``.
 - The machine's real default folder is refused unless ``allow_real_default`` is passed. The command line passes
   it only when ``CC_LICENSE_ALLOW_REAL_DEFAULT`` is "1", which a Director sets for its own runs of the tool when its
   license switching setting is on; a command typed by hand, a test or a proof still cannot touch the real login.
@@ -180,6 +181,17 @@ class HeldKey:
                 ["Sign the account in again with: claude auth login"],
             )
         return token
+
+    def is_sign_in(self) -> bool:
+        """True when the key holds a whole sign-in: ``claudeAiOauth`` with an access token AND a refresh token. Claude
+        Code's own save of a login first rewrites the credentials WITHOUT ``claudeAiOauth`` and writes the new tokens
+        last, so a key read part way through is a document that holds no sign-in."""
+        try:
+            oauth = json.loads(self._secret)["claudeAiOauth"]
+        except (ValueError, KeyError, TypeError):
+            return False
+        return isinstance(oauth, dict) and all(
+            isinstance(oauth.get(name), str) and oauth.get(name) for name in ("accessToken", "refreshToken"))
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -934,6 +946,9 @@ class LicenseStore:
             if journal.get("operation") == "heal":
                 # A heal a crash interrupted is still a heal the Director must hear about.
                 self.last_heals.append(HandSignInHeal.from_journal(journal))
+            if journal.get("operation") == "keep-replaced":
+                # And so is an account a sign-in by hand replaced, kept by a move a crash interrupted.
+                self.last_kept.append(KeptReplacedSignIn.from_journal(journal))
             self.last_recovery = (
                 f"an unfinished {journal.get('operation')} of {journal.get('account')} was found and finished"
             )
@@ -1034,27 +1049,40 @@ class LicenseStore:
         active key differs from it. Nothing reads it but this method: it is not a spare, so it is never listed, renewed,
         refreshed or switched to, and it never rotates the refresh token the active sign-in holds (trap 2 is about two
         copies that are both USED). When Claude Code refreshes the active sign-in, the copy is stale until the next time
-        the store is opened - a Director opens it every two minutes, and a refresh comes about every eight hours.
+        the store is opened - a Director opens it every 30 seconds (``license list``), and a refresh comes about every
+        eight hours.
+
+        WHILE CLAUDE CODE IS SAVING A LOGIN, NOTHING IS DECIDED. Its save first rewrites the credentials WITHOUT the
+        sign-in, then writes the account block, then the new tokens - so for a moment the default folder holds a key
+        that is not a sign-in (``HeldKey.is_sign_in``), or a key with no account block. Read in that moment, it is
+        neither the old account nor the new one: the copy is left exactly as it is, and the next open decides.
 
         WHEN THE ACTIVE ACCOUNT CHANGED UNDER IT. The copy's account is not the active one any more:
-        - the default folder holds ANOTHER account, and the copy's account is held nowhere: a sign-in by hand replaced
-          it. The copy is moved, whole, into that account's spare folder (journaled, like a heal), and it is a spare.
-          When the copy was stale, the usage read finds its sign-in refused and reports it; nothing here can tell.
-        - the copy's account is held elsewhere (a switch put it away), or the default folder holds no sign-in at all (a
-          ``/logout``, which revoked it on the server): the copy is dropped, and nothing is lost.
+        - the copy's account is held elsewhere (a switch put it away): the copy is dropped, and nothing is lost. This
+          is the ONLY case in which the copy is deleted - on proof that its account is held.
+        - the default folder holds ANOTHER account's sign-in, and the copy's account is held nowhere: a sign-in by hand
+          replaced it. The copy is moved, whole, into that account's spare folder (journaled, like a heal), and it is a
+          spare. When the copy was stale, the usage read finds its sign-in refused and reports it.
+        - the default folder holds no sign-in: the copy is kept as it is until one arrives. An empty folder is what a
+          ``/logout`` leaves, but a moment of Claude Code's save can look the same, so it is not proof of anything. The
+          cost is loud and removable: after a real ``/logout`` and a login to another account, the revoked sign-in
+          becomes a spare the usage read reports refused, which ``license remove`` clears.
         A spare folder for the replaced account that exists already - a new spare's sign-in waiting for its approval -
         stops the move; then the copy is left exactly as it is, never written over, and the next open tries again."""
         copy = self.active_copy_dir
-        copied = _email_of(read_oauth_account(copy)) if self.backend.exists(copy) else None
         active_key = self.backend.read(self.default_config_dir)
         active = _email_of(read_oauth_account(self.default_config_dir)) if active_key is not None else None
+        if active_key is not None and (active is None or not active_key.is_sign_in()):
+            return
+        copied = _email_of(read_oauth_account(copy)) if self.backend.exists(copy) else None
         if copied is not None and copied.lower() != (active or "").lower():
-            if active is not None and self._find(copied) is None:
-                if not self._keep_replaced(copied):
-                    return
-            else:
-                self._drop_active_copy(copied, "held elsewhere" if active is not None else "nothing is active")
-        if active_key is None or active is None:
+            if self._find(copied) is not None:
+                self._drop_active_copy(copied, "held elsewhere")
+            elif active is None:
+                return
+            elif not self._keep_replaced(copied):
+                return
+        if active_key is None:
             return
         present = self.backend.read(copy)
         if present is not None and present.same_as(active_key) and (_email_of(read_oauth_account(copy)) or "") == active:
@@ -1520,6 +1548,12 @@ class KeptReplacedSignIn:
     account: str
     kept_in: str
     kept_at: _dt.datetime
+
+    @staticmethod
+    def from_journal(journal: dict) -> "KeptReplacedSignIn":
+        """The keep a journal describes, for a keep finished by recovery."""
+        started = _dt.datetime.fromisoformat(str(journal["startedAt"])).astimezone(_dt.timezone.utc)
+        return KeptReplacedSignIn(str(journal["account"]), journal["steps"][0]["to"], started)
 
     def to_json(self) -> dict:
         """For ``--json``: an email, a folder and a time. No key."""
