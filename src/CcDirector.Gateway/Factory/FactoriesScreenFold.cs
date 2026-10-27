@@ -292,6 +292,7 @@ public static class FactoriesScreenFold
                 BulkHandled = FactoryOwnerActions.BulkHandledAction(factory, open, zone, now),
                 BulkHandledNote = FactoryOwnerActions.BulkHandledNote(open, now),
             },
+            Seats = SeatsCard(factory, input),
             BossLatest = BossLatest(factory, boss, input),
             LastTalk = LastTalk(factory, input.Talks, input.Schedules, zone, now),
             TruncatedText = Truncated(input.Activity),
@@ -305,6 +306,29 @@ public static class FactoriesScreenFold
                 open.Count),
         };
     }
+
+    /// <summary>"Seats": the heading of the Overview's seats card.</summary>
+    public const string SeatsHeading = "Seats";
+
+    /// <summary>
+    /// THE SEATS ON THE OVERVIEW (the owner's target of 26 October 2026): one line per seat, read without a tap. Folded
+    /// FROM the Seats tab's own rows, so a line's words, its last run and that last run's tone are the tab's and cannot
+    /// drift from it: "Boss - Every day at 07:00. Last run: Today 07:00 - succeeded."
+    /// </summary>
+    public static FactorySeatsCardDto SeatsCard(RegisteredFactoryDto factory, FactoriesScreenInputs input) => new()
+    {
+        Heading = SeatsHeading,
+        Lines = Seats(factory, input).Rows.Select(SeatLine).ToList(),
+    };
+
+    /// <summary>One seat's line on the Overview, from its Seats tab row.</summary>
+    public static FactorySeatLineDto SeatLine(FactorySeatRowDto row) => new()
+    {
+        SeatId = row.SeatId,
+        Text = $"{row.Name} - {row.WhenText}. Last run: {row.LastRunText}.",
+        Tone = row.LastRunTone,
+        Href = row.Href,
+    };
 
     /// <summary>The sentence that ends a line about a file the Director turned into ask rules.</summary>
     public const string FolderDenyRewrittenAdvice =

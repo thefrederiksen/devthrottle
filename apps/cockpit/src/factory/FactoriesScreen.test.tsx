@@ -386,17 +386,41 @@ describe("A factory's page (mockup 2)", () => {
     expect(now.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("reads top to bottom: open problems, failures, what we are doing now, Needs you, the drawing, then the Boss", async () => {
+  it("reads top to bottom: open problems, failures, what we are doing now, Needs you, the seats, the drawing, then the Boss", async () => {
     renderAt("/factories/warmforward");
 
     const overview = await screen.findByTestId("fa-overview");
-    const order = ["fa-page-problems", "fa-page-failing", "fa-now", "fa-page-waiting", "fd-panel", "fa-boss-block"].map((id) =>
+    const order = ["fa-page-problems", "fa-page-failing", "fa-now", "fa-page-waiting", "fa-seats-card", "fd-panel", "fa-boss-block"].map((id) =>
       within(overview).getByTestId(id),
     );
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     expect(overview.lastElementChild).toBe(within(overview).getByTestId("fa-boss-block"));
+  });
+
+  it("shows the seats in the Gateway's words, each a link to its seat page, between Needs you and the drawing", async () => {
+    renderAt("/factories/warmforward");
+
+    const card = await screen.findByTestId("fa-seats-card");
+    expect(within(card).getByRole("heading").textContent).toBe("Seats (fixture)");
+    const links = within(card).getAllByTestId("fa-seat-line");
+    expect(links.map((a) => a.textContent)).toEqual([
+      "Boss - Daily 07:00. Last run: Today 07:00 - failed. (fixture)",
+      "Value Hunter - Talk only. Last run: Not run yet. (fixture)",
+    ]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/factories/warmforward/seats/nora-hale",
+      "/factories/warmforward/seats/value-hunter",
+    ]);
+    // The last run's tone, the way the Seats tab colours it.
+    expect(links[0].className).toContain("fa-lastrun");
+    expect(links[0].className).toContain("fa-tone-red");
+    const overview = screen.getByTestId("fa-overview");
+    const waiting = within(overview).getByTestId("fa-page-waiting");
+    const drawing = within(overview).getByTestId("fd-panel");
+    expect(waiting.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("always shows Needs you: with open problems and nothing waiting it says the Gateway's empty line", async () => {

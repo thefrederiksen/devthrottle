@@ -1357,4 +1357,67 @@ epo", Seed = "/help" };
         Assert.Equal("person", read.AuthorKind);
         Assert.Null(read.WriterSeat);
     }
+
+    // ---------- the seats on the Overview (the owner's target, 26 October 2026) ----------
+
+    [Fact]
+    public void Page_SeatsCard_OneLinePerSeat_InTheSeatsTabsOrder_BossFirst_InTheTabsWords()
+    {
+        var f = Factory("warmforward", "WarmForward", "nora-hale",
+            Seat("content", "Content", "Content", "cj_content"), Seat("nora-hale", "Boss", "Boss", "cj_ceo"),
+            Seat("conversion", "Conversion", "Conversion"));
+        var jobs = new[] { Job("cj_ceo", "0 7 * * *", lastFired: Now.AddHours(-3), lastStatus: "started"), Job("cj_content", "0 5 * * *") };
+        var rows = new[]
+        {
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Started, "Run started.", Now.AddHours(-3), session: "s1"),
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Failed, "Feed down.", Now.AddHours(-3).AddMinutes(2), session: "s1"),
+        };
+
+        var card = FactoriesScreenFold.Page(f, Inputs(new[] { f }, rows, jobs)).Seats;
+
+        Assert.Equal("Seats", card.Heading);
+        Assert.Equal(new[] { "nora-hale", "content", "conversion" }, card.Lines.Select(l => l.SeatId));
+        Assert.Equal("Boss - Daily 07:00. Last run: Today 07:00 - failed.", card.Lines[0].Text);
+        Assert.Equal(FactoryTone.Red, card.Lines[0].Tone);
+        Assert.Equal("/factories/warmforward/seats/nora-hale", card.Lines[0].Href);
+    }
+
+    [Fact]
+    public void Page_SeatsCard_ASeatWithNoSchedule_SaysTalkOnly_AndOneThatNeverRan_SaysNotRunYet()
+    {
+        var f = Factory("x", "X", null, Seat("content", "Content", "Content", "cj_content"), Seat("conversion", "Conversion", "Conversion"));
+
+        var lines = FactoriesScreenFold.Page(f, Inputs(new[] { f }, jobs: new[] { Job("cj_content", "0 5 * * *") })).Seats.Lines;
+
+        Assert.Equal("Content - Daily 05:00. Last run: Not run yet.", lines[0].Text);
+        Assert.Equal(FactoryTone.Grey, lines[0].Tone);
+        Assert.Equal("Conversion - Talk only. Last run: Not run yet.", lines[1].Text);
+    }
+
+    [Fact]
+    public void Page_SeatsCard_EachLinesVerdict_IsTheSeatsTabRowsVerdict()
+    {
+        var jobs = new[]
+        {
+            Job("cj_ceo", "15 6 * * *", lastFired: Now.AddHours(-4), lastStatus: "started"),
+            Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-5), lastStatus: ScheduleFailedStatus()),
+            Job("cj_rel", "0 6,18 * * *"),
+        };
+        var rows = new[]
+        {
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Started, "Run started.", Now.AddHours(-4), session: "s1"),
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Asked, "Which room?", Now.AddHours(-4).AddMinutes(1), session: "s1"),
+        };
+        var input = Inputs(new[] { WarmForward() }, rows, jobs);
+
+        var tab = FactoriesScreenFold.Seats(WarmForward(), input).Rows;
+        var lines = FactoriesScreenFold.Page(WarmForward(), input).Seats.Lines;
+
+        Assert.Equal(tab.Select(r => r.SeatId), lines.Select(l => l.SeatId));
+        Assert.Equal(tab.Select(r => r.LastRunTone), lines.Select(l => l.Tone));
+        Assert.Equal(tab.Select(r => r.Href), lines.Select(l => l.Href));
+        Assert.All(tab.Zip(lines), p => Assert.Equal($"{p.First.Name} - {p.First.WhenText}. Last run: {p.First.LastRunText}.", p.Second.Text));
+    }
+
+    private static string ScheduleFailedStatus() => FactoriesScreenFold.ScheduleFailedStatuses.OrderBy(s => s, StringComparer.Ordinal).First();
 }
