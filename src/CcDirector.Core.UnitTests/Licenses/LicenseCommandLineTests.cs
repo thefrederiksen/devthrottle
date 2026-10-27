@@ -272,6 +272,166 @@ public sealed class LicenseCommandLineTests
         Assert.Equal("", tool.AllowRealDefault());
     }
 
+    // ----- run by the Director: the browser profile is started here (mission "Licenses - Loud When Stranded", step 4) -----
+    //
+    // 19 to 26 October 2026 every approver check the Director ran failed in seconds: the tool opened a profile only
+    // through the Gateway as a session, and the Director's own process is not one ("CC_DIRECTOR_ID is not set"). Each
+    // run that drives a profile now has the Director start it, and is handed its attach values in its environment.
+
+    private sealed class FakeOpener : ILicenseBrowserOpener
+    {
+        public readonly List<string> Opened = new();
+        public int PutBack;
+        public string? Refuse;
+
+        public Task<LicenseOpenedBrowser> OpenAsync(string idOrName, CancellationToken cancellationToken)
+        {
+            Opened.Add(idOrName);
+            if (Refuse is not null) throw new LicenseCommandLineException(Refuse);
+            return Task.FromResult(new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://127.0.0.1:9333",
+                () => { PutBack++; return Task.CompletedTask; }));
+        }
+    }
+
+    private sealed record ToolCall(IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Environment);
+
+    private static (CcDevthrottleLicenseCommandLine Tool, List<ToolCall> Calls) DirectorTool(FakeOpener opener, Func<IReadOnlyList<string>, string> answer,
+        int exitCode = 0, string? toolPath = "cc-devthrottle-not-run")
+    {
+        var calls = new List<ToolCall>();
+        var tool = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null, AllowRealDefault: true), () => toolPath,
+            opener, (exe, args, environment, ct) =>
+            {
+                calls.Add(new ToolCall(args.ToList(), new Dictionary<string, string>(environment)));
+                return Task.FromResult(new ProcessRunner.Result(exitCode, answer(args), "", Started: true));
+            });
+        return (tool, calls);
+    }
+
+    private static readonly Dictionary<string, string> AttachedWorkChrome = new()
+    {
+        [LicenseCommandLineOptions.AllowRealDefaultVariable] = "1",
+        [LicenseBrowserOpener.AttachedIdVariable] = "work-chrome",
+        [LicenseBrowserOpener.AttachedNameVariable] = "Work Chrome",
+        ["BU_NAME"] = "work-chrome",
+        ["BU_CDP_URL"] = "http://127.0.0.1:9333",
+    };
+
+    private const string GetBrowserWorkChrome = """{"accountEmail": "account-a@example.com", "browser": "Work Chrome"}""";
+
+    [Fact]
+    public async Task CheckApproverAsync_RunByTheDirector_StartsTheProfile_HandsTheToolIt_AndPutsItBack()
+    {
+        var opener = new FakeOpener();
+        var (tool, calls) = DirectorTool(opener, _ =>
+            """{"browserProfile": "work-chrome", "accountEmail": "account-a@example.com", "shownAccount": "account-a@example.com", "state": "can-approve", "detail": "x"}""");
+
+        var answer = await tool.CheckApproverAsync("Work Chrome", "account-a@example.com", CancellationToken.None);
+
+        Assert.Equal((LicenseApproverStates.CanApprove, (string?)null), (answer.State, answer.Detail));
+        Assert.Equal(new[] { "Work Chrome" }, opener.Opened);
+        var call = Assert.Single(calls);
+        Assert.Equal(new[] { "license", "check-approver", "--browser", "work-chrome", "--email", "account-a@example.com", "--json" }, call.Args);
+        Assert.Equal(AttachedWorkChrome, call.Environment);
+        Assert.Equal(1, opener.PutBack);
+    }
+
+    [Fact]
+    public async Task CheckApproverAsync_TheToolAnswersCheckFailed_CarriesItsOwnDetail()
+    {
+        // The answer the Director got on every profile on 26 October, with exit 1.
+        var (tool, _) = DirectorTool(new FakeOpener(), _ =>
+            """{"browserProfile": "mindzie", "accountEmail": null, "state": "check-failed", "detail": "The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set."}""",
+            exitCode: 1);
+
+        var answer = await tool.CheckApproverAsync("mindzie", null, CancellationToken.None);
+
+        Assert.Equal((LicenseApproverStates.CheckFailed, true), (answer.State, answer.ToolAnswered));
+        Assert.Equal("The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set.", answer.Detail);
+    }
+
+    [Fact]
+    public async Task CheckApproverAsync_TheProfileDoesNotStart_IsCheckFailed_SayingWhy_AndRunsNoTool()
+    {
+        var opener = new FakeOpener { Refuse = "No browser profile \"gone\" is on this machine." };
+        var (tool, calls) = DirectorTool(opener, _ => throw new InvalidOperationException("the tool must not run"));
+
+        var answer = await tool.CheckApproverAsync("gone", "account-a@example.com", CancellationToken.None);
+
+        Assert.Equal((LicenseApproverStates.CheckFailed, false), (answer.State, answer.ToolAnswered));
+        Assert.Equal("No browser profile \"gone\" is on this machine.", answer.Detail);
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_RunByTheDirector_StartsTheProfile_HandsTheToolIt_AndPutsItBack()
+    {
+        var opener = new FakeOpener();
+        var (tool, calls) = DirectorTool(opener, _ =>
+            """{"accountEmail": "account-a@example.com", "result": "approved", "code": "AAAAAAAAAAAAAAAAAAAA#BBBBBBBBBBBBBBBBBBBB"}""");
+
+        await tool.ApproveAsync("https://claude.ai/oauth/authorize?x=1", "account-a@example.com", "work-chrome", CancellationToken.None);
+
+        var call = Assert.Single(calls);
+        Assert.Equal(new[] { "license", "approve", "https://claude.ai/oauth/authorize?x=1", "--email", "account-a@example.com", "--browser", "work-chrome", "--json" },
+            call.Args);
+        Assert.Equal(AttachedWorkChrome, call.Environment);
+        Assert.Equal(1, opener.PutBack);
+    }
+
+    [Fact]
+    public async Task StartSignInAsync_AProfileSetHere_ThatDoesNotStart_FailsWithoutStartingTheSignIn()
+    {
+        // The sign-in (and the renewal, which signs in again) asks the tool which profile is set here, starts it, and
+        // only then starts the sign-in.
+        var opener = new FakeOpener { Refuse = "The browser profile \"Work Chrome\" did not start on this machine: no browser." };
+        var (tool, calls) = DirectorTool(opener, _ => GetBrowserWorkChrome);
+
+        var start = await tool.StartSignInAsync("account-a@example.com", askAnotherMachineWhenNoBrowser: true, CancellationToken.None);
+
+        Assert.Equal(LicenseRenewalErrors.ApprovalFailed, start.Finished!.ReasonCode);
+        Assert.Equal(new[] { "Work Chrome" }, opener.Opened);
+        Assert.Equal(new[] { "license", "get-browser", "account-a@example.com", "--json" }, Assert.Single(calls).Args);
+    }
+
+    [Fact]
+    public async Task StartSignInAsync_AProfileSetHere_IsStarted_AndPutBackWhenTheSignInEnds()
+    {
+        // The sign-in's program does not exist here, so it cannot start: the profile is put back all the same.
+        var opener = new FakeOpener();
+        var missing = Path.Combine(Path.GetTempPath(), "no-such-tool-" + Guid.NewGuid().ToString("N") + ".exe");
+        var (tool, _) = DirectorTool(opener, _ => GetBrowserWorkChrome, toolPath: missing);
+
+        var start = await tool.StartSignInAsync("account-a@example.com", askAnotherMachineWhenNoBrowser: true, CancellationToken.None);
+
+        Assert.Equal(LicenseRenewalErrors.LoginFailed, start.Finished!.ReasonCode);
+        Assert.Equal(new[] { "Work Chrome" }, opener.Opened);
+        Assert.Equal(1, opener.PutBack);
+    }
+
+    [Fact]
+    public async Task StartSignInAsync_NoProfileSetHere_StartsNoBrowser()
+    {
+        var opener = new FakeOpener();
+        var missing = Path.Combine(Path.GetTempPath(), "no-such-tool-" + Guid.NewGuid().ToString("N") + ".exe");
+        var (tool, _) = DirectorTool(opener, _ => """{"accountEmail": "account-a@example.com", "browser": null}""", toolPath: missing);
+
+        await tool.StartSignInAsync("account-a@example.com", askAnotherMachineWhenNoBrowser: true, CancellationToken.None);
+
+        Assert.Empty(opener.Opened);
+    }
+
+    [Fact]
+    public void RunEnvironment_AProfileStartedForTheRun_IsHandedToTheTool_BesideTheAllowance()
+    {
+        // The sign-in's own process is built from this same environment.
+        var tool = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null, AllowRealDefault: true), () => null);
+        var browser = new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://127.0.0.1:9333", () => Task.CompletedTask);
+
+        Assert.Equal(AttachedWorkChrome, tool.RunEnvironment(browser));
+        Assert.Equal(new Dictionary<string, string> { [LicenseCommandLineOptions.AllowRealDefaultVariable] = "1" }, tool.RunEnvironment(null));
+    }
+
     /// <summary>A stand-in for <c>cc-devthrottle</c>: writes each argument it was given on its own line and the
     /// allow-real-default variable it saw, and answers one usage row.</summary>
     private sealed class RecordingTool : IDisposable

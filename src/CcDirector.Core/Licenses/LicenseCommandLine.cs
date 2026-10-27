@@ -158,8 +158,14 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
 
     private readonly LicenseCommandLineOptions _options;
     private readonly Func<string?> _resolveTool;
+    private readonly ILicenseBrowserOpener _browsers;
+    private readonly ToolRun _run;
     private readonly object _healedGate = new();
     private readonly List<LicenseHandSwitch> _healed = new();
+
+    /// <summary>How one run of the tool is made: the program, its arguments, the variables added to its environment.</summary>
+    internal delegate Task<ProcessRunner.Result> ToolRun(string exe, IReadOnlyList<string> args,
+        IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken);
 
     public CcDevthrottleLicenseCommandLine(LicenseCommandLineOptions options)
         : this(options, ResolveOwnCopy)
@@ -168,9 +174,34 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
 
     /// <param name="resolveTool">Test seam: where the tool is, or null when it is not installed.</param>
     internal CcDevthrottleLicenseCommandLine(LicenseCommandLineOptions options, Func<string?> resolveTool)
+        : this(options, resolveTool, new LicenseBrowserOpener(), RunProcessAsync)
+    {
+    }
+
+    /// <param name="browsers">Test seam: how this Director starts its own browser profile for a run.</param>
+    /// <param name="run">Test seam: how a run of the tool that answers JSON is made.</param>
+    internal CcDevthrottleLicenseCommandLine(LicenseCommandLineOptions options, Func<string?> resolveTool, ILicenseBrowserOpener browsers,
+        ToolRun run)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _resolveTool = resolveTool ?? throw new ArgumentNullException(nameof(resolveTool));
+        _browsers = browsers ?? throw new ArgumentNullException(nameof(browsers));
+        _run = run ?? throw new ArgumentNullException(nameof(run));
+    }
+
+    private static Task<ProcessRunner.Result> RunProcessAsync(string exe, IReadOnlyList<string> args,
+        IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken)
+        => ProcessRunner.RunAsync(exe, args, workingDirectory: null, standardInput: null, environment, cancellationToken);
+
+    /// <summary>The variables a run of the tool is given: the allowance (<see cref="LicenseCommandLineOptions.ToolEnvironment"/>)
+    /// and, for a run that drives a browser profile, the profile this Director started for it.</summary>
+    internal IReadOnlyDictionary<string, string> RunEnvironment(LicenseOpenedBrowser? browser)
+    {
+        var environment = new Dictionary<string, string>(_options.ToolEnvironment());
+        if (browser is not null)
+            foreach (var (name, value) in LicenseBrowserOpener.EnvironmentFor(browser))
+                environment[name] = value;
+        return environment;
     }
 
     /// <summary>
@@ -270,8 +301,9 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     /// </summary>
     /// <param name="timeout">How long this run may take; <see cref="CallTimeout"/> when null.</param>
     /// <param name="isolated">False for a subcommand that touches no key store and so takes no folder options.</param>
+    /// <param name="browser">The browser profile this Director started for a run that drives one; null for every other.</param>
     private async Task<string> RunForJsonAsync(IReadOnlyList<string> subcommand, CancellationToken cancellationToken,
-        TimeSpan? timeout = null, bool isolated = true)
+        TimeSpan? timeout = null, bool isolated = true, LicenseOpenedBrowser? browser = null)
     {
         var exe = _resolveTool()
             ?? throw new LicenseCommandLineException(
@@ -287,7 +319,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
             limit.CancelAfter(allowed);
             try
             {
-                result = await ProcessRunner.RunAsync(exe, args, workingDirectory: null, standardInput: null, _options.ToolEnvironment(), limit.Token);
+                result = await _run(exe, args, RunEnvironment(browser), limit.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

@@ -541,8 +541,50 @@ class BrowserProfile(Protocol):
     def stop(self) -> None: ...
 
 
-def director_browser(profile: str) -> BrowserProfile:
-    """The Director's own browser profile ``profile`` (name or id), started if it was stopped."""
+#: Set by the Director on its OWN runs of this tool, with BU_NAME and BU_CDP_URL: the identifier and the display name
+#: of the browser profile it has started for this run. Never set in a session.
+ENV_ATTACHED_BROWSER_ID = "CC_LICENSE_ATTACHED_BROWSER_ID"
+ENV_ATTACHED_BROWSER_NAME = "CC_LICENSE_ATTACHED_BROWSER_NAME"
+
+
+class AttachedBrowser:
+    """A browser profile the Director running this tool has started for the run. The Director puts it back after
+    the run, so ``stop`` does nothing here."""
+
+    def __init__(self, profile_id: str, name: str, env: Dict[str, str]):
+        self.id = profile_id
+        self.name = name
+        self._env = env
+
+    def environment(self) -> Dict[str, str]:
+        return dict(self._env)
+
+    def stop(self) -> None:
+        return None
+
+
+def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> BrowserProfile:
+    """The Director's own browser profile ``profile`` (name or id), started if it was stopped.
+
+    Run BY the Director (sign-in, renew, approve, check-approver), the profile is the one the Director started for
+    this run and named in ENV_ATTACHED_BROWSER_ID. The Director's own process has no session, so the Gateway route
+    below - which needs CC_DIRECTOR_ID and a session key - answered "CC_DIRECTOR_ID is not set" on every one of its
+    runs (19 to 26 October 2026: every approver check failed in seconds). Run in a session, it is started through
+    the Gateway as before."""
+    environ = os.environ if environ is None else environ
+    attached = (environ.get(ENV_ATTACHED_BROWSER_ID) or "").strip()
+    if attached:
+        name = (environ.get(ENV_ATTACHED_BROWSER_NAME) or "").strip() or attached
+        if profile.strip().lower() not in (attached.lower(), name.lower()):
+            raise SignInError(APPROVAL_FAILED, f"the Director started the browser profile \"{name}\" for this run, "
+                                               f"not \"{profile}\"")
+        bu_name = (environ.get("BU_NAME") or "").strip()
+        cdp_url = (environ.get("BU_CDP_URL") or "").strip()
+        if not bu_name or not cdp_url:
+            raise SignInError(APPROVAL_FAILED, f"the Director started the browser profile \"{name}\" for this run but "
+                                               "did not give BU_NAME and BU_CDP_URL")
+        return AttachedBrowser(attached, name, {"BU_NAME": bu_name, "BU_CDP_URL": cdp_url})
+
     from cc_shared import gateway
 
     from . import browser_ops
