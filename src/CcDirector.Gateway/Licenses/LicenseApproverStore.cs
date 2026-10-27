@@ -48,6 +48,16 @@ public sealed record LicenseApproverRemoval(string AccountEmail, string MachineN
            && string.Equals(BrowserProfile, browserProfile, StringComparison.Ordinal);
 }
 
+/// <summary>An approver check that failed on one machine and browser profile: when, and the checking Director's sentence of
+/// why (mission "Licenses - Loud When Stranded", step 4). Kept whether or not an approver record names the profile.</summary>
+public sealed record LicenseApproverFailedCheck(string MachineName, string OsUser, string BrowserProfile, string? BrowserProfileName,
+    DateTime CheckedAtUtc, string? Detail)
+{
+    public bool NamesMachine(string machineName, string osUser)
+        => string.Equals(MachineName, machineName, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(OsUser, osUser, StringComparison.OrdinalIgnoreCase);
+}
+
 /// <summary>Everything the approver store keeps for one DevThrottle account, read and written as one under the store's lock.</summary>
 public sealed record LicenseApproverRecords(IReadOnlyList<LicenseApprover> Approvers, IReadOnlyList<LicenseApproverRemoval> Removals);
 
@@ -105,6 +115,9 @@ public sealed class LicenseApproverStore
 
     /// <summary>The most removal records one DevThrottle account keeps; past it the oldest goes first.</summary>
     public const int MaxRemovals = 64;
+
+    /// <summary>The most failed checks one DevThrottle account keeps; past it the oldest goes first.</summary>
+    public const int MaxFailedChecks = 64;
 
     public const int MaxNameLength = 128;
 
@@ -346,6 +359,50 @@ public sealed class LicenseApproverStore
         }
         var ordered = all.OrderBy(a => a.AccountEmail, StringComparer.Ordinal).ToList();
         _settings.Set(tenant, TenantSettingKeys.LicenseApprovers, JsonSerializer.Serialize(ordered, Json), nowUtc);
+    }
+
+    /// <summary>The approver checks that failed and have not worked since, on every machine of this account, newest
+    /// first, with NO log line: read by the once-a-minute readiness check and by the Licenses page.</summary>
+    internal IReadOnlyList<LicenseApproverFailedCheck> ListFailedChecksQuietly(TenantId tenant) => ReadFailedChecks(tenant);
+
+    /// <summary>
+    /// What one check report from <paramref name="machineName"/> found, as far as failures go: every profile the report
+    /// checked loses its old row, and each that failed gets a new one. So a profile that works again is cleared, and one
+    /// still failing says its latest reason. <paramref name="checkedRows"/> are rows already checked for shape
+    /// (<see cref="LicenseApproverRegistration"/>).
+    /// </summary>
+    internal void RecordChecks(TenantId tenant, string machineName, string osUser, IReadOnlyList<LicenseApproverCheckRow> checkedRows, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(checkedRows);
+        lock (_gate)
+        {
+            var all = ReadFailedChecks(tenant);
+            var checkedProfiles = checkedRows.Select(r => r.BrowserProfile).ToHashSet(StringComparer.Ordinal);
+            var removed = all.RemoveAll(f => f.NamesMachine(machineName, osUser) && checkedProfiles.Contains(f.BrowserProfile));
+            var failed = checkedRows.Where(r => r.State == LicenseApproverStates.CheckFailed)
+                .GroupBy(r => r.BrowserProfile, StringComparer.Ordinal).Select(g => g.Last())
+                .Select(r => new LicenseApproverFailedCheck(machineName, osUser, r.BrowserProfile, r.BrowserProfileName, r.CheckedAtUtc, r.Detail))
+                .ToList();
+            if (removed == 0 && failed.Count == 0)
+                return;
+            all.AddRange(failed);
+            if (all.Count == 0)
+                _settings.Remove(tenant, TenantSettingKeys.LicenseApproverFailedChecks);
+            else
+                _settings.Set(tenant, TenantSettingKeys.LicenseApproverFailedChecks,
+                    JsonSerializer.Serialize(all.OrderByDescending(f => f.CheckedAtUtc).Take(MaxFailedChecks).ToList(), Json), nowUtc);
+            FileLog.Write($"[LicenseApproverStore] RecordChecks: tenant={tenant.ToLogString()}, machine={machineName}, cleared={removed}, failed={failed.Count}");
+        }
+    }
+
+    private List<LicenseApproverFailedCheck> ReadFailedChecks(TenantId tenant)
+    {
+        var raw = _settings.Get(tenant, TenantSettingKeys.LicenseApproverFailedChecks);
+        if (string.IsNullOrWhiteSpace(raw))
+            return new List<LicenseApproverFailedCheck>();
+        var read = JsonSerializer.Deserialize<List<LicenseApproverFailedCheck>>(raw, Json)
+                   ?? throw new InvalidOperationException("The license approver failed checks setting holds no list.");
+        return read.OrderByDescending(f => f.CheckedAtUtc).ToList();
     }
 
     private List<LicenseApproverRemoval> ReadRemovals(TenantId tenant)

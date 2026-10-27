@@ -94,6 +94,36 @@ public sealed class LicenseReadinessService
     }
 
     /// <summary>
+    /// What the approver alarm needs now (<see cref="LicenseApproverAlarm"/>): every machine judged, and the machines whose
+    /// stranded or 80% alarm is open or opens on this same picture - the same functions <see cref="TickAsync"/> raises them
+    /// with, so the approver alarm never opens beside a machine's own line for one cause. Nothing for a tenant none of whose
+    /// machines reports. Writes no log line: it runs every minute.
+    /// </summary>
+    public LicenseApproverNeeds JudgeNow(TenantId tenant)
+    {
+        if (!_store.HasMachines(tenant))
+            return LicenseApproverNeeds.None;
+        var now = _nowUtc();
+        var picture = _snapshots.ReadPicture(tenant, now, NoExhaustions);
+        var openSignIns = _log.ListOpen(tenant);
+        var judged = Judge(tenant, picture, openSignIns, now);
+        var open = _alarms.ListOpen(tenant);
+        var told = open.Where(a => a.Kind == LicenseStrandedAlarm.Kind.Key || a.Kind == LicenseCannotSwitchAlarm.Kind.Key)
+            .Select(a => a.MachineId)
+            .Concat(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open)
+                .Concat(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, openSignIns, open))
+                .Select(c => c.MachineId ?? Guid.Empty))
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+        // A STALE machine's holdings are not current, so it is never said to need anything - the rule the stranded alarm
+        // and the 80% warning keep too. On 26 October SORENLAPTOP had not reported for three days.
+        var stale = picture.Snapshot.Machines.Where(m => LicenseDecisionEngine.IsMachineStale(m, now))
+            .Select(m => (m.MachineName.Trim().ToLowerInvariant(), m.OsUser.Trim().ToLowerInvariant())).ToHashSet();
+        var current = judged.Where(j => !stale.Contains((j.MachineName.Trim().ToLowerInvariant(), j.OsUser.Trim().ToLowerInvariant()))).ToList();
+        return new LicenseApproverNeeds(current, told);
+    }
+
+    /// <summary>
     /// <see cref="TickAsync"/> for every tenant, each STARTED inside its own scope and all awaited together. One
     /// tenant's failure is logged and does not stop another tenant's check.
     /// </summary>

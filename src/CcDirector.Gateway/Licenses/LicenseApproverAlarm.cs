@@ -25,9 +25,22 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// QUIET WHEN THERE IS NOTHING TO SAY: the minute raise of a tenant with no approver that cannot approve writes no line.
 ///
-/// An account with no approver at all is NOT an alarm here: a machine with its own browser profile for an account needs
-/// none, and whether an account is ready to sign in is Track A's readiness, which asks
-/// <see cref="LicenseApproverReadiness.WhyNotReady"/>.
+/// THE ONE OWNER OF "AN ACCOUNT A MACHINE NEEDS HAS NO APPROVER THAT CAN APPROVE" (mission "Licenses - Loud When
+/// Stranded", step 4). This alarm used to leave an account with no approver at all to readiness, and readiness started no
+/// sign-in for it and raised nothing, so on 26 October 2026 nobody was told. Now, beside every approver record that cannot
+/// approve, it raises one alarm for each account that has NO approver while the readiness check judges a machine not
+/// ready for it for that very reason (<see cref="LicenseReadinessFixes.ApproverNotReady"/>). The sentence names the
+/// machines that need it, the account, and the one thing to do, and says why the approver checks failed when they did.
+/// It is about a fault, never about usage: the readiness judgement is the same at 0% and at 99%, and an account merely
+/// near its limit is never named (issue #4249).
+///
+/// PRECEDENCE: THE MACHINE'S ALARM WINS. A machine stranded on a full account (<see cref="LicenseStrandedAlarm"/>) or
+/// warned at 80% (<see cref="LicenseCannotSwitchAlarm"/>) already says this approver's sentence as its one thing to do.
+/// So when EVERY machine that needs the account has one of those two open, this alarm stands down for that account: one
+/// root cause, one line, one email, one push. The machine alarm is the more urgent and the more specific; this one is
+/// the early warning, open before any limit is near, and it gives way when the machine's own line opens, as the 80%
+/// warning gives way to the stranded alarm. A broken approver record that no machine needs right now is still told here,
+/// as before: an approver that cannot approve is known within a day, not at the moment a sign-in needs it.
 /// </summary>
 public sealed class LicenseApproverAlarm
 {
@@ -42,6 +55,7 @@ public sealed class LicenseApproverAlarm
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _lifetime;
     private readonly Action<string> _log;
+    private readonly Func<TenantId, LicenseApproverNeeds>? _judge;
 
     // The raises started by RaiseSoon and not finished, so tests wait on them and never on a clock.
     private readonly object _gate = new();
@@ -56,9 +70,13 @@ public sealed class LicenseApproverAlarm
     /// <param name="enterScope">Enters a tenant's scope for a raise started off the caller's own scope.</param>
     /// <param name="lifetime">Cancelled when the Gateway stops.</param>
     /// <param name="log">Where this class's log lines go; the Gateway's log unless a test watches them.</param>
+    /// <param name="judge">The readiness check's judgement of a tenant's machines now (<see cref="LicenseReadinessService.JudgeNow"/>):
+    /// which machines need an account whose approver cannot approve. Null: no machine is known to need one.</param>
     public LicenseApproverAlarm(LicenseApproverStore approvers, LicenseReadModel reads, LicenseAlarmService alarms,
-        Func<TenantId, string, bool> isConnected, Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime, Action<string>? log = null)
+        Func<TenantId, string, bool> isConnected, Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime, Action<string>? log = null,
+        Func<TenantId, LicenseApproverNeeds>? judge = null)
     {
+        _judge = judge;
         _log = log ?? FileLog.Write;
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
@@ -69,36 +87,82 @@ public sealed class LicenseApproverAlarm
         _lifetime = lifetime;
     }
 
-    /// <summary>The alarms that are true now for <paramref name="tenant"/>: one for each approver that cannot approve,
-    /// about its account alone. An approver whose sentence is longer than an alarm takes
-    /// (<see cref="LicenseAlarmService.MaxSentenceLength"/>) is left out and logged with its account: it costs that one
-    /// alarm, never every approver alarm of the tenant.</summary>
+    /// <summary>The alarms that are true now for <paramref name="tenant"/>: one for each approver that cannot approve, and
+    /// one for each account with no approver that a machine needs, each about its account alone, less those every needing
+    /// machine's own alarm already says (the precedence above). A sentence longer than an alarm takes
+    /// (<see cref="LicenseAlarmService.MaxSentenceLength"/>) costs that one alarm, logged with its account.</summary>
     public IReadOnlyList<LicenseAlarmCondition> ConditionsNow(TenantId tenant)
     {
         var now = _nowUtc();
         var approvers = _approvers.ListQuietly(tenant);
-        if (approvers.Count == 0)
+        var judgedNow = _judge?.Invoke(tenant) ?? LicenseApproverNeeds.None;
+        var needs = Needs(judgedNow.Judged);
+        if (approvers.Count == 0 && needs.Count == 0)
             return Array.Empty<LicenseAlarmCondition>();
         var machines = _reads.Read(tenant, now).Machines;
+        var toldByTheMachine = judgedNow.ToldByTheirOwnAlarm;
+        var failedChecks = needs.Count == 0 ? Array.Empty<LicenseApproverFailedCheck>() : _approvers.ListFailedChecksQuietly(tenant);
         var conditions = new List<LicenseAlarmCondition>();
-        foreach (var approver in approvers)
+        foreach (var account in approvers.Select(a => a.AccountEmail).Union(needs.Keys).OrderBy(a => a, StringComparer.Ordinal))
         {
-            var machine = machines.FirstOrDefault(m => approver.NamesMachine(m.MachineName, m.OsUser));
-            var label = LicenseSignInFold.Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
-            var reach = LicenseApproverReadiness.ReachOf(approver, machines, directorId => _isConnected(tenant, directorId), now);
-            var verdict = LicenseApproverReadiness.Verdict(approver, label, reach, now);
-            if (verdict.WhatToDo is null)
+            var needing = needs.TryGetValue(account, out var found) ? found : new List<LicenseMachineReadiness>();
+            if (needing.Count > 0 && needing.All(m => toldByTheMachine.Contains(m.MachineId)))
                 continue;
-            if (verdict.HealthText.Length > LicenseAlarmService.MaxSentenceLength || verdict.WhatToDo.Length > LicenseAlarmService.MaxSentenceLength)
+            var approver = approvers.FirstOrDefault(a => a.AccountEmail == account);
+            var condition = approver is null
+                ? NoApprover(account, needing, failedChecks, now)
+                : Broken(tenant, approver, needing, machines, now);
+            if (condition is null)
+                continue;
+            if (condition.Problem.Length > LicenseAlarmService.MaxSentenceLength || condition.Action.Length > LicenseAlarmService.MaxSentenceLength)
             {
-                _log($"[LicenseApproverAlarm] ConditionsNow: REFUSED the alarm of account={approver.AccountEmail}, tenant={tenant.ToLogString()}: "
-                              + $"its sentences are {verdict.HealthText.Length} and {verdict.WhatToDo.Length} characters, past the {LicenseAlarmService.MaxSentenceLength} an alarm takes");
+                _log($"[LicenseApproverAlarm] ConditionsNow: REFUSED the alarm of account={account}, tenant={tenant.ToLogString()}: "
+                              + $"its sentences are {condition.Problem.Length} and {condition.Action.Length} characters, past the {LicenseAlarmService.MaxSentenceLength} an alarm takes");
                 continue;
             }
-            conditions.Add(new LicenseAlarmCondition(null, null, approver.AccountEmail, verdict.HealthText, verdict.WhatToDo));
+            conditions.Add(condition);
         }
         return conditions;
     }
+
+    // The machines the readiness check judges not ready because their account's approver cannot approve, by account.
+    private static Dictionary<string, List<LicenseMachineReadiness>> Needs(IReadOnlyList<LicenseMachineReadiness> judged)
+        => judged.Where(j => j.IsGap && j.Fix == LicenseReadinessFixes.ApproverNotReady && j.TargetAccountEmail is not null)
+            .GroupBy(j => LicenseStore.NormalizeEmail(j.TargetAccountEmail), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.Label, StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
+
+    // An approver record that cannot approve: its own sentences, and the machines that need it when any do.
+    private LicenseAlarmCondition? Broken(TenantId tenant, LicenseApprover approver, List<LicenseMachineReadiness> needing,
+        IReadOnlyList<LicenseMachineView> machines, DateTime now)
+    {
+        var machine = machines.FirstOrDefault(m => approver.NamesMachine(m.MachineName, m.OsUser));
+        var label = LicenseSignInFold.Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
+        var reach = LicenseApproverReadiness.ReachOf(approver, machines, directorId => _isConnected(tenant, directorId), now);
+        var verdict = LicenseApproverReadiness.Verdict(approver, label, reach, now);
+        if (verdict.WhatToDo is null)
+            return null;
+        var problem = needing.Count == 0
+            ? verdict.HealthText
+            : $"{verdict.HealthText} {Needing(needing)} cannot be signed in to {approver.AccountEmail} until it can.";
+        return new LicenseAlarmCondition(null, null, approver.AccountEmail,
+            problem.Length <= LicenseAlarmService.MaxSentenceLength ? problem : verdict.HealthText, verdict.WhatToDo);
+    }
+
+    // No approver at all, and a machine needs one: the machines, the account, why the checks found none, and what to do.
+    private static LicenseAlarmCondition? NoApprover(string account, List<LicenseMachineReadiness> needing,
+        IReadOnlyList<LicenseApproverFailedCheck> failedChecks, DateTime now)
+    {
+        if (needing.Count == 0)
+            return null;
+        var problem = $"{LicenseApproverReadiness.NoApproverText(account)} {Needing(needing)} cannot be signed in to it, so cannot switch to it when it must.";
+        var why = LicenseApproverReadiness.FailedChecksText(failedChecks, now);
+        if (why is not null && problem.Length + 1 + why.Length <= LicenseAlarmService.MaxSentenceLength)
+            problem = $"{problem} {why}";
+        return new LicenseAlarmCondition(null, null, account, problem, LicenseApproverReadiness.NoApproverWhatToDo(account));
+    }
+
+    private static string Needing(List<LicenseMachineReadiness> needing)
+        => needing.Count == 1 ? needing[0].Label : $"{string.Join(", ", needing.Take(needing.Count - 1).Select(m => m.Label))} and {needing[^1].Label}";
 
     /// <summary>Raise the approver alarm for one tenant now, passing every approver that cannot approve. One raise at a
     /// time for each tenant: the records are read under the same wait the alarm is raised under.</summary>
@@ -192,4 +256,13 @@ public sealed class LicenseApproverAlarm
             _log($"[LicenseApproverAlarm] TickEveryTenantAsync: the raise FAILED for tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
         }
     }
+}
+
+/// <summary>What the approver alarm needs of the readiness check, for one tenant now (<see cref="LicenseReadinessService.JudgeNow"/>).</summary>
+/// <param name="Judged">Every machine on an account, judged.</param>
+/// <param name="ToldByTheirOwnAlarm">The machines whose stranded or 80% alarm is open, or opens on this picture: the approver
+/// alarm stands down for an account every needing machine of which is here.</param>
+public sealed record LicenseApproverNeeds(IReadOnlyList<LicenseMachineReadiness> Judged, IReadOnlySet<Guid> ToldByTheirOwnAlarm)
+{
+    public static readonly LicenseApproverNeeds None = new(Array.Empty<LicenseMachineReadiness>(), new HashSet<Guid>());
 }

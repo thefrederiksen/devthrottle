@@ -243,12 +243,34 @@ public sealed class LicenseStrandedReplayTests : IDisposable
 
     // ----- one Gateway minute -----
 
+    private LicenseReadinessService Readiness()
+    {
+        var approverReadiness = new LicenseApproverReadiness(_approvers, _reads, _directors.IsConnected, () => _now);
+        return new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, _reads), _signInLog, _signIns, approverReadiness.WhyNotReady,
+            _directors.IsConnected, _alarms, () => _now);
+    }
+
+    /// <summary>The approver alarm's raise, as the Gateway runs it after a check report and every minute: over the real
+    /// approver store and alarm service, with the readiness check's own judgement.</summary>
+    private Task ApproverAlarmAsync()
+    {
+        var readiness = Readiness();
+        var alarm = new LicenseApproverAlarm(_approvers, _reads, _alarms, _directors.IsConnected, _ => new NoScope(), () => _now,
+            CancellationToken.None, judge: readiness.JudgeNow);
+        return alarm.RaiseAsync(Owner, CancellationToken.None);
+    }
+
+    private sealed class NoScope : IDisposable
+    {
+        public void Dispose()
+        {
+        }
+    }
+
     private async Task OneMinuteAsync()
     {
         var snapshots = new LicenseSnapshotSource(_store, _reads);
-        var approverReadiness = new LicenseApproverReadiness(_approvers, _reads, _directors.IsConnected, () => _now);
-        var readiness = new LicenseReadinessService(_store, snapshots, _signInLog, _signIns, approverReadiness.WhyNotReady,
-            _directors.IsConnected, _alarms, () => _now);
+        var readiness = Readiness();
         var switching = new LicenseSwitchService(_store, snapshots, SendSwitch, Mail, () => _now);
 
         await readiness.TickAsync(Owner, CancellationToken.None);
@@ -406,6 +428,55 @@ public sealed class LicenseStrandedReplayTests : IDisposable
 
         Assert.Empty(_switches);
         AssertNothingLoud();
+    }
+
+    // ----- step 4: one root cause, one alert, with the approver alarm running -----
+    //
+    // The phase review of the Gateway track, observation 2: on the 26 October picture the approver alarm opened BESIDE the
+    // stranded alarm - soren.frederiksen@'s approver could not approve, and that is also exactly why SOREN_NORTH and the Mac
+    // were stranded - so one cause gave two banner lines and two emails. The machine's own alarm now wins: it already says
+    // the approver's sentence as its one thing to do. Run in both orders, because the approver alarm is raised after a
+    // check report as well as every minute, and may come first.
+
+    public static TheoryData<string, bool> OneCause => new()
+    {
+        { "out-of-week-26-october", true }, { "out-of-week-26-october", false },
+        { "eighty-of-week-25-october", true }, { "eighty-of-week-25-october", false },
+    };
+
+    [Theory]
+    [MemberData(nameof(OneCause))]
+    public async Task ApproverAlarmRunning_AMachineStrandedForWantOfAnApprover_IsToldOnce(string picture, bool approverAlarmFirst)
+    {
+        if (picture == "out-of-week-26-october") Picture(OutAt, OutOfWeek, strandedHoldTheSignIn: false);
+        else Picture(EightyAt, EightyOfWeek, strandedHoldTheSignIn: false);
+
+        if (approverAlarmFirst) await ApproverAlarmAsync();
+        await OneMinuteAsync();
+        await ApproverAlarmAsync();
+
+        AssertToldLoudly(SorenNorth, Dev, SorenFrederiksen);
+        AssertToldLoudly(Mac, Dev, SorenFrederiksen);
+        // One line, one push for each stranded machine, and nothing about the approver beside them.
+        Assert.DoesNotContain(_alarms.ListOpen(Owner), a => a.Kind == LicenseApproverAlarm.Kind.Key);
+        Assert.Equal(2, Banner().Count);
+        Assert.Equal(2, _pushed.Count);
+        Assert.Single(_emails);
+        AssertOnlyTheStrandedAreNamed();
+    }
+
+    [Fact]
+    public async Task ApproverAlarmRunning_WithTheSignInHeld_NothingIsLoud()
+    {
+        // The negative control: the approver still cannot approve, but no machine needs it, so the approver alarm is the
+        // early warning it always was - one line about the approver, never about a machine.
+        Picture(OutAt, OutOfWeek, strandedHoldTheSignIn: true);
+
+        await OneMinuteAsync();
+        await ApproverAlarmAsync();
+
+        var open = Assert.Single(_alarms.ListOpen(Owner));
+        Assert.Equal((LicenseApproverAlarm.Kind.Key, SorenFrederiksen, Guid.Empty), (open.Kind, open.AccountEmail, open.MachineId));
     }
 
     // ----- boundary: usage alone is never policed (#4249) -----

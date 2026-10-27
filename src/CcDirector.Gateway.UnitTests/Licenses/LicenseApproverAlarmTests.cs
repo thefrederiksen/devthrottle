@@ -92,6 +92,149 @@ public sealed class LicenseApproverAlarmTests : IDisposable
 
     private Task<LicenseAlarmRaised> Raise(TenantId? tenant = null) => _alarm.RaiseAsync(tenant ?? One, CancellationToken.None);
 
+    // ----- step 4: an account a machine needs has no approver at all (mission "Licenses - Loud When Stranded") -----
+    //
+    // On 26 October 2026 this alarm handed "no approver at all" to readiness, readiness started no sign-in and raised
+    // nothing, and nobody was told. These run the real readiness check over the real store: machine A is on account A,
+    // machine B on account B, both well under any limit - a fault, never usage - and neither holds a sign-in for the
+    // other's account.
+
+    private const string MachineB = "machine-b";
+    private const string DirectorB = "dir-b";
+
+    private LicenseApproverAlarm WithReadiness(Func<LicenseApproverNeeds, LicenseApproverNeeds>? change = null)
+    {
+        _licenses.ApplyReport(One, DirectorB, ++_sequence, Report(MachineB, _now, Holding(B, true, readAt: _now)), _now, TimeSpan.Zero);
+        _licenses.ApplyReport(One, DirectorA, ++_sequence, Report(MachineA, _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
+        _connected.Add(DirectorA);
+        _connected.Add(DirectorB);
+        var readiness = LicenseReadinessTestKit.ForReading(_db, _licenses, (_, directorId) => _connected.Contains(directorId), () => _now);
+        return new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, (_, directorId) => _connected.Contains(directorId),
+            _ => new NoScope(), () => _now, CancellationToken.None, _logged.Enqueue,
+            judge: tenant => change is null ? readiness.JudgeNow(tenant) : change(readiness.JudgeNow(tenant)));
+    }
+
+    [Fact]
+    public async Task NoApproverAtAll_AMachineNeedsTheAccount_OpensOneAlarm_NamingTheMachineTheAccountAndWhatToDo()
+    {
+        var alarm = WithReadiness();
+
+        var raised = await alarm.RaiseAsync(One, CancellationToken.None);
+
+        Assert.Equal(2, raised.Opened);
+        var forB = Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
+        Assert.Equal(LicenseApproverAlarm.Kind.Key, forB.Kind);
+        Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. machine-a cannot be signed in to it, so cannot switch to it when it must.",
+            forB.Problem);
+        Assert.Equal("Set an approver for account-b@example.com on the Licenses page.", forB.Action);
+        Assert.Equal(2, _pushes.Count);
+    }
+
+    [Fact]
+    public async Task NoApproverAtAll_TheApproverChecksFailed_TheAlarmSaysWhyInTheDirectorsWords()
+    {
+        var alarm = WithReadiness();
+        // SOREN_NORTH's 26 October report: its own profiles, checked with no account, all failed. No record names them.
+        _approvers.RecordChecks(One, MachineA, "owner", new[]
+        {
+            new LicenseApproverCheckRow
+            {
+                BrowserProfile = "mindzie", BrowserProfileName = "mindzie", State = LicenseApproverStates.CheckFailed, CheckedAtUtc = _now,
+                Detail = "The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set.",
+            },
+        }, _now);
+
+        await alarm.RaiseAsync(One, CancellationToken.None);
+
+        var forB = Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
+        Assert.EndsWith("The approver check of browser profile \"mindzie\" on machine-a could not run at 2026-10-11 03:12 UTC: The check could not run: "
+                        + "the browser profile could not be started: CC_DIRECTOR_ID is not set.", forB.Problem);
+    }
+
+    [Fact]
+    public async Task NoApproverAtAll_ClosesWhenAnApproverThatCanApproveIsSet_AndComingBackWithinTheHoldDownTellsNobody()
+    {
+        var alarm = WithReadiness();
+        await alarm.RaiseAsync(One, CancellationToken.None);
+        var pushes = _pushes.Count;
+
+        ApproverOf(B, LicenseApproverStates.CanApprove, _now, MachineB);
+        ApproverOf(A, LicenseApproverStates.CanApprove, _now, MachineA);
+        var closed = await alarm.RaiseAsync(One, CancellationToken.None);
+        Assert.Equal(2, closed.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+
+        // The approver of B is removed an hour later: the same fault, inside six hours - the line comes back, nobody is told.
+        _now = _now.AddHours(1);
+        _licenses.ApplyReport(One, DirectorB, ++_sequence, Report(MachineB, _now, Holding(B, true, readAt: _now)), _now, TimeSpan.Zero);
+        _licenses.ApplyReport(One, DirectorA, ++_sequence, Report(MachineA, _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
+        Assert.True(_approvers.Remove(One, B, _now));
+        await alarm.RaiseAsync(One, CancellationToken.None);
+        Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
+        Assert.Equal(pushes, _pushes.Count);
+    }
+
+    [Fact]
+    public async Task AMachineToldByItsOwnStrandedOrEightyAlarm_TheApproverAlarmStandsDownForThatAccount()
+    {
+        // Machine A's own line (stranded, or warned at 80%) already says the approver's sentence: one cause, one alert.
+        // Machine B is not told by its own alarm, so account A's alarm, which only machine B needs, still opens.
+        Guid machineA = Guid.Empty;
+        var alarm = WithReadiness(needs =>
+        {
+            machineA = needs.Judged.Single(j => j.MachineName == MachineA).MachineId;
+            return needs with { ToldByTheirOwnAlarm = new HashSet<Guid> { machineA } };
+        });
+
+        await alarm.RaiseAsync(One, CancellationToken.None);
+
+        Assert.Equal(new[] { A }, _alarms.ListOpen(One).Select(a => a.AccountEmail));
+    }
+
+    [Fact]
+    public async Task NoApproverAtAll_NoMachineNeedsTheAccount_RaisesNothing_AtAnyUse()
+    {
+        // Every machine holds a sign-in for the other's account, so neither needs an approver: use alone, even at 100%,
+        // is never an alarm here (issue #4249).
+        _licenses.ApplyReport(One, DirectorB, ++_sequence,
+            Report(MachineB, _now, Holding(B, true, fiveHour: 100, sevenDay: 100, readAt: _now), Holding(A, false, readAt: _now)), _now, TimeSpan.Zero);
+        _licenses.ApplyReport(One, DirectorA, ++_sequence,
+            Report(MachineA, _now, Holding(A, true, fiveHour: 99, sevenDay: 99, readAt: _now), Holding(B, false, readAt: _now)), _now, TimeSpan.Zero);
+        var readiness = LicenseReadinessTestKit.ForReading(_db, _licenses, (_, _) => true, () => _now);
+        var alarm = new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, (_, _) => true, _ => new NoScope(), () => _now,
+            CancellationToken.None, _logged.Enqueue, judge: readiness.JudgeNow);
+
+        var raised = await alarm.RaiseAsync(One, CancellationToken.None);
+
+        Assert.Equal(0, raised.Opened);
+        Assert.Empty(_pushes);
+    }
+
+    [Fact]
+    public async Task ACheckReport_KeepsAFailedCheckOfAProfileNoRecordNames_AndAWorkingCheckClearsIt()
+    {
+        // From 19 to 26 October every one of SOREN_NORTH's checks was answered "nothing to store" and lost.
+        var registration = new LicenseApproverRegistration(_approvers, new LicenseReadModel(_licenses), () => _now);
+        var failed = new LicenseApproverCheckReport
+        {
+            OffersApprovers = true,
+            Rows = [new LicenseApproverCheckRow { BrowserProfile = "mindzie", State = LicenseApproverStates.CheckFailed, CheckedAtUtc = _now, Detail = "Why it failed." }],
+        };
+
+        var answer = registration.Report(One, DirectorA, failed);
+
+        Assert.Equal(LicenseApproverCheckOutcomes.NothingToStore, Assert.Single(answer.Rows).Outcome);
+        var kept = Assert.Single(_approvers.ListFailedChecksQuietly(One));
+        Assert.Equal((MachineA, "mindzie", "Why it failed."), (kept.MachineName, kept.BrowserProfile, kept.Detail));
+
+        registration.Report(One, DirectorA, new LicenseApproverCheckReport
+        {
+            OffersApprovers = true,
+            Rows = [new LicenseApproverCheckRow { BrowserProfile = "mindzie", State = LicenseApproverStates.SignedOut, CheckedAtUtc = _now }],
+        });
+        Assert.Empty(_approvers.ListFailedChecksQuietly(One));
+    }
+
     [Fact]
     public async Task AnApproverThatNeedsAFreshSignIn_OpensOneAlarm_WithTheReadinessSentences_AndPushesAndEmailsOnce()
     {

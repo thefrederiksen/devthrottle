@@ -366,6 +366,15 @@ public static class TenantSettingKeys
     /// </summary>
     public const string LicenseApproverRemovals = "license_approver_removals";
 
+    /// <summary>
+    /// THE APPROVER CHECKS THAT FAILED, per machine and browser profile (mission "Licenses - Loud When Stranded", step 4),
+    /// as one JSON list of machine name, operating system user, browser profile, when, and the checking Director's sentence
+    /// of why. Each report replaces the rows of the profiles it checked, so a check that later works removes its row. Kept
+    /// so a failure is shown even when no approver record names the profile. Read and written only by
+    /// <c>Licenses.LicenseApproverStore</c>.
+    /// </summary>
+    public const string LicenseApproverFailedChecks = "license_approver_failed_checks";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -388,6 +397,6 @@ public static class TenantSettingKeys
         GatewayInstanceId,
         DemoMode,
         FactoryEmailEnabled,
-        LicenseApprovers, LicenseApproverRemovals,
+        LicenseApprovers, LicenseApproverRemovals, LicenseApproverFailedChecks,
     };
 }

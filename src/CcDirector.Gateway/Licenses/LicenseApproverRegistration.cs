@@ -125,6 +125,11 @@ public sealed class LicenseApproverRegistration
             return (changed ? approvers : null, decided);
         }, now);
 
+        // A failure is kept whether or not a record names the profile (step 4): from 19 to 26 October 2026 every check of
+        // SOREN_NORTH failed on profiles no record named, and each was answered "nothing to store" and lost.
+        _approvers.RecordChecks(tenant, machine.MachineName, machine.OsUser,
+            rows.Select(r => Checked(r, now)).OfType<LicenseApproverCheckRow>().ToList(), now);
+
         foreach (var answer in answers)
             FileLog.Write($"[LicenseApproverRegistration] Report: director={directorId}, machine={machine.MachineName}, account={answer.AccountEmail ?? "-"}, "
                           + $"outcome={answer.Outcome}, reason={answer.Reason ?? "-"}");
