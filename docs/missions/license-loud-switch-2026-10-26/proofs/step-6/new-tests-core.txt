@@ -2,37 +2,39 @@
 Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-6-investigate\src\CcDirector.Core.UnitTests\bin\Debug\net10.0\CcDirector.Core.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
 [xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
-[xUnit.net 00:00:01.10]   Discovering: CcDirector.Core.UnitTests
-[xUnit.net 00:00:01.83]   Discovered:  CcDirector.Core.UnitTests
-[xUnit.net 00:00:01.84]   Starting:    CcDirector.Core.UnitTests
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_AnotherApiError_ReturnsOther [74 ms]
+[xUnit.net 00:00:00.15]   Discovering: CcDirector.Core.UnitTests
+[xUnit.net 00:00:00.80]   Discovered:  CcDirector.Core.UnitTests
+[xUnit.net 00:00:00.81]   Starting:    CcDirector.Core.UnitTests
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_TranscriptNotWrittenYet_IsAnOrdinarySkip [32 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NoTranscriptNamed_SendsNothing [2 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_AnotherApiError_ReturnsOther [72 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_EmptyTranscript_ReturnsNoConversation [1 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_TranscriptNotWrittenYet_ReturnsNoConversation [1 ms]
   Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_BrokenLineBeforeTheEnd_ReturnsUnreadable [15 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NoTranscriptNamed_SendsNothing [94 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_LimitReplyEndsTheTurn_ReturnsTheLimitRecord [31 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_NoConversationRecord_ReturnsUnreadable [10 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputOnlyBeforeTheLimitReply_SendsContinue [60 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_LastRecordLongerThanTheFirstTail_IsStillRead [18 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotClaudeCode_SendsNothing(agent: Codex) [5 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputOnlyBeforeTheLimitReply_SendsContinue [63 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotClaudeCode_SendsNothing(agent: Codex) [3 ms]
   Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotClaudeCode_SendsNothing(agent: Gemini) [2 ms]
   Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SwitchThatDidNotSwitch_SendsNothing(outcome: "failed") [2 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_SideChainRecordAfterTheLimitReply_IsPassedOver [11 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_LimitReplyEndsTheTurn_ReturnsTheLimitRecord [20 ms]
   Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SwitchThatDidNotSwitch_SendsNothing(outcome: "already-active") [2 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_TurnEndedNormally_ReturnsOther [9 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_MissingFile_ReturnsUnreadable [1 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_VerifiedSwitch_SendsOneContinueToEachLimitedSessionOnly [16 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_HalfWrittenLastLine_IsPassedOver [12 ms]
-[xUnit.net 00:00:02.19]   Finished:    CcDirector.Core.UnitTests
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SecondVerifiedSwitch_SendsNothingMore [12 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_NoConversationRecordYet_ReturnsNoConversation [12 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_VerifiedSwitch_SendsOneContinueToEachLimitedSessionOnly [45 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SecondVerifiedSwitch_SendsNothingMore [16 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_LastRecordLongerThanTheFirstTail_IsStillRead [69 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_SideChainRecordAfterTheLimitReply_IsPassedOver [13 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_TurnEndedNormally_ReturnsOther [10 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.LimitResumeStore_Prune_RemovesOnlyRecordsOlderThanTheRetention [48 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_HalfWrittenLastLine_IsPassedOver [14 ms]
   Passed CcDirector.Core.UnitTests.Licenses.UsageLimitTranscriptTests.ReadLastTurn_PromptAfterTheLimitReply_ReturnsOther [11 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.LimitResumeStore_Prune_RemovesOnlyRecordsOlderThanTheRetention [20 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_UnreadableTranscript_SkipsItAndResumesTheOthers [12 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputAfterTheLimitReply_SendsNothing [10 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_AfterADirectorRestart_SendsNothingMore [13 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_UnreadableTranscript_SkipsItAndResumesTheOthers [21 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputAfterTheLimitReply_SendsNothing [14 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_AfterADirectorRestart_SendsNothingMore [17 ms]
   Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_ReplayedAnswer_SendsNothing [2 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SendRefused_IsNotRecordedSoALaterSwitchTriesAgain [14 ms]
-  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotVerifiedByUsageRead_SendsNothing [5 ms]
+[xUnit.net 00:00:01.19]   Finished:    CcDirector.Core.UnitTests
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_SendRefused_IsNotRecordedSoALaterSwitchTriesAgain [15 ms]
+  Passed CcDirector.Core.UnitTests.Licenses.LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotVerifiedByUsageRead_SendsNothing [7 ms]
 
 Test Run Successful.
-Total tests: 25
-     Passed: 25
- Total time: 5.0158 Seconds
+Total tests: 27
+     Passed: 27
+ Total time: 1.9721 Seconds

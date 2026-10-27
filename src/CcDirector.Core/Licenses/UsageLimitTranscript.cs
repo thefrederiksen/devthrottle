@@ -13,6 +13,10 @@ public enum LastTurnKind
     /// <summary>The turn ended any other way, or input has reached the agent since the limit reply.</summary>
     Other,
 
+    /// <summary>The agent has not written a conversation yet: no file, an empty one, or one holding no user or
+    /// assistant record (a session just started, or just cleared). An ordinary state, not a fault.</summary>
+    NoConversation,
+
     /// <summary>The transcript could not be read, so nothing is known about the turn.</summary>
     Unreadable,
 }
@@ -22,6 +26,7 @@ public enum LastTurnKind
 public sealed record LastTurn(LastTurnKind Kind, string? RecordUuid, DateTime? AtUtc, string? Reason)
 {
     public static LastTurn Other { get; } = new(LastTurnKind.Other, null, null, null);
+    public static LastTurn NoConversation(string reason) => new(LastTurnKind.NoConversation, null, null, reason);
     public static LastTurn Unreadable(string reason) => new(LastTurnKind.Unreadable, null, null, reason);
 }
 
@@ -55,11 +60,11 @@ public static class UsageLimitTranscript
     public static LastTurn ReadLastTurn(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!File.Exists(path)) return LastTurn.Unreadable($"the transcript {path} does not exist");
+        if (!File.Exists(path)) return LastTurn.NoConversation($"the transcript {path} has not been written yet");
 
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var length = stream.Length;
-        if (length == 0) return LastTurn.Unreadable($"the transcript {path} is empty");
+        if (length == 0) return LastTurn.NoConversation($"the transcript {path} is empty");
 
         for (var tail = FirstTailBytes; ; tail *= 2)
         {
@@ -72,7 +77,9 @@ public static class UsageLimitTranscript
             var first = take < length ? 1 : 0;
             var found = LastConversationRecord(lines, first);
             if (found is not null) return found;
-            if (take == length || tail >= MaxTailBytes)
+            if (take == length)
+                return LastTurn.NoConversation($"the transcript {path} holds no user or assistant record yet");
+            if (tail >= MaxTailBytes)
                 return LastTurn.Unreadable($"no user or assistant record was found in the last {take} bytes of {path}");
         }
     }

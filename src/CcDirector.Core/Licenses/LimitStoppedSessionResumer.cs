@@ -90,6 +90,11 @@ public sealed class LimitStoppedSessionResumer
     private readonly Func<DateTime> _utcNow;
     private readonly Func<string, LastTurn> _readLastTurn;
 
+    /// <summary>One resume at a time. The executor starts each resume without awaiting it, so a second verified switch
+    /// could otherwise check a session before the first has recorded the continue it sent (review of pull request 4534,
+    /// observation O4).</summary>
+    private readonly SemaphoreSlim _oneAtATime = new(1, 1);
+
     /// <param name="readLastTurn">Test seam: how a transcript is read; <see cref="UsageLimitTranscript.ReadLastTurn"/> when null.</param>
     public LimitStoppedSessionResumer(LimitResumeStore store, Func<DateTime> utcNow, Func<string, LastTurn>? readLastTurn = null)
     {
@@ -118,11 +123,19 @@ public sealed class LimitStoppedSessionResumer
         }
 
         var outcomes = new List<LimitResumeOutcome>();
-        foreach (var session in sessions)
+        await _oneAtATime.WaitAsync().ConfigureAwait(false);
+        try
         {
-            var outcome = await ResumeOneAsync(result.SwitchId, session).ConfigureAwait(false);
-            FileLog.Write($"[LimitStoppedSessionResumer] switchId={result.SwitchId}, session={outcome.SessionId}: {(outcome.Resumed ? "RESUMED" : "skipped")} - {outcome.Detail}");
-            outcomes.Add(outcome);
+            foreach (var session in sessions)
+            {
+                var outcome = await ResumeOneAsync(result.SwitchId, session).ConfigureAwait(false);
+                FileLog.Write($"[LimitStoppedSessionResumer] switchId={result.SwitchId}, session={outcome.SessionId}: {(outcome.Resumed ? "RESUMED" : "skipped")} - {outcome.Detail}");
+                outcomes.Add(outcome);
+            }
+        }
+        finally
+        {
+            _oneAtATime.Release();
         }
         var resumed = outcomes.Count(o => o.Resumed);
         FileLog.Write($"[LimitStoppedSessionResumer] switchId={result.SwitchId} done: resumed={resumed}, skipped={outcomes.Count - resumed}");
@@ -155,6 +168,8 @@ public sealed class LimitStoppedSessionResumer
             case LastTurnKind.Unreadable:
                 FileLog.Write($"[LimitStoppedSessionResumer] session={session.Id} TRANSCRIPT UNREADABLE FAILED: {last.Reason}; the session is not prompted");
                 return Skip(session, $"its transcript is unreadable ({last.Reason})");
+            case LastTurnKind.NoConversation:
+                return Skip(session, $"it has no conversation yet ({last.Reason})");
             case LastTurnKind.Other:
                 return Skip(session, "its last turn did not end on a usage-limit reply");
         }

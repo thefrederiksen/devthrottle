@@ -72,18 +72,27 @@ public sealed class UsageLimitTranscriptTests : IDisposable
     }
 
     [Fact]
-    public void ReadLastTurn_MissingFile_ReturnsUnreadable()
+    public void ReadLastTurn_TranscriptNotWrittenYet_ReturnsNoConversation()
     {
         var last = UsageLimitTranscript.ReadLastTurn(Path.Combine(_folder.Path, "absent.jsonl"));
 
-        Assert.Equal(LastTurnKind.Unreadable, last.Kind);
-        Assert.Contains("does not exist", last.Reason);
+        Assert.Equal(LastTurnKind.NoConversation, last.Kind);
+        Assert.Contains("has not been written yet", last.Reason);
     }
 
     [Fact]
-    public void ReadLastTurn_NoConversationRecord_ReturnsUnreadable()
+    public void ReadLastTurn_EmptyTranscript_ReturnsNoConversation()
     {
-        Assert.Equal(LastTurnKind.Unreadable, Read(LimitTranscripts.TurnDuration(LimitTranscripts.LimitAtUtc)).Kind);
+        var path = Path.Combine(_folder.Path, "empty.jsonl");
+        File.WriteAllText(path, "");
+
+        Assert.Equal(LastTurnKind.NoConversation, UsageLimitTranscript.ReadLastTurn(path).Kind);
+    }
+
+    [Fact]
+    public void ReadLastTurn_NoConversationRecordYet_ReturnsNoConversation()
+    {
+        Assert.Equal(LastTurnKind.NoConversation, Read(LimitTranscripts.TurnDuration(LimitTranscripts.LimitAtUtc)).Kind);
     }
 
     [Fact]

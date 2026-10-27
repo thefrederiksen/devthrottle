@@ -24,7 +24,8 @@ last turn ended on a usage-limit reply.
 - **Skipped, with the reason logged:**
   - a session running another agent;
   - a session that has named no transcript;
-  - an unreadable transcript (logged loudly; nothing is guessed from the screen);
+  - an unreadable transcript (logged loudly; nothing is guessed from the screen), or one the agent has not written yet
+    (an ordinary skip);
   - a session given any input after the limit reply (`Session.LastInputAtUtc`; the Director's own Escape to the
     limit dialog is not input);
   - any session the guarded send refuses: not waiting for a prompt, other input in flight, the owner's unsent text in
@@ -34,9 +35,9 @@ last turn ended on a usage-limit reply.
 
 ## The tests (all pass; output in this folder)
 
-`new-tests-core.txt`: 25 tests in `src/CcDirector.Core.UnitTests/Licenses/`.
+`new-tests-core.txt`: 27 tests in `src/CcDirector.Core.UnitTests/Licenses/`.
 
-`UsageLimitTranscriptTests` (10) runs the recogniser on transcript tails shaped like the real 26 October records,
+`UsageLimitTranscriptTests` (11) runs the recogniser on transcript tails shaped like the real 26 October records,
 with every identifier replaced (`LimitTranscripts.cs`):
 - a limit reply that ends the turn;
 - a normal last turn;
@@ -45,15 +46,18 @@ with every identifier replaced (`LimitTranscripts.cs`):
 - a side-chain record after the limit reply;
 - a half-written last line;
 - a last record longer than the first part of the file read;
-- a missing file, no conversation record, and a broken line, which are all unreadable.
+- a transcript not written yet, an empty one, and one with no conversation record yet, which are "no conversation"
+  - an ordinary skip, not a fault (review finding F1);
+- a broken line before the end, which is unreadable.
 
-`LimitStoppedSessionResumerTests` (15):
+`LimitStoppedSessionResumerTests` (16):
 - a verified switch sends exactly one `continue` to each limited session and none to a normal one;
 - a switch not verified by the usage read, a failed one, an already-active one and a replayed answer send nothing;
 - a second verified switch, and a restart (a new store over the same folder), send nothing more;
 - input after the limit reply means nothing is sent, while input only before it still lets the `continue` go;
 - Codex and Gemini sessions are untouched;
 - an unreadable transcript is skipped while the other sessions are resumed;
+- a transcript not written yet is an ordinary skip;
 - a session with no transcript is skipped;
 - a refused send is not recorded;
 - the store's pruning.
@@ -62,7 +66,7 @@ with every identifier replaced (`LimitTranscripts.cs`):
 new. After a verified switch the verb starts the resume once, with its result. It does not start it again for the
 same switch id, after a refusal, or after an unreadable payload.
 
-`revert-proofs.txt` shows that the tests see the rules:
+`revert-proofs.txt` shows that the tests see the rules (run at `101db5e2e`, before the review fixes, on the 25 tests then):
 - With both the recogniser's `usage_limit_reached` and the verified-switch gate broken, 11 of the 25 fail.
 - With only the gate broken (`IsVerifiedSwitch` returns true), exactly the four tests for a switch that should not
   resume fail.

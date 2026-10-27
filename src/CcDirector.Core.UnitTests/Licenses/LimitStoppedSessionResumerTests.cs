@@ -155,7 +155,7 @@ public sealed class LimitStoppedSessionResumerTests : IDisposable
     [Fact]
     public async Task ResumeAfterSwitch_UnreadableTranscript_SkipsItAndResumesTheOthers()
     {
-        var unreadable = new ScriptedSession(Path.Combine(_folder.Path, "absent.jsonl"));
+        var unreadable = new ScriptedSession(LimitTranscripts.Write(_folder.Path, "broken", [LimitTranscripts.LimitReply(), "{not json", LimitTranscripts.TurnDuration(LimitTranscripts.LimitAtUtc)]));
         var limited = Limited("limited");
 
         var outcomes = await NewResumer().ResumeAfterSwitchAsync(Switch(), [unreadable, limited]);
@@ -163,6 +163,17 @@ public sealed class LimitStoppedSessionResumerTests : IDisposable
         Assert.Equal(0, unreadable.Sends);
         Assert.Equal(1, limited.Sends);
         Assert.Contains("unreadable", outcomes.First().Detail);
+    }
+
+    [Fact]
+    public async Task ResumeAfterSwitch_TranscriptNotWrittenYet_IsAnOrdinarySkip()
+    {
+        var fresh = new ScriptedSession(Path.Combine(_folder.Path, "absent.jsonl"));
+
+        var outcomes = await NewResumer().ResumeAfterSwitchAsync(Switch(), [fresh]);
+
+        Assert.Equal(0, fresh.Sends);
+        Assert.Contains("no conversation yet", outcomes.Single().Detail);
     }
 
     [Fact]
