@@ -43,7 +43,7 @@ internal static class LimitTranscripts
         {
             role = "assistant",
             model = "<synthetic>",
-            content = new[] { new { type = "text", text = "You've hit your weekly limit · resets Oct 29, 5pm (America/Toronto)" } },
+            content = new[] { new { type = "text", text = "You've hit your weekly limit \u00b7 resets Oct 29, 5pm (America/Toronto)" } },
         },
         apiError,
         apiErrorParams = new { rate_limit_info = new { status = "rejected", rateLimitType = "seven_day", overageStatus = "rejected" } },

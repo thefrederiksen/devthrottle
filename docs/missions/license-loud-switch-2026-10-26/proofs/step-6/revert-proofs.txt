@@ -1,0 +1,20 @@
+Revert proof 1 at 101db5e2e: UsageLimitReached set to "MUTATED" AND IsVerifiedSwitch set to true, then the two new Core classes run, then git checkout restored both files and the project was rebuilt.
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputOnlyBeforeTheLimitReply_SendsContinue [FAIL]
+UsageLimitTranscriptTests.ReadLastTurn_LimitReplyEndsTheTurn_ReturnsTheLimitRecord [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_VerifiedSwitch_SendsOneContinueToEachLimitedSessionOnly [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_SecondVerifiedSwitch_SendsNothingMore [FAIL]
+UsageLimitTranscriptTests.ReadLastTurn_SideChainRecordAfterTheLimitReply_IsPassedOver [FAIL]
+UsageLimitTranscriptTests.ReadLastTurn_HalfWrittenLastLine_IsPassedOver [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_UnreadableTranscript_SkipsItAndResumesTheOthers [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_InputAfterTheLimitReply_SendsNothing [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_AfterADirectorRestart_SendsNothingMore [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_SendRefused_IsNotRecordedSoALaterSwitchTriesAgain [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotVerifiedByUsageRead_SendsNothing [FAIL]
+Failed!  - Failed:    11, Passed:    14, Skipped:     0, Total:    25, Duration: 223 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+Revert proof 2 at 101db5e2e: ONLY IsVerifiedSwitch set to true (the verified-switch gate).
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_SwitchThatDidNotSwitch_SendsNothing(outcome: "failed") [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_SwitchThatDidNotSwitch_SendsNothing(outcome: "already-active") [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_ReplayedAnswer_SendsNothing [FAIL]
+LimitStoppedSessionResumerTests.ResumeAfterSwitch_NotVerifiedByUsageRead_SendsNothing [FAIL]
+Failed!  - Failed:     4, Passed:    11, Skipped:     0, Total:    15, Duration: 194 ms - CcDirector.Core.UnitTests.dll (net10.0)
