@@ -141,11 +141,18 @@ public sealed class LicenseApproverAlarm
         var verdict = LicenseApproverReadiness.Verdict(approver, label, reach, now);
         if (verdict.WhatToDo is null)
             return null;
-        var problem = needing.Count == 0
-            ? verdict.HealthText
-            : $"{verdict.HealthText} {Needing(needing)} cannot be signed in to {approver.AccountEmail} until it can.";
-        return new LicenseAlarmCondition(null, null, approver.AccountEmail,
-            problem.Length <= LicenseAlarmService.MaxSentenceLength ? problem : verdict.HealthText, verdict.WhatToDo);
+        if (needing.Count == 0)
+            return new LicenseAlarmCondition(null, null, approver.AccountEmail, verdict.HealthText, verdict.WhatToDo);
+        // "to it": the health text has just named the account, and a 200-character failed-check detail leaves no room to
+        // name it twice (two machines on the 26 October picture came to 404 characters that way, and lost their names).
+        var problem = $"{verdict.HealthText} {Needing(needing)} cannot be signed in to it until it can.";
+        if (problem.Length > LicenseAlarmService.MaxSentenceLength)
+        {
+            _log($"[LicenseApproverAlarm] Broken: the alarm of account={approver.AccountEmail}, tenant={tenant.ToLogString()} names the approver "
+                 + $"but not the {needing.Count} machines that need it: with them its sentence is {problem.Length} characters, past the {LicenseAlarmService.MaxSentenceLength} an alarm takes");
+            problem = verdict.HealthText;
+        }
+        return new LicenseAlarmCondition(null, null, approver.AccountEmail, problem, verdict.WhatToDo);
     }
 
     // No approver at all, and a machine needs one: the machines, the account, why the checks found none, and what to do.

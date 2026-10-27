@@ -152,6 +152,91 @@ public sealed class LicenseApproverAlarmTests : IDisposable
     }
 
     [Fact]
+    public async Task ABrokenApprover_TwoMachinesNeedIt_WithAFullFailedCheckDetail_TheAlarmStillNamesBothMachines()
+    {
+        // The 26 October shape: the approver's check failed with the longest detail a row takes, and two machines need
+        // its account. Naming the account a second time took that sentence past 400 and dropped both machines' names.
+        var alarm = WithReadiness();
+        _licenses.ApplyReport(One, "dir-c", ++_sequence, Report("machine-c", _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
+        _connected.Add("dir-c");
+        ApproverOf(B, LicenseApproverStates.CheckFailed, _now, MachineB, detail: new string('d', 199) + ".");
+
+        await alarm.RaiseAsync(One, CancellationToken.None);
+
+        var forB = Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
+        Assert.StartsWith("The approver for account-b@example.com (browser profile \"Work Chrome\" on machine-b)", forB.Problem);
+        Assert.EndsWith(new string('d', 199) + ". machine-a and machine-c cannot be signed in to it until it can.", forB.Problem);
+        Assert.True(forB.Problem.Length <= LicenseAlarmService.MaxSentenceLength);
+        Assert.DoesNotContain(_logged, l => l.Contains("[LicenseApproverAlarm] Broken:"));
+    }
+
+    [Fact]
+    public async Task ABrokenApprover_SoManyMachinesNeedItThatTheirNamesDoNotFit_NamesTheApproverAndLogsTheMachinesItLeftOut()
+    {
+        var alarm = WithReadiness();
+        foreach (var n in Enumerable.Range(1, 12))
+        {
+            _licenses.ApplyReport(One, $"dir-{n}", ++_sequence, Report($"machine-with-a-long-name-{n}", _now, Holding(A, true, readAt: _now)), _now, TimeSpan.Zero);
+            _connected.Add($"dir-{n}");
+        }
+        ApproverOf(B, LicenseApproverStates.SignedOut, _now, MachineB);
+
+        await alarm.RaiseAsync(One, CancellationToken.None);
+
+        var forB = Assert.Single(_alarms.ListOpen(One), a => a.AccountEmail == B);
+        Assert.DoesNotContain("cannot be signed in", forB.Problem);
+        Assert.Contains(_logged, l => l.Contains("[LicenseApproverAlarm] Broken: the alarm of account=account-b@example.com")
+                                      && l.Contains("but not the 13 machines that need it"));
+    }
+
+    [Fact]
+    public void TheLicensesPage_AMachineWhoseApproverCheckFailed_ItsReadinessLineSaysWhy_AndNoOtherMachinesLineDoes()
+    {
+        // The page leg of "the reason is never discarded": the overview route's folds, over the real store and the real
+        // readiness check, with a failed check on machine A's own browser profile and none on machine B.
+        WithReadiness();
+        _approvers.RecordChecks(One, MachineA, "owner", new[]
+        {
+            new LicenseApproverCheckRow
+            {
+                BrowserProfile = "mindzie", BrowserProfileName = "mindzie", State = LicenseApproverStates.CheckFailed, CheckedAtUtc = _now,
+                Detail = "The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set.",
+            },
+        }, _now);
+        var readiness = LicenseReadinessTestKit.ForReading(_db, _licenses, (_, directorId) => _connected.Contains(directorId), () => _now);
+        var picture = new LicenseSnapshotSource(_licenses, new LicenseReadModel(_licenses)).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var overview = LicenseDisplayFold.Overview(picture);
+
+        LicenseReadinessFold.Apply(overview, readiness.Judge(One, picture, _now), _approvers.ListFailedChecksQuietly(One), _now);
+
+        var a = overview.Machines.Single(m => m.MachineName == MachineA);
+        var b = overview.Machines.Single(m => m.MachineName == MachineB);
+        Assert.EndsWith(" The approver check of browser profile \"mindzie\" on machine-a could not run at 2026-10-11 03:12 UTC: The check could not run: "
+                        + "the browser profile could not be started: CC_DIRECTOR_ID is not set.", a.ReadinessText);
+        Assert.NotNull(b.ReadinessText);
+        Assert.DoesNotContain("approver check", b.ReadinessText);
+    }
+
+    [Fact]
+    public void FailedChecksText_ForOneMachine_CountsOnlyThatMachineAndUsersChecks_AndNamesTheLatest()
+    {
+        var failed = new[]
+        {
+            new LicenseApproverFailedCheck(MachineA, "owner", "work", "Work Chrome", _now.AddHours(-2), "Older."),
+            new LicenseApproverFailedCheck("MACHINE-A", "OWNER", "mindzie", null, _now.AddHours(-1), "Latest on machine-a."),
+            new LicenseApproverFailedCheck(MachineA, "someone-else", "home", null, _now, "Another user."),
+            new LicenseApproverFailedCheck(MachineB, "owner", "work", null, _now, "Another machine."),
+            new LicenseApproverFailedCheck(MachineA, "owner", "stale", null, _now - LicenseApproverContract.NotCheckedAfter - TimeSpan.FromMinutes(1), "Too old."),
+        };
+
+        var text = LicenseApproverReadiness.FailedChecksText(failed, _now, MachineA, "owner");
+
+        Assert.Equal("2 approver checks could not run, the latest of browser profile \"mindzie\" on MACHINE-A at 2026-10-11 02:12 UTC: Latest on machine-a.",
+            text);
+        Assert.Null(LicenseApproverReadiness.FailedChecksText(failed, _now, "machine-z", "owner"));
+    }
+
+    [Fact]
     public async Task NoApproverAtAll_ClosesWhenAnApproverThatCanApproveIsSet_AndComingBackWithinTheHoldDownTellsNobody()
     {
         var alarm = WithReadiness();

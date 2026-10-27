@@ -19,8 +19,8 @@ What was observed, and how:
   and `answered=True`. The tool answered JSON, and the Director kept only its state.
 - `root-cause/environment-of-the-director-and-of-a-session.txt`: the names (never the values) of the variables in the
   running Director (pid 57916, the installed `cc-director.exe`), read from the process with `read-env-names.ps1.txt`.
-  It had no `CC_DIRECTOR_ID`, no `CC_GATEWAY_URL` and no `CC_GATEWAY_SESSION_KEY`. The Claude Code session that
-  Director started has all three. `browser-harness` and `claude` are both on the Director's PATH, so neither was the cause.
+  It had no `CC_DIRECTOR_ID`, no `CC_GATEWAY_URL` and no `CC_GATEWAY_SESSION_KEY`. A session that Director
+  started has all three. `browser-harness` and `claude` are both on the Director's PATH, so neither was the cause.
 - `root-cause/terminal-run-without-the-session-variables.txt`: the same command from a terminal, with the session
   variables removed. It gave the same result as in the Director: exit 1 in 5 seconds, and the JSON `detail` "The check
   could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, ...".
