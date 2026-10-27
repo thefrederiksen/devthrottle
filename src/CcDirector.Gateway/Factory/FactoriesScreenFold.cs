@@ -310,6 +310,10 @@ public static class FactoriesScreenFold
     /// <summary>"Seats": the heading of the Overview's seats card.</summary>
     public const string SeatsHeading = "Seats";
 
+    /// <summary>The seats card's link to the Floor, where the drawing of how the factory runs is (owner, 26 October 2026:
+    /// "a smaller link to the factory floor where you can see how it actually runs").</summary>
+    public const string FloorLabel = "See how it runs on the Floor";
+
     /// <summary>
     /// THE SEATS ON THE OVERVIEW (the owner's target of 26 October 2026): one line per seat, read without a tap. Folded
     /// FROM the Seats tab's own rows, so a line's words, its last run and that last run's tone are the tab's and cannot
@@ -319,6 +323,8 @@ public static class FactoriesScreenFold
     {
         Heading = SeatsHeading,
         Lines = Seats(factory, input).Rows.Select(SeatLine).ToList(),
+        FloorLabel = FloorLabel,
+        FloorHref = $"{PageHref(factory.Factory)}/floor",
     };
 
     /// <summary>One seat's line on the Overview, from its Seats tab row.</summary>

@@ -356,18 +356,19 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.queryByTestId("fa-coming")).toBeNull();
     expect(screen.getByRole("button", { name: "Talk to the boss" })).toBeTruthy();
 
-    expect(screen.getByText("A cash engine of $15,000-$40,000 a year that runs without your time.")).toBeTruthy();
-    expect(screen.getByText("Only you change the goal. Approved 4 Oct 2026.")).toBeTruthy();
-    // The goal and its number are one line in the header (owner, 18 Oct 2026): who posted it is the number's tooltip.
-    expect(screen.getByText("Propane saved this season: not yet proven").getAttribute("title")).toBe("Goal number - posted by Boss, today 06:20");
-    expect(screen.getByText("How it is measured").getAttribute("href")).toBe("/fixture/how-it-is-measured");
+    // On the Overview the goal is the Boss's, in full, so the header's goal line is not shown; the goal's number sits
+    // under the Boss's goal, who posted it as its tooltip.
+    expect(screen.queryByTestId("fa-goal")).toBeNull();
+    const goal = screen.getByTestId("fa-boss-goal");
+    expect(within(goal).getByText("Propane saved this season: not yet proven").getAttribute("title")).toBe("Goal number - posted by Boss, today 06:20");
+    expect(within(goal).getByText("How it is measured").getAttribute("href")).toBe("/fixture/how-it-is-measured");
     expect(screen.getByText("Is the Bunkie Bathroom meant to be at 20 C?")).toBeTruthy();
     // The boss's latest and the last talk are on Activity, not the Overview (owner, 18 Oct 2026).
     expect(screen.queryByTestId("fa-boss-latest")).toBeNull();
     expect(screen.queryByTestId("fa-last-talk")).toBeNull();
   });
 
-  it("shows what we are doing now on the Overview, under the open problems and above the drawing, in the Gateway's words", async () => {
+  it("shows what we are doing now on the Overview, under the open problems and above the seats, in the Gateway's words", async () => {
     renderAt("/factories/warmforward");
 
     const now = await screen.findByTestId("fa-now");
@@ -378,28 +379,31 @@ describe("A factory's page (mockup 2)", () => {
     expect(text.className).toContain("dt-private");
     expect(text.querySelector("p")!.textContent).toBe("Defining the Boss with you: why is set; goal next.");
     expect(text.querySelector("li")!.textContent).toBe("Content makes one Short a day, unlisted. (fixture)");
-    // It comes after the open problems (is it working) and before the drawing (owner, 26 Oct 2026).
+    // It comes after the open problems (is it working) and before the seats (owner, 26 Oct 2026).
     const overview = screen.getByTestId("fa-overview");
     const problems = within(overview).getByTestId("fa-page-problems");
     expect(problems.compareDocumentPosition(now) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const drawing = within(overview).getByTestId("fd-panel");
-    expect(now.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const seats = within(overview).getByTestId("fa-seats-card");
+    expect(now.compareDocumentPosition(seats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("reads top to bottom: open problems, failures, what we are doing now, Needs you, the seats, the drawing, then the Boss", async () => {
+  it("reads top to bottom: the Boss, open problems, failures, what we are doing now, Needs you, then the seats with the link to the Floor", async () => {
     renderAt("/factories/warmforward");
 
     const overview = await screen.findByTestId("fa-overview");
-    const order = ["fa-page-problems", "fa-page-failing", "fa-now", "fa-page-waiting", "fa-seats-card", "fd-panel", "fa-boss-block"].map((id) =>
+    const order = ["fa-boss-block", "fa-page-problems", "fa-page-failing", "fa-now", "fa-page-waiting", "fa-seats-card"].map((id) =>
       within(overview).getByTestId(id),
     );
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    expect(overview.lastElementChild).toBe(within(overview).getByTestId("fa-boss-block"));
+    expect(overview.firstElementChild).toBe(within(overview).getByTestId("fa-boss-block"));
+    expect(overview.lastElementChild).toBe(within(overview).getByTestId("fa-seats-card"));
+    // The drawing is on the Floor, one link away, not here.
+    expect(within(overview).queryByTestId("fd-panel")).toBeNull();
   });
 
-  it("shows the seats in the Gateway's words, each a link to its seat page, between Needs you and the drawing", async () => {
+  it("shows the seats in the Gateway's words, each a link to its seat page, after Needs you and ending with the link to the Floor", async () => {
     renderAt("/factories/warmforward");
 
     const card = await screen.findByTestId("fa-seats-card");
@@ -418,9 +422,11 @@ describe("A factory's page (mockup 2)", () => {
     expect(links[0].className).toContain("fa-tone-red");
     const overview = screen.getByTestId("fa-overview");
     const waiting = within(overview).getByTestId("fa-page-waiting");
-    const drawing = within(overview).getByTestId("fd-panel");
     expect(waiting.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(card.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The smaller link to the Floor, where the drawing shows how it runs (owner, 26 Oct 2026).
+    const floor = within(card).getByTestId("fa-seats-floor");
+    expect(floor.textContent).toBe("See how it runs on the Floor (fixture)");
+    expect(floor.getAttribute("href")).toBe("/factories/warmforward/floor");
   });
 
   it("always shows Needs you: with open problems and nothing waiting it says the Gateway's empty line", async () => {
@@ -447,7 +453,7 @@ describe("A factory's page (mockup 2)", () => {
     expect(within(waiting).getByText("Is the Bunkie Bathroom meant to be at 20 C?")).toBeTruthy();
   });
 
-  it("shows the Boss block last on the Overview, below the drawing, in the Gateway's words", async () => {
+  it("shows the Boss block first on the Overview, the why in large type, in the Gateway's words", async () => {
     renderAt("/factories/warmforward");
 
     const boss = await screen.findByTestId("fa-boss-block");
@@ -457,20 +463,20 @@ describe("A factory's page (mockup 2)", () => {
       "Goal (fixture)",
       "Limits the Boss cannot change (fixture)",
     ]);
-    // A part's text is the boss.md text as the Gateway sends it, each line break kept.
+    // A part's text is the boss.md text as the Gateway sends it, read as markdown: a line wrapped in the file is one
+    // paragraph, not a break in mid-sentence.
     const why = screen.getByTestId("fa-boss-why-text");
     expect(why.className).toContain("dt-private");
-    expect(why.querySelectorAll("br")).toHaveLength(1);
-    expect(why.querySelector("p")!.textContent).toBe("Keep the house warm for less.And say so. (fixture)");
+    expect(why.querySelectorAll("br")).toHaveLength(0);
+    expect(why.querySelector("p")!.textContent).toBe("Keep the house warm for less.\nAnd say so. (fixture)");
+    expect(screen.getByTestId("fa-boss-why").className).toContain("fa-boss-part-why");
     expect(screen.getByTestId("fa-boss-limits-text").textContent).toContain("Never buy anything. (fixture)");
     // A part the Gateway found nothing for says its empty text, and has no text block.
     expect(within(screen.getByTestId("fa-boss-goal")).getByText("not set yet (fixture)")).toBeTruthy();
     expect(screen.queryByTestId("fa-boss-goal-text")).toBeNull();
-    // It is the last block of the Overview, after the drawing.
-    const overview = screen.getByTestId("fa-overview");
-    expect(overview.lastElementChild).toBe(boss);
-    const drawing = within(overview).getByTestId("fd-panel");
-    expect(drawing.compareDocumentPosition(boss) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // It is the first block of the Overview (owner, 26 Oct 2026: "the overview needs to be why the factory is there,
+    // and the goal").
+    expect(screen.getByTestId("fa-overview").firstElementChild).toBe(boss);
   });
 
   it("says not set yet in every part of the Boss block when the Gateway sends it so", async () => {
@@ -564,16 +570,33 @@ describe("A factory's page (mockup 2)", () => {
       goal: { heading: "Goal", text: null, note: null, emptyText: "No goal set yet" },
       goalNumber: { heading: "Goal number", valueText: null, asOfText: null, linkHref: null, linkLabel: null, emptyText: "Not measured" },
     });
-    renderAt("/factories/warmforward");
+    renderAt("/factories/warmforward/activity");
 
-    await screen.findByTestId("fa-overview");
+    await screen.findByTestId("fa-goal");
     expect(screen.getByText("No goal set yet")).toBeTruthy();
     expect(screen.getByText("Not measured")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Talk/ })).toBeNull();
   });
 
-  it("shows why the factory exists in the Gateway's words, under the name and above the goal line", async () => {
+  it("shows the goal and its number as one line in the header on every other tab", async () => {
+    renderAt("/factories/warmforward/activity");
+
+    const goal = await screen.findByTestId("fa-goal");
+    expect(within(goal).getByText("A cash engine of $15,000-$40,000 a year that runs without your time.")).toBeTruthy();
+    expect(within(goal).getByText("Only you change the goal. Approved 4 Oct 2026.")).toBeTruthy();
+    expect(within(goal).getByText("Propane saved this season: not yet proven").getAttribute("title")).toBe("Goal number - posted by Boss, today 06:20");
+  });
+
+  it("leaves the header's why and goal lines off the Overview, which leads with the Boss's in full", async () => {
     renderAt("/factories/warmforward");
+
+    await screen.findByTestId("fa-boss-block");
+    expect(screen.queryByTestId("fa-why")).toBeNull();
+    expect(screen.queryByTestId("fa-goal")).toBeNull();
+  });
+
+  it("shows why the factory exists in the Gateway's words, under the name and above the goal line", async () => {
+    renderAt("/factories/warmforward/activity");
 
     const why = await screen.findByTestId("fa-why");
     expect(why.textContent).toBe("Why: Cut the house's heating bill without anyone touching the thermostat. (fixture)");
@@ -590,7 +613,7 @@ describe("A factory's page (mockup 2)", () => {
       ...FACTORY_PAGE,
       why: { heading: "Why", text: null, emptyText: "No why written yet. (fixture)" },
     });
-    renderAt("/factories/warmforward");
+    renderAt("/factories/warmforward/activity");
 
     const why = await screen.findByTestId("fa-why");
     expect(why.textContent).toBe("Why: No why written yet. (fixture)");

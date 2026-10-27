@@ -80,7 +80,7 @@ describe("What a factory does, drawn", () => {
     expect(screen.getByText("no")).toBeTruthy();
     expect(within(screen.getByTestId("fd-legend")).getByText("a decision")).toBeTruthy();
     expect(screen.getByText(DRAWING.notes[0])).toBeTruthy();
-    // The status line is the Overview's, not every drawing's.
+    // The status line is the Floor's factory drawing, not every drawing (a seat's page draws one too).
     expect(screen.queryByTestId("fd-status")).toBeNull();
   });
 
