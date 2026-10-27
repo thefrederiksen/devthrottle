@@ -1,0 +1,4 @@
+@echo off
+set CC_DIRECTOR_ROOT=%LOCALAPPDATA%\cc-director\instances\default
+"<scratchpad>\harness\bin\Debug\net10.0\ApproverCheckHarness.exe" "<scratchpad>\harness\logs-own-daemon" "<scratchpad>\harness\worktree-tool.cmd" mindzie agent-browser > "<scratchpad>\harness\own-daemon.out.txt" 2>&1
+echo done > "<scratchpad>\harness\own-daemon-done.txt"

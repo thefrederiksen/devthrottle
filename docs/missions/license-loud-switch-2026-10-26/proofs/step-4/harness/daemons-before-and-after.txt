@@ -1,0 +1,8 @@
+browser-harness daemons alive on SOREN_NORTH around the run in run-own-daemon.log (27 October 2026, 01:08:32 to 01:09:59).
+Process ids from Win32_Process, command line browser_harness.daemon; names from the pid files in <home>\.config\browser-harness\runtime.
+
+before: 38 processes
+after:  40 processes
+ended:  none (every process alive before was alive after)
+new:    13400 and 47512, started 01:09:36; the pid file naming 47512 is bu-mzqa.pid, another session's QA daemon
+left by this run: none (no pid file with -license- in its name)

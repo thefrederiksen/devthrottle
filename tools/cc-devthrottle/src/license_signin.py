@@ -601,6 +601,12 @@ def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> 
 RunHarness = Callable[[str, Dict[str, str], float], str]
 
 
+def run_daemon_name(profile_daemon: str) -> str:
+    """The browser-harness daemon name for ONE run of this tool against the profile whose own daemon is
+    ``profile_daemon``: never the profile's own name, which a session driving that profile is using."""
+    return f"{profile_daemon}-license-{os.getpid()}"
+
+
 def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> str:
     exe = shutil.which("browser-harness")
     if not exe:
@@ -608,19 +614,24 @@ def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> st
                           ["Install browser-harness, then run: browser-harness --doctor"])
     full_env = dict(os.environ, **env)
     full_env.pop(ENV_ALLOW_REAL_DEFAULT, None)
+    # A daemon of this run's own, attached to the same browser by BU_CDP_URL. The profile's own daemon belongs to
+    # whatever session drives that profile: running under its name moved that session's current tab to this run's
+    # page, and the reload below ended the session's daemon under it. The daily approver check reads every profile on
+    # the machine, factories drive them at night, and a running browser is read where it is and never closed.
+    full_env["BU_NAME"] = run_daemon_name(env["BU_NAME"])
     try:
         done = subprocess.run([exe], input=script, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", env=full_env, timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         raise SignInError(APPROVAL_FAILED, f"the browser step did not finish in {timeout_seconds:g} seconds") from None
     finally:
-        # End this profile's browser-harness daemon. The profile is stopped next when it was stopped before, and a
-        # daemon left attached to a stopped browser collides with the next one started for it (seen live: the
-        # next approval failed with "Access is denied" on the daemon's port file).
+        # End this run's own daemon, and only it. A daemon left attached to a browser that is stopped next collides
+        # with the next one started for it (seen live: the next approval failed with "Access is denied" on the
+        # daemon's port file), and one left per run would pile up.
         stopped = subprocess.run([exe, "--reload"], capture_output=True, text=True, encoding="utf-8",
                                  errors="replace", env=full_env, timeout=60)
         if stopped.returncode != 0:
-            log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, env.get("BU_NAME"),
+            log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, full_env["BU_NAME"],
                         " / ".join((stopped.stderr or stopped.stdout).strip().splitlines()[-2:]))
     if done.returncode != 0:
         # browser-harness's own error text names the page or the connection; the code is never in it, because a

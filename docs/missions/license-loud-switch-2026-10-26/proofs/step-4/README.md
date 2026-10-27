@@ -49,6 +49,25 @@ including the in-process profile start. Second, it runs under Task Scheduler, so
 | The installed tool (without this change): `harness/run-installed-tool.log` | `check-failed`, detail "...CC_DIRECTOR_ID is not set..." | `check-failed`, the same |
 | The tool from this branch: `harness/run-fixed-tool.log` | **`can-approve`** | `signed-out`, started and stopped again |
 
+**The check never breaks a session using a browser profile** (the Delivery Lead's ruling on review observation 1).
+Sessions and night-time factories drive these profiles, and the daily check reads every one of them.
+- A profile whose browser is already running is read through that running browser, and the Director never starts it
+  again or closes it (`LicenseBrowserOpener`).
+- The tool drives every profile under a browser-harness daemon of the run's own (`run_daemon_name`), attached by
+  `BU_CDP_URL`, and ends only that daemon. Until now it ran under the profile's own daemon name. That moved a driving
+  session's current tab to the approval page, and the closing `--reload` ended that session's daemon under it.
+- A profile that was stopped is started, read, and stopped again, as before.
+
+Proven three ways:
+- Tests: `LicenseBrowserOpenerTests` (a running profile is neither started nor stopped; a stopped one is started and
+  stopped again once) and `tests/test_license_browser_daemon.py` (the profile's own daemon is never used or reloaded,
+  even when the browser step fails; the session route leaves a running profile running).
+- The daemon tests fail with the run's own name taken out.
+- `harness/run-own-daemon.log`, the same Task Scheduler harness on 27 October: mindzie was already running, answered
+  **`can-approve`** through that browser, and was "left running". agent-browser was stopped, so it was started, read,
+  and "stopped again". `harness/daemons-before-and-after.txt` records that no browser-harness daemon alive before the
+  run was ended by it, and that it left none of its own behind.
+
 **Owed to the Delivery Lead's QA after the release:** the real Director's own daily check on SOREN_NORTH, shown by a
 log line with `state=can-approve` for the mindzie profile.
 

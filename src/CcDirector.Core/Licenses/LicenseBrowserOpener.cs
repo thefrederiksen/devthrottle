@@ -75,29 +75,52 @@ public sealed class LicenseBrowserOpener : ILicenseBrowserOpener
         };
     }
 
+    private readonly LicenseBrowserControl _control;
+
+    public LicenseBrowserOpener() : this(LicenseBrowserControl.ThisMachine)
+    {
+    }
+
+    /// <summary>For tests: the profiles and the browser service it drives.</summary>
+    internal LicenseBrowserOpener(LicenseBrowserControl control)
+    {
+        _control = control ?? throw new ArgumentNullException(nameof(control));
+    }
+
+    /// <summary>
+    /// A BROWSER THAT IS ALREADY RUNNING IS READ WHERE IT IS, AND NEVER CLOSED (the Delivery Lead's ruling on step 4).
+    /// The daily approver check reads every profile on the machine, and a session or a night-time factory may be driving
+    /// one of them: launching an up profile is a no-op, and the put-back stops only a profile this run started. The tool
+    /// drives it under a browser-harness daemon of its own, so the session's daemon is never moved or ended either.
+    /// </summary>
     public async Task<LicenseOpenedBrowser> OpenAsync(string idOrName, CancellationToken cancellationToken)
     {
         FileLog.Write($"[LicenseBrowserOpener] OpenAsync: profile={idOrName}");
-        var browser = AutomationBrowserRegistry.Find(idOrName)
+        var browser = _control.Find(idOrName)
             ?? throw new LicenseCommandLineException($"No browser profile \"{idOrName}\" is on this machine.");
-        var wasUp = await AutomationBrowserService.IsUpAsync(browser, cancellationToken);
+        var wasUp = await _control.IsUpAsync(browser, cancellationToken);
         try
         {
-            await AutomationBrowserService.LaunchAsync(browser.Id, cancellationToken);
+            if (!wasUp)
+                await _control.LaunchAsync(browser.Id, cancellationToken);
         }
         catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or IOException or System.ComponentModel.Win32Exception)
         {
             FileLog.Write($"[LicenseBrowserOpener] OpenAsync FAILED: profile={browser.Id}: {ex.Message}");
             throw new LicenseCommandLineException($"The browser profile \"{browser.Name}\" did not start on this machine: {ex.Message}");
         }
-        var attach = AutomationBrowserRegistry.AttachInfoFor(browser);
+        var attach = _control.AttachInfoFor(browser);
         FileLog.Write($"[LicenseBrowserOpener] OpenAsync: profile={browser.Id} is up, wasUp={wasUp}");
         return new LicenseOpenedBrowser(browser.Id, browser.Name, attach.BuName, attach.BuCdpUrl, async () =>
         {
-            if (wasUp) return;
+            if (wasUp)
+            {
+                FileLog.Write($"[LicenseBrowserOpener] put back: profile={browser.Id} was already running, left running");
+                return;
+            }
             try
             {
-                await AutomationBrowserService.StopAsync(browser.Id, CancellationToken.None);
+                await _control.StopAsync(browser.Id, CancellationToken.None);
                 FileLog.Write($"[LicenseBrowserOpener] put back: profile={browser.Id} stopped again");
             }
             catch (TimeoutException ex)
@@ -107,4 +130,21 @@ public sealed class LicenseBrowserOpener : ILicenseBrowserOpener
             }
         });
     }
+}
+
+/// <summary>What <see cref="LicenseBrowserOpener"/> drives: this machine's browser profiles and the browser service, or a
+/// test's stand-ins.</summary>
+internal sealed record LicenseBrowserControl(
+    Func<string, AutomationBrowser?> Find,
+    Func<AutomationBrowser, CancellationToken, Task<bool>> IsUpAsync,
+    Func<string, CancellationToken, Task> LaunchAsync,
+    Func<AutomationBrowser, AttachInfo> AttachInfoFor,
+    Func<string, CancellationToken, Task> StopAsync)
+{
+    public static readonly LicenseBrowserControl ThisMachine = new(
+        AutomationBrowserRegistry.Find,
+        (browser, ct) => AutomationBrowserService.IsUpAsync(browser, ct),
+        (id, ct) => AutomationBrowserService.LaunchAsync(id, ct),
+        AutomationBrowserRegistry.AttachInfoFor,
+        (id, ct) => AutomationBrowserService.StopAsync(id, ct));
 }
