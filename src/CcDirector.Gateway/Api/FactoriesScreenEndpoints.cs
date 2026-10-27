@@ -25,6 +25,9 @@ namespace CcDirector.Gateway.Api;
 /// registry does not hold. Null where a host has no definition store: then there are none.</param>
 /// <param name="NowDocument">One factory's newest <c>now</c> working document, with the seat that wrote it
 /// (<see cref="FactoriesScreenEndpoints.ReadNow"/>), or null when it was never written. Read for a factory's page only.</param>
+/// <param name="BossFile">The text of one factory's PUBLISHED definition's <c>boss.md</c>
+/// (<see cref="FactoriesScreenEndpoints.ReadBossFile"/>), or null when it holds none or nothing is published. Read for a
+/// factory's page only.</param>
 internal sealed record FactoriesScreenSources(
     FactoryAgentsSources Activity,
     FactoryRegistryStore Registry,
@@ -35,7 +38,8 @@ internal sealed record FactoriesScreenSources(
     Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null,
     Func<TenantId, bool>? SchedulerPaused = null,
     Func<TenantId, IReadOnlyList<SessionDto>>? LiveSessions = null,
-    Func<TenantId, string, FactoryNowDocument?>? NowDocument = null);
+    Func<TenantId, string, FactoryNowDocument?>? NowDocument = null,
+    Func<TenantId, string, string?>? BossFile = null);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -98,7 +102,12 @@ internal static class FactoriesScreenEndpoints
                 }
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
                 // "What we are doing now" is on the page only, so only the page reads it.
-                input = input with { Now = sources.NowDocument?.Invoke(tenant, registered.Factory) };
+                // So is the Boss's why, goal and limits, from the published definition's boss.md.
+                input = input with
+                {
+                    Now = sources.NowDocument?.Invoke(tenant, registered.Factory),
+                    BossFile = sources.BossFile?.Invoke(tenant, registered.Factory),
+                };
                 var dto = FactoriesScreenFold.Page(registered, input);
                 dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory));
                 dto.Emails = FactoryEmailsFold.Card(registered, sources.Emails(tenant, registered.Factory),
@@ -480,6 +489,25 @@ internal static class FactoriesScreenEndpoints
         }
         FileLog.Write($"[FactoriesScreenEndpoints] ReadNow: {factory} v{doc.Version} by {doc.AuthorKind}, seat={seat ?? "(none)"}");
         return new FactoryNowDocument(doc.Text, doc.AuthorKind, doc.WrittenAtUtc, seat);
+    }
+
+    /// <summary>
+    /// The text of <c>boss.md</c> in a factory's PUBLISHED definition, or null when nothing is published or the published
+    /// version holds no such file. A draft is never read: the page shows what the factory runs under.
+    /// </summary>
+    internal static string? ReadBossFile(FactoryDefinitionStore store, TenantId tenant, string factory)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        if (store.Standing(tenant, factory).Published is not { } published)
+        {
+            FileLog.Write($"[FactoriesScreenEndpoints] ReadBossFile: {factory} has no published definition");
+            return null;
+        }
+        if (store.Find(tenant, factory, published.Version) is not { } version)
+            throw new InvalidOperationException($"version {published.Version} of the definition of '{factory}' is published but cannot be found");
+        var found = version.Files.TryGetValue(DefinitionPaths.BossFile, out var text);
+        FileLog.Write($"[FactoriesScreenEndpoints] ReadBossFile: {factory} v{published.Version} boss.md={(found ? "present" : "absent")}");
+        return found ? text : null;
     }
 
     /// <summary>How many of a seat's rows after its newest start are read to tell how that run ended.</summary>

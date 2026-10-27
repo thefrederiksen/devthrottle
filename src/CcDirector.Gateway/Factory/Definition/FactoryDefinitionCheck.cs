@@ -850,8 +850,9 @@ public static class FactoryDefinitionCheck
             foreach (var (name, file) in _p.RuleSets)
                 if (!named.RuleSets.Contains(name))
                     Notice(_findings, file.Path, 0, $"The rule set '{name}' is not named by any seat.");
+            // boss.md is read by the factory's page, not handed to a seat, so no seat names it.
             foreach (var file in _p.Files)
-                if (!named.Files.Contains(file))
+                if (!named.Files.Contains(file) && file != DefinitionPaths.BossFile)
                     Notice(_findings, file, 0, $"'{file}' is not named by any seat.");
             foreach (var check in _p.Checks)
                 if (!named.Checks.Contains(check))

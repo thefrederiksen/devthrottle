@@ -497,7 +497,38 @@ public sealed class FactoryDefinitionCheckTests
         content["notes/todo.md"] = "x";
 
         AssertOneError(Check(content), "notes/todo.md", 0,
-            "'notes/todo.md' is not a place a definition holds. The places are: factory.yaml, seats/<seat>.yaml, grants.yaml, rules/<name>.json, files/<any path>, checks/<name>.py, skills/<name>/SKILL.md and skills/<name>/<any path>.");
+            "'notes/todo.md' is not a place a definition holds. The places are: factory.yaml, seats/<seat>.yaml, grants.yaml, boss.md, rules/<name>.json, files/<any path>, checks/<name>.py, skills/<name>/SKILL.md and skills/<name>/<any path>.");
+    }
+
+    [Fact]
+    public void Check_BossFileAtTheRoot_PassesAndIsKeptAsAFile_WithNoNotice()
+    {
+        // The Boss's why, goal and limits live in the definition as boss.md at its root (26 October 2026). Before, a
+        // root markdown file was refused as not a place; boss.md is the one that is allowed now.
+        var content = Valid();
+        content["boss.md"] = "## The why\nErik needs a website.\n";
+
+        var result = Check(content);
+
+        Assert.False(result.HasErrors,
+            string.Join("\n", result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));
+        Assert.Contains("boss.md", result.Definition!.Files);
+        // The page reads it; no seat names it, and that is not worth a notice.
+        Assert.DoesNotContain(result.Findings, f => f.File == "boss.md");
+    }
+
+    [Theory]
+    [InlineData("readme.md")]
+    [InlineData("Boss.md")]
+    [InlineData("boss.txt")]
+    [InlineData("boss.md.bak")]
+    [InlineData("notes/boss.md")]
+    public void Check_AnyOtherRootFile_IsStillNotAPlace(string path)
+    {
+        var content = Valid();
+        content[path] = "x";
+
+        AssertOneError(Check(content), path, 0, "is not a place a definition holds");
     }
 
     [Theory]

@@ -20,6 +20,8 @@ namespace CcDirector.Gateway.Factory;
 /// "started" row and that session's later rows, for a seat whose newest start is older than <see cref="Activity"/>'s
 /// window. Without them a weekly seat would read "- started" or "never ran" on the list. Empty on a factory's page.</param>
 /// <param name="SchedulerPaused">Whether Pause everything is on: then nothing is due, and no next start is shown.</param>
+/// <param name="BossFile">The text of the published definition's <c>boss.md</c> of the factory in view, or null when it
+/// holds none. Read for a factory's page only; the list never reads it.</param>
 /// <param name="Now">The newest version of the working document named <c>now</c> of the factory in view, or null when it
 /// was never written. Read for a factory's page only; the list never reads it.</param>
 public sealed record FactoriesScreenInputs(
@@ -32,7 +34,8 @@ public sealed record FactoriesScreenInputs(
     IReadOnlyList<FactoryActivityDto>? LastRunRows = null,
     bool SchedulerPaused = false,
     IReadOnlyList<SessionDto>? Sessions = null,
-    FactoryNowDocument? Now = null);
+    FactoryNowDocument? Now = null,
+    string? BossFile = null);
 
 /// <summary>
 /// The newest version of a factory's working document named <c>now</c>, as the factory's page reads it.
@@ -278,6 +281,7 @@ public static class FactoriesScreenFold
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
             Now = NowCard(factory, input.Now, input.Schedules, zone, now),
+            Boss = FactoryBossFold.Block(input.BossFile),
             Failures = FailuresCard(factory, input),
             Waiting = new FactoryPageWaitingDto
             {

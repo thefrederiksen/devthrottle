@@ -537,6 +537,14 @@ export const FACTORY_PAGE: FactoryPageView = {
   archivedText: null,
   restore: null,
   delete: null,
+  boss: {
+    heading: "The Boss (fixture)",
+    parts: [
+      { key: "why", heading: "Why (fixture)", text: "Keep the house warm for less.\nAnd say so. (fixture)", emptyText: null },
+      { key: "goal", heading: "Goal (fixture)", text: null, emptyText: "not set yet (fixture)" },
+      { key: "limits", heading: "Limits the Boss cannot change (fixture)", text: "1. Never buy anything. (fixture)", emptyText: null },
+    ],
+  },
 };
 
 const SEAT_BOSS: FactorySeatRow = {

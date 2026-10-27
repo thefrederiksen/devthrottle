@@ -115,6 +115,8 @@ public static class FactoryNewFold
             Waiting = new FactoryPageWaitingDto { Heading = FactoriesScreenFold.NeedsYouHeading, EmptyText = FactoriesScreenFold.NothingNeedsYouText },
             BossLatest = new FactoryBossLatestDto { Heading = "Latest from the boss", EmptyText = notYet },
             LastTalk = new FactoryLastTalkDto { Heading = "Last talk", Text = notYet },
+            // Nothing is published, so the Boss's why, goal and limits are all still open.
+            Boss = FactoryBossFold.Block(null),
         };
     }
 

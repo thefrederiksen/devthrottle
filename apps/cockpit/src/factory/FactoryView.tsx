@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   getFactoryPage,
   getFactorySeats,
+  type FactoryBossBlock,
   type FactoryNowCard,
   type FactoryPageView,
   type FactorySeatsView,
@@ -206,7 +207,8 @@ function Overview({
 }) {
   // The Overview, read top to bottom (owner, 26 October 2026): is it working (open problems and failures), what we are
   // doing now in the boss's words, then "Needs you" - always shown, so "nothing needs me" is said rather than left to a
-  // missing block - and the drawing of what the factory does last. The goal is in the header; emails, the boss's latest
+  // missing block - the drawing of what the factory does, and below it the Boss's why, goal and limits
+  // ("Below the fold: the Boss's limits, the drawing"). The goal is in the header; emails, the boss's latest
   // and the last talk are on Activity.
   const { failures, problems, waiting } = page;
   return (
@@ -234,7 +236,32 @@ function Overview({
         )}
       </section>
       <FactoryDrawingPanel factory={page.id} showStatus />
+      <BossBlock boss={page.boss} />
     </div>
+  );
+}
+
+// The Boss (owner, 26 October 2026: "Below the fold: the Boss's limits, the drawing, and the run history"): its why,
+// goal and limits from the published definition's boss.md, the last block of the Overview, below the drawing. Each part's
+// text is rendered as the "now" text is, keeping each line break; a part the Gateway found nothing for says so, dimmed.
+function BossBlock({ boss }: { boss: FactoryBossBlock }) {
+  return (
+    <section className="fa-panel fa-boss" data-testid="fa-boss-block">
+      <h2 className="fa-section-title">{boss.heading}</h2>
+      {boss.parts.map((part) => (
+        <div className="fa-boss-part" key={part.key} data-testid={`fa-boss-${part.key}`}>
+          <h3 className="fa-boss-part-title">{part.heading}</h3>
+          {part.text !== null && (
+            <div
+              className="fa-boss-text dt-private"
+              data-testid={`fa-boss-${part.key}-text`}
+              dangerouslySetInnerHTML={{ __html: markdownToHtml(part.text, { keepLineBreaks: true }) }}
+            />
+          )}
+          {part.emptyText !== null && <p className="fa-dim">{part.emptyText}</p>}
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -362,6 +362,27 @@ export interface FactoryNowCard {
   emptyText: string | null;
 }
 
+/** One part of "The Boss": its heading and either the text written under it in the definition's boss.md, or "not set
+ *  yet". Every word is the Gateway's. */
+export interface FactoryBossPart {
+  /** "why", "goal" or "limits". */
+  key: string;
+  /** "Why", "Goal", "Limits the Boss cannot change". */
+  heading: string;
+  /** The text under the part's heading in boss.md, as written (markdown); null when not set. */
+  text: string | null;
+  /** "not set yet" when the part is not set, else null. */
+  emptyText: string | null;
+}
+
+/** "The Boss": the Boss's why, goal and limits from the published definition's boss.md, the last block of the Overview. */
+export interface FactoryBossBlock {
+  /** "The Boss". */
+  heading: string;
+  /** Why, goal and limits, in that order. */
+  parts: FactoryBossPart[];
+}
+
 export interface FactoryLastTalk {
   heading: string;
   text: string;
@@ -424,6 +445,8 @@ export interface FactoryPageView {
   restore: FactoryOwnerAction | null;
   /** "Delete", when it is archived: only an archived factory can be deleted. */
   delete: FactoryOwnerAction | null;
+  /** "The Boss": why, goal and limits, below the drawing; "not set yet" in a part the Gateway found nothing for. */
+  boss: FactoryBossBlock;
 }
 
 export interface FactorySeatRow {

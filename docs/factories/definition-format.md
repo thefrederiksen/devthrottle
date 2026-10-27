@@ -20,6 +20,7 @@ byte-order mark.
 | `factory.yaml` | yes, exactly one | the factory |
 | `seats/<seat>.yaml` | at least one | one seat; `<seat>` equals the file's `seat` key |
 | `grants.yaml` | no | the grants |
+| `boss.md` | no | the Boss's why, goal and limits, shown on the factory's page from its `## The why`, `## The goal` and `## Limits` headings; no seat needs to name it |
 | `rules/<name>.json` | no | one rule set |
 | `files/<any path>` | no | a tool or template, any text |
 | `checks/<name>.py` | no | a check; its name may use hyphens or underscores (`new_mail.py`) |

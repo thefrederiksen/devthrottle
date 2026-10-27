@@ -41,8 +41,15 @@ public static partial class DefinitionPaths
 
     /// <summary>The places, as a person reads them in a refusal.</summary>
     public const string PlacesText =
-        "factory.yaml, seats/<seat>.yaml, grants.yaml, rules/<name>.json, files/<any path>, checks/<name>.py, " +
+        "factory.yaml, seats/<seat>.yaml, grants.yaml, boss.md, rules/<name>.json, files/<any path>, checks/<name>.py, " +
         "skills/<name>/SKILL.md and skills/<name>/<any path>";
+
+    /// <summary>
+    /// The Boss's why, goal and limits, as one markdown file at the definition's root (the Delivery Lead's ruling of 26
+    /// October 2026: the method says they live in the definition). It is a file of the definition like any under
+    /// <c>files/</c>, and the only markdown file a definition holds at its root. The factory's page reads it.
+    /// </summary>
+    public const string BossFile = "boss.md";
 
     /// <summary>The file a factory skill's folder must hold.</summary>
     public const string SkillMainFile = "SKILL.md";
@@ -160,6 +167,7 @@ public static partial class DefinitionPaths
 
         if (parts is ["factory.yaml"]) return (new DefinitionPathInfo(DefinitionPlace.Factory, null), null);
         if (parts is ["grants.yaml"]) return (new DefinitionPathInfo(DefinitionPlace.Grants, null), null);
+        if (parts is [BossFile]) return (new DefinitionPathInfo(DefinitionPlace.File, null), null);
 
         if (parts is ["seats", var seatFile] && seatFile.EndsWith(".yaml", StringComparison.Ordinal))
             return Named(path, DefinitionPlace.Seat, seatFile[..^".yaml".Length], "seat", IdPattern());
