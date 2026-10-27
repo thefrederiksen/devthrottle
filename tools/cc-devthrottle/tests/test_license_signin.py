@@ -582,11 +582,11 @@ def test_cli_signInAskWhenNoBrowser_WithAnotherRoute_IsAUsageError(machine, othe
 # --- a sign-in by hand that replaces the active account keeps it as a spare (--make-active) ---------------------
 #
 # The owner's decision of 26 October 2026: a sign-in by hand never deletes a login. These run on the Windows/Linux
-# credentials file AND on the macOS Keychain, through the key store's own fake `security` (test_license_store.World),
+# credentials file AND on the macOS Keychain, through the store tests' fake `security` (license_store_world.World),
 # so the Mac path is proven on every platform. Every folder is under tmp_path; no test reaches a real login.
 
 from src.license_store import keychain_service_for  # noqa: E402
-from tests.test_license_store import World  # noqa: E402
+from license_store_world import World  # noqa: E402
 
 
 class WorldLogin:

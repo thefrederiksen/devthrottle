@@ -685,10 +685,12 @@ def test_read_with_refresh_ActiveKey_RenewalRefused_IsRefreshFailedSayingItNeeds
     assert get.calls == []
 
 
-def test_refresh_key_ActiveKey_AfterRenewal_TheKeyIsInExactlyOnePlace_AndTheOldTokenIsGone(machine, tmp_path):
+def test_refresh_key_ActiveKey_AfterRenewal_TheKeyIsInTheDefaultFolderAndItsKeptCopyOnly_AndTheOldTokenIsGone(
+        machine, tmp_path):
     # Every file under the machine - the default config folder, the key store, and a stand-in for the Director's
-    # own folders - is searched: the new key is in one file, the default folder's credentials file, and neither
-    # the old access token nor the old refresh token is left anywhere on disk.
+    # own folders - is searched: the new key is in the default folder's credentials file and in the store's kept copy
+    # of the active sign-in (never used, so it never rotates the token; license_store._keep_active_copy), and neither
+    # the old access token nor the old refresh token is left anywhere on disk - the copy took the new key at once.
     director = tmp_path / "director"
     (director / "logs").mkdir(parents=True)
     (director / "logs" / "director.log").write_text("nothing", encoding="utf-8")
@@ -705,7 +707,9 @@ def test_refresh_key_ActiveKey_AfterRenewal_TheKeyIsInExactlyOnePlace_AndTheOldT
                 if secret in text:
                     holding[secret].append(path)
     credentials = Path(machine.default_config_dir) / ".credentials.json"
-    assert holding[NEW_ACCESS] == [credentials] and holding[NEW_REFRESH] == [credentials]
+    kept_copy = Path(machine.active_copy_dir) / ".credentials.json"
+    assert sorted(holding[NEW_ACCESS]) == sorted([credentials, kept_copy])
+    assert sorted(holding[NEW_REFRESH]) == sorted([credentials, kept_copy])
     assert holding[ACCESS_A] == [] and holding[REFRESH_A] == []
 
 

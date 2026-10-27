@@ -80,6 +80,25 @@ if [[ "$EXIT" == "0" ]]; then echo "FAIL: the sign-in went ahead"; exit 1; fi
 if [[ "$BEFORE" != "$AFTER" ]]; then echo "FAIL: a file changed"; exit 1; fi
 echo "OK: refused with the reason, and no file in the default folder or the spares changed"
 
+echo
+echo "== 6. The 26 October path: a raw login (as /login inside a session) straight over the active sign-in"
+echo "(a second isolated machine, so nothing above is in the way)"
+M2="$ROOT/machine-2"
+M2_DEFAULT="$(native "$M2/claude-default")"
+M2_STORE="$(native "$M2/store")"
+echo "$CODE" | CLAUDE_CONFIG_DIR="$M2_DEFAULT" "$PYTHON" "$HERE/fake_claude.py" auth login --claudeai --email "$A" >> "$ROOT/seed.log"
+A2_BEFORE="$(fingerprint "$M2/claude-default/.credentials.json")"
+echo "A is active, sign-in fingerprint $A2_BEFORE. The Director opens the store (its usage read every two minutes):"
+CC_LICENSE_DEFAULT_CONFIG_DIR="$M2_DEFAULT" CC_LICENSE_STORE_DIR="$M2_STORE" license list
+echo "Now C is signed in BY HAND straight into the default folder - Claude Code's own write, nothing of ours runs:"
+echo "$CODE" | CLAUDE_CONFIG_DIR="$M2_DEFAULT" "$PYTHON" "$HERE/fake_claude.py" auth login --claudeai --email "$C"
+echo "The next time the store is opened:"
+CC_LICENSE_DEFAULT_CONFIG_DIR="$M2_DEFAULT" CC_LICENSE_STORE_DIR="$M2_STORE" license list
+A2_AFTER="$(fingerprint "$M2/store/spares/account-a-example.com/.credentials.json")"
+echo "A's spare holds fingerprint $A2_AFTER"
+if [[ "$A2_AFTER" != "$A2_BEFORE" ]]; then echo "FAIL: A was not kept with its own sign-in"; exit 1; fi
+echo "OK: the account the raw login replaced is kept as a spare, with the very sign-in it had"
+
 rm -rf "$ROOT"
 echo
 echo "PROOF PASSED"

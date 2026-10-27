@@ -1,6 +1,6 @@
 == The isolated machine: default folder <temp>\claude-default, store <temp>\store
 == 1. Account A is the active sign-in (made by the stand-in login, straight into the default folder)
-A's sign-in fingerprint (sha256 of its credentials file, first 16): 95bb40ecd7c3cc0b
+A's sign-in fingerprint (sha256 of its credentials file, first 16): b9371aa3cb7de684
 count: 1 (active 1, spare 0)
 accounts[1]{email,role,organization}:
   account-a@example.com,active,
@@ -12,7 +12,7 @@ help[2]:
 $ cc-devthrottle license sign-in account-b@example.com --make-active --remote-approval   (code typed on standard input)
 authorize-url: https://claude.ai/oauth/authorize?code=true&client_id=proof&state=s1&login_hint=account-b%40example.com
 waiting: approve it for account-b@example.com on the machine with the browser profile, then send the code as one line on standard input
-Added: account-b@example.com is the active account in <temp>\claude-default, signed in at 2026-10-27T02:46:10Z. Its sign-in ends about 2033-05-18T03:33:19Z. account-a@example.com, active before, is kept as a spare in <temp>\store\spares\account-a-example.com.
+Added: account-b@example.com is the active account in <temp>\claude-default, signed in at 2026-10-27T03:39:06Z. Its sign-in ends about 2033-05-18T03:33:19Z. account-a@example.com, active before, is kept as a spare in <temp>\store\spares\account-a-example.com.
 help[2]:
   cc-devthrottle license list
   cc-devthrottle license usage --fields account,state,sign-in-expires
@@ -53,13 +53,13 @@ help[3]:
     }
   ]
 }
-A's spare holds fingerprint 95bb40ecd7c3cc0b
+A's spare holds fingerprint b9371aa3cb7de684
 OK: A is kept as a spare, and it is the very sign-in A had before
 
 == 4. The same account again: B is renewed in place, not put into the spares a second time
 authorize-url: https://claude.ai/oauth/authorize?code=true&client_id=proof&state=s1&login_hint=account-b%40example.com
 waiting: approve it for account-b@example.com on the machine with the browser profile, then send the code as one line on standard input
-Renewed: account-b@example.com is the active account in <temp>\claude-default, signed in at 2026-10-27T02:46:23Z. Its sign-in ends about 2033-05-18T03:33:19Z.
+Renewed: account-b@example.com is the active account in <temp>\claude-default, signed in at 2026-10-27T03:39:14Z. Its sign-in ends about 2033-05-18T03:33:19Z.
 help[2]:
   cc-devthrottle license list
   cc-devthrottle license usage --fields account,state,sign-in-expires
@@ -81,5 +81,31 @@ help[2]:
   cc-devthrottle license list
 exit code: 1
 OK: refused with the reason, and no file in the default folder or the spares changed
+
+== 6. The 26 October path: a raw login (as /login inside a session) straight over the active sign-in
+(a second isolated machine, so nothing above is in the way)
+A is active, sign-in fingerprint 6b908b4d86db1d5f. The Director opens the store (its usage read every two minutes):
+count: 1 (active 1, spare 0)
+accounts[1]{email,role,organization}:
+  account-a@example.com,active,
+help[2]:
+  cc-devthrottle license add <account-folder>
+  cc-devthrottle license list --json
+Now C is signed in BY HAND straight into the default folder - Claude Code's own write, nothing of ours runs:
+Opening the browser is off. Visit:
+https://claude.ai/oauth/authorize?code=true&client_id=proof&state=s1&login_hint=account-c%40example.com
+Login successful.
+The next time the store is opened:
+Warning: a sign-in by hand replaced account-a@example.com in the default folder; it is kept as a spare in <temp>\machine-2\store\spares\account-a-example.com
+count: 2 (active 1, spare 1)
+accounts[2]{email,role,organization}:
+  account-c@example.com,active,
+  account-a@example.com,spare,
+help[3]:
+  cc-devthrottle license switch account-a@example.com
+  cc-devthrottle license add <account-folder>
+  cc-devthrottle license list --json
+A's spare holds fingerprint 6b908b4d86db1d5f
+OK: the account the raw login replaced is kept as a spare, with the very sign-in it had
 
 PROOF PASSED

@@ -69,6 +69,9 @@ def _report_recovery(store: LicenseStore) -> None:
     for heal in store.last_heals:
         axi_cli.warn(f"{heal.account} was signed in by hand into the default folder while it was also held as a "
                      f"spare; the stale spare was moved from {heal.moved_from} to {heal.moved_to}")
+    for kept in store.last_kept:
+        axi_cli.warn(f"a sign-in by hand replaced {kept.account} in the default folder; it is kept as a spare in "
+                     f"{kept.kept_in}")
 
 
 def healed_json(store: LicenseStore) -> list:

@@ -45,150 +45,11 @@ ACCOUNT_B = "account-b@example.com"
 ACCOUNT_C = "account-c@example.com"
 
 
-# ===== a fake `security`, so the Keychain backend runs anywhere =====
-
-
-class FakeSecurity:
-    """Holds Keychain items as {service: [(account, secret), ...]} and answers `security` the way macOS does.
-    Records every call so a test can prove no secret was ever on a command line."""
-
-    def __init__(self):
-        self.items: dict[str, list[tuple[str, str]]] = {}
-        self.calls: list[tuple[list[str], str | None]] = []
-
-    def __call__(self, args, stdin):
-        args = list(args)
-        self.calls.append((args, stdin))
-        if args[0] == "find-generic-password":
-            service = args[args.index("-s") + 1]
-            held = self.items.get(service)
-            if not held:
-                return RunResult(44, "", "security: SecKeychainSearchCopyNext: The specified item could not be found.")
-            account, secret = held[0]
-            if "-w" in args:
-                return RunResult(0, secret + "\n", "")
-            return RunResult(0, f'keychain: "login.keychain-db"\nattributes:\n    "acct"<blob>="{account}"\n'
-                                f'    "svce"<blob>="{service}"\n', "")
-        if args[0] == "-i":
-            match = re.fullmatch(r'add-generic-password -U -a "([^"]*)" -s "([^"]*)" -X "([0-9a-f]+)"\n', stdin)
-            assert match, f"unexpected interactive input shape: {stdin[:60]!r}"
-            account, service, payload = match.group(1), match.group(2), bytes.fromhex(match.group(3)).decode("utf-8")
-            held = self.items.setdefault(service, [])
-            for i, (acct, _) in enumerate(held):
-                if acct == account:
-                    held[i] = (account, payload)
-                    break
-            else:
-                held.append((account, payload))
-            return RunResult(0, "", "")
-        if args[0] == "delete-generic-password":
-            service = args[args.index("-s") + 1]
-            held = self.items.get(service)
-            if not held:
-                return RunResult(44, "", "")
-            held.pop(0)
-            if not held:
-                del self.items[service]
-            return RunResult(0, "", "")
-        raise AssertionError(f"unexpected security call: {args}")
-
-
-# ===== the world: folders, sign-ins and the invariant =====
+from license_store_world import FakeSecurity, World  # noqa: E402,F401  (shared with test_license_signin.py)
 
 
 class SimulatedCrash(Exception):
     pass
-
-
-class World:
-    """An isolated machine: a default config folder, a store, and a place to sign accounts in."""
-
-    def __init__(self, tmp_path: Path, kind: str):
-        self.kind = kind
-        self.root = tmp_path
-        self.default = str(tmp_path / "home" / "claude-default")
-        self.store_dir = str(tmp_path / "store")
-        self.signins = tmp_path / "signins"
-        self.security = FakeSecurity() if kind == "keychain" else None
-        self.secrets: dict[str, str] = {}  # secret -> email it belongs to
-        self._serial = 0
-
-    def backend(self):
-        return KeychainKeyBackend(runner=self.security) if self.kind == "keychain" else FileKeyBackend()
-
-    def store(self, checkpoint=None) -> LicenseStore:
-        return LicenseStore(self.default, self.store_dir, self.backend(), checkpoint=checkpoint)
-
-    def sign_in(self, folder: str, email: str, keychain_account: str = "claude-code-user") -> str:
-        """What `claude auth login` leaves in a folder: a key and an account file with oauthAccount."""
-        self._serial += 1
-        secret = json.dumps({"claudeAiOauth": {
-            "accessToken": f"sk-ant-oat01-SECRET-ACCESS-{self._serial}-{email}",
-            "refreshToken": f"sk-ant-ort01-SECRET-REFRESH-{self._serial}-{email}",
-            "expiresAt": 1999999999000, "scopes": ["user:inference"], "subscriptionType": "max"}})
-        self.secrets[secret] = email
-        Path(folder).mkdir(parents=True, exist_ok=True)
-        self.backend().write(folder, HeldKey(secret, keychain_account=keychain_account))
-        (Path(folder) / ".claude.json").write_text(json.dumps({
-            "numStartups": 7,
-            "oauthAccount": {"emailAddress": email, "organizationName": f"Org {email.split('@')[0]}"},
-        }), encoding="utf-8")
-        return secret
-
-    def new_signin_folder(self, email: str) -> str:
-        folder = str(self.signins / email.split("@")[0])
-        self.sign_in(folder, email)
-        return folder
-
-    def folders(self) -> list[str]:
-        found = [self.default]
-        spares = Path(self.store_dir) / "spares"
-        if spares.is_dir():
-            found += [str(p) for p in sorted(spares.iterdir()) if p.is_dir()]
-        if self.signins.is_dir():
-            found += [str(p) for p in sorted(self.signins.iterdir()) if p.is_dir()]
-        found += self.backups()
-        return found
-
-    def backups(self) -> list[str]:
-        """The folders a heal of a hand sign-in moved stale spares into."""
-        root = Path(self.store_dir) / "hand-sign-in-backups"
-        return [str(p) for p in sorted(root.iterdir()) if p.is_dir()] if root.is_dir() else []
-
-    def key_at(self, folder: str) -> str | None:
-        key = self.backend().read(folder)
-        return key.reveal() if key else None
-
-    def email_at(self, folder: str) -> str | None:
-        path = Path(folder) / ".claude.json"
-        if not path.is_file():
-            return None
-        return json.loads(path.read_text(encoding="utf-8")).get("oauthAccount", {}).get("emailAddress")
-
-    def snapshot(self) -> dict[str, tuple[str | None, str | None]]:
-        """{folder: (key, email)} for every folder that holds a key."""
-        return {f: (self.key_at(f), self.email_at(f)) for f in self.folders() if self.key_at(f) is not None}
-
-    def assert_each_signin_in_exactly_one_place(self) -> None:
-        places: dict[str, list[str]] = {}
-        for folder, (key, email) in self.snapshot().items():
-            places.setdefault(key, []).append(folder)
-            assert email == self.secrets[key], f"{folder} holds {self.secrets[key]}'s key but says {email}"
-        for key, where in places.items():
-            assert len(where) == 1, f"{self.secrets[key]}'s sign-in is in {len(where)} places: {where}"
-        for key, email in self.secrets.items():
-            if email in self.removed or key in self.gone_ok:
-                continue
-            assert key in places, f"{email}'s sign-in was lost"
-        # The account block travels with its key: a folder must never keep one after its key has gone.
-        for folder in self.folders():
-            if self.key_at(folder) is None:
-                assert self.email_at(folder) is None, (
-                    f"{folder} still names {self.email_at(folder)} but holds no key")
-
-    removed: set[str] = set()
-    #: Keys an operation sets out to replace (a renewal's old sign-in): they may be gone afterwards.
-    gone_ok: frozenset[str] = frozenset()
 
 
 @pytest.fixture(params=["file", "keychain"])
@@ -615,7 +476,8 @@ def test_exchange_ActiveAccountAlsoHeldAsSpare_TheStaleSpareIsHealedAwayFirstAnd
     # Someone ran `claude auth login` straight into the default folder for an account the store holds a
     # spare of. Before the hand sign-in heal this switch was refused (putting the active key away would have
     # overwritten the spare). Now the stale spare is moved to a backup first, so the switch has room and runs,
-    # and nothing is overwritten: the old spare is in its backup, the hand sign-in is a spare again.
+    # and nothing is overwritten: the old spare is in its backup, the hand sign-in is a spare again. A, which the
+    # hand sign-in replaced, is kept as a spare from the copy of the active sign-in.
     _machine_with_active_and_spare(world)
     old_spare_b = world.key_at(str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B)))
     hand_b = world.sign_in(world.default, ACCOUNT_B)
@@ -623,11 +485,10 @@ def test_exchange_ActiveAccountAlsoHeldAsSpare_TheStaleSpareIsHealedAwayFirstAnd
 
     world.store().switch(ACCOUNT_C)
 
-    assert _held(world) == {ACCOUNT_C: "active", ACCOUNT_B: "spare"}
+    assert _held(world) == {ACCOUNT_C: "active", ACCOUNT_B: "spare", ACCOUNT_A: "spare"}
     assert world.key_at(str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B))) == hand_b
     [backup] = world.backups()
     assert world.key_at(backup) == old_spare_b
-    world.gone_ok = frozenset(k for k, e in world.secrets.items() if e == ACCOUNT_A)  # overwritten by the hand sign-in
     world.assert_each_signin_in_exactly_one_place()
 
 
@@ -642,14 +503,13 @@ def _files(folder: str) -> dict[str, bytes]:
 
 def _hand_sign_in_over_a_spare(world: World) -> tuple[str, dict[str, bytes], str]:
     """A on the machine and B held as a spare; then B signed in BY HAND into the default folder, overwriting A.
-    Returns the spare folder, its files byte for byte, and the spare's key, all as they were before any heal."""
+    Returns the spare folder, its files byte for byte, and the spare's key, all as they were before any heal. A is
+    not lost: the store was opened while A was active, so it holds a copy of A's sign-in and keeps it as a spare."""
     _machine_with_active_and_spare(world)
     spare = str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B))
     (Path(spare) / "projects-cache.txt").write_text("something Claude Code keeps in a config folder", encoding="utf-8")
     files, key = _files(spare), world.key_at(spare)
     world.sign_in(world.default, ACCOUNT_B)
-    # A's key was overwritten by the hand sign-in: gone, and nothing here can bring it back.
-    world.gone_ok = frozenset(k for k, e in world.secrets.items() if e == ACCOUNT_A)
     return spare, files, key
 
 
@@ -660,13 +520,14 @@ def _log_records(world: World) -> list[dict]:
 
 def test_heal_ActiveAlsoHeldAsSpare_SpareMovesWholeToABackupAndIsHeldOnce(world):
     # The account in the default folder is also a spare: the spare is stale, so its folder is moved, whole and
-    # unchanged, out of the spares into a backup folder, and the account is listed exactly once, as active.
+    # unchanged, out of the spares into a backup folder, and the account is listed exactly once, as active. A, which
+    # the hand sign-in replaced, is a spare.
     spare, files, key = _hand_sign_in_over_a_spare(world)
     store = world.store()
 
     held = store.held_accounts()
 
-    assert [(a.email, a.role) for a in held] == [(ACCOUNT_B, "active")]
+    assert [(a.email, a.role) for a in held] == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
     assert not os.path.exists(spare)
     [backup] = world.backups()
     assert Path(backup).parent == Path(world.store_dir) / "hand-sign-in-backups"
@@ -706,7 +567,7 @@ def test_heal_NeverDeletes_TwoHealsOfOneAccountKeepBothBackups(world):
     backups = world.backups()
     assert len(backups) == 2 and len(set(backups)) == 2
     assert sorted(world.key_at(b) for b in backups) == sorted([first_key, second_key])
-    assert [a.email for a in store.held_accounts()] == [ACCOUNT_B]
+    assert [a.email for a in store.held_accounts()] == [ACCOUNT_B, ACCOUNT_A]
     world.assert_each_signin_in_exactly_one_place()
 
 
@@ -751,7 +612,7 @@ def test_heal_TheRenameFailsWithAnOperatingSystemError_IsAStoreErrorAndTheNextRo
     assert again.value.reason_code == "switch-in-progress"
 
     store = world.store()
-    assert [(a.email, a.role) for a in store.held_accounts()] == [(ACCOUNT_B, "active")]
+    assert [(a.email, a.role) for a in store.held_accounts()] == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
     assert len(world.backups()) == 1 and [h.account for h in store.last_heals] == [ACCOUNT_B]
     world.assert_each_signin_in_exactly_one_place()
 
@@ -790,6 +651,8 @@ def test_heal_CrashAtEveryChangePoint_TheNextRunFinishesTheHeal(tmp_path, kind):
     labels = []
     probe.store(checkpoint=labels.append).held_accounts()
     assert "rename-folder" in labels, labels
+    # The heal's own change points, to the end of its journal. Keeping A afterwards has a crash test of its own.
+    labels = labels[: labels.index("journal-clear") + 1]
 
     for n in range(1, len(labels) + 1):
         w = make(f"crash{n}")
@@ -797,7 +660,7 @@ def test_heal_CrashAtEveryChangePoint_TheNextRunFinishesTheHeal(tmp_path, kind):
         store = w.store()
         held = [(a.email, a.role) for a in store.held_accounts()]
 
-        assert held == [(ACCOUNT_B, "active")], f"crash at {labels[n - 1]}: {held}"
+        assert held == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")], f"crash at {labels[n - 1]}: {held}"
         assert len(w.backups()) == 1, f"crash at {labels[n - 1]}: {w.backups()}"
         assert [h.account for h in store.last_heals] == [ACCOUNT_B], f"crash at {labels[n - 1]}"
         w.assert_each_signin_in_exactly_one_place()
@@ -1480,3 +1343,162 @@ def test_signedInAt_RecordedWithTheEndDate_AndOnlyMatchesThatSignIn(world):
     assert store.signed_in_at(ACCOUNT_B, None) is None
     assert store.signed_in_at(ACCOUNT_C, ends) is None
     assert "SECRET" not in (Path(world.store_dir) / "sign-ins.json").read_text(encoding="utf-8")
+
+
+# ===== the kept copy of the active sign-in: a sign-in by hand never deletes a login =====
+#
+# 26 October 2026: `/login` typed inside a session wrote over a machine's only sign-in for the account it was on, and
+# nothing of ours runs before Claude Code's own write. The store keeps a copy of the active sign-in, brought up to date
+# every time it is opened, and keeps the replaced account as a spare from it (license_store._keep_active_copy).
+
+
+def _copy(world: World) -> str:
+    return str(Path(world.store_dir) / "active-copy")
+
+
+def _spare(world: World, email: str) -> str:
+    return str(Path(world.store_dir) / "spares" / license_store.spare_slug(email))
+
+
+def test_keptCopy_StoreOpenedWhileAIsActive_HoldsACopyOfTheActiveSignIn_ThatIsNeverListed(world):
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+
+    held = world.store().held_accounts()
+
+    assert [(h.email, h.role) for h in held] == [(ACCOUNT_A, "active")]
+    assert world.key_at(_copy(world)) == a_key and world.email_at(_copy(world)) == ACCOUNT_A
+    if world.kind == "keychain":
+        assert keychain_service_for(_copy(world)) in world.security.items
+
+
+def test_keptCopy_HandSignInToAnAccountNotHeld_TheReplacedAccountIsKeptAsASpare(world):
+    # The 26 October picture: the machine is on A, and C - held nowhere on it - is signed in by hand over A.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    c_key = world.sign_in(world.default, ACCOUNT_C)
+
+    store = world.store()
+    held = store.held_accounts()
+
+    assert [(h.email, h.role) for h in held] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key, "A is kept with its own sign-in"
+    assert world.email_at(_spare(world, ACCOUNT_A)) == ACCOUNT_A
+    [kept] = store.last_kept
+    assert (kept.account, kept.kept_in) == (ACCOUNT_A, _spare(world, ACCOUNT_A))
+    assert world.key_at(_copy(world)) == c_key, "the copy now follows C"
+    world.assert_each_signin_in_exactly_one_place()
+    [logged] = [r for r in _log_records(world) if r["event"] == "replaced-sign-in-kept"]
+    assert (logged["account"], logged["kept_in"]) == (ACCOUNT_A, _spare(world, ACCOUNT_A))
+    log = (Path(world.store_dir) / "license-store.log").read_text(encoding="utf-8")
+    assert not any(secret in log for secret in world.secrets)
+    assert not (Path(world.store_dir) / "journal.json").exists()
+
+
+def test_keptCopy_ClaudeCodeRefreshesTheActiveSignIn_TheNextOpenTakesTheNewKey(world):
+    old = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    new = world.sign_in(world.default, ACCOUNT_A)  # what Claude Code's own refresh leaves: a new key, same account
+    world.gone_ok = frozenset({old})
+
+    world.store().held_accounts()
+
+    assert world.key_at(_copy(world)) == new
+
+
+def test_keptCopy_ActiveRefreshedThenReplacedBeforeTheNextOpen_TheKeptSpareHoldsTheKeyTheCopyHad(world):
+    # The one thing the copy cannot do, pinned so it is never mistaken for more: when Claude Code refreshes the active
+    # sign-in AND a hand sign-in replaces it before the store is opened again, the copy is a step behind. A is still
+    # kept, with the key the copy had; that key's refresh token was spent by the refresh, so the next usage read finds
+    # the sign-in refused and says so. Nothing here can tell, and nothing is invented.
+    copied = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    world.sign_in(world.default, ACCOUNT_A)  # refreshed by Claude Code
+    world.sign_in(world.default, ACCOUNT_C)  # then replaced by hand, before the store was opened again
+
+    world.store().held_accounts()
+
+    assert world.key_at(_spare(world, ACCOUNT_A)) == copied
+
+
+def test_keptCopy_ASwitchPutsTheActiveAway_TheCopyIsDroppedSoTheAccountIsKeptOnce(world):
+    _machine_with_active_and_spare(world)
+    a_key = world.key_at(world.default)
+    world.store().switch(ACCOUNT_B)
+
+    store = world.store()
+    held = store.held_accounts()
+
+    assert [(h.email, h.role) for h in held] == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key
+    assert world.email_at(_copy(world)) == ACCOUNT_B and store.last_kept == []
+    assert backups_holding(world, a_key) == [], "A is in its spare folder and nowhere else in the store"
+
+
+def backups_holding(world: World, key: str) -> list[str]:
+    return [f for f in world.backups() if world.key_at(f) == key]
+
+
+def test_keptCopy_SignedOutByHand_TheCopyIsDroppedAndNothingIsKept(world):
+    # `/logout` revokes the sign-in on the server: a spare made from the copy would be dead, so none is made.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    world.backend().delete(world.default)
+    (Path(world.default) / ".claude.json").write_text("{}", encoding="utf-8")
+    world.gone_ok = frozenset({a_key})
+
+    store = world.store()
+
+    assert store.held_accounts() == [] and store.last_kept == []
+    assert world.key_at(_copy(world)) is None and world.email_at(_copy(world)) is None
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_keptCopy_TheReplacedAccountsSpareFolderExists_TheCopyIsNeverWrittenOver_AndTheNextOpenKeepsIt(world):
+    # A new spare's sign-in waiting for its approval holds an empty spare folder: the move waits a round, and the copy
+    # - the only place A is now - is left exactly as it was, not overwritten with C.
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    world.store().held_accounts()
+    Path(_spare(world, ACCOUNT_A)).mkdir(parents=True)
+    world.sign_in(world.default, ACCOUNT_C)
+
+    first = world.store()
+    assert [(h.email, h.role) for h in first.held_accounts()] == [(ACCOUNT_C, "active")]
+    assert world.key_at(_copy(world)) == a_key and first.last_kept == []
+    assert [r["account"] for r in _log_records(world) if r["event"] == "replaced-sign-in-not-kept-yet"] == [ACCOUNT_A]
+
+    Path(_spare(world, ACCOUNT_A)).rmdir()
+    second = world.store()
+
+    assert [(h.email, h.role) for h in second.held_accounts()] == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(_spare(world, ACCOUNT_A)) == a_key
+    world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("kind", ["file", "keychain"])
+def test_keptCopy_CrashAtEveryChangePoint_TheReplacedAccountIsKeptOnceAndNeverLost(tmp_path, kind):
+    # A crash at each change point of keeping A and bringing the copy up to date - the journal, the rename, the
+    # Keychain move, the copy's account block and key - is finished by the next run: A is held once, as a spare, with
+    # its own key; never lost, never in two places.
+    def make(tag):
+        w = World(tmp_path / tag, kind)
+        w.removed = set()
+        w.a_key = w.sign_in(w.default, ACCOUNT_A)
+        w.store().held_accounts()
+        w.sign_in(w.default, ACCOUNT_C)
+        return w
+
+    probe = make("probe")
+    labels = []
+    probe.store(checkpoint=labels.append).held_accounts()
+    assert "rename-folder" in labels and "active-copy-key" in labels, labels
+
+    for n in range(1, len(labels) + 1):
+        w = make(f"crash{n}")
+        assert _run_with_crash_at(w, n, lambda store: store.held_accounts()), f"no crash at {labels[n - 1]}"
+        held = [(a.email, a.role) for a in w.store().held_accounts()]
+
+        assert held == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare")], f"crash at {labels[n - 1]}: {held}"
+        assert w.key_at(_spare(w, ACCOUNT_A)) == w.a_key, f"crash at {labels[n - 1]}"
+        assert w.email_at(_copy(w)) == ACCOUNT_C and w.key_at(_copy(w)) == w.key_at(w.default)
+        w.assert_each_signin_in_exactly_one_place()
+        assert not (Path(w.store_dir) / "journal.json").exists()

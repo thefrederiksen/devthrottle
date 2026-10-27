@@ -32,6 +32,13 @@ THE RULES THIS MODULE EXISTS TO KEEP:
   newer). The store heals it the next time it is opened: the spare's folder is moved, whole, into
   ``<store>/hand-sign-in-backups/`` - never deleted - and the heal is reported (``last_heals``), so the Director can
   tell the Gateway the machine was switched by hand. See ``_heal_hand_sign_in``.
+- ONE KEPT COPY, and only one: ``<store>/active-copy/`` holds a copy of the ACTIVE sign-in, brought up to date every
+  time the store is opened. A sign-in by hand into the default folder (``claude auth login``, or ``/login`` inside a
+  session) writes over the active sign-in, and nothing of ours runs before it; this copy is how the account it
+  replaced is still kept - as a spare, the next time the store is opened (the owner's decision of 26 October 2026).
+  It does not break the rule above, because the copy is never USED: never listed, renewed, refreshed or switched to,
+  so it can never rotate the refresh token the active sign-in holds. A refresh of the active sign-in leaves the copy
+  stale until the next open (a few minutes for a Director). See ``_keep_active_copy``.
 - The machine's real default folder is refused unless ``allow_real_default`` is passed. The command line passes
   it only when ``CC_LICENSE_ALLOW_REAL_DEFAULT`` is "1", which a Director sets for its own runs of the tool when its
   license switching setting is on; a command typed by hand, a test or a proof still cannot touch the real login.
@@ -80,6 +87,8 @@ SPARES_DIR = "spares"
 #: Where a spare goes when a sign-in made by hand into the default folder made it stale (see `_heal_hand_sign_in`).
 #: Outside `spares/`, so nothing in it is ever listed, read, renewed or switched to.
 HAND_SIGN_IN_BACKUPS_DIR = "hand-sign-in-backups"
+#: The config folder, under the store, holding the kept copy of the active sign-in (see `_keep_active_copy`).
+ACTIVE_COPY_DIR = "active-copy"
 #: When each held account's sign-in was made, by email. Written by `finish_sign_in`; see `signed_in_at`.
 SIGN_INS_FILE = "sign-ins.json"
 #: A sign-in's end date is fixed when it is made and a refresh does not move it (spare-refresh.md), but each
@@ -619,6 +628,8 @@ class LicenseStore:
         self.last_recovery: Optional[str] = None
         #: Every heal of a hand sign-in this store object made, oldest first (see `_heal_hand_sign_in`).
         self.last_heals: list[HandSignInHeal] = []
+        #: Every account a hand sign-in replaced that this store object kept as a spare (see `_keep_active_copy`).
+        self.last_kept: list[KeptReplacedSignIn] = []
 
     # ----- paths -----
 
@@ -632,6 +643,10 @@ class LicenseStore:
     @property
     def backups_dir(self) -> str:
         return os.path.join(self.store_dir, HAND_SIGN_IN_BACKUPS_DIR)
+
+    @property
+    def active_copy_dir(self) -> str:
+        return os.path.join(self.store_dir, ACTIVE_COPY_DIR)
 
     @property
     def _sign_ins_path(self) -> Path:
@@ -926,7 +941,8 @@ class LicenseStore:
 
     def _settle(self) -> None:
         """What every public method that reads or changes the holdings does first, holding the lock: finish or roll
-        back an interrupted operation, then heal a hand sign-in.
+        back an interrupted operation, heal a hand sign-in, then keep the account a hand sign-in replaced and bring
+        the copy of the active sign-in up to date (`_keep_active_copy`).
 
         An operating system error part way - on Windows a folder cannot be renamed while another process (a virus
         scanner, a backup agent) holds a file in it open - leaves the journal where it stopped, and the next run
@@ -935,6 +951,7 @@ class LicenseStore:
         try:
             self.recover()
             self._heal_hand_sign_in()
+            self._keep_active_copy()
         except OSError as exc:
             self._log("settle-interrupted", error=type(exc).__name__)
             raise LicenseStoreError(
@@ -1003,6 +1020,86 @@ class LicenseStore:
             n += 1
             candidate = f"{base}-{n}"
         return candidate
+
+    def _keep_active_copy(self) -> None:
+        """Keep the account a sign-in by hand replaced, then bring the copy of the active sign-in up to date. The
+        caller holds the store lock.
+
+        WHY. ``claude auth login`` into the default folder, or ``/login`` typed inside a session, writes the new sign-in
+        over the active one, and the account the machine was on is gone from it (26 October 2026: a ``/login`` inside a
+        session overwrote a machine's only sign-in for one account). Claude Code does not revoke the replaced sign-in
+        on a login - only ``/logout`` revokes - so a copy of it taken before the login still works.
+
+        THE COPY. ``<store>/active-copy/`` holds the active sign-in's key and account block, rewritten whenever the
+        active key differs from it. Nothing reads it but this method: it is not a spare, so it is never listed, renewed,
+        refreshed or switched to, and it never rotates the refresh token the active sign-in holds (trap 2 is about two
+        copies that are both USED). When Claude Code refreshes the active sign-in, the copy is stale until the next time
+        the store is opened - a Director opens it every two minutes, and a refresh comes about every eight hours.
+
+        WHEN THE ACTIVE ACCOUNT CHANGED UNDER IT. The copy's account is not the active one any more:
+        - the default folder holds ANOTHER account, and the copy's account is held nowhere: a sign-in by hand replaced
+          it. The copy is moved, whole, into that account's spare folder (journaled, like a heal), and it is a spare.
+          When the copy was stale, the usage read finds its sign-in refused and reports it; nothing here can tell.
+        - the copy's account is held elsewhere (a switch put it away), or the default folder holds no sign-in at all (a
+          ``/logout``, which revoked it on the server): the copy is dropped, and nothing is lost.
+        A spare folder for the replaced account that exists already - a new spare's sign-in waiting for its approval -
+        stops the move; then the copy is left exactly as it is, never written over, and the next open tries again."""
+        copy = self.active_copy_dir
+        copied = _email_of(read_oauth_account(copy)) if self.backend.exists(copy) else None
+        active_key = self.backend.read(self.default_config_dir)
+        active = _email_of(read_oauth_account(self.default_config_dir)) if active_key is not None else None
+        if copied is not None and copied.lower() != (active or "").lower():
+            if active is not None and self._find(copied) is None:
+                if not self._keep_replaced(copied):
+                    return
+            else:
+                self._drop_active_copy(copied, "held elsewhere" if active is not None else "nothing is active")
+        if active_key is None or active is None:
+            return
+        present = self.backend.read(copy)
+        if present is not None and present.same_as(active_key) and (_email_of(read_oauth_account(copy)) or "") == active:
+            return
+        os.makedirs(copy, exist_ok=True)
+        # The account block first, then the key: a copy holding a key always names the key's own account, so a crash
+        # between the two can never leave one account's key under another account's name.
+        if present is not None:
+            self._checkpoint("active-copy-clear")
+            self.backend.delete(copy)
+        self._checkpoint("active-copy-account")
+        _write_oauth_account(copy, read_oauth_account(self.default_config_dir))
+        self._checkpoint("active-copy-key")
+        self.backend.write(copy, active_key)
+
+    def _keep_replaced(self, email: str) -> bool:
+        """Move the copy of a replaced sign-in into ``email``'s spare folder. False, with nothing changed, when that
+        folder exists already."""
+        copy, target = self.active_copy_dir, self.spare_folder(email)
+        if os.path.exists(target) or self.backend.exists(target):
+            self._log("replaced-sign-in-not-kept-yet", account=email.lower(), copy=copy, spare_folder=target,
+                      reason="the spare folder exists already")
+            return False
+        # Each step names its own undo, as a heal's do: a move that cannot finish puts the copy back.
+        steps: list[dict] = [{"op": "rename", "from": copy, "to": target,
+                              "undo": {"op": "rename", "from": target, "to": copy}}]
+        if self.backend.name == "keychain":
+            fingerprint = self.backend.read(copy).fingerprint()
+            steps.append({"op": "move-key", "from": copy, "to": target, "fingerprint": fingerprint,
+                          "undo": {"op": "move-key", "from": target, "to": copy, "fingerprint": fingerprint}})
+        self._start("keep-replaced", email.lower(), steps)
+        kept = KeptReplacedSignIn(email.lower(), target, _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0))
+        self.last_kept.append(kept)
+        self._log("replaced-sign-in-kept", account=kept.account, kept_in=target)
+        return True
+
+    def _drop_active_copy(self, email: str, reason: str) -> None:
+        """Delete the copy: its account is held elsewhere, or was signed out. The key first, then the account block,
+        so a crash part way leaves an account block with no key, which counts as no copy."""
+        copy = self.active_copy_dir
+        self._checkpoint("active-copy-drop-key")
+        self.backend.delete(copy)
+        self._checkpoint("active-copy-drop-account")
+        _clear_oauth_account(copy)
+        self._log("active-copy-dropped", account=email.lower(), reason=reason)
 
     def _start(self, operation: str, account: str, steps: list[dict]) -> None:
         journal = {
@@ -1307,6 +1404,7 @@ class LicenseStore:
             self._record_sign_in(target.email, made, ends)
             self._log("sign-in-finished", account=target.email, folder=folder, renewed=target.renewing,
                       role=target.role)
+            self._keep_active_copy()
             return AdoptResult(self._account_at(folder, target.role), target.renewing, made, ends)
 
     def abandon_sign_in(self, target: "SignInTarget") -> None:
@@ -1379,6 +1477,8 @@ class LicenseStore:
             self._checkpoint("refresh-key")
             self.backend.write(account.config_dir, HeldKey(credentials_json, keychain_account=old.keychain_account))
             self._log("key-refreshed", account=account.email)
+            # A renewed ACTIVE key spent the one the copy holds: the copy takes the new one now, not on the next open.
+            self._keep_active_copy()
 
 
 @dataclass(frozen=True)
@@ -1411,6 +1511,19 @@ class HandSignInHeal:
             "healedAtUtc": _iso(self.healed_at),
             "duplicateKeyRemoved": self.duplicate_key_removed,
         }
+
+
+@dataclass(frozen=True)
+class KeptReplacedSignIn:
+    """One account a sign-in by hand replaced, kept as a spare in ``kept_in`` from the copy of the active sign-in."""
+
+    account: str
+    kept_in: str
+    kept_at: _dt.datetime
+
+    def to_json(self) -> dict:
+        """For ``--json``: an email, a folder and a time. No key."""
+        return {"accountEmail": self.account, "keptIn": self.kept_in, "keptAtUtc": _iso(self.kept_at)}
 
 
 @dataclass(frozen=True)
