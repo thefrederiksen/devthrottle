@@ -3,7 +3,13 @@
 Mission "Licenses - Loud When Stranded", step 3. The test class is
 `src/CcDirector.Gateway.UnitTests/Licenses/LicenseStrandedReplayTests.cs`. It was written before steps 1 and 2, on a
 branch cut from main at `aa1c515af`, with no change to product code. Its positive cases are meant to fail on that code,
-and do.
+and do. After steps 1 and 2 merged, the same test, unchanged, passes on main.
+
+There are two runs, both kept in this folder:
+- **The control, on `aa1c515af`** (`control-run-aa1c515af.txt`): 13 tests, 9 passed, 4 failed. It is kept as it was.
+- **The passing run, on main at `88f7f9019`** (`passing-run-main.txt`): 13 tests, 13 passed. That commit is step 2
+  (pull request 4528), on top of step 1 (`2349a1ea0`, pull request 4525). The branch was rebased onto it with no
+  change to the test.
 
 ## The command
 
@@ -88,13 +94,18 @@ the 26 October cases pass with or without step 1.
 - **A green run after both steps proves** that the Gateway is loud about a stranded machine at 80% and at 100%.
 - **A green run does not prove** that step 1's alarm in particular exists.
 
-The evidence for step 1 is its own test class (`LicenseStrandedAlarmTests`, pull request 4493) and its run of this
+The evidence for step 1 is its own test class (`LicenseStrandedAlarmTests`, first opened as pull request 4493 and merged as pull request 4525) and its run of this
 replay, made before step 2 existed. On 26 October I ran this revised replay on step 1's branch
 (`origin/loud-switch-1-stranded-event`) in a throwaway worktree, since removed: 13 tests, 11 passed, 2 failed. The two
 26 October loud cases pass; the two 25 October warning cases fail and are left for step 2.
 
-## When this passes
+## The passing run on main
 
-After steps 1 and 2, the same command must show 13 passed. Only one place builds the services, `OneMinuteAsync`. If
-step 1 gives `LicenseSwitchService` a push channel, that is the one line to change, and it must use the same `Push`
-recorder.
+On 26 October, after steps 1 and 2 merged, this branch was rebased onto main at `88f7f9019` with no change to the test,
+and the command above was run again. The full output is `passing-run-main.txt` beside this file: **13 tests, 13
+passed**. The four cases that failed in the control now pass, and the negative controls, the boundary and the
+instrument check still pass.
+
+As the section above says, the green 26 October cases prove that the Gateway is loud about a machine stranded on a full
+account. They do not prove that step 1's alarm in particular is the one that spoke. Step 1's own proof is its test
+class, `LicenseStrandedAlarmTests`, and its run of this replay before step 2 existed: 11 passed, 2 failed.
