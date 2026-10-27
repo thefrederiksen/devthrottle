@@ -1,8 +1,9 @@
 # Step 2 proof: the 80% warning covers both windows again, for faults only
 
-Mission "Licenses - Loud When Stranded", step 2. Branch `loud-switch-2-cannot-switch-at-80`, change commit 9f749917d,
-cut on 5ba96eb0a (step 1). Step 1 was reverted on main afterwards (7c173f301, pull request 4512), so this branch is
-held locally. It is rebased onto step 1 when step 1 relands, and it is not pushed before then.
+Mission "Licenses - Loud When Stranded", step 2. Branch `loud-switch-2-cannot-switch-at-80`. It was built on
+5ba96eb0a (step 1). Step 1 was then reverted on main (7c173f301, pull request 4512) and relanded with the same product
+code plus a host-start test (2349a1ea0, pull request 4525). This branch is rebased onto 2349a1ea0. The Licenses code at
+5ba96eb0a and at 2349a1ea0 is identical, and the rebase was clean.
 
 ## What changed, in plain words
 
@@ -28,10 +29,18 @@ held locally. It is rebased onto step 1 when step 1 relands, and it is not pushe
 
 ## The runs in this folder
 
+Run after the rebase onto 2349a1ea0:
+
 | File | What it is | Result |
 |---|---|---|
 | `licenses-suite.txt` | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"` | 1331 passed, 0 failed |
 | `replay-step-3-on-step-2.txt` | The step 3 replay (`LicenseStrandedReplayTests`, commits 3a67367bc and 1ad23b948) cherry-picked onto this branch WITHOUT committing, run, then removed | 13 passed, 0 failed |
+| `host-start-postgres.txt` | `.\scripts\test-database.ps1 -Filter FullyQualifiedName~LicenseHostStartPostgresTests`: step 1's reland test, a hosted host on a throwaway PostgreSQL serving its health check while its Licenses minute check runs | 1 passed, 0 failed, 0 skipped |
+
+Run before the rebase, on 5ba96eb0a, whose Licenses code is identical to main's:
+
+| File | What it is | Result |
+|---|---|---|
 | `test-local.txt` | `.\scripts\test-local.ps1`, the default gate | Red in two places, both outside this change (below) |
 | `avalonia-tests-alone.txt` | `dotnet test src/CcDirector.Avalonia.Tests`, run on its own | 1209 passed, 0 failed |
 | `test-local-gateway.txt` | `.\scripts\test-local.ps1 -Gateway`, the parked host-bound suite the gate named as a coverage gap | Green: 1810 run, 3 skipped, 0 failed |
@@ -69,7 +78,7 @@ answer, and the stranded alarm takes over at 97%.
 
 ## What this does not prove
 
-- The replay was run on this branch, which still contains step 1. After the rebase onto the relanded step 1 it must be
-  run again.
-- Nothing here was deployed. Why production did not start after step 1's deploy is not known, and this change does not
-  address it.
+- The default gate and the `-Gateway` run were not repeated after the rebase. Besides step 1's revert and reland, the
+  rebase brought in eight other commits from main (deploy workflows, factory pages and email, microphone meters, setup
+  tests, a license renewal test). Those are main's own, and this change does not touch their code.
+- Nothing here was deployed.
