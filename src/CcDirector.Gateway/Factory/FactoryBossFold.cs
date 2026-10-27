@@ -17,13 +17,15 @@ public static class FactoryBossFold
     /// <summary>What a part says when the file, or its heading, is missing - so the owner sees what is still open.</summary>
     public const string NotSetText = "not set yet";
 
-    /// <summary>The three parts, in the order the page shows them: the key, the heading shown, and the words a
-    /// <c>##</c> heading of <c>boss.md</c> starts with to be that part (compared case-insensitively, word by word).</summary>
-    private static readonly (string Key, string Heading, string[] Words)[] Parts =
+    /// <summary>The three parts, in the order the page shows them: the key, the heading shown, and the word a
+    /// <c>##</c> heading of <c>boss.md</c> starts with, with or without "The" before it, to be that part (compared
+    /// case-insensitively, word by word). A set value must never show as "not set yet" because of how its heading is
+    /// spelled (the Delivery Lead, 27 October 2026), so "Why", "The why" and "WHY" are all the why.</summary>
+    private static readonly (string Key, string Heading, string Word)[] Parts =
     {
-        ("why", "Why", new[] { "the", "why" }),
-        ("goal", "Goal", new[] { "the", "goal" }),
-        ("limits", "Limits the Boss cannot change", new[] { "limits" }),
+        ("why", "Why", "why"),
+        ("goal", "Goal", "goal"),
+        ("limits", "Limits the Boss cannot change", "limits"),
     };
 
     /// <summary>
@@ -104,9 +106,11 @@ public static class FactoryBossFold
             .Select(w => new string(w.Where(char.IsLetterOrDigit).ToArray()))
             .Where(w => w.Length > 0)
             .ToList();
+        // A leading "The" is skipped, so the part's word is the heading's first word either way.
+        var first = words.Count > 1 && string.Equals(words[0], "the", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        if (first >= words.Count) return null;
         foreach (var part in Parts)
-            if (words.Count >= part.Words.Length
-                && part.Words.Select((w, i) => string.Equals(w, words[i], StringComparison.OrdinalIgnoreCase)).All(same => same))
+            if (string.Equals(part.Word, words[first], StringComparison.OrdinalIgnoreCase))
                 return part.Key;
         return null;
     }
