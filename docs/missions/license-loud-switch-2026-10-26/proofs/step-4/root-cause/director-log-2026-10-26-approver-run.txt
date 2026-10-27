@@ -1,0 +1,46 @@
+2026-10-26 17:25:15.670 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=center-consulting, account=(the one signed in)
+2026-10-26 17:25:24.362 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:24.372 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=center-consulting, account=-, state=check-failed, answered=True
+2026-10-26 17:25:24.372 [LicenseApproverCheck] checked profile=center-consulting, account=-, state=check-failed
+2026-10-26 17:25:24.372 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=private, account=(the one signed in)
+2026-10-26 17:25:28.938 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:28.938 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=private, account=-, state=check-failed, answered=True
+2026-10-26 17:25:28.938 [LicenseApproverCheck] checked profile=private, account=-, state=check-failed
+2026-10-26 17:25:28.938 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=mindzie, account=(the one signed in)
+2026-10-26 17:25:33.542 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:33.543 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=mindzie, account=-, state=check-failed, answered=True
+2026-10-26 17:25:33.543 [LicenseApproverCheck] checked profile=mindzie, account=-, state=check-failed
+2026-10-26 17:25:33.543 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=agent-browser, account=(the one signed in)
+2026-10-26 17:25:36.935 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:36.935 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=agent-browser, account=-, state=check-failed, answered=True
+2026-10-26 17:25:36.935 [LicenseApproverCheck] checked profile=agent-browser, account=-, state=check-failed
+2026-10-26 17:25:36.935 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=devthrottle, account=(the one signed in)
+2026-10-26 17:25:39.431 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:39.432 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=devthrottle, account=-, state=check-failed, answered=True
+2026-10-26 17:25:39.432 [LicenseApproverCheck] checked profile=devthrottle, account=-, state=check-failed
+2026-10-26 17:25:39.432 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=qa-idle-rows, account=(the one signed in)
+2026-10-26 17:25:43.755 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:43.755 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=qa-idle-rows, account=-, state=check-failed, answered=True
+2026-10-26 17:25:43.755 [LicenseApproverCheck] checked profile=qa-idle-rows, account=-, state=check-failed
+2026-10-26 17:25:43.755 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=9422-proof, account=(the one signed in)
+2026-10-26 17:25:47.517 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:47.517 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=9422-proof, account=-, state=check-failed, answered=True
+2026-10-26 17:25:47.517 [LicenseApproverCheck] checked profile=9422-proof, account=-, state=check-failed
+2026-10-26 17:25:47.517 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=centerconsultinghq, account=(the one signed in)
+2026-10-26 17:25:50.646 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:50.646 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=centerconsultinghq, account=-, state=check-failed, answered=True
+2026-10-26 17:25:50.646 [LicenseApproverCheck] checked profile=centerconsultinghq, account=-, state=check-failed
+2026-10-26 17:25:50.646 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=qa-europe, account=(the one signed in)
+2026-10-26 17:25:55.297 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:25:55.297 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=qa-europe, account=-, state=check-failed, answered=True
+2026-10-26 17:25:55.297 [LicenseApproverCheck] checked profile=qa-europe, account=-, state=check-failed
+2026-10-26 17:25:55.297 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=claude-dev-mindzie, account=(the one signed in)
+2026-10-26 17:26:00.399 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:26:00.399 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=claude-dev-mindzie, account=-, state=check-failed, answered=True
+2026-10-26 17:26:00.399 [LicenseApproverCheck] checked profile=claude-dev-mindzie, account=-, state=check-failed
+2026-10-26 17:26:00.399 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=docs-mindzie-dev, account=(the one signed in)
+2026-10-26 17:26:06.209 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 17:26:06.209 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=docs-mindzie-dev, account=-, state=check-failed, answered=True
+2026-10-26 17:26:06.209 [LicenseApproverCheck] checked profile=docs-mindzie-dev, account=-, state=check-failed
+2026-10-26 17:26:06.211 [LicenseApproverCheck] run: assigned=0, ownProfilesChecked=11, rows=11, failed=11
+2026-10-26 17:26:06.432 [LicenseApproverCheck] report taken: rows=11, outcomes=nothing-to-store=11

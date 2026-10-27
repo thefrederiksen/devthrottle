@@ -1,0 +1,37 @@
+// The step 4 proof harness (mission "Licenses - Loud When Stranded"). It runs the DIRECTOR'S OWN code path for one
+// approver check - CcDevthrottleLicenseCommandLine.CheckApproverAsync, which starts the browser profile in-process
+// through LicenseBrowserOpener (AutomationBrowserService, as the Director does) and runs the license tool - and
+// nothing else. It is started by Task Scheduler, so its environment is a Director's: no session variables.
+// args: <log folder> <tool path or "installed"> <profile> [<profile> ...]
+using System.Reflection;
+using CcDirector.Core.Licenses;
+using CcDirector.Core.Utilities;
+
+var logDir = args[0];
+var toolPath = args[1];
+FileLog.UseLogDirectory(logDir, "harness");
+FileLog.Start();
+foreach (var name in new[] { "CC_DIRECTOR_ID", "CC_GATEWAY_URL", "CC_GATEWAY_SESSION_KEY", "CC_SESSION_ID" })
+    FileLog.Write($"[Harness] environment: {name} present={Environment.GetEnvironmentVariable(name) is not null}");
+FileLog.Write($"[Harness] parent-free run, tool={toolPath}");
+
+var options = new LicenseCommandLineOptions(null, null, AllowRealDefault: true);
+CcDevthrottleLicenseCommandLine tool;
+if (toolPath == "installed")
+    tool = new CcDevthrottleLicenseCommandLine(options);
+else
+{
+    // The same production opener and process runner; only WHERE the tool is differs (the worktree's tool, which
+    // ships with this change, instead of the installed one, which does not have it yet).
+    var ctor = typeof(CcDevthrottleLicenseCommandLine).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
+        new[] { typeof(LicenseCommandLineOptions), typeof(Func<string?>) }, null)!;
+    tool = (CcDevthrottleLicenseCommandLine)ctor.Invoke(new object[] { options, (Func<string?>)(() => toolPath) });
+}
+
+foreach (var profile in args.Skip(2))
+{
+    var answer = await tool.CheckApproverAsync(profile, null, CancellationToken.None);
+    var detail = LicenseApproverCheckSentences.For(answer);
+    FileLog.Write($"[Harness] RESULT profile={profile}, state={answer.State}, account={(answer.AccountEmail is null ? "-" : "(set)")}, answered={answer.ToolAnswered}, detail={detail}");
+}
+FileLog.Stop();

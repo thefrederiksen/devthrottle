@@ -1,0 +1,1 @@
+@"%LOCALAPPDATA%\cc-director\pyenv\Scripts\python.exe" -c "import sys; sys.path[:0]=[r'<scratchpad>\harness\pkg', r'D:\ReposFred\devthrottle.worktrees\loud-switch-4\tools']; from cc_devthrottle.cli import tool_main; sys.argv[0]='cc-devthrottle'; tool_main()" %*

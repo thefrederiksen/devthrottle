@@ -164,6 +164,31 @@ public sealed class LicenseApproverReadiness
         };
     }
 
+    /// <summary>
+    /// Why the approver checks found no approver, from the checks that failed within
+    /// <see cref="LicenseApproverContract.NotCheckedAfter"/> on <paramref name="machineName"/> (or on every machine when it
+    /// is null): the latest one's profile, machine, time and the checking Director's sentence. Null when none failed.
+    /// Mission "Licenses - Loud When Stranded", step 4: from 19 to 26 October 2026 every check on SOREN_NORTH failed, and no
+    /// sentence anywhere said so.
+    /// </summary>
+    public static string? FailedChecksText(IReadOnlyList<LicenseApproverFailedCheck> failed, DateTime nowUtc, string? machineName = null,
+        string? osUser = null)
+    {
+        ArgumentNullException.ThrowIfNull(failed);
+        var recent = failed
+            .Where(f => nowUtc - f.CheckedAtUtc <= LicenseApproverContract.NotCheckedAfter)
+            .Where(f => machineName is null || f.NamesMachine(machineName, osUser ?? ""))
+            .OrderByDescending(f => f.CheckedAtUtc).ToList();
+        if (recent.Count == 0)
+            return null;
+        var latest = recent[0];
+        var profile = latest.BrowserProfileName ?? latest.BrowserProfile;
+        var what = recent.Count == 1
+            ? $"The approver check of browser profile \"{profile}\" on {latest.MachineName} could not run at {Clock(latest.CheckedAtUtc)}"
+            : $"{recent.Count} approver checks could not run, the latest of browser profile \"{profile}\" on {latest.MachineName} at {Clock(latest.CheckedAtUtc)}";
+        return what + Because(latest.Detail);
+    }
+
     /// <summary>What to call the approver's browser profile to a person: the display name its last check saw, else its
     /// identifier.</summary>
     public static string ProfileName(LicenseApprover approver) => approver.BrowserProfileName ?? approver.BrowserProfile;

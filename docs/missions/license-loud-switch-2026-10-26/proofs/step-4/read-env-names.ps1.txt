@@ -1,0 +1,27 @@
+param([int]$TargetPid)
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class PebEnv {
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(int a, bool b, int pid);
+  [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr size, out IntPtr read);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr h, int cls, byte[] info, int len, out int ret);
+  static IntPtr ReadPtr(IntPtr h, IntPtr a) { var b = new byte[8]; IntPtr r; ReadProcessMemory(h, a, b, (IntPtr)8, out r); return (IntPtr)BitConverter.ToInt64(b, 0); }
+  public static string Read(int pid) {
+    var h = OpenProcess(0x0410, false, pid);
+    var pbi = new byte[48]; int ret; NtQueryInformationProcess(h, 0, pbi, 48, out ret);
+    var peb = (IntPtr)BitConverter.ToInt64(pbi, 8);
+    var pp = ReadPtr(h, peb + 0x20);
+    var env = ReadPtr(h, pp + 0x80);
+    var sizeBuf = new byte[8]; IntPtr r; ReadProcessMemory(h, pp + 0x3F0, sizeBuf, (IntPtr)8, out r);
+    long size = BitConverter.ToInt64(sizeBuf, 0); if (size <= 0 || size > 1<<20) size = 65536;
+    var buf = new byte[size]; ReadProcessMemory(h, env, buf, (IntPtr)size, out r);
+    return Encoding.Unicode.GetString(buf, 0, (int)r);
+  }
+}
+"@
+$names = ([PebEnv]::Read($TargetPid) -split "`0") | Where-Object { $_ -match '^[A-Za-z_][^=]*=' } | ForEach-Object { ($_ -split '=',2)[0] }
+"pid=$TargetPid variables=$($names.Count)"
+"CC_ and BU_ variables present: " + (($names | Where-Object { $_ -match '^(CC_|BU_)' } | Sort-Object) -join ', ')
+foreach ($n in 'CC_DIRECTOR_ID','CC_GATEWAY_URL','CC_GATEWAY_SESSION_KEY','CC_SESSION_ID') { "{0} present={1}" -f $n, ($names -contains $n) }
+$path = (([PebEnv]::Read($TargetPid) -split "`0") | Where-Object { $_ -match '^Path=' }) -replace '^Path=',''
+foreach ($exe in 'browser-harness.exe','claude.exe') { $hit = ($path -split ';' | Where-Object { $_ -and (Test-Path (Join-Path $_ $exe)) } | Select-Object -First 1); "{0} on PATH: {1}" -f $exe, $(if ($hit) { $hit } else { 'NO' }) }

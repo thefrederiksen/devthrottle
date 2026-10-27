@@ -37,12 +37,15 @@ public sealed class AutomationBrowserProfiles : ILicenseBrowserProfiles
         Browsers.AutomationBrowserRegistry.Load().Select(b => new LicenseBrowserProfile(b.Id, b.Name)).ToList();
 }
 
-/// <summary>The sentence that goes with a check row: the Director's own fixed words, never a tool's or a page's
-/// (the contract's detail rule). Each is short of <see cref="LicenseApproverContract.MaxDetailLength"/>.</summary>
+/// <summary>The sentence that goes with a check row: the Director's own fixed words for a state that was read, never a
+/// page's. A check that FAILED carries why, in the tool's own words or this Director's (<see cref="LicenseApproverToolAnswer.Detail"/>):
+/// from 19 to 26 October 2026 every check on SOREN_NORTH failed with one fixed sentence that said nothing, while the
+/// tool's own answer named the cause. Each is at most <see cref="LicenseApproverContract.MaxDetailLength"/> characters.</summary>
 public static class LicenseApproverCheckSentences
 {
     public static string For(LicenseApproverToolAnswer answer) => answer.State switch
     {
+        LicenseApproverStates.CheckFailed when Fit(answer.Detail) is { } why => why,
         LicenseApproverStates.CanApprove => "The approval page showed the account signed in and ready to approve.",
         LicenseApproverStates.SignedOut => "The browser profile is not signed in to claude.ai.",
         LicenseApproverStates.NeedsFreshSignIn => "The approval page asks for a fresh claude.ai sign-in before it will approve.",
@@ -50,6 +53,23 @@ public static class LicenseApproverCheckSentences
         _ when answer.ToolAnswered => "The check could not open or read the approval page in this browser profile.",
         _ => "The license tool gave no readable answer to the check on this machine.",
     };
+
+    /// <summary><paramref name="text"/> as the Gateway takes a detail: one line of readable characters, at most
+    /// <see cref="LicenseApproverContract.MaxDetailLength"/>, shortened with "..." past it; null when nothing is left.</summary>
+    internal static string? Fit(string? text)
+    {
+        if (text is null) return null;
+        var line = new System.Text.StringBuilder(text.Length);
+        foreach (var c in text)
+            line.Append(char.IsWhiteSpace(c) || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.Control
+                or System.Globalization.UnicodeCategory.Format or System.Globalization.UnicodeCategory.LineSeparator
+                or System.Globalization.UnicodeCategory.ParagraphSeparator ? ' ' : c);
+        var fitted = string.Join(' ', line.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (fitted.Length == 0) return null;
+        return fitted.Length <= LicenseApproverContract.MaxDetailLength
+            ? fitted
+            : fitted[..(LicenseApproverContract.MaxDetailLength - 3)].TrimEnd() + "...";
+    }
 }
 
 /// <summary>
@@ -303,7 +323,8 @@ public sealed class LicenseApproverCheck
                 CheckedAtUtc = _utcNow(),
                 Detail = LicenseApproverCheckSentences.For(answer),
             });
-            FileLog.Write($"[LicenseApproverCheck] checked profile={profile}, account={answer.AccountEmail ?? "-"}, state={answer.State}");
+            FileLog.Write($"[LicenseApproverCheck] checked profile={profile}, account={answer.AccountEmail ?? "-"}, state={answer.State}"
+                          + (answer.State == LicenseApproverStates.CheckFailed ? $", detail={report.Rows[^1].Detail}" : ""));
         }
         return report;
     }

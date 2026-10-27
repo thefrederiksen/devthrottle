@@ -1,0 +1,33 @@
+2026-10-26 23:07:26.989 [Harness] environment: CC_DIRECTOR_ID present=False
+2026-10-26 23:07:27.041 [Harness] environment: CC_GATEWAY_URL present=False
+2026-10-26 23:07:27.042 [Harness] environment: CC_GATEWAY_SESSION_KEY present=False
+2026-10-26 23:07:27.042 [Harness] environment: CC_SESSION_ID present=False
+2026-10-26 23:07:27.042 [Harness] parent-free run, tool=installed
+2026-10-26 23:07:27.087 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=mindzie, account=(the one signed in)
+2026-10-26 23:07:27.148 [LicenseBrowserOpener] OpenAsync: profile=mindzie
+2026-10-26 23:07:27.368 [AutomationBrowserRegistry] Load: browsers=11
+2026-10-26 23:07:27.466 [AutomationBrowserRegistry] Load: browsers=11
+2026-10-26 23:07:27.466 [AutomationBrowserService] LaunchAsync: id=mindzie, port=9312
+2026-10-26 23:07:27.472 [AutomationBrowserService] LaunchAsync: id=mindzie already up, no-op
+2026-10-26 23:07:27.473 [LicenseBrowserOpener] OpenAsync: profile=mindzie is up, wasUp=True
+2026-10-26 23:07:30.970 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 23:07:30.975 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=mindzie, account=-, state=check-failed, answered=True, detail=The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machine and are reached through the Director that owns it; these commands only work inside a DevThrottle session.
+2026-10-26 23:07:30.976 [Harness] RESULT profile=mindzie, state=check-failed, account=-, answered=True, detail=The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machi...
+2026-10-26 23:07:30.976 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=agent-browser, account=(the one signed in)
+2026-10-26 23:07:30.976 [LicenseBrowserOpener] OpenAsync: profile=agent-browser
+2026-10-26 23:07:30.977 [AutomationBrowserRegistry] Load: browsers=11
+2026-10-26 23:07:32.992 [AutomationBrowserRegistry] Load: browsers=11
+2026-10-26 23:07:32.992 [AutomationBrowserService] LaunchAsync: id=agent-browser, port=9313
+2026-10-26 23:07:34.999 [BrowserLauncher] DetectBrowsers: probing (forced=True)
+2026-10-26 23:07:35.004 [BrowserLauncher] DetectBrowsers: found=2
+2026-10-26 23:07:35.005 [AutomationBrowserService] StartProcess: id=agent-browser, exe=C:\Program Files\Google\Chrome\Application\chrome.exe, url=(none)
+2026-10-26 23:07:36.335 [AutomationBrowserService] StartProcess: id=agent-browser pid=22124
+2026-10-26 23:07:36.956 [AutomationBrowserService] LaunchAsync: id=agent-browser is up on 9313
+2026-10-26 23:07:36.956 [LicenseBrowserOpener] OpenAsync: profile=agent-browser is up, wasUp=False
+2026-10-26 23:07:40.931 [CcDevthrottleLicenseCommandLine] license check-approver: exit=1
+2026-10-26 23:07:40.933 [AutomationBrowserRegistry] Load: browsers=11
+2026-10-26 23:07:40.933 [AutomationBrowserService] StopAsync: id=agent-browser, port=9313
+2026-10-26 23:07:40.957 [AutomationBrowserService] CloseViaCdpAsync: id=agent-browser Browser.close sent
+2026-10-26 23:07:43.296 [LicenseBrowserOpener] put back: profile=agent-browser stopped again
+2026-10-26 23:07:43.296 [CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile=agent-browser, account=-, state=check-failed, answered=True, detail=The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machine and are reached through the Director that owns it; these commands only work inside a DevThrottle session.
+2026-10-26 23:07:43.296 [Harness] RESULT profile=agent-browser, state=check-failed, account=-, answered=True, detail=The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machi...

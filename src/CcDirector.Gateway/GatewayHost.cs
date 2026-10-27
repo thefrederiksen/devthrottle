@@ -3145,7 +3145,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
         LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms, IsDirectorConnected,
-            tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
+            tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token,
+            // Which machines need an account whose approver cannot approve: the readiness check's judgement, built below.
+            judge: tenant => (LicenseReadiness ?? throw new InvalidOperationException("The readiness check is built after the approver alarm and before any raise.")).JudgeNow(tenant));
         LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow,
             LicenseApproverAlarm.RaiseSoon);
 

@@ -782,3 +782,82 @@ def test_cli_signInMakeActive_Text_SaysWhichAccountWasKept(machine):
     assert result.exit_code == 0, result.output
     assert f"Added: {ACCOUNT_B} is the active account in" in result.output
     assert f"{ACCOUNT_A}, active before, is kept as a spare in" in result.output
+
+
+# --- director_browser: the profile the Director started for its own run ---------------------------------------------
+#
+# 19 to 26 October 2026: every approver check the Director ran failed in seconds, because the Director's own process
+# has no session, and the only way this tool opened a browser profile was through the Gateway as a session
+# ("CC_DIRECTOR_ID is not set"). The Director now starts the profile itself and names it in the run's environment.
+
+DIRECTOR_RUN = {
+    license_signin.ENV_ATTACHED_BROWSER_ID: "work-chrome",
+    license_signin.ENV_ATTACHED_BROWSER_NAME: "Work Chrome",
+    "BU_NAME": "work-chrome",
+    "BU_CDP_URL": "http://127.0.0.1:9333",
+}
+
+
+@pytest.mark.parametrize("asked", ["work-chrome", "Work Chrome", "WORK-CHROME"])
+def test_director_browser_TheDirectorStartedTheProfile_UsesItWithoutTheGateway(asked):
+    browser = license_signin.director_browser(asked, environ=dict(DIRECTOR_RUN))
+
+    assert (browser.id, browser.name) == ("work-chrome", "Work Chrome")
+    assert browser.environment() == {"BU_NAME": "work-chrome", "BU_CDP_URL": "http://127.0.0.1:9333"}
+    browser.stop()  # the Director puts it back; nothing to do here, and nothing raised
+
+
+def test_director_browser_TheDirectorStartedAnotherProfile_Refuses():
+    with pytest.raises(SignInError) as raised:
+        license_signin.director_browser("Home Chrome", environ=dict(DIRECTOR_RUN))
+
+    assert "started the browser profile \"Work Chrome\" for this run, not \"Home Chrome\"" in str(raised.value)
+
+
+@pytest.mark.parametrize("missing", ["BU_NAME", "BU_CDP_URL"])
+def test_director_browser_TheDirectorGaveNoAttachEnvironment_Refuses(missing):
+    environ = dict(DIRECTOR_RUN)
+    del environ[missing]
+
+    with pytest.raises(SignInError) as raised:
+        license_signin.director_browser("work-chrome", environ=environ)
+
+    assert "did not give BU_NAME and BU_CDP_URL" in str(raised.value)
+
+
+def test_director_browser_InASession_StillGoesThroughTheGateway(monkeypatch):
+    # Nothing attached: the session path, unchanged. Without a session either, it says so - the 26 October failure.
+    for name in DIRECTOR_RUN:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("CC_DIRECTOR_ID", raising=False)
+
+    with pytest.raises(SignInError) as raised:
+        license_signin.director_browser("work-chrome", environ={})
+
+    assert "CC_DIRECTOR_ID is not set" in str(raised.value)
+
+
+def test_approve_RunByTheDirector_ApprovesInTheProfileItStarted(monkeypatch):
+    # The caller `license approve` uses: the default way to open the profile, with the Director's run environment.
+    for name, value in DIRECTOR_RUN.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("CC_DIRECTOR_ID", raising=False)
+    run, seen = _harness({"state": "code", "code": CODE})
+
+    code = license_signin.approve_in_browser(_url_for(ACCOUNT_B), ACCOUNT_B, "work-chrome", run_harness=run)
+
+    assert code == CODE
+    assert seen["env"] == {"BU_NAME": "work-chrome", "BU_CDP_URL": "http://127.0.0.1:9333"}
+
+
+def test_browser_approver_RunByTheDirector_SignInAndRenewApproveInTheProfileItStarted(monkeypatch):
+    # The caller `license sign-in` (and so the renewal, which signs in again) uses, with the Director's run environment.
+    for name, value in DIRECTOR_RUN.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("CC_DIRECTOR_ID", raising=False)
+    run, seen = _harness({"state": "code", "code": CODE})
+
+    approve = license_signin.browser_approver("Work Chrome", run_harness=run)
+
+    assert approve(_url_for(ACCOUNT_B), ACCOUNT_B) == CODE
+    assert seen["env"]["BU_CDP_URL"] == "http://127.0.0.1:9333"

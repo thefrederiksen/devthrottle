@@ -290,17 +290,23 @@ public static class LicenseReadinessFold
         return Array.Empty<LicenseAlarmCondition>();
     }
 
-    /// <summary>Copy each machine's readiness onto its line of the Licenses page.</summary>
-    public static void Apply(LicenseOverviewResponse overview, IReadOnlyList<LicenseMachineReadiness> judged)
+    /// <summary>Copy each machine's readiness onto its line of the Licenses page, with why its approver checks failed
+    /// when they did (mission "Licenses - Loud When Stranded", step 4: the reason is never discarded).</summary>
+    public static void Apply(LicenseOverviewResponse overview, IReadOnlyList<LicenseMachineReadiness> judged,
+        IReadOnlyList<LicenseApproverFailedCheck> failedChecks, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(judged);
+        ArgumentNullException.ThrowIfNull(failedChecks);
         foreach (var dto in overview.Machines)
         {
             var mine = judged.FirstOrDefault(j => j.MachineId.ToString("N") == dto.MachineId);
             dto.Readiness = mine?.State;
             dto.ReadinessTargetAccountEmail = mine?.TargetAccountEmail;
-            dto.ReadinessText = mine?.Text;
+            dto.ReadinessText = mine is null ? null
+                : LicenseApproverReadiness.FailedChecksText(failedChecks, nowUtc, mine.MachineName, mine.OsUser) is { } failed
+                    ? $"{mine.Text} {failed}"
+                    : mine.Text;
             dto.ReadinessTone = mine?.Tone;
         }
     }

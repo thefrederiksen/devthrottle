@@ -152,7 +152,7 @@ public static partial class LicenseEndpoints
         LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
             directorId => isConnected(tenant, directorId), now);
         // Whether each machine is ready for the account it would switch to next: what the minute check acts on.
-        LicenseReadinessFold.Apply(response, readiness.Judge(tenant, picture, now));
+        LicenseReadinessFold.Apply(response, readiness.Judge(tenant, picture, now), approvers.ListFailedChecksQuietly(tenant), now);
         // Whether each machine may be forgotten; after the sign-ins, because one under way is a reason it may not.
         LicenseDisplayFold.ApplyForget(response);
         return response;

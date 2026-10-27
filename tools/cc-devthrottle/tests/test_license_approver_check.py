@@ -545,3 +545,34 @@ def test_cli_checkApprover_NoEmail_AsksForDiscovery(monkeypatch):
     assert asked == [("work", None)]
     assert "signed-out: sentence for signed-out" in result.stdout
     assert 'cc-devthrottle browser signin "work"' in result.stdout
+
+
+# --- run by the Director ---------------------------------------------------------------------------------------------
+
+
+def test_checkApprover_RunByTheDirector_ChecksTheProfileItStarted_AndLeavesItRunning(tmp_path, monkeypatch):
+    # 19 to 26 October 2026 every check the Director ran answered check-failed in seconds: "CC_DIRECTOR_ID is not
+    # set", because the profile could only be opened through the Gateway as a session. The Director now starts the
+    # profile and names it in the run's environment; the check uses it and the Director puts it back.
+    monkeypatch.delenv("CC_DIRECTOR_ID", raising=False)
+    environ = {
+        license_signin.ENV_ATTACHED_BROWSER_ID: "work-chrome",
+        license_signin.ENV_ATTACHED_BROWSER_NAME: "Work Chrome",
+        "BU_NAME": "work-chrome",
+        "BU_CDP_URL": "http://127.0.0.1:9333",
+    }
+    browser = FakeBrowser("consent")
+    seen = []
+
+    def harness(script, env, timeout):
+        seen.append(env)
+        return browser.run(script, env, timeout)
+
+    machine = Machine(tmp_path, browser)
+    check = license_signin.check_approver("work-chrome", ALICE,
+                                          open_profile=lambda p: license_signin.director_browser(p, environ=environ),
+                                          run_harness=harness, start_login=machine.start_login,
+                                          make_folder=machine.make_folder)
+
+    assert (check.browser_profile, check.browser_profile_name, check.state) == ("work-chrome", "Work Chrome", "can-approve")
+    assert seen and all(env == {"BU_NAME": "work-chrome", "BU_CDP_URL": "http://127.0.0.1:9333"} for env in seen)

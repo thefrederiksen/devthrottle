@@ -27,6 +27,12 @@ public static class AutomationBrowserService
     // almost instantly when it is up; 2s is generous and keeps a "down" verdict snappy.
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2) };
 
+    // The probe that must tell "stopped" from "no answer" (StartIfStoppedAsync) waits longer. On Windows a connection to a
+    // closed loopback port is refused only after about two seconds (measured 2.03 to 2.1 s on SOREN_NORTH, 27 October
+    // 2026), so within the two seconds above a stopped browser never answers "refused" at all. A running browser
+    // answers in milliseconds; ten seconds of silence is doubt.
+    private static readonly HttpClient DefiniteProbeHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
+
     /// <summary>How long we wait for a freshly launched browser's debug port to start answering.</summary>
     private static readonly TimeSpan LaunchReadyTimeout = TimeSpan.FromSeconds(20);
 
@@ -93,6 +99,68 @@ public static class AutomationBrowserService
             return false;
         }
     }
+
+    /// <summary>
+    /// Start the browser only when it is DEFINITELY not running, and say whether this call started it. For a caller
+    /// that puts the browser back afterwards (the license check, which must never close a browser a session or a
+    /// factory is using): <see cref="IsUpAsync"/> reads a probe that did not answer in two seconds as "not running", and
+    /// on a busy machine that is a running browser - starting it would open a second window, and stopping it after would
+    /// close the session's browser. So only a refused connection is "stopped"; a probe with no answer THROWS
+    /// <see cref="TimeoutException"/> and nothing is started. Returns false when the browser was already up.
+    /// </summary>
+    public static Task<bool> StartIfStoppedAsync(AutomationBrowser browser, CancellationToken ct = default)
+    {
+        if (browser is null) throw new ArgumentNullException(nameof(browser));
+        return StartIfStoppedAsync(browser, ProbeAsync, async (b, token) =>
+        {
+            StartProcess(b, url: null);
+            await WaitUntilUpAsync(b, token).ConfigureAwait(false);
+        }, ct);
+    }
+
+    /// <summary>The decision of <see cref="StartIfStoppedAsync(AutomationBrowser, CancellationToken)"/>, over a probe and a
+    /// start a test can stand in for.</summary>
+    internal static async Task<bool> StartIfStoppedAsync(AutomationBrowser browser,
+        Func<AutomationBrowser, CancellationToken, Task<BrowserProbe>> probe,
+        Func<AutomationBrowser, CancellationToken, Task> start, CancellationToken ct)
+    {
+        var answer = await probe(browser, ct).ConfigureAwait(false);
+        FileLog.Write($"[AutomationBrowserService] StartIfStoppedAsync: id={browser.Id}, port={browser.Port}, probe={answer}");
+        switch (answer)
+        {
+            case BrowserProbe.Up:
+                return false;
+            case BrowserProbe.Refused:
+                await start(browser, ct).ConfigureAwait(false);
+                FileLog.Write($"[AutomationBrowserService] StartIfStoppedAsync: id={browser.Id} started, up on {browser.Port}");
+                return true;
+            default:
+                throw new TimeoutException($"the browser profile \"{browser.Name}\" did not answer on its debug port in "
+                                           + $"{DefiniteProbeHttp.Timeout.TotalSeconds:0} seconds, so it may be running; it was neither started nor stopped");
+        }
+    }
+
+    /// <summary>One probe of the debug port, as one of three answers: up, refused (nothing listens, so the browser is not
+    /// running), or no definite answer (a timeout or a broken exchange - a running browser on a busy machine looks like
+    /// this).</summary>
+    internal static async Task<BrowserProbe> ProbeAsync(AutomationBrowser browser, CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await DefiniteProbeHttp.GetAsync(VersionUrl(browser.Port), ct).ConfigureAwait(false);
+            return resp.IsSuccessStatusCode ? BrowserProbe.Up : BrowserProbe.NoAnswer;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return ProbeAnswerOf(ex);
+        }
+    }
+
+    /// <summary>What a failed probe means: refused only when the connection itself was refused.</summary>
+    internal static BrowserProbe ProbeAnswerOf(Exception ex)
+        => ex is HttpRequestException { InnerException: System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.ConnectionRefused } }
+            ? BrowserProbe.Refused
+            : BrowserProbe.NoAnswer;
 
     /// <summary>Convenience overload: probe by id or name.</summary>
     public static Task<bool> IsUpAsync(string idOrName, CancellationToken ct = default)
@@ -443,4 +511,17 @@ public static class AutomationBrowserService
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind,
             $"No sign-in landing page has been chosen for {kind}. Add one to AccountUrl."),
     };
+}
+
+/// <summary>One probe of a browser's debug port (<see cref="AutomationBrowserService.StartIfStoppedAsync(AutomationBrowser, CancellationToken)"/>).</summary>
+internal enum BrowserProbe
+{
+    /// <summary>The port answered <c>/json/version</c>: the browser is running.</summary>
+    Up,
+
+    /// <summary>The connection was refused: nothing listens, the browser is not running.</summary>
+    Refused,
+
+    /// <summary>No definite answer in time: the browser may be running.</summary>
+    NoAnswer,
 }

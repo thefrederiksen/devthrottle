@@ -343,7 +343,7 @@ public sealed class LicenseApproverCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task TickAsync_DetailIsTheDirectorsOwnWords_NeverTheTools()
+    public async Task TickAsync_ADetailOfAStateThatWasRead_IsTheDirectorsOwnWords_NeverTheTools()
     {
         _channel.Assign(AccountA, "work-chrome").Assign(AccountB, "home-edge");
         Answers("work-chrome", AccountA, LicenseApproverStates.WrongAccount, shown: "account-c@example.com");
@@ -356,6 +356,39 @@ public sealed class LicenseApproverCheckTests : IDisposable
             report!.Rows.Select(r => r.Detail));
         Assert.All(report.Rows, r => Assert.True(r.Detail!.Length <= LicenseApproverContract.MaxDetailLength));
         Assert.DoesNotContain(FakeLicenseCommandLine.ToolTextMarker, JsonSerializer.Serialize(report));
+    }
+
+    [Fact]
+    public async Task TickAsync_ACheckThatFailed_CarriesWhy_AsTheToolSaidIt_FittedToTheContract()
+    {
+        // 19 to 26 October 2026: every check on SOREN_NORTH failed, and this row said only "could not open or read the
+        // approval page" while the tool's own answer named the cause. The cause is the one thing worth reporting.
+        const string why = "The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this "
+                           + "session cannot say which machine's browsers to use. The automation browsers belong to one machine and are "
+                           + "reached through the Director that owns it;\nthese commands only work inside a DevThrottle session.";
+        _channel.Assign(AccountA, "work-chrome");
+        _tool.ApproverChecks[("work-chrome", AccountA)] = new LicenseApproverToolAnswer
+        {
+            State = LicenseApproverStates.CheckFailed, AccountEmail = AccountA, ToolAnswered = true, Detail = why,
+        };
+
+        var report = await Check().TickAsync(CancellationToken.None);
+
+        var detail = Assert.Single(report!.Rows).Detail!;
+        Assert.StartsWith("The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set", detail);
+        Assert.Equal(LicenseApproverContract.MaxDetailLength, detail.Length);
+        Assert.EndsWith("...", detail);
+        Assert.DoesNotContain("\n", detail);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("   ", null)]
+    [InlineData("short\tand\r\nsplit", "short and split")]
+    [InlineData("right-to-left ‮ mark", "right-to-left mark")]
+    public void Fit_TextOfAnyShape_IsOneReadableLine(string? given, string? expected)
+    {
+        Assert.Equal(expected, LicenseApproverCheckSentences.Fit(given));
     }
 
     [Fact]

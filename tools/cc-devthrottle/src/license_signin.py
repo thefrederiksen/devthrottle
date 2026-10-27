@@ -55,6 +55,7 @@ never logged, and no error message carries it.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import inspect
 import json
 import logging
@@ -541,8 +542,50 @@ class BrowserProfile(Protocol):
     def stop(self) -> None: ...
 
 
-def director_browser(profile: str) -> BrowserProfile:
-    """The Director's own browser profile ``profile`` (name or id), started if it was stopped."""
+#: Set by the Director on its OWN runs of this tool, with BU_NAME and BU_CDP_URL: the identifier and the display name
+#: of the browser profile it has started for this run. Never set in a session.
+ENV_ATTACHED_BROWSER_ID = "CC_LICENSE_ATTACHED_BROWSER_ID"
+ENV_ATTACHED_BROWSER_NAME = "CC_LICENSE_ATTACHED_BROWSER_NAME"
+
+
+class AttachedBrowser:
+    """A browser profile the Director running this tool has started for the run. The Director puts it back after
+    the run, so ``stop`` does nothing here."""
+
+    def __init__(self, profile_id: str, name: str, env: Dict[str, str]):
+        self.id = profile_id
+        self.name = name
+        self._env = env
+
+    def environment(self) -> Dict[str, str]:
+        return dict(self._env)
+
+    def stop(self) -> None:
+        return None
+
+
+def director_browser(profile: str, environ: Optional[Dict[str, str]] = None) -> BrowserProfile:
+    """The Director's own browser profile ``profile`` (name or id), started if it was stopped.
+
+    Run BY the Director (sign-in, renew, approve, check-approver), the profile is the one the Director started for
+    this run and named in ENV_ATTACHED_BROWSER_ID. The Director's own process has no session, so the Gateway route
+    below - which needs CC_DIRECTOR_ID and a session key - answered "CC_DIRECTOR_ID is not set" on every one of its
+    runs (19 to 26 October 2026: every approver check failed in seconds). Run in a session, it is started through
+    the Gateway as before."""
+    environ = os.environ if environ is None else environ
+    attached = (environ.get(ENV_ATTACHED_BROWSER_ID) or "").strip()
+    if attached:
+        name = (environ.get(ENV_ATTACHED_BROWSER_NAME) or "").strip() or attached
+        if profile.strip().lower() not in (attached.lower(), name.lower()):
+            raise SignInError(APPROVAL_FAILED, f"the Director started the browser profile \"{name}\" for this run, "
+                                               f"not \"{profile}\"")
+        bu_name = (environ.get("BU_NAME") or "").strip()
+        cdp_url = (environ.get("BU_CDP_URL") or "").strip()
+        if not bu_name or not cdp_url:
+            raise SignInError(APPROVAL_FAILED, f"the Director started the browser profile \"{name}\" for this run but "
+                                               "did not give BU_NAME and BU_CDP_URL")
+        return AttachedBrowser(attached, name, {"BU_NAME": bu_name, "BU_CDP_URL": cdp_url})
+
     from cc_shared import gateway
 
     from . import browser_ops
@@ -559,6 +602,24 @@ def director_browser(profile: str) -> BrowserProfile:
 RunHarness = Callable[[str, Dict[str, str], float], str]
 
 
+#: browser-harness refuses a daemon name longer than this ("invalid BU_NAME"), before it does anything.
+DAEMON_NAME_LIMIT = 64
+
+
+def run_daemon_name(profile_daemon: str, pid: Optional[int] = None) -> str:
+    """The browser-harness daemon name for ONE run of this tool against the profile whose own daemon is
+    ``profile_daemon``: never the profile's own name, which a session driving that profile is using.
+
+    Every profile name browser-harness takes (up to 64 characters) still works: when the profile's name and this
+    run's suffix would pass the limit, the profile's name is cut and a short hash of the whole of it keeps two long
+    names that share a beginning apart."""
+    suffix = f"-license-{os.getpid() if pid is None else pid}"
+    if len(profile_daemon) + len(suffix) <= DAEMON_NAME_LIMIT:
+        return profile_daemon + suffix
+    digest = hashlib.sha256(profile_daemon.encode("utf-8")).hexdigest()[:8]
+    return f"{profile_daemon[:DAEMON_NAME_LIMIT - len(suffix) - len(digest) - 1]}-{digest}{suffix}"
+
+
 def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> str:
     exe = shutil.which("browser-harness")
     if not exe:
@@ -566,19 +627,24 @@ def _run_harness(script: str, env: Dict[str, str], timeout_seconds: float) -> st
                           ["Install browser-harness, then run: browser-harness --doctor"])
     full_env = dict(os.environ, **env)
     full_env.pop(ENV_ALLOW_REAL_DEFAULT, None)
+    # A daemon of this run's own, attached to the same browser by BU_CDP_URL. The profile's own daemon belongs to
+    # whatever session drives that profile: running under its name moved that session's current tab to this run's
+    # page, and the reload below ended the session's daemon under it. The daily approver check reads every profile on
+    # the machine, factories drive them at night, and a running browser is read where it is and never closed.
+    full_env["BU_NAME"] = run_daemon_name(env["BU_NAME"])
     try:
         done = subprocess.run([exe], input=script, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", env=full_env, timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
         raise SignInError(APPROVAL_FAILED, f"the browser step did not finish in {timeout_seconds:g} seconds") from None
     finally:
-        # End this profile's browser-harness daemon. The profile is stopped next when it was stopped before, and a
-        # daemon left attached to a stopped browser collides with the next one started for it (seen live: the
-        # next approval failed with "Access is denied" on the daemon's port file).
+        # End this run's own daemon, and only it. A daemon left attached to a browser that is stopped next collides
+        # with the next one started for it (seen live: the next approval failed with "Access is denied" on the
+        # daemon's port file), and one left per run would pile up.
         stopped = subprocess.run([exe, "--reload"], capture_output=True, text=True, encoding="utf-8",
                                  errors="replace", env=full_env, timeout=60)
         if stopped.returncode != 0:
-            log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, env.get("BU_NAME"),
+            log.warning("browser-harness --reload exited %d for %s: %s", stopped.returncode, full_env["BU_NAME"],
                         " / ".join((stopped.stderr or stopped.stdout).strip().splitlines()[-2:]))
     if done.returncode != 0:
         # browser-harness's own error text names the page or the connection; the code is never in it, because a

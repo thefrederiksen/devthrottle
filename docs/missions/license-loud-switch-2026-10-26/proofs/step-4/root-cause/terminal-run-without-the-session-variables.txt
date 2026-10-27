@@ -1,0 +1,17 @@
+$ env -u CC_GATEWAY_SESSION_KEY -u CC_SESSION_ID -u CC_DIRECTOR_ID -u CC_GATEWAY_URL [the other session variables] CC_LICENSE_ALLOW_REAL_DEFAULT=1 cc-devthrottle license check-approver --browser mindzie --json
+(5.0 seconds, exit=1)
+--- standard output
+{
+  "browserProfile": "mindzie",
+  "browserProfileName": null,
+  "accountEmail": null,
+  "shownAccount": null,
+  "state": "check-failed",
+  "detail": "The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machine and are reached through the Director that owns it; these commands only work inside a DevThrottle session."
+}
+--- standard error
+check-approver mindzie for None: the check could not run (approval-failed) the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machine and are reached through the Director that owns it; these commands only work inside a DevThrottle session.
+Error: The check could not run: the browser profile could not be started: CC_DIRECTOR_ID is not set, so this session cannot say which machine's browsers to use. The automation browsers belong to one machine and are reached through the Director that owns it; these commands only work inside a DevThrottle session.
+help[2]:
+  browser-harness --doctor
+  cc-devthrottle browser list
