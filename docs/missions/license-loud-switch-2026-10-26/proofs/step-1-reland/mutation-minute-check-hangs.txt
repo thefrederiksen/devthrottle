@@ -1,0 +1,30 @@
+Starting a throwaway PostgreSQL for this run (instance db728e7948, port 54075)...
+PostgreSQL ready. It is destroyed when this run ends.
+
+Building CcDirector.Gateway.DatabaseTests (Debug)...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:43.19
+Running CcDirector.Gateway.DatabaseTests...
+
+Test run for <worktree>\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:02:18.84]     CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure [FAIL]
+  Failed CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure [2 m]
+  Error Message:
+   System.TimeoutException : the first license minute check (RunLicenseSwitchCheckAsync) did not finish within 2 minutes: it hung.
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.Bounded(Task step, String name) in <worktree>\src\CcDirector.Gateway.DatabaseTests\Licenses\LicenseHostStartPostgresTests.cs:line 172
+   at CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure() in <worktree>\src\CcDirector.Gateway.DatabaseTests\Licenses\LicenseHostStartPostgresTests.cs:line 197
+--- End of stack trace from previous location ---
+Results File: <temp>\cc-test-database-a6b85ed3\CcDirector.Gateway.DatabaseTests.trx
+
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 2 m - CcDirector.Gateway.DatabaseTests.dll (net10.0)
+
+Result file: <temp>\cc-test-database-a6b85ed3\CcDirector.Gateway.DatabaseTests.trx
+Verdict: outcome=Failed total=1 executed=1 passed=0 failed=1 skipped=0
+
+RESULT: FAILED - 1 test(s) failed (dotnet test exited 1). The output is above.
