@@ -49,10 +49,21 @@ Each of these must be true:
    in between.
 4. A second check keeps the alarm open quietly, sends no second email, and fails nothing.
 5. `/healthz` still answers 200 after both checks.
+6. No step hangs. The start, each `/healthz`, each minute check and the stop must each finish within two minutes, or the
+   test fails with a sentence naming the step that hung. Two minutes is only an upper bound: a normal run of the whole
+   test takes 1 to 3 seconds. This answers finding F1 of the review of pull request 4525: a hang is what was suspected
+   of step 1, and before this a hung step stalled the run with no verdict.
 
 **Proof that it can fail.** I made `LicenseStrandedAlarm.Conditions` throw (`mutation-stranded-check-throws.txt`) and
 the test went red on fact 2. The source was restored with `git checkout` and the test passed again on a fresh build
 (`host-start-test.txt`). The test commit was made before the mutation, so the mutation could not get into the branch.
+
+**Proof that a hang fails.** I made `LicenseReadinessService.TickAsync` wait forever
+(`await Task.Delay(Timeout.Infinite, ct)`) as its first step (`mutation-minute-check-hangs.txt`). The test went red after
+2 minutes with `System.TimeoutException : the first license minute check (RunLicenseSwitchCheckAsync) did not finish
+within 2 minutes: it hung.` The whole script run, including building and destroying the database, took 216 seconds.
+The bound commit (6222437eb) was made before the mutation. The source was restored with `git checkout`, and the test then
+passed again on a fresh build.
 
 ## Runs
 
@@ -60,7 +71,8 @@ the test went red on fact 2. The source was restored with `git checkout` and the
 |---|---|---|
 | `host-start-test.txt` | `scripts\test-database.ps1 -Filter "FullyQualifiedName~LicenseHostStartPostgresTests"`, on the restored source | GREEN: 1 executed, 1 passed, 0 skipped |
 | `mutation-stranded-check-throws.txt` | the same, with the stranded check made to throw | RED, as it must be: `Assert.DoesNotContain()`, a license check logged FAILED |
-| `licenses-filter.txt` | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"` | 1,306 passed, 0 failed (1,259 without step 1) |
+| `mutation-minute-check-hangs.txt` | the same, with the minute check made to hang | RED after 2 minutes, as it must be: the `TimeoutException` names the first minute check |
+| `licenses-filter.txt` | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Licenses"` | 1,306 passed, 0 failed (1,259 without step 1), rerun on 6222437eb |
 | `replay-step-3-on-reland.txt` | the step 3 replay (`LicenseStrandedReplayTests`, commit 1ad23b948), copied in and not committed | 11 passed, 2 failed, as expected |
 | `database-tests-full.txt` | the whole database project, `scripts\test-database.ps1` | 84 passed, 3 failed: all three also fail on main without step 1, see below |
 | `database-three-on-main-ee943d301.txt` | those three tests on origin/main (ee943d301, step 1 reverted) | the same 3 fail, with the same messages |

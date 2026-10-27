@@ -1,4 +1,4 @@
-Starting a throwaway PostgreSQL for this run (instance db4dcc1198, port 56930)...
+Starting a throwaway PostgreSQL for this run (instance dbf81e4196, port 52422)...
 PostgreSQL ready. It is destroyed when this run ends.
 
 Building CcDirector.Gateway.DatabaseTests (Debug)...
@@ -7,16 +7,16 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:40.74
+Time Elapsed 00:00:38.86
 Running CcDirector.Gateway.DatabaseTests...
 
-Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
+Test run for <worktree>\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
-Results File: <temp>\cc-test-database-d86b8176\CcDirector.Gateway.DatabaseTests.trx
+Results File: <temp>\cc-test-database-31e1d391\CcDirector.Gateway.DatabaseTests.trx
 
-Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 3 s - CcDirector.Gateway.DatabaseTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 1 s - CcDirector.Gateway.DatabaseTests.dll (net10.0)
 
-Result file: <temp>\cc-test-database-d86b8176\CcDirector.Gateway.DatabaseTests.trx
+Result file: <temp>\cc-test-database-31e1d391\CcDirector.Gateway.DatabaseTests.trx
 Verdict: outcome=Completed total=1 executed=1 passed=1 failed=0 skipped=0
 
 RESULT: GREEN - 1 test(s) executed against the throwaway PostgreSQL, none failed, none skipped.

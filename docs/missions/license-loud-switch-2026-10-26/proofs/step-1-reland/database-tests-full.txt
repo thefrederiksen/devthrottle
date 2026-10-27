@@ -10,7 +10,7 @@ Build succeeded.
 Time Elapsed 00:00:09.25
 Running CcDirector.Gateway.DatabaseTests...
 
-Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
+Test run for <worktree>\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
 [xUnit.net 00:01:54.98]     CcDirector.Gateway.Tests.Data.PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres [FAIL]
   Failed CcDirector.Gateway.Tests.Data.PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres [135 ms]
@@ -21,7 +21,7 @@ Expected: [···, Tuple ("api_mode_receipts", "SessionId"), Tuple ("api_mode_re
 Actual:   [···, Tuple ("api_mode_receipts", "SessionId"), Tuple ("api_mode_receipts", "TurnId"), Tuple ("cron_failure_notices", "Cause"), Tuple ("cron_failure_notices", "JobId"), Tuple ("dev_report_comments", "FromSubject"), ···]
                                                                                                  ↑ (pos 8)
   Stack Trace:
-     at CcDirector.Gateway.Tests.Data.PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres() in D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\Data\PostgresProviderProofTests.cs:line 417
+     at CcDirector.Gateway.Tests.Data.PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres() in <worktree>\src\CcDirector.Gateway.DatabaseTests\Data\PostgresProviderProofTests.cs:line 417
    at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
    at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
    at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
@@ -30,15 +30,15 @@ Actual:   [···, Tuple ("api_mode_receipts", "SessionId"), Tuple ("api_mode_re
   Error Message:
    Assert.Single() Failure: The collection was empty
   Stack Trace:
-     at CcDirector.Gateway.Tests.Data.AddLicenseAlarmsPostgresTests.AddLicenseAlarms_AppliesOnPostgres_TheServiceOpensEmailsAndClosesAnAlarm_AndItsDownRemovesIt() in D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\Data\AddLicenseAlarmsPostgresTests.cs:line 123
+     at CcDirector.Gateway.Tests.Data.AddLicenseAlarmsPostgresTests.AddLicenseAlarms_AppliesOnPostgres_TheServiceOpensEmailsAndClosesAnAlarm_AndItsDownRemovesIt() in <worktree>\src\CcDirector.Gateway.DatabaseTests\Data\AddLicenseAlarmsPostgresTests.cs:line 123
 --- End of stack trace from previous location ---
 [xUnit.net 00:04:31.54]     CcDirector.Gateway.Tests.Data.ArchiveFactoriesPostgresTests.ArchiveFactories_AppliesOnPostgres_TheRegistryListsArchivesAndRestores_AndItsDownRemovesTheColumns [FAIL]
   Failed CcDirector.Gateway.Tests.Data.ArchiveFactoriesPostgresTests.ArchiveFactories_AppliesOnPostgres_TheRegistryListsArchivesAndRestores_AndItsDownRemovesTheColumns [3 s]
   Error Message:
    CcDirector.Gateway.Factory.FactoryViewValidationException : Every factory has a Boss, and the manifest names no boss seat. Add "bossSeat": "boss" and a seat with the id boss, the name Boss and the role Boss, then register again.
   Stack Trace:
-     at CcDirector.Gateway.Factory.Registry.FactoryRegistryStore.Register(TenantId tenant, RegisterFactoryRequest request, String registeredBy, DateTime nowUtc) in D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway\Factory\Registry\FactoryRegistryStore.cs:line 92
-   at CcDirector.Gateway.Tests.Data.ArchiveFactoriesPostgresTests.ArchiveFactories_AppliesOnPostgres_TheRegistryListsArchivesAndRestores_AndItsDownRemovesTheColumns() in D:\ReposFred\devthrottle.worktrees\loud-switch-revert-1\src\CcDirector.Gateway.DatabaseTests\Data\ArchiveFactoriesPostgresTests.cs:line 109
+     at CcDirector.Gateway.Factory.Registry.FactoryRegistryStore.Register(TenantId tenant, RegisterFactoryRequest request, String registeredBy, DateTime nowUtc) in <worktree>\src\CcDirector.Gateway\Factory\Registry\FactoryRegistryStore.cs:line 92
+   at CcDirector.Gateway.Tests.Data.ArchiveFactoriesPostgresTests.ArchiveFactories_AppliesOnPostgres_TheRegistryListsArchivesAndRestores_AndItsDownRemovesTheColumns() in <worktree>\src\CcDirector.Gateway.DatabaseTests\Data\ArchiveFactoriesPostgresTests.cs:line 109
    at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
    at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
    at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
