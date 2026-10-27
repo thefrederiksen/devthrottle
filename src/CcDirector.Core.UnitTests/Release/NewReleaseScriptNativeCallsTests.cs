@@ -22,28 +22,57 @@ public sealed class NewReleaseScriptNativeCallsTests
 {
     private const string ScriptPath = "scripts/new-release.ps1";
 
-    // A call, not a mention: the forms the script runs. The how-to-fix messages name other forms
-    // ("git push origin --delete", "gh auth login", "gh run list") that a person types, not the script.
-    private static readonly Regex NativeCall = new(@"(?<![\w-])(git -C |gh api |gh pr |gh auth status)", RegexOptions.Compiled);
+    // Any git or gh word left in the CODE once comments and string literals are blanked is a call. The
+    // how-to-fix messages ("Run: git push origin $tagName", "gh auth login") are strings, so they are not.
+    private static readonly Regex NativeWord = new(@"(?<![\w$.-])(git|gh)(?![\w-])", RegexOptions.Compiled);
+    private const string HelperOpen = @"(Invoke-Native|Get-NativeExitCode)(\s+-Quiet)?\s*\{\s*$";
 
     [Fact]
     public void EveryGitAndGhCall_GoesThroughInvokeNative()
     {
-        var script = ReadScript();
-        var calls = NativeCall.Matches(StripComments(script)).ToList();
+        var code = StripStrings(StripComments(ReadScript()));
+        var calls = NativeWord.Matches(code).ToList();
 
         // A presence, so a renamed or emptied script cannot pass by having no calls to check.
-        Assert.True(calls.Count >= 20, $"{ScriptPath} shows only {calls.Count} git or gh calls; this guard can no longer see them.");
+        Assert.True(calls.Count >= 25, $"{ScriptPath} shows only {calls.Count} git or gh calls; this guard can no longer see them.");
 
-        var code = StripComments(script);
         var bare = calls
-            .Where(m => !Regex.IsMatch(code[..m.Index], @"(Invoke-Native|Get-NativeExitCode)(\s+-Quiet)?\s*\{\s*$"))
+            // "Get-Command gh" asks whether gh is installed; it does not run it.
+            .Where(m => !Regex.IsMatch(code[..m.Index], HelperOpen) && !Regex.IsMatch(code[..m.Index], @"Get-Command\s+$"))
             .Select(m => LineOf(code, m.Index))
             .ToList();
         Assert.True(bare.Count == 0,
             $"{ScriptPath} calls git or gh outside Invoke-Native on {bare.Count} line(s):\n{string.Join("\n", bare)}\n"
             + "Under Windows PowerShell 5.1 any stderr line from that call (a CRLF warning, a 'remote:' hint) stops the "
             + "release although the call succeeded. Wrap it: Invoke-Native { git ... }, then check $LASTEXITCODE.");
+    }
+
+    /// <summary>
+    /// Wrapping a call stops its stderr from ending the script; it also stops a FAILED call from ending it. So a
+    /// wrapped call whose exit code nobody reads turns a failure into an empty answer and carries on - a missing
+    /// tag reads as "no such tag", a failed push as pushed. Every Invoke-Native is followed, on its own line or the
+    /// next, by a read of $LASTEXITCODE. (Get-NativeExitCode returns the code, so its callers compare that.)
+    /// </summary>
+    [Fact]
+    public void EveryInvokeNative_IsFollowedByAnExitCodeCheck()
+    {
+        var lines = StripComments(ReadScript()).Split('\n');
+        var calls = 0;
+        var unchecked_ = new List<string>();
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!Regex.IsMatch(lines[i], @"Invoke-Native(\s+-Quiet)?\s*\{") || lines[i].TrimStart().StartsWith("function ", StringComparison.Ordinal))
+                continue;
+            calls++;
+            var next = lines.Skip(i + 1).FirstOrDefault(l => l.Trim().Length > 0) ?? "";
+            if (!lines[i].Contains("$LASTEXITCODE", StringComparison.Ordinal) && !next.Contains("$LASTEXITCODE", StringComparison.Ordinal))
+                unchecked_.Add($"  line {i + 1}: {lines[i].Trim()}");
+        }
+
+        Assert.True(calls >= 25, $"{ScriptPath} shows only {calls} Invoke-Native calls; this guard can no longer see them.");
+        Assert.True(unchecked_.Count == 0,
+            $"{ScriptPath} wraps {unchecked_.Count} call(s) and never reads the exit code:\n{string.Join("\n", unchecked_)}\n"
+            + "A failure of that call now reads as success. Follow it with: if ($LASTEXITCODE -ne 0) { Fail ... }");
     }
 
     [Fact]
@@ -87,6 +116,12 @@ public sealed class NewReleaseScriptNativeCallsTests
         var noHelp = Regex.Replace(script, @"<#[\s\S]*?#>", m => new string(' ', m.Length));
         return Regex.Replace(noHelp, @"(?m)^\s*#.*$", m => new string(' ', m.Length));
     }
+
+    // String literals are blanked, keeping every offset, so a command named in a message is not a call. No string here
+    // crosses a line, so a quote mis-paired by a $( ... ) inside a string can only expose message text - a false
+    // report, which fails loud - and a call that starts its own line is never blanked.
+    private static string StripStrings(string code) =>
+        Regex.Replace(code, @"""[^""\n]*""|'[^'\n]*'", m => new string(' ', m.Length));
 
     private static string LineOf(string text, int index)
     {

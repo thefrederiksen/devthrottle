@@ -113,12 +113,21 @@ public static class FakeGh {
         File.AppendAllText(Path.Combine(dir, "calls.log"), string.Join(" ", args) + Environment.NewLine);
         if (args.Length == 0) return 9;
         if (args[0] == "auth") { Console.Error.WriteLine("Logged in to github.com (rig stand-in)"); return 0; }
+        string head = File.ReadAllText(Path.Combine(dir, "head.txt")).Trim();
         if (args[0] == "api" && args.Length > 1) {
-            if (args[1].Contains("check-runs")) { Console.WriteLine("success"); return 0; }
-            if (args[1].Contains("workflows/ci.yml/runs")) { Console.WriteLine(File.ReadAllText(Path.Combine(dir, "head.txt")).Trim()); return 0; }
+            // Green only for the real head commit, asked for by name: an empty or wrong sha (a variable that did
+            // not reach the call) is refused, so the release stops instead of passing.
+            if (args[1].Contains("check-runs")) {
+                if (args[1].Contains("/commits/" + head + "/check-runs?")) { Console.WriteLine("success"); return 0; }
+                Console.Error.WriteLine("rig stand-in: no such commit in " + args[1]);
+                return 1;
+            }
+            if (args[1].Contains("workflows/ci.yml/runs")) { Console.WriteLine(head); return 0; }
             return 9;
         }
         if (args[0] == "pr" && args.Length > 1) {
+            // The merge-back must name the release branch, or it is merging something else.
+            if (!Array.Exists(args, a => a == "release/v1.1.0")) { Console.Error.WriteLine("rig stand-in: pr call without the release branch"); return 1; }
             Console.Error.WriteLine("rig stand-in: gh pr " + args[1] + " done");
             if (args[1] == "create") Console.WriteLine("https://example.invalid/pull/1");
             return 0;
