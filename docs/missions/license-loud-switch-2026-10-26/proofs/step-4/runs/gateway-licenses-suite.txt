@@ -1,0 +1,1 @@
+Passed!  - Failed:     0, Passed:  1355, Skipped:     0, Total:  1355, Duration: 1 m 35 s - CcDirector.Gateway.UnitTests.dll (net10.0)

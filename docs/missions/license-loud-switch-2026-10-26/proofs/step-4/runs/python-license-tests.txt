@@ -1,0 +1,6 @@
+...............................                                          [100%]
+103 passed in 5.61s
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+4784 deselected, 1 error in 12.93s
+FAILED tests/test_license_usage.py::test_license_refresh_Command_UnknownAccount_Fails
+33 failed, 400 passed, 1 skipped in 42.67s

@@ -1,0 +1,42 @@
+﻿Building once, then running 1 test project(s)...
+D:\ReposFred\devthrottle.worktrees\loud-switch-4\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [D:\ReposFred\devthrottle.worktrees\loud-switch-4\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+
+Build succeeded.
+
+D:\ReposFred\devthrottle.worktrees\loud-switch-4\src\CcDirector.Terminal.Avalonia.Tests\TerminalCopyMenuTests.cs(92,15): warning CS0618: 'IClipboard.GetTextAsync()' is obsolete: 'Use ClipboardExtensions.TryGetTextAsync instead' [D:\ReposFred\devthrottle.worktrees\loud-switch-4\src\CcDirector.Terminal.Avalonia.Tests\CcDirector.Terminal.Avalonia.Tests.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:02:11.25
+  started CcDirector.Gateway.Tests.shard1of4
+  started CcDirector.Gateway.Tests.shard2of4
+  started CcDirector.Gateway.Tests.shard3of4
+  started CcDirector.Gateway.Tests.shard4of4
+
+Waiting.
+
+  PASS  CcDirector.Gateway.Tests.shard1of4  Passed!  - Failed:     0, Passed:   426, Skipped:     0, Total:   426, 
+Duration: 3 m 8 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests.shard2of4  Passed!  - Failed:     0, Passed:   482, Skipped:     0, Total:   482, 
+Duration: 4 m 12 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests.shard3of4  Passed!  - Failed:     0, Passed:   425, Skipped:     3, Total:   428, 
+Duration: 2 m 50 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests.shard4of4  Passed!  - Failed:     0, Passed:   477, Skipped:     0, Total:   477, 
+Duration: 4 m 59 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  commit 68a30dae90d11e8b62d38980faaf467f1c876bf7  tree clean  parked=False configuration=Debug suite 
+filter=Gate!=Quarantine
+  CcDirector.Gateway.Tests.shard1of4       outcome=Completed    total=426    executed=426
+  CcDirector.Gateway.Tests.shard2of4       outcome=Completed    total=482    executed=482
+  CcDirector.Gateway.Tests.shard3of4       outcome=Completed    total=428    executed=425
+  CcDirector.Gateway.Tests.shard4of4       outcome=Completed    total=477    executed=477
+
+Run folder: <home>\AppData\Local\Temp\cc-test-local-aa8ed053 (kept after a red run; deleted after a green one 
+unless -KeepRun)
+
+RESULT: GREEN at commit 68a30dae90d11e8b62d38980faaf467f1c876bf7, tree clean. Check the TRX outcome and totals above 
+before calling it green.
+This is the gate - you do not need to wait for GitHub CI to merge.
+Temporary folders deleted: the test processes had left 413.3 MB in them.
+Run folder deleted (green run; pass -KeepRun to keep the result files).
