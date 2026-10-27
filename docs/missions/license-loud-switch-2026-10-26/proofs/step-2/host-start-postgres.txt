@@ -1,0 +1,25 @@
+﻿Starting a throwaway PostgreSQL for this run (instance db54499481, port 53871)...
+PostgreSQL ready. It is destroyed when this run ends.
+
+Building CcDirector.Gateway.DatabaseTests (Debug)...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:15.27
+Running CcDirector.Gateway.DatabaseTests...
+
+Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-2\src\CcDirector.Gateway.DatabaseTests\bin\Debug\net10.0\CcDirector.Gateway.DatabaseTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+Results File: C:\Users\soren\AppData\Local\Temp\cc-test-database-ea96e290\CcDirector.Gateway.DatabaseTests.trx
+
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 1 s - CcDirector.Gateway.DatabaseTests.dll (net10.0)
+
+Result file: C:\Users\soren\AppData\Local\Temp\cc-test-database-ea96e290\CcDirector.Gateway.DatabaseTests.trx
+Verdict: outcome=Completed total=1 executed=1 passed=1 failed=0 skipped=0
+
+RESULT: GREEN - 1 test(s) executed against the throwaway PostgreSQL, none failed, none skipped.
+
+The one test executed, read from the run's result file:
+CcDirector.Gateway.Tests.Licenses.LicenseHostStartPostgresTests.AHostedHostOnPostgres_ServesHealthz_AndItsLicenseMinuteCheckRaisesTheStrandedAlarm_WithoutAFailure

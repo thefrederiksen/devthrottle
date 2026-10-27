@@ -79,6 +79,11 @@ public sealed record LicenseMachineReadiness(
 /// second time), what the Gateway is doing about it, and the finished words. The minute check and the Licenses page
 /// call the same function on the same facts, so the page says what the check does. Pure: facts go in, an answer comes out.
 ///
+/// COVERED BY ANY ACCOUNT WITH ROOM (mission "Licenses - Loud When Stranded", step 2). A machine is ready when it is
+/// ready for AT LEAST ONE account with room (<see cref="LicenseDecisionEngine.TargetsWithRoom"/>), named against the
+/// best of those it is ready for - exactly where the switch would move it. Only a machine ready for none of them is not
+/// ready, and it is judged against the best account with room, the one a sign-in is started for.
+///
 /// WHAT IS DONE ABOUT A MACHINE THAT IS NOT READY, judged in this order:
 /// 1. a sign-in for that machine and account is running - wait for it;
 /// 2. the account's approver cannot approve (<see cref="LicenseApproverReadiness.WhyNotReady"/>, Track C's one check) -
@@ -123,15 +128,19 @@ public static class LicenseReadinessFold
     /// <summary>The ceiling's window and its wait: an hour.</summary>
     public static readonly TimeSpan SignedInNotShownWait = TimeSpan.FromHours(1);
 
-    /// <summary>The use of the account in use, in either window, at or above which a machine still not ready raises the
-    /// license alarm.</summary>
+    /// <summary>The use of the account in use, in either window, at or above which a machine that cannot switch raises
+    /// the 80% warning (<see cref="LicenseCannotSwitchAlarm"/>).</summary>
     public const double AlarmPercent = 80.0;
 
     /// <summary>The retired mixed weekly and five-hour alarm kind, raised empty so its stored rows close.</summary>
     public static readonly LicenseAlarmKind RetiredAlarmKind = new("not-ready-at-80", "Not ready to switch");
 
-    /// <summary>The kind raised only when the short usage window is high and a machine is not ready.</summary>
-    public static readonly LicenseAlarmKind AlarmKind = new("not-ready-five-hour", "Not ready to switch");
+    /// <summary>
+    /// The retired five-hour-only readiness alarm kind (issue #4252), raised empty so its stored rows close. The 80%
+    /// warning (<see cref="LicenseCannotSwitchAlarm"/>) covers both windows, the five-hour one included, and only a machine
+    /// that cannot switch; keeping this kind as well would be a second alarm for the same fault.
+    /// </summary>
+    public static readonly LicenseAlarmKind RetiredFiveHourAlarmKind = new("not-ready-five-hour", "Not ready to switch");
 
     /// <summary>The retired no-room alarm kind, raised empty so its stored rows close.</summary>
     public static readonly LicenseAlarmKind NoRoomAlarmKind = new("no-room-at-80", "No account to switch to");
@@ -165,7 +174,7 @@ public static class LicenseReadinessFold
         ArgumentNullException.ThrowIfNull(isConnected);
         var machines = picture.Overview.Machines;
         var states = picture.Snapshot.Machines.ToDictionary(m => Key(m.MachineName, m.OsUser), StringComparer.Ordinal);
-        var targets = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var targets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         var approvers = new Dictionary<string, string?>(StringComparer.Ordinal);
         var judged = new List<LicenseMachineReadiness>();
         // Asked once per account, and only for an account a machine is not ready for.
@@ -181,21 +190,25 @@ public static class LicenseReadinessFold
                 continue;
             var state = states[Key(machine.MachineName, machine.OsUser)];
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
-            if (!targets.TryGetValue(active, out var target))
-                targets[active] = target = LicenseDecisionEngine.NextTarget(picture.Snapshot, active);
-            if (target is null)
+            if (!targets.TryGetValue(active, out var ranked))
+                targets[active] = ranked = LicenseDecisionEngine.TargetsWithRoom(picture.Snapshot, active);
+            if (ranked.Count == 0)
             {
                 judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, null,
                     LicenseReadinessStates.NoRoom, null, null, null, null, null, NoRoomText, LicenseTones.Neutral, null));
                 continue;
             }
-            var readiness = LicenseDecisionEngine.Readiness(state, target, nowUtc);
-            if (readiness.IsReady)
+            // Covered when ready for ANY account with room, as the switch itself moves it (each machine to the best account
+            // with room it is ready for): ready for the best one is not the only way to be ready (step 2 of the mission).
+            if (ranked.FirstOrDefault(t => LicenseDecisionEngine.Readiness(state, t, nowUtc).IsReady) is { } readyFor)
             {
-                judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, target,
-                    LicenseReadinessStates.Ready, null, null, null, null, null, ReadyText(target), LicenseTones.Good, null));
+                judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, readyFor,
+                    LicenseReadinessStates.Ready, null, null, null, null, null, ReadyText(readyFor), LicenseTones.Good, null));
                 continue;
             }
+            // Ready for none: judged against the best, the account it would go to and the one a sign-in is started for.
+            var target = ranked[0];
+            var readiness = LicenseDecisionEngine.Readiness(state, target, nowUtc);
             var clause = LicenseDecisionEngine.NotReadyWhy(readiness)
                 ?? throw new InvalidOperationException("A machine that is not ready has no reason.");
             var reason = readiness.NotReadyReason == LicenseNotReadyReasons.NoSignIn
@@ -264,49 +277,6 @@ public static class LicenseReadinessFold
     private static bool IsSignedIn(LicenseSwitchLogEntity row) => row.State is LicenseSignInOutcomes.Added or LicenseSignInOutcomes.Renewed;
 
     /// <summary>
-    /// One alarm for each machine that is not ready while its account stands at or above <see cref="AlarmPercent"/>
-    /// of the five-hour window. Weekly use and no-room conditions are status on the Licenses page, never alarms.
-    /// Automatic sign-ins still run regardless of usage.
-    ///
-    /// OPENED ONLY ON A FRESH READING, CLOSED ONLY ON A FACT (the Tech Lead's ruling on the review of A3). An alarm opens
-    /// only on a fresh reading at or above 80%. An open one stays open while the reading is stale: a banner that vanished
-    /// because the number is no longer known would read as fixed. It closes only on a fresh reading under 80%, on the
-    /// machine becoming ready, or on the machine leaving the account.
-    /// </summary>
-    /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
-    /// <see cref="AlarmKind"/> are looked at.</param>
-    public static IReadOnlyList<LicenseAlarmCondition> AlarmConditions(LicenseSnapshot snapshot, IReadOnlyList<LicenseMachineReadiness> judged,
-        IReadOnlyList<LicenseAlarmEntity> openAlarms)
-    {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        ArgumentNullException.ThrowIfNull(judged);
-        ArgumentNullException.ThrowIfNull(openAlarms);
-        var conditions = new List<LicenseAlarmCondition>();
-        foreach (var gap in judged.Where(j => j.IsGap))
-        {
-            var why = $"{gap.TargetAccountEmail} is the account it would switch to next, and it {gap.NotReadyClause}.";
-            var action = gap.AlarmAction ?? throw new InvalidOperationException("A machine that is not ready has no action.");
-            var reading = snapshot.Accounts.FirstOrDefault(a => a.AccountEmail == gap.ActiveAccountEmail);
-            if (reading is not null && !LicenseDecisionEngine.IsReadingStale(reading, snapshot.NowUtc))
-            {
-                // Fresh: the short window at or above 80% is an alarm; weekly use is status on the Licenses page.
-                if (FiveHourAtAlarm(reading, snapshot.NowUtc) is { } window)
-                    conditions.Add(new LicenseAlarmCondition(gap.MachineId, gap.Label, gap.ActiveAccountEmail,
-                        $"{gap.Label} is not ready to switch off {gap.ActiveAccountEmail}, which is at {Percent(window.Utilization)} of its {window.Name}: {why}",
-                        action));
-                continue;
-            }
-            // Not fresh: nothing opens on it, and an alarm already open for this machine and account stays open.
-            var account = LicenseStore.NormalizeEmail(gap.ActiveAccountEmail);
-            if (openAlarms.Any(a => a.Kind == AlarmKind.Key && a.ClosedAtUtc is null && a.MachineId == gap.MachineId && a.AccountEmail == account))
-                conditions.Add(new LicenseAlarmCondition(gap.MachineId, gap.Label, gap.ActiveAccountEmail,
-                    $"{gap.Label} is not ready to switch off {gap.ActiveAccountEmail}, which was at or above 80% at its last fresh reading: {why}",
-                    action));
-        }
-        return conditions;
-    }
-
-    /// <summary>
     /// No room is status, not an alarm. The empty condition set also closes alarms stored by older versions.
     /// </summary>
     /// <param name="openAlarms">The alarms open now (<see cref="LicenseAlarmService.ListOpen"/>); only those of
@@ -339,18 +309,6 @@ public static class LicenseReadinessFold
 
     public static string ReadyText(string targetAccountEmail) => $"Ready for {targetAccountEmail}.";
 
-    private sealed record AlarmWindow(string Name, double Utilization);
-
-    private static AlarmWindow? FiveHourAtAlarm(LicenseAccountReading reading, DateTime nowUtc)
-        => reading.FiveHour is { } five && AtAlarm(five, nowUtc)
-            ? new AlarmWindow("5-hour window", five.Utilization)
-            : null;
-
-    // At or above the alarm line, and the window has not reset since it was read (the same reading of a pre-reset
-    // number as LicenseDecisionEngine.IsTired).
-    private static bool AtAlarm(LicenseWindowReading window, DateTime nowUtc)
-        => window.Utilization >= AlarmPercent && (window.ResetsAtUtc is not { } reset || reset > nowUtc);
-
     private static string FailedBecause(LicenseSwitchLogEntity row)
     {
         var why = row.Message ?? LicenseSignInFold.ReasonText(row.ReasonCode) ?? "no reason was given";
@@ -360,8 +318,6 @@ public static class LicenseReadinessFold
     private static DateTime EndedAt(LicenseSwitchLogEntity row) => Utc(row.FinishedAtUtc ?? row.CreatedAtUtc);
 
     private static string Clock(DateTime utc) => Utc(utc).ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture);
-
-    private static string Percent(double value) => value.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
     private static string Key(string machineName, string osUser)
         => machineName.Trim().ToLowerInvariant() + "\n" + osUser.Trim().ToLowerInvariant();

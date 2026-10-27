@@ -19,7 +19,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
     private static readonly TenantId Two = new("acct-two");
-    private static readonly LicenseAlarmKind NotReady = new("not-ready-five-hour", "Not ready to switch");
+    private static readonly LicenseAlarmKind NotReady = new("cannot-switch-at-80", "Cannot switch accounts");
     private static readonly LicenseAlarmKind Stopped = new("stopped-reporting", "Stopped reporting");
     private static readonly Guid MachineA = Guid.Parse("0f8e6a1c-2b3d-4e5f-8a9b-0c1d2e3f4a5b");
     private static readonly Guid MachineB = Guid.Parse("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
@@ -45,6 +45,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
     [InlineData("machine-silent")]
     [InlineData("no-room-at-80")]
     [InlineData("not-ready-at-80")]
+    [InlineData("not-ready-five-hour")]
     public async Task RetiredKind_StoredBeforeDeployment_ClosesBeforeReadingOrSending(string kind)
     {
         var identifiers = new Dictionary<TenantId, Guid>();
@@ -121,7 +122,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
 
         Assert.Equal(new LicenseAlarmRaised(1, 0, 0), raised);
         var open = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal(("not-ready-five-hour", MachineA, "machine-a", "alice@example.com"), (open.Kind, open.MachineId, open.MachineName, open.AccountEmail));
+        Assert.Equal(("cannot-switch-at-80", MachineA, "machine-a", "alice@example.com"), (open.Kind, open.MachineId, open.MachineName, open.AccountEmail));
         Assert.Equal(T0, open.OpenedAtUtc);
         Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, open.EmailState);
         var log = Assert.Single(AlarmLog(One));
