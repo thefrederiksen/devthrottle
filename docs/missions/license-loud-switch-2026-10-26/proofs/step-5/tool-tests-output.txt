@@ -1,0 +1,7 @@
+$ python -m pytest tests/ -q   (in tools/cc-devthrottle; Python 3.11.6, click 8.2.1, typer 0.16.1 - the floors the CI job installs)
+5361 passed, 6 skipped in 821.21s (0:13:41)
+
+$ python -m pytest tests/test_license_signin.py --collect-only -q   (the machine's own Python, the file alone)
+64 tests collected in 0.40s
+$ python -m pytest tests/test_license_store.py --collect-only -q   (the machine's own Python, the file alone)
+185 tests collected in 0.17s

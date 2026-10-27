@@ -2436,13 +2436,18 @@ def license_sign_in(
         False, "--ask-when-no-browser",
         help="Approve in the profile set here for the account; with none set, do as --remote-approval does.",
     ),
+    make_active: bool = typer.Option(
+        False, "--make-active",
+        help="Then make it the active account here. The account active now is kept as a spare, never written over; "
+        "when it cannot be kept, nothing is signed in.",
+    ),
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
     """Sign an account in here as a spare, or renew the sign-in of one held already."""
     license_signin_ops.sign_in(account, browser, remote_approval, default_config_dir, store_dir, json_output,
-                               ask_when_no_browser)
+                               ask_when_no_browser, make_active)
 
 
 @license_app.command("approve")

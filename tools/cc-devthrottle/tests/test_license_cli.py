@@ -26,6 +26,7 @@ runner = CliRunner()
 
 ACCOUNT_A = "account-a@example.com"
 ACCOUNT_B = "account-b@example.com"
+ACCOUNT_C = "account-c@example.com"
 
 
 def _sign_in(folder: Path, email: str, serial: int) -> None:
@@ -97,13 +98,14 @@ def test_list_Json_CarriesEveryFieldAndTheCount(machine):
 def test_list_Json_HandSignInOverASpare_IsHealedAndSaysSoOnce(machine):
     # B is held as a spare, then signed in by hand into the default folder. The list heals it (the stale spare goes
     # to a backup), lists B once, and says what it healed in `healed` - which is what the Director reads. The next
-    # list has nothing left to heal and says so with an empty `healed`.
+    # list has nothing left to heal and says so with an empty `healed`. A, which the hand sign-in replaced, is kept
+    # as a spare from the store's copy of the active sign-in.
     _with_active_and_spare(machine)
     _sign_in(machine["default"], ACCOUNT_B, 3)
 
     data = json.loads(_run("list", "--json").stdout)
 
-    assert [(a["email"], a["role"]) for a in data["accounts"]] == [(ACCOUNT_B, "active")]
+    assert [(a["email"], a["role"]) for a in data["accounts"]] == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
     [healed] = data["healed"]
     assert healed["accountEmail"] == ACCOUNT_B
     assert Path(healed["movedTo"]).parent == machine["store"] / "hand-sign-in-backups"
@@ -117,6 +119,22 @@ def test_list_Text_HandSignInOverASpare_WarnsWhatWasMoved(machine):
     result = _run("list")
     assert result.exit_code == 0
     assert "signed in by hand" in result.stderr and "hand-sign-in-backups" in result.stderr
+
+
+def test_list_HandSignInToAnAccountNotHeld_KeepsTheReplacedOneAsASpare_AndSaysSo(machine):
+    # The 26 October picture: A is active, and C - held nowhere here - is signed in by hand over it. The list keeps A
+    # as a spare (from the store's copy of the active sign-in), says so on standard error, and lists it - and this
+    # listing is what the Director's next usage report sends the Gateway whole.
+    _sign_in(machine["default"], ACCOUNT_A, 1)
+    assert _run("list").exit_code == 0
+    _sign_in(machine["default"], ACCOUNT_C, 2)
+
+    result = _run("list", "--json")
+
+    assert result.exit_code == 0, result.stderr
+    assert [(a["email"], a["role"]) for a in json.loads(result.stdout)["accounts"]] == [
+        (ACCOUNT_C, "active"), (ACCOUNT_A, "spare")]
+    assert f"a sign-in by hand replaced {ACCOUNT_A}" in result.stderr and "kept as a spare" in result.stderr
 
 
 def test_list_Fields_ShowsTheChosenFields(machine):
