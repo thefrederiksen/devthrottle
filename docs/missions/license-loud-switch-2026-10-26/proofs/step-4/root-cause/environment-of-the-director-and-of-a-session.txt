@@ -1,0 +1,15 @@
+$ powershell -NoProfile -File read-env-names.ps1 -TargetPid 57916   # the running Director, cc-director.exe from the installed app
+pid=57916 variables=80
+CC_ and BU_ variables present: CC_COCKPIT_MANAGED, CC_DIRECTOR_ROOT, CC_VAULT_PATH
+CC_DIRECTOR_ID present=False
+CC_GATEWAY_URL present=False
+CC_GATEWAY_SESSION_KEY present=False
+CC_SESSION_ID present=False
+
+$ powershell -NoProfile -File read-env-names.ps1 -TargetPid 28308   # a Claude Code session that Director started
+pid=28308 variables=101
+CC_ and BU_ variables present: CC_COCKPIT_MANAGED, CC_DIRECTOR_ID, CC_DIRECTOR_ROOT, CC_FLEET_TOOLS, CC_GATEWAY_SESSION_KEY, CC_GATEWAY_URL, CC_SESSION_DECISION_DIR, CC_SESSION_ID, CC_SESSION_POINTER_FILE, CC_SESSION_PREAMBLE_FILE, CC_SESSION_RULES_FILE, CC_VAULT_PATH
+CC_DIRECTOR_ID present=True
+CC_GATEWAY_URL present=True
+CC_GATEWAY_SESSION_KEY present=True
+CC_SESSION_ID present=True

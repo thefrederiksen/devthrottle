@@ -1,0 +1,6 @@
+@echo off
+set CC_DIRECTOR_ROOT=%LOCALAPPDATA%\cc-director\instances\default
+set > "<scratchpad>\harness\task-environment-names.txt"
+"<scratchpad>\harness\bin\Debug\net10.0\ApproverCheckHarness.exe" "<scratchpad>\harness\logs-installed" installed mindzie agent-browser > "<scratchpad>\harness\installed.out.txt" 2>&1
+"<scratchpad>\harness\bin\Debug\net10.0\ApproverCheckHarness.exe" "<scratchpad>\harness\logs-worktree" "<scratchpad>\harness\worktree-tool.cmd" mindzie agent-browser > "<scratchpad>\harness\worktree.out.txt" 2>&1
+echo done > "<scratchpad>\harness\task-done.txt"
