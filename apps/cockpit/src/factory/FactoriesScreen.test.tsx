@@ -429,9 +429,9 @@ describe("A factory's page (mockup 2)", () => {
     const boss = await screen.findByTestId("fa-boss-block");
     expect(within(boss).getByRole("heading", { level: 2 }).textContent).toBe("The Boss (fixture)");
     expect(within(boss).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
-      "Why",
-      "Goal",
-      "Limits the Boss cannot change",
+      "Why (fixture)",
+      "Goal (fixture)",
+      "Limits the Boss cannot change (fixture)",
     ]);
     // A part's text is the boss.md text as the Gateway sends it, each line break kept.
     const why = screen.getByTestId("fa-boss-why-text");
@@ -440,7 +440,7 @@ describe("A factory's page (mockup 2)", () => {
     expect(why.querySelector("p")!.textContent).toBe("Keep the house warm for less.And say so. (fixture)");
     expect(screen.getByTestId("fa-boss-limits-text").textContent).toContain("Never buy anything. (fixture)");
     // A part the Gateway found nothing for says its empty text, and has no text block.
-    expect(within(screen.getByTestId("fa-boss-goal")).getByText("not set yet")).toBeTruthy();
+    expect(within(screen.getByTestId("fa-boss-goal")).getByText("not set yet (fixture)")).toBeTruthy();
     expect(screen.queryByTestId("fa-boss-goal-text")).toBeNull();
     // It is the last block of the Overview, after the drawing.
     const overview = screen.getByTestId("fa-overview");
@@ -453,18 +453,21 @@ describe("A factory's page (mockup 2)", () => {
     screenClient.getFactoryPage.mockResolvedValue({
       ...FACTORY_PAGE,
       boss: {
-        heading: "The Boss",
+        heading: "The Boss (fixture)",
         parts: [
-          { key: "why", heading: "Why", text: null, emptyText: "not set yet" },
-          { key: "goal", heading: "Goal", text: null, emptyText: "not set yet" },
-          { key: "limits", heading: "Limits the Boss cannot change", text: null, emptyText: "not set yet" },
+          { key: "why", heading: "Why (fixture)", text: null, emptyText: "not set yet (why fixture)" },
+          { key: "goal", heading: "Goal (fixture)", text: null, emptyText: "not set yet (goal fixture)" },
+          { key: "limits", heading: "Limits (fixture)", text: null, emptyText: "not set yet (limits fixture)" },
         ],
       },
     });
     renderAt("/factories/warmforward");
 
     const boss = await screen.findByTestId("fa-boss-block");
-    expect(within(boss).getAllByText("not set yet")).toHaveLength(3);
+    // Each part shows its own empty text, word for word, under its own heading.
+    expect(within(screen.getByTestId("fa-boss-why")).getByText("not set yet (why fixture)")).toBeTruthy();
+    expect(within(screen.getByTestId("fa-boss-goal")).getByText("not set yet (goal fixture)")).toBeTruthy();
+    expect(within(screen.getByTestId("fa-boss-limits")).getByText("not set yet (limits fixture)")).toBeTruthy();
     expect(boss.querySelector(".fa-boss-text")).toBeNull();
   });
 
