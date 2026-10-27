@@ -577,3 +577,208 @@ def test_cli_signInAskWhenNoBrowser_NoProfileHere_AsksAsRemoteApprovalDoes(machi
 @pytest.mark.parametrize("other", [("--browser", "P"), ("--remote-approval",)], ids=["browser", "remote"])
 def test_cli_signInAskWhenNoBrowser_WithAnotherRoute_IsAUsageError(machine, other):
     assert _run("sign-in", ACCOUNT_B, "--ask-when-no-browser", *other).exit_code == 2
+
+
+# --- a sign-in by hand that replaces the active account keeps it as a spare (--make-active) ---------------------
+#
+# The owner's decision of 26 October 2026: a sign-in by hand never deletes a login. These run on the Windows/Linux
+# credentials file AND on the macOS Keychain, through the key store's own fake `security` (test_license_store.World),
+# so the Mac path is proven on every platform. Every folder is under tmp_path; no test reaches a real login.
+
+from src.license_store import keychain_service_for  # noqa: E402
+from tests.test_license_store import World  # noqa: E402
+
+
+class WorldLogin:
+    """`claude auth login` into a folder of a World: on the code, signs the folder in through the World's backend - a
+    credentials file, or a Keychain item named for the folder - exactly where Claude Code's own write puts it."""
+
+    instances: list["WorldLogin"] = []
+
+    def __init__(self, world, folder, email):
+        self.world, self.folder, self.email = world, folder, email
+        WorldLogin.instances.append(self)
+
+    def authorize_url(self, timeout_seconds):
+        return _url_for(self.email)
+
+    def finish(self, code, timeout_seconds):
+        assert code == CODE
+        self.world.sign_in(self.folder, self.email)
+
+    def cancel(self):
+        pass
+
+
+@pytest.fixture(params=["file", "keychain"])
+def world(tmp_path, request):
+    w = World(tmp_path, request.param)
+    w.removed = set()
+    WorldLogin.instances = []
+    return w
+
+
+def _world_starter(world):
+    return lambda folder, email: WorldLogin(world, folder, email)
+
+
+def _roles(store):
+    return [(h.email, h.role) for h in store.held_accounts()]
+
+
+def test_signInMakeActive_ActiveAHandSignInToB_BIsActiveAndAIsKeptAsASpare(world):
+    a_key = world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+
+    result = license_signin.sign_in(store, ACCOUNT_B, _approve, make_active=True, start_login=_world_starter(world),
+                                    now=lambda: NOW)
+
+    assert _roles(store) == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(store.spare_folder(ACCOUNT_A)) == a_key, "A's own sign-in is the one kept, unchanged"
+    assert world.email_at(world.default) == ACCOUNT_B
+    assert result.role == "active" and result.config_dir == store.default_config_dir and not result.renewed
+    assert (result.previous_kept_as_spare, result.previous_kept_in) == (ACCOUNT_A, store.spare_folder(ACCOUNT_A))
+    # B was signed in into its own spare folder, never straight over the active sign-in.
+    assert [login.folder for login in WorldLogin.instances] == [store.spare_folder(ACCOUNT_B)]
+    world.assert_each_signin_in_exactly_one_place()
+    if world.kind == "keychain":
+        assert keychain_service_for(store.spare_folder(ACCOUNT_A)) in world.security.items
+
+
+def test_signInMakeActive_BHeldAsASpare_IsRenewedThenMadeActive_AndAIsKept(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+    store.add(world.new_signin_folder(ACCOUNT_B))
+    old_b = world.key_at(store.spare_folder(ACCOUNT_B))
+    world.gone_ok = frozenset({old_b})
+
+    result = license_signin.sign_in(store, ACCOUNT_B, _approve, make_active=True, start_login=_world_starter(world),
+                                    now=lambda: NOW)
+
+    assert result.renewed and result.previous_kept_as_spare == ACCOUNT_A
+    assert _roles(store) == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
+    assert world.key_at(world.default) != old_b
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_signInMakeActive_TheActiveAccountAgain_IsRenewedInPlace_NotDuplicatedInTheSpares(world):
+    old_a = world.sign_in(world.default, ACCOUNT_A)
+    world.gone_ok = frozenset({old_a})
+    store = world.store()
+
+    result = license_signin.sign_in(store, ACCOUNT_A, _approve, make_active=True, start_login=_world_starter(world),
+                                    now=lambda: NOW)
+
+    assert result.renewed and result.role == "active" and result.previous_kept_as_spare is None
+    assert _roles(store) == [(ACCOUNT_A, "active")]
+    assert not world.backend().exists(store.spare_folder(ACCOUNT_A))
+    assert world.key_at(world.default) != old_a
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_signInMakeActive_AAlreadyHeldAsASpare_TheSpareIsRefreshedNotDoubled(world):
+    # A is active AND held as a stale spare - what a raw `claude auth login` over a spare leaves behind.
+    world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+    stale_a = world.sign_in(store.spare_folder(ACCOUNT_A), ACCOUNT_A)
+    active_a = world.key_at(world.default)
+
+    license_signin.sign_in(store, ACCOUNT_B, _approve, make_active=True, start_login=_world_starter(world),
+                           now=lambda: NOW)
+
+    assert _roles(store) == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")], "A is held once"
+    assert world.key_at(store.spare_folder(ACCOUNT_A)) == active_a, "the spare now holds A's current sign-in"
+    # The stale one is kept in the store's backups, as every heal does - never deleted.
+    assert [world.key_at(b) for b in world.backups()] == [stale_a]
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_signInMakeActive_NothingActive_BBecomesActive_AndNothingIsKept(world):
+    store = world.store()
+
+    result = license_signin.sign_in(store, ACCOUNT_B, _approve, make_active=True, start_login=_world_starter(world),
+                                    now=lambda: NOW)
+
+    assert _roles(store) == [(ACCOUNT_B, "active")]
+    assert result.previous_kept_as_spare is None and result.previous_kept_in is None
+    world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("why", ["account-unknown", "spare-folder-taken"])
+def test_signInMakeActive_ActiveCannotBeKept_NothingIsSignedInOrOverwritten_AndItSaysWhy(world, why):
+    world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+    if why == "account-unknown":
+        # The active key's account block names no account, so the key could not be put away under any name.
+        (Path(world.default) / ".claude.json").write_text(json.dumps({"numStartups": 1}), encoding="utf-8")
+    else:
+        # A's spare folder holds another account's key, which putting A away would overwrite.
+        world.sign_in(store.spare_folder(ACCOUNT_A), ACCOUNT_C)
+    before = {folder: world.key_at(folder) for folder in world.folders()}
+
+    with pytest.raises(SignInError) as refused:
+        license_signin.sign_in(store, ACCOUNT_B, _approve, make_active=True, start_login=_world_starter(world),
+                               now=lambda: NOW)
+
+    assert refused.value.kind == license_signin.STORE_REFUSED
+    message = str(refused.value)
+    assert message.startswith(f"{ACCOUNT_B} was not signed in, because the account active here could not be kept")
+    assert ("oauthAccount email" if why == "account-unknown"
+            else f"already holds a sign-in for {ACCOUNT_C}; putting the active key away would overwrite") in message
+    assert refused.value.next_steps, "the refusal names the fix"
+    assert WorldLogin.instances == [], "no login was started"
+    assert {folder: world.key_at(folder) for folder in world.folders()} == before, "nothing was written anywhere"
+    assert not Path(store.spare_folder(ACCOUNT_B)).exists()
+
+
+def test_signInMakeActive_ActiveChangesDuringTheApproval_SwitchIsRefused_NothingIsOverwritten(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+    store.add(world.new_signin_folder(ACCOUNT_C))
+
+    def approve_while_the_director_switches_to_c(url, email):
+        store.switch(ACCOUNT_C)
+        return CODE
+
+    with pytest.raises(SignInError) as failed:
+        license_signin.sign_in(store, ACCOUNT_B, approve_while_the_director_switches_to_c, make_active=True,
+                               start_login=_world_starter(world), now=lambda: NOW)
+
+    assert failed.value.kind == license_signin.STORE_REFUSED
+    assert f"{ACCOUNT_B} was signed in and is held as a spare" in str(failed.value)
+    assert "could not be made active" in str(failed.value) and ACCOUNT_C in str(failed.value)
+    # C stays active, A stays the spare that switch made it, and B is kept as a spare: every sign-in is still held.
+    assert _roles(store) == [(ACCOUNT_C, "active"), (ACCOUNT_A, "spare"), (ACCOUNT_B, "spare")]
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_signIn_WithoutMakeActive_StillOnlyAddsASpare(world):
+    world.sign_in(world.default, ACCOUNT_A)
+    store = world.store()
+
+    result = license_signin.sign_in(store, ACCOUNT_B, _approve, start_login=_world_starter(world), now=lambda: NOW)
+
+    assert _roles(store) == [(ACCOUNT_A, "active"), (ACCOUNT_B, "spare")]
+    assert result.previous_kept_as_spare is None
+
+
+def test_cli_signInMakeActive_AnswersWhatWasKept_AndTheListTheDirectorReportsHoldsAAsASpare(machine):
+    result = _run("sign-in", ACCOUNT_B, "--make-active", "--remote-approval", "--json", input=CODE + "\n")
+
+    assert result.exit_code == 0, result.output
+    answer = _first_json(result.stdout)
+    assert answer["accountEmail"] == ACCOUNT_B and answer["role"] == "active" and answer["result"] == "added"
+    assert answer["previousKeptAsSpare"] == ACCOUNT_A
+    assert Path(answer["previousKeptIn"]).parent == machine / "store" / "spares"
+    # `license list --json` is the listing the Director's usage report sends whole to the Gateway, so the next report
+    # carries A as a spare.
+    listed = json.loads(_run("list", "--json").stdout)
+    assert [(a["email"], a["role"]) for a in listed["accounts"]] == [(ACCOUNT_B, "active"), (ACCOUNT_A, "spare")]
+
+
+def test_cli_signInMakeActive_Text_SaysWhichAccountWasKept(machine):
+    result = _run("sign-in", ACCOUNT_B, "--make-active", "--remote-approval", input=CODE + "\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"Added: {ACCOUNT_B} is the active account in" in result.output
+    assert f"{ACCOUNT_A}, active before, is kept as a spare in" in result.output

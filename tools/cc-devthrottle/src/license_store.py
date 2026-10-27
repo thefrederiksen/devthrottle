@@ -1136,24 +1136,8 @@ class LicenseStore:
             raise LicenseStoreError(f"{email} is not held here as a spare", ["cc-devthrottle license list"],
                                     reason_code=REASON_SPARE_NOT_HELD)
         steps: list[dict] = []
-        previous_folder = None
-        if self.backend.exists(self.default_config_dir):
-            if previous is None:
-                raise LicenseStoreError(
-                    f"the default folder holds a key but {account_file_for(self.default_config_dir)} has no "
-                    "oauthAccount email, so the key's account is unknown and it cannot be put away; nothing was "
-                    "changed",
-                    ["claude auth status", "claude auth login"],
-                    reason_code=REASON_EXCHANGE_FAILED_RESTORED,
-                )
-            previous_folder = self.spare_folder(previous)
-            if self.backend.exists(previous_folder):
-                raise LicenseStoreError(
-                    f"{previous} is active and a spare for it is held too ({previous_folder}); putting the active "
-                    "key away would overwrite that sign-in, so nothing was changed",
-                    [f"cc-devthrottle license remove {previous}", "cc-devthrottle license list"],
-                    reason_code=REASON_EXCHANGE_FAILED_RESTORED,
-                )
+        previous_folder = self._put_away_folder(previous)
+        if previous_folder is not None:
             steps.append({"op": "copy", "from": self.default_config_dir, "to": previous_folder})
         bring_in = {"op": "copy", "from": target.config_dir, "to": self.default_config_dir}
         if previous_folder is not None:
@@ -1187,6 +1171,46 @@ class LicenseStore:
         return SwitchResult(active=target.email, previous=previous, previous_kept_in=previous_folder, changed=True,
                             started_at=started, finished_at=_dt.datetime.now(_dt.timezone.utc),
                             exchange_milliseconds=exchange_ms)
+
+    def _put_away_folder(self, previous: Optional[str]) -> Optional[str]:
+        """The spare folder a switch puts the active sign-in into, or None when the default folder holds no key. Raises,
+        with nothing changed, when the active sign-in cannot be kept: its account is unknown, or its spare folder
+        already holds a key (which the copy would overwrite). The caller holds the lock and has settled the store, so
+        a stale spare of the active account itself was already moved to a backup by the heal."""
+        if not self.backend.exists(self.default_config_dir):
+            return None
+        if previous is None:
+            raise LicenseStoreError(
+                f"the default folder holds a key but {account_file_for(self.default_config_dir)} has no "
+                "oauthAccount email, so the key's account is unknown and it cannot be put away; nothing was "
+                "changed",
+                ["claude auth status", "claude auth login"],
+                reason_code=REASON_EXCHANGE_FAILED_RESTORED,
+            )
+        folder = self.spare_folder(previous)
+        if self.backend.exists(folder):
+            # Not a stale spare of the active account - the heal has moved that one already - so the folder named for
+            # it holds a sign-in for another account, or for none it can name.
+            found = _email_of(read_oauth_account(folder))
+            raise LicenseStoreError(
+                f"{previous} is active, and the spare folder it would be kept in ({folder}) already holds a sign-in "
+                f"for {found or 'an account it does not name'}; putting the active key away would overwrite that "
+                "sign-in, so nothing was changed",
+                [f"Move {folder} out of {self.store_dir} by hand, then try again", "cc-devthrottle license list"],
+                reason_code=REASON_EXCHANGE_FAILED_RESTORED,
+            )
+        return folder
+
+    def active_to_keep(self) -> Optional[str]:
+        """Before a sign-in that will REPLACE the active account (``license sign-in --make-active``): the email of the
+        active account, which the switch at its end keeps as a spare, or None when nothing is active. Raises, with
+        nothing changed, when the active sign-in could not be kept - so the sign-in is refused before a login starts,
+        rather than finding out after an approval. The switch checks again under the lock; this is the early answer."""
+        with self._lock:
+            self._settle()
+            previous = self.active_account_email()
+            self._put_away_folder(previous)
+            return previous
 
     def _verify_switch(self, email: str, previous: Optional[str], previous_folder: Optional[str], spare: str) -> None:
         problems = []

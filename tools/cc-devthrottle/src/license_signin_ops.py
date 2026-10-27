@@ -4,6 +4,9 @@ in the AXI shape (docs/axi-standard.md).
 - `license sign-in <email> --browser <profile>` signs an account in on this machine and keeps it as a spare, approving
   in one of this machine's browser profiles. When the account is held already - as a spare or as the active
   account - its sign-in is RENEWED in place.
+- `license sign-in <email> --make-active` signs the account in the same way and then makes it the ACTIVE account
+  with the store's switch, so the account active before is kept as a spare - never written over. When that account
+  could not be kept, nothing is signed in. The answer names it (`previousKeptAsSpare`, `previousKeptIn`).
 - `license sign-in <email> --remote-approval` does the same with the approval done on ANOTHER machine: it prints
   `authorize-url: <url>` and reads the code back as one line on standard input.
 - `license approve --email <email> --browser <profile> <url>` is that other machine's half: it approves the URL in
@@ -84,7 +87,8 @@ def _stdin_approval(url: str, email: str) -> str:
 
 
 def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_config_dir: Optional[str],
-            store_dir: Optional[str], json_output: bool, ask_when_no_browser: bool = False) -> None:
+            store_dir: Optional[str], json_output: bool, ask_when_no_browser: bool = False,
+            make_active: bool = False) -> None:
     if browser and remote_approval:
         axi_cli.usage_error("--browser and --remote-approval cannot be used together: the approval happens either "
                             "here in a browser profile, or on another machine.")
@@ -101,7 +105,7 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
             approve = license_signin.browser_approver(profile) if profile else _stdin_approval
         else:
             approve = license_signin.browser_approver(browser or license_signin.browser_for(store, email))
-        result = license_signin.sign_in(store, email, approve)
+        result = license_signin.sign_in(store, email, approve, make_active=make_active)
     except _CalledOff as ex:
         # Not a failure of this tool, and not reported as one: the caller stopped it, as Ctrl+C would.
         if json_output:
@@ -119,8 +123,11 @@ def sign_in(email: str, browser: Optional[str], remote_approval: bool, default_c
     verb = "Renewed" if result.renewed else "Added"
     ends = f" Its sign-in ends about {result.sign_in_expires_at_utc}." if result.sign_in_expires_at_utc else \
         " The sign-in carries no end date."
-    axi_cli.write_lines(f"{verb}: {result.email} is held as a spare in {result.config_dir}, signed in at "
-                        f"{result.signed_in_at_utc}.{ends}")
+    held = "is the active account" if result.role == license_signin.ROLE_ACTIVE else "is held as a spare"
+    kept = f" {result.previous_kept_as_spare}, active before, is kept as a spare in {result.previous_kept_in}." \
+        if result.previous_kept_as_spare else ""
+    axi_cli.write_lines(f"{verb}: {result.email} {held} in {result.config_dir}, signed in at "
+                        f"{result.signed_in_at_utc}.{ends}{kept}")
     axi_cli.print_next([_LIST, _USAGE_SIGNED_IN])
 
 

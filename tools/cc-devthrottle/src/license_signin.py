@@ -22,6 +22,13 @@ THE SIGN-IN NEVER MOVES. It is written once, where it belongs, by Claude Code. M
 another always has a moment when it is in both, and a refresh of one copy kills the other (MISSION.md trap 2) - so
 there is no staging folder and no copy step, and the folder of an active account always holds a sign-in.
 
+A SIGN-IN BY HAND THAT REPLACES THE ACTIVE ACCOUNT (``license sign-in --make-active``). ``claude auth login`` run
+straight into the default folder writes over the active sign-in, and that account is gone from the machine - on 19
+October 2026 this left two machines with no sign-in for the account they later needed. So the replacing sign-in is
+made the same way as any other, into the account's own folder, and then the store's own switch exchanges it with the
+active one: the account that was active is kept as a spare (the owner's decision of 26 October 2026). Whether that
+account can be kept is checked before the login starts, and a sign-in that could not keep it is refused.
+
 The target and the approver are the same machine when the browser profile is local (``sign_in`` with
 ``browser_approver``). They are two machines when it is not: the target runs ``sign_in`` with an ``approve`` that
 hands the URL over and reads the code back (``license sign-in --remote-approval``), and the approver runs
@@ -65,6 +72,7 @@ from typing import Callable, Dict, List, Optional, Protocol
 from .license_store import (
     ENV_ALLOW_REAL_DEFAULT,
     LicenseStore,
+    ROLE_ACTIVE,
     LicenseStoreError,
     is_real_default,
     sign_in_ends,
@@ -238,6 +246,9 @@ class SignInResult:
     renewed: bool
     signed_in_at_utc: str
     sign_in_expires_at_utc: Optional[str]
+    #: With ``make_active``: the account that was active before and is now kept as a spare, and where; else None.
+    previous_kept_as_spare: Optional[str] = None
+    previous_kept_in: Optional[str] = None
 
     def to_json(self) -> dict:
         return {
@@ -247,18 +258,36 @@ class SignInResult:
             "configDir": self.config_dir,
             "signedInAtUtc": self.signed_in_at_utc,
             "signInExpiresAtUtc": self.sign_in_expires_at_utc,
+            "previousKeptAsSpare": self.previous_kept_as_spare,
+            "previousKeptIn": self.previous_kept_in,
         }
 
 
 def sign_in(store: LicenseStore, email: str, approve: Approve, *,
+            make_active: bool = False,
             start_login: Optional[StartLogin] = None,
             now: Callable[[], _dt.datetime] = utc_now) -> SignInResult:
     """Sign ``email`` in on this machine: a new spare, or a renewal in place of the sign-in held (spare or active).
 
     ``approve(url, email)`` returns the ``code#state`` for the authorize URL - from a local browser profile, or from
     another machine. Until the code is typed in, nothing has been written: a failure before then leaves every folder
-    as it was, and removes a new spare folder that never received a sign-in."""
+    as it was, and removes a new spare folder that never received a sign-in.
+
+    ``make_active`` is the sign-in by hand that REPLACES the active account (the owner's decision of 26 October 2026:
+    the login it replaces is kept as a spare, never lost). The sign-in runs exactly as above - into the account's own
+    folder - and then the store's switch exchanges it with the active one, which puts the active sign-in into its
+    spare folder. Before any login starts, the store is asked whether the active sign-in could be kept; when it could
+    not, the sign-in is refused with the reason and nothing is signed in or overwritten. Signing in the account that
+    is active already renews it in place: it is not put into the spares a second time."""
     email = email.strip()
+    keep: Optional[str] = None
+    if make_active:
+        try:
+            keep = store.active_to_keep()
+        except LicenseStoreError as ex:
+            log.warning("sign-in %s: refused, the active sign-in could not be kept as a spare: %s", email, ex)
+            raise SignInError(STORE_REFUSED, f"{email} was not signed in, because the account active here could not "
+                                             f"be kept as a spare: {ex}", ex.next_steps) from None
     try:
         target = store.sign_in_target(email)
     except LicenseStoreError as ex:
@@ -283,8 +312,20 @@ def sign_in(store: LicenseStore, email: str, approve: Approve, *,
         if not finished:
             _abandon(store, target)
     log.info("sign-in %s: %s", email, "renewed" if result.renewed else "added")
-    return SignInResult(email.lower(), result.account.role, result.account.config_dir, result.renewed,
-                        iso(result.signed_in_at), iso(result.sign_in_ends))
+    signed_in = SignInResult(email.lower(), result.account.role, result.account.config_dir, result.renewed,
+                             iso(result.signed_in_at), iso(result.sign_in_ends))
+    if not make_active or result.account.role == ROLE_ACTIVE:
+        return signed_in
+    try:
+        switched = store.switch(email, expect_active=keep)
+    except LicenseStoreError as ex:
+        log.warning("sign-in %s: signed in as a spare, but the switch to it failed: %s", email, ex)
+        raise SignInError(STORE_REFUSED, f"{email} was signed in and is held as a spare in {signed_in.config_dir}, but "
+                                         f"it could not be made active: {ex}", ex.next_steps) from None
+    log.info("sign-in %s: made active; %s kept as a spare in %s", email, switched.previous, switched.previous_kept_in)
+    return SignInResult(signed_in.email, ROLE_ACTIVE, store.default_config_dir, signed_in.renewed,
+                        signed_in.signed_in_at_utc, signed_in.sign_in_expires_at_utc,
+                        switched.previous, switched.previous_kept_in)
 
 
 def _abandon(store: LicenseStore, target) -> None:
