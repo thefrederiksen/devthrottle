@@ -1,0 +1,58 @@
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  [TypecheckWorkspaces] strict test-inclusive typecheck across every workspace (Debug)
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  
+  > @devthrottle/client-core@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/cc-assistant@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/cockpit@0.1.0 typecheck
+  > tsc --noEmit
+  
+  
+  > @devthrottle/mobile@0.1.0 typecheck
+  > tsc --noEmit
+  
+  CcDirector.Gateway -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle.worktrees\loud-switch-3\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:03.40]   Discovering: CcDirector.Gateway.UnitTests
+[xUnit.net 00:00:06.83]   Discovered:  CcDirector.Gateway.UnitTests
+[xUnit.net 00:00:06.88]   Starting:    CcDirector.Gateway.UnitTests
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "Mac-mini") [20 s]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_AMachineThatCannotSwitch_IsToldByEmailPushAndBanner(machine: "SOREN_NORTH") [369 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "Mac-mini") [171 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_AMachineReadyForNoAccountWithRoom_RaisesTheWarning(machine: "SOREN_NORTH") [222 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.EightyOfWeek_25October_WithTheSignInHeld_NothingIsLoud [120 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 97) [181 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 97, devWeekly: 50) [266 ms]
+[xUnit.net 00:00:30.44]   Finished:    CcDirector.Gateway.UnitTests
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 80, devWeekly: 50) [187 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.UsageAlone_AtEightyOrNinetySevenOfEitherWindow_WithEveryMachineReady_RaisesNothing(devFiveHour: 20, devWeekly: 80) [191 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard(machine: "Mac-mini") [135 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.FiveHourAtEightyFive_25October_TheAlarmThatExistsToday_IsHeard(machine: "SOREN_NORTH") [197 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_DevlinuxIsSwitchedToTheAccountWithRoom [202 ms]
+  Passed CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.OutOfWeek_26October_WithTheSignInHeld_EveryMachineIsSwitched_AndNothingIsLoud [318 ms]
+
+Test Run Successful.
+Total tests: 13
+     Passed: 13
+ Total time: 35.1302 Seconds
