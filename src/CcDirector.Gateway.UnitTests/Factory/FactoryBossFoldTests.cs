@@ -221,6 +221,18 @@ public sealed class FactoryBossFoldTests
     }
 
     [Fact]
+    public void Split_ThePartsWordLaterInTheHeading_IsNotThatPart()
+    {
+        Assert.Empty(FactoryBossFold.Split("## What is the goal\nNot the goal.\n"));
+    }
+
+    [Fact]
+    public void Split_AnEmptyHeading_IsUnderNoPart()
+    {
+        Assert.Empty(FactoryBossFold.Split("##\nText.\n"));
+    }
+
+    [Fact]
     public void Split_WindowsLineEndings_ReadTheSameAsUnix()
     {
         Assert.Equal("Line one\nLine two", FactoryBossFold.Split("## The why\r\nLine one\r\nLine two\r\n")["why"]);
