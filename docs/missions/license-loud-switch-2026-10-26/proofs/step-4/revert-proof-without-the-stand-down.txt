@@ -1,0 +1,7 @@
+# Revert proof: the stand-down removed (if (false && ...)), the told-once tests and the stand-down unit test run
+[xUnit.net 00:00:11.89]     CcDirector.Gateway.Tests.Licenses.LicenseApproverAlarmTests.AMachineToldByItsOwnStrandedOrEightyAlarm_TheApproverAlarmStandsDownForThatAccount [FAIL]
+[xUnit.net 00:00:12.03]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.ApproverAlarmRunning_AMachineStrandedForWantOfAnApprover_IsToldOnce(picture: "out-of-week-26-october", approverAlarmFirst: True) [FAIL]
+[xUnit.net 00:00:12.36]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.ApproverAlarmRunning_AMachineStrandedForWantOfAnApprover_IsToldOnce(picture: "eighty-of-week-25-october", approverAlarmFirst: True) [FAIL]
+[xUnit.net 00:00:12.53]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.ApproverAlarmRunning_AMachineStrandedForWantOfAnApprover_IsToldOnce(picture: "eighty-of-week-25-october", approverAlarmFirst: False) [FAIL]
+[xUnit.net 00:00:12.72]     CcDirector.Gateway.Tests.Licenses.LicenseStrandedReplayTests.ApproverAlarmRunning_AMachineStrandedForWantOfAnApprover_IsToldOnce(picture: "out-of-week-26-october", approverAlarmFirst: False) [FAIL]
+Failed!  - Failed:     5, Passed:     1, Skipped:     0, Total:     6, Duration: 10 s - CcDirector.Gateway.UnitTests.dll (net10.0)

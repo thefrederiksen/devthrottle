@@ -288,7 +288,7 @@ public sealed class LicenseCommandLineTests
         {
             Opened.Add(idOrName);
             if (Refuse is not null) throw new LicenseCommandLineException(Refuse);
-            return Task.FromResult(new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://127.0.0.1:9333",
+            return Task.FromResult(new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://work-chrome.attach.example",
                 () => { PutBack++; return Task.CompletedTask; }));
         }
     }
@@ -314,7 +314,7 @@ public sealed class LicenseCommandLineTests
         [LicenseBrowserOpener.AttachedIdVariable] = "work-chrome",
         [LicenseBrowserOpener.AttachedNameVariable] = "Work Chrome",
         ["BU_NAME"] = "work-chrome",
-        ["BU_CDP_URL"] = "http://127.0.0.1:9333",
+        ["BU_CDP_URL"] = "http://work-chrome.attach.example",
     };
 
     private const string GetBrowserWorkChrome = """{"accountEmail": "account-a@example.com", "browser": "Work Chrome"}""";
@@ -426,7 +426,7 @@ public sealed class LicenseCommandLineTests
     {
         // The sign-in's own process is built from this same environment.
         var tool = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null, AllowRealDefault: true), () => null);
-        var browser = new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://127.0.0.1:9333", () => Task.CompletedTask);
+        var browser = new LicenseOpenedBrowser("work-chrome", "Work Chrome", "work-chrome", "http://work-chrome.attach.example", () => Task.CompletedTask);
 
         Assert.Equal(AttachedWorkChrome, tool.RunEnvironment(browser));
         Assert.Equal(new Dictionary<string, string> { [LicenseCommandLineOptions.AllowRealDefaultVariable] = "1" }, tool.RunEnvironment(null));
