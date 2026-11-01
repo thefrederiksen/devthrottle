@@ -5832,17 +5832,14 @@ public sealed class GatewayHost : IAsyncDisposable
             Missions, _workflowRuns, _workspaces, _factoryKitCapabilities, SeatRulesFor);
         // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
-        var factoryManagerSources = new Api.FactoryManagerSources(
-            Bound: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
-            Bind: (tenant, sid) => _tenantSettingsResolver.SetFactoryManagerSessionId(tenant, sid, DateTime.UtcNow),
-            Placement: tenant => _tenantSettingsResolver.FactoryManagerPlacement(tenant),
-            SavePlacement: (tenant, machine, folder) => _tenantSettingsResolver.SetFactoryManagerPlacement(tenant, machine, folder, DateTime.UtcNow),
-            Factories: tenant => FactoryRegistry.List(tenant),
-            ListDirectors: tenant => Registry.ListDirectors(tenant),
-            StartOnDirector: (ctx, directorId, request) =>
-                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+        var fleetManagerProblems = new Api.FleetManagerProblemSources(
+            Status: async (tenant, ct) => (await FleetManagerPlacement.ReadAsync(tenant, ct)).Status,
+            Start: (ctx, tenant) => FleetManagerPlacement.StartAsync(tenant,
+                Api.FleetManagerPlacementEndpoints.StampOrigin(ctx, Api.FactoryTalkEndpoints.HandleRoute), ctx.RequestAborted,
+                Api.FleetManagerOwnerDevice.Caller(ctx)),
             LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
-            TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)));
+            Record: (tenant, problem) => _fleetManagerEventStore!.RecordProblem(tenant, problem, DateTime.UtcNow),
+            Queued: tenant => _fleetManagerEvents?.OnEventQueued(tenant));
         Api.FactoryTalkEndpoints.Map(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             registry: FactoryRegistry,
@@ -5853,14 +5850,14 @@ public sealed class GatewayHost : IAsyncDisposable
             // Handle the issue (Factory Control, step 1b) reads the one problems fold, as GET /cron/problems does.
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-            factoryManager: factoryManagerSources,
+            fleetManager: fleetManagerProblems,
             publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat),
             // Factory Definition mission, phase 5: a defined factory's talk is built from its published definition.
             definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory));
-        // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
-        Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
+        // The name check: which seats say CEO or carry a person's name. The Fleet Manager reads it.
+        Api.FactoryNameCheckEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            sources: factoryManagerSources);
+            factories: tenant => FactoryRegistry.List(tenant));
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
@@ -6585,7 +6582,7 @@ public sealed class GatewayHost : IAsyncDisposable
             runLifetime: _runNowLifetime.Token);
 
         // Factory Control, step 1: a scheduled run reports how it went, a problem is resolved with a reason, and the
-        // account's problems are read through the one fold the factory page, the email and the Factory Manager share.
+        // account's problems are read through the one fold the factory page, the email and the Fleet Manager share.
         Api.CronRunResultEndpoints.Map(_app, _cronRunResults,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sessionFactoryOf: _sessionHistory.FactoryOf,
@@ -6594,8 +6591,8 @@ public sealed class GatewayHost : IAsyncDisposable
             findTriggerCheck: (tenant, runId) => Triggers.Store.FindRun(tenant, runId) is { Trigger: { } trigger }
                 ? new Api.TriggerCheckOwner(trigger.Factory)
                 : null,
-            factoryManagerOf: tenant => _tenantSettingsResolver.FactoryManagerSessionId(tenant),
-            wasFactoryManager: (tenant, sid) => _tenantSettingsResolver.WasFactoryManager(tenant, sid));
+            fleetManagerOf: tenant => _tenantSettingsResolver.FleetManagerSessionId(tenant),
+            wasFleetManager: (tenant, sid) => FleetManagerMarks.List(tenant).Any(m => Fleet.FleetManagerSessions.SameId(m.SessionId, sid)));
 
         // Factory Control, step 4: the factory email's switch (off unless turned on) and the kept emails the factory page
         // reads to show yesterday's report again.

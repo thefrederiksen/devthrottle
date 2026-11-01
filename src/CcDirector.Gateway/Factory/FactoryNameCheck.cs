@@ -6,7 +6,7 @@ namespace CcDirector.Gateway.Factory;
 
 /// <summary>
 /// THE NAME CHECK (Factory Control, step 5; the owner's ruling "Boss, no names": "A factory has a boss, not a CEO ...
-/// there are no names that are used anywhere"). Folded once here; the command line, the Factory Manager and the
+/// there are no names that are used anywhere"). Folded once here; the command line, the Fleet Manager and the
 /// Factories screen show its words as given.
 ///
 /// THE RULE, which needs no list of first names. A seat is flagged when:

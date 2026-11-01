@@ -240,7 +240,6 @@ public static class FactoriesScreenFold
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
         // The one seat over every factory, on its own tab so the Factories tab leads with the factories (owner, 17 Oct 2026).
-        new() { Key = "manager", Label = "Factory Manager" },
     };
 
     // ---------------------------------------------------------------------------------------------------------

@@ -32,7 +32,6 @@ public sealed class EveryFactoryRouteIsBehindTheGateTests
         ["POST /gateway/factories/{factory}/waiting/handled-older"] = "an owner action that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/problems/{runId}/handle"] = "a talk that asks the decision itself",
         ["POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk"] = "a talk that asks the decision itself",
-        ["POST /gateway/factory-agents/factory-manager/talk"] = "the Factory Manager's talk, which asks the decision itself",
     };
 
     private static async Task<IReadOnlyList<(string Route, bool Gated)>> FactoryRoutesAsync()

@@ -1859,32 +1859,13 @@ The word turns the moment the last open item is corrected. `--json` prints the G
 the Seats tab, the bulk Handled, archive, restore and Talk stay the owner's. The route answers 404 while
 factory agents are switched off, and the command says so.
 
-#### Factory Manager and the name check
-
-The Factory Manager is the one standing session over all of an account's factories (Factory Control, step
-5). It points the owner to the right factory's boss, chases each open problem with the boss concerned, and
-deals itself with what no single boss owns. The owner starts it from the Factories screen's Factory Manager
-card - a visible session, like Talk to the boss - and a problem of a factory with no boss is handed to it by
-Handle the issue.
+#### The name check
 
 ```
-USAGE: cc-devthrottle factory manager show [--json]
-       cc-devthrottle factory manager clear [--json]
-       cc-devthrottle factory name-check [--json]
+USAGE: cc-devthrottle factory name-check [--json]
 ```
 
-`factory manager` is the mark that says which session is the account's Factory Manager, held on the
-Gateway (`GET` and `PUT /gateway/factory-manager`). Starting a Factory Manager from the card sets it.
-Only the owner's own phone or browser may SET the mark, because the mark grants the right described below,
-so there is no `set` command: `cc-devthrottle factory manager set` fails as an unknown command. A session
-may `show` the mark and `clear` it. `show` prints the full id and the name, or `factory-manager: none` and who sets it, and
-the computer and folder the card starts it on.
-`--json` prints the Gateway's answer: `{"sessionId": ..., "computer": ..., "folder": ...}`.
-
-The marked session may resolve ANY open problem of the account with `cc-devthrottle run resolve <run id>
-"<reason>"`; the reason is kept and the resolver is recorded as the Factory Manager. Any other session
-outside the problem's factory is still refused. A session that was the Factory Manager earlier and has lost
-the mark is refused the same way, and is told that the mark has moved to another session or was cleared.
+The Fleet Manager reads this and flags what it finds to the owner.
 
 `factory name-check` prints the Gateway's name check over every factory that is not archived: a seat is
 flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a
@@ -2384,13 +2365,14 @@ The Gateway records three problems by itself:
 
 A problem stays open until the next run of the same schedule reports ok, or someone resolves it with
 `run resolve` and a one-line reason (an empty one is refused). The reason and who resolved it are kept. A
-factory's problem may be resolved by the owner or a session of that factory - its boss among them.
+factory's problem may be resolved by the owner, a session of that factory - its boss among them - or the
+account's marked Fleet Manager, which may resolve any problem of the account and is recorded as the resolver.
 
 `run problems` lists the open problems, newest first: the run id, the schedule, its factory, the run's
 shift, the kind of problem and its one line why, the session to read, and the state. `--all` adds the ones
 already cleared or resolved; `--factory` narrows to one factory's schedules, and both apply to `--json`,
 which prints the Gateway's answer verbatim. No problems prints `count: 0`. The factory page, the morning
-email and the Factory Manager read the same list.
+email and the Fleet Manager read the same list.
 
 Every result of a schedule linked to a factory also leaves a row in that factory's activity record - `done`
 for ok, `failed` for a problem - so no factory is silent on its dashboard. Resolving the problem marks its

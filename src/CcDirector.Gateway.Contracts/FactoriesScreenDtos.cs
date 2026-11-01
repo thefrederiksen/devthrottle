@@ -796,7 +796,7 @@ public sealed class FactoryPageEmailItemDto
 
 /// <summary>
 /// The open problems of a factory's scheduled runs, on its page (Factory Control, step 1b). Read from the one problems
-/// fold (<c>GET /cron/problems</c>), so the page, the morning email and the Factory Manager list the same problems in
+/// fold (<c>GET /cron/problems</c>), so the page, the morning email and the Fleet Manager list the same problems in
 /// the same words; every word here is the Gateway's.
 /// </summary>
 public sealed class FactoryPageProblemsDto
@@ -862,7 +862,7 @@ public sealed class FactoryProblemItemDto
 
 /// <summary>
 /// Handle the issue on one problem: opens a talk with the factory's boss, already told about the problem. For a
-/// factory with no boss the talk goes to the Factory Manager (Factory Control, step 5), briefed the same way - decided on
+/// factory with no boss the problem goes to the Fleet Manager, told the same way - decided on
 /// the Gateway, never by the Cockpit.
 /// </summary>
 public sealed class FactoryProblemHandleDto

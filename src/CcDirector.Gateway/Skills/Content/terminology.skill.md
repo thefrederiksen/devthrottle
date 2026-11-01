@@ -45,6 +45,10 @@ last section.
 - **Worker** - builds.
 - **Reviewer** - a different session from the one that wrote the work, checking it before it lands.
 
+A **Fleet Manager** is a product name, not a role: the one session of an account that the owner talks
+to. It sits above everything: it talks to the bosses of the factories and to the sessions that belong
+to no factory. There is no Factory Manager; the Fleet Manager replaced it on 1 November 2026.
+
 An **Inspector** is a Reviewer carrying one extra requirement: it must be from a DIFFERENT AGENT
 FAMILY to the people who did the work - if the fleet is Claude Code, the Inspector is Codex. Keep
 using the word; it is not a sixth role, because the constraint is already proved by the agent kind
@@ -138,6 +142,7 @@ prose, use the word on the left.
 | Say this | The code may still say |
 |---|---|
 | Owner | `Controller`, `ControllerSessionId`, `HasLiveSupervisor`, `--controlled-by`, and "supervisor" wherever it means the owning session |
+| Fleet Manager | "Factory Manager" in records and documents older than 1 November 2026 |
 | Snooze | `HoldState`, `DeferredHold`, "parked" |
 | Participation | "seat" |
 | Team | `Crew`, `CrewSummary`, `crewAge`, `crew-*` in the stylesheets |

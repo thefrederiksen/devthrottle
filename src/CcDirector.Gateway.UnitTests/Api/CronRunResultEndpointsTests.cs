@@ -24,13 +24,13 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     private const string MailSession = "71000000-0000-4000-8000-000000000002";
     private const string OutsideSession = "71000000-0000-4000-8000-000000000003";
     private const string BillingSession = "71000000-0000-4000-8000-000000000004";
-    private const string FactoryManagerSession = "71000000-0000-4000-8000-000000000005";
+    private const string FleetManagerSession = "71000000-0000-4000-8000-000000000005";
 
-    // The account's bound Factory Manager (Factory Control, step 5); none unless a test binds it.
-    private string? _factoryManager;
+    // The account's marked Fleet Manager (Factory Control, step 5); none unless a test binds it.
+    private string? _fleetManager;
 
-    // The sessions that were the Factory Manager earlier and lost the mark; none unless a test says so.
-    private readonly HashSet<string> _earlierFactoryManagers = new(StringComparer.OrdinalIgnoreCase);
+    // The sessions that were the Fleet Manager earlier and lost the mark; none unless a test says so.
+    private readonly HashSet<string> _earlierFleetManagers = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly CronRunHistoryStore _runs;
@@ -102,7 +102,7 @@ public sealed class CronRunResultEndpointsTests : IDisposable
         CronRunResultEndpoints.Resolve(ctx, runId, new CronRunResolveRequest { Reason = reason }, _service, Local,
             FactoryOf, (t, id) => _runs.Find(t, id),
             (t, id) => _triggers.FindRun(t, id) is { Trigger: { } trigger } ? new TriggerCheckOwner(trigger.Factory) : null,
-            _ => _factoryManager, (_, sid) => _earlierFactoryManagers.Contains(sid));
+            _ => _fleetManager, (_, sid) => _earlierFleetManagers.Contains(sid));
 
     /// <summary>A failed check of the mail factory's definition trigger (phase 5b): an interval check's problem.</summary>
     private string FailedIntervalCheck()
@@ -234,24 +234,24 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Resolve_ByTheBoundFactoryManager_IsAllowed_InAnyFactory_AndKeepsTheReason()
+    public void Resolve_ByTheMarkedFleetManager_IsAllowed_InAnyFactory_AndKeepsTheReason()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
+        _fleetManager = FleetManagerSession;
 
         var problem = Assert.IsType<JsonHttpResult<CronRunProblemDto>>(
-            Resolve(Request(FactoryManagerSession), runId, "the machine was off; it is back")).Value!;
+            Resolve(Request(FleetManagerSession), runId, "the machine was off; it is back")).Value!;
 
         Assert.Equal(CronRunProblemStates.Resolved, problem.State);
-        Assert.Equal($"the Factory Manager (session {FactoryManagerSession})", problem.ResolvedBy);
+        Assert.Equal($"the Fleet Manager (session {FleetManagerSession})", problem.ResolvedBy);
         Assert.Equal("the machine was off; it is back", problem.ResolvedReason);
     }
 
     [Fact]
-    public void Resolve_BySessionThatIsNotTheBoundFactoryManager_IsStillRefused()
+    public void Resolve_BySessionThatIsNotTheMarkedFleetManager_IsStillRefused()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
+        _fleetManager = FleetManagerSession;
 
         var result = Resolve(Request(OutsideSession), runId, "not mine to fix");
 
@@ -260,52 +260,52 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Resolve_BySessionThatIsNotTheBoundFactoryManager_IsRefusedInTheOldWords_WithNothingAboutTheMark()
+    public void Resolve_BySessionThatIsNotTheMarkedFleetManager_IsRefusedInTheOldWords_WithNothingAboutTheMark()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
+        _fleetManager = FleetManagerSession;
 
         var error = ErrorOf(Resolve(Request(OutsideSession), runId, "not mine to fix"));
 
         Assert.Equal(FactoryNaming.ActRefusal("run", "mail"), error);
-        Assert.DoesNotContain("Factory Manager", error);
+        Assert.DoesNotContain("Fleet Manager", error);
     }
 
     [Fact]
-    public void Resolve_BySessionThatWasTheFactoryManager_IsRefused_AndToldTheMarkHasMovedAndToWhom()
+    public void Resolve_BySessionThatWasTheFleetManager_IsRefused_AndToldTheMarkHasMovedAndToWhom()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
-        _earlierFactoryManagers.Add(OutsideSession);
+        _fleetManager = FleetManagerSession;
+        _earlierFleetManagers.Add(OutsideSession);
 
         var result = Resolve(Request(OutsideSession), runId, "I fixed the machine");
 
         Assert.Equal(403, Status(result));
         Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
         var error = ErrorOf(result);
-        Assert.StartsWith($"This session is no longer the Factory Manager: the mark has moved to session {FactoryManagerSession}", error);
+        Assert.StartsWith($"This session is no longer the Fleet Manager: the mark has moved to session {FleetManagerSession}", error);
         // The sentence about the run's factory is still said, in the same words as for any other session.
         Assert.EndsWith(FactoryNaming.ActRefusal("run", "mail"), error);
     }
 
     [Fact]
-    public void Resolve_BySessionThatWasTheFactoryManager_WhenTheMarkWasCleared_IsToldItWasCleared()
+    public void Resolve_BySessionThatWasTheFleetManager_WhenTheMarkWasCleared_IsToldItWasCleared()
     {
         var runId = ReportProblem();
-        _earlierFactoryManagers.Add(OutsideSession);
+        _earlierFleetManagers.Add(OutsideSession);
 
         var result = Resolve(Request(OutsideSession), runId, "I fixed the machine");
 
         Assert.Equal(403, Status(result));
-        Assert.StartsWith("This session is no longer the Factory Manager: the mark was cleared", ErrorOf(result));
+        Assert.StartsWith("This session is no longer the Fleet Manager: the mark was cleared", ErrorOf(result));
     }
 
     [Fact]
-    public void Resolve_BySessionThatWasTheFactoryManager_AndIsOfTheRunsFactory_IsStillAllowed()
+    public void Resolve_BySessionThatWasTheFleetManager_AndIsOfTheRunsFactory_IsStillAllowed()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
-        _earlierFactoryManagers.Add(MailSession);
+        _fleetManager = FleetManagerSession;
+        _earlierFleetManagers.Add(MailSession);
 
         var problem = Assert.IsType<JsonHttpResult<CronRunProblemDto>>(Resolve(Request(MailSession), runId, "fixed the inbox")).Value!;
 
@@ -314,20 +314,30 @@ public sealed class CronRunResultEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Resolve_ByTheFactoryManagerSession_WhenNoneIsBound_IsRefused()
+    public void Resolve_ByTheFleetManagerSession_WhenNoneIsBound_IsRefused()
     {
         var runId = ReportProblem();
 
-        Assert.Equal(403, Status(Resolve(Request(FactoryManagerSession), runId, "I think I am the manager")));
+        Assert.Equal(403, Status(Resolve(Request(FleetManagerSession), runId, "I think I am the manager")));
     }
 
     [Fact]
-    public void Resolve_ByTheBoundFactoryManager_WithNoReason_IsRefused()
+    public void Resolve_ASessionTheRetiredFactoryManagerMarkNamed_IsRefusedLikeAnyOtherSession()
+    {
+        // The stored factory_manager_session_id grants nothing now: only the Fleet Manager's mark does.
+        var runId = ReportProblem();
+        _fleetManager = FleetManagerSession;
+
+        Assert.Equal(403, Status(Resolve(Request(OutsideSession), runId, "I was the Factory Manager")));
+    }
+
+    [Fact]
+    public void Resolve_ByTheMarkedFleetManager_WithNoReason_IsRefused()
     {
         var runId = ReportProblem();
-        _factoryManager = FactoryManagerSession;
+        _fleetManager = FleetManagerSession;
 
-        Assert.Equal(400, Status(Resolve(Request(FactoryManagerSession), runId, " ")));
+        Assert.Equal(400, Status(Resolve(Request(FleetManagerSession), runId, " ")));
         Assert.Null(_runs.List("cj_mail").Single().ResolvedUtc);
     }
 

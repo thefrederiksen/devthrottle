@@ -36,7 +36,7 @@ RISKS = ("low", "medium", "high")
 CHECKS = ("passed", "failed", "none")
 EVENT_KINDS = ("stop", "died")
 # Counted only when present, so the usual line reads as it always has.
-EVENT_KINDS_WHEN_PRESENT = ("answered", "marked", "lesson")
+EVENT_KINDS_WHEN_PRESENT = ("answered", "marked", "lesson", "problem")
 
 # The two kinds of row the owner's standing list holds (issue #3559).
 PREFERENCE_KINDS = ("preference", "lesson")
@@ -559,6 +559,9 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
         return ["owner answered", e.get("words")]
     if e.get("kind") == "marked":
         return ["now yours", e.get("detail")]
+    if e.get("kind") == "problem":
+        # The owner's Handle the issue on a factory with no boss: the run stands as the label.
+        return ["owner sent it", e.get("outcomeId")]
     if e.get("kind") == "lesson":
         # The owner kept a lesson: the words stand in the name column, and what went wrong is the label.
         return ["lesson kept", e.get("detail")]

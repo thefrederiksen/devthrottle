@@ -12,8 +12,6 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 const screenClient = vi.hoisted(() => ({
   getFactoryDrawing: vi.fn(() => new Promise(() => {})),
-  getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
-  startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
