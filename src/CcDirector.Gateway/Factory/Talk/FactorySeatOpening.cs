@@ -125,7 +125,8 @@ public static class FactorySeatOpening
         + "you when it is finished: one line tells you to run cc-devthrottle message inbox. Stay available to the owner: "
         + "never run anything long in this session, and never sit watching a session you started, so that you can always "
         + "answer at once. This holds whatever your brief, your schedule or a problem you are handed tells you to do: what "
-        + "they ask for gets done, and a session does it. In a scheduled run, end your turn to wait, and do not report the "
+        + "they ask for gets done, and a session does it. In a scheduled run, start only what can come back before your "
+        + "shift ends, because a run still open then is recorded as a problem; end your turn to wait, and do not report the "
         + "run or close this session until the sessions you started have come back.";
 
     /// <summary>
