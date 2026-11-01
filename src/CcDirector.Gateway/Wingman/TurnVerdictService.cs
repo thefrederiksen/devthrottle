@@ -340,7 +340,9 @@ public sealed record TurnVerdictOutcome
 public sealed class TurnVerdictService : IDisposable
 {
     internal const string HostRecoveryProbePrompt = "Reply with exactly OK and nothing else.";
-    internal static readonly TimeSpan HostRecoveryProbeTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>Twenty seconds, not ten: on 2026-10-31 a host that was answering every one-word probe took 11 to 14 seconds
+    /// to do it, so a ten-second limit held every scheduled retry for a slow spell it could have worked through (issue #4544).</summary>
+    internal static readonly TimeSpan HostRecoveryProbeTimeout = TimeSpan.FromSeconds(20);
     internal static readonly TimeSpan HostRecoveryProbeInterval = TimeSpan.FromSeconds(30);
 
     private readonly ITurnVerdictEnvironment _env;
@@ -1413,8 +1415,9 @@ public sealed class TurnVerdictService : IDisposable
 
             // A CALL B THAT FAILED IS NOT A WINGMAN ERROR (the turn pipeline mission, section 5: "If Call B fails, Call
             // A's colour stands and the reading has no label/narration"). Call A decided the colour, so the row shows it
-            // with its plain state label: no error card, no retry schedule, and no automatic call spent on the words
-            // again. Why the words are missing is kept on the record for the debug view and for a person asking again.
+            // with its plain state label and no error card, and this reading is not asked about again. Why the words are
+            // missing is kept on the record: for the debug view, for a person asking again, and for the voice service,
+            // which asks for the words again on the retry schedule when somebody is listening (issue #4544).
             if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
                 record.NarrationFailureReason = noWords;
             record.FailureKind = record.Failed ? FailureKindWord(failure) : null;
@@ -1675,20 +1678,21 @@ public sealed class TurnVerdictService : IDisposable
     /// given, plus the judge's decision, asked once with a sixty second deadline. The CALLER decides whether a stop
     /// gets one - only a voice session or a person's explain, and once per verdict id - and this method only makes it.
     /// A failed call is an answer, not an exception: the judge's spoken text is already playable, so a failure leaves
-    /// it in place, and it is logged. Nothing is re-attempted.
+    /// it in place, and it is logged. This method never re-attempts it; the caller decides whether another call is owed.
     /// </summary>
     /// <param name="outcome">A judged, reused, or refused-but-worded outcome, with its verdict and package.</param>
-    internal Task<NarrationCallResult> NarrateAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, CancellationToken ct)
+    /// <param name="deadlineSeconds">The call's deadline, or null for <see cref="TurnVerdictSettings.NarrationCallTimeoutSeconds"/>.</param>
+    internal Task<NarrationCallResult> NarrateAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, CancellationToken ct, int? deadlineSeconds = null)
     {
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
-        return NarrateAsync(tenant, sid, verdict, lazyPackage, ct);
+        return NarrateAsync(tenant, sid, verdict, lazyPackage, ct, deadlineSeconds);
     }
 
     /// <summary>The same call, given its verdict and package directly - the form the reading itself uses, before
     /// there is an outcome to carry them in.</summary>
     internal async Task<NarrationCallResult> NarrateAsync(
-        TenantId tenant, string sid, TurnVerdictDto verdict, Lazy<TurnVerdictPackage> lazyPackage, CancellationToken ct)
+        TenantId tenant, string sid, TurnVerdictDto verdict, Lazy<TurnVerdictPackage> lazyPackage, CancellationToken ct, int? deadlineSeconds = null)
     {
 
         // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
@@ -1706,7 +1710,7 @@ public sealed class TurnVerdictService : IDisposable
         // A refused record is narrated from what it is: a reading whose state could not be read. Contract v4's answer is
         // one word, so a refused one holds no decision to salvage.
         var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, verdict);
-        var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
+        var timeout = TimeSpan.FromSeconds(deadlineSeconds ?? TurnVerdictSettings.NarrationCallTimeoutSeconds);
         FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} state={verdict.State} decidedBy={verdict.DecidedBy} promptLen={prompt.Length}");
         try
         {
@@ -1908,13 +1912,13 @@ public sealed class TurnVerdictService : IDisposable
     /// should not be conflated. It is the reason the card's own instruction, "ask for the narration again", can be
     /// followed and still produce nothing new.
     ///
-    /// ONLY A PERSON RELEASES IT, deliberately. Call B gets one immediate second attempt inside the same reading; after
-    /// that, the automatic paths - the turn end, the idle sweep and the booked retry (<see cref="StartDueRetriesAsync"/>)
-    /// - never release this claim and never call Call B again for the stop. A failed write-up is an accepted reading,
-    /// not a failed one, so it is never booked for a retry: the schedule is for a failed Call A only. The restraint
-    /// <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins still holds - the sweep comes
-    /// past every forty-five seconds, and a stop that keeps failing would keep costing a call. The only thing that buys
-    /// another Call B attempt is a person asking, and that is bounded by the person.
+    /// RELEASED BY A PERSON, OR BY A BOOKED RETRY OF THE WORDS. Call B gets one immediate second attempt inside the same
+    /// reading; after that, the turn end, the idle sweep and the reading's own retry (<see cref="StartDueRetriesAsync"/>)
+    /// never release this claim. A failed write-up is an accepted reading, not a failed one, so this service books nothing
+    /// for it. The restraint <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins still holds
+    /// - the sweep comes past every forty-five seconds, and a stop that keeps failing must not cost a call each time. Two
+    /// things buy another attempt, and both are bounded: a person asking, and, for a session in voice mode, one of the
+    /// eight retries <see cref="WingmanVoiceService"/> books for the missing words (issue #4544).
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {
@@ -2365,11 +2369,20 @@ public sealed class TurnVerdictService : IDisposable
         if (!settings.JudgeEnabled)
         {
             var withdrawalNow = _env.NowUtc();
+            var wordsAreWaiting = false;
             foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
+            {
                 if (WingmanRetrySchedule.NeedsRetry(snapshot)
                     && WingmanRetrySchedule.IsDue(snapshot.NextRetryAtUtc, withdrawalNow)
                     && !_env.IsVoiceSession(tenant, sid))
                     WithdrawBookedRetry(tenant, sid, snapshot);
+                if (WingmanRetrySchedule.NeedsWordsRetry(snapshot) && _env.IsVoiceSession(tenant, sid))
+                    wordsAreWaiting = true;
+            }
+            // THE PROBE STILL RUNS FOR A VOICE SESSION WAITING FOR ITS WORDS. A voice session is read with the judge off, and
+            // its retries wait on this stall (issue #4544). This is the only place the stall ends, so returning before it would
+            // hold them for ever, under a card promising a retry. With nobody listening, nothing is waiting and nothing is spent.
+            if (wordsAreWaiting) await HostAllowsScheduledRetriesAsync().ConfigureAwait(false);
             return 0;
         }
 
@@ -2444,6 +2457,13 @@ public sealed class TurnVerdictService : IDisposable
         FileLog.Write(newlyStalled
             ? $"[TurnVerdictService] {call} timed out: scheduled retries are paused until one recovery probe answers"
             : $"[TurnVerdictService] {call} timed out while scheduled retries were already paused");
+    }
+
+    /// <summary>Is the model host stalled right now? Read without waiting: the probe that ends the stall is run by
+    /// <see cref="StartDueRetriesAsync"/> on every sweep pass, so a caller only needs to know whether to hold back.</summary>
+    internal bool ModelHostStalled
+    {
+        get { lock (_hostRecoveryGate) return _modelHostStalled; }
     }
 
     /// <summary>
