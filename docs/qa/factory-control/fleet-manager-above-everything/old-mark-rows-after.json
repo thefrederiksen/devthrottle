@@ -1,0 +1,24 @@
+{
+  "rows": [
+    [
+      "factory_manager_session_id",
+      "dead0000-0000-4000-8000-000000000001"
+    ],
+    [
+      "factory_manager_machine",
+      "devlinux"
+    ],
+    [
+      "factory_manager_folder",
+      "/home/soren/factories"
+    ],
+    [
+      "factory_manager_earlier_session_ids",
+      "dead0000-0000-4000-8000-000000000001"
+    ]
+  ],
+  "retiredRoutes": {
+    "/gateway/factory-manager": 404,
+    "/gateway/factory-agents/factory-manager": 404
+  }
+}

@@ -620,6 +620,16 @@ def test_listing_lessons_offers_to_forget_only_an_unconfirmed_one_this_session_k
     assert "fleet forget l-owner" not in result.output
 
 
+def test_a_problem_event_shows_what_it_is_about_and_its_run(gw):
+    gw.add_event("problem", "s-1", "WarmForward - Scout - sweep", words="The brief.", outcomeId="run-1")
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    _, rows = read_table(result.output, "events")
+    assert (rows[0]["name"], rows[0]["verdict"], rows[0]["label"]) == ("WarmForward - Scout - sweep", "owner sent it", "run-1")
+
+
 def test_a_lesson_event_shows_the_owners_words_and_what_went_wrong(gw):
     gw.add_event("lesson", None, None, words="Check first.", detail="messaged all 36 sessions")
 

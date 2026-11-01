@@ -221,7 +221,7 @@ public static class FactoryTalkSeed
 
     /// <summary>
     /// The problem a Handle the issue talk is about, in the words every such talk is briefed with - the boss's and, for
-    /// a factory with no boss, the Factory Manager's: which run, what went wrong, when, which session to read, and to
+    /// a factory with no boss, the Fleet Manager's: which run, what went wrong, when, which session to read, and to
     /// resolve it with <c>cc-devthrottle run resolve</c> once it is fixed, and only then.
     /// </summary>
     public static string ProblemBrief(CronRunProblemDto problem, TimeZoneInfo zone)

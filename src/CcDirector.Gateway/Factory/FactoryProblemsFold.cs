@@ -7,7 +7,7 @@ namespace CcDirector.Gateway.Factory;
 /// <summary>
 /// A factory's open problems, as its page shows them (Factory Control, step 1b). It does NOT decide what a problem is,
 /// when one is open, or what its words are - <see cref="CronRunResultFold.Problems"/> does that once for the page, the
-/// morning email and the Factory Manager, and the sentence, the "Started ..." text and the "open ..." text shown here
+/// morning email and the Fleet Manager, and the sentence, the "Started ..." text and the "open ..." text shown here
 /// are that list's own, word for word. This only lays that answer out for the page: the seat by its role word, the
 /// session to read, and the two actions on it - Handle the issue, routed by <see cref="FactoryProblemHandoff"/>, and
 /// Resolve.
@@ -36,8 +36,8 @@ public static class FactoryProblemsFold
         {
             Heading = "Open problems",
             Note = "A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
-                   "one-line reason. " + checks + (handoff.ToFactoryManager
-                       ? "This factory has no boss, so Handle the issue opens a talk with the Factory Manager, already told about it."
+                   "one-line reason. " + checks + (handoff.ToFleetManager
+                       ? "This factory has no boss, so Handle the issue goes to the Fleet Manager, already told about it."
                        : "Handle the issue opens a talk with the boss, already told about it."),
             Items = items,
             EmptyText = items.Count == 0 ? "No open problems." : null,

@@ -21,9 +21,6 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //   * at phone width the list is cards, from the stylesheet, not a horizontally scrolling table.
 
 const screenClient = vi.hoisted(() => ({
-  // The Factory Manager card loads beside the list; it stays loading here (FactoryManagerCard.test.tsx covers it).
-  getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
-  startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
@@ -213,24 +210,19 @@ describe("Factories - the list (mockup 1)", () => {
     expect(screen.queryByText("Worst first: failing, then needs you, then paused, then running.")).toBeNull();
   });
 
-  it("has the Factories, Activity, Reports and Factory Manager tabs, and no All factory agents tab", async () => {
+  it("has the Factories, Activity and Reports tabs, and no All factory agents tab and no Factory Manager", async () => {
     renderAt("/factories");
 
     await screen.findByTestId("fa-factories-list");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Factories", "Activity", "Reports", "Factory Manager"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Factories", "Activity", "Reports"]);
     expect(screen.queryByText(/All factory agents/)).toBeNull();
   });
 
-  it("keeps the Factory Manager off the Factories tab, and opens it on its own tab at its own address", async () => {
-    renderAt("/factories");
+  it("reads an old address of the retired Factory Manager tab as the Factories tab", async () => {
+    renderAt("/factories?tab=manager");
 
-    await screen.findByTestId("fa-factories-list");
-    expect(screenClient.getFactoryManagerCard).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Factory Manager" }));
-    await waitFor(() => expect(screenClient.getFactoryManagerCard).toHaveBeenCalled());
-    expect(where()).toBe("/factories?tab=manager");
-    expect(screen.queryByTestId("fa-factories-list")).toBeNull();
+    expect(await screen.findByTestId("fa-factories-list")).toBeTruthy();
+    expect(screen.queryByText("Factory Manager")).toBeNull();
   });
 
   it("puts the archived factories and the schedules outside any factory under the factories", async () => {
@@ -1378,7 +1370,7 @@ describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
   });
 
   it("draws Handle the issue unavailable with the Gateway's sentence for a factory with no boss", async () => {
-    const unavailable = "WarmForward has no boss, so this goes to the Factory Manager, which is not built yet. (fixture)";
+    const unavailable = "WarmForward has no boss, and the Fleet Manager could not be started. (fixture)";
     screenClient.getFactoryPage.mockResolvedValue({
       ...FACTORY_PAGE,
       problems: {

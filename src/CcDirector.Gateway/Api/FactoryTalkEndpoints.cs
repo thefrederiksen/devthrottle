@@ -5,6 +5,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.Factory.Talk;
+using CcDirector.Gateway.Fleet;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -44,8 +45,8 @@ namespace CcDirector.Gateway.Api;
 /// The same talk, under every rule above, opened with whoever <see cref="FactoryProblemHandoff"/> names - the boss -
 /// and seeded with <see cref="FactoryTalkSeed.ComposeForProblem"/>: the problem, which session to read, and to resolve
 /// it with <c>cc-devthrottle run resolve</c> once fixed. The problem is read from the one problems fold and must be
-/// open and this factory's. A factory with no boss hands it to the Factory Manager (step 5): a new Factory Manager
-/// talk, briefed in the same words, which becomes the account's bound Factory Manager.
+/// open and this factory's. A factory with no boss hands it to the account's Fleet Manager, told in the same words
+/// (<see cref="FleetManagerProblemEndpoint"/>).
 ///
 /// A DEFINED FACTORY'S TALK (Factory Definition mission, phase 5). For a factory with a published definition both talks
 /// are built from that definition by <see cref="FactorySeatStart"/> - the seat's agent, model, machine and repository
@@ -66,9 +67,8 @@ internal static class FactoryTalkEndpoints
     /// <param name="startOnDirector">Start a session on one Director, as a person's New Session does.</param>
     /// <param name="problems">One factory's open problems, from the one problems fold (<c>GET /cron/problems</c>).</param>
     /// <param name="timeZone">The account's time zone, the one the problems' shifts are counted in.</param>
-    /// <param name="factoryManager">The Factory Manager's facts (Factory Control, step 5): a factory with no boss hands
-    /// Handle the issue to it. REQUIRED, so a wiring line that forgot it fails to compile rather than refusing every
-    /// boss-less factory.</param>
+    /// <param name="fleetManager">How a factory with no boss reaches the Fleet Manager with Handle the issue. REQUIRED, so
+    /// a wiring line that forgot it fails to compile rather than refusing every boss-less factory.</param>
     /// <param name="publishedBrief">Factory Seats mission, phase 2c: the PUBLISHED brief the Gateway holds for one seat
     /// of one factory, or null when it holds none - then the talk is told the path of the seat's brief file, as
     /// before. Never a draft. REQUIRED, so a wiring line that forgot it fails to compile rather than starting every
@@ -81,12 +81,12 @@ internal static class FactoryTalkEndpoints
         Func<TenantId, IEnumerable<DirectorDto>> listDirectors, Func<TenantId, string, CronJobDto?> schedule,
         Func<HttpContext, string, NewSessionRequest, Task<DirectorSpawnOutcome>> startOnDirector,
         Func<TenantId, string, CronRunProblemsDto> problems, Func<TenantId, TimeZoneInfo> timeZone,
-        FactoryManagerSources factoryManager, Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief,
+        FleetManagerProblemSources fleetManager, Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief,
         Func<TenantId, string, PublishedFactoryDefinition?> definitionOf)
     {
         ArgumentNullException.ThrowIfNull(definitionOf);
         ArgumentNullException.ThrowIfNull(publishedBrief);
-        ArgumentNullException.ThrowIfNull(factoryManager);
+        ArgumentNullException.ThrowIfNull(fleetManager);
         ArgumentNullException.ThrowIfNull(factorySwitch);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(registry);
@@ -147,17 +147,17 @@ internal static class FactoryTalkEndpoints
             if (badBody is not null) return badBody;
 
             var handoff = FactoryProblemHandoff.Route(registered);
-            if (handoff.ToFactoryManager)
+            if (handoff.ToFleetManager)
             {
                 // A factory with no boss has no published definition (a definition names its boss), so a talk with it
                 // runs as it is registered, and an override is refused in the seat arm's own sentence.
                 if (byPerson is not null) return OverrideOfAnUndefinedFactory(registered);
-                // A factory with no boss: the Factory Manager, briefed in the boss's words (Factory Control, step 5).
-                FileLog.Write($"[FactoryTalkEndpoints] handle the issue: {registered.Factory} has no boss - handing it to the Factory Manager");
-                return await FactoryManagerEndpoints.StartAsync(ctx, tenant, factoryManager, body: null,
-                    FactoryManagerSeed.ProblemSessionName(registered, problem),
-                    FactoryManagerSeed.ComposeForProblem(FactoryManagerEndpoints.Live(factoryManager.Factories(tenant)),
-                        registered, problem, timeZone(tenant)));
+                // A factory with no boss: the Fleet Manager, told in the boss's words.
+                FileLog.Write($"[FactoryTalkEndpoints] handle the issue: {registered.Factory} has no boss - handing it to the Fleet Manager");
+                return await FleetManagerProblemEndpoint.HandleAsync(ctx, tenant, fleetManager,
+                    new FleetManagerProblemEvent(problem.RunId, problem.SessionId, $"{registered.Title} - {problem.JobName}",
+                        FleetManagerProblemBrief.Compose(registered, problem, timeZone(tenant))),
+                    registered.Factory);
             }
 
             var seated = handoff.Seat!;

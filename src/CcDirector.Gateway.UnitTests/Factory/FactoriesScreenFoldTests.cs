@@ -91,7 +91,7 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal(new[] { FactoryTone.Red, FactoryTone.Amber, FactoryTone.Paused, FactoryTone.Ok, FactoryTone.Ok }, view.Rows.Select(r => r.StatusTone));
         // The Cockpit sorts by the rank when the owner picks "Status (worst first)"; it must match the word.
         Assert.Equal(new[] { 0, 1, 2, 3, 3 }, view.Rows.Select(r => r.StatusRank));
-        Assert.Equal(new[] { "Factories", "Activity", "Reports", "Factory Manager" }, view.Tabs.Select(t => t.Label));
+        Assert.Equal(new[] { "Factories", "Activity", "Reports" }, view.Tabs.Select(t => t.Label));
     }
 
     // ---------- seats, next start and last run on the list (Factories screen cleanup, 17 Oct 2026) ----------

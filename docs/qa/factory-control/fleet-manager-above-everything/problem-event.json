@@ -1,0 +1,23 @@
+{
+  "id": "d75adda6-43fd-4d67-a468-f036477a81ca",
+  "kind": "problem",
+  "sessionId": "4a31bfb3-31aa-4c0b-b02b-12778ba06af0",
+  "sessionName": "WarmForward (QA) - qa-warmforward - writer",
+  "addressedTo": "",
+  "crashed": null,
+  "verdict": null,
+  "noVerdictReason": null,
+  "readingPending": false,
+  "readingNote": null,
+  "stopObservedAtUtc": null,
+  "directorId": null,
+  "detail": null,
+  "outcomeId": "8dff369a-b6a7-4388-9d07-5d1515e0ce17",
+  "outcomeTitle": null,
+  "words": "WarmForward (QA) (factory id qa-warmforward) has no boss, so the owner's Handle the issue came to you. You stand in for the missing boss on this one problem: say to the owner what you see in it and what you think went wrong, then start a session of your own in the factory's folder C:\\Users\\soren\\AppData\\Local\\Temp\\factory-manager-qa\\qa-warmforward to fix it.\r\n- the run: 8dff369a-b6a7-4388-9d07-5d1515e0ce17\r\n- the schedule: qa-warmforward - writer (cj_32895b)\r\n- what went wrong: Did not report: its session ended without reporting how the run went.\r\n- when: due Sun 1 Nov 11:57 (America/New_York), started Sun 1 Nov 11:57 (America/New_York), in the morning shift, Sun 1 Nov, 08:00-16:00; recorded Sun 1 Nov 12:09 (America/New_York)\r\n- the session to read: 4a31bfb3-31aa-4c0b-b02b-12778ba06af0. While it is still open, cc-devthrottle session buffer 4a31bfb3-31aa-4c0b-b02b-12778ba06af0 prints its screen. If it has closed there is no command that prints it; say so to the owner, who can read it on the Cockpit's History page.\r\n\r\nWork out with the owner what went wrong and fix it. When - and only when - it is fixed, resolve it with one line saying what fixed it:\r\n   cc-devthrottle run resolve 8dff369a-b6a7-4388-9d07-5d1515e0ce17 \"<one line: what fixed it>\"\r\nIf it is not fixed when the talk ends, do not resolve it: it stays on the factory's page and in the morning email until it is fixed, or until the next run of the same schedule reports ok.\r\n",
+  "createdAtUtc": "2026-11-01T19:58:04.4959005Z",
+  "deliveredAtUtc": null,
+  "deliveredTo": null,
+  "deliveryCount": 0,
+  "acknowledgedAtUtc": null
+}

@@ -1,0 +1,36 @@
+$ cc-devthrottle fleet events      (as session 15522880-bd19-4a58-a8a6-81f7e3ed1527)
+count: 2 (stop 0, died 0, marked 1, problem 1) status: unacknowledged
+events[2]{id,kind,sessionId,name,verdictId,verdict,label,deliveredTo,acknowledged}:
+  abbba4c6-0c1d-482f-b84f-948d800c1b77,marked,15522880-bd19-4a58-a8a6-81f7e3ed1527,Fleet Manager,-,now yours,"The account's Fleet Manager mark has moved to you. You are now this account's Fleet Manager. Run `cc-devthrottle workflow instructions fleet-manager` and follow it exactly, then run `cc-devthrottle fleet digest` to see where things stand.",-,no
+  d75adda6-43fd-4d67-a468-f036477a81ca,problem,4a31bfb3-31aa-4c0b-b02b-12778ba06af0,WarmForward (QA) - qa-warmforward - writer,-,owner sent it,8dff369a-b6a7-4388-9d07-5d1515e0ce17,-,no
+help[1]:
+  cc-devthrottle fleet ack abbba4c6-0c1d-482f-b84f-948d800c1b77
+[exit 0]
+
+$ cc-devthrottle factory name-check      (as session 15522880-bd19-4a58-a8a6-81f7e3ed1527)
+count: 0
+factories-checked: 2
+rule: A seat is flagged when its id, name or role says CEO (a factory has a boss, not a CEO), or when its name is not a role word of its factory - one of the roles its seats are registered with, or Boss for the boss seat. Seats are role words only, never a person's name.
+Every factory passes.
+help[1]:
+  cc-devthrottle factory status --factory <id>
+[exit 0]
+
+$ cc-devthrottle factory manager show      (as session 15522880-bd19-4a58-a8a6-81f7e3ed1527)
+Error: No such command 'manager'.
+Usage: cc-devthrottle factory [OPTIONS] COMMAND [ARGS]...
+Valid options: --help
+Valid commands: record, activity, register, purpose, delete, list, status, name-check, export, import, memory, brief, definition, check-state, journal, doc, attach, records, goal-number, email
+help[1]:
+  cc-devthrottle factory --help
+[exit 2]
+
+$ cc-devthrottle run resolve 8dff369a-b6a7-4388-9d07-5d1515e0ce17 "Restarted the writer's schedule; the summary went out."      (as session 15522880-bd19-4a58-a8a6-81f7e3ed1527)
+Resolved the problem on run 8dff369a-b6a7-4388-9d07-5d1515e0ce17.
+schedule: qa-warmforward - writer (cj_32895b)
+problem: did not report - its session ended without reporting how the run went
+resolved by: the Fleet Manager (session 15522880-bd19-4a58-a8a6-81f7e3ed1527)
+reason: Restarted the writer's schedule; the summary went out.
+help[1]:
+  cc-devthrottle run problems
+[exit 0]

@@ -10,6 +10,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Fleet;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
 using CcDirector.Gateway.Factory.Definition;
@@ -65,10 +66,16 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     /// <summary>Every create the route dispatched to a Director, with the Director it went to.</summary>
     private readonly List<(string DirectorId, NewSessionRequest Request)> _sent = new();
 
-    /// <summary>The Factory Manager facts (Factory Control, step 5), in memory: the binding, the placement, and what
-    /// the Directors last pushed for a session.</summary>
-    private string? _factoryManager;
-    private (string Machine, string Folder)? _placement;
+    /// <summary>The Fleet Manager as Handle the issue sees it, in memory: whether one runs, what starting one answers,
+    /// and what it was sent.</summary>
+    private const string FleetManagerId = "11111111-0000-4000-8000-000000000001";
+    private string? _runningFleetManager;
+    private string? _successor;
+    private FleetManagerPlacementResult? _startAnswer;
+    private string? _runningAfterTheStart;
+    private int _starts;
+    private int _queued;
+    private readonly List<FleetManagerProblemEvent> _sentToFleetManager = new();
     private readonly Dictionary<string, SessionDto> _pushed = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The problems the one problems fold answers with, for the account; Handle the issue reads these.</summary>
@@ -204,18 +211,27 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
         var factorySwitch = new FactoryAgentsSwitch(switchOn, new TenantSettingsStore(Db));
         var directors = _directors;
-        var factoryManager = new FactoryManagerSources(
-            Bound: _ => _factoryManager,
-            Bind: (_, sid) => _factoryManager = sid,
-            Placement: _ => _placement,
-            SavePlacement: (_, machine, folder) => _placement = (machine, folder),
-            Factories: tenant => _registry!.List(tenant),
-            ListDirectors: tenant => directors.ListDirectors(tenant),
-            StartOnDirector: (ctx, directorId, request) => GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, door),
+        var fleetManager = new FleetManagerProblemSources(
+            Status: (_, _) => Task.FromResult(new FleetManagerStatusDto
+            {
+                State = _runningFleetManager is null ? FleetManagerStatusDto.StateNotRunning : FleetManagerStatusDto.StateRunning,
+                SessionId = _runningFleetManager,
+            }),
+            Successor: _ => _successor,
+            Start: (_, _) =>
+            {
+                _starts++;
+                _runningFleetManager ??= _runningAfterTheStart;
+                return Task.FromResult(_startAnswer ?? throw new InvalidOperationException("this test did not expect a start"));
+            },
             LastKnownSession: (_, sid) => _pushed.TryGetValue(sid, out var s) ? s : null,
-            TimeZone: _ => TimeZoneInfo.Utc);
+            Record: (_, problem) =>
+            {
+                _sentToFleetManager.Add(problem);
+                return new FleetManagerEventDto { Kind = FleetManagerEventStore.KindProblem };
+            },
+            Queued: _ => _queued++);
         Func<Microsoft.AspNetCore.Http.HttpContext, TenantId?> resolveTenant = ctx => GatewayEndpoints.ResolveReadTenant(ctx, boundary);
-        FactoryManagerEndpoints.Map(app, FactoryAgentsGate.Group(app, factorySwitch, resolveTenant), factorySwitch, resolveTenant, factoryManager);
         FactoryTalkEndpoints.Map(app, factorySwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, boundary),
             registry: _registry,
@@ -228,7 +244,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
                 Problems = _problems.Where(p => string.Equals(p.Factory, factory, StringComparison.OrdinalIgnoreCase)).ToList(),
             },
             timeZone: _ => TimeZoneInfo.Utc,
-            factoryManager: factoryManager,
+            fleetManager: fleetManager,
             // The real brief store, read the way the host reads it.
             // As the host wires it: from the definition for a defined factory, else from the brief store.
             publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat),
@@ -814,11 +830,11 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Handle_AFactoryWithNoBoss_WithAnOverride_IsRefusedInTheSeatArmsWords_AndNothingIsStartedOrBound()
+    public async Task Handle_AFactoryWithNoBoss_WithAnOverride_IsRefusedInTheSeatArmsWords_AndNothingIsSent()
     {
-        // Review finding 3: the Factory Manager arm answers the same body the seat arm does, never dropping it silently.
+        // Review finding 3: the Fleet Manager arm answers the same body the seat arm does, never dropping it silently.
         await StartAsync(bossless: true);
-        _placement = ("SOREN_NORTH", Folder);
+        _runningFleetManager = FleetManagerId;
         var problem = ScoutProblem();
         _problems.Add(problem);
 
@@ -829,363 +845,103 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal("WarmForward has no published definition, so a talk with it runs as it is registered: an agent, a model or a machine can be chosen only for a seat of a defined factory. Press Talk without choosing them.",
             await ErrorOf(response));
         Assert.Empty(_sent);
-        Assert.Null(_factoryManager);
+        Assert.Empty(_sentToFleetManager);
     }
 
     [Fact]
-    public async Task Handle_AFactoryWithNoBoss_StartsAFactoryManagerTalk_BriefedOnTheProblem_AndBindsIt()
+    public async Task Handle_AFactoryWithNoBoss_ReachesTheRunningFleetManager_TellingItTheProblem_AndOpensThatSession()
     {
         await StartAsync(bossless: true);
-        _placement = ("SOREN_NORTH", Folder);
+        _runningFleetManager = FleetManagerId;
+        _pushed[FleetManagerId] = new SessionDto { SessionId = FleetManagerId, Name = "Fleet Manager", MachineName = "SOREN_NORTH", DirectorId = NorthDirector };
         var problem = ScoutProblem();
         _problems.Add(problem);
 
         var response = await Handle("warmforward", problem.RunId);
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var (directorId, sent) = Assert.Single(_sent);
-        Assert.Equal(NorthDirector, directorId);
-        // The person's own top-level session, in the Factory Manager's folder, in no factory.
-        Assert.Null(sent.ControllerSessionId);
-        Assert.Null(sent.ParentSessionId);
-        Assert.Null(sent.Factory);
-        Assert.Equal(Folder, sent.RepoPath);
-        Assert.Equal("Factory Manager - WarmForward - handle the issue (WarmForward Factory - Boss - morning run)", sent.Name);
-        Assert.StartsWith("You are this account's Factory Manager", sent.PrePrompt);
-        // Briefed in the boss's words: which run, what went wrong, which session to read, how to resolve it.
-        Assert.Contains("THIS TALK IS ABOUT ONE PROBLEM OF WarmForward", sent.PrePrompt);
-        Assert.Contains(problem.RunId, sent.PrePrompt);
-        Assert.Contains("cc-devthrottle session buffer " + problem.SessionId, sent.PrePrompt);
-        Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", sent.PrePrompt);
-        // The new session is now the account's Factory Manager.
-        Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", _factoryManager);
-    }
-
-    [Fact]
-    public async Task Handle_AFactoryWithNoBoss_AndNoPlacementSaved_Is409WithASentence_AndNothingIsStarted()
-    {
-        await StartAsync(bossless: true);
-        var problem = ScoutProblem();
-        _problems.Add(problem);
-
-        var response = await Handle("warmforward", problem.RunId);
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Contains("The Factory Manager has no computer and folder yet", await ErrorOf(response));
-        Assert.Empty(_sent);
-        Assert.Null(_factoryManager);
-    }
-
-    // ---- the Factory Manager's own talk and binding (Factory Control, step 5) -------------------------------------
-
-    private Task<HttpResponseMessage> TalkToFactoryManager(object? body = null) =>
-        _http!.PostAsync("gateway/factory-agents/factory-manager/talk", body is null ? null : JsonContent.Create(body));
-
-    private Task<HttpResponseMessage> PutBinding(string json) =>
-        _http!.PutAsync("gateway/factory-manager", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
-
-    [Fact]
-    public async Task TalkToFactoryManager_WithAPlacement_StartsATopLevelSession_SavesThePlacement_AndBindsIt()
-    {
-        await StartAsync();
-
-        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var (directorId, sent) = Assert.Single(_sent);
-        Assert.Equal(NorthDirector, directorId);
-        Assert.Null(sent.ControllerSessionId);
-        Assert.Null(sent.ParentSessionId);
-        Assert.Equal(SessionOriginKinds.Human, sent.Origin);
-        Assert.Equal("Factory Manager - talk with the owner", sent.Name);
-        Assert.Equal(Folder, sent.RepoPath);
-        Assert.StartsWith("You are this account's Factory Manager", sent.PrePrompt);
-        // It is told about every factory.
-        Assert.Contains("WarmForward", sent.PrePrompt);
-        Assert.Equal(("SOREN_NORTH", Folder), _placement);
-        Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", _factoryManager);
-        var started = (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!;
-        Assert.Equal("/session/7d2c0e4e-0000-4000-8000-00000000c0de", started.Href);
-    }
-
-    [Fact]
-    public async Task TalkToFactoryManager_WhileTheBoundOneStillRuns_Is200WithThatSession_AndNothingIsStarted()
-    {
-        await StartAsync();
-        _placement = ("SOREN_NORTH", Folder);
-        _factoryManager = "11111111-0000-4000-8000-000000000001";
-        _pushed[_factoryManager] = new SessionDto
-        {
-            SessionId = _factoryManager, Name = "Factory Manager - talk with the owner", MachineName = "SOREN_NORTH",
-            DirectorId = NorthDirector, ActivityState = "Idle",
-        };
-
-        var response = await TalkToFactoryManager();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("/session/" + _factoryManager, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Href);
+        var opened = (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!;
+        Assert.Equal("/session/" + FleetManagerId, opened.Href);
+        Assert.Equal("Fleet Manager", opened.SessionName);
+        Assert.Equal("fleet-manager", opened.Seat);
+        Assert.Equal("warmforward", opened.Factory);
+        // No new session: it goes to the one the account already has.
         Assert.Empty(_sent);
+        Assert.Equal(0, _starts);
+        var told = Assert.Single(_sentToFleetManager);
+        Assert.Equal(problem.RunId, told.RunId);
+        Assert.Equal(problem.SessionId, told.SessionId);
+        Assert.StartsWith("WarmForward (factory id warmforward) has no boss", told.Words);
+        Assert.Contains("cc-devthrottle session buffer " + problem.SessionId, told.Words);
+        Assert.Contains($"cc-devthrottle run resolve {problem.RunId} \"<one line: what fixed it>\"", told.Words);
+        Assert.Equal(1, _queued);
     }
 
     [Fact]
-    public async Task TalkToFactoryManager_WhenTheBoundOneHasExited_StartsANewOne()
+    public async Task Handle_AFactoryWithNoBoss_WithNoFleetManagerRunning_StartsOneThenTellsIt()
     {
-        await StartAsync();
-        _placement = ("SOREN_NORTH", Folder);
-        _factoryManager = "11111111-0000-4000-8000-000000000001";
-        _pushed[_factoryManager] = new SessionDto { SessionId = _factoryManager, ActivityState = "Exited" };
+        await StartAsync(bossless: true);
+        _startAnswer = FleetManagerPlacementResult.Ok(new FleetManagerPlacementDto
+        {
+            Status = new FleetManagerStatusDto { State = FleetManagerStatusDto.StateRunning, SessionId = FleetManagerId },
+        });
+        var problem = ScoutProblem();
+        _problems.Add(problem);
 
-        var response = await TalkToFactoryManager();
+        var response = await Handle("warmforward", problem.RunId);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.Single(_sent);
-        Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", _factoryManager);
+        Assert.Equal("/session/" + FleetManagerId, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Href);
+        Assert.Equal(1, _starts);
+        Assert.Single(_sentToFleetManager);
     }
 
     [Fact]
-    public async Task TalkToFactoryManager_OnlyAComputerAndNoFolder_Is400_AndNothingIsStarted()
+    public async Task Handle_AFactoryWithNoBoss_DuringAReplacement_KeepsTheProblemForTheSessionTakingOver_AndStartsNothing()
     {
-        await StartAsync();
+        // The old Fleet Manager has closed and the new one has not taken the mark yet, so the status reads not running.
+        await StartAsync(bossless: true);
+        _successor = FleetManagerId;
+        var problem = ScoutProblem();
+        _problems.Add(problem);
 
-        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH" });
+        var response = await Handle("warmforward", problem.RunId);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Empty(_sent);
-        Assert.Null(_placement);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("/session/" + FleetManagerId, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Href);
+        Assert.Equal(0, _starts);
+        Assert.Single(_sentToFleetManager);
     }
 
     [Fact]
-    public async Task TalkToFactoryManager_NoDirectorRunsOnTheComputer_Is409_AndNothingIsSavedOrStarted()
+    public async Task Handle_AFactoryWithNoBoss_WhenAnotherPressStartedTheFleetManagerFirst_StillReachesIt()
     {
-        await StartAsync(northStopped: true);
+        await StartAsync(bossless: true);
+        _startAnswer = FleetManagerPlacementResult.Refused(409, "The Fleet Manager is already running.");
+        _runningAfterTheStart = FleetManagerId;
+        var problem = ScoutProblem();
+        _problems.Add(problem);
 
-        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(_sentToFleetManager);
+    }
+
+    [Fact]
+    public async Task Handle_AFactoryWithNoBoss_WhenTheFleetManagerCannotStart_SaysTheServicesSentence_AndKeepsNothing()
+    {
+        await StartAsync(bossless: true);
+        _startAnswer = FleetManagerPlacementResult.Refused(409, "This account has no computer for the Fleet Manager to run on, so it was not started.");
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Contains("No Director is running on SOREN_NORTH", await ErrorOf(response));
-        Assert.Empty(_sent);
-        Assert.Null(_placement);
-        Assert.Null(_factoryManager);
+        Assert.Equal("This account has no computer for the Fleet Manager to run on, so it was not started.", await ErrorOf(response));
+        Assert.Empty(_sentToFleetManager);
+        Assert.Equal(0, _queued);
     }
 
-    [Theory]
-    [InlineData(Caller.SessionKey)]
-    [InlineData(Caller.DirectorDeviceKey)]
-    [InlineData(Caller.MachineToken)]
-    public async Task TalkToFactoryManager_ACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndNothingIsStarted(Caller caller)
-    {
-        await StartAsync(caller: caller);
-
-        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Empty(_sent);
-    }
-
-    [Fact]
-    public async Task TalkToFactoryManager_TheFactorySwitchOff_Is404_AndNothingIsStarted()
-    {
-        await StartAsync(switchOn: false);
-
-        var response = await TalkToFactoryManager(new { computer = "SOREN_NORTH", folder = Folder });
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Empty(_sent);
-    }
-
-    [Fact]
-    public void TalkToFactoryManager_ASessionsOwnKey_NeverReachesTheRoute()
-        => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factory-manager/talk").Allowed,
-            "a talk is the owner's own session; a session must not be able to start one");
-
-    [Theory]
-    [InlineData(Caller.OwnerBrowser)]
-    [InlineData(Caller.OwnerPhone)]
-    public async Task Binding_SetByTheOwnersOwnDevice_ThenShowThenClear_RoundTrips(Caller owner)
-    {
-        await StartAsync(caller: owner);
-        const string id = "22222222-0000-4000-8000-000000000002";
-
-        var set = await PutBinding("{\"sessionId\":\"" + id + "\"}");
-        var shown = await _http!.GetFromJsonAsync<FactoryManagerBindingDto>("gateway/factory-manager", Web);
-        var cleared = await PutBinding("{\"sessionId\":null}");
-
-        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
-        Assert.Equal(id, shown!.SessionId);
-        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
-        Assert.Null((await cleared.Content.ReadFromJsonAsync<FactoryManagerBindingDto>(Web))!.SessionId);
-        Assert.Null(_factoryManager);
-    }
-
-    [Theory]
-    [InlineData(Caller.SessionKey)]
-    [InlineData(Caller.DirectorDeviceKey)]
-    [InlineData(Caller.MachineToken)]
-    public async Task Binding_SetByACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndTheMarkStaysWhereItWas(Caller caller)
-    {
-        await StartAsync(caller: caller);
-        _factoryManager = "11111111-0000-4000-8000-000000000001";
-
-        var response = await PutBinding("{\"sessionId\":\"22222222-0000-4000-8000-000000000002\"}");
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal("11111111-0000-4000-8000-000000000001", _factoryManager);
-    }
-
-    [Fact]
-    public async Task Binding_ASessionMarkingItself_Is403_InASentenceThatSaysWhoSetsItAndWhatASessionMayStillDo()
-    {
-        await StartAsync(caller: Caller.SessionKey);
-
-        var response = await PutBinding("{\"sessionId\":\"" + CallingSessionId + "\"}");
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Null(_factoryManager);
-        var error = await ErrorOf(response);
-        Assert.Equal(FactoryManagerEndpoints.SessionMaySetSentence, error);
-        Assert.Contains("only the owner sets it", error);
-        Assert.Contains("may still read the mark and clear it", error);
-    }
-
-    [Fact]
-    public async Task Binding_ASessionKey_MayStillReadTheMarkAndClearIt()
-    {
-        await StartAsync(caller: Caller.SessionKey);
-        _factoryManager = "11111111-0000-4000-8000-000000000001";
-
-        var shown = await _http!.GetFromJsonAsync<FactoryManagerBindingDto>("gateway/factory-manager", Web);
-        var cleared = await PutBinding("{\"sessionId\":null}");
-
-        Assert.Equal("11111111-0000-4000-8000-000000000001", shown!.SessionId);
-        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
-        Assert.Null(_factoryManager);
-    }
-
-    [Theory]
-    [InlineData("{}")]
-    [InlineData("{\"sessionId\":\"not-a-session\"}")]
-    [InlineData("{\"sessionId\":42}")]
-    public async Task Binding_WithNoOrABadSessionId_Is400_AndNothingChanges(string json)
-    {
-        await StartAsync(caller: Caller.SessionKey);
-        _factoryManager = "22222222-0000-4000-8000-000000000002";
-
-        var response = await PutBinding(json);
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("22222222-0000-4000-8000-000000000002", _factoryManager);
-    }
-
-    [Fact]
-    public async Task Binding_TheFactorySwitchOff_Is404_AndNothingChanges()
-    {
-        await StartAsync(switchOn: false, caller: Caller.SessionKey);
-
-        var response = await PutBinding("{\"sessionId\":\"22222222-0000-4000-8000-000000000002\"}");
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Null(_factoryManager);
-    }
-
-    [Fact]
-    public async Task Card_NotStartedAndNoPlacement_AsksForTheComputerAndFolder_ListingRunningComputers()
-    {
-        await StartAsync();
-
-        var card = (await _http!.GetFromJsonAsync<FactoryManagerCardDto>("gateway/factory-agents/factory-manager", Web))!;
-
-        Assert.Equal("Factory Manager", card.Title);
-        Assert.Equal("Not started yet", card.StateText);
-        Assert.Equal("Talk to the Factory Manager", card.ActionLabel);
-        Assert.Null(card.SessionHref);
-        Assert.True(card.NeedsPlacement);
-        Assert.Equal(new[] { "OTHER-PC", "SOREN_NORTH" }, card.Computers);
-        // The form's labels are the Gateway's, as the contract says; the Cockpit writes none of its own.
-        Assert.Equal("Computer", card.ComputerLabel);
-        Assert.Equal("Folder", card.FolderLabel);
-    }
-
-    [Fact]
-    public async Task Card_WhileTheBoundOneRuns_OffersToOpenIt()
-    {
-        await StartAsync();
-        _placement = ("SOREN_NORTH", Folder);
-        _factoryManager = "11111111-0000-4000-8000-000000000001";
-        _pushed[_factoryManager] = new SessionDto { SessionId = _factoryManager, MachineName = "SOREN_NORTH", ActivityState = "Idle" };
-
-        var card = (await _http!.GetFromJsonAsync<FactoryManagerCardDto>("gateway/factory-agents/factory-manager", Web))!;
-
-        Assert.Equal("Running on SOREN_NORTH", card.StateText);
-        Assert.Equal("Open the Factory Manager", card.ActionLabel);
-        Assert.Equal("/session/" + _factoryManager, card.SessionHref);
-        Assert.False(card.NeedsPlacement);
-        Assert.Null(card.ComputerLabel);
-        Assert.Null(card.FolderLabel);
-        Assert.Equal("Runs on SOREN_NORTH in " + Folder, card.PlacementSavedText);
-    }
-
-    [Fact]
-    public async Task NameCheck_OverHttp_ChecksTheRegisteredFactory()
-    {
-        await StartAsync(caller: Caller.SessionKey);
-
-        var check = (await _http!.GetFromJsonAsync<FactoryNameCheckDto>("gateway/factory/name-check", Web))!;
-
-        // WarmForward's seats are named Boss and Savings Engineer, both role words, so nothing is flagged.
-        Assert.Equal(1, check.FactoriesChecked);
-        Assert.Equal(0, check.Count);
-    }
-
-    [Fact]
-    public async Task Handle_ARunThatIsNoOpenProblemOfThisFactory_Is404_AndNothingIsStarted()
-    {
-        await StartAsync();
-        var resolved = ScoutProblem();
-        resolved.State = CronRunProblemStates.Resolved;
-        _problems.Add(resolved);
-        var elsewhere = ScoutProblem(runId: "3f1c2b7a-0000-4000-8000-0000000000a2", factory: "tallyhand");
-        _problems.Add(elsewhere);
-
-        var notOpen = await Handle("warmforward", resolved.RunId);
-        var notThisFactory = await Handle("warmforward", elsewhere.RunId);
-
-        Assert.Equal(HttpStatusCode.NotFound, notOpen.StatusCode);
-        Assert.Contains("has no open problem on run", await ErrorOf(notOpen));
-        Assert.Equal(HttpStatusCode.NotFound, notThisFactory.StatusCode);
-        Assert.Empty(_sent);
-    }
-
-    [Theory]
-    [InlineData(Caller.DirectorDeviceKey)]
-    [InlineData(Caller.MachineToken)]
-    public async Task Handle_ACredentialThatIsNotTheOwnersBrowserOrPhone_Is403_AndNothingIsStarted(Caller caller)
-    {
-        await StartAsync(caller: caller);
-        var problem = ScoutProblem();
-        _problems.Add(problem);
-
-        var response = await Handle("warmforward", problem.RunId);
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Empty(_sent);
-    }
-
-    [Fact]
-    public async Task Handle_TheFactorySwitchOff_Is404WithASentence_AndNothingIsStarted()
-    {
-        await StartAsync(switchOn: false);
-        var problem = ScoutProblem();
-        _problems.Add(problem);
-
-        var response = await Handle("warmforward", problem.RunId);
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Contains("switched off", await ErrorOf(response));
-        Assert.Empty(_sent);
-    }
-
-    [Fact]
-    public void Handle_ASessionsOwnKey_NeverReachesTheRoute()
-        => Assert.False(SessionKeyGuard.Check("POST", "/gateway/factory-agents/factories/warmforward/problems/x/handle").Allowed,
-            "Handle the issue opens the owner's own talk; a session must not be able to start one");
 }

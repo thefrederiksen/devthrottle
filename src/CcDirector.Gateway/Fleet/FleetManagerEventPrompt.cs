@@ -51,6 +51,7 @@ internal static class FleetManagerEventPrompt
         var died = events.Count(e => e.Kind == FleetManagerEventStore.KindDied);
         var answered = events.Count(e => e.Kind == FleetManagerEventStore.KindAnswered);
         var taught = events.Count(e => e.Kind == FleetManagerEventStore.KindLesson);
+        var problems = events.Count(e => e.Kind == FleetManagerEventStore.KindProblem);
         var marked = events.Any(e => e.Kind == FleetManagerEventStore.KindMarked);
         var sb = new StringBuilder();
         sb.Append(FirstLinePrefix).Append(' ');
@@ -61,6 +62,7 @@ internal static class FleetManagerEventPrompt
         sb.Append(Count(stops, "stop", "stops")).Append(" and ")
           .Append(died).Append(" died");
         if (answered > 0) sb.Append(", and ").Append(Count(answered, "card answered by the owner", "cards answered by the owner"));
+        if (problems > 0) sb.Append(", and ").Append(Count(problems, "problem sent by the owner", "problems sent by the owner"));
         sb.Append(" since your last turn.\n");
         sb.Append("Sessions you own. Act on each, then acknowledge it by its id. Readings are the Wingman's, not the session's.\n");
         sb.Append("An event can be sent more than once: if you have already handled an event id, do not act on it again - acknowledge it.\n");
@@ -74,7 +76,7 @@ internal static class FleetManagerEventPrompt
             sb.Append('\n');
             sb.Append("event ").Append(i + 1).Append(" of ").Append(events.Count).Append(": ").Append(e.Id).Append('\n');
             sb.Append("kind: ").Append(e.Kind).Append('\n');
-            if (e.Kind != FleetManagerEventStore.KindAnswered && e.Kind != FleetManagerEventStore.KindLesson)
+            if (e.Kind != FleetManagerEventStore.KindAnswered && e.Kind != FleetManagerEventStore.KindLesson && e.Kind != FleetManagerEventStore.KindProblem)
                 sb.Append("session: ").Append(e.SessionId).Append(" \"").Append(e.SessionName).Append("\"\n");
             if (e.Kind == FleetManagerEventStore.KindMarked)
             {
@@ -101,6 +103,17 @@ internal static class FleetManagerEventPrompt
                 if (!string.IsNullOrEmpty(e.SessionId)) sb.Append("about session: ").Append(e.SessionId).Append('\n');
                 sb.Append("answered by: the owner, on the Fleet Manager page. The record is already answered; act on the words.\n");
                 sb.Append(WordsStart).Append('\n');
+                sb.Append(EvidenceOpen).Append(e.Words).Append(EvidenceClose).Append('\n');
+                continue;
+            }
+            if (e.Kind == FleetManagerEventStore.KindProblem)
+            {
+                // The owner pressed Handle the issue on a factory with no boss. The brief is copied as stored.
+                sb.Append("problem: ").Append(e.SessionName).Append('\n');
+                sb.Append("run: ").Append(e.OutcomeId).Append('\n');
+                sb.Append("sent by: the owner, with Handle the issue on the factory's page. Stand in for the missing boss, then acknowledge this event. ")
+                  .Append("The problem stays open until it is resolved.\n");
+                sb.Append(EvidenceStart).Append('\n');
                 sb.Append(EvidenceOpen).Append(e.Words).Append(EvidenceClose).Append('\n');
                 continue;
             }

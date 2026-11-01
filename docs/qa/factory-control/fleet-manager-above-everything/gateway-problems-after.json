@@ -1,0 +1,36 @@
+{
+  "count": 1,
+  "occurrences": 1,
+  "asOfUtc": "2026-11-01T19:58:18.5484628Z",
+  "state": "all",
+  "factory": null,
+  "timeZone": "America/New_York",
+  "problems": [
+    {
+      "runId": "8dff369a-b6a7-4388-9d07-5d1515e0ce17",
+      "jobId": "cj_32895b",
+      "jobName": "qa-warmforward - writer",
+      "factory": "qa-warmforward",
+      "seat": null,
+      "scheduledUtc": "2026-11-01T16:57:18Z",
+      "startedUtc": "2026-11-01T16:57:18Z",
+      "shift": "morning",
+      "shiftText": "morning shift, Sun 1 Nov, 08:00-16:00",
+      "kind": "did-not-report",
+      "kindText": "did not report",
+      "reason": "its session ended without reporting how the run went",
+      "sentence": "Did not report: its session ended without reporting how the run went.",
+      "whenText": "Started Sun 1 Nov 11:57",
+      "raisedAtUtc": "2026-11-01T17:09:18Z",
+      "occurrences": 1,
+      "openForText": null,
+      "sessionId": "4a31bfb3-31aa-4c0b-b02b-12778ba06af0",
+      "state": "resolved",
+      "stateText": "resolved by the Fleet Manager (session 15522880-bd19-4a58-a8a6-81f7e3ed1527): Restarted the writer's schedule; the summary went out.",
+      "closedUtc": "2026-11-01T19:58:16.7666452Z",
+      "resolvedBy": "the Fleet Manager (session 15522880-bd19-4a58-a8a6-81f7e3ed1527)",
+      "resolvedReason": "Restarted the writer's schedule; the summary went out.",
+      "clearedByRunId": null
+    }
+  ]
+}

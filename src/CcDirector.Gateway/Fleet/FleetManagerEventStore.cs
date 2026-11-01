@@ -73,6 +73,13 @@ public sealed record FleetManagerEventAckResult(
     IReadOnlyList<Guid> Missing,
     IReadOnlyList<Guid> Pending);
 
+/// <summary>A problem of a factory with no boss, on its way to the Fleet Manager.</summary>
+/// <param name="RunId">The run the problem is on.</param>
+/// <param name="SessionId">The session to read, or null when the run never started one.</param>
+/// <param name="Title">One line naming the factory and the schedule.</param>
+/// <param name="Words">The brief (<see cref="Factory.Talk.FleetManagerProblemBrief"/>).</param>
+public sealed record FleetManagerProblemEvent(string RunId, string? SessionId, string Title, string Words);
+
 /// <summary>One page of <see cref="FleetManagerEventStore.ListPage"/>: the events, and the opaque cursor that continues
 /// after them - null when this page is the last.</summary>
 public sealed record FleetManagerEventPage(IReadOnlyList<FleetManagerEventDto> Events, string? NextCursor);
@@ -128,10 +135,14 @@ public sealed class FleetManagerEventStore
     /// event.</summary>
     public const string KindLesson = "lesson";
 
+    /// <summary>The owner pressed Handle the issue on a factory with no boss: the problem, in the words a boss is briefed
+    /// with, kept until the Fleet Manager acknowledges it.</summary>
+    public const string KindProblem = "problem";
+
     public const string StatusUnacknowledged = "unacknowledged";
     public const string StatusAll = "all";
 
-    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied, KindMarked, KindAnswered, KindLesson };
+    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied, KindMarked, KindAnswered, KindLesson, KindProblem };
 
     /// <summary>What a <c>marked</c> event tells the new Fleet Manager, exactly.</summary>
     public const string MarkedDetail =
@@ -445,6 +456,50 @@ public sealed class FleetManagerEventStore
         catch (Exception ex)
         {
             FileLog.Write($"[FleetManagerEventStore] RecordMarked FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Store a problem the owner sent with Handle the issue. It goes to the account's Fleet Manager as it stands when
+    /// delivered. Stored once while it waits: pressing the button again while the event for that run is unacknowledged
+    /// changes nothing and returns null.
+    /// </summary>
+    /// <exception cref="ArgumentException">The run or the words are missing.</exception>
+    public FleetManagerEventDto? RecordProblem(TenantId tenant, FleetManagerProblemEvent problem, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+        FileLog.Write($"[FleetManagerEventStore] RecordProblem: tenant={tenant.ToLogString()}, run={problem.RunId}");
+        try
+        {
+            if (string.IsNullOrWhiteSpace(problem.RunId)) throw new ArgumentException("the problem's run is required", nameof(problem));
+            if (string.IsNullOrWhiteSpace(problem.Words)) throw new ArgumentException("a problem event needs its words", nameof(problem));
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                // The run id travels in OutcomeId: the column is free on this kind, and no migration is needed for it.
+                if (ctx.FleetManagerEvents.Any(e => e.Kind == KindProblem && e.OutcomeId == problem.RunId && e.AcknowledgedAtUtc == null))
+                    return null;
+                var entity = new FleetManagerEventEntity
+                {
+                    Kind = KindProblem,
+                    SessionId = problem.SessionId ?? "",
+                    SessionName = problem.Title,
+                    AddressedTo = "",
+                    OutcomeId = problem.RunId,
+                    Words = problem.Words,
+                    CreatedAtUtc = Utc(nowUtc),
+                };
+                entity.TenantId = ctx.ActiveTenant!;
+                ctx.FleetManagerEvents.Add(entity);
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetManagerEventStore] RecordProblem: stored id={entity.Id}, run={problem.RunId}");
+                return ToDto(entity);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEventStore] RecordProblem FAILED: {ex.Message}");
             throw;
         }
     }
