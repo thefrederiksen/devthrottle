@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// The answer of <c>GET /cron/problems</c> (Factory Control, step 1): the problems of an account's scheduled runs,
-/// folded once on the Gateway. The factory page, the 08:00 email and the Factory Manager all read THIS answer, so
+/// folded once on the Gateway. The factory page, the 08:00 email and the Fleet Manager all read THIS answer, so
 /// each shows the same problems in the same words.
 /// </summary>
 public sealed class CronRunProblemsDto

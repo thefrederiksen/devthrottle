@@ -13,7 +13,9 @@ public sealed class FleetManagerEventDto
     /// <summary><c>stop</c> (the session reached a turn end), <c>died</c> (it exited or crashed), <c>marked</c> (the
     /// account's mark has moved to the Fleet Manager session this is addressed to) or <c>answered</c> (the owner
     /// answered a card; <see cref="OutcomeId"/> and <see cref="Words"/> say which and what) or <c>lesson</c> (the owner
-    /// kept a lesson; <see cref="LessonId"/> and <see cref="Words"/> say which and what).</summary>
+    /// kept a lesson; <see cref="LessonId"/> and <see cref="Words"/> say which and what) or <c>problem</c> (the owner pressed
+    /// Handle the issue on a factory with no boss; <see cref="OutcomeId"/> holds the run, <see cref="SessionName"/> a line
+    /// naming it, <see cref="Words"/> the brief).</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The session the event is about.</summary>

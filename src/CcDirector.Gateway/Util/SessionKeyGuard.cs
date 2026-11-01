@@ -398,7 +398,7 @@ public static class SessionKeyGuard
                 case "gateway/factory/registry":
                 case "gateway/factory/goal-numbers":
                 // The name check (Factory Control, step 5): which seats say CEO or carry a person's name instead of a
-                // role word. `cc-devthrottle factory name-check`, which the Factory Manager reads. Account data, folded
+                // role word. `cc-devthrottle factory name-check`, which the Fleet Manager reads. Account data, folded
                 // from the registry above; the route is only reachable while the factory agents switch is on.
                 case "gateway/factory/name-check":
                 // The Factories screen's list (issue #3685): the status word of every factory in the account, as the
@@ -554,7 +554,7 @@ public static class SessionKeyGuard
             if (IsHandoverRead(s)) return true;
 
             // The account's kept factory emails (Factory Control, step 4): the 08:00 reports and 16:00 / midnight
-            // checks as they were sent - the list and one email by id - which a factory's boss and the Factory Manager
+            // checks as they were sent - the list and one email by id - which a factory's boss and the Fleet Manager
             // read. The same facts as /cron/problems, rendered; reading them changes nothing.
             if (s.Length is 2 or 3 && s[0] == "gateway" && s[1] == "factory-emails") return true;
 
@@ -1168,12 +1168,6 @@ public static class SessionKeyGuard
         // whether it mails the account its own factories' report - and admits nobody: the email can only ever go to
         // the account's own address, resolved by the account service. The rollout switches it on from a session.
         "gateway/factory-email" => true,
-        // Which session is the account's Factory Manager (Factory Control, step 5). Unlike the Fleet Manager's mark,
-        // this one GRANTS something: the marked session may resolve any of the account's problems. So a session key
-        // reaches this route only to READ the mark and to CLEAR it (`cc-devthrottle factory manager show|clear`).
-        // SETTING it is refused by the route itself, which reads the body this guard never consults: only the
-        // owner's own phone or browser may set it (FactoryManagerEndpoints.PutBindingAsync).
-        "gateway/factory-manager" => true,
         _ => false,
     };
 
@@ -1554,7 +1548,7 @@ public static class SessionKeyGuard
         // writing a schedule can pick a folder the machine has.
         if (s.Length == 2 && s[0] == "cron" && s[1] == "folder-choices") return verb is "GET" or "HEAD";
         // /cron/problems - the account's scheduled-run problems (Factory Control, step 1), which a factory's boss and
-        // the Factory Manager read with `run problems`.
+        // the Fleet Manager read with `run problems`.
         if (s.Length == 2 && s[0] == "cron" && s[1] == "problems") return verb is "GET" or "HEAD";
         // /cron/runs/result - a scheduled run's own session reports how it went (`run result`). The route reads the run
         // off the calling key, so a session can only ever report on its own run.

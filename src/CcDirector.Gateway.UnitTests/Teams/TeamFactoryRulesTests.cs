@@ -74,9 +74,8 @@ public sealed class TeamFactoryRulesTests : IDisposable
         new object[] { "POST", "/gateway/factories/{factory}/archive" },
         new object[] { "POST", "/gateway/factory/seats/{seat}/start" },
         new object[] { "POST", "/gateway/factories/{factory}/failures/{id:guid}/handled" },
-        // Talk: the boss chat, and the Factory Manager.
+        // Talk: the boss chat.
         new object[] { "POST", "/gateway/factory-agents/factories/{factory}/seats/{seat}/talk" },
-        new object[] { "POST", "/gateway/factory-agents/factory-manager/talk" },
         // The factory inbox, from the owner's side.
         new object[] { "GET", "/gateway/factory/inbox" },
         new object[] { "POST", "/gateway/factory/{factory}/inbox" },
@@ -91,7 +90,6 @@ public sealed class TeamFactoryRulesTests : IDisposable
         new object[] { "GET", "/factory-definition-schemas" },
         new object[] { "POST", "/factory-briefs/{factory}/{seat}/publish" },
         new object[] { "GET", "/gateway/factory-emails/{id}" },
-        new object[] { "PUT", "/gateway/factory-manager" },
         // Reports and schedules.
         new object[] { "GET", "/gateway/factory-agents/reports" },
         new object[] { "POST", "/gateway/factory-agents/reports" },

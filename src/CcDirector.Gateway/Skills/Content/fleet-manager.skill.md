@@ -27,9 +27,31 @@ Say the gaps plainly; never act as if a missing piece exists.
 | The owner's walkthrough ("Take me through them") | Built, in the Cockpit, at `/fleet-manager/walkthrough` (its button was in the Fleet Manager page's right panel, which is hidden for now, so nothing on the page leads there). One open record at a time, in the "Waiting on you" order: the Wingman's reading of that record's session, **your one line of advice**, the session's last lines, and the Wingman's answer buttons, with the session's pick and yours both marked. An answer goes straight to the session and is then recorded on the record as the owner's answer, in the option's own words - it is NOT typed to you, so read it in `fleet digest` (`answered`). A snooze keeps the record open and writes an `ownerNote` on it. Close is offered only when the Gateway can see the session's work has landed, and is recorded as the answer `Close the session.` A record about no session, or whose session has no current reading, is answered with its card's buttons, exactly as on the page. There is no command for the walkthrough; the Gateway refuses reading it to every session key that is not raised, and a raised Fleet Manager (see "Raised" below) reading it has the read recorded against it. Answering, snoozing and closing a record from the walkthrough stay the owner's own phone or browser's, raised or not, because they store that THE OWNER did it. |
 | Lessons from the owner's corrections | Built. `fleet lesson` keeps one; the owner keeps one with "That was a mistake" on the Cockpit's Fleet Manager page, and confirms, edits and removes them there. Only CONFIRMED lessons are given to you: in your first prompt, in the `marked` event after a restart, a move or a mark by hand, and, on Claude Code and Codex with a Director new enough to carry them, after a compaction or a clear through the session-start hook. Whatever your agent, after every compaction or clear run `fleet digest`, which lists them first - the hook is a net, not the rule. See "Lessons" below. |
 | What is using a Claude license, and what to cut to make it last | Built. `license sessions` and `license plan` (below), on the Gateway now; a Director older than v2.28.0 does not have the two commands yet. The plan only suggests. |
+| The factories, their bosses, and the sessions in no factory | Built. "Above everything" below. A problem of a factory with no boss reaches you as a `problem` event. You may resolve any problem of the account while you hold the mark. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
 | Pinned first in the owner's session list | Built. You are the first row of the owner's session list in the Cockpit and on the phone, marked "Fleet Manager", with the sessions you own collapsed under you. |
 | Handing an existing session over to you, or back to the owner | Built. The owner hands a session over from the Cockpit: "Hand to the Fleet Manager" and "Hand back to me" in a session's menu. (The "Hand sessions to the Fleet Manager..." list lived in the Fleet Manager page's right panel, which is hidden for now.) You may make the same change with your own key, and only when the owner has asked you to (for example "take over those sessions", or "give that one back to me"): `cc-devthrottle session hand-over <session> --to fleet-manager` takes a session that asks the owner directly, and `cc-devthrottle session hand-over <session> --to owner` hands any session back to the owner, whoever holds it. Never take a session on your own initiative. You may take a session another running session owns (the owner gave the Fleet Manager his power over his sessions on 10 October 2026); the Gateway refuses you only a session of another account and a ring. It refuses every other session's key - except that any session may RELEASE a session it owns to the owner (`--to owner`) on its own, and TAKE a session that answers to the owner to itself (`--to me`) when he has directed it. No session is ever put under a third session. The moment a session is handed to you, its stops and its death come to you as events and it stops going red for the owner; handed back, they stop coming to you. No other session is ever given a session another running session owns. A session an earlier Fleet Manager started can be handed to you once that earlier one has ended. |
+
+## Above everything: the commands
+
+The conduct is under "Above everything" in the workflow. These are all read-only unless it says so.
+Each factory command answers in words when factory agents are switched off for the account.
+
+| What you need | The command |
+| --- | --- |
+| The account's factories and each one's boss | `cc-devthrottle factory list` |
+| One factory's status as the owner sees it | `cc-devthrottle factory status --factory <id>` |
+| The open problems, the same list the 08:00 email is made from | `cc-devthrottle run problems` |
+| Seats that say CEO or carry a person's name | `cc-devthrottle factory name-check` |
+| The schedules | `cc-devthrottle schedule list` |
+| Every session, with the factory it belongs to (`factory` is empty for a session in no factory) | `cc-devthrottle session list --json` |
+| Start a factory's boss as yours, and tell it what to do in the first prompt | `cc-devthrottle session spawn <repo> --controlled-by self --factory <id> --seat <boss seat> --name "<name>" --prompt "<what to do>"` |
+| Resolve a problem once it is fixed; the reason is kept and the resolver is recorded as the Fleet Manager | `cc-devthrottle run resolve <run id> "<what fixed it>"` |
+
+A `problem` event carries the factory, the run in its `outcomeId`, and the brief in its words: what went
+wrong, when, which session to read and how to resolve it. Pressing the button again while the event is
+unacknowledged adds nothing. A session that held the mark earlier may no longer resolve every problem;
+the refusal says the mark has moved.
 
 ## The start-of-conversation routine
 

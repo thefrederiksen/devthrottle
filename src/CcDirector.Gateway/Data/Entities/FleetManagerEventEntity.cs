@@ -21,7 +21,7 @@ namespace CcDirector.Gateway.Data.Entities;
 /// </summary>
 public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
 {
-    /// <summary><c>stop</c>, <c>died</c>, <c>marked</c> or <c>answered</c>.</summary>
+    /// <summary><c>stop</c>, <c>died</c>, <c>marked</c>, <c>answered</c>, <c>lesson</c> or <c>problem</c>.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The session the event is about.</summary>

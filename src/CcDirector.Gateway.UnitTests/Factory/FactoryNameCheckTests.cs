@@ -121,38 +121,16 @@ public sealed class FactoryNameCheckTests
         archived.ArchivedAtUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
         var live = Factory("Tallyhand", "boss", Seat("boss", "Boss", "Boss"));
 
-        var check = FactoryNameCheck.Check(CcDirector.Gateway.Api.FactoryManagerEndpoints.Live(new[] { archived, live }));
+        var check = FactoryNameCheck.Check(CcDirector.Gateway.Api.FactoryNameCheckEndpoints.Live(new[] { archived, live }));
 
         Assert.Equal(1, check.FactoriesChecked);
         Assert.Equal(0, check.Count);
     }
 
-    // ---- the Factory Manager's briefing --------------------------------------------------------------------------
+    // ---- what the Fleet Manager is told ---------------------------------------------------------------------------
 
     [Fact]
-    public void Compose_ListsEveryFactoryWithItsBoss_AndSaysWhoHasNone()
-    {
-        var seed = FactoryManagerSeed.Compose(new[]
-        {
-            Factory("Tallyhand", "boss", Seat("boss", "Boss", "Boss")),
-            Factory("WarmForward", null, Seat("scout", "Scout", "Scout")),
-        });
-
-        Assert.StartsWith("You are this account's Factory Manager", seed);
-        Assert.Contains("- Tallyhand (factory id tallyhand): boss seat boss, on SOREN_NORTH", seed);
-        Assert.Contains("- WarmForward (factory id warmforward): no boss - its problems come to you", seed);
-        Assert.Contains("cc-devthrottle run problems", seed);
-        Assert.Contains("cc-devthrottle factory name-check", seed);
-        Assert.Contains("do not run cc-devthrottle session done", seed);
-        Assert.Contains("a factory has a boss, not a CEO, and seats are role words, never a person's name", seed);
-    }
-
-    [Fact]
-    public void Compose_NoFactories_SaysSo()
-        => Assert.Contains("- none are registered yet.", FactoryManagerSeed.Compose(Array.Empty<RegisteredFactoryDto>()));
-
-    [Fact]
-    public void ComposeForProblem_IsThePlainStartThenTheProblemInTheBossesWords()
+    public void FleetManagerProblemBrief_StandsInForTheMissingBoss_ThenTheProblemInTheBossesWords()
     {
         var f = Factory("WarmForward", null, Seat("scout", "Scout", "Scout"));
         var problem = new CronRunProblemDto
@@ -163,12 +141,12 @@ public sealed class FactoryNameCheckTests
             State = CronRunProblemStates.Open,
         };
 
-        var seed = FactoryManagerSeed.ComposeForProblem(new[] { f }, f, problem, TimeZoneInfo.Utc);
+        var brief = FleetManagerProblemBrief.Compose(f, problem, TimeZoneInfo.Utc);
 
-        Assert.StartsWith(FactoryManagerSeed.Compose(new[] { f }), seed);
-        Assert.Contains("THIS TALK IS ABOUT ONE PROBLEM OF WarmForward (factory id warmforward), which has no boss", seed);
-        Assert.EndsWith(FactoryTalkSeed.ProblemBrief(problem, TimeZoneInfo.Utc), seed);
-        Assert.Equal("Factory Manager - WarmForward - handle the issue (WarmForward - Scout - sweep)",
-            FactoryManagerSeed.ProblemSessionName(f, problem));
+        Assert.StartsWith("WarmForward (factory id warmforward) has no boss", brief);
+        Assert.Contains("You stand in for the missing boss", brief);
+        // Rule 1 still binds it: the fix goes to a session it starts.
+        Assert.Contains("start a session of your own in the factory's folder", brief);
+        Assert.EndsWith(FactoryTalkSeed.ProblemBrief(problem, TimeZoneInfo.Utc), brief);
     }
 }

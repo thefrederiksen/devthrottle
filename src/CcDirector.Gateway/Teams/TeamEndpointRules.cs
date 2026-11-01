@@ -325,7 +325,6 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/gateway/factory-agents", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/gateway/factory-email", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/gateway/factory-emails", TeamMethods.Any, Factories, TeamTarget.Team),
-        new TeamEndpointRule("/gateway/factory-manager", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/factory-briefs", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/factory-definitions", TeamMethods.Any, Factories, TeamTarget.Team),
         new TeamEndpointRule("/factory-definition-schemas", TeamMethods.Any, Factories, TeamTarget.Team),

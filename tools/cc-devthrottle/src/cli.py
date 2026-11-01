@@ -23,7 +23,7 @@ from . import factory_inbox_ops
 from . import factory_record_ops
 from . import factory_registry_ops
 from . import factory_status_ops
-from . import factory_manager_ops
+from . import factory_name_check_ops
 from . import review_ops
 from . import run_ops
 from . import fleet_manager_ops
@@ -147,12 +147,6 @@ inbox_app = typer.Typer(
 fleet_manager_app = typer.Typer(
     cls=AxiGroup,
     help="Show, set, or clear which session is this account's one Fleet Manager.",
-    add_completion=False,
-    no_args_is_help=True,
-)
-factory_manager_app = typer.Typer(
-    cls=AxiGroup,
-    help="Show or clear the account's Factory Manager mark. Only the owner sets it.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -389,7 +383,6 @@ app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
 app.add_typer(inbox_app, name="inbox")
 app.add_typer(fleet_manager_app, name="fleet-manager")
-factory_app.add_typer(factory_manager_app, name="manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
@@ -1959,20 +1952,6 @@ _ACTIONS = [
         "id": "fleet-manager-clear",
         "description": "Remove this account's Fleet Manager mark.",
         "command": "cc-devthrottle fleet-manager clear",
-        "mutatesState": True,
-        "args": [],
-    },
-    {
-        "id": "factory-manager-show",
-        "description": "Show which session is this account's one Factory Manager, or none, and the computer and folder it starts on.",
-        "command": "cc-devthrottle factory manager show",
-        "mutatesState": False,
-        "args": [],
-    },
-    {
-        "id": "factory-manager-clear",
-        "description": "Remove this account's Factory Manager mark.",
-        "command": "cc-devthrottle factory manager clear",
         "mutatesState": True,
         "args": [],
     },
@@ -3967,24 +3946,6 @@ def fleet_manager_clear(
     fleet_manager_ops.clear(json_output)
 
 
-@factory_manager_app.command("show")
-def factory_manager_show(
-    json_output: bool = typer.Option(
-        False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>, \"computer\": ..., \"folder\": ...}."
-    ),
-) -> None:
-    """Show this account's Factory Manager, or none, and where it starts."""
-    factory_manager_ops.show(json_output)
-
-
-@factory_manager_app.command("clear")
-def factory_manager_clear(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
-) -> None:
-    """Remove this account's Factory Manager mark."""
-    factory_manager_ops.clear(json_output)
-
-
 @mission_app.command("create")
 def mission_create(
     name: str = typer.Argument(..., help="Human-friendly name for the Mission."),
@@ -5175,9 +5136,9 @@ def factory_name_check(
     """Flag every seat that says CEO, or whose name is not a role word.
 
     A factory has a boss, not a CEO, and seats are role words, never a person's name. The rule and every
-    sentence are the Gateway's, from the one fold the Factory Manager and the Factories screen read.
+    sentence are the Gateway's, from the one fold the Fleet Manager reads.
     """
-    factory_manager_ops.name_check(json_output)
+    factory_name_check_ops.name_check(json_output)
 
 
 @factory_goal_number_app.command("post")
@@ -6780,7 +6741,7 @@ def run_problems(
     """List the scheduled-run problems still open (every one, with --all).
 
     Each carries the schedule, its factory, the run and its shift, the kind of problem and its one line why,
-    and the session to read. The same list the factory page, the morning email and the Factory Manager read.
+    and the session to read. The same list the factory page, the morning email and the Fleet Manager read.
     """
     run_ops.problems(factory, include_closed, json_output)
 
