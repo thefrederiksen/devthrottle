@@ -74,7 +74,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     /// and what it was sent.</summary>
     private const string FleetManagerId = "11111111-0000-4000-8000-000000000001";
     private string? _runningFleetManager;
+    private string? _successor;
     private FleetManagerPlacementResult? _startAnswer;
+    private string? _runningAfterTheStart;
     private int _starts;
     private int _queued;
     private readonly List<FleetManagerProblemEvent> _sentToFleetManager = new();
@@ -219,9 +221,11 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
                 State = _runningFleetManager is null ? FleetManagerStatusDto.StateNotRunning : FleetManagerStatusDto.StateRunning,
                 SessionId = _runningFleetManager,
             }),
+            Successor: _ => _successor,
             Start: (_, _) =>
             {
                 _starts++;
+                _runningFleetManager ??= _runningAfterTheStart;
                 return Task.FromResult(_startAnswer ?? throw new InvalidOperationException("this test did not expect a start"));
             },
             LastKnownSession: (_, sid) => _pushed.TryGetValue(sid, out var s) ? s : null,
@@ -939,6 +943,38 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal("/session/" + FleetManagerId, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Href);
         Assert.Equal(1, _starts);
+        Assert.Single(_sentToFleetManager);
+    }
+
+    [Fact]
+    public async Task Handle_AFactoryWithNoBoss_DuringAReplacement_KeepsTheProblemForTheSessionTakingOver_AndStartsNothing()
+    {
+        // The old Fleet Manager has closed and the new one has not taken the mark yet, so the status reads not running.
+        await StartAsync(bossless: true);
+        _successor = FleetManagerId;
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("/session/" + FleetManagerId, (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Href);
+        Assert.Equal(0, _starts);
+        Assert.Single(_sentToFleetManager);
+    }
+
+    [Fact]
+    public async Task Handle_AFactoryWithNoBoss_WhenAnotherPressStartedTheFleetManagerFirst_StillReachesIt()
+    {
+        await StartAsync(bossless: true);
+        _startAnswer = FleetManagerPlacementResult.Refused(409, "The Fleet Manager is already running.");
+        _runningAfterTheStart = FleetManagerId;
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Single(_sentToFleetManager);
     }
 

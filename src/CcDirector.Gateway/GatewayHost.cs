@@ -6140,6 +6140,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
         var fleetManagerProblems = new Api.FleetManagerProblemSources(
             Status: async (tenant, ct) => (await FleetManagerPlacement.ReadAsync(tenant, ct)).Status,
+            Successor: tenant => _tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant),
             Start: (ctx, tenant) => FleetManagerPlacement.StartAsync(tenant,
                 Api.FleetManagerPlacementEndpoints.StampOrigin(ctx, Api.FactoryTalkEndpoints.HandleRoute), ctx.RequestAborted,
                 Api.FleetManagerOwnerDevice.Caller(ctx)),
