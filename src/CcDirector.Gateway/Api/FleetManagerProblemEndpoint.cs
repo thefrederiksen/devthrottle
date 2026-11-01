@@ -8,12 +8,14 @@ namespace CcDirector.Gateway.Api;
 
 /// <summary>Where Handle the issue reads and writes what it needs to reach the Fleet Manager, one delegate per fact.</summary>
 /// <param name="Status">Whether the account's Fleet Manager runs, as the Settings tab's one fold answers it.</param>
+/// <param name="Successor">The session waiting to take over in a restart or a move, or null.</param>
 /// <param name="Start">Start the Fleet Manager where the owner's setting says, for this request.</param>
 /// <param name="LastKnownSession">What the account's Directors last pushed for one session, or null.</param>
 /// <param name="Record">Store the problem as an event for the Fleet Manager. Null when it already waits there.</param>
 /// <param name="Queued">Book a delivery of what was stored.</param>
 internal sealed record FleetManagerProblemSources(
     Func<TenantId, CancellationToken, Task<FleetManagerStatusDto>> Status,
+    Func<TenantId, string?> Successor,
     Func<HttpContext, TenantId, Task<FleetManagerPlacementResult>> Start,
     Func<TenantId, string, SessionDto?> LastKnownSession,
     Func<TenantId, FleetManagerProblemEvent, FleetManagerEventDto?> Record,
@@ -26,7 +28,9 @@ internal sealed record FleetManagerProblemSources(
 /// AN EVENT AND NOT A TYPED PROMPT, because the Fleet Manager may be in the middle of a turn: an event reaches it only
 /// while it is idle, survives a restart or a move, and stays until it is acknowledged. When no Fleet Manager runs one is
 /// started where the owner's setting says, by the same service as the Settings tab, and the event is stored only once
-/// it has started, so a refused start says its own sentence and leaves nothing behind.
+/// it has started, so a refused start says its own sentence and leaves nothing behind. DURING A RESTART OR A MOVE the
+/// old session may have closed before the new one takes the mark: the event is stored all the same, because delivery
+/// holds it for the session the mark reaches. A start that lost a race to another press finds that session running.
 /// </summary>
 internal static class FleetManagerProblemEndpoint
 {
@@ -37,21 +41,28 @@ internal static class FleetManagerProblemEndpoint
         FleetManagerProblemEvent problem, string factory)
     {
         FileLog.Write($"[FleetManagerProblemEndpoint] HandleAsync: factory={factory}, run={problem.RunId}");
-        var status = await s.Status(tenant, ctx.RequestAborted);
-        var running = status.State == FleetManagerStatusDto.StateRunning;
-        var sessionId = running ? status.SessionId : null;
-        if (!running)
+        var sessionId = await ReachableAsync(tenant, s, ctx.RequestAborted);
+        var started = false;
+        if (sessionId is null)
         {
-            var started = await s.Start(ctx, tenant);
-            if (started.Placement is null)
+            var start = await s.Start(ctx, tenant);
+            if (start.Placement is not null)
             {
-                FileLog.Write($"[FleetManagerProblemEndpoint] the start was refused ({started.Status}): {started.Error}");
-                return Results.Json(new { error = started.Error }, statusCode: started.Status);
+                sessionId = start.Placement.Status.SessionId;
+                started = true;
+                if (string.IsNullOrEmpty(sessionId))
+                    throw new InvalidOperationException("the Fleet Manager reads as started but names no session");
             }
-            sessionId = started.Placement.Status.SessionId;
+            else
+            {
+                sessionId = await ReachableAsync(tenant, s, ctx.RequestAborted);
+                if (sessionId is null)
+                {
+                    FileLog.Write($"[FleetManagerProblemEndpoint] the start was refused ({start.Status}): {start.Error}");
+                    return Results.Json(new { error = start.Error }, statusCode: start.Status);
+                }
+            }
         }
-        if (string.IsNullOrEmpty(sessionId))
-            throw new InvalidOperationException($"the Fleet Manager reads as {(running ? "running" : "started")} but names no session");
 
         var stored = s.Record(tenant, problem);
         s.Queued(tenant);
@@ -67,6 +78,19 @@ internal static class FleetManagerProblemEndpoint
             Seat = SeatId,
             Computer = session?.MachineName ?? "",
             DirectorId = session?.DirectorId ?? "",
-        }, statusCode: running ? StatusCodes.Status200OK : StatusCodes.Status201Created);
+        }, statusCode: started ? StatusCodes.Status201Created : StatusCodes.Status200OK);
+    }
+
+    /// <summary>The running Fleet Manager, or the session waiting to take over; null when neither exists.</summary>
+    private static async Task<string?> ReachableAsync(TenantId tenant, FleetManagerProblemSources s, CancellationToken ct)
+    {
+        var status = await s.Status(tenant, ct);
+        if (status.State == FleetManagerStatusDto.StateRunning)
+        {
+            if (string.IsNullOrEmpty(status.SessionId))
+                throw new InvalidOperationException("the Fleet Manager reads as running but names no session");
+            return status.SessionId;
+        }
+        return s.Successor(tenant);
     }
 }
