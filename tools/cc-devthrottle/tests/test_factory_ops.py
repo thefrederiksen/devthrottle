@@ -254,3 +254,42 @@ def test_actions_ListTheFactoryVerbs():
     assert result.exit_code == 0
     ids = {action["id"] for action in json.loads(result.output)["actions"]}
     assert {"factory-record", "factory-activity"}.issubset(ids)
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory seat start: the Gateway decides, and this command never reports a start it cannot show.
+# ---------------------------------------------------------------------------------------------------
+
+SEAT_START = ["factory", "seat", "start", "--seat", "scribe", "--name", "write the note", "--prompt", "Write it."]
+
+
+def test_seat_start_Started_PostsTheSeatTheNameAndTheJob_AndNamesTheSession(gateway_answering):
+    gw = gateway_answering(201, {"sessionId": "abc-123", "sessionName": "Proof - Scribe - write the note", "computer": "NORTH"})
+
+    result = runner.invoke(app, SEAT_START)
+
+    assert result.exit_code == 0, result.output
+    assert "Proof - Scribe - write the note" in result.output
+    assert "abc-123" in result.output
+    call = gw.calls[0]
+    assert call["method"] == "POST"
+    assert call["path"] == "/gateway/factory/seats/scribe/start"
+    assert call["body"] == {"name": "write the note", "prompt": "Write it."}
+
+
+def test_seat_start_Refused_ExitsNonZeroWithTheGatewaysSentence(gateway_answering):
+    gateway_answering(403, {"error": "only the Boss of a factory may start another seat of it"})
+
+    result = runner.invoke(app, SEAT_START)
+
+    assert result.exit_code != 0
+    assert "only the Boss" in result.output
+
+
+def test_seat_start_AnswerWithNoSessionId_IsNotReportedAsStarted(gateway_answering):
+    gateway_answering(201, {})
+
+    result = runner.invoke(app, SEAT_START)
+
+    assert result.exit_code != 0
+    assert "Started" not in result.output

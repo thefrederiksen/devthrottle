@@ -66,6 +66,11 @@ recorded on every session and every run participant.
   right resources are in place. It may do its own reviews and strategy; anything that would take longer to
   carry out goes to a session it starts, which comes back to it when finished, and the Boss stays available
   to the owner meanwhile. The Gateway gives every Boss this conduct on every start, so no seat file repeats it.
+  A Boss hands work that belongs to another seat, or needs its grants, to that seat
+  (`cc-devthrottle factory seat start --seat <seat> --name "<what>" --prompt "<the job>"`). The seat runs as the
+  published definition says, owned by the Boss, and hands back when finished. A Boss chooses nothing else about it,
+  cannot start a Boss seat, and a session that inherited the Boss's seat cannot start one at all. Each start is
+  recorded on the factory's activity record.
 - **Who makes a factory** - the owner, through a session. "Factories are created by agents as long as they
   have user approval" (the owner, 16 October 2026). A session in no factory that the owner tells what to
   make may create the factory from a folder (`cc-devthrottle factory definition create <folder>`), save

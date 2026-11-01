@@ -64,6 +64,9 @@ repositories: [devthrottle]       # optional: repository names the factory may w
   comes back to it when finished, and it stays available to the owner meanwhile. The Gateway gives this conduct to the
   seat `bossSeat` names and to any seat with the role Boss, on every start, in its first prompt and in its kit's
   `brief.md`, so a seat's `brief` does not repeat it.
+  A Boss may start another seat of its factory with `cc-devthrottle factory seat start`. The seat runs from the
+  published definition with its full kit, the Boss owns it, and the start is recorded. See
+  [boss-delegation-design.md](boss-delegation-design.md).
 - `defaults` - holds `machine`, `agent` and `model`, which a seat takes when it names none of its own.
 - `repositories` - the repositories the factory may work in.
 

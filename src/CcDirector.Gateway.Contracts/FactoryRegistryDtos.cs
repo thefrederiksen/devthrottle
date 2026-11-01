@@ -216,6 +216,16 @@ public sealed class FactoryTalkOverrideDto
 /// The answer of <c>POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk</c> (Factories screen mission,
 /// phase C): the top-level session the owner's Talk button started, seated as that seat, and where the Cockpit opens it.
 /// </summary>
+public sealed class FactorySeatStartRequest
+{
+    /// <summary>What this session does, in a few words. The Gateway puts the factory and the seat in front of it.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>The whole job. The seat's own brief, grants and files come from its published definition.</summary>
+    public string? Prompt { get; set; }
+}
+
+/// <summary>What a session start answers: a talk with a seat, or a seat a Boss started.</summary>
 public sealed class FactoryTalkStartedDto
 {
     /// <summary>The new session's id.</summary>

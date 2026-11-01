@@ -1829,6 +1829,16 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+#### A Boss starts a seat
+
+```bash
+cc-devthrottle factory seat start --seat <seat> --name "<what it does>" --prompt "<the whole job>"
+```
+
+Only a factory's Boss may. The seat runs as the published definition says, on its own computer, with its full kit.
+The Boss owns it and it comes back with a handback. Refused for any other session, for a Boss seat, and when no
+Director is running on the seat's computer.
+
 #### Factory status - the Factories screen as the owner sees it
 
 A factory's boss reads the same screen the owner reads (issue #3685): the same two routes, folded once on

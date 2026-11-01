@@ -198,6 +198,13 @@ factory_journal_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_journal_app, name="journal")
+factory_seat_app = typer.Typer(
+    cls=AxiGroup,
+    help="A Boss starts another seat of its own factory.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_seat_app, name="seat")
 factory_doc_app = typer.Typer(
     cls=AxiGroup,
     help="A factory's working documents on the Gateway, the newest three versions kept.",
@@ -4802,6 +4809,19 @@ def factory_record(
     factory agents switched off, the row refused, the Gateway unreachable - it exits non-zero with the reason.
     """
     factory_ops.record(factory, agent, outcome, what, subject, link, version, corrects, json_output)
+
+
+@factory_seat_app.command("start")
+def factory_seat_start(
+    seat: str = typer.Option(..., "--seat", help="The seat of your factory to start."),
+    name: str = typer.Option(..., "--name", help="What this session does, in a few words."),
+    prompt: str = typer.Option(..., "--prompt", help="The whole job. The seat already has its brief, grants and files."),
+) -> None:
+    """Start another seat of your factory. Only a factory's Boss may.
+
+    The seat runs as the published definition says, on its own computer, and comes back to you with a handback.
+    """
+    factory_ops.start_seat(seat, name, prompt)
 
 
 @factory_app.command("activity")

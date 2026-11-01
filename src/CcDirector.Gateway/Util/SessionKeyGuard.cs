@@ -668,6 +668,10 @@ public static class SessionKeyGuard
             // refuses a session posting for another factory.
             if (Join(s) == "gateway/factory/goal-numbers") return true;
 
+            // A factory's Boss starts another seat of its factory. The route proves the caller is the Boss from its own
+            // recorded seat and builds the start from the published definition; every other session is refused there.
+            if (s.Length == 5 && s[0] == "gateway" && s[1] == "factory" && s[2] == "seats" && s[4] == "start") return true;
+
             // Start a session, or an application, on a machine in this account.
             if (s.Length == 3 && s[0] == "machines" && (s[2] == "sessions" || s[2] == "launch")) return true;
 

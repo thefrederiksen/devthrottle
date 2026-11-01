@@ -1,0 +1,89 @@
+POST /factory-definitions/import -> 403
+{"error":"a factory's definition is written by a person, or by a session of that factory or of none","detail":"Every version records who wrote it. This request carried neither a session's key nor a person's device key."}
+
+GET /cron/jobs -> 200
+{"jobs":[]}
+
+POST /directors/94977813-bd4f-45f2-bbeb-0ff2ffe9e121/sessions -> 201
+
+GET /factory-definitions/delegation-proof/history -> 200
+{"factory":"delegation-proof","publishedVersion":null,"newestVersion":0,"total":0,"versions":[],"nextBefore":null}
+
+GET /cron/jobs -> 200
+{"jobs":[]}
+
+GET /cron/jobs -> 200
+{"jobs":[{"id":"cj_8d2546","name":"Delegation Proof - Boss","enabled":true,"scheduleKind":"recurring","cronExpression":"0 3 1 1 *","runAt":null,"timeZoneId":"America/Toronto","factory":"delegation-proof","seat":"boss","target":{"machine":"SOREN_NORTH"},"action":{"repoPath":"","seed":"Have the seat scribe write today's note. Then, once it has come back, tell me in one line what it said\nand report the run.\n","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"failure","notifyDefaultedUtc":null,"notifyNote":null,"notifyText":"When a run fails","lastRunText":null,"lastRunTone":null,"notifyWebhookUrl":null,"createdUtc":"2026-11-01T23:05:06.9582748Z","lastFiredUtc":null,"nextRunUtc":"2027-01-01T08:00:00Z","lastStatus":null,"scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":{"verdict":"none","text":"no runs yet","runs":0},"factoryTitle":"Delegation Proof","factoryHref":"/factories/delegation-proof/seats","shortName":"Boss","loadWarning":null,"folderWarning":null,"shifts":[],"shiftText":"No run in the next 7 days","shiftWarning":null,"shiftRule":null,"definedByDefinition":true,"pathText":"built from the factory's definition","checkPath":null,"checkSecrets":null,"definitionVersion":null}]}
+
+POST /cron/jobs/cj_8d2546/run -> 200
+{"scheduledUtc":"2026-11-01T23:08:51.4504368Z","firedUtc":"2026-11-01T23:08:58.267692Z","machine":"SOREN_NORTH","targetDirectorId":"94977813-bd4f-45f2-bbeb-0ff2ffe9e121","sessionId":"cd36177f-abe4-432b-be05-eba30127e811","sessionName":"Delegation Proof - Boss - 2026-11-01 18:08","infraStatus":"started","infraTone":"ok","taskStatus":"unknown","ending":"still-open","endingText":"running - 1 min so far","failureText":null,"failureCause":null,"shiftText":null,"runId":"849d814e-19ee-4271-b40c-d50940af4bed","result":"pending","problem":null,"resultReason":null,"resultUtc":null,"resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":"delegation-proof","seat":"boss","jobName":"Delegation Proof - Boss","missedNotListed":0,"briefVersion":1,"briefVersionKind":"definition","checkCount":null,"checkedUtc":null}
+
+GET /sessions -> 200
+
+POST /cron/jobs/cj_8d2546/run -> 200
+{"scheduledUtc":"2026-11-01T23:14:51.4020001Z","firedUtc":"2026-11-01T23:14:56.2719059Z","machine":"SOREN_NORTH","targetDirectorId":"94977813-bd4f-45f2-bbeb-0ff2ffe9e121","sessionId":"dc287b5a-d624-43aa-a160-c02eab9c37a0","sessionName":"Delegation Proof - Boss - 2026-11-01 18:14","infraStatus":"started","infraTone":"ok","taskStatus":"unknown","ending":"still-open","endingText":"running - 1 min so far","failureText":null,"failureCause":null,"shiftText":null,"runId":"c7e6abac-5784-432b-bf62-eaf2c5dac6ed","result":"pending","problem":null,"resultReason":null,"resultUtc":null,"resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":"delegation-proof","seat":"boss","jobName":"Delegation Proof - Boss","missedNotListed":0,"briefVersion":1,"briefVersionKind":"definition","checkCount":null,"checkedUtc":null}
+
+--- round two ---
+scribes so far: ['0d07efa8-55b9-4ed3-8585-c6ea992a492e']
+[18:23:05] the Scribe was refused: only the Boss of a factory may start another seat of it, and this session
+[18:26:25] TIMED OUT: a second Scribe is running
+--- round two: a Boss that stays open, as an owner's talk does ---
+the Boss session: db3c7f18-d0f0-44e5-b3e2-a2876223501c
+[18:27:45] the Boss is ready: READY
+[18:32:03] TIMED OUT: a second Scribe is running
+--- round two: a Boss that stays open, as an owner's talk does ---
+[18:33:28] a second Scribe is running: ad1aa475-91ba-40e7-b472-78a832e1edfa
+[18:33:36] the Boss ended its turn: WaitingForInput
+the second Scribe is WaitingForInput as the owner asks the Boss a question
+[18:33:48] the Boss answered: ANSWER 42
+the second Scribe is WaitingForInput when the Boss has answered
+[18:33:48] the second Scribe came back to the Boss: FINISHED
+final sessions: [
+ {
+  "sessionId": "db3c7f18-d0f0-44e5-b3e2-a2876223501c",
+  "name": "Delegation Proof - Boss - talk with the owner",
+  "activityState": "Working",
+  "controllerSessionId": null,
+  "factorySeat": "boss",
+  "factoryKit": "seat",
+  "originKind": "unknown"
+ },
+ {
+  "sessionId": "0d07efa8-55b9-4ed3-8585-c6ea992a492e",
+  "name": "Delegation Proof - Scribe - Scribe writes today's note",
+  "activityState": "WaitingForInput",
+  "controllerSessionId": "dc287b5a-d624-43aa-a160-c02eab9c37a0",
+  "factorySeat": "scribe",
+  "factoryKit": "seat",
+  "originKind": "agent"
+ },
+ {
+  "sessionId": "ad1aa475-91ba-40e7-b472-78a832e1edfa",
+  "name": "Delegation Proof - Scribe - slow-count",
+  "activityState": "WaitingForInput",
+  "controllerSessionId": "db3c7f18-d0f0-44e5-b3e2-a2876223501c",
+  "factorySeat": "scribe",
+  "factoryKit": "seat",
+  "originKind": "agent"
+ },
+ {
+  "sessionId": "7f4fbbef-9ddf-41af-b603-4323b12601dd",
+  "name": "Delegation Proof - Scribe - sleep 120 then FINISHED",
+  "activityState": "Working",
+  "controllerSessionId": "db3c7f18-d0f0-44e5-b3e2-a2876223501c",
+  "factorySeat": "boss",
+  "factoryKit": "rules-only",
+  "originKind": "agent"
+ },
+ {
+  "sessionId": "5c91ac76-c732-4861-a871-b73c5a583e90",
+  "name": "Owner agent - publish the proof factory",
+  "activityState": "WaitingForInput",
+  "controllerSessionId": null,
+  "factorySeat": null,
+  "factoryKit": null,
+  "originKind": "unknown"
+ }
+]
+runs: {"jobId":"cj_8d2546","runs":[{"scheduledUtc":"2026-11-01T23:14:51.4020001Z","firedUtc":"2026-11-01T23:14:56.2719059Z","machine":"SOREN_NORTH","targetDirectorId":"94977813-bd4f-45f2-bbeb-0ff2ffe9e121","sessionId":"dc287b5a-d624-43aa-a160-c02eab9c37a0","sessionName":"Delegation Proof - Boss - 2026-11-01 18:14","infraStatus":"started","infraTone":"ok","taskStatus":"closed-itself","ending":"closed-itself","endingText":"closed itself after 7 min","failureText":null,"failureCause":null,"shiftText":"evening shift, Sun 1 Nov, 16:00-24:00","runId":"c7e6abac-5784-432b-bf62-eaf2c5dac6ed","result":"ok","problem":null,"resultReason":null,"resultUtc":"2026-11-01T23:21:33.3731281Z","resolvedUtc":null,"resolvedBy":null,"resolvedReason":null,"factory":"delegation-proof","seat":"boss","jobName":"Delegation Proof - Boss","missedNotListed":0,"briefVersion":1,"briefVersionKind":"definition","checkCount":null
+activity: {"rows":[{"id":"f0189fd3-4167-4779-9d94-b65cc1466c3b","factory":"delegation-proof","factoryAgent":"boss","factoryAgentVersion":"definition v1","sessionId":"ad1aa475-91ba-40e7-b472-78a832e1edfa","what":"The boss session db3c7f18-d0f0-44e5-b3e2-a2876223501c started the seat scribe in session ad1aa475-91ba-40e7-b472-78a832e1edfa: Delegation Proof - Scribe - slow-count","outcome":"started","subject":"scribe","link":null,"actor":"session:db3c7f18-d0f0-44e5-b3e2-a2876223501c","correctsId":null,"occurredUtc":"2026-11-01T23:33:24.5955943Z","recordedUtc":"2026-11-01T23:33:24.5955943Z"},{"id":"6e715621-735b-4046-b1d6-1953cdd4fae3","factory":"delegation-proof","factoryAgent":"boss","factoryAgentVersion":"definition v1","sessionId":"dc287b5a-d624-43aa-a160-c02eab9c37a0","what":"The scheduled run of Delegation Proof - Boss reported ok.","outcome":"done","subject":"Delegation Proof - Boss","link":null,"actor":"schedule:cj_8d2546","correctsId":null,"occurredUtc":"2026-11-01T23:21:33.3731281Z","recordedUtc":"2026-11-01T23:21:33.3744657Z"},{"id":"f13ebdca-0494-4dc4-bb3b-fe5f4be0bf72","factory":"delegation-proof","factoryAgent":"boss","factoryAgentVersion":"definition v1","sessionId":"0d07efa8-55b9-4ed3-8585-c6ea992a492e","what":"The boss session dc287b5a-d624-43aa-a160-c02eab9c37a0 started the seat scribe in session 0d07efa8-55b9-4ed3-8585-c6ea992a492e: Delegation Proof - Scribe - Scribe writes today's note","outcome":"started","subject":"scribe","link":null,"actor":"session:dc287b5a-d624-43aa-a160-c02eab9c37a0","correctsId":null,"occurredUtc":"2026-11-01T23:18:11.2953751Z","recordedUtc":"2026-11-01T23:18:11.2953751Z"},{"id":"e978789d-36b6-4f2f-a929-893a61bb0a1b","factory":"delegation-proof","factoryAgent":"boss","factoryAgentVersion":"definition v1","sessionId":"cd36177f-abe4-432b-be05

@@ -1,0 +1,39 @@
+) Burrowing (21s   88 tokens)
+
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+BurrowingBurrowingBurrowing*BurrowingBurrowingBurrowingBurrowing2BurrowingBurrowingBurrowingrowThe first scribe session (\"DelegationProof-Scribe-sleep120thenFINISHED\")reportedbackwiththewordFINISHED.
+Thesecondone,\"slow-count\",hasn\u0027treportedyet.
+
+ Burrowing (running Stop hooks 0/2  22s  100 tokens)
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+*19Burrowing30Burrowing7Burrowing42Burrowing33Burrowing5Burrowing6Burrowing9*502Burrowing3Burrowing5Burrowing6Burrowing41BurrowingBrewed for 24s  done 6:34 PM
+
+
+   bypass permissions on (shift+tab to cycle)   1 agent
+
+[DevThrottledoorbell]1fleetmessageiswaitingforyou.Toread,run:cc-devthrottlemessageinbox [DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox                 
+
+ Determining (running UserPromptSubmit hook  0s)
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+*1**gniDetermining(running PreToolUse hooks 0/2  4s)Bash(cc-devthrottle message inbox)Waiting Determining (running PreToolUse hooks 0/2  4s   22 tokens)
+
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+Determining*DeterminingDeterminingDeterminingDetermining5DeterminingDeterminingDetermining*DeterminingDeterminingDetermining6DeterminingDeterminingDetermining*DeterminingDeterminingDeterminingDetermining7DeterminingDeterminingDeterminingDetermining*DeterminingDeterminingDetermining8DeterminingDeterminingDetermining9DeterminingDetermining*1DeterminingDeterminingDetermining10s   2 tokens) Runn10s   22 tken)Determining186Determining7Determining8*DeterminingDeterminingDetermining2Determining DeterminingDetermining*DeterminingDeterminingDeterminingDetermining3DeterminingDetermining Determining*DeterminingDeterminingDetermining4Determining(ctrl+b to run in background)
+
+ Determining (14s  88 tokes)
+
+
+bypasspermissionson (shift+tabtocycle)esctointerrupt1agent
+ (3s)Determining*Determining DeterminingDeterminingDetermining5Determining4DeterminingDetermining*DeterminingDetermining DeterminingDetermining6Determining5DeterminingDetermining*DeterminingDeterminingDeterminingDetermining7 Determining6DeterminingDetermining*DeterminingDeterminingDeterminingDetermining8Determining7 DeterminingDetermining*DeterminingDeterminingDeterminingDetermining9Determining8DeterminingDetermining *DeterminingDeterminingDetermining20DeterminingDetermining9Determining*Determining DeterminingDeterminingDetermining1DeterminingDetermining10s)DeterminingDetermining*DeterminingDetermining Determining2Determining"
+}

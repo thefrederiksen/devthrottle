@@ -151,6 +151,14 @@ internal static class SpawnFactory
         ClearOverride(req, route, $"session {caller.SessionId}'s create");
         ClearCheck(req, route, $"session {caller.SessionId}'s create");
 
+        // A BOSS STARTING A SEAT (FactorySeatStartEndpoints). The route has already proved the caller is the Boss and built
+        // this create from the published definition, so its seat kit is not an inherited one. A body cannot set this mark.
+        if (IsGatewaySeatStart(ctx))
+        {
+            FileLog.Write($"[SpawnFactory] {route}: seat start built by the Gateway for session {caller.SessionId}: {req.Factory}/{req.FactorySeat} v{req.FactoryDefinitionVersion} ({req.FactoryKit})");
+            return true;
+        }
+
         // NO READER AT ALL is a different thing from "this session has no row yet", and conflating the two was a
         // mistake worth naming: a Gateway built without the reader (a harness, an older wiring) cannot read
         // membership for ANY session, so refusing every spawn would take spawning down entirely to protect a
@@ -484,8 +492,8 @@ internal static class SpawnFactory
     /// through a person's door (the talk). Only Gateway code can set it; a body cannot.</summary>
     internal const string GatewaySeatStartItemKey = "cc.factory.gateway-seat-start";
 
-    /// <summary>Mark this request as a seat start the Gateway built itself, so the seat fields it set pass a person's
-    /// door. Called by the talk route only, on the request it is answering.</summary>
+    /// <summary>Mark this request as a seat start the Gateway built itself, so the seat fields it set pass the door.
+    /// Called only by the talk route and the Boss's seat start, on the request each is answering.</summary>
     internal static void MarkGatewaySeatStart(HttpContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
