@@ -149,7 +149,7 @@ public sealed class RunNowOutlivesTheCallerTests : IDisposable
         var spawner = new MachineSessionSpawner(resolver ?? new OneDirector(), Director) { RefuseSeatStart = (_, _) => null };
         var starter = new DirectorCronSessionStarter(spawner, new FixedClock(), refuseFactoryWork: _ => null,
             seatWithABrief: j => j.Seat is null ? null : Registered(),
-            definitionOf: j => defined && j.Factory is not null ? Published() : null);
+            definitionOf: j => defined && j.Factory is not null ? Published() : null, runsAsABoss: _ => false);
         var engine = new CronEngine(_schedules, _runs, starter, new UnusedWorkListRunner(), new NullCronNotifier(), new FixedClock());
         var routes = new Routes(_services);
         CronRunEndpoints.Map(routes, engine, new CronRunRecordReader(_runs, new CcDirector.Gateway.History.SessionHistoryStore(_db).EndingsOf),

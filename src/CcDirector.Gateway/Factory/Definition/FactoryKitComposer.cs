@@ -101,7 +101,7 @@ public static class FactoryKitComposer
 
         if (seatKit)
         {
-            files.Add((BriefFile, Brief(seat), "definition", new[] { seatFile }));
+            files.Add((BriefFile, Brief(source.Definition, seat), "definition", new[] { seatFile }));
             files.Add((GrantsFile, Grants(source.Definition, seat), "definition",
                 seat.Grants.Count == 0 ? Array.Empty<string>() : new[] { FactoryDefinitionCheck.GrantsFile }));
 
@@ -159,10 +159,15 @@ public static class FactoryKitComposer
         return JsonSerializer.Serialize(doc, JsonOpts) + "\n";
     }
 
-    /// <summary>The seat's brief as published, then the standing paragraph every seat is given
-    /// (<see cref="Talk.FactorySeatOpening.OwnerWordIsFinal"/>).</summary>
-    private static string Brief(SeatDefinition seat)
-        => Talk.FactorySeatOpening.WithOwnerWord(seat.Brief.ReplaceLineEndings("\n")) + "\n";
+    /// <summary>The seat's brief as published, then the standing paragraphs: for a Boss
+    /// <see cref="Talk.FactorySeatOpening.BossNeverDoesTheWork"/>, and for every seat
+    /// <see cref="Talk.FactorySeatOpening.OwnerWordIsFinal"/>.</summary>
+    private static string Brief(FactoryDefinition definition, SeatDefinition seat)
+    {
+        var brief = seat.Brief.ReplaceLineEndings("\n");
+        if (FactorySeatStart.IsABoss(definition, seat)) brief = Talk.FactorySeatOpening.WithBossNeverDoesTheWork(brief);
+        return Talk.FactorySeatOpening.WithOwnerWord(brief) + "\n";
+    }
 
     private static string Grants(FactoryDefinition definition, SeatDefinition seat)
     {

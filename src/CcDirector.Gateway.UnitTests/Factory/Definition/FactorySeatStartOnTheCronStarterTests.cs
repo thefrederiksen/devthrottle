@@ -69,7 +69,7 @@ public sealed class FactorySeatStartOnTheCronStarterTests
         };
         return new DirectorCronSessionStarter(spawner, new FixedClock(), refuseFactoryWork: _ => null,
             seatWithABrief: seatWithABrief ?? (j => j.Seat is null ? null : Registered(j.Seat, j.Seat == "boss" ? "Boss" : "Outreach")),
-            definitionOf: definitionOf);
+            definitionOf: definitionOf, runsAsABoss: _ => false);
     }
 
     private static CronJobDto Job(string? seat, string machine = "SOREN_NORTH") => new()

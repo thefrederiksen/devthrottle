@@ -2873,7 +2873,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     (factory, seat) => _factorySeatBriefs.GivenTo(_tenantContext.Current, factory, seat)),
                 // Factory Definition mission, phase 5: a defined factory's run is built from its published definition.
                 // Read in the same scope as the two above.
-                definitionOf: job => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, _tenantContext.Current, job.Factory));
+                definitionOf: job => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, _tenantContext.Current, job.Factory),
+                // A Boss never does the work: told on every run, brief or no brief. Read in the same scope as the three above.
+                runsAsABoss: job => Running.ScheduledRunOpening.RunsAsABoss(job, id => FactoryRegistry.Find(_tenantContext.Current, id)));
         _cronEngine = new Running.CronEngine(
             _cronJobs, _cronRuns, cronStarter,
             cronWorkListRunner, cronNotifier, cronClock,

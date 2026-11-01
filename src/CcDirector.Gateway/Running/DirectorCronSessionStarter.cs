@@ -20,6 +20,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     private readonly IClock _clock;
     private readonly Func<CronJobDto, string?> _refuseFactoryWork;
     private readonly Func<CronJobDto, ScheduledRunSeat?> _seatWithABrief;
+    private readonly Func<CronJobDto, bool> _runsAsABoss;
     private readonly Func<CronJobDto, PublishedFactoryDefinition?> _definitionOf;
 
     /// <param name="refuseFactoryWork">Issue #3650: for a job about to fire, the reason it may not - its factory or
@@ -37,12 +38,18 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     /// starts exactly as before. A defined factory's run is built from the definition by <see cref="FactorySeatStart"/>,
     /// in no folder. REQUIRED, so a wiring line that forgot it fails to compile rather than starting every defined seat
     /// in a folder; a harness with no definitions passes <c>_ =&gt; null</c>.</param>
+    /// <param name="runsAsABoss">For a job about to fire, whether it runs as a Boss
+    /// (<see cref="ScheduledRunOpening.RunsAsABoss"/>), brief or no brief: every Boss is told it never does the work.
+    /// REQUIRED, so a wiring line that forgot it fails to compile rather than leaving a Boss untold; a harness with no
+    /// factories passes <c>_ =&gt; false</c>.</param>
     /// <summary>How a run that did not start says its seat's brief could not be read; the failure's own words follow.</summary>
     public const string BriefNotRead = "not started: the seat's brief could not be read, and a run is never started without its brief";
 
     public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork,
-        Func<CronJobDto, ScheduledRunSeat?> seatWithABrief, Func<CronJobDto, PublishedFactoryDefinition?> definitionOf)
+        Func<CronJobDto, ScheduledRunSeat?> seatWithABrief, Func<CronJobDto, PublishedFactoryDefinition?> definitionOf,
+        Func<CronJobDto, bool> runsAsABoss)
     {
+        _runsAsABoss = runsAsABoss ?? throw new ArgumentNullException(nameof(runsAsABoss));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
         _seatWithABrief = seatWithABrief ?? throw new ArgumentNullException(nameof(seatWithABrief));
         _spawner = spawner ?? throw new ArgumentNullException(nameof(spawner));
@@ -100,9 +107,11 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         // brief read is a database read in the fire path; left to throw, it would stop a factory's runs with no run
         // row and nothing on any screen. The run is never started without its brief instead.
         ScheduledRunSeat? seat;
+        bool runsAsABoss;
         try
         {
             seat = _seatWithABrief(job);
+            runsAsABoss = _runsAsABoss(job);
         }
         catch (Exception ex)
         {
@@ -149,7 +158,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             // through this method (its own time, a late catch-up, run-now), so this is the one place that adds it.
             // A seat with a published brief is also told who it is and given that brief, ahead of the schedule's
             // own prompt; every other run's text is the closing instruction's alone, as before.
-            PrePrompt = ScheduledRunOpening.PromptFor(seed, job.Name, job.Id, seat),
+            PrePrompt = ScheduledRunOpening.PromptFor(seed, job.Name, job.Id, seat, runsAsABoss),
             // A checked run starts on the Director that ran its check; every other run is left to the machine.
             Director = director,
             // Scheduled-run auto-dismiss (issue #1200): a seed run defaults to closing itself when it

@@ -109,6 +109,57 @@ public static class FactorySeatOpening
     }
 
     /// <summary>
+    /// A BOSS NEVER DOES THE WORK (the owner's ruling, 1 November 2026: "The boss's main job is to delegate and make sure
+    /// the right resources are in place to get things done."). One standing paragraph the Gateway gives every Boss on
+    /// every start - the owner's talk, Handle the issue, a scheduled run, a check's start, a start at the spawn door and
+    /// the kit's brief.md - so it is never left to a factory's seat file to repeat. The Boss's own children are not
+    /// Bosses and are not given it: they are the ones who do the work.
+    /// </summary>
+    public const string BossNeverDoesTheWork =
+        "A BOSS NEVER DOES THE WORK. You are a true boss: picture someone running a company of a thousand employees, who "
+        + "does not sit down and do the work themselves. Your main job is to delegate and to make sure the right resources "
+        + "are in place to get things done. You may do your own reviews and your own strategy. As soon as anything needs "
+        + "carrying out that would take any longer, you do not carry it out: you start a session to do it - cc-devthrottle "
+        + "session spawn <repository path> --controlled-by self --name \"<what it does>\" --prompt \"<the whole job>\" - and "
+        + "you carry on. That session gets none of your brief, so its prompt must say everything it needs. It comes back to "
+        + "you when it is finished: one line tells you to run cc-devthrottle message inbox. Stay available to the owner: "
+        + "never run anything long in this session, and never sit watching a session you started, so that you can always "
+        + "answer at once. This holds whatever your brief, your schedule or a problem you are handed tells you to do: what "
+        + "they ask for gets done, and a session does it. In a scheduled run, end your turn to wait, and do not report the "
+        + "run or close this session until the sessions you started have come back.";
+
+    /// <summary>
+    /// Whether this seat is a Boss, for <see cref="BossNeverDoesTheWork"/>: the seat the factory names as its boss, or a
+    /// seat whose role is Boss. The role counts as well because a factory may name one seat <c>bossSeat</c> while another
+    /// seat with the role Boss carries the schedules; that seat is the Boss that runs every morning.
+    /// </summary>
+    public static bool IsABoss(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(seat);
+        return FactoryTalkSeed.IsBoss(factory, seat) || HasTheRoleBoss(seat.Role);
+    }
+
+    /// <summary>Whether a role word is the Boss's.</summary>
+    public static bool HasTheRoleBoss(string? role) =>
+        string.Equals(role?.Trim(), FactoriesScreenFold.BossRoleWord, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <paramref name="prompt"/> with <see cref="BossNeverDoesTheWork"/> as its last paragraph, or unchanged when it
+    /// already holds it: a Boss's text passes through the seat start too, and the paragraph is said once. Called ahead of
+    /// <see cref="WithOwnerWord"/>, so the owner's word stays the last thing a seat reads. An empty prompt becomes the
+    /// paragraph alone.
+    /// </summary>
+    public static string WithBossNeverDoesTheWork(string prompt, string newLine = "\n")
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        ArgumentNullException.ThrowIfNull(newLine);
+        if (prompt.Contains(BossNeverDoesTheWork, StringComparison.Ordinal)) return prompt;
+        var trimmed = prompt.TrimEnd('\r', '\n');
+        return trimmed.Length == 0 ? BossNeverDoesTheWork : trimmed + newLine + newLine + BossNeverDoesTheWork;
+    }
+
+    /// <summary>
     /// The brief as the session reads it: its text between two lines that say which version it is. The text is given
     /// whole and unchanged; only line ends at its very end are dropped, so the closing line always starts a line.
     /// </summary>
