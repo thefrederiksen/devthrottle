@@ -122,18 +122,20 @@ public sealed class FactoryBossStartAtTheSpawnDoorTests
 
             Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", InNoFactory, out _, NoRules, Boss(published: published)));
 
-            Assert.Equal("Remove the cc-gmail rule.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
+            Assert.Equal("Remove the cc-gmail rule.\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork
+                + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
         }
     }
 
     [Fact]
-    public void TryEstablish_TheBossWithNoPrompt_IsGivenNone()
+    public void TryEstablish_TheBossWithNoPrompt_IsStillToldItNeverDoesTheWork()
     {
         var req = Body();
 
         Assert.True(SpawnFactory.TryEstablish(req, AsSession(Caller), "test", InNoFactory, out _, NoRules, Boss()));
 
-        Assert.Null(req.PrePrompt);
+        Assert.Equal(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork + "\n\n"
+            + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
     }
 
     [Fact]

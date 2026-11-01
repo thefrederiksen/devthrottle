@@ -66,6 +66,10 @@ recorded on every session and every run participant.
   name of its own.** It is "the boss of Website Business"; the product says "Talk to the boss" and "Latest
   from the boss", and a manifest that names the boss seat anything but Boss is refused. Its role word is
   Boss as well, and a manifest that gives the boss any other role word is refused in the same way.
+  **A Boss never does the work** (the owner, 1 November 2026). Its main job is to delegate and to make sure the
+  right resources are in place. It may do its own reviews and strategy; anything that would take longer to
+  carry out goes to a session it starts, which comes back to it when finished, and the Boss stays available
+  to the owner meanwhile. The Gateway gives every Boss this conduct on every start, so no seat file repeats it.
 - **Who makes a factory** - the owner, through a session. "Factories are created by agents as long as they
   have user approval" (the owner, 16 October 2026). A session in no factory that the owner tells what to
   make may create the factory from a folder (`cc-devthrottle factory definition create <folder>`), save

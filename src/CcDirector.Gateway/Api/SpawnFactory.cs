@@ -380,9 +380,11 @@ internal static class SpawnFactory
         }
 
         req.Factory = boss.Factory;
-        // A Boss started this way gets a rules-only kit, or none, so no brief: it is told the owner's word is final on
-        // its prompt when it is given one (owner ruling 2026-10-24).
-        if (!string.IsNullOrWhiteSpace(req.PrePrompt)) req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(req.PrePrompt);
+        // A Boss started this way gets a rules-only kit, or none, so no brief: the standing paragraphs ride on its prompt.
+        // A Boss started with no prompt is still given them, because every Boss is told it never does the work on every
+        // start (the owner, 1 November 2026); the alternative is a Boss that has been told nothing at all.
+        req.PrePrompt = Factory.Talk.FactorySeatOpening.WithOwnerWord(
+            Factory.Talk.FactorySeatOpening.WithBossNeverDoesTheWork(req.PrePrompt ?? ""));
         if (boss.PublishedVersion is not { } version)
         {
             ClearSeat(req);

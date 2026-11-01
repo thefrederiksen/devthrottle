@@ -280,6 +280,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.StartsWith("You are the boss of WarmForward", sent.PrePrompt);
         Assert.Contains(MorningRun, sent.PrePrompt);
         Assert.Contains("--outcome talked", sent.PrePrompt);
+        // Every Boss is told it never does the work; this is the text that left the Gateway for the Director.
+        Assert.Contains(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork, sent.PrePrompt);
     }
 
     // ---- the brief on the Gateway (Factory Seats mission, phase 2c) --------------------------------------------

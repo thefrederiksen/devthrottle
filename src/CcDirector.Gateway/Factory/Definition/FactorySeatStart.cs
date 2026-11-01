@@ -86,8 +86,11 @@ public static class FactorySeatStart
             Agent = agent,
             Model = model,
             Name = name,
-            // Every seat is told the owner's word is final, however it was started (the owner's ruling of 24 October 2026).
-            PrePrompt = Talk.FactorySeatOpening.WithOwnerWord(prePrompt),
+            // Every seat is told the owner's word is final, however it was started (the owner's ruling of 24 October 2026),
+            // and every Boss that it never does the work. This is the one place a check's start passes through.
+            PrePrompt = Talk.FactorySeatOpening.WithOwnerWord(IsABoss(definition, seat)
+                ? Talk.FactorySeatOpening.WithBossNeverDoesTheWork(prePrompt)
+                : prePrompt),
             Factory = definition.Factory,
             FactorySeat = seat.Seat,
             FactoryDefinitionVersion = published.Version,
@@ -100,6 +103,16 @@ public static class FactorySeatStart
                       + (repository is null ? "home (no repository)" : $"repository {repository}")
                       + (chosen is null ? "" : $", override: {chosen.Words()}"));
         return new FactorySeatStartBuilt(request, machine);
+    }
+
+    /// <summary>Whether this seat of a definition is a Boss: the seat its <c>bossSeat</c> names, or a seat with the role
+    /// Boss (<see cref="Talk.FactorySeatOpening.IsABoss"/>).</summary>
+    public static bool IsABoss(FactoryDefinition definition, SeatDefinition seat)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(seat);
+        return string.Equals(definition.BossSeat?.Trim(), seat.Seat, StringComparison.OrdinalIgnoreCase)
+               || Talk.FactorySeatOpening.HasTheRoleBoss(seat.Role);
     }
 
     /// <summary>

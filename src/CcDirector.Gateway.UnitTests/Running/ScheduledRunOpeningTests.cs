@@ -226,7 +226,7 @@ public sealed class ScheduledRunOpeningTests : IDisposable
 
         var given = Assert.Single(_handedToTheDirector).PrePrompt!;
         Assert.Contains("--- your brief, version 1 ---\n" + atTheCap + "\n--- end of your brief, version 1 ---", given);
-        Assert.EndsWith(OwnersPrompt + "\n\n" + ScheduledRunClosingInstruction.Text + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, given);
+        Assert.EndsWith(OwnersPrompt + "\n\n" + ScheduledRunClosingInstruction.Text + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, given);
         Assert.Equal(1, Assert.Single(fired).BriefVersion);
 
         var factory = Registry.Find(Account, TheFactory)!;
@@ -486,7 +486,7 @@ public sealed class ScheduledRunOpeningTests : IDisposable
                 (factory, seat) => _briefReadFails is { } why
                     ? throw new InvalidOperationException(why)
                     : SeatBriefs.GivenTo(Account, factory, seat)),
-            definitionOf: job => FactorySeatStart.ReadPublished(Definitions, Account, job.Factory));
+            definitionOf: job => FactorySeatStart.ReadPublished(Definitions, Account, job.Factory), runsAsABoss: _ => false);
         return new CronEngine(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
     }
 

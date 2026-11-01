@@ -38,7 +38,7 @@ public sealed class DirectorCronSessionStarterTests
             captured = req;
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
         });
-        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow), refuseFactoryWork: _ => null, seatWithABrief: _ => null, definitionOf: _ => null);
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow), refuseFactoryWork: _ => null, seatWithABrief: _ => null, definitionOf: _ => null, runsAsABoss: _ => false);
         return (starter, () => captured);
     }
 
@@ -52,6 +52,26 @@ public sealed class DirectorCronSessionStarterTests
         Target = new CronJobTarget { Machine = "MACHINE_A" },
         Action = new CronJobAction { RepoPath = @"C:\repo", Seed = "/help" },
     };
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task Start_ABossWithNoPublishedBrief_IsToldItNeverDoesTheWork_AndNoOtherRunIs(bool boss, int told)
+    {
+        NewSessionRequest? sent = null;
+        var spawner = new MachineSessionSpawner(new StubResolver(new DirectorTargetResult("d-1", null)), (_, req, _) =>
+        {
+            sent = req;
+            return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
+        });
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(DateTime.UtcNow), refuseFactoryWork: _ => null,
+            seatWithABrief: _ => null, definitionOf: _ => null, runsAsABoss: _ => boss);
+
+        await starter.StartRunAsync(Job("Morning run", "UTC"), CancellationToken.None);
+
+        var conduct = CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork;
+        Assert.Equal(told, sent!.PrePrompt!.Split(conduct).Length - 1);
+    }
 
     [Fact]
     public async Task Start_AJobWhoseFactorySeatIsNotRegistered_NeverReachesAMachine_AndSaysWhy()
@@ -67,9 +87,9 @@ public sealed class DirectorCronSessionStarterTests
         var job = Job("Mail Desk - morning", "UTC");
         job.Factory = "devthrottle";
         job.Seat = "mail-desk";
-        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(DateTime.UtcNow),
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(new DateTime(2026, 11, 1, 5, 0, 0)),
             refuseFactoryWork: j => j.Seat == "mail-desk" ? "'mail-desk' is not a seat of DevThrottle" : null,
-            seatWithABrief: _ => null, definitionOf: _ => null);
+            seatWithABrief: _ => null, definitionOf: _ => null, runsAsABoss: _ => false);
 
         var (sessionId, directorId, error) = await starter.StartAsync(job, CancellationToken.None);
 

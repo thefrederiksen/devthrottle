@@ -338,7 +338,7 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
             },
             new RegisteredFactorySeatDto { Id = "boss", Name = "Boss", Role = "Boss" },
             new FactoryGivenBrief(3, "Run the factory.", FactoryBriefVersionKinds.Definition)),
-        definitionOf: definitionOf);
+        definitionOf: definitionOf, runsAsABoss: _ => false);
 
     private static CronJobDto Job(string? seat) => new()
     {

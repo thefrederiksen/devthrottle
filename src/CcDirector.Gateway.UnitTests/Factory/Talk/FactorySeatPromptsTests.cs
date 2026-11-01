@@ -49,15 +49,20 @@ public sealed class FactorySeatPromptsTests
             brief is null ? null : new ScheduledRunSeat(f, f.Seats[0], brief)).ReplaceLineEndings("\n");
     }
 
+    // The seat here is the boss, so each pinned text gains exactly one thing since it was pinned: the paragraph a Boss is
+    // given, ahead of the owner's word. Everything else stays compared whole.
+    private static string ToldABossNeverDoesTheWork(string pinned) => pinned.ReplaceLineEndings("\n").Replace(
+        FactorySeatOpening.OwnerWordIsFinal, FactorySeatOpening.BossNeverDoesTheWork + "\n\n" + FactorySeatOpening.OwnerWordIsFinal, StringComparison.Ordinal);
+
     // ---------- undefined: exactly as before ----------
 
     [Fact]
     public void Talk_UNDEFINED_FACTORY_WithNoBriefOnTheGateway_IsTheTextItWasBefore()
-        => Assert.Equal(UndefinedTalkNoBrief.ReplaceLineEndings("\n"), TalkText(null));
+        => Assert.Equal(ToldABossNeverDoesTheWork(UndefinedTalkNoBrief), TalkText(null));
 
     [Fact]
     public void Talk_UNDEFINED_FACTORY_WithABriefVersion_IsTheTextItWasBefore()
-        => Assert.Equal(UndefinedTalkBriefVersion.ReplaceLineEndings("\n"), TalkText(BriefVersion));
+        => Assert.Equal(ToldABossNeverDoesTheWork(UndefinedTalkBriefVersion), TalkText(BriefVersion));
 
     [Fact]
     public void Run_UNDEFINED_FACTORY_WithNoSeat_IsTheTextItWasBefore()
@@ -65,17 +70,17 @@ public sealed class FactorySeatPromptsTests
 
     [Fact]
     public void Run_UNDEFINED_FACTORY_WithABriefVersion_IsTheTextItWasBefore()
-        => Assert.Equal(UndefinedRunBriefVersion.ReplaceLineEndings("\n"), RunText(BriefVersion));
+        => Assert.Equal(ToldABossNeverDoesTheWork(UndefinedRunBriefVersion), RunText(BriefVersion));
 
     // ---------- defined: the kit, and a goal change through the definition ----------
 
     [Fact]
     public void Talk_DefinedFactory_IsThisText()
-        => Assert.Equal(DefinedTalk.ReplaceLineEndings("\n"), TalkText(DefinitionVersion));
+        => Assert.Equal(ToldABossNeverDoesTheWork(DefinedTalk), TalkText(DefinitionVersion));
 
     [Fact]
     public void Run_DefinedFactory_IsThisText()
-        => Assert.Equal(DefinedRun.ReplaceLineEndings("\n"), RunText(DefinitionVersion));
+        => Assert.Equal(ToldABossNeverDoesTheWork(DefinedRun), RunText(DefinitionVersion));
 
     [Fact]
     public void Talk_DefinedFactory_NeverNamesAGoalFileARegistrationOrAFolder()

@@ -59,6 +59,11 @@ repositories: [devthrottle]       # optional: repository names the factory may w
   `cc-devthrottle factory register` of a manifest without one. An archived factory is left alone: it is not refused
   for having no boss until it is restored. A version stored before the rule (21 October 2026) still reads, runs and
   exports as before; only a new write is held to it.
+  A Boss never does the work: its main job is to delegate and to make sure the right resources are in place. It may
+  do its own reviews and strategy; anything that would take longer to carry out goes to a session it starts, which
+  comes back to it when finished, and it stays available to the owner meanwhile. The Gateway gives this conduct to the
+  seat `bossSeat` names and to any seat with the role Boss, on every start, in its first prompt and in its kit's
+  `brief.md`, so a seat's `brief` does not repeat it.
 - `defaults` - holds `machine`, `agent` and `model`, which a seat takes when it names none of its own.
 - `repositories` - the repositories the factory may work in.
 
