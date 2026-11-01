@@ -370,6 +370,217 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     /// <summary>
+    /// ISSUE #4544: A VOICE SESSION'S MISSING WORDS COME BACK BY THEMSELVES. A slow spell at the model host used to leave
+    /// a session silent until a person pressed a button. The words are now asked for on the owner's one schedule.
+    /// </summary>
+    [Fact]
+    public async Task AVoiceSessionsMissingWords_AreAskedForWhenTheBookedRetryFallsDue_AndNotBefore_AndAreThenSpoken()
+    {
+        var rig = Build();
+        var now = ObservedAt;
+        rig.Voice.UseClockForTest(() => now);
+        var hostIsSlow = true;
+        rig.Env.Narrator = (_, _) => hostIsSlow
+            ? throw new TimeoutException("the narration call did not answer")
+            : Task.FromResult(Answer(Narrated));
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        var callsInTheReading = rig.Env.NarratorCalls;
+        Assert.Equal(2, callsInTheReading);   // CONTROL: the reading made its two attempts and has no words
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+
+        // The next pass books the words, one minute on. It costs nothing, and the card says a retry is coming.
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading, rig.Env.NarratorCalls);
+        var booked = rig.Voice.SpeechErrorFor(Tenant, Sid);
+        Assert.NotNull(booked);
+        Assert.False(booked!.Exhausted);
+        Assert.Equal(now.AddMinutes(1), booked.NextRetryAtUtc);
+
+        // NOT BEFORE: fifty-nine seconds on, nothing is asked.
+        now = now.AddSeconds(59);
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading, rig.Env.NarratorCalls);
+
+        // WHEN DUE, AND THE HOST HAS RECOVERED: one call, under the retry's own longer deadline, and the turn is spoken.
+        // The real sweep runs the recovery probe at the top of every pass; here that is the line below.
+        now = now.AddSeconds(2);
+        hostIsSlow = false;
+        await rig.Verdicts.StartDueRetriesAsync(Tenant);
+        Assert.False(rig.Verdicts.ModelHostStalled);
+        while (rig.Env.NarratorTimeouts.TryDequeue(out _)) { }
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading + 1, rig.Env.NarratorCalls);
+        Assert.Equal(TimeSpan.FromSeconds(TurnVerdictSettings.NarrationRetryTimeoutSeconds), Assert.Single(rig.Env.NarratorTimeouts));
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.Null(rig.Env.Latest(Tenant, Sid)!.NarrationFailureReason);
+        Assert.Null(rig.Voice.SpeechErrorFor(Tenant, Sid));
+
+        // And it stays quiet: the words are there, so nothing more is asked.
+        now = now.AddHours(3);
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading + 1, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
+    /// THE COST IS BOUNDED: exactly eight retries over the schedule, then nothing, and the card says nothing is coming.
+    /// A host that never recovers must not become a model call every forty-five seconds.
+    /// </summary>
+    [Fact]
+    public async Task AVoiceSessionsMissingWords_StopAfterEightRetries_AndTheCardSaysSo()
+    {
+        var rig = Build();
+        var now = ObservedAt;
+        rig.Voice.UseClockForTest(() => now);
+        rig.Env.Narrator = (_, _) => throw new InvalidOperationException("the model call failed");
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        var callsInTheReading = rig.Env.NarratorCalls;
+
+        Assert.Equal(0, await SweepPassAsync(rig, route));   // books the first retry
+        foreach (var wait in WingmanRetrySchedule.Delays)
+        {
+            now = now.Add(wait).AddSeconds(1);
+            Assert.Equal(1, await SweepPassAsync(rig, route));
+        }
+        Assert.Equal(callsInTheReading + WingmanRetrySchedule.Total, rig.Env.NarratorCalls);
+
+        now = now.AddHours(24);
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading + WingmanRetrySchedule.Total, rig.Env.NarratorCalls);
+        Assert.True(rig.Voice.SpeechErrorFor(Tenant, Sid)!.Exhausted);
+    }
+
+    /// <summary>A stalled host spends no retry and no slot: the retry stays due and runs once a probe has answered.</summary>
+    [Fact]
+    public async Task AVoiceSessionsMissingWords_WaitOutAStalledHost_WithoutSpendingARetry()
+    {
+        var rig = Build();
+        var now = ObservedAt;
+        rig.Voice.UseClockForTest(() => now);
+        var hostIsSlow = true;
+        rig.Env.Narrator = (_, _) => hostIsSlow
+            ? throw new TimeoutException("the narration call did not answer")
+            : Task.FromResult(Answer(Narrated));
+        rig.Env.RecoveryProbe = (_, _) => throw new TimeoutException("the recovery probe did not answer");
+        rig.Env.Clock = () => now;
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        var callsInTheReading = rig.Env.NarratorCalls;
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.True(rig.Verdicts.ModelHostStalled);   // CONTROL: the timeouts really did mark the host stalled
+
+        now = now.AddMinutes(10);
+        await rig.Verdicts.StartDueRetriesAsync(Tenant);   // the probe does not answer, so the stall stands
+        Assert.True(rig.Verdicts.ModelHostStalled);
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading, rig.Env.NarratorCalls);
+
+        // The host recovers: the sweep's own probe answers, and the same retry, still the first, runs.
+        hostIsSlow = false;
+        rig.Env.RecoveryProbe = (_, _) => Task.FromResult("OK");
+        now = now.AddMinutes(1);
+        await rig.Verdicts.StartDueRetriesAsync(Tenant);
+        Assert.False(rig.Verdicts.ModelHostStalled);
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.Equal(callsInTheReading + 1, rig.Env.NarratorCalls);
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// FOUND IN REVIEW. The judge switch is off by default and a voice session is read anyway, so the probe that ends a
+    /// stall must run with it off, or the retry never runs and the card promises it for ever.
+    /// </summary>
+    [Fact]
+    public async Task AVoiceSessionsMissingWords_RecoverFromAStall_WithTheJudgeSwitchedOff()
+    {
+        var rig = Build();
+        var now = ObservedAt;
+        rig.Voice.UseClockForTest(() => now);
+        rig.Env.Clock = () => now;
+        var hostIsSlow = true;
+        rig.Env.Narrator = (_, _) => hostIsSlow
+            ? throw new TimeoutException("the narration call did not answer")
+            : Task.FromResult(Answer(Narrated));
+        rig.Env.Knobs = rig.Env.Knobs with { JudgeEnabled = false };
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        var callsInTheReading = rig.Env.NarratorCalls;
+        Assert.True(callsInTheReading > 0);            // CONTROL: read with the judge off, as a voice session is
+        Assert.True(rig.Verdicts.ModelHostStalled);    // CONTROL: and the timeouts marked the host stalled
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+
+        now = now.AddMinutes(2);
+        hostIsSlow = false;
+        await rig.Verdicts.StartDueRetriesAsync(Tenant);
+        Assert.False(rig.Verdicts.ModelHostStalled);
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// FOUND IN REVIEW. A retry can run for minutes. When the session works during it, the answer describes a stop that is
+    /// over: it is not saved, not spoken, not counted as a failure, and leaves no card behind.
+    /// </summary>
+    [Fact]
+    public async Task AWordsRetry_ThatEndsAfterTheSessionWorked_SavesNothing_SpeaksNothing_AndBooksNothing()
+    {
+        var rig = Build();
+        var now = ObservedAt;
+        rig.Voice.UseClockForTest(() => now);
+        rig.Env.Clock = () => now;
+        rig.Env.Narrator = (_, _) => throw new InvalidOperationException("the model call failed");
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.NotNull(rig.Voice.SpeechErrorFor(Tenant, Sid));   // CONTROL: a retry is booked
+
+        var callStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = async (_, _) =>
+        {
+            callStarted.SetResult();
+            await release.Task;
+            return Answer(Narrated);
+        };
+        now = now.AddMinutes(2);
+        var retry = SweepPassAsync(rig, route);
+        await callStarted.Task;
+
+        rig.Voice.OnSessionWorking(Tenant, Sid);
+        release.SetResult();
+        await retry;
+
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.Null(rig.Voice.SpeechErrorFor(Tenant, Sid));
+        Assert.True(string.IsNullOrWhiteSpace(rig.Verdicts.Latest(Tenant, Sid)?.Narration));
+    }
+
+    /// <summary>A session nobody is listening to gets no retries: the sweep never visits it and no call is spent.</summary>
+    [Fact]
+    public async Task ASessionNotInVoiceMode_WhoseWordsFailed_IsNeverAskedForThemAutomatically()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        await HostTurnEndAsync(rig, route);
+        var calls = rig.Env.NarratorCalls;
+
+        rig.Voice.Unmark(Tenant, Sid);
+        Assert.DoesNotContain(Sid, rig.Voice.VoiceSessionIds(Tenant));   // the sweep's own list: this session is not on it
+        rig.Env.Clock = () => ObservedAt.AddHours(5);
+        await rig.Verdicts.StartDueRetriesAsync(Tenant);                 // and the reading's retry leaves it alone too
+        Assert.Equal(calls, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
     /// The same starvation from a session with no reading at all (found in review): a brand-new session sitting at its
     /// prompt is never read, so a pass over it asks nobody and stores nothing - and must not spend a slot on every cycle.
     /// </summary>

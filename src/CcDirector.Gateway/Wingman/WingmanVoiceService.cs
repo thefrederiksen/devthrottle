@@ -191,6 +191,14 @@ public sealed class WingmanVoiceService
         public readonly ConcurrentDictionary<string, SpeechRetry> SpeechRetries = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Where a stop whose WORDS never came is on the retry schedule (issue #4544), per session. Kept apart from
+        /// <see cref="SpeechRetries"/>, which gates the audio: a person who gets the words by asking must be able to hear
+        /// them at once, not when this booking comes due. Held in memory like that one, so a restart loses the count and
+        /// the next sweep books the stop again from the start.
+        /// </summary>
+        public readonly ConcurrentDictionary<string, SpeechRetry> WordsRetries = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// sid -> a counter bumped ONLY when the stop itself is superseded: the session works again, a later user
         /// message drops the clip, or voice is switched off. A successful clip store does NOT move it - including a
         /// store of the SAME verdict's words by explain or the voice-turn route - because that is not the stop moving
@@ -1058,6 +1066,7 @@ public sealed class WingmanVoiceService
         {
             state.NothingToNarrate[sid] = 1;
             state.SpeechRetries.TryRemove(sid, out _);   // fresher evidence than an old stop's failed speech
+            state.WordsRetries.TryRemove(sid, out _);
         }
         else state.NothingToNarrate.TryRemove(sid, out _);
     }
@@ -1069,9 +1078,98 @@ public sealed class WingmanVoiceService
     /// can promise an attempt this service has not booked.
     /// </summary>
     public WingmanErrorDisplay? SpeechErrorFor(TenantId tenant, string sid)
-        => StateFor(tenant).SpeechRetries.TryGetValue(sid, out var retry)
-            ? WingmanErrorFold.ForSchedule(WingmanErrorFold.SpeechFailedReason, retry.RetriesMade, retry.NextRetryAtUtc)
+    {
+        var state = StateFor(tenant);
+        if (state.SpeechRetries.TryGetValue(sid, out var retry))
+            return WingmanErrorFold.ForSchedule(WingmanErrorFold.SpeechFailedReason, retry.RetriesMade, retry.NextRetryAtUtc);
+        // THE WORDS NEVER CAME, AND A RETRY IS BOOKED FOR THEM. From the booking alone: this runs for every row of every
+        // roster, and the stored reading is a database read. A booking ends where the speech schedule's does - a new
+        // turn, voice off, the audio arriving - and the fold shows a clip or a live attempt ahead of this.
+        return state.WordsRetries.TryGetValue(sid, out var words)
+            ? WingmanErrorFold.ForSchedule(WingmanErrorFold.SpeechFailedReason, words.RetriesMade, words.NextRetryAtUtc)
             : null;
+    }
+
+    /// <summary>
+    /// IS A RETRY OF THIS READING'S MISSING WORDS DUE NOW? (issue #4544.) A narration that failed twice inside its reading
+    /// used to be silence until a person pressed a button, so one slow spell at the model host left every session in voice
+    /// mode saying nothing, long after the host recovered. It now gets the owner's one retry schedule (ruling of
+    /// 2026-09-19): one minute, one, one, five, five, five, thirty, thirty, then stop and say so.
+    ///
+    /// A READING WITH NOTHING BOOKED IS BOOKED HERE, for one minute on, and costs no call. That covers a narration that
+    /// has just failed, and a stop left stranded by an earlier process, which is how a deploy recovers them unattended.
+    /// While the host is stalled nothing is due: the booking stands, spends no retry, and takes no sweep slot.
+    /// </summary>
+    private bool WordsRetryDue(TenantId tenant, string sid, TurnVerdictDto reading)
+    {
+        var state = StateFor(tenant);
+        var retry = state.WordsRetries.TryGetValue(sid, out var held)
+                    && string.Equals(held.VerdictId, reading.VerdictId, StringComparison.Ordinal)
+            ? held
+            : BookWordsRetry(state, sid, reading.VerdictId, 0);
+        return WingmanRetrySchedule.IsDue(retry.NextRetryAtUtc, _utcNow()) && !RequireVerdicts().ModelHostStalled;
+    }
+
+    /// <summary>Write where this stop's words are on the schedule: the next wait, or nothing once the eight are spent.</summary>
+    private TenantVoiceState.SpeechRetry BookWordsRetry(TenantVoiceState state, string sid, string verdictId, int retriesMade)
+    {
+        var retry = new TenantVoiceState.SpeechRetry(verdictId, retriesMade, WingmanRetrySchedule.NextRetryAtUtc(retriesMade, _utcNow()));
+        state.WordsRetries[sid] = retry;
+        FileLog.Write(retry.NextRetryAtUtc is { } due
+            ? $"[WingmanVoiceService] no words for sid={sid} verdict={verdictId}: retry {retriesMade + 1} of {WingmanRetrySchedule.Total} is booked for {due:u}; the idle sweep carries it"
+            : $"[WingmanVoiceService] no words for sid={sid} verdict={verdictId}: all {WingmanRetrySchedule.Total} retries are spent and NOTHING MORE IS SCHEDULED; the screen says so");
+        return retry;
+    }
+
+    /// <summary>
+    /// Make one booked retry of a reading's missing words. Runs inside the session's generation flight, so the sweep
+    /// cannot start a second one beside it, and under a longer deadline than the reading's own: nothing is held open
+    /// while it waits, and a slow host's answer is worth waiting for. A call that gives no words spends one retry.
+    /// </summary>
+    private async Task<(TurnVerdictDto Verdict, LateWords Outcome)> RetryMissingWordsAsync(
+        TenantId tenant, string sid, TurnVerdictOutcome outcome, TurnVerdictDto verdict, CancellationToken ct)
+    {
+        var state = StateFor(tenant);
+        var verdicts = RequireVerdicts();
+        if (!WordsRetryDue(tenant, sid, verdict)) return (verdict, LateWords.NotNeeded);
+        if (!verdicts.ReleaseNarrationClaimForRequest(tenant, sid, verdict.VerdictId)
+            || !verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
+            return (verdict, LateWords.InFlight);
+
+        var made = state.WordsRetries.TryGetValue(sid, out var held) ? held.RetriesMade : 0;
+        var stopEpoch = CurrentStopEpoch(state, sid);
+        FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: retry {made + 1} of {WingmanRetrySchedule.Total} for the missing words");
+        NarrationCallResult written;
+        try { written = await verdicts.NarrateAsync(tenant, sid, outcome, ct, TurnVerdictSettings.NarrationRetryTimeoutSeconds).ConfigureAwait(false); }
+        finally { verdicts.NarrationCallFinished(tenant, sid, verdict.VerdictId); }
+
+        // THE STOP MOVED ON WHILE THE CALL RAN. This call can run for minutes, with nobody watching. Its words describe a
+        // stop that is over, so they are neither saved nor spoken, and no retry is booked: a booking here would put a card
+        // about the old stop in front of whatever the new one has to say. If the reading is still the latest when the
+        // session next settles, the sweep books it again from the start.
+        if (CurrentStopEpoch(state, sid) != stopEpoch)
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: retry {made + 1} ended after the stop moved on - its answer is dropped and nothing is booked");
+            return (verdict, LateWords.Refused);
+        }
+
+        if (written.Spoken is not { Length: > 0 } words
+            || !verdicts.SaveNarration(tenant, sid, verdict.VerdictId, words, written.Label))
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: retry {made + 1} gave no words ({written.FailureDetail})");
+            BookWordsRetry(state, sid, verdict.VerdictId, Math.Min(made + 1, WingmanRetrySchedule.Total));
+            return (verdict, LateWords.Failed);
+        }
+        state.WordsRetries.TryRemove(sid, out _);
+        FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: retry {made + 1} made the words");
+        var narrated = TurnVerdictDtoCopy.Of(verdict);
+        narrated.NarrationFailureReason = null;
+        narrated.Narration = words;
+        narrated.Summary = words;
+        narrated.Spoken = words;
+        if (!string.IsNullOrWhiteSpace(written.Label)) narrated.Label = written.Label;
+        return (narrated, LateWords.Made);
+    }
 
     /// <summary>
     /// May the speech for this reading be attempted now? True when its speech has not failed before, or when its
@@ -1290,6 +1388,7 @@ public sealed class WingmanVoiceService
             state.DirectorCannotSend.TryRemove(sid, out _); // ...and so is "update that computer to hear this session"
             state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
             state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
+            state.WordsRetries.TryRemove(sid, out _);
             SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
             if (state.Ready.TryRemove(sid, out _))
                 DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404; inside, so a clip stored next is never deleted by this
@@ -1331,6 +1430,7 @@ public sealed class WingmanVoiceService
         // A NEW TURN ENDS THE OLD STOP'S SPEECH RETRY SCHEDULE. The schedule is a fact about the stop that lost its
         // audio, not about the session.
         state.SpeechRetries.TryRemove(sid, out _);
+        state.WordsRetries.TryRemove(sid, out _);
         SupersedeStop(state, sid);   // a narration call still running for the old stop must not be stored (slice J)
         // The removal and the file delete are one step under the gate, as a store is: outside it, a clip stored between
         // the two would have its new files deleted and be left published with nothing to play.
@@ -1447,6 +1547,7 @@ public sealed class WingmanVoiceService
         state.NothingToNarrate.TryRemove(sid, out _);   // audio exists, so there was something to narrate after all
         state.DirectorCannotSend.TryRemove(sid, out _); // ...and a narration proves that computer CAN send its conversation
         state.SpeechRetries.TryRemove(sid, out _);      // ...and the audio ARRIVED, so the speech retry schedule ends on its first success
+        state.WordsRetries.TryRemove(sid, out _);
         return true;
     }
 
@@ -1525,6 +1626,8 @@ public sealed class WingmanVoiceService
     private bool HasWordsOrWillGetThem(TenantId tenant, string sid, TurnVerdictDto latest)
     {
         if (HasSavedNarration(latest) || !string.IsNullOrWhiteSpace(latest.Spoken)) return true;
+        // Words that failed cost a slot only on the pass their booked retry falls due (issue #4544).
+        if (WingmanRetrySchedule.NeedsWordsRetry(latest)) return WordsRetryDue(tenant, sid, latest);
         return !latest.Failed
                && latest.NarrationFailureReason is null
                && RequireVerdicts().LateNarrationWouldBeClaimed(tenant, sid, latest.VerdictId);
@@ -1742,6 +1845,7 @@ public sealed class WingmanVoiceService
                         // A session that has taken no turn has nothing to narrate - the honest wait, not an error.
                         state.NothingToNarrate[sid] = 1;
                         state.SpeechRetries.TryRemove(sid, out _);
+                        state.WordsRetries.TryRemove(sid, out _);
                     }
                     FileLog.Write($"[WingmanVoiceService] sid={sid}: no narration - the verdict was skipped ({outcome.SkipCause})");
                     return false;
@@ -1879,12 +1983,14 @@ public sealed class WingmanVoiceService
     ///
     /// Returns the verdict to speak - a copy carrying the words when they were made and saved, else the one handed in -
     /// and what happened, so a person's request never pays for a second call after this one. A reading that already has
-    /// words, whose narration was attempted and failed, or that failed itself, is returned untouched as
-    /// <see cref="LateWords.NotNeeded"/> - those have their own paths.
+    /// words, or that failed itself, is returned untouched as <see cref="LateWords.NotNeeded"/> - those have their own
+    /// paths. One whose narration was attempted and failed goes to <see cref="RetryMissingWordsAsync"/> when nobody asked.
     /// </summary>
     private async Task<(TurnVerdictDto Verdict, LateWords Outcome)> WordsForUnnarratedReadingAsync(
         TenantId tenant, string sid, TurnVerdictOutcome outcome, TurnVerdictDto verdict, bool personAsked, CancellationToken ct)
     {
+        if (!personAsked && WingmanRetrySchedule.NeedsWordsRetry(verdict))
+            return await RetryMissingWordsAsync(tenant, sid, outcome, verdict, ct).ConfigureAwait(false);
         if (HasSavedNarration(verdict) || verdict.NarrationFailureReason is not null
             || !string.IsNullOrWhiteSpace(verdict.Spoken) || verdict.Failed)
             return (verdict, LateWords.NotNeeded);

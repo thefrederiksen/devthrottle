@@ -50,6 +50,18 @@ public static class WingmanRetrySchedule
     /// </summary>
     public static bool NeedsRetry(CcDirector.Gateway.Contracts.TurnVerdictDto reading) => reading.Failed;
 
+    /// <summary>
+    /// Is this a reading whose colour is good and whose WORDS never came? For a session in voice mode that is silence, so
+    /// <see cref="WingmanVoiceService"/> asks for the words again on this same schedule (issue #4544). It is a separate
+    /// question from <see cref="NeedsRetry"/> because this is not a Wingman error on the row and the reading is not asked
+    /// about again: only the narration call is, and only for a session somebody is listening to.
+    /// </summary>
+    public static bool NeedsWordsRetry(CcDirector.Gateway.Contracts.TurnVerdictDto reading)
+        => !reading.Failed
+           && reading.NarrationFailureReason is not null
+           && string.IsNullOrWhiteSpace(reading.Narration)
+           && string.IsNullOrWhiteSpace(reading.Spoken);
+
     /// <summary>Is the booked retry due? False when nothing is booked.</summary>
     public static bool IsDue(DateTime? nextRetryAtUtc, DateTime nowUtc)
         => nextRetryAtUtc is { } due && due <= nowUtc;

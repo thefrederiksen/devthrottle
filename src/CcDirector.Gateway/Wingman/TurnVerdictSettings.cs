@@ -82,6 +82,15 @@ public sealed record TurnVerdictSettings
     /// </summary>
     public const int NarrationCallTimeoutSeconds = 60;
 
+    /// <summary>
+    /// How long a SCHEDULED retry of the narration call may take (issue #4544). Measured on 2026-10-31: during a slow spell
+    /// at the model host a narration took 103 to 130 seconds, so the sixty-second limit threw away answers that were on
+    /// their way and paid for them anyway. A reading holds its row open while it narrates, which is why that limit stays;
+    /// a scheduled retry holds nothing open, so it can wait long enough for a slow host to answer. Below the proxy's own
+    /// three hundred seconds, so a call that has truly hung still ends here first.
+    /// </summary>
+    public const int NarrationRetryTimeoutSeconds = 180;
+
     /// <summary>The shipped defaults, as one value.</summary>
     public static readonly TurnVerdictSettings Defaults = new();
 }
