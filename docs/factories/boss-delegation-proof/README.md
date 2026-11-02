@@ -2,17 +2,19 @@
 
 Run on 1 November 2026 on SOREN_NORTH, on an isolated local Gateway, launcher and Director built from this branch
 (`scripts/restart-qa-rig.ps1`, its own root and port 7911). The factory `delegation-proof` had a Boss on Sonnet and a
-Scribe on Haiku. Real agent sessions did the work. `transcript.txt` holds the calls and answers.
+Scribe on Haiku. Real agent sessions did the work. `transcript.txt` holds the calls and answers. Most of the table was
+read live and then the rig was deleted: `seen-during-the-run.txt` is the running session's own copy of those reads, not
+a saved artifact, and it corrects one line of the transcript.
 
 | What the owner asked for | What happened |
 |---|---|
 | A Boss hands work to the right seat | A Boss started by its real schedule ran `factory seat start`. Session `0d07efa8` started as the seat `scribe`, on the seat's own model |
-| That session has what it needs | Its kit held `brief.md`, `grants.md`, `kit.json`, `rules.json` and `records/` (`scribe-kit-listing.txt`, `scribe-kit-grants.txt`). Its note began with the mark from its brief |
+| That session has what it needs | Its kit held `brief.md`, `grants.md`, `kit.json`, `rules.json` and `records/` (`scribe-kit-listing.txt`, `scribe-kit-grants.txt`). Its note carried the mark from its brief. The note itself was not saved |
 | It belongs to the Boss | Owner and parent were the Boss session, kit `seat`, origin `agent` |
 | It comes back | The Scribe ran `session handback`. The Boss read it, said what the note was, and the run was recorded `ok` |
 | It is recorded | The activity record holds "The boss session dc287b5a started the seat scribe in session 0d07efa8" |
 | The Boss does not do the work | In the first run the command was missing from the rig. The Boss did not write the note: it reported a problem |
-| Nobody else can do this | The Scribe ran the same command and got "only the Boss of a factory may start another seat of it", logged as a refusal |
+| Nobody else can do this | Live, one caller: the Scribe, a seat with a full kit, ran the same command and got "only the Boss of a factory may start another seat of it". A Boss's child, a session with no seat and a session in no factory are held by unit tests only |
 | The Boss stays free | An open Boss with a 120-second job still Working under it answered the owner's question at once (`transcript.txt`: "the Boss answered: ANSWER 42", and the final list shows that session Working). That job came back afterwards: the Boss's screen then said it "reported back with the word FINISHED" |
 
 ## What this does not prove

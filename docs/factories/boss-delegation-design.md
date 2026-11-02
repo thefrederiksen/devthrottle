@@ -44,9 +44,15 @@ and a prompt, so there is nothing else for a Boss to set, and the Gateway picks 
 
 ## What stays as it is
 
-The Boss's publish rights do not change. A Boss may already change another seat's grants on its own authority (the
-owner, 21 October 2026), so it may publish a grant and then start that seat. Both steps are recorded. This change adds
-no new path to a grant.
+The Boss's publish rights do not change. A Boss may already change every seat but its own on its own authority (the
+owner, 21 October 2026): its agent, model, machine, repository, grants and secret names, and a schedule for it. So it
+may publish such a change and then start that seat. Both steps are recorded. "What the published definition says" is
+therefore a limit on the start, not on the Boss, and this change adds no new path to any of those.
+
+The refusal of a Boss seat is checked at the start. A Boss could start a seat and then publish a version that gives it
+the role Boss; the running session would then pass the check by role and could start seats. It still could not publish,
+because a publish matches `bossSeat` alone. The owner's approval guards that field, so there is still one holder of the
+right to publish.
 
 ## The other limits
 
