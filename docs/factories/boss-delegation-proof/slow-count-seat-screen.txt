@@ -1,0 +1,42 @@
+nesleep120Bashcall(Bloc)
+   Waiting
+
+ Inferring (running PreToolUse hooks 0/2  1m 46s   1.6k tokens)
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+Inferring*InferringInferring7InferringInferringInferringInferring*Inferring1InferringRunn1m 48s   1.6k tokens) *Inferring7InferringInferring9InferringInferringInferringInferring*Inferring InferringInferring50InferringInferringInferringInferring*Inferring Inferring1InferringInferringInferring*Inferring(ctrl+b to run in background)
+
+Inferring (1m 51s  1.7k tokens)
+
+
+bypasspermissionson (shift+tabtocycle)esctointerrupt1agent
+ (3s)InferringInferring2Inferring InferringInferringInferring*4InferringInferring3InferringInferringInferringInferring Inferring*5InferringInferring4InferringInferringInferringInferringInferring *6InferringInferring5InferringInferringInferringInferringInferring*7Inferring Inferring6InferringInferringInferringInferringInferring8*InferringInferring7 InferringInferringInferringInferring*Inferring9InferringInferring8InferringInferring InferringInferringInferring*10s)InferringInferring9InferringInferringInferringInferring *Inferring1InferringInferring20s   1.7k tokens)InferringInferringInferringInferringInferring* 2InferringInferring1InferringInferringInferringInferring*Inferring3InferringInferring2InferringInferringInferringInferring Inferring*4InferringInferring3InferringInferringInferringInferring*Inferring5 InferringInferring4InferringInferringInferringInferring
+Inferring (running PostToolUse hook  2m 5s  1.7k tokens)
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+
+ Inferring*InferringInferringInferring6Wait2m 6s  1.7k tokns)Queued forDelegationProof-Boss-talkwiththeowner(db3c7f18-d0f0-44e5-b3e2-a2876223501c)(messageb0a0d516eef74d37a3a3c4ef1ab51ea6).Nothingwastypedintoit;itreadsthemessagefromitsinboxwhenitisfree.
+    help[2]: +2 lines (ctrl+o to expand)
+
+ Inferring (2m 6s  1.7k tokens)
+
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+InferringInferringInferringInferring*InferringInferringInferring7InferringInferringInferringn*I88The job is not finished. I did nothandbackFINISHED,becausetheharnessblockedthesleep 120Iwasaskedtorun.  - What happened: The standalone sleep 120 was blocked. The harness said to use Monitor with an until-loop for waiting 
+  onacondition,andnottochainshortersleepsaroundtheblock.Ididnotworkarounditwithanothershell\u0027s
+    sleep.- Grants: grants.md only allows writing one note file per run. This job doesnotneedone,soIwrotenone.-Handback:Isentthestatustothebosssessionwithcc-devthrottlesessionhandback.Itsaysthejobisnot
+    finished and asks for a decision: allow a plain sleep for this job, or have it run another way.
+
+ Inferring (2m 8s   1.8k tokens)
+
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+InferringrunningStop hooks 0/2  2m 12s  1.8k tokens)Inferring9Inferring3InferringInferringInferring*Inferring1Baked for 2m 13s  done 6:35 PM 1agent"
+}

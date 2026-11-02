@@ -1,0 +1,43 @@
+What was read live during the run, copied here afterwards by the session that ran it. The rig was deleted, so these
+lines cannot be read again. Treat this as that session's record, not as a saved artifact.
+
+GET /sessions during the first delegation:
+
+  sessionId           : 0d07efa8-55b9-4ed3-8585-c6ea992a492e
+  name                : Delegation Proof - Scribe - Scribe writes today's note
+  controllerSessionId : dc287b5a-d624-43aa-a160-c02eab9c37a0
+  parentSessionId     : dc287b5a-d624-43aa-a160-c02eab9c37a0
+  factorySeat         : scribe
+  factoryKit          : seat
+  originKind          : agent
+  launchModel         : the Haiku model the seat file names (the Boss ran on the Sonnet model)
+
+The first run's problem, on the activity record:
+
+  The scheduled run of Delegation Proof - Boss reported a problem: cannot start seat scribe: 'cc-devthrottle factory
+  seat start' does not exist in this build (no such command 'seat'); no note written
+
+The scheduled Boss's closing words on its screen (dc287b5a):
+
+  The scribe wrote today's note and saved it as factory memory note-2026-11-01. It says the delegation proof run
+  happened on 2026-11-01. The scribe read its brief and grants, wrote the note, and handed the work back to me. The
+  note also carries a marker string, BRIEF-MARK-4417.
+  I've reported the run as ok.
+  My first attempt to start the scribe failed with "The system cannot find the file specified." The retry with a
+  shorter prompt worked, and I didn't find the cause. I can't rule out that the first attempt also started a second
+  scribe session.
+
+The Scribe's closing words on its screen (0d07efa8):
+
+  The text starts with BRIEF-MARK-4417 ... Handback: queued to the boss session ... The grant in grants.md covers
+  writing one note file in the work folder, so I did not write a file there. The factory memory command came from the
+  job itself, not from the grant.
+
+The open Boss on the ordinary child (db3c7f18):
+
+  The first scribe session ("Delegation Proof - Scribe - sleep 120 then FINISHED") reported back with the word FINISHED.
+  The second one, "slow-count", hasn't reported yet.
+
+CORRECTION to transcript.txt: its line "the second Scribe came back to the Boss: FINISHED" is a false positive. The
+check matched the word in the rig's own prompt. "slow-count" had not reported at that moment, as the line above says.
+Its own screen later said it had sent a not-finished status with session handback. No screen showed that arriving.

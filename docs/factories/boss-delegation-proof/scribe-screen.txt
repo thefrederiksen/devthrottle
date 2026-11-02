@@ -1,0 +1,34 @@
+Orchestrating*Orchestrating Orchestrating5OrchestratingOrchestrating6OrchestratingOrchestratingOrchestrating*OrchestratingOrchestrating6Orchestrating Orchestrating7OrchestratingOrchestratingOrchestrating*OrchestratingOrchestrating7OrchestratingOrchestrating8 OrchestratingOrchestratingOrchestrating*OrchestratingOrchestrating8OrchestratingOrchestrating9OrchestratingOrchestrating *OrchestratingOrchestratingOrchestrating9OrchestratingOrchestrating30OrchestratingOrchestratingOrchestrating* OrchestratingOrchestrating20OrchestratingOrchestrating1OrchestratingOrchestrating*OrchestratingOrchestrating Orchestrating1OrchestratingOrchestrating2
+Orchestrating (running PostToolUseFailure hook  32s  234 tokens)
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+
+*OrchestratingOrchestratingOrchestratingOrchestrating Orchestrating3WaitOrchestrating33s   234 tken)Error: Exit code 1Error: no session was started: only the Boss of a factory may start another seat of it, and this session is not the    Boss. Finish your work and hand it back; the Boss decides who does the next piece.
+     help[1]:  cc-devthrottle setup status
+
+ Orchestrating (33s  234 tokens)
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+Orchestrating*OrchestratingOrchestratingOrchestratingOrchestratingOrchestrating  thinking)472thinking97thinking322thinking47thinking*79404The command did not start a seat. It exited withcode1andprintedthis,wordforword:
+Error: no session was started: only the Boss of a factory may start another seat of it, and this session is not the 
+  Boss. Finish your work and hand it back; the Boss decides who does the next piece.
+  help[1]:
+    cc-devthrottle setup status\nThissessionisthescribeseat,nottheBoss,soitcannotstartotherseats.Theworkisalreadyhandedbacktothe
+  Boss, which decides who does the next piece. I have not retried or worked around the refusal.
+
+ Orchestrating (34s   404 tokens  thinking)
+
+
+
+
+   bypass permissions on (shift+tab to cycle)  esc to interrupt   1 agent
+running Stop hook 0/2  35s  404 tokens  thinking)Orchestrating535thinking*Orchestrating9thinking412Orchestrating4thinkingOrchestrating6thinkingthought for 1s)Orchestrating7Orchestrating69Orchestrating503Orchestrating4*OrchestratingOrchestratingOrchestratingOrchestrating7Orchestrating*OrchestratingOrchestratingOrchestrating)Orchestrating8Orchestrating1OrchestratingOrchestrating*OrchestratingOrchestratingOrchestratingOrchestrating9OrchestratingOrchestratingOrchestrating*OrchestratingOrchestratingOrchestratingOrchestrating40Baked for 40s  doe 6:23 PM
+
+
+   bypass permissions on (shift+tab to cycle)   1 agent
+
+"
+}

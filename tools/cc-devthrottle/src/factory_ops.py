@@ -24,7 +24,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, secret_guard  # noqa: E402
 
 #: The route the Gateway maps only while factory agents are switched on.
 ROUTE = "gateway/factory/activity"
@@ -105,6 +105,30 @@ def record(
         return
     axi_cli.write_lines(row_id)
     axi_cli.print_next([f"{_ACTIVITY} --factory {axi_cli.bare(factory, '<factory>')}"])
+
+
+def start_seat(seat: str, name: str, prompt: str) -> None:
+    """Ask the Gateway to start a seat of the calling Boss's factory. The Gateway decides who may and what starts."""
+    secret_guard.refuse_if_it_carries_a_secret(prompt, "first prompt")
+    route = f"gateway/factory/seats/{gateway.path_segment(seat)}/start"
+    try:
+        answer = gateway.post_json(route, {"name": name, "prompt": prompt})
+    except gateway.GatewayError as exc:
+        axi_cli.fail(f"no session was started: {_gateway_reason(exc)}", [axi_cli.CHECK_GATEWAY], label="Error:")
+        return
+    started = gateway.field(answer, "sessionId", "SessionId") if isinstance(answer, dict) else ""
+    if not started:
+        axi_cli.fail(
+            "the Gateway did not return a session id, so whether the seat started is unknown. Look for it before asking again.",
+            ["cc-devthrottle session list"],
+            label="Error:",
+        )
+        return
+    axi_cli.write_lines(
+        f"Started {gateway.field(answer, 'sessionName', 'SessionName')} on "
+        f"{gateway.field(answer, 'computer', 'Computer')}: {started}"
+    )
+    axi_cli.print_next(["cc-devthrottle message inbox"])
 
 
 def activity(

@@ -1,0 +1,8 @@
+# The grants of the seat scribe
+
+What this seat is allowed to do beyond its work, and the limits on each. A grant is a promise the owner made; keep inside its limits.
+
+## write-notes
+
+- Allows: Write one note file in your work folder
+- Limits: GRANT-MARK-9052 at most one note a run

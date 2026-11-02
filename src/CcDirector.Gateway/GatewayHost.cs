@@ -5832,6 +5832,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,
             Missions, _workflowRuns, _workspaces, _factoryKitCapabilities, SeatRulesFor);
+        // A Boss starts a seat of its own factory: through the talk's door, behind the switch, recorded in the activity row.
+        Api.FactorySeatStartEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            registry: FactoryRegistry,
+            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+            listDirectors: tenant => Registry.ListDirectors(tenant),
+            startOnDirector: (ctx, directorId, request) =>
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor),
+            record: (tenant, row, actor) => FactoryActivity.Append(tenant, row, actor));
         // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
         var factoryManagerSources = new Api.FactoryManagerSources(
