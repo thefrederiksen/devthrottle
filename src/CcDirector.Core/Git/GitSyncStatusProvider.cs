@@ -164,7 +164,8 @@ public class GitSyncStatusProvider
         // ProcessRunner drains BOTH pipes (the old code never drained stderr, so a git command that
         // filled its error pipe could deadlock) and honors cancellation by killing the child so a
         // superseded scan does not leave git processes behind (issue 516).
-        var r = await ProcessRunner.RunAsync("git", args, repoPath, ct);
+        // Optional locks off: a killed status must not strand index.lock (issue #2872).
+        var r = await ProcessRunner.RunAsync("git", args, repoPath, standardInput: null, GitOptionalLocks.Off, ct);
         if (!r.Started)
             return new GitRead(null, GitLaunchFailure.Describe(r.StartErrorCode, r.StandardError));
         if (r.ExitCode != 0)

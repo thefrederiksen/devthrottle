@@ -255,7 +255,10 @@ public sealed class CcWorktreesPool : IWorktreePool
             return (-1, "", $"{ToolName} was not found", false);
 
         using var cts = new CancellationTokenSource(CallTimeout);
-        var result = Task.Run(() => ProcessRunner.RunAsync(exe, args, workingDirectory: null, cts.Token)).GetAwaiter().GetResult();
+        // cc-worktrees runs git status inside slot worktrees and inherits this environment; the timeout
+        // above kills its whole tree, so optional locks go off here or a kill strands index.lock (#2872).
+        var result = Task.Run(() => ProcessRunner.RunAsync(
+            exe, args, workingDirectory: null, standardInput: null, GitOptionalLocks.Off, cts.Token)).GetAwaiter().GetResult();
         return (result.ExitCode, result.StandardOutput, result.StandardError, result.Started);
     }
 }

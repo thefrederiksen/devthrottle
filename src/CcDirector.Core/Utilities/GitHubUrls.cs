@@ -176,6 +176,8 @@ public static class GitHubUrls
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // A read: no optional locks, like every other git read the Director does (issue #2872).
+        CcDirector.Core.Git.GitOptionalLocks.ApplyTo(psi);
         using var process = System.Diagnostics.Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start git");
         var output = process.StandardOutput.ReadToEnd().Trim();

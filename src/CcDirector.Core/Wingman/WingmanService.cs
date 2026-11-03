@@ -558,6 +558,8 @@ public static class WingmanService
             WorkingDirectory = repoPath,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        // Read-only snapshot: optional locks off so status never takes index.lock (issue #2872).
+        CcDirector.Core.Git.GitOptionalLocks.ApplyTo(psi);
 
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("git Process.Start returned null");
         var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
