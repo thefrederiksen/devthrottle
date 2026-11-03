@@ -81,7 +81,9 @@ public static class ProcessRunner
         // makes the documented contract on Started true.
         try
         {
-            if (!proc.Start())
+            // Started on the thread pool, never on the caller's thread: a caller on the desktop's UI
+            // thread must not wait out a slow, lock-serialised Process.Start (issue #4556).
+            if (!await ProcessStartOffThread.StartAsync(proc).ConfigureAwait(false))
                 return new Result(-1, "", $"{fileName} could not start", Started: false);
         }
         catch (System.ComponentModel.Win32Exception ex)
@@ -95,18 +97,18 @@ public static class ProcessRunner
         try
         {
             if (standardInput is not null)
-                await WriteStandardInputAsync(proc, standardInput, ct);
-            await proc.WaitForExitAsync(ct);
-            var stdout = await outTask;
-            var stderr = await errTask;
+                await WriteStandardInputAsync(proc, standardInput, ct).ConfigureAwait(false);
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+            var stdout = await outTask.ConfigureAwait(false);
+            var stderr = await errTask.ConfigureAwait(false);
             return new Result(proc.ExitCode, stdout, stderr, Started: true);
         }
         catch (OperationCanceledException)
         {
             TryKillTree(proc);
             // Observe the drain tasks so a killed-pipe read does not surface as an unobserved fault.
-            await ObserveQuietlyAsync(outTask);
-            await ObserveQuietlyAsync(errTask);
+            await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
+            await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
             throw;
         }
     }

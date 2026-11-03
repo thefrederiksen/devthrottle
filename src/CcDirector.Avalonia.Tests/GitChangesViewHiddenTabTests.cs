@@ -70,6 +70,70 @@ public sealed class GitChangesViewHiddenTabTests : IDisposable
         window.Close();
     }
 
+    // ATTACH IS A SESSION SWITCH (issue #4556). MainWindow.SelectSession attaches this page on every
+    // switch, on the UI thread, and before this fix the attach ran a status read and a network fetch
+    // whether or not the owner could see the page - a mean of 2.05 s per switch on the owner's machine.
+    // Against that page each test below counts one status read and one fetch on the attach.
+
+    [AvaloniaFact]
+    public async Task Attach_WhileTheHostPanelIsHidden_StartsNoGit_AndShownRefreshesAtOnce()
+    {
+        var git = new CountingGit();
+        var view = new GitChangesView(git);
+        var hostPanel = new Panel { Children = { view } }; // stands in for MainWindow's SourceControlPanel
+        var window = new Window { Content = hostPanel };
+        window.Show();
+        hostPanel.IsVisible = false; // the owner is on the Terminal tab
+
+        view.Attach(_repo);
+        await view.AttachRefresh;
+
+        Assert.Equal(0, git.StatusReads);
+        Assert.Equal(0, git.Fetches);
+
+        // The owner chooses the tab: the host shows the panel and calls Shown(), which refreshes now
+        // and fetches, because this repository has not been fetched since it was attached. The counting
+        // git answers at once, so both are counted by the time Shown() returns.
+        hostPanel.IsVisible = true;
+        view.Shown();
+        Assert.Equal(1, git.StatusReads);
+        Assert.Equal(1, git.Fetches);
+
+        view.Detach();
+        window.Close();
+    }
+
+    /// <summary>
+    /// The shape the owner actually runs. The page sits inside SourceControlView, a UserControl, inside
+    /// a panel that has been hidden since start-up. A hidden panel is never laid out, so the UserControl's
+    /// template is never applied and the page is not in the window at all - and a control that is not in
+    /// the window reports IsEffectivelyVisible true. The 22 September check trusted that flag, which is
+    /// why the owner's log shows the status poll running every 15 seconds on the Terminal tab all day.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task Attach_InsideAUserControlWhoseHiddenPanelWasNeverLaidOut_StartsNoGit_AndTicksSkip()
+    {
+        var git = new CountingGit();
+        var view = new GitChangesView(git);
+        var hostPanel = new Panel { IsVisible = false, Children = { new UserControl { Content = view } } };
+        var window = new Window { Content = hostPanel };
+        window.Show();
+
+        view.Attach(_repo);
+        await view.AttachRefresh;
+        Assert.False(await view.PollTickAsync(), "a page that is not in the window is not on screen");
+        Assert.False(await view.SyncTickAsync(AnyTimeAFetchIsDue), "a page that is not in the window is not on screen");
+
+        Assert.Equal(0, git.StatusReads);
+        Assert.Equal(0, git.Fetches);
+
+        view.Detach();
+        window.Close();
+    }
+
+    /// <summary>The attach leaves the page never fetched, so a fetch is due at any time at all.</summary>
+    private static readonly DateTime AnyTimeAFetchIsDue = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     /// <summary>A git that answers at once and counts the fetches and status reads it is asked for.</summary>
     private sealed class CountingGit : IGitChangesGit
     {

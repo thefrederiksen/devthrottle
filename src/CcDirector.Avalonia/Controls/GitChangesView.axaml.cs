@@ -41,16 +41,21 @@ internal interface IGitChangesGit
     Task<GitSyncStatus> GetSyncStatusAsync(string repoPath);
 }
 
-/// <summary>The real git work: the status and sync providers the page has always used.</summary>
+/// <summary>
+/// The real git work: the status and sync providers the page has always used. Each call runs on the
+/// thread pool, so the page - which calls from the UI thread - never starts a git process, waits on
+/// one, or parses its output there (issue #4556: switching sessions spent a mean of 2.05 s inside
+/// this page's attach, starting git on the UI thread).
+/// </summary>
 internal sealed class ProviderGitChangesGit : IGitChangesGit
 {
     private readonly GitStatusProvider _provider = new();
     private readonly GitSyncStatusProvider _syncProvider = new();
 
-    public Task<GitStatusResult> GetStatusAsync(string repoPath) => _provider.GetStatusAsync(repoPath);
+    public Task<GitStatusResult> GetStatusAsync(string repoPath) => Task.Run(() => _provider.GetStatusAsync(repoPath));
     public string? GetCachedRawOutput(string repoPath) => _provider.GetCachedRawOutput(repoPath);
-    public Task FetchAsync(string repoPath) => _syncProvider.FetchAsync(repoPath);
-    public Task<GitSyncStatus> GetSyncStatusAsync(string repoPath) => _syncProvider.GetSyncStatusAsync(repoPath);
+    public Task FetchAsync(string repoPath) => Task.Run(() => _syncProvider.FetchAsync(repoPath));
+    public Task<GitSyncStatus> GetSyncStatusAsync(string repoPath) => Task.Run(() => _syncProvider.GetSyncStatusAsync(repoPath));
 }
 
 public partial class GitChangesView : UserControl
@@ -82,14 +87,27 @@ public partial class GitChangesView : UserControl
         InitializeComponent();
     }
 
-    /// <summary>The refresh and fetch <see cref="Attach"/> starts, so a caller can wait for it to finish.</summary>
+    /// <summary>The refresh and fetch <see cref="Attach"/> starts, so a caller can wait for it to finish.
+    /// Already complete when the page was attached while not on screen, because then it starts nothing.</summary>
     internal Task AttachRefresh { get; private set; } = Task.CompletedTask;
 
+    /// <summary>
+    /// Point the page at a repository. Called on every session switch, on the UI thread.
+    ///
+    /// A PAGE NOBODY IS LOOKING AT DOES NO WORK - INCLUDING ON ATTACH (issue #4556). The 22 September
+    /// fix stopped the hidden page's ticks but left this method running a status read and a network
+    /// fetch unconditionally, on every switch, with the owner on the Terminal tab. Now attaching a page
+    /// that is not on screen starts no git at all; <see cref="Shown"/> refreshes it (and fetches, the
+    /// first time for this repository) the moment its tab is chosen.
+    /// </summary>
     public void Attach(string repoPath)
     {
         FileLog.Write($"[GitChangesView] Attach: {repoPath}");
         Detach();
         _repoPath = repoPath;
+        // A fetch belongs to a repository, not to the page: the next Shown() must fetch this one even
+        // if another repository was fetched a moment ago.
+        _lastFetchTime = DateTime.MinValue;
 
         _pollTimer = new DispatcherTimer
         {
@@ -105,8 +123,27 @@ public partial class GitChangesView : UserControl
         _syncTimer.Tick += SyncTimer_Tick;
         _syncTimer.Start();
 
+        if (!IsOnScreen)
+        {
+            FileLog.Write("[GitChangesView] Attach: not on screen - no git until the tab is shown");
+            AttachRefresh = Task.CompletedTask;
+            return;
+        }
         AttachRefresh = Task.WhenAll(RefreshAsync(), RefreshSyncAsync(fetch: true));
     }
+
+    /// <summary>
+    /// True only when the owner can actually see this page: it is in a window's visual tree AND it and
+    /// every ancestor is visible.
+    ///
+    /// <see cref="Visual.IsEffectivelyVisible"/> alone is NOT that question, and trusting it is why the
+    /// 22 September fix never worked in the real window (issue #4556). This page lives inside
+    /// SourceControlView, a UserControl whose template is applied only when it is first laid out - and
+    /// a hidden panel is never laid out. Until the owner first opens the Source Control tab, the page
+    /// is detached from the window entirely, and a detached control reports IsEffectivelyVisible TRUE.
+    /// The owner's log shows the result: the 15-second status poll running all day on the Terminal tab.
+    /// </summary>
+    internal bool IsOnScreen => IsEffectivelyVisible && TopLevel.GetTopLevel(this) is not null;
 
     public void Detach()
     {
@@ -149,9 +186,9 @@ public partial class GitChangesView : UserControl
         }
     }
 
-    // A PAGE NOBODY IS LOOKING AT DOES NO WORK. Both ticks ask whether this view is EFFECTIVELY
-    // visible - attached, and every ancestor visible - not merely whether its own IsVisible flag is
-    // set. The host hides the whole Source Control panel when another tab is chosen and never
+    // A PAGE NOBODY IS LOOKING AT DOES NO WORK. Both ticks ask whether this view is ON SCREEN
+    // (IsOnScreen: in a window, and every ancestor visible) - not merely whether its own IsVisible flag
+    // is set. The host hides the whole Source Control panel when another tab is chosen and never
     // touches this control's own flag, so until 22 September 2026 the poll's IsVisible check let it
     // run git status every 15 seconds and the sync tick ran a network git fetch every 60 seconds
     // for as long as a session was attached, tab hidden or not. What the owner sees is unchanged:
@@ -161,7 +198,7 @@ public partial class GitChangesView : UserControl
     /// <summary>One status poll, if the page is being looked at. Returns false when it was skipped.</summary>
     internal async Task<bool> PollTickAsync()
     {
-        if (!IsEffectivelyVisible) return false;
+        if (!IsOnScreen) return false;
         await RefreshAsync();
         return true;
     }
@@ -171,7 +208,7 @@ public partial class GitChangesView : UserControl
     /// can make the minute elapse.</summary>
     internal async Task<bool> SyncTickAsync(DateTime nowUtc)
     {
-        if (!IsEffectivelyVisible) return false;
+        if (!IsOnScreen) return false;
         bool shouldFetch = (nowUtc - _lastFetchTime).TotalSeconds >= 60;
         await RefreshSyncAsync(fetch: shouldFetch);
         return true;

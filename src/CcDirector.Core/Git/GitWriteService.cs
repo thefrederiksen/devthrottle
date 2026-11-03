@@ -112,7 +112,9 @@ public sealed class GitWriteService
         // (devthrottle_internal issue #1048).
         try
         {
-            proc.Start();
+            // On the thread pool, never the caller's thread: the Source Control buttons call this from
+            // the desktop's UI thread (issue #4556) - see ProcessStartOffThread.
+            await ProcessStartOffThread.StartAsync(proc).ConfigureAwait(false);
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
@@ -122,7 +124,7 @@ public sealed class GitWriteService
 
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
-        await proc.WaitForExitAsync(ct);
+        await proc.WaitForExitAsync(ct).ConfigureAwait(false);
 
         var result = new GitWriteResult
         {
