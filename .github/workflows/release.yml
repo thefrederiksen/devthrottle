@@ -1112,6 +1112,113 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # EVERY release file goes to our own storage, in a folder of its own: download/v<version>/.
+      # This is step 1 of taking downloads off GitHub (devthrottle_internal docs/strategy/closed-source,
+      # owner 3 November 2026): the Director, launcher, Gateway, Cockpit, mobile, setup, ffmpeg, Python
+      # and the TOOLS bundles (cc-tools-pyenv-*) all land here, pre-releases included. Nothing reads this
+      # folder yet - the updaters still read GitHub - so this changes nothing a user sees.
+      #
+      # It runs BEFORE the GitHub draft is published, on purpose: a release that cannot reach our storage
+      # stops here, before it becomes GitHub's "latest". And a missing key is a FAILED release, not a
+      # skipped step - a copy that quietly does not happen is exactly what nobody notices until the day
+      # the copy is the only place the files are.
+      #
+      # release-manifest.json goes up LAST inside the folder, so a folder that has a manifest is a
+      # folder whose files are all there.
+      - name: Upload this release to Azure, one folder per version
+        env:
+          AZ_ACCOUNT: devthrottle
+          AZ_CONTAINER: download
+          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AZ_KEY:-}" ]; then
+            echo "::error title=Azure key missing::AZURE_DOWNLOADS_KEY is not set. Every release must reach our download storage; refusing to release."
+            exit 1
+          fi
+
+          FOLDER="${GITHUB_REF_NAME}"
+          STAGE="$(mktemp -d)"
+          cp -a release-files/. "$STAGE/"
+          rm "$STAGE/release-manifest.json"
+
+          echo "Uploading $(ls "$STAGE" | wc -l) files to $AZ_CONTAINER/$FOLDER/"
+          az storage blob upload-batch \
+            --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
+            --destination "$AZ_CONTAINER" --destination-path "$FOLDER" \
+            --source "$STAGE" --overwrite --max-connections 8 \
+            --content-cache-control "public, max-age=31536000, immutable" \
+            --only-show-errors -o none
+
+          # The manifest last: its presence is what says "this folder is complete".
+          az storage blob upload \
+            --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
+            --container-name "$AZ_CONTAINER" \
+            --file release-files/release-manifest.json --name "$FOLDER/release-manifest.json" --overwrite \
+            --content-cache-control "public, max-age=31536000, immutable" \
+            --content-type "application/json" \
+            --only-show-errors -o none
+
+          echo "Uploaded to https://$AZ_ACCOUNT.blob.core.windows.net/$AZ_CONTAINER/$FOLDER/"
+
+      # Prove the upload rather than trust the exit code: the folder holds exactly the files the manifest
+      # names (no more, no fewer), and EVERY one of them, fetched back anonymously from the public address,
+      # has the SHA-256 the manifest says.
+      - name: Verify every file in the version folder
+        env:
+          AZ_ACCOUNT: devthrottle
+          AZ_CONTAINER: download
+          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
+          BASE: https://devthrottle.blob.core.windows.net/download
+        run: |
+          set -euo pipefail
+          FOLDER="${GITHUB_REF_NAME}"
+          MANIFEST=release-files/release-manifest.json
+
+          expected_names=$( { jq -r '.assets | keys[]' "$MANIFEST"; echo release-manifest.json; } | sort)
+          actual_names=$(az storage blob list \
+            --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
+            --container-name "$AZ_CONTAINER" --prefix "$FOLDER/" \
+            --query "[].name" -o tsv | sed "s#^$FOLDER/##" | sort)
+          if [ "$expected_names" != "$actual_names" ]; then
+            echo "::error title=Version folder does not match the manifest::$FOLDER/ does not hold exactly the files in release-manifest.json. Lines marked > are in the folder but not in this release - most likely left by an earlier run of the same tag; lines marked < are missing."
+            diff <(echo "$expected_names") <(echo "$actual_names") || true
+            exit 1
+          fi
+
+          failed=0
+          while read -r name; do
+            expected=$(jq -r --arg n "$name" '.assets[$n].sha256' "$MANIFEST")
+            if ! actual=$(curl -fsSL "$BASE/$FOLDER/$name" | sha256sum | cut -d' ' -f1); then
+              echo "FAIL $name could not be fetched from $BASE/$FOLDER/$name"
+              failed=1
+              continue
+            fi
+            if [ "${expected,,}" = "${actual,,}" ]; then
+              echo "OK   $name"
+            else
+              echo "FAIL $name expected $expected actual $actual"
+              failed=1
+            fi
+          done < <(jq -r '.assets | keys[]' "$MANIFEST")
+
+          local_manifest=$(sha256sum "$MANIFEST" | cut -d' ' -f1)
+          remote_manifest=$(curl -fsSL "$BASE/$FOLDER/release-manifest.json" | sha256sum | cut -d' ' -f1)
+          if [ "$local_manifest" != "$remote_manifest" ]; then
+            echo "FAIL release-manifest.json"
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error title=Version folder mismatch::$BASE/$FOLDER/ is not serving this release byte for byte."
+            exit 1
+          fi
+          {
+            echo "## Our download storage"
+            echo "Every file of \`$GITHUB_REF_NAME\` verified at $BASE/$FOLDER/"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Verified: every file in $FOLDER/ matches the manifest."
+
       # The release is created as a DRAFT with every asset already attached, and published by the
       # step below. A draft is not "latest" and is not visible to /releases/latest, so no updater
       # can see this version until it is COMPLETE: "latest" and "complete" become the same moment.
@@ -1171,23 +1278,18 @@ jobs:
             echo "## Published"
             echo "\`$GITHUB_REF_NAME\` left draft with every asset attached, so there is no window in which it is latest but incomplete."
           } >> "$GITHUB_STEP_SUMMARY"
-      # Mirror the files a PERSON downloads to a stable public address
-      # (devthrottle_internal #1186). GitHub stays the archive: this holds ONLY
-      # the current build, under names that never change. Per-version copies were
-      # removed deliberately - GitHub already serves an immutable URL per version
-      # for free, so a second copy bought nothing and doubled the storage.
+      # The files a PERSON downloads also sit at fixed addresses that never change
+      # (devthrottle_internal #1186): one copy, one name, overwritten every stable release.
+      # The website's Download button links straight to these, so they stay exactly where they are.
+      # The full release, every file, is in its own version folder (the upload step above).
       #
-      # Why this exists: the GitHub download link is not a stable address. It
+      # Why fixed addresses exist: the GitHub download link is not a stable address. It
       # redirects twice, and the URL the browser actually fetches from carries a
       # per-asset GUID and a per-request signature, so no two downloads of ours
       # ever come from the same place. Every clean download we measured (mindzie,
       # three artifacts) sits at one fixed address overwritten in place; the one
       # Windows holds does not. Unproven as a fix - see devthrottle_internal
       # #1158 - but it is the only variable we can move while releasing daily.
-      #
-      # Only browser/agent-facing assets go here. The rest (gateway, director,
-      # launcher, python, ffmpeg, pyenv) are fetched by our own installer after
-      # it runs, never by a browser, so they stay on GitHub only.
       - name: Mirror downloads to Azure Blob
         if: ${{ !contains(github.ref_name, '-') }}
         env:
@@ -1197,13 +1299,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Guarded here rather than in `if:` - a step's own env block is not
-          # reliably available to its own condition, and secrets cannot be read
-          # in a condition at all. Unset key means the mirror is not configured,
-          # which is not a release failure.
+          # A missing key fails the release (it used to skip quietly). The upload step above
+          # already refused one, so reaching here without a key means something changed.
           if [ -z "${AZ_KEY:-}" ]; then
-            echo "AZURE_DOWNLOADS_KEY not set - skipping the download mirror."
-            exit 0
+            echo "::error title=Azure key missing::AZURE_DOWNLOADS_KEY is not set."
+            exit 1
           fi
 
           PUBLIC_ASSETS="
@@ -1231,18 +1331,17 @@ jobs:
 
           for name in $PUBLIC_ASSETS; do
             src="release-files/$name"
+            # Every one of these is a required asset, checked by "Verify release completeness".
+            # Missing here means the list above and that check disagree - stop, do not skip.
             if [ ! -f "$src" ]; then
-              echo "MISSING from release-files, not mirrored: $name"
-              continue
+              echo "::error title=Public asset missing::$name is not in release-files."
+              exit 1
             fi
             case "$name" in
               *.json) ctype="application/json" ;;
               *)      ctype="application/octet-stream" ;;
             esac
-            # One copy, one name, overwritten every release - so the download
-            # address never changes. Short cache or people keep getting
-            # yesterday's build. release-manifest.json alongside it says which
-            # version is currently there, for anything that needs to know.
+            # Short cache or people keep getting yesterday's build.
             upload "$src" "$name" "public, max-age=300" "$ctype"
           done
 
@@ -1253,14 +1352,9 @@ jobs:
       - name: Verify the mirrored installer
         if: ${{ !contains(github.ref_name, '-') }}
         env:
-          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
           BASE: https://devthrottle.blob.core.windows.net/download
         run: |
           set -euo pipefail
-          if [ -z "${AZ_KEY:-}" ]; then
-            echo "Mirror not configured - nothing to verify."
-            exit 0
-          fi
           expected=$(jq -r '.assets["devthrottle-setup-win-x64.exe"].sha256' release-files/release-manifest.json)
           curl -fsSL -o /tmp/mirrored.exe "$BASE/devthrottle-setup-win-x64.exe"
           actual=$(sha256sum /tmp/mirrored.exe | cut -d' ' -f1)
@@ -1271,3 +1365,110 @@ jobs:
             exit 1
           fi
           echo "Mirror verified: the public URL serves this release byte for byte."
+
+      # The two "newest version" files, written LAST of everything, after every file is verified:
+      #   stable.json      - the newest stable release      (a stable release moves it)
+      #   prerelease.json  - the newest release of any kind (every release moves it)
+      # Each names the version and the folder holding its manifest. Written last so nothing reading
+      # them can ever be pointed at a version whose files are not all there. Nothing reads them yet;
+      # the bridge release switches the updaters over to them.
+      #
+      # A channel never moves BACKWARDS on its own: re-running an older tag fails here instead of
+      # quietly downgrading everyone. Rolling back is a deliberate act, not a side effect of a re-run.
+      - name: Point the channel files at this release
+        env:
+          AZ_ACCOUNT: devthrottle
+          AZ_CONTAINER: download
+          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
+          BASE: https://devthrottle.blob.core.windows.net/download
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            CHANNELS="prerelease"
+          else
+            CHANNELS="stable prerelease"
+          fi
+
+          # True when version $1 is OLDER than version $2. 2.34.0-rc1 < 2.34.0-rc10 < 2.34.0 < 2.34.1.
+          is_older() {
+            python3 - "$1" "$2" <<'PY'
+          import re, sys
+          def key(v):
+              m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(.+))?", v)
+              if not m:
+                  print(f"not a version: {v!r}", file=sys.stderr)
+                  sys.exit(2)
+              pre = m.group(4)
+              # Letters and digits are separate parts, dot or no dot, so rc10 > rc9 and rc.10 > rc.9.
+              parts = tuple(int(p) if p.isdigit() else p for p in re.findall(r"\d+|[^\d.]+", pre)) if pre else ()
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 0 if pre else 1, tuple((0, p) if isinstance(p, int) else (1, p) for p in parts))
+          sys.exit(0 if key(sys.argv[1]) < key(sys.argv[2]) else 1)
+          PY
+          }
+
+          for channel in $CHANNELS; do
+            file="$channel.json"
+            code=$(curl -sS -o /tmp/current.json -w '%{http_code}' "$BASE/$file?nocache=$GITHUB_RUN_ID")
+            case "$code" in
+              200)
+                current=$(jq -r '.version' /tmp/current.json)
+                # 0 = older, 1 = same or newer, anything else = a version that cannot be read.
+                # Captured explicitly: under `if`, an unreadable version would read as "not older".
+                rc=0
+                is_older "$VERSION" "$current" || rc=$?
+                case "$rc" in
+                  0)
+                    # A stable patch cut while a newer pre-release is out (v2.34.1 after v2.35.0-rc1) is a
+                    # legitimate release: the pre-release channel already names something newer, so it
+                    # correctly stays where it is. Only moving a channel to an OLDER version is refused.
+                    if [ "$channel" = "prerelease" ] && [ "$IS_PRERELEASE" != "true" ]; then
+                      echo "$file names the newer pre-release $current; it stays there."
+                      echo "- \`$file\` stays on $current (newer than this stable release)" >> "$GITHUB_STEP_SUMMARY"
+                      continue
+                    fi
+                    echo "::error title=Channel would move backwards::$file names $current; refusing to point it at the older $VERSION."
+                    exit 1
+                    ;;
+                  1) ;;
+                  *)
+                    echo "::error title=Unreadable channel file::$file names version '$current', which is not a version."
+                    exit 1
+                    ;;
+                esac
+                ;;
+              404)
+                echo "$file does not exist yet - this release creates it."
+                ;;
+              *)
+                echo "::error title=Cannot read channel file::$BASE/$file answered HTTP $code."
+                exit 1
+                ;;
+            esac
+
+            jq -n \
+              --arg version "$VERSION" \
+              --arg tag "$GITHUB_REF_NAME" \
+              --argjson prerelease "$IS_PRERELEASE" \
+              --arg manifest "$GITHUB_REF_NAME/release-manifest.json" \
+              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{version: $version, tag: $tag, prerelease: $prerelease, manifest: $manifest, date: $date}' > "/tmp/$file"
+
+            az storage blob upload \
+              --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
+              --container-name "$AZ_CONTAINER" \
+              --file "/tmp/$file" --name "$file" --overwrite \
+              --content-cache-control "public, max-age=60" \
+              --content-type "application/json" \
+              --only-show-errors -o none
+
+            served=$(curl -fsSL "$BASE/$file?nocache=$GITHUB_RUN_ID-check" | jq -r '.version')
+            if [ "$served" != "$VERSION" ]; then
+              echo "::error title=Channel file not updated::$file serves $served, expected $VERSION."
+              exit 1
+            fi
+            echo "$file -> $VERSION"
+            echo "- \`$file\` now names $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          done
