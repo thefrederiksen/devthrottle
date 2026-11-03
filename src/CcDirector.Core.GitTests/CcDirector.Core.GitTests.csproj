@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- TESTS THAT RUN THE MACHINE'S REAL GIT. DELIBERATELY OUTSIDE THE GATE.
+
+       A gate test decides on the code, never on the machine (GateTestsDoNotDependOnTheMachineTests), so
+       a test that starts a real git process may not live in any suite scripts\test-local.ps1 names. Some
+       facts are facts about git itself, though - issue #2872 is one: whether a status read rewrites the
+       index, and so holds index.lock, can only be seen by running git on a real repository. Those tests
+       live here, the way the PostgreSQL tests live in CcDirector.Gateway.DatabaseTests.
+
+       This project is NOT in scripts\test-local.ps1 and must not be added to it. Run it by hand:
+           dotnet test src\CcDirector.Core.GitTests
+       The gate's own guard for the same fix is machine-free: BackgroundGitLaunchesTakeNoOptionalLocksTests
+       in CcDirector.Core.UnitTests fails when a Director git launch does not go through GitOptionalLocks. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>CcDirector.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+</Project>

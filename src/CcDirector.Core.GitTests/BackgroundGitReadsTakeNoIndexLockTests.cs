@@ -4,7 +4,7 @@ using CcDirector.Core.Git;
 using CcDirector.Core.Wingman;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Git;
+namespace CcDirector.Core.Tests.GitMachine;
 
 /// <summary>
 /// Issue #2872: the Director's background git reads must never take <c>index.lock</c>.
