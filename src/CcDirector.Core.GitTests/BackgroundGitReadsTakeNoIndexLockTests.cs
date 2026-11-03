@@ -50,7 +50,8 @@ public sealed class BackgroundGitReadsTakeNoIndexLockTests : IClassFixture<Backg
     {
         // A test process that already carries GIT_OPTIONAL_LOCKS would hand it to every child and make
         // this pass whatever the code under test does.
-        Assert.Null(Environment.GetEnvironmentVariable(GitOptionalLocks.VariableName));
+        Assert.True(Environment.GetEnvironmentVariable(GitOptionalLocks.VariableName) is null,
+            $"{GitOptionalLocks.VariableName} is set in this test process, so every child git inherits it and this test cannot fail. Unset it and rerun.");
         // The setup really does make plain git status rewrite the index.
         Assert.True(_template.ControlRewroteIndex, "plain git status did not rewrite the index: the setup proves nothing");
 

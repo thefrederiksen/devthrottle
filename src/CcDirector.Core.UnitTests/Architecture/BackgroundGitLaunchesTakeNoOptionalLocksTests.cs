@@ -21,6 +21,13 @@ namespace CcDirector.Core.UnitTests.Architecture;
 /// the readers really leave the index untouched - is proved against real git in CcDirector.Core.GitTests,
 /// which is outside the gate because it starts processes.
 ///
+/// WHAT IT CANNOT SEE. It is file-granular and shape-limited: a file with one covered launch passes even if a
+/// second launch in it lacks the setting, and it does not recognise <c>Process.Start("git", ...)</c>, a file name
+/// held in a variable, <c>"git.exe"</c>, or git started by another tool. That last case is real -
+/// <c>CcWorktreesPool</c> runs cc-worktrees, which runs git status in slot worktrees - so files like it are named
+/// in <see cref="KnownIndirectLaunchers"/> and must carry the setting too. "Passes" means every launch shape it
+/// knows is covered, not that every git on the machine is.
+///
 /// It is a guard against an ABSENCE (a launch without the setting), so it also demands presence: it must find
 /// the launch sites it knows about, and every allowed file must still exist and still start git. A scan that
 /// found nothing because the files moved would otherwise pass.
@@ -51,6 +58,24 @@ public sealed class BackgroundGitLaunchesTakeNoOptionalLocksTests
         "src/CcDirector.Core/Git/GitSyncStatusProvider.cs",
         "src/CcDirector.Core/Wingman/WingmanService.cs",
     };
+
+    /// <summary>Files that start a TOOL which itself runs git reads, inheriting this process's environment.</summary>
+    private static readonly string[] KnownIndirectLaunchers =
+    {
+        "src/CcDirector.Core/Git/CcWorktreesPool.cs",       // cc-worktrees: git status in slot worktrees, killed on timeout
+    };
+
+    [Fact]
+    public void ToolsThatRunGit_AreStartedWithOptionalLocksOff()
+    {
+        foreach (var rel in KnownIndirectLaunchers)
+        {
+            var path = Path.Combine(RepositorySourceIndex.Root, rel.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path), $"{rel} is listed as starting a tool that runs git, but it is gone. Update the list.");
+            Assert.True(StripComments(File.ReadAllText(path)).Contains("GitOptionalLocks.Off", StringComparison.Ordinal),
+                $"{rel} starts a tool that runs git status and can be killed, without GitOptionalLocks.Off (issue #2872).");
+        }
+    }
 
     [Fact]
     public void EveryGitLaunch_TurnsOptionalLocksOff_OrIsANamedWriter()

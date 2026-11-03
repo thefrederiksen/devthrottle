@@ -10,6 +10,8 @@
 
        This project is NOT in scripts\test-local.ps1 and must not be added to it. Run it by hand:
            dotnet test src\CcDirector.Core.GitTests
+       It is in cc-director.sln, so the scheduled full continuous integration run on main
+       (dotnet test cc-director.sln) runs it as well; it needs only git, which that runner has.
        The gate's own guard for the same fix is machine-free: BackgroundGitLaunchesTakeNoOptionalLocksTests
        in CcDirector.Core.UnitTests fails when a Director git launch does not go through GitOptionalLocks. -->
 
