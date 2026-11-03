@@ -127,6 +127,52 @@ public sealed class ReleaseWorkflowContractTests
             "The publish step runs BEFORE the assets are attached. That ordering is the defect.");
     }
 
+    /// <summary>
+    /// Step 1 of taking downloads off GitHub (owner, 3 November 2026): every release - every file, the tools
+    /// bundles included - goes to our own storage in a folder per version, BEFORE GitHub publishes it, and the
+    /// "newest version" channel files are written LAST. A missing storage key fails the release; it used to
+    /// skip the copy quietly, which is exactly the copy nobody notices is missing until it is the only copy.
+    /// </summary>
+    [Fact]
+    public void Workflow_UploadsEveryFileToOurStorage_BeforePublishing_AndMovesTheChannelsLast()
+    {
+        var yml = Workflow();
+
+        const string upload = "Upload this release to Azure, one folder per version";
+        const string verify = "Verify every file in the version folder";
+        const string draft = "Create draft release with all assets";
+        const string channels = "Point the channel files at this release";
+
+        var uploadStep = StepBody(yml, upload);
+        Assert.False(uploadStep is null, $"{WorkflowPath} no longer uploads the release to our storage.");
+        Assert.True(Regex.IsMatch(uploadStep!, @"--source ""\$STAGE"""),
+            "The version-folder upload no longer takes the whole release directory. Every file has to go, "
+            + "the tools bundles (cc-tools-pyenv-*) included - not a hand-picked list.");
+        Assert.True(Regex.IsMatch(uploadStep!, @"AZ_KEY:-\}"" \]; then[\s\S]*?exit 1"),
+            "A missing storage key no longer fails the release.");
+        Assert.False(uploadStep!.Contains("if:", StringComparison.Ordinal),
+            "The version-folder upload is conditional again. Pre-releases go there too, and nothing may skip it.");
+        Assert.DoesNotContain("skipping the download mirror", yml, StringComparison.Ordinal);
+
+        var verifyStep = StepBody(yml, verify);
+        Assert.False(verifyStep is null, $"{WorkflowPath} no longer verifies the version folder.");
+        Assert.True(Regex.IsMatch(verifyStep!, @"jq -r '\.assets \| keys\[\]'"),
+            "The version folder is no longer checked file by file against the manifest.");
+
+        var channelStep = StepBody(yml, channels);
+        Assert.False(channelStep is null, $"{WorkflowPath} no longer writes stable.json / prerelease.json.");
+        Assert.True(Regex.IsMatch(channelStep!, @"Channel would move backwards[\s\S]*?exit 1"),
+            "A re-run of an older tag would now move a channel backwards and quietly downgrade everyone.");
+
+        // Order: upload and verify before GitHub publishes; the channel files after everything else.
+        Assert.True(yml.IndexOf(upload, StringComparison.Ordinal) < yml.IndexOf(verify, StringComparison.Ordinal)
+                    && yml.IndexOf(verify, StringComparison.Ordinal) < yml.IndexOf(draft, StringComparison.Ordinal),
+            "The release now reaches GitHub before it is in our storage and verified.");
+        Assert.True(Regex.IsMatch(yml, @"- name: " + Regex.Escape(channels) + @"(?![\s\S]*- name: )"),
+            "The channel files are no longer written last. Anything reading them could be pointed at a "
+            + "version whose files are not all there yet.");
+    }
+
     [Fact]
     public void NewReleaseScript_RefusesToTagWhenTheWrittenNotesAreMissing()
     {
