@@ -202,7 +202,9 @@ public class GitStatusProvider
             // the child (issue 516): the old code read stdout to end before stderr, so a git process
             // that filled its stderr pipe could deadlock, and it passed no token, so a superseded
             // scan could not stop it.
-            var r = await ProcessRunner.RunAsync(_executable, new[] { "status", "--porcelain=v1", "-u" }, repoPath, ct);
+            var r = await ProcessRunner.RunAsync(
+                _executable, new[] { "status", "--porcelain=v1", "-u" }, repoPath,
+                standardInput: null, GitOptionalLocks.Off, ct); // no index.lock to strand on a kill (#2872)
             if (!r.Started)
                 // Carries the REASON, not just the fact. On a machine with no git this is the
                 // sentence the Source Control view puts on the screen (issue #1048); it used to be

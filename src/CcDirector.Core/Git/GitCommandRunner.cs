@@ -63,6 +63,8 @@ public class GitCommandRunner
             CreateNoWindow = true,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        // Issue #2872: a cancelled read is killed below, and a killed status would strand index.lock.
+        GitOptionalLocks.ApplyTo(psi);
 
         FileLog.Write($"[GitCommandRunner] git {string.Join(' ', args)} (cwd={workingDirectory})");
 
