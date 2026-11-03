@@ -84,7 +84,8 @@ public class GitCommandRunner
         // render it - the Worktrees page, the branch services - already display the Error.
         try
         {
-            proc.Start();
+            // On the thread pool, never the caller's thread (issue #4556) - see ProcessStartOffThread.
+            await ProcessStartOffThread.StartAsync(proc).ConfigureAwait(false);
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
@@ -96,7 +97,7 @@ public class GitCommandRunner
         proc.BeginErrorReadLine();
         try
         {
-            await proc.WaitForExitAsync(ct);
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
