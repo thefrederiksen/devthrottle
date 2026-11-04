@@ -352,7 +352,7 @@ Remove-Claim
 
 Write-Host ""
 Write-Host "Released $tagName." -ForegroundColor Green
-Write-Host "  Release  : https://github.com/$repoSlug/releases/tag/$tagName" -ForegroundColor Cyan
+Write-Host "  Files    : https://devthrottle.com/download/files/$tagName/release-manifest.json (once the build is green)" -ForegroundColor Cyan
 Write-Host "  Download : https://devthrottle.blob.core.windows.net/download/devthrottle-setup-win-x64.exe" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Watch the build to the end: gh run list --repo $repoSlug --workflow release.yml --limit 1, then gh run watch <that id>" -ForegroundColor Gray

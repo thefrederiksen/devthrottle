@@ -5,8 +5,10 @@ on:
     tags:
       - "v*"
 
+# Read only. Since v2.35.0 a release is NOT a GitHub release: it goes to our own download storage
+# (devthrottle.com/download/files) and nothing here writes to GitHub. See the publish job below.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ---------------------------------------------------------------
@@ -31,7 +33,7 @@ jobs:
   verify-tested:
     name: The tagged commit is a tested commit plus its notes
     runs-on: ubuntu-latest
-    # The workflow's own permissions (contents: write) leave every other scope at none; reading the
+    # The workflow's own permissions (contents: read) leave every other scope at none; reading the
     # commit's check runs needs checks: read, or the call answers 403.
     permissions:
       contents: read
@@ -837,10 +839,10 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------
-  # Final Job: Create GitHub Release
+  # Final Job: Publish the release to our own download storage (no GitHub release since v2.35.0)
   # ---------------------------------------------------------------
   create-release:
-    name: Create Release
+    name: Publish Release
     runs-on: ubuntu-latest
     needs:
       - build-director-win
@@ -873,7 +875,8 @@ jobs:
             exit 1
           fi
 
-      # The release page publishes OUR WRITTEN NOTES and nothing else.
+      # Every release still needs OUR WRITTEN NOTES: they are what the website changelog is made from.
+      # (Until v2.35.0 they were also the GitHub release page.)
       #
       # This workflow used to switch on the release action's own note GENERATION, which produced a
       # list of internal pull-request titles. Every correct-looking release page up to v1.9.0 was
@@ -908,7 +911,6 @@ jobs:
             exit 1
           fi
           echo "Publishing $NOTES ($CHARS non-whitespace characters)."
-          echo "path=$NOTES" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v7
@@ -1108,18 +1110,11 @@ jobs:
           echo "Release manifest:"
           cat "$MANIFEST"
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
       # EVERY release file goes to our own storage, in a folder of its own: download/v<version>/.
-      # This is step 1 of taking downloads off GitHub (devthrottle_internal docs/strategy/closed-source,
-      # owner 3 November 2026): the Director, launcher, Gateway, Cockpit, mobile, setup, ffmpeg, Python
-      # and the TOOLS bundles (cc-tools-pyenv-*) all land here, pre-releases included. Nothing reads this
-      # folder yet - the updaters still read GitHub - so this changes nothing a user sees.
-      #
-      # It runs BEFORE the GitHub draft is published, on purpose: a release that cannot reach our storage
-      # stops here, before it becomes GitHub's "latest". And a missing key is a FAILED release, not a
+      # This IS the release (devthrottle_internal docs/strategy/closed-source, owner 3 November 2026):
+      # the Director, launcher, Gateway, Cockpit, mobile, setup, ffmpeg, Python and the TOOLS bundles
+      # (cc-tools-pyenv-*) all land here, pre-releases included, and every updater from v2.35.0 on reads
+      # them from here. A missing key is a FAILED release, not a
       # skipped step - a copy that quietly does not happen is exactly what nobody notices until the day
       # the copy is the only place the files are.
       #
@@ -1220,16 +1215,13 @@ jobs:
           echo "Verified: every file in $FOLDER/ matches the manifest."
 
       # The two "newest version" files, written as soon as every file in the version folder is
-      # verified - and BEFORE GitHub publishes:
+      # verified:
       #   stable.json      - the newest stable release      (a stable release moves it)
       #   prerelease.json  - the newest release of any kind (every release moves it)
       # Each names the version and the folder holding its manifest. Written only after the folder is
       # verified, so nothing reading them can be pointed at a version whose files are not all there.
       #
-      # Before GitHub, on purpose: every updater from the bridge release on reads these files, and the
-      # bridge itself is still installed FROM GitHub. Publishing on GitHub first and failing here would
-      # put the bridge on every machine with no channel file to read - every one of them stuck until a
-      # re-run. In this order a failure here stops the release before GitHub ever sees it.
+      # Moving a channel is what releases a version: every updater from v2.35.0 on reads these files.
       #
       # A channel never moves BACKWARDS on its own: re-running an older tag fails here instead of
       # quietly downgrading everyone. Rolling back is a deliberate act, not a side effect of a re-run.
@@ -1331,65 +1323,15 @@ jobs:
             echo "- \`$file\` now names $VERSION" >> "$GITHUB_STEP_SUMMARY"
           done
 
-      # The release is created as a DRAFT with every asset already attached, and published by the
-      # step below. A draft is not "latest" and is not visible to /releases/latest, so no updater
-      # can see this version until it is COMPLETE: "latest" and "complete" become the same moment.
+      # NO GITHUB RELEASE. v2.35.0 (the bridge) was the last release created on GitHub (owner,
+      # 4 November 2026: "We don't need to release to GitHub anymore"). Every updater from v2.35.0 on
+      # reads the channel files above and never looks at GitHub.
       #
-      # Publishing first is what gave every release an update-failure window. Measured to the second
-      # on v1.8.8: published 10:48:48Z, assets attached 10:54:11Z - five minutes and twenty-three
-      # seconds in which /releases/latest named a version whose release-manifest.json did not exist.
-      # A launcher checked at 10:54:05Z, before the manifest existed, and failed outright. With hourly
-      # checks that is roughly one machine in eleven losing up to an hour, and a failed check used to
-      # render exactly like being up to date, so nobody noticed.
+      # The OLD GitHub releases stay exactly where they are and must never be deleted. A Director older
+      # than v2.35.0 looks only at GitHub's "latest" release, which stays v2.35.0 for good because nothing
+      # publishes there any more. That is how a machine that has been off for months still reaches the
+      # bridge, and through it devthrottle.com. Deleting v2.35.0 or its files strands every such machine.
       #
-      # draft: true is therefore load-bearing, not a preference. Do not set it back to false to
-      # "save a step" - the second step IS the publish.
-      - name: Create draft release with all assets
-        id: draft
-        uses: softprops/action-gh-release@v3
-        with:
-          name: DevThrottle v${{ steps.version.outputs.version }}
-          draft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          body_path: ${{ steps.notes.outputs.path }}
-          files: release-files/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Publish only once the manifest is provably attached. Every updater resolves
-      # release-manifest.json first and treats its absence as "this release is unusable", so a
-      # release published without it is a release nobody can install - and it would take the
-      # "latest" slot away from the previous working one.
-      # Addressed by release ID, not by tag: a DRAFT is not reachable through the by-tag endpoint
-      # (GitHub associates a draft with its tag only on publish), so a tag lookup here would be
-      # asking the wrong question and could answer about the wrong release entirely.
-      - name: Verify the manifest is attached, then publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.draft.outputs.id }}
-        run: |
-          if [ -z "$RELEASE_ID" ]; then
-            echo "::error title=No release id::The draft step produced no release id, so there is nothing to publish and no way to check what was attached."
-            exit 1
-          fi
-
-          ASSETS=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '[.assets[].name] | join(" ")')
-          echo "Attached assets: $ASSETS"
-          case " $ASSETS " in
-            *" release-manifest.json "*)
-              ;;
-            *)
-              echo "::error title=Manifest not attached::Draft release $GITHUB_REF_NAME has no release-manifest.json. Refusing to publish - it would become 'latest' and no updater could install it."
-              exit 1
-              ;;
-          esac
-
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false >/dev/null
-          echo "Published $GITHUB_REF_NAME with all assets already attached."
-          {
-            echo "## Published"
-            echo "\`$GITHUB_REF_NAME\` left draft with every asset attached, so there is no window in which it is latest but incomplete."
-          } >> "$GITHUB_STEP_SUMMARY"
       # The files a PERSON downloads also sit at fixed addresses that never change
       # (devthrottle_internal #1186): one copy, one name, overwritten every stable release.
       # The website's Download button links straight to these, so they stay exactly where they are.

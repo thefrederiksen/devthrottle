@@ -22,6 +22,10 @@ namespace CcDirector.Core.Tests;
 /// other language would never run - and a guard nobody runs is not a guard. It reads the workflow as
 /// text, the same way MobileViewportContractTests pins the mobile shells.
 ///
+/// Since v2.35.0 (owner, 4 November 2026) a release is no longer a GitHub release at all: it is our own
+/// download storage and its channel files. The notes guard stays - the notes are the changelog - and the
+/// draft-then-publish guard is replaced by one that keeps the workflow from writing to GitHub again.
+///
 /// Scope, stated rather than implied: this pins the MECHANISM in the workflow file. It cannot prove
 /// what a future GitHub Actions run does. It exists to stop the specific regressions that already
 /// shipped - somebody turning generated notes back on, or setting the release straight to published
@@ -36,7 +40,7 @@ public sealed class ReleaseWorkflowContractTests
     private static string Workflow() => File.ReadAllText(Path.Combine(GetRepoRoot(), WorkflowPath));
 
     [Fact]
-    public void Workflow_PublishesOurWrittenNotes_NotAGeneratedListOfPullRequestTitles()
+    public void Workflow_RequiresOurWrittenNotes_NeverAGeneratedListOfPullRequestTitles()
     {
         var yml = Workflow();
 
@@ -47,13 +51,9 @@ public sealed class ReleaseWorkflowContractTests
             + "pull-request titles, which is what v1.8.7 shipped to strangers. The release body must come from "
             + $"{NotesDir}/<tag>.md and nothing else.");
 
-        Assert.True(Regex.IsMatch(yml, @"body_path:\s*\$\{\{\s*steps\.notes\.outputs\.path\s*\}\}"),
-            $"{WorkflowPath} no longer sets body_path from the resolved notes step. Without it the release page "
-            + "carries whatever the action decides to invent.");
-
         Assert.True(yml.Contains($"NOTES=\"{NotesDir}/${{GITHUB_REF_NAME}}.md\"", StringComparison.Ordinal),
             $"{WorkflowPath} no longer resolves the notes file as {NotesDir}/<tag>.md. That path IS the contract - "
-            + "the release manager writes that file and the workflow publishes it verbatim.");
+            + "the release manager writes that file and the website changelog is made from it.");
     }
 
     [Fact]
@@ -82,66 +82,47 @@ public sealed class ReleaseWorkflowContractTests
             + "worse than no page, because it does not get read.");
     }
 
+    /// <summary>
+    /// v2.35.0 was the last GitHub release (owner, 4 November 2026). Every updater from it on reads our own
+    /// channel files. A Director older than v2.35.0 reads only GitHub's "latest" release, and that has to stay
+    /// v2.35.0 - the bridge - for good, so the machines that have not updated yet still land on it. A new
+    /// GitHub release would take the "latest" slot from the bridge. The workflow is also read-only on the
+    /// repository, so it could not create one even by a step that slipped past the names below.
+    /// </summary>
     [Fact]
-    public void Workflow_AttachesEveryAssetToADraft_ThenPublishesInASeparateStep()
+    public void Workflow_NeverCreatesAGitHubRelease_SoTheBridgeStaysLatest()
     {
         var yml = Workflow();
 
-        var draftStep = StepBody(yml, "Create draft release with all assets");
-        Assert.False(draftStep is null, $"{WorkflowPath} no longer has a 'Create draft release with all assets' step. "
-            + "The release must be assembled as a draft; a draft is not 'latest', so nothing can see it half-built.");
+        foreach (var banned in new[] { "action-gh-release", "gh release create", "gh release edit", "gh release upload", "/releases/" })
+        {
+            Assert.False(yml.Contains(banned, StringComparison.Ordinal),
+                $"{WorkflowPath} contains \"{banned}\" again. Releases go to our own download storage only; a new "
+                + "GitHub release would take the 'latest' slot from v2.35.0, the bridge every older Director needs.");
+        }
 
-        Assert.True(Regex.IsMatch(draftStep!, @"draft:\s*true"),
-            "The release is created with draft: false again. That is the #1079 defect exactly: publishing makes a "
-            + "release 'latest' instantly while its assets attach minutes later, and every updater that checks "
-            + "inside that window fails. Measured window on v1.8.8: 5m23s.");
-
-        Assert.True(Regex.IsMatch(draftStep!, @"files:\s*release-files/\*"),
-            "The draft step no longer attaches the assets, so publishing could not be the completing step.");
-
-        var publishStep = StepBody(yml, "Verify the manifest is attached, then publish");
-        Assert.False(publishStep is null, $"{WorkflowPath} no longer has the publish step. Creating a draft and never "
-            + "publishing it would ship nothing at all.");
-
-        Assert.True(publishStep!.Contains("release-manifest.json", StringComparison.Ordinal),
-            "The publish step no longer checks that release-manifest.json is attached. Every updater resolves the "
-            + "manifest first, so a release published without it is one nobody can install - and it takes the "
-            + "'latest' slot from the previous working release.");
-        Assert.True(Regex.IsMatch(publishStep!, @"Manifest not attached[\s\S]*?exit 1"),
-            "A draft with no manifest is no longer refused; it would be published anyway.");
-        Assert.True(Regex.IsMatch(publishStep!, @"--method PATCH[^\n]*releases/\$RELEASE_ID[^\n]*draft=false"),
-            "The publish step no longer takes the release out of draft, so the draft would never ship.");
-
-        // By ID, not by tag. GitHub associates a draft with its tag only on PUBLISH, so the by-tag
-        // endpoint cannot see this release yet - a tag lookup here asks a question about a different
-        // release (or none) and would read as an answer about this one.
-        Assert.True(publishStep!.Contains("steps.draft.outputs.id", StringComparison.Ordinal),
-            "The publish step no longer takes the release id from the draft step.");
-        Assert.True(Regex.IsMatch(publishStep!, @"if \[ -z ""\$RELEASE_ID"" \][\s\S]*?exit 1"),
-            "An empty release id no longer stops the step. It would then check the assets of nothing and "
-            + "publish nothing, while the run went green.");
-
-        // Order is the property that matters: assemble, then publish. Not the other way round.
-        Assert.True(yml.IndexOf("Create draft release with all assets", StringComparison.Ordinal)
-                    < yml.IndexOf("Verify the manifest is attached, then publish", StringComparison.Ordinal),
-            "The publish step runs BEFORE the assets are attached. That ordering is the defect.");
+        Assert.True(Regex.IsMatch(yml, @"(?m)^permissions:\s*
+\s+contents:\s*read\s*$"),
+            $"{WorkflowPath} is no longer read-only on the repository at the top level. Nothing in a release "
+            + "writes to GitHub any more, so nothing needs write access.");
+        Assert.False(Regex.IsMatch(yml, @"contents:\s*write"),
+            $"A job in {WorkflowPath} asks for contents: write again. That is the permission a GitHub release needs.");
     }
 
     /// <summary>
-    /// Step 1 of taking downloads off GitHub (owner, 3 November 2026): every release - every file, the tools
-    /// bundles included - goes to our own storage in a folder per version, BEFORE GitHub publishes it, and the
-    /// "newest version" channel files are written once that folder is verified, still before GitHub publishes.
+    /// Taking downloads off GitHub (owner, 3 November 2026): every release - every file, the tools bundles
+    /// included - goes to our own storage in a folder per version, and the "newest version" channel files are
+    /// written only once that folder is verified.
     /// A missing storage key fails the release; it used to skip the copy quietly, which is exactly the copy
     /// nobody notices is missing until it is the only copy.
     /// </summary>
     [Fact]
-    public void Workflow_UploadsEveryFileToOurStorage_AndMovesTheChannels_BeforeGitHubPublishes()
+    public void Workflow_UploadsEveryFileToOurStorage_AndMovesTheChannelsOnlyOnceTheFolderIsVerified()
     {
         var yml = Workflow();
 
         const string upload = "Upload this release to Azure, one folder per version";
         const string verify = "Verify every file in the version folder";
-        const string draft = "Create draft release with all assets";
         const string channels = "Point the channel files at this release";
 
         var uploadStep = StepBody(yml, upload);
@@ -172,17 +153,13 @@ public sealed class ReleaseWorkflowContractTests
         Assert.True(Regex.IsMatch(channelStep!, @"Channel would move backwards[\s\S]*?exit 1"),
             "A re-run of an older tag would now move a channel backwards and quietly downgrade everyone.");
 
-        // Order: upload -> verify the folder -> move the channels -> only then the GitHub draft and publish.
+        // Order: upload -> verify the folder -> move the channels.
         int At(string name) => yml.IndexOf("- name: " + name, StringComparison.Ordinal);
         Assert.True(At(upload) < At(verify),
             "The version folder is verified before it is uploaded.");
         Assert.True(At(verify) < At(channels),
             "The channel files are written before the version folder is verified. Anything reading them could be "
             + "pointed at a version whose files are not all there yet.");
-        Assert.True(At(channels) < At(draft),
-            "GitHub now publishes before the channel files are written. The bridge is installed FROM GitHub and "
-            + "every updater after it reads the channel files, so a failure between the two would strand every "
-            + "machine that took the bridge with nothing to read.");
     }
 
     [Fact]
