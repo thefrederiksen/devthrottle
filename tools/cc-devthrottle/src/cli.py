@@ -19,6 +19,7 @@ from . import factory_brief_ops
 from . import factory_check_state_ops
 from . import factory_definition_ops
 from . import factory_memory_ops
+from . import factory_inbox_ops
 from . import factory_record_ops
 from . import factory_registry_ops
 from . import factory_status_ops
@@ -240,6 +241,13 @@ factory_email_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_email_app, name="email")
+factory_inbox_app = typer.Typer(
+    cls=AxiGroup,
+    help="The Factory inbox: the owner's messages to a factory, filed and decided.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_inbox_app, name="inbox")
 trigger_app = typer.Typer(
     cls=AxiGroup,
     help="Checks with no model that start a session when there is work.",
@@ -5017,6 +5025,125 @@ def factory_email_show(
 ) -> None:
     """Show one kept factory email with its HTML exactly as sent."""
     factory_email_ops.show(email_id, json_output)
+
+
+_INBOX_FACTORY_HELP = "The factory's id, for example warmforward. The ids are in 'factory inbox list'."
+_INBOX_JSON_HELP = "Output the Gateway's answer as JSON, unchanged."
+_INBOX_FULL_HELP = "Show whole message text instead of the first 80 characters."
+_INBOX_MESSAGE_FIELDS_HELP = (
+    "Fields to show, comma separated. Valid: " + ", ".join(factory_inbox_ops.MESSAGE_FIELDS)
+    + ". Default: " + ",".join(factory_inbox_ops.MESSAGE_DEFAULT) + "."
+)
+
+
+@factory_inbox_app.command("list")
+def factory_inbox_list(
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Valid: " + ", ".join(factory_inbox_ops.LIST_FIELDS)
+        + ". Default: " + ",".join(factory_inbox_ops.LIST_DEFAULT) + ".",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show the whole last message instead of the first 80 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """Every factory's inbox: unread and total counts, and the last message."""
+    factory_inbox_ops.list_inboxes(fields, full, json_output)
+
+
+@factory_inbox_app.command("thread")
+def factory_inbox_thread(
+    factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
+    fields: Optional[str] = typer.Option(None, "--fields", help=_INBOX_MESSAGE_FIELDS_HELP),
+    full: bool = typer.Option(False, "--full", help=_INBOX_FULL_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """One factory's messages, each with its trail: Sent - Received - the decision."""
+    factory_inbox_ops.thread(factory, fields, full, json_output)
+
+
+@factory_inbox_app.command("summary")
+def factory_inbox_summary(
+    factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Only what came in since this time, for example 2026-11-04T08:00:00Z.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """What came in and the decision on each, built by the Gateway from the log."""
+    factory_inbox_ops.summary(factory, since, json_output)
+
+
+@factory_inbox_app.command("todo")
+def factory_inbox_todo(
+    factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """The factory's to-do list, written by the Boss's todo decisions."""
+    factory_inbox_ops.todo(factory, json_output)
+
+
+@factory_inbox_app.command("new")
+def factory_inbox_new(
+    fields: Optional[str] = typer.Option(None, "--fields", help=_INBOX_MESSAGE_FIELDS_HELP),
+    full: bool = typer.Option(False, "--full", help=_INBOX_FULL_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """The messages your factory has not yet received. Run by the Secretary.
+
+    Always your own factory: the Gateway reads it from this session's record, and you never name it.
+    """
+    factory_inbox_ops.new_messages(fields, full, json_output)
+
+
+@factory_inbox_app.command("receive")
+def factory_inbox_receive(
+    message_ids: List[str] = typer.Argument(..., help="The ids of the messages to receive, from 'factory inbox new'."),
+    merge: Optional[List[str]] = typer.Option(
+        None, "--merge",
+        help="<message-id>:<into-message-id> - the first is a duplicate of the second. Repeat for more.",
+    ),
+    link: Optional[List[str]] = typer.Option(
+        None, "--link",
+        help="<message-id>:<kind>:<target> - what the message is about, for example a run, report or record. "
+        "Repeat for more.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """Claim messages and mark them Received, with merges and links (the Secretary).
+
+    A claim held by a session that has ended lapses, so the next Secretary can take the message.
+    """
+    factory_inbox_ops.receive(message_ids, merge or [], link or [], json_output)
+
+
+@factory_inbox_app.command("bundle")
+def factory_inbox_bundle(
+    message_ids: Optional[List[str]] = typer.Argument(None, help="With --hand: the ids of the received messages to hand over."),
+    hand: bool = typer.Option(False, "--hand", help="Hand the named messages to the Boss as one bundle (the Secretary)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """Read your open bundle (the Boss), or hand one over with --hand (the Secretary)."""
+    factory_inbox_ops.bundle(message_ids or [], hand, json_output)
+
+
+@factory_inbox_app.command("decide")
+def factory_inbox_decide(
+    message_id: str = typer.Argument(..., help="The message's id, from 'factory inbox bundle'."),
+    kind: str = typer.Argument(..., help="One of: " + ", ".join(factory_inbox_ops.DECISIONS) + "."),
+    session: Optional[str] = typer.Option(
+        None, "--session", help="delegated only: the id of the session you started for it.",
+    ),
+    why: Optional[str] = typer.Option(
+        None, "--why", help="declined, cannot and pushback only, and required for them: the owner reads it.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
+) -> None:
+    """The Boss's decision on one message. Run by the Boss.
+
+    delegated --session <id> (a session this Boss started), todo (adds a to-do item), noted,
+    declined --why, cannot --why, pushback --why. The Boss never does the work itself.
+    """
+    factory_inbox_ops.decide(message_id, kind, session, why, json_output)
 
 
 @factory_memory_app.command("list")

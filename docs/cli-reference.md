@@ -2442,6 +2442,71 @@ failed or was not supported, with the reason. Every filter applies to `--json` t
 the same two routes: `GET /gateway/factory-emails?factory=&kind=&limit=&state=all` and
 `GET /gateway/factory-emails/{id}`.
 
+### Factory inbox
+
+The Factory inbox (Factory Inbox mission, phase 1). The owner leaves a factory a typed or spoken message from
+the phone or the Cockpit. The factory's Secretary files it and hands one bundle to the Boss, and the Boss
+decides each item. Every factory with a Boss seat has one. There is no `send` command: leaving a message is the
+owner's, and the Gateway refuses it to a session key.
+
+```
+USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
+       cc-devthrottle factory inbox thread <factory> [--fields F,...] [--full] [--json]
+       cc-devthrottle factory inbox summary <factory> [--since TIME] [--json]
+       cc-devthrottle factory inbox todo <factory> [--json]
+
+       cc-devthrottle factory inbox new [--fields F,...] [--full] [--json]
+       cc-devthrottle factory inbox receive <id>... [--merge ID:INTO-ID]... [--link ID:KIND:TARGET]... [--json]
+       cc-devthrottle factory inbox bundle [--json]
+       cc-devthrottle factory inbox bundle --hand <id>... [--json]
+       cc-devthrottle factory inbox decide <id> delegated --session <session-id> [--json]
+       cc-devthrottle factory inbox decide <id> todo|noted [--json]
+       cc-devthrottle factory inbox decide <id> declined|cannot|pushback --why "<why>" [--json]
+```
+
+**The reads** can be run by anyone in the account, a session included - a Boss reads its own summary.
+
+- `list` - every factory's inbox: unread and total counts and the state of the last message, with an
+  `unread:` total. `--fields` picks from `factory, unread, total, lastState, lastSent, lastText`.
+- `thread <factory>` - the factory's messages, each with its trail as the Gateway wrote it
+  (`Sent - Received - Delegated`). `--fields` picks from `id, state, sent, note, source, surface, trail, text`;
+  the default is `id, state, trail, text`.
+- `summary <factory> [--since TIME]` - what came in and the decision on each, built by the Gateway from the
+  log with no agent. `--since` reaches the Gateway, so it applies to `--json` too.
+- `todo <factory>` - the factory's to-do list, one item per `todo` decision.
+
+**The seat commands** act as the session that runs them. The Gateway reads the factory from that session's own
+record; the command never names it, and outside a session (no `CC_SESSION_ID`) it refuses.
+
+- `new` - the Secretary: the messages not yet received. Nothing new prints `count: 0`, and the next step
+  offered is `session done`.
+- `receive <id>...` - the Secretary: claim the messages and mark them Received. `--merge A:B` says A is a
+  duplicate of B; `--link A:KIND:TARGET` attaches what A is about (a run, a report, a record). Both ids of a
+  merge, and the id of a link, must be among the ids received, or the command refuses before calling the
+  Gateway. A claim held by a session that has ended lapses, and the next Secretary takes the message.
+- `bundle --hand <id>...` - the Secretary hands one bundle to the Boss. The bundle id printed is the one the
+  Gateway answered with.
+- `bundle` - the Boss reads its open bundle, text in full. None open prints `bundle: none open` and
+  `count: 0`.
+- `decide <id> <kind>` - the Boss's decision on one message:
+  - `delegated --session <id>` - the Gateway accepts only a session this Boss started.
+  - `todo` - adds one item to the factory's to-do list.
+  - `noted` - nothing else happens.
+  - `declined`, `cannot`, `pushback` - each needs `--why`, which the owner reads.
+
+  `--session` is refused on any decision but `delegated`, and `--why` on any but the three that need it: a flag
+  that would be ignored is an error, never silently dropped. The Boss never does the work itself.
+
+Every state word, trail line and decision label is the Gateway's; the command prints them as they came.
+`--json` prints the Gateway's answer unchanged, and `--fields` with `--json` is refused. Message text is cut at
+80 characters in a list (with a line saying how many rows were cut); `--full` shows it whole. Ids are never cut.
+
+The routes: owner `GET /gateway/factory/inbox`, `GET /gateway/factory/{factory}/inbox`,
+`GET /gateway/factory/{factory}/inbox/summary?since=`, `GET /gateway/factory/{factory}/todo` (and the owner's
+send, `POST /gateway/factory/{factory}/inbox`, which no command uses); session
+`GET /sessions/{sid}/factory-inbox`, `POST /sessions/{sid}/factory-inbox/receive`,
+`GET` and `POST /sessions/{sid}/factory-inbox/bundle`, `POST /sessions/{sid}/factory-inbox/{messageId}/decide`.
+
 ### Trigger
 
 A trigger is a check with no model in it that a Director runs on an interval. When the check counts
