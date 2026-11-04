@@ -2,7 +2,7 @@
 #
 # install-mac.sh - Install DevThrottle on macOS with one command:
 #
-#   curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash
+#   curl -fsSL https://devthrottle.com/install-mac.sh | bash
 #
 # Why this script exists
 # ----------------------
@@ -16,7 +16,7 @@
 #
 # Downloads made with curl are NOT stamped with the quarantine flag, so
 # Gatekeeper never blocks them. This script is that path: it downloads the
-# latest setup wizard from GitHub Releases with curl, verifies its SHA-256
+# latest setup wizard from our download server with curl, verifies its SHA-256
 # hash against the release manifest, places it in ~/Applications, and opens
 # it. The wizard takes over from there.
 #
@@ -32,7 +32,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
     printf 'ERROR: Do not run the DevThrottle installer with sudo. It installs into your own user folder,\n' >&2
     printf 'and files created as root there stop macOS from starting DevThrottle.\n' >&2
     printf 'Run the same command again without sudo:\n\n' >&2
-    printf '  curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash\n' >&2
+    printf '  curl -fsSL https://devthrottle.com/install-mac.sh | bash\n' >&2
     # Reported (issue #3645), so a refusal is not only on this screen. Nothing is written: as root, a new
     # install-id file in the user's Library would be the very root-owned file this refusal prevents, so an
     # existing id is read and, when there is none, a fresh one is sent and not kept. The message is fixed text,
@@ -47,12 +47,13 @@ if [[ "$(id -u)" -eq 0 ]]; then
     exit 1
 fi
 
-REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
 ASSET="devthrottle-setup-mac-arm64.zip"
 MANIFEST="release-manifest.json"
 APP_NAME="DevThrottle Setup.app"
 DESTINATION_DIR="$HOME/Applications"
-BASE_URL="https://github.com/$REPO/releases/latest/download"
+# Our own download server - the same address as tools/cc-director-setup-engine/DownloadServer.cs.
+# stable.json names the newest stable release; every file of that release is in its tag folder.
+DOWNLOAD_SERVER="https://devthrottle.com/download/files"
 
 GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
 
@@ -312,12 +313,26 @@ report_step "install-mac.sh started" || true
 # Download the wizard and the release manifest from the latest release.
 # ----------------------------------------------------------------------------
 STEP="download"
-log "Downloading the latest DevThrottle Setup wizard..."
-log "  $BASE_URL/$ASSET"
-curl -fL --progress-bar -o "$WORK_DIR/$ASSET" "$BASE_URL/$ASSET" \
-    || fail "Could not download $ASSET. Check your internet connection and that the release exists at https://github.com/$REPO/releases/latest"
-curl -fsSL -o "$WORK_DIR/$MANIFEST" "$BASE_URL/$MANIFEST" \
-    || fail "Could not download $MANIFEST from the release."
+log "Finding the latest DevThrottle release..."
+curl -fsSL -o "$WORK_DIR/stable.json" "$DOWNLOAD_SERVER/stable.json" \
+    || fail "Could not read $DOWNLOAD_SERVER/stable.json. Check your internet connection and try again."
+# Parsed with JavaScript for Automation, like the manifest below - never /usr/bin/python3 (see there).
+TAG="$(osascript -l JavaScript -e '
+ObjC.import("Foundation");
+function run(argv) {
+    const text = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+    return JSON.parse(ObjC.unwrap(text)).tag;
+}' "$WORK_DIR/stable.json")" || fail "Could not read the release tag from $DOWNLOAD_SERVER/stable.json."
+[[ "$TAG" =~ ^v[0-9A-Za-z.+-]+$ ]] \
+    || fail "$DOWNLOAD_SERVER/stable.json names '$TAG', which is not a release tag."
+RELEASE_URL="$DOWNLOAD_SERVER/$TAG"
+
+log "Downloading the DevThrottle Setup wizard ($TAG)..."
+log "  $RELEASE_URL/$ASSET"
+curl -fL --progress-bar -o "$WORK_DIR/$ASSET" "$RELEASE_URL/$ASSET" \
+    || fail "Could not download $RELEASE_URL/$ASSET. Check your internet connection and try again."
+curl -fsSL -o "$WORK_DIR/$MANIFEST" "$RELEASE_URL/$MANIFEST" \
+    || fail "Could not download $RELEASE_URL/$MANIFEST."
 
 # ----------------------------------------------------------------------------
 # Verify the download against the SHA-256 hash recorded in the manifest.

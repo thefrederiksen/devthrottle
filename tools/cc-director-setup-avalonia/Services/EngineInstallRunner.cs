@@ -31,7 +31,7 @@ public sealed class EngineInstallRunner
 
     /// <summary>
     /// When set (--release-dir / DEVTHROTTLE_RELEASE_DIR, parsed in Program.Main), the wizard
-    /// installs from this local directory instead of fetching the release from GitHub - the same
+    /// installs from this local directory instead of fetching the release from the download server - the same
     /// offline override the setup command line offers.
     /// </summary>
     public static string? ReleaseDirectoryOverride { get; set; }

@@ -1220,7 +1220,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Reports.MorningReportBuilder _morningReport;
     /// <summary>The newest published release, read ONCE for the whole Gateway: the Machines view and the
     /// daily report's out-of-date row share this one watch and so share one answer.</summary>
-    private readonly Api.NewestReleaseWatch _newestRelease = Api.NewestReleaseWatch.FromGitHub();
+    private readonly Api.NewestReleaseWatch _newestRelease = Api.NewestReleaseWatch.FromDownloadServer();
     private readonly CronJobStore _cronJobs;
     private readonly CronRunHistoryStore _cronRuns;
     private readonly Running.CronEngine _cronEngine;

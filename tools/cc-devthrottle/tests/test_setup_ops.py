@@ -199,11 +199,7 @@ def test_download_setup_cli_fetches_this_platforms_asset(monkeypatch, tmp_path):
     monkeypatch.setattr(
         setup_ops,
         "_latest_release",
-        lambda: {
-            "assets": [
-                {"name": name, "browser_download_url": url} for name, url in _ALL_SETUP_CLI_ASSETS.items()
-            ]
-        },
+        lambda: {"tag": "v9.9.9", "version": "9.9.9", "assets": dict(_ALL_SETUP_CLI_ASSETS)},
     )
     fetched = []
 
@@ -265,26 +261,109 @@ def test_doctor_reports_a_missing_shim_directory(isolated_install):
     assert data["needsRepair"] is True
 
 
-def test_latest_release_url_defaults_to_the_product_release_repository(monkeypatch):
-    monkeypatch.delenv("DEVTHROTTLE_GITHUB_OWNER", raising=False)
-    monkeypatch.delenv("DEVTHROTTLE_GITHUB_REPO", raising=False)
+def test_the_download_server_is_our_own_address():
+    # Must match tools/cc-director-setup-engine/DownloadServer.cs and
+    # src/CcDirector.Core/Utilities/DownloadServer.cs.
+    assert setup_ops.DOWNLOAD_SERVER_BASE == "https://devthrottle.com/download/files"
+    assert setup_ops._stable_channel_url() == "https://devthrottle.com/download/files/stable.json"
 
-    # Must match tools/cc-director-setup-engine/GitHubRepositoryDefaults.cs.
-    assert setup_ops._latest_release_url() == (
-        "https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest"
+
+class _FakeResponse:
+    def __init__(self, body: str):
+        self._body = body.encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_download_server(files: dict, requested: list):
+    import urllib.error
+
+    def _urlopen(request, timeout=None):
+        url = request.full_url
+        requested.append(url)
+        if url not in files:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return _FakeResponse(files[url])
+
+    return _urlopen
+
+
+def test_latest_release_reads_stable_json_then_the_tag_folder(monkeypatch):
+    base = "https://devthrottle.com/download/files"
+    files = {
+        f"{base}/stable.json": json.dumps(
+            {"version": "2.34.0", "tag": "v2.34.0", "prerelease": False,
+             "manifest": "v2.34.0/release-manifest.json", "date": "2026-11-03T00:00:00Z"}
+        ),
+        f"{base}/v2.34.0/release-manifest.json": json.dumps(
+            {"version": "2.34.0", "tag": "v2.34.0", "assets": {
+                "devthrottle-setup-cli-linux-x64": {"sha256": "ab"},
+                "cc-tools-pyenv-win-x64.zip": {"sha256": "cd"},
+            }}
+        ),
+    }
+    requested = []
+    monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _fake_download_server(files, requested))
+
+    release = setup_ops._latest_release()
+
+    assert requested == [f"{base}/stable.json", f"{base}/v2.34.0/release-manifest.json"]
+    assert release["tag"] == "v2.34.0"
+    assert release["assets"] == {
+        "devthrottle-setup-cli-linux-x64": f"{base}/v2.34.0/devthrottle-setup-cli-linux-x64",
+        "cc-tools-pyenv-win-x64.zip": f"{base}/v2.34.0/cc-tools-pyenv-win-x64.zip",
+        "release-manifest.json": f"{base}/v2.34.0/release-manifest.json",
+    }
+    assert all(url.startswith(base + "/") for url in requested + list(release["assets"].values()))
+    assert not any("github" in url for url in requested + list(release["assets"].values()))
+
+
+def test_latest_release_refuses_a_manifest_of_another_release(monkeypatch):
+    base = "https://devthrottle.com/download/files"
+    files = {
+        f"{base}/stable.json": json.dumps({"version": "2.34.0", "tag": "v2.34.0"}),
+        f"{base}/v2.34.0/release-manifest.json": json.dumps(
+            {"version": "2.33.0", "tag": "v2.33.0", "assets": {"devthrottle-setup-cli-linux-x64": {"sha256": "ab"}}}
+        ),
+    }
+    monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _fake_download_server(files, []))
+
+    with pytest.raises(setup_ops.ReleaseLookupError) as exc:
+        setup_ops._latest_release()
+
+    assert "v2.33.0" in str(exc.value) and "v2.34.0" in str(exc.value)
+
+
+def test_latest_release_channel_naming_a_folder_with_no_manifest_fails_by_address(monkeypatch):
+    base = "https://devthrottle.com/download/files"
+    files = {f"{base}/stable.json": json.dumps({"version": "2.34.0", "tag": "v2.34.0"})}
+    monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _fake_download_server(files, []))
+
+    with pytest.raises(setup_ops.ReleaseLookupError) as exc:
+        setup_ops._latest_release()
+
+    assert "HTTP 404" in str(exc.value)
+    assert f"{base}/v2.34.0/release-manifest.json" in str(exc.value)
+
+
+@pytest.mark.parametrize("body", ['{"version": "2.34.0"}', '{"tag": "../x"}', "[]", "not json"])
+def test_latest_release_channel_with_no_usable_tag_fails(monkeypatch, body):
+    base = "https://devthrottle.com/download/files"
+    monkeypatch.setattr(
+        setup_ops.urllib.request, "urlopen", _fake_download_server({f"{base}/stable.json": body}, [])
     )
 
+    with pytest.raises(setup_ops.ReleaseLookupError) as exc:
+        setup_ops._latest_release()
 
-def test_latest_release_url_honours_environment_overrides(monkeypatch):
-    monkeypatch.setenv("DEVTHROTTLE_GITHUB_OWNER", "someone")
-    monkeypatch.setenv("DEVTHROTTLE_GITHUB_REPO", "fork")
-    assert setup_ops._latest_release_url() == "https://api.github.com/repos/someone/fork/releases/latest"
-
-    monkeypatch.setenv("DEVTHROTTLE_GITHUB_OWNER", "  ")
-    monkeypatch.setenv("DEVTHROTTLE_GITHUB_REPO", "")
-    assert setup_ops._latest_release_url() == (
-        "https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest"
-    )
+    assert f"{base}/stable.json" in str(exc.value)
 
 
 def _raise_http_error(status):
@@ -297,15 +376,13 @@ def _raise_http_error(status):
 
 
 def test_latest_release_http_error_raises_with_status_and_url(monkeypatch):
-    monkeypatch.delenv("DEVTHROTTLE_GITHUB_OWNER", raising=False)
-    monkeypatch.delenv("DEVTHROTTLE_GITHUB_REPO", raising=False)
     monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _raise_http_error(404))
 
     with pytest.raises(setup_ops.ReleaseLookupError) as exc:
         setup_ops._latest_release()
 
     assert "HTTP 404" in str(exc.value)
-    assert setup_ops._latest_release_url() in str(exc.value)
+    assert setup_ops._stable_channel_url() in str(exc.value)
 
 
 def test_run_setup_cli_release_lookup_failure_reaches_the_user(monkeypatch, capsys, plain):
@@ -324,7 +401,7 @@ def test_run_setup_cli_release_lookup_failure_reaches_the_user(monkeypatch, caps
     assert captured.out == ""
     output = plain(captured.err)
     assert "HTTP 403" in output
-    assert "/releases/latest" in output
+    assert "https://devthrottle.com/download/files/stable.json" in output
     assert "help[1]:\n  cc-devthrottle setup doctor" in output
 
 

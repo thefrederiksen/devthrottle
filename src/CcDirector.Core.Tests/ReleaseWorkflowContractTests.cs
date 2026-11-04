@@ -130,11 +130,12 @@ public sealed class ReleaseWorkflowContractTests
     /// <summary>
     /// Step 1 of taking downloads off GitHub (owner, 3 November 2026): every release - every file, the tools
     /// bundles included - goes to our own storage in a folder per version, BEFORE GitHub publishes it, and the
-    /// "newest version" channel files are written LAST. A missing storage key fails the release; it used to
-    /// skip the copy quietly, which is exactly the copy nobody notices is missing until it is the only copy.
+    /// "newest version" channel files are written once that folder is verified, still before GitHub publishes.
+    /// A missing storage key fails the release; it used to skip the copy quietly, which is exactly the copy
+    /// nobody notices is missing until it is the only copy.
     /// </summary>
     [Fact]
-    public void Workflow_UploadsEveryFileToOurStorage_BeforePublishing_AndMovesTheChannelsLast()
+    public void Workflow_UploadsEveryFileToOurStorage_AndMovesTheChannels_BeforeGitHubPublishes()
     {
         var yml = Workflow();
 
@@ -159,18 +160,29 @@ public sealed class ReleaseWorkflowContractTests
         Assert.True(Regex.IsMatch(verifyStep!, @"jq -r '\.assets \| keys\[\]'"),
             "The version folder is no longer checked file by file against the manifest.");
 
+        // The one-line installers are served from our storage too, at fixed names the website points at.
+        var mirrorStep = StepBody(yml, "Mirror downloads to Azure Blob");
+        Assert.False(mirrorStep is null, $"{WorkflowPath} no longer mirrors the fixed-address downloads.");
+        Assert.True(Regex.IsMatch(mirrorStep!, @"for script in install-mac\.sh install-linux\.sh"),
+            "The install scripts are no longer uploaded to our storage, so devthrottle.com/install-mac.sh "
+            + "and /install-linux.sh would serve nothing (or an old script).");
+
         var channelStep = StepBody(yml, channels);
         Assert.False(channelStep is null, $"{WorkflowPath} no longer writes stable.json / prerelease.json.");
         Assert.True(Regex.IsMatch(channelStep!, @"Channel would move backwards[\s\S]*?exit 1"),
             "A re-run of an older tag would now move a channel backwards and quietly downgrade everyone.");
 
-        // Order: upload and verify before GitHub publishes; the channel files after everything else.
-        Assert.True(yml.IndexOf(upload, StringComparison.Ordinal) < yml.IndexOf(verify, StringComparison.Ordinal)
-                    && yml.IndexOf(verify, StringComparison.Ordinal) < yml.IndexOf(draft, StringComparison.Ordinal),
-            "The release now reaches GitHub before it is in our storage and verified.");
-        Assert.True(Regex.IsMatch(yml, @"- name: " + Regex.Escape(channels) + @"(?![\s\S]*- name: )"),
-            "The channel files are no longer written last. Anything reading them could be pointed at a "
-            + "version whose files are not all there yet.");
+        // Order: upload -> verify the folder -> move the channels -> only then the GitHub draft and publish.
+        int At(string name) => yml.IndexOf("- name: " + name, StringComparison.Ordinal);
+        Assert.True(At(upload) < At(verify),
+            "The version folder is verified before it is uploaded.");
+        Assert.True(At(verify) < At(channels),
+            "The channel files are written before the version folder is verified. Anything reading them could be "
+            + "pointed at a version whose files are not all there yet.");
+        Assert.True(At(channels) < At(draft),
+            "GitHub now publishes before the channel files are written. The bridge is installed FROM GitHub and "
+            + "every updater after it reads the channel files, so a failure between the two would strand every "
+            + "machine that took the bridge with nothing to read.");
     }
 
     [Fact]

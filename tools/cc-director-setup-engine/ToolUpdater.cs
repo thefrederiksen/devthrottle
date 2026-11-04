@@ -26,7 +26,7 @@ public sealed class ToolUpdater
         _run = run ?? throw new ArgumentNullException(nameof(run));
     }
 
-    /// <summary>Resolve the latest GitHub release and refresh installed tools that are behind it.</summary>
+    /// <summary>Resolve the latest release on the download server and refresh installed tools that are behind it.</summary>
     public async Task<UpdateRunResult> RefreshAsync(CancellationToken ct = default)
     {
         var source = new ReleaseSource();

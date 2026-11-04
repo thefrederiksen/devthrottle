@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -25,9 +24,6 @@ public sealed record UpdateOptions
     /// whichever machine runs them.
     /// </summary>
     internal (OSPlatform Os, Architecture Arch)? PlatformOverride { get; init; }
-
-    public string Owner { get; init; } = GitHubRepositoryDefaults.Owner;
-    public string Repo { get; init; } = GitHubRepositoryDefaults.Repository;
 }
 
 /// <summary>An update that has been downloaded, verified, and is ready to apply.</summary>
@@ -36,7 +32,7 @@ public sealed record StagedUpdate(string Version, string StagedExecutable, strin
 /// <summary>Lifecycle phase of an update check/download, surfaced to the UI.</summary>
 public enum UpdatePhase
 {
-    /// <summary>Contacting GitHub to see whether a newer build exists.</summary>
+    /// <summary>Contacting the download server to see whether a newer build exists.</summary>
     Checking,
     /// <summary>Downloading the new build's asset (byte progress in <see cref="UpdateProgress"/>).</summary>
     Downloading,
@@ -47,28 +43,15 @@ public enum UpdatePhase
     /// <summary>Already on the latest build (or the only newer build was dismissed); nothing to do.</summary>
     UpToDate,
     /// <summary>
-    /// A newer release exists but its downloads have not been attached to it yet, so there is nothing
-    /// to fetch. NOT a failure and NOT up to date (issue #1079).
+    /// The latest release's manifest names no build for this computer's operating system and processor.
     ///
-    /// Publishing makes a release "latest" the instant the tag is pushed; the workflow that builds and
-    /// attaches its assets finishes about five and a half minutes later. Every release we have ever cut
-    /// has had that window, and any machine that checks inside it sees a newest release with no
-    /// manifest. Reporting that as <see cref="UpToDate"/> - which is what this code did - meant a
-    /// machine that had just failed to update looked exactly like a machine that had nothing to do, and
-    /// then waited a full hour before trying again. It gets its own phase so it can say what it is and
-    /// be retried in minutes.
-    /// </summary>
-    ReleaseNotReady,
-    /// <summary>
-    /// The latest release is COMPLETE - its manifest is attached - and it carries no build for this
-    /// computer's operating system and processor.
+    /// Waiting does not fix it, and a person on such a machine needs to be told, because their Director
+    /// will never update again until a release carries their platform.
     ///
-    /// It shared a line with <see cref="ReleaseNotReady"/> and the pair reported "up to date", but the
-    /// two are opposites: one is a release that has not finished publishing and gets better by itself,
-    /// this one is a release that finished and has nothing for this machine. Waiting does not fix it, so
-    /// it must not drive the short retry - that would poll a finished release for ever - and a person on
-    /// such a machine needs to be told, because their Director will never update again until a release
-    /// carries their platform.
+    /// There used to be a ReleaseNotReady phase beside this one, for a GitHub release that was "latest"
+    /// before its files were attached. The download server cannot be in that state: its channel file is
+    /// written only after every file in the folder it names is verified. A channel file that names a
+    /// folder with no manifest is a broken server, and is concluded as <see cref="Failed"/>.
     /// </summary>
     NoBuildForThisPlatform,
     /// <summary>The check/download failed (<see cref="UpdateProgress.Error"/> has the reason).</summary>
@@ -91,15 +74,13 @@ public sealed record UpdateProgress(
 }
 
 /// <summary>
-/// Checks GitHub Releases for a newer build, downloads the platform-appropriate
+/// Checks the download server (<see cref="DownloadServer"/>) for a newer build, downloads the platform-appropriate
 /// asset, verifies it against the release manifest's SHA-256, and stages it for
 /// the user to apply via a "Restart now" banner. All network/disk work runs off
 /// the UI thread; failures only log (no fallback that hides the problem).
 /// </summary>
 public sealed class UpdateService
 {
-    private const string ManifestAssetName = "release-manifest.json";
-
     private readonly UpdateOptions _options;
     private readonly HttpClient _http;
 
@@ -124,7 +105,6 @@ public sealed class UpdateService
         // under a second regardless.
         _http.Timeout = TimeSpan.FromMinutes(10);
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("cc-director");
-        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
 
     private void Report(UpdateProgress progress) => ProgressChanged?.Invoke(progress);
@@ -189,8 +169,7 @@ public sealed class UpdateService
             checkStarted = true;
 
             Report(new UpdateProgress(UpdatePhase.Checking));
-            using var release = await FetchLatestReleaseAsync(ct);
-            var tag = release.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var tag = await FetchLatestTagAsync(ct);
             var latest = TryParseTag(tag);
             if (latest is null)
             {
@@ -224,21 +203,6 @@ public sealed class UpdateService
                 return Conclude(UpdatePhase.Staged, versionText, extra: ClearPin);
             }
 
-            var assetUrl = assetName is null ? null : FindAssetUrl(release.RootElement, assetName);
-            var manifestUrl = FindAssetUrl(release.RootElement, ManifestAssetName);
-
-            // These two used to be ONE test, and the pair reported "up to date". They are not the same
-            // thing and only one of them gets better on its own.
-            if (manifestUrl is null)
-            {
-                // The release exists and is newer, but nothing has been attached to it yet: the
-                // five-and-a-half-minute publish window (issue #1079). The manifest is the sentinel,
-                // because it is what names and hashes everything else. Waiting fixes this.
-                FileLog.Write($"[UpdateService] Release {tag} has no manifest yet; its downloads have not been attached. "
-                              + "Not up to date and not a failure - worth another look shortly.");
-                return Conclude(UpdatePhase.ReleaseNotReady, versionText, extra: ClearPin);
-            }
-
             if (assetName is null)
             {
                 var platform = $"{RuntimeInformation.OSDescription} on {arch}";
@@ -247,18 +211,24 @@ public sealed class UpdateService
                     $"no Director build is published for {platform}", ClearPin);
             }
 
-            if (assetUrl is null)
+            // The manifest names and hashes every file of the release. The channel file is written only
+            // after every file in this folder is verified, so a manifest that cannot be read here is a
+            // fault on the download server, never a release still being published: it throws, by
+            // address, and the check concludes Failed - never up to date.
+            var manifestUrl = DownloadServer.ReleaseFileUrl(tag, DownloadServer.ManifestName);
+            var expectedSha = await FetchManifestShaAsync(manifestUrl, versionText, assetName, ct);
+
+            if (expectedSha is null)
             {
-                // The release is COMPLETE - its manifest is attached - and carries no build for this
-                // computer. Waiting does not fix that, so it must not be reported as the window above and
-                // must not drive the short retry: a machine would poll a finished release for ever.
-                FileLog.Write($"[UpdateService] Release {tag} is complete but has no '{assetName}'; there is no build for "
+                // The release's manifest names no build for this computer. Waiting does not fix that.
+                FileLog.Write($"[UpdateService] Release {tag} has no '{assetName}' in its manifest; there is no build for "
                               + "this platform in that release.");
                 return Conclude(UpdatePhase.NoBuildForThisPlatform, versionText,
                     $"the release has no {assetName}", ClearPin);
             }
 
-            var staged = await DownloadAndStageAsync(versionText, assetName, assetUrl, manifestUrl, ct);
+            var assetUrl = DownloadServer.ReleaseFileUrl(tag, assetName);
+            var staged = await DownloadAndStageAsync(versionText, assetName, assetUrl, expectedSha, ct);
             if (staged is null)
                 return Conclude(UpdatePhase.Failed, versionText, "the download could not be verified", ClearPin);
 
@@ -297,17 +267,69 @@ public sealed class UpdateService
         }
     }
 
-    private async Task<JsonDocument> FetchLatestReleaseAsync(CancellationToken ct)
+    /// <summary>
+    /// The tag stable.json names - the newest stable release. It becomes a folder name in every
+    /// download address, so it must be a non-empty string with no path characters.
+    /// </summary>
+    private async Task<string> FetchLatestTagAsync(CancellationToken ct)
     {
-        var url = $"https://api.github.com/repos/{_options.Owner}/{_options.Repo}/releases/latest";
-        var resp = await _http.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-        return JsonDocument.Parse(json);
+        var url = DownloadServer.FileUrl(DownloadServer.StableChannel);
+        var json = await GetTextAsync(url, ct);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("tag", out var tagEl)
+            || tagEl.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(tagEl.GetString()))
+            throw new InvalidOperationException($"{url} does not name a release tag.");
+
+        var tag = tagEl.GetString()!.Trim();
+        if (tag.Contains('/') || tag.Contains('\\') || tag.Contains(".."))
+            throw new InvalidOperationException($"{url} names '{tag}', which is not a release tag.");
+        return tag;
+    }
+
+    /// <summary>
+    /// Read the release's manifest and return the SHA-256 it records for <paramref name="assetName"/>,
+    /// or null when the manifest does not list that asset (no build for this platform). Throws when the
+    /// manifest cannot be read, when it is the manifest of a different version, or when it lists the
+    /// asset without a hash - a download that cannot be verified is never staged.
+    /// </summary>
+    private async Task<string?> FetchManifestShaAsync(string manifestUrl, string version, string assetName, CancellationToken ct)
+    {
+        var json = await GetTextAsync(manifestUrl, ct);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var manifestVersion = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
+        var parsed = manifestVersion is null ? null : TryParseTag(manifestVersion);
+        if (parsed is null || $"{parsed.Major}.{parsed.Minor}.{Math.Max(parsed.Build, 0)}" != version)
+            throw new InvalidOperationException(
+                $"{manifestUrl} is the manifest of version '{manifestVersion ?? "(none)"}', not of {version}.");
+
+        if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"{manifestUrl} has no 'assets' object.");
+        if (!assets.TryGetProperty(assetName, out var entry))
+            return null;
+        if (!entry.TryGetProperty("sha256", out var sha) || string.IsNullOrWhiteSpace(sha.GetString()))
+            throw new InvalidOperationException($"{manifestUrl} lists '{assetName}' with no sha256; refusing to download it.");
+        return sha.GetString();
+    }
+
+    /// <summary>GET a text file from the download server; any non-success throws, naming the address.</summary>
+    private async Task<string> GetTextAsync(string url, CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync(url, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                $"The download server answered HTTP {(int)resp.StatusCode} for {url}.", null, resp.StatusCode);
+        return await resp.Content.ReadAsStringAsync(ct);
     }
 
     private async Task<StagedUpdate?> DownloadAndStageAsync(
-        string version, string assetName, string assetUrl, string manifestUrl, CancellationToken ct)
+        string version, string assetName, string assetUrl, string expectedSha, CancellationToken ct)
     {
         var dir = Path.Combine(UpdateInstaller.StagingRoot, version);
         Directory.CreateDirectory(dir);
@@ -319,13 +341,6 @@ public sealed class UpdateService
         await DownloadFileAsync(assetUrl, assetPath, progress, ct);
 
         Report(new UpdateProgress(UpdatePhase.Verifying, version));
-        var expectedSha = await FetchExpectedShaAsync(manifestUrl, assetName, ct);
-        if (expectedSha is null)
-        {
-            FileLog.Write($"[UpdateService] Manifest has no sha256 for '{assetName}'; rejecting download.");
-            TryDelete(assetPath);
-            return null;
-        }
         if (!Sha256Matches(assetPath, expectedSha))
         {
             FileLog.Write($"[UpdateService] SHA-256 mismatch for '{assetName}'; rejecting download.");
@@ -392,18 +407,6 @@ public sealed class UpdateService
             }
         }
         progress.Report((downloaded, total > 0 ? total : downloaded));
-    }
-
-    private async Task<string?> FetchExpectedShaAsync(string manifestUrl, string assetName, CancellationToken ct)
-    {
-        var resp = await _http.GetAsync(manifestUrl, ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("assets", out var assets)) return null;
-        if (!assets.TryGetProperty(assetName, out var entry)) return null;
-        if (!entry.TryGetProperty("sha256", out var sha)) return null;
-        return sha.GetString();
     }
 
     // ---- Pure / static helpers (unit tested) -------------------------------
@@ -508,16 +511,6 @@ public sealed class UpdateService
         return OSPlatform.Linux;
     }
 
-    private static string? FindAssetUrl(JsonElement release, string assetName)
-    {
-        if (!release.TryGetProperty("assets", out var assets)) return null;
-        foreach (var a in assets.EnumerateArray())
-        {
-            if (a.TryGetProperty("name", out var n) && n.GetString() == assetName)
-                return a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
-        }
-        return null;
-    }
 
     private static string ExtractMacApp(string zipPath, string destDir)
     {

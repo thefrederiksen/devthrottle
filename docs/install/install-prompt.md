@@ -31,12 +31,12 @@ SCOPE: install the Director ONLY. It needs NO account and NO gateway - run the w
 unattended and do NOT sign anyone in, do not create an account, and do not choose a gateway. When
 the install is done, show the person the Step 2 choice at the end (text supplied below) and stop.
 
-REPO: github.com/thefrederiksen/devthrottle  (public)
-Find the latest release - prefer `gh release view --repo thefrederiksen/devthrottle --json tagName,assets`,
-else the public API https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest. It must
-include `release-manifest.json` plus this OS's asset below. ALWAYS verify the downloaded asset's
+DOWNLOADS: https://devthrottle.com/download/files
+Find the latest release: GET https://devthrottle.com/download/files/stable.json - its "tag" names the
+release folder. The manifest is https://devthrottle.com/download/files/<tag>/release-manifest.json and it
+must list this OS's asset below. ALWAYS verify the downloaded asset's
 SHA-256 against the manifest's entry for that asset before running it; mismatch = STOP. Assets are at
-https://github.com/thefrederiksen/devthrottle/releases/latest/download/<asset-name>.
+https://devthrottle.com/download/files/<tag>/<asset-name>.
 
 == WINDOWS ==
 ASSETS: devthrottle-setup-cli-win-x64.exe  +  release-manifest.json
@@ -59,7 +59,7 @@ macOS has no fully-headless path today: the app is ad-hoc-signed, not Apple-nota
 download is Gatekeeper-blocked. Run the official curl bootstrap - a curl download is never
 quarantined. It downloads the setup app, verifies its SHA-256 against the manifest, installs it to
 ~/Applications, and opens it:
-      curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash
+      curl -fsSL https://devthrottle.com/install-mac.sh | bash
 Then the person completes the short setup app - it installs, and asks for nothing else. macOS is
 Director-only; it cannot host a self-hosted gateway.
 
@@ -124,7 +124,7 @@ mints itself); or skip SHA verification.
 
 1. Run the prompt in a coding agent on the target machine. The current latest release (with
    `devthrottle-setup-cli-win-x64.exe`, `cc-director-mac-arm64.zip` and `release-manifest.json`) is on
-   the [releases page](https://github.com/thefrederiksen/devthrottle/releases/latest).
+   the [download page](https://devthrottle.com/download).
 2. Confirm the machine is genuinely usable **before** any sign-in: open the Director, and start an
    agent on a repository. If that needs an account, Step 1 is not done - that is the regression this
    prompt exists to prevent.

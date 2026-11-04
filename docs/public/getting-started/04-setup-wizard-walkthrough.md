@@ -72,7 +72,7 @@ of the sign-in that comes later, *"This is the moment you sign in - never before
 > route, but it is not the one this page describes.
 
 If you would rather verify the file yourself, take it from the
-[latest release](https://github.com/thefrederiksen/devthrottle/releases/latest) instead --
+[download page](https://devthrottle.com/download) instead --
 `devthrottle-setup-win-x64.exe` plus `release-manifest.json` -- and check the hash before running it:
 
 ```powershell

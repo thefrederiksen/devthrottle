@@ -45,7 +45,9 @@
 set -euo pipefail
 
 TAG="${1:-latest}"
-REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
+# Our own download server (the same address as tools/cc-director-setup-engine/DownloadServer.cs).
+# stable.json names the newest stable release; every file of a release is in its tag folder.
+DOWNLOAD_SERVER="https://devthrottle.com/download/files"
 ROOT="$HOME/Library/Application Support/cc-director"
 LAUNCHER="$ROOT/instances/default/launcher/cc-launcher"
 REGISTRATION="$ROOT/config/launcher/launcher.json"
@@ -106,13 +108,23 @@ if [ -n "${SETUP_CLI:-}" ]; then
     info "using the one you passed: $CLI"
 else
     CLI="$WORK/devthrottle-setup-cli-mac-arm64"
-    command -v gh >/dev/null 2>&1 || die "the GitHub command line (gh) is needed to download a release, or pass SETUP_CLI=<path>."
     if [ "$TAG" = "latest" ]; then
-        gh release download --repo "$REPO" --pattern "devthrottle-setup-cli-mac-arm64" --dir "$WORK" >/dev/null
-    else
-        gh release download "$TAG" --repo "$REPO" --pattern "devthrottle-setup-cli-mac-arm64" --dir "$WORK" >/dev/null
+        curl -fsSL -o "$WORK/stable.json" "$DOWNLOAD_SERVER/stable.json" \
+            || die "could not download $DOWNLOAD_SERVER/stable.json."
+        # Parsed with JavaScript for Automation, as install-mac.sh does - never /usr/bin/python3, which on
+        # a Mac with no developer tools is only a stub that opens the "install developer tools" dialog.
+        TAG="$(osascript -l JavaScript -e '
+ObjC.import("Foundation");
+function run(argv) {
+    const text = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+    return JSON.parse(ObjC.unwrap(text)).tag;
+}' "$WORK/stable.json")" || die "could not read the release tag from $DOWNLOAD_SERVER/stable.json."
+        [[ "$TAG" =~ ^v[0-9A-Za-z.+-]+$ ]] \
+            || die "$DOWNLOAD_SERVER/stable.json names '$TAG', which is not a release tag."
     fi
-    info "downloaded from release: $TAG"
+    curl -fsSL -o "$CLI" "$DOWNLOAD_SERVER/$TAG/devthrottle-setup-cli-mac-arm64" \
+        || die "could not download $DOWNLOAD_SERVER/$TAG/devthrottle-setup-cli-mac-arm64."
+    info "downloaded from release: $TAG ($DOWNLOAD_SERVER/$TAG/)"
 fi
 chmod +x "$CLI"
 # Ad-hoc signed, never notarized (no Apple developer account), so Gatekeeper would refuse a quarantined

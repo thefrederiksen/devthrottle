@@ -276,35 +276,13 @@ public partial class MainWindow : Window
             prep = _cachedPrep ?? await _runner.PrepareAsync();
             _cachedPrep = prep;
         }
-        catch (GitHubRateLimitException ex)
-        {
-            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED (rate limit): {ex.Message}");
-            _ = WizardErrorReport.SendAsync("wizard", "release-fetch", $"GitHub rate limit while fetching the release: {ex.Message}", ex);
-            _installStep?.SetNotStarted();
-            _installStep?.SetStatus(ex.UserMessage());
-            NextButton.Content = "Retry";
-            NextButton.IsEnabled = true;
-            return;
-        }
-        // Installing during the minutes between a release being published and its files finishing
-        // upload is not an error, and must not read as one: the correct advice is "wait a moment and
-        // press Retry", not "could not fetch release info" (issue #1079).
-        catch (ReleaseNotReadyException ex)
-        {
-            SetupLog.Write($"[MainWindow] RunInstallAsync: prepare deferred (release not ready): {ex.Message}");
-            _installStep?.SetNotStarted();
-            _installStep?.SetStatus(ex.UserMessage());
-            NextButton.Content = "Retry";
-            NextButton.IsEnabled = true;
-            return;
-        }
         catch (Exception ex)
         {
             SetupLog.Write($"[MainWindow] RunInstallAsync: prepare FAILED: {ex}");
             // Shown on screen, and the most likely first failure on a brand-new machine - it was never reported.
             _ = WizardErrorReport.SendAsync("wizard", "release-fetch", $"Could not fetch release info: {ex.GetType().Name}: {ex.Message}", ex);
             _installStep?.SetNotStarted();
-            _installStep?.SetStatus("ERROR: Could not fetch release info from GitHub.");
+            _installStep?.SetStatus($"ERROR: Could not fetch release info from {DownloadServer.BaseUrl}. {ex.Message}");
             NextButton.Content = "Retry";
             NextButton.IsEnabled = true;
             return;

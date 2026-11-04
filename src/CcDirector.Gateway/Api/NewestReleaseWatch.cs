@@ -14,13 +14,13 @@ internal sealed record NewestReleaseSnapshot(string? Version, DateTime? CheckedA
 /// <summary>
 /// The newest published release, read by the Gateway (fleet maintenance, devthrottle_internal#2020).
 ///
-/// WHY THE GATEWAY READS IT AT ALL. Every Director asks GitHub for the latest release on its own and keeps the
+/// WHY THE GATEWAY READS IT AT ALL. Every Director asks the download server for the latest release on its own and keeps the
 /// answer to itself, so the Cockpit could show a version on every machine and could not say whether any of them
 /// was behind. This is the one place that answer now lives for the fleet view.
 ///
 /// A READ NEVER WAITS ON THE NETWORK. <see cref="Current"/> returns what is known and starts a refresh when the
 /// answer is older than an hour (five minutes after a failure). The fleet view is polled every few seconds, and a
-/// slow GitHub must not hold a page open.
+/// slow download server must not hold a page open.
 /// </summary>
 internal sealed class NewestReleaseWatch
 {
@@ -42,13 +42,12 @@ internal sealed class NewestReleaseWatch
     }
 
     /// <summary>
-    /// The production watch: the same release source the launcher and the installer read, with its answer cache
-    /// kept in the temporary folder so a hosted container needs no install layout.
+    /// The production watch: the same release source the launcher and the installer read - stable.json on the
+    /// download server, then the manifest in the version folder it names.
     /// </summary>
-    public static NewestReleaseWatch FromGitHub() => new(async ct =>
+    public static NewestReleaseWatch FromDownloadServer() => new(async ct =>
     {
-        var cache = new ReleaseInfoCache(Path.Combine(Path.GetTempPath(), "devthrottle-gateway", "newest-release-cache.json"));
-        var release = await new ReleaseSource(cache: cache).FetchLatestAsync(ct);
+        var release = await new ReleaseSource().FetchLatestAsync(ct);
         return release.Manifest.Version;
     });
 

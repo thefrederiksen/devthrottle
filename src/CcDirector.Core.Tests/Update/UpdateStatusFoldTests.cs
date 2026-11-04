@@ -47,12 +47,13 @@ public class UpdateStatusFoldTests
                     LastCheckOutcome = "Failed",
                     LastCheckError = "the network is unreachable",
                 })),
-            ("the release has no downloads attached yet",
+            ("the release has no build for this machine",
                 Facts(new UpdaterState
                 {
                     LastCheckedAt = Now.AddMinutes(-4),
-                    LastCheckOutcome = "ReleaseNotReady",
+                    LastCheckOutcome = "NoBuildForThisPlatform",
                     LastCheckLatestVersion = "1.9.1",
+                    LastCheckError = "the release has no cc-director-win-x64.exe",
                 })),
         };
 
@@ -101,11 +102,12 @@ public class UpdateStatusFoldTests
     }
 
     [Fact]
-    public void ReleaseNotReady_IsNeitherUpToDateNorAFailure()
+    public void AReleaseNotReadyWordFromAnOlderBuild_ShowsNotCheckedYet_UntilTheNextCheck()
     {
-        // Issue #1079: a release is "latest" the instant it is published and its downloads attach about
-        // five and a half minutes later. Reporting that window as "up to date" is how it stayed hidden
-        // for the entire life of the product.
+        // Builds that read GitHub wrote "ReleaseNotReady" into the state file. The download server has no
+        // such window, so nothing writes the word any more - but a machine updating from an older build
+        // still has it on disk until its next check, a few seconds after start. Until then the screen
+        // says exactly what is true: no check by this build has finished, and one can be started now.
         var view = UpdateStatusFold.Fold(Facts(new UpdaterState
         {
             LastCheckedAt = Now.AddMinutes(-1),
@@ -113,10 +115,10 @@ public class UpdateStatusFoldTests
             LastCheckLatestVersion = "1.9.1",
         }));
 
-        Assert.Equal("ReleaseNotReady", view.State);
-        Assert.Contains("1.9.1", view.Detail);
-        Assert.DoesNotContain("UP TO DATE", view.Headline);
-        Assert.DoesNotContain("FAILED", view.Headline);
+        Assert.Equal("NotCheckedYet", view.State);
+        Assert.Equal("NOT CHECKED YET", view.Headline);
+        Assert.True(view.CanCheckNow);
+        Assert.False(view.CanInstallNow);
     }
 
     [Fact]
@@ -525,15 +527,7 @@ public class UpdateStatusFoldTests
     [Fact]
     public void NoBuildForThisPlatform_IsNotShownAsAPublishWindow()
     {
-        // These two shared one line in the checking code and reported "up to date" together, but they
-        // are opposites: one gets better by itself, the other never does. Showing this one as "still
-        // being built" would promise a wait that has no end.
-        var notReady = UpdateStatusFold.Fold(Facts(new UpdaterState
-        {
-            LastCheckOutcome = "ReleaseNotReady",
-            LastCheckLatestVersion = "1.9.1",
-            LastCheckedAt = Now.AddMinutes(-1),
-        }));
+        // Showing this one as "still being built" would promise a wait that has no end.
         var noBuild = UpdateStatusFold.Fold(Facts(new UpdaterState
         {
             LastCheckOutcome = "NoBuildForThisPlatform",
@@ -543,8 +537,6 @@ public class UpdateStatusFoldTests
         }));
 
         Assert.Equal("NoBuildForThisPlatform", noBuild.State);
-        Assert.NotEqual(notReady.State, noBuild.State);
-        Assert.NotEqual(notReady.Headline, noBuild.Headline);
         Assert.Contains("cc-director-win-x64.exe", noBuild.Tooltip);
         // It is a report, not a wait - so it does not promise that looking again will help.
         Assert.DoesNotContain("still being built", noBuild.Detail);

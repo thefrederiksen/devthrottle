@@ -24,15 +24,15 @@ console = Console()
 _SETUP_ROLES = ("workstation", "gateway")
 _AUTOSTART_VERBS = ("on", "off", "status")
 
-GITHUB_API_BASE = "https://api.github.com"
-# The product's release location, and the same default as
-# tools/cc-director-setup-engine/GitHubRepositoryDefaults.cs - keep the two in sync. It must be the
-# REAL repository: a wrong default answers 404 and no setup tool can ever be downloaded. The
-# environment variables override it for a fork that hosts its releases elsewhere.
-REPO_OWNER_ENVIRONMENT_VARIABLE = "DEVTHROTTLE_GITHUB_OWNER"
-REPO_NAME_ENVIRONMENT_VARIABLE = "DEVTHROTTLE_GITHUB_REPO"
-DEFAULT_REPO_OWNER = "thefrederiksen"
-DEFAULT_REPO_NAME = "devthrottle"
+# Our own download server, where every release is published (not GitHub). The same address as
+# tools/cc-director-setup-engine/DownloadServer.cs and src/CcDirector.Core/Utilities/DownloadServer.cs -
+# keep the three in sync. The release workflow writes stable.json LAST, after every file in the
+# version folder it names is verified, so {base}/{tag}/<asset> exists for every asset that folder's
+# release-manifest.json lists. devthrottle.com answers with a redirect to the storage account, which
+# urllib follows by default.
+DOWNLOAD_SERVER_BASE = "https://devthrottle.com/download/files"
+STABLE_CHANNEL = "stable.json"
+MANIFEST_NAME = "release-manifest.json"
 
 # The setup command line tool each release publishes, keyed by (operating system, processor), in
 # preference order. These are the names .github/workflows/release.yml uploads - keep the two in
@@ -93,49 +93,63 @@ class ReleaseLookupError(Exception):
     exactly which request failed - never a silent 'nothing found'."""
 
 
-def _resolve_setting(variable: str, default: str) -> str:
-    value = os.environ.get(variable, "").strip()
-    return value or default
+def _stable_channel_url() -> str:
+    return f"{DOWNLOAD_SERVER_BASE}/{STABLE_CHANNEL}"
 
 
-def _release_repository() -> tuple[str, str]:
-    return (
-        _resolve_setting(REPO_OWNER_ENVIRONMENT_VARIABLE, DEFAULT_REPO_OWNER),
-        _resolve_setting(REPO_NAME_ENVIRONMENT_VARIABLE, DEFAULT_REPO_NAME),
-    )
+def _release_file_url(tag: str, name: str) -> str:
+    return f"{DOWNLOAD_SERVER_BASE}/{tag}/{name}"
 
 
-def _latest_release_url() -> str:
-    owner, name = _release_repository()
-    return f"{GITHUB_API_BASE}/repos/{owner}/{name}/releases/latest"
-
-
-def _latest_release() -> dict:
-    url = _latest_release_url()
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "cc-devthrottle",
-        },
-    )
+def _get_json(url: str) -> object:
+    request = urllib.request.Request(url, headers={"User-Agent": "cc-devthrottle"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+            body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         raise ReleaseLookupError(f"GET {url} failed with HTTP {exc.code} {exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise ReleaseLookupError(f"GET {url} failed: {exc.reason}") from exc
+    try:
+        return json.loads(body)
+    except ValueError as exc:
+        raise ReleaseLookupError(f"GET {url} did not return JSON: {exc}") from exc
+
+
+def _latest_release() -> dict:
+    """The newest stable release: stable.json, then the manifest in the version folder it names.
+
+    Returns {"tag", "version", "assets": {name: url}}, every url inside that version folder.
+    """
+    channel_url = _stable_channel_url()
+    channel = _get_json(channel_url)
+    tag = channel.get("tag") if isinstance(channel, dict) else None
+    if not isinstance(tag, str) or not tag.strip():
+        raise ReleaseLookupError(f"{channel_url} does not name a release tag")
+    tag = tag.strip()
+    if "/" in tag or "\\" in tag or ".." in tag:
+        raise ReleaseLookupError(f"{channel_url} names '{tag}', which is not a release tag")
+
+    manifest_url = _release_file_url(tag, MANIFEST_NAME)
+    manifest = _get_json(manifest_url)
+    assets = manifest.get("assets") if isinstance(manifest, dict) else None
+    if not isinstance(assets, dict):
+        raise ReleaseLookupError(f"{manifest_url} has no 'assets' object")
+    # The same refusal the C# readers make: a folder holding another release's manifest is a broken
+    # server, not a release to install.
+    manifest_tag = manifest.get("tag")
+    if manifest_tag != tag:
+        raise ReleaseLookupError(
+            f"{manifest_url} is the manifest of '{manifest_tag}', not of '{tag}'"
+        )
+
+    urls = {name: _release_file_url(tag, name) for name in assets}
+    urls[MANIFEST_NAME] = manifest_url
+    return {"tag": tag, "version": manifest.get("version"), "assets": urls}
 
 
 def _release_assets(release: dict) -> dict:
-    assets = {}
-    for asset in release.get("assets", []):
-        name = asset.get("name", "")
-        url = asset.get("browser_download_url", "")
-        if name and url:
-            assets[name] = url
-    return assets
+    return dict(release.get("assets", {}))
 
 
 def _download_file(url: str, dest_path: str, show_progress: bool = True) -> bool:
@@ -550,8 +564,14 @@ def _download_setup_cli() -> Optional[str]:
     return None
 
 
-def _releases_page() -> str:
-    return f"https://github.com/{'/'.join(_release_repository())}/releases/latest"
+def _manual_download_hint() -> str:
+    """Where a person can fetch the setup tool by hand: the fixed address every stable release
+    overwrites at the root of the download server."""
+    system, machine = _current_platform()
+    names = SETUP_CLI_ASSETS_BY_PLATFORM.get((system, machine))
+    if names:
+        return f"{DOWNLOAD_SERVER_BASE}/{names[0]}"
+    return f"{DOWNLOAD_SERVER_BASE}/"
 
 
 def _download_setup_cli_or_exit() -> str:
@@ -568,7 +588,7 @@ def _download_setup_cli_or_exit() -> str:
     if not setup_cli:
         axi_cli.fail(
             "Could not find or download devthrottle-setup-cli. Download the setup tool for this "
-            f"machine from {_releases_page()} and put it on PATH, then run this again.",
+            f"machine from {_manual_download_hint()} and put it on PATH, then run this again.",
             ["cc-devthrottle setup doctor"],
         )
     return setup_cli
