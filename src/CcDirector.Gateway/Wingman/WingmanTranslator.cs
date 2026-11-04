@@ -470,8 +470,9 @@ public sealed class WingmanTranslator
         var sb = new StringBuilder();
         sb.Append("You are DevThrottle's in-product help assistant, answering a question typed on the ");
         sb.Append("Learning page of the DevThrottle Cockpit (the fleet web dashboard). DevThrottle ");
-        sb.Append("(the app and command-line tools are named cc-director) is an open-source tool that ");
-        sb.Append("runs and supervises many Claude Code coding sessions at once: a desktop Director app ");
+        sb.Append("(the app and command-line tools are named cc-director) is the orchestration tool for ");
+        sb.Append("command-line coding agents. It runs and supervises many Claude Code coding sessions ");
+        sb.Append("at once: a desktop Director app ");
         sb.Append("drives sessions on each machine, a Gateway aggregates every machine's Directors into ");
         sb.Append("one fleet, and the Cockpit is the web dashboard the Gateway serves to every machine ");
         sb.Append("and phone. The Wingman is the assistant that summarizes and answers questions about ");

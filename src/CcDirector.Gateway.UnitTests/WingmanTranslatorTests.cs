@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
@@ -450,6 +451,18 @@ public sealed class WingmanTranslatorTests
         Assert.Contains("How do I start a session?", prompt);
         Assert.Contains(SessionAskRunner.AnswerBeginMarker, prompt);
         Assert.Contains(SessionAskRunner.AnswerEndMarker, prompt);
+    }
+
+    /// <summary>The owner ruled on 4 November 2026 that DevThrottle is never described as open source
+    /// or MIT licensed. This prompt is what the help assistant tells people DevThrottle is, so it must
+    /// carry the product's one-liner and no licence claim.</summary>
+    [Fact]
+    public void BuildDevThrottlePrompt_DescribesTheProductWithoutAnOpenSourceOrLicenceClaim()
+    {
+        var prompt = WingmanTranslator.BuildDevThrottlePrompt(SpokenLanguages.English, "What is DevThrottle?");
+
+        Assert.Contains("the orchestration tool for command-line coding agents", prompt);
+        Assert.DoesNotMatch(new Regex(@"open[ -]?source|\bMIT\b|\blicen[cs]ed\b", RegexOptions.IgnoreCase), prompt);
     }
 
     [Fact]
