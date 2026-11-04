@@ -18,7 +18,7 @@ public static class MacDock
     public static string AddArguments(string bundlePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bundlePath);
-        var url = new Uri(bundlePath.TrimEnd('/') + "/").AbsoluteUri;
+        var url = MacPath.FileUrlOf(bundlePath.TrimEnd('/') + "/");
         var entry = "<dict><key>tile-data</key><dict><key>file-data</key><dict>"
                     + $"<key>_CFURLString</key><string>{System.Security.SecurityElement.Escape(url)}</string>"
                     + "<key>_CFURLStringType</key><integer>15</integer>"
@@ -34,7 +34,7 @@ public static class MacDock
     {
         ArgumentNullException.ThrowIfNull(persistentApps);
         ArgumentException.ThrowIfNullOrWhiteSpace(bundlePath);
-        var url = new Uri(bundlePath.TrimEnd('/') + "/").AbsoluteUri;
+        var url = MacPath.FileUrlOf(bundlePath.TrimEnd('/') + "/");
         return persistentApps.Contains(url, StringComparison.Ordinal)
                || persistentApps.Contains(url.TrimEnd('/') + "\"", StringComparison.Ordinal);
     }
