@@ -345,25 +345,18 @@ public sealed class LauncherCore : IAsyncDisposable
         var layout = InstallLayout.Default();
         var directorUpdates = new DirectorUpdateOwner(new DirectorSupervisor());
 
-        // Held across cycles: a release that is published but still uploading its assets is looked at
-        // again in MINUTES rather than at the next hourly cycle. This is the condition that cost a
-        // machine up to an hour of staleness for a window measured at 5m23s (v1.8.8).
-        var notReady = new ReleaseNotReadyRetry();
-
         // Let the launcher settle before the first check; never compete with startup.
         try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
 
         while (!ct.IsCancellationRequested)
         {
             var cfg = AutoUpdateConfig.Load(layout);
-            TimeSpan? shortRetry = null;
             if (cfg.Enabled)
             {
                 try
                 {
                     var source = new ReleaseSource();
                     var release = await source.FetchLatestAsync(ct);
-                    notReady.Reset();
 
                     // STAGE ON EVERY PLATFORM; APPLY WHERE THIS PROCESS CAN. The download, the hash
                     // check and the copy are the same everywhere, and this whole block used to sit
@@ -391,17 +384,8 @@ public sealed class LauncherCore : IAsyncDisposable
                                           + $"{staged.Value.StagedPath}; the Director installs it when it can witness the result");
                     }
                 }
-                // Published but incomplete is NOT a failure, and it must not be logged as one: the
-                // release is fine and this check was simply early. Say so, and look again in minutes.
-                catch (ReleaseNotReadyException ex)
-                {
-                    shortRetry = notReady.NextDelay();
-                    // not-an-error: the release is not published in full yet, so the check simply looks again in minutes
-                    FileLog.Write($"[LauncherCore] {notReady.Describe(ex, shortRetry)}");
-                }
                 catch (Exception ex)
                 {
-                    notReady.Reset();
                     FileLog.Write($"[LauncherCore] update check FAILED: {ex.Message}");
                 }
             }
@@ -422,7 +406,7 @@ public sealed class LauncherCore : IAsyncDisposable
                 }
             }
 
-            try { await Task.Delay(shortRetry ?? (cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1)), ct); }
+            try { await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1), ct); }
             catch (OperationCanceledException) { break; }
         }
     }

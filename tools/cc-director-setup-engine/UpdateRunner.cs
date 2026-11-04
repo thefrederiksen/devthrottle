@@ -33,7 +33,7 @@ public sealed class UpdateRunResult
 /// asset, verify its SHA-256 against the manifest, then swap it into place
 /// (keeping a .old backup). Downloading is injected as a delegate so the whole
 /// flow is testable without a network: production passes a delegate backed by
-/// the GitHub release download; tests pass one that produces a local file.
+/// the download from the download server; tests pass one that produces a local file.
 ///
 /// Single-file assets (Director, Gateway exe, tools) are placed directly.
 /// Archive assets (the Cockpit .zip) require extraction and are reported as

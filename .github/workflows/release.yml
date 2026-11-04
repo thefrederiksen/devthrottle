@@ -1219,6 +1219,118 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Verified: every file in $FOLDER/ matches the manifest."
 
+      # The two "newest version" files, written as soon as every file in the version folder is
+      # verified - and BEFORE GitHub publishes:
+      #   stable.json      - the newest stable release      (a stable release moves it)
+      #   prerelease.json  - the newest release of any kind (every release moves it)
+      # Each names the version and the folder holding its manifest. Written only after the folder is
+      # verified, so nothing reading them can be pointed at a version whose files are not all there.
+      #
+      # Before GitHub, on purpose: every updater from the bridge release on reads these files, and the
+      # bridge itself is still installed FROM GitHub. Publishing on GitHub first and failing here would
+      # put the bridge on every machine with no channel file to read - every one of them stuck until a
+      # re-run. In this order a failure here stops the release before GitHub ever sees it.
+      #
+      # A channel never moves BACKWARDS on its own: re-running an older tag fails here instead of
+      # quietly downgrading everyone. Rolling back is a deliberate act, not a side effect of a re-run.
+      - name: Point the channel files at this release
+        env:
+          AZ_ACCOUNT: devthrottle
+          AZ_CONTAINER: download
+          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
+          BASE: https://devthrottle.blob.core.windows.net/download
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            CHANNELS="prerelease"
+          else
+            CHANNELS="stable prerelease"
+          fi
+
+          # True when version $1 is OLDER than version $2. 2.34.0-rc1 < 2.34.0-rc10 < 2.34.0 < 2.34.1.
+          is_older() {
+            python3 - "$1" "$2" <<'PY'
+          import re, sys
+          def key(v):
+              m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(.+))?", v)
+              if not m:
+                  print(f"not a version: {v!r}", file=sys.stderr)
+                  sys.exit(2)
+              pre = m.group(4)
+              # Letters and digits are separate parts, dot or no dot, so rc10 > rc9 and rc.10 > rc.9.
+              parts = tuple(int(p) if p.isdigit() else p for p in re.findall(r"\d+|[^\d.]+", pre)) if pre else ()
+              return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 0 if pre else 1, tuple((0, p) if isinstance(p, int) else (1, p) for p in parts))
+          sys.exit(0 if key(sys.argv[1]) < key(sys.argv[2]) else 1)
+          PY
+          }
+
+          for channel in $CHANNELS; do
+            file="$channel.json"
+            code=$(curl -sS -o /tmp/current.json -w '%{http_code}' "$BASE/$file?nocache=$GITHUB_RUN_ID")
+            case "$code" in
+              200)
+                current=$(jq -r '.version' /tmp/current.json)
+                # 0 = older, 1 = same or newer, anything else = a version that cannot be read.
+                # Captured explicitly: under `if`, an unreadable version would read as "not older".
+                rc=0
+                is_older "$VERSION" "$current" || rc=$?
+                case "$rc" in
+                  0)
+                    # A stable patch cut while a newer pre-release is out (v2.34.1 after v2.35.0-rc1) is a
+                    # legitimate release: the pre-release channel already names something newer, so it
+                    # correctly stays where it is. Only moving a channel to an OLDER version is refused.
+                    if [ "$channel" = "prerelease" ] && [ "$IS_PRERELEASE" != "true" ]; then
+                      echo "$file names the newer pre-release $current; it stays there."
+                      echo "- \`$file\` stays on $current (newer than this stable release)" >> "$GITHUB_STEP_SUMMARY"
+                      continue
+                    fi
+                    echo "::error title=Channel would move backwards::$file names $current; refusing to point it at the older $VERSION."
+                    exit 1
+                    ;;
+                  1) ;;
+                  *)
+                    echo "::error title=Unreadable channel file::$file names version '$current', which is not a version."
+                    exit 1
+                    ;;
+                esac
+                ;;
+              404)
+                echo "$file does not exist yet - this release creates it."
+                ;;
+              *)
+                echo "::error title=Cannot read channel file::$BASE/$file answered HTTP $code."
+                exit 1
+                ;;
+            esac
+
+            jq -n \
+              --arg version "$VERSION" \
+              --arg tag "$GITHUB_REF_NAME" \
+              --argjson prerelease "$IS_PRERELEASE" \
+              --arg manifest "$GITHUB_REF_NAME/release-manifest.json" \
+              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{version: $version, tag: $tag, prerelease: $prerelease, manifest: $manifest, date: $date}' > "/tmp/$file"
+
+            az storage blob upload \
+              --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
+              --container-name "$AZ_CONTAINER" \
+              --file "/tmp/$file" --name "$file" --overwrite \
+              --content-cache-control "public, max-age=60" \
+              --content-type "application/json" \
+              --only-show-errors -o none
+
+            served=$(curl -fsSL "$BASE/$file?nocache=$GITHUB_RUN_ID-check" | jq -r '.version')
+            if [ "$served" != "$VERSION" ]; then
+              echo "::error title=Channel file not updated::$file serves $served, expected $VERSION."
+              exit 1
+            fi
+            echo "$file -> $VERSION"
+            echo "- \`$file\` now names $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          done
+
       # The release is created as a DRAFT with every asset already attached, and published by the
       # step below. A draft is not "latest" and is not visible to /releases/latest, so no updater
       # can see this version until it is COMPLETE: "latest" and "complete" become the same moment.
@@ -1345,6 +1457,19 @@ jobs:
             upload "$src" "$name" "public, max-age=300" "$ctype"
           done
 
+          # The one-line installers, at fixed names, so the website can serve
+          # https://devthrottle.com/install-mac.sh and /install-linux.sh from here instead of from
+          # raw.githubusercontent.com. Taken from this release's checkout, so the script that installs
+          # a release is the one that shipped with it. Missing here means the checkout is wrong - stop.
+          for script in install-mac.sh install-linux.sh; do
+            src="scripts/$script"
+            if [ ! -f "$src" ]; then
+              echo "::error title=Install script missing::$src is not in the checkout."
+              exit 1
+            fi
+            upload "$src" "$script" "public, max-age=300" "text/x-shellscript"
+          done
+
           echo "Mirrored to https://$AZ_ACCOUNT.blob.core.windows.net/$AZ_CONTAINER/"
 
       # Prove the mirror rather than trust the exit code: fetch the installer
@@ -1365,110 +1490,3 @@ jobs:
             exit 1
           fi
           echo "Mirror verified: the public URL serves this release byte for byte."
-
-      # The two "newest version" files, written LAST of everything, after every file is verified:
-      #   stable.json      - the newest stable release      (a stable release moves it)
-      #   prerelease.json  - the newest release of any kind (every release moves it)
-      # Each names the version and the folder holding its manifest. Written last so nothing reading
-      # them can ever be pointed at a version whose files are not all there. Nothing reads them yet;
-      # the bridge release switches the updaters over to them.
-      #
-      # A channel never moves BACKWARDS on its own: re-running an older tag fails here instead of
-      # quietly downgrading everyone. Rolling back is a deliberate act, not a side effect of a re-run.
-      - name: Point the channel files at this release
-        env:
-          AZ_ACCOUNT: devthrottle
-          AZ_CONTAINER: download
-          AZ_KEY: ${{ secrets.AZURE_DOWNLOADS_KEY }}
-          BASE: https://devthrottle.blob.core.windows.net/download
-          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
-        run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            CHANNELS="prerelease"
-          else
-            CHANNELS="stable prerelease"
-          fi
-
-          # True when version $1 is OLDER than version $2. 2.34.0-rc1 < 2.34.0-rc10 < 2.34.0 < 2.34.1.
-          is_older() {
-            python3 - "$1" "$2" <<'PY'
-          import re, sys
-          def key(v):
-              m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(.+))?", v)
-              if not m:
-                  print(f"not a version: {v!r}", file=sys.stderr)
-                  sys.exit(2)
-              pre = m.group(4)
-              # Letters and digits are separate parts, dot or no dot, so rc10 > rc9 and rc.10 > rc.9.
-              parts = tuple(int(p) if p.isdigit() else p for p in re.findall(r"\d+|[^\d.]+", pre)) if pre else ()
-              return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 0 if pre else 1, tuple((0, p) if isinstance(p, int) else (1, p) for p in parts))
-          sys.exit(0 if key(sys.argv[1]) < key(sys.argv[2]) else 1)
-          PY
-          }
-
-          for channel in $CHANNELS; do
-            file="$channel.json"
-            code=$(curl -sS -o /tmp/current.json -w '%{http_code}' "$BASE/$file?nocache=$GITHUB_RUN_ID")
-            case "$code" in
-              200)
-                current=$(jq -r '.version' /tmp/current.json)
-                # 0 = older, 1 = same or newer, anything else = a version that cannot be read.
-                # Captured explicitly: under `if`, an unreadable version would read as "not older".
-                rc=0
-                is_older "$VERSION" "$current" || rc=$?
-                case "$rc" in
-                  0)
-                    # A stable patch cut while a newer pre-release is out (v2.34.1 after v2.35.0-rc1) is a
-                    # legitimate release: the pre-release channel already names something newer, so it
-                    # correctly stays where it is. Only moving a channel to an OLDER version is refused.
-                    if [ "$channel" = "prerelease" ] && [ "$IS_PRERELEASE" != "true" ]; then
-                      echo "$file names the newer pre-release $current; it stays there."
-                      echo "- \`$file\` stays on $current (newer than this stable release)" >> "$GITHUB_STEP_SUMMARY"
-                      continue
-                    fi
-                    echo "::error title=Channel would move backwards::$file names $current; refusing to point it at the older $VERSION."
-                    exit 1
-                    ;;
-                  1) ;;
-                  *)
-                    echo "::error title=Unreadable channel file::$file names version '$current', which is not a version."
-                    exit 1
-                    ;;
-                esac
-                ;;
-              404)
-                echo "$file does not exist yet - this release creates it."
-                ;;
-              *)
-                echo "::error title=Cannot read channel file::$BASE/$file answered HTTP $code."
-                exit 1
-                ;;
-            esac
-
-            jq -n \
-              --arg version "$VERSION" \
-              --arg tag "$GITHUB_REF_NAME" \
-              --argjson prerelease "$IS_PRERELEASE" \
-              --arg manifest "$GITHUB_REF_NAME/release-manifest.json" \
-              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              '{version: $version, tag: $tag, prerelease: $prerelease, manifest: $manifest, date: $date}' > "/tmp/$file"
-
-            az storage blob upload \
-              --account-name "$AZ_ACCOUNT" --account-key "$AZ_KEY" \
-              --container-name "$AZ_CONTAINER" \
-              --file "/tmp/$file" --name "$file" --overwrite \
-              --content-cache-control "public, max-age=60" \
-              --content-type "application/json" \
-              --only-show-errors -o none
-
-            served=$(curl -fsSL "$BASE/$file?nocache=$GITHUB_RUN_ID-check" | jq -r '.version')
-            if [ "$served" != "$VERSION" ]; then
-              echo "::error title=Channel file not updated::$file serves $served, expected $VERSION."
-              exit 1
-            fi
-            echo "$file -> $VERSION"
-            echo "- \`$file\` now names $VERSION" >> "$GITHUB_STEP_SUMMARY"
-          done

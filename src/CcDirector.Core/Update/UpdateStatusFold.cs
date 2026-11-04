@@ -144,7 +144,7 @@ public static class UpdateStatusFold
             switch (live.Phase)
             {
                 case UpdatePhase.Checking:
-                    return Busy("Checking", "CHECKING FOR UPDATES", "asking GitHub what the latest release is",
+                    return Busy("Checking", "CHECKING FOR UPDATES", "asking the download server what the latest release is",
                         $"Running v{facts.CurrentVersion}. Checking whether a newer release exists.", null);
 
                 case UpdatePhase.Downloading:
@@ -349,19 +349,6 @@ public static class UpdateStatusFold
         // 5. What the last completed check concluded.
         switch (state.LastCheckOutcome)
         {
-            case "ReleaseNotReady":
-                return new UpdateStatusView(
-                    State: "ReleaseNotReady",
-                    Headline: "UPDATE NOT READY YET",
-                    Detail: $"v{state.LastCheckLatestVersion} is published - its download is still being built",
-                    Tooltip: $"v{state.LastCheckLatestVersion} was published, but the files to download had not been "
-                             + "attached to it yet when this machine looked. That takes a few minutes after a release "
-                             + "goes out. Nothing is wrong; the check runs again shortly.",
-                    Accent: BusyAccent, Background: BusyBackground, Border: BusyBorder,
-                    Icon: "ring", Busy: false, PercentComplete: null,
-                    CanCheckNow: true, CheckNowLabel: CheckNow,
-                    CanInstallNow: false, InstallNowLabel: null);
-
             case "NoBuildForThisPlatform":
                 return new UpdateStatusView(
                     State: "NoBuildForThisPlatform",

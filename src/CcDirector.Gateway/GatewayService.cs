@@ -250,25 +250,18 @@ public sealed class GatewayService : IDisposable
     {
         var layout = InstallLayout.Default();
 
-        // Held across cycles: a release that is published but still uploading its assets is looked at
-        // again in MINUTES rather than at the next hourly cycle - the same policy the launcher uses,
-        // for the same reason (see ReleaseNotReadyRetry).
-        var notReady = new ReleaseNotReadyRetry();
-
         // Let the gateway settle before the first check; never compete with startup.
         try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
 
         while (!ct.IsCancellationRequested)
         {
             var cfg = AutoUpdateConfig.Load(layout);
-            TimeSpan? shortRetry = null;
             if (cfg.Enabled && OperatingSystem.IsWindows())
             {
                 try
                 {
                     var source = new ReleaseSource();
                     var release = await source.FetchLatestAsync(ct);
-                    notReady.Reset();
                     var version = await new GatewayUpdater(layout).CheckStageAndLaunchAsync(release, source, ct);
                     if (version is not null)
                     {
@@ -276,20 +269,12 @@ public sealed class GatewayService : IDisposable
                         return; // the detached helper POSTs /shutdown, swaps, and relaunches us
                     }
                 }
-                // Published but incomplete is NOT a failure - the release is fine and this check was
-                // early. Name it, and look again in minutes instead of at the next hourly cycle.
-                catch (ReleaseNotReadyException ex)
-                {
-                    shortRetry = notReady.NextDelay();
-                    FileLog.Write($"[GatewayService] {notReady.Describe(ex, shortRetry)}");
-                }
                 catch (Exception ex)
                 {
-                    notReady.Reset();
                     FileLog.Write($"[GatewayService] update check failed: {ex.Message}");
                 }
             }
-            try { await Task.Delay(shortRetry ?? (cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1)), ct); }
+            try { await Task.Delay(cfg.Enabled ? cfg.Interval : TimeSpan.FromHours(1), ct); }
             catch (OperationCanceledException) { break; }
         }
     }

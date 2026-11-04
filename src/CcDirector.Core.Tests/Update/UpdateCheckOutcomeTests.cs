@@ -2,19 +2,17 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using CcDirector.Core.Update;
+using CcDirector.Core.Utilities;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Update;
 
 /// <summary>
-/// What a check CONCLUDES, and that it writes the conclusion down (issues #1030 and #1079).
+/// What a check CONCLUDES, and that it writes the conclusion down (issue #1030).
 ///
-/// Two defects meet here. A release is "latest" the instant its tag is pushed and its downloads are
-/// attached about five and a half minutes later, so any machine checking inside that window finds a
-/// newer release it cannot fetch - and the code reported that as UP TO DATE. And no conclusion of any
-/// kind survived the check that produced it, so a Director could not say what its last check had found
-/// even seconds afterwards. Together those are two of the five situations that all looked like an
-/// unchanged version number.
+/// The Director reads its updates from our own download server: stable.json names the newest stable
+/// release, and the version folder it names holds release-manifest.json and every build. Every check
+/// here runs against a fake of that server, so nothing needs the live one.
 ///
 /// These run on every platform that has a published Director build, using that platform's own download
 /// name, so they are not only proved on Windows.
@@ -22,6 +20,8 @@ namespace CcDirector.Core.Tests.Update;
 [Collection("ProcessWideState")]
 public class UpdateCheckOutcomeTests
 {
+    private const string Base = DownloadServer.BaseUrl;
+
     /// <summary>The download name for the machine running the tests, or null when none is published.</summary>
     private static string? CurrentAssetName => UpdateService.AssetNameFor(CurrentPlatform, RuntimeInformation.OSArchitecture);
 
@@ -37,18 +37,52 @@ public class UpdateCheckOutcomeTests
     /// </summary>
     private static bool Supported => CurrentAssetName is not null;
 
+    // ---- What a check concludes ------------------------------------------
+
     [Fact]
-    public async Task ALatestReleaseWithNoAssetsYet_IsReleaseNotReady_NotUpToDate()
+    public async Task AChannelThatNamesAFolderWithNoManifest_IsFailed_NeverUpToDate()
     {
         if (!Supported) return;
 
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: false);
+        // The channel file is written only after every file in its folder is verified, so a folder with
+        // no manifest is not a release still being published - it is a broken server. It is a failure,
+        // and the failure names the address that did not answer.
+        var server = new FakeDownloadServer().Stable("v9.9.9");
 
-        Assert.Equal(UpdatePhase.ReleaseNotReady, outcome);
-        Assert.Equal("ReleaseNotReady", state.LastCheckOutcome);
-        Assert.Equal("9.9.9", state.LastCheckLatestVersion);
-        // Nothing was downloaded, so nothing may be recorded as staged.
+        var (outcome, state) = await CheckAsync(server);
+
+        Assert.Equal(UpdatePhase.Failed, outcome);
+        Assert.Equal("Failed", state.LastCheckOutcome);
+        Assert.Contains($"{Base}/v9.9.9/release-manifest.json", state.LastCheckError);
+        Assert.Contains("404", state.LastCheckError);
         Assert.Null(state.StagedVersion);
+    }
+
+    [Fact]
+    public async Task ADownloadServerThatAnswersAnError_IsFailed_AndNamesTheAddress()
+    {
+        var server = new FakeDownloadServer().Answer($"{Base}/stable.json", HttpStatusCode.ServiceUnavailable);
+
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Windows, Architecture.X64));
+
+        Assert.Equal(UpdatePhase.Failed, outcome);
+        Assert.Contains($"{Base}/stable.json", state.LastCheckError);
+        Assert.Contains("503", state.LastCheckError);
+    }
+
+    [Fact]
+    public async Task AManifestOfAnotherVersion_IsFailed_AndNothingIsDownloaded()
+    {
+        // A folder holding another release's manifest would install the wrong build under the right name.
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", manifestVersion: "9.9.8", ("cc-director-win-x64.exe", "ab"));
+
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Windows, Architecture.X64));
+
+        Assert.Equal(UpdatePhase.Failed, outcome);
+        Assert.Contains("9.9.8", state.LastCheckError);
+        Assert.DoesNotContain(server.Requests, u => u.EndsWith("/cc-director-win-x64.exe", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -56,7 +90,7 @@ public class UpdateCheckOutcomeTests
     {
         if (!Supported) return;
 
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v1.0.0", withAssets: false);
+        var (outcome, state) = await CheckAsync(new FakeDownloadServer().Stable("v1.0.0"));
 
         Assert.Equal(UpdatePhase.UpToDate, outcome);
         Assert.Equal("UpToDate", state.LastCheckOutcome);
@@ -77,8 +111,7 @@ public class UpdateCheckOutcomeTests
             LastCheckOutcome = "UpToDate",
         };
 
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: false,
-            seed: previous, handler: new ThrowingHandler());
+        var (outcome, state) = await CheckAsync(new ThrowingHandler(), seed: previous);
 
         Assert.Equal(UpdatePhase.Failed, outcome);
         Assert.Equal("Failed", state.LastCheckOutcome);
@@ -92,7 +125,7 @@ public class UpdateCheckOutcomeTests
 
         // The end-to-end claim of #1030: what the check concluded is what the screen says. Reading the
         // persisted record is the ONLY way anything other than the checking code can know.
-        var (_, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: false);
+        var (_, state) = await CheckAsync(new FakeDownloadServer().Stable("v9.9.9"));
 
         var view = UpdateStatusFold.Fold(new UpdateStatusFacts(
             CurrentVersion: "1.0.0",
@@ -103,8 +136,8 @@ public class UpdateCheckOutcomeTests
             LauncherRunning: false,
             Now: DateTimeOffset.UtcNow));
 
-        Assert.Equal("ReleaseNotReady", view.State);
-        Assert.Contains("9.9.9", view.Detail);
+        Assert.Equal("CheckFailed", view.State);
+        Assert.Contains($"{Base}/v9.9.9/release-manifest.json", view.Tooltip);
     }
 
     [Fact]
@@ -115,8 +148,8 @@ public class UpdateCheckOutcomeTests
         // The defect: a Director that runs for days re-checks every hour, and the check only asked
         // "is the release newer than the running build?" - never "do I already have it?". So the same
         // release was downloaded again every hour until a restart applied it. Here the staged build is
-        // already on disk and the handler REFUSES any download, so the check can only pass by
-        // recognising the work is done.
+        // already on disk and the server REFUSES any request into the version folder, so the check can
+        // only pass by recognising the work is done.
         var stagedFile = Path.Combine(Path.GetTempPath(), $"cc-update-staged-{Guid.NewGuid():N}.exe");
         File.WriteAllText(stagedFile, "the already-downloaded build");
         try
@@ -126,9 +159,9 @@ public class UpdateCheckOutcomeTests
                 StagedVersion = "9.9.9",
                 StagedExecutable = stagedFile,
             };
+            var server = new FakeDownloadServer().Stable("v9.9.9").RefuseFolder("v9.9.9");
 
-            var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: true,
-                seed: seed, handler: new DownloadRefusingHandler(tag: "v9.9.9"));
+            var (outcome, state) = await CheckAsync(server, seed: seed);
 
             Assert.Equal(UpdatePhase.Staged, outcome);
             Assert.Equal("Staged", state.LastCheckOutcome);
@@ -140,8 +173,6 @@ public class UpdateCheckOutcomeTests
             File.Delete(stagedFile);
         }
     }
-
-    // ---- Harness ----------------------------------------------------------
 
     /// <summary>
     /// The launcher applies the staged build while a check is in flight (issue #3666, review of #3680). The
@@ -156,77 +187,7 @@ public class UpdateCheckOutcomeTests
         if (!Supported) return;
 
         var staged = new UpdaterState { StagedVersion = "1.5.0", StagedExecutable = "x", InstallTarget = "y" };
-
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v1.0.0", withAssets: false,
-            seed: staged, handler: new LauncherAppliesDuringCheckHandler("v1.0.0"));
-
-        Assert.Equal(UpdatePhase.UpToDate, outcome);
-        Assert.Equal("UpToDate", state.LastCheckOutcome);
-        Assert.Null(state.StagedVersion);
-        Assert.Equal("Applied", state.LastApplyDecision);
-    }
-
-    /// <summary>
-    /// Run one check against a fabricated "latest release", with the storage root redirected so the
-    /// state file written is this test's own. Returns the conclusion and the state as it was left.
-    /// </summary>
-    private static async Task<(UpdatePhase Outcome, UpdaterState State)> CheckAgainstReleaseAsync(
-        string tag, bool withAssets, UpdaterState? seed = null, HttpMessageHandler? handler = null, bool withManifest = false,
-        (OSPlatform Os, Architecture Arch)? platform = null)
-    {
-        var root = Path.Combine(Path.GetTempPath(), "cc-update-outcome-" + Guid.NewGuid().ToString("N"));
-        var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
-        try
-        {
-            seed?.Save();
-
-            var service = new UpdateService(
-                new UpdateOptions
-                {
-                    Enabled = true,
-                    CurrentVersion = new Version(1, 0, 0),
-                    InstallTarget = Path.Combine(root, "cc-director.exe"),
-                    PlatformOverride = platform,
-                },
-                handler ?? new ReleaseHandler(tag, withAssets, withManifest));
-
-            var outcome = await service.CheckAndStageAsync();
-            return (outcome, UpdaterState.Load());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", old);
-            try { Directory.Delete(root, true); } catch { /* best effort */ }
-        }
-    }
-
-    /// <summary>Answers the releases/latest call with a release that has, or has not, had its files attached.</summary>
-    private sealed class ReleaseHandler(string tag, bool withAssets, bool withManifest = false) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var entries = new List<string>();
-            if (withAssets)
-                entries.Add($$"""{"name":"{{CurrentAssetName}}","browser_download_url":"https://example.invalid/a"}""");
-            if (withAssets || withManifest)
-                entries.Add("""{"name":"release-manifest.json","browser_download_url":"https://example.invalid/m"}""");
-            var assets = "[" + string.Join(",", entries) + "]";
-            var body = $$"""{"tag_name":"{{tag}}","assets":{{assets}}}""";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
-    }
-
-    /// <summary>
-    /// Plays the launcher: while the check is waiting on the network, it installs the staged build, clears
-    /// the staged record and records its decision, then answers with a release that is not newer.
-    /// </summary>
-    private sealed class LauncherAppliesDuringCheckHandler(string tag) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        var server = new FakeDownloadServer().Stable("v1.0.0").OnEveryRequest(() =>
         {
             var launcher = UpdaterState.Load();
             launcher.StagedVersion = null;
@@ -234,64 +195,33 @@ public class UpdateCheckOutcomeTests
             launcher.InstallTarget = null;
             launcher.LastApplyDecision = "Applied";
             launcher.Save();
+        });
 
-            var body = $$"""{"tag_name":"{{tag}}","assets":[]}""";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
-    }
+        var (outcome, state) = await CheckAsync(server, seed: staged);
 
-    private sealed class ThrowingHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-            => throw new HttpRequestException("the network is unreachable");
-    }
-
-    /// <summary>
-    /// Answers the releases/latest call with a complete release, and fails the test outright if
-    /// anything tries to download one of its files. This is how the already-staged test can prove a
-    /// negative: the only way through it is to not download.
-    /// </summary>
-    private sealed class DownloadRefusingHandler(string tag) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            if (request.RequestUri is { } uri && uri.Host == "example.invalid")
-                throw new InvalidOperationException($"the check tried to download {uri} for a release that is already staged");
-
-            var body = $$"""
-                {"tag_name":"{{tag}}","assets":[
-                  {"name":"{{CurrentAssetName}}","browser_download_url":"https://example.invalid/a"},
-                  {"name":"release-manifest.json","browser_download_url":"https://example.invalid/m"}
-                ]}
-                """;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
-        }
+        Assert.Equal(UpdatePhase.UpToDate, outcome);
+        Assert.Equal("UpToDate", state.LastCheckOutcome);
+        Assert.Null(state.StagedVersion);
+        Assert.Equal("Applied", state.LastApplyDecision);
     }
 
     [Fact]
-    public async Task ACompleteReleaseWithNoAssetForThisPlatform_IsItsOwnFault_NotThePublishWindow()
+    public async Task ACompleteReleaseWithNoAssetForThisPlatform_IsNoBuildForThisPlatform()
     {
         if (!Supported) return;
 
-        // These two shared one line and reported UpToDate together. A release that HAS its manifest is
-        // finished publishing, so a missing platform asset is a real fault - waiting does not fix it and
-        // it must not drive the short retry.
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: false, withManifest: true);
+        // The manifest is there and lists only some other file: the release is finished and has nothing for
+        // this machine. Waiting does not fix it.
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", "9.9.9", ("devthrottle-setup-win-x64.exe", "ab"));
+
+        var (outcome, state) = await CheckAsync(server);
 
         Assert.Equal(UpdatePhase.NoBuildForThisPlatform, outcome);
         Assert.Equal("NoBuildForThisPlatform", state.LastCheckOutcome);
         Assert.Contains(CurrentAssetName!, state.LastCheckError);
         Assert.Null(state.StagedVersion);
-
-        // The retry policy must treat it as ordinary, or a finished release gets polled for ever.
-        Assert.Equal(TimeSpan.FromHours(1),
-            new ReleaseNotReadyRetry().NextDelay(outcome, TimeSpan.FromHours(1)));
     }
 
     [Fact]
@@ -301,7 +231,7 @@ public class UpdateCheckOutcomeTests
         // anything and before writing anything down, so the panel sat on "not checked yet" for ever and
         // every "check for updates now" did nothing. Linux on an Arm processor still has no build, so it
         // stands in for any such platform, on whichever machine runs this.
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: true,
+        var (outcome, state) = await CheckAsync(new FakeDownloadServer().Stable("v9.9.9"),
             platform: (OSPlatform.Linux, Architecture.Arm64));
 
         Assert.Equal(UpdatePhase.NoBuildForThisPlatform, outcome);
@@ -328,12 +258,55 @@ public class UpdateCheckOutcomeTests
         // A complete release whose only Director build is the Windows one. A Linux check must look for
         // cc-director-linux-x64 by name and report that it is missing - proving the Linux name is what
         // the check actually uses, not only what the mapping returns.
-        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v9.9.9", withAssets: false,
-            handler: new NamedAssetsHandler("v9.9.9", "cc-director-win-x64.exe", "release-manifest.json"),
-            platform: (OSPlatform.Linux, Architecture.X64));
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", "9.9.9", ("cc-director-win-x64.exe", "ab"));
+
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Linux, Architecture.X64));
 
         Assert.Equal(UpdatePhase.NoBuildForThisPlatform, outcome);
         Assert.Contains("cc-director-linux-x64", state.LastCheckError);
+    }
+
+    [Fact]
+    public async Task AFullCheck_StagesFromTheVersionFolder_AndAsksOnlyTheDownloadServer()
+    {
+        // The bridge: every request a check makes - the channel file, the manifest, the build - goes to
+        // the download server, and the build comes from the folder stable.json names. Not one request
+        // goes to GitHub.
+        const string assetName = "cc-director-win-x64.exe";
+        var content = Encoding.UTF8.GetBytes("a staged Windows build");
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content));
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", "9.9.9", (assetName, sha))
+            .File($"{Base}/v9.9.9/{assetName}", content);
+
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Windows, Architecture.X64));
+
+        Assert.Equal(UpdatePhase.Staged, outcome);
+        Assert.Equal("9.9.9", state.StagedVersion);
+        Assert.Equal(assetName, Path.GetFileName(state.StagedExecutable));
+        Assert.Equal(
+            new[] { $"{Base}/stable.json", $"{Base}/v9.9.9/release-manifest.json", $"{Base}/v9.9.9/{assetName}" },
+            server.Requests);
+        Assert.All(server.Requests, u => Assert.StartsWith(Base + "/", u, StringComparison.Ordinal));
+        Assert.DoesNotContain(server.Requests, u => u.Contains("github", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ADownloadWhoseHashDoesNotMatchTheManifest_IsRejected()
+    {
+        const string assetName = "cc-director-win-x64.exe";
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", "9.9.9", (assetName, new string('a', 64)))
+            .File($"{Base}/v9.9.9/{assetName}", Encoding.UTF8.GetBytes("not the build the manifest hashed"));
+
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Windows, Architecture.X64));
+
+        Assert.Equal(UpdatePhase.Failed, outcome);
+        Assert.Null(state.StagedVersion);
     }
 
     [Fact]
@@ -346,30 +319,48 @@ public class UpdateCheckOutcomeTests
         const string assetName = "cc-director-linux-x64";
         var content = Encoding.UTF8.GetBytes("#!/bin/sh\necho a staged build\n");
         var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content));
+        var server = new FakeDownloadServer()
+            .Stable("v9.9.9")
+            .Manifest("v9.9.9", "9.9.9", (assetName, sha))
+            .File($"{Base}/v9.9.9/{assetName}", content);
 
-        var root = Path.Combine(Path.GetTempPath(), "cc-update-linux-" + Guid.NewGuid().ToString("N"));
+        var (outcome, state) = await CheckAsync(server, platform: (OSPlatform.Linux, Architecture.X64));
+
+        Assert.Equal(UpdatePhase.Staged, outcome);
+        Assert.NotNull(state.StagedExecutable);
+        Assert.Equal(assetName, Path.GetFileName(state.StagedExecutable));
+        Assert.True(File.GetUnixFileMode(state.StagedExecutable!).HasFlag(UnixFileMode.UserExecute),
+            "the staged Linux build must be executable");
+    }
+
+    // ---- Harness ----------------------------------------------------------
+
+    /// <summary>
+    /// Run one check against a fake download server, with the storage root redirected so the state file
+    /// written is this test's own. Returns the conclusion and the state as it was left.
+    /// </summary>
+    private static async Task<(UpdatePhase Outcome, UpdaterState State)> CheckAsync(
+        HttpMessageHandler handler, UpdaterState? seed = null, (OSPlatform Os, Architecture Arch)? platform = null)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "cc-update-outcome-" + Guid.NewGuid().ToString("N"));
         var old = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
         try
         {
+            seed?.Save();
+
             var service = new UpdateService(
                 new UpdateOptions
                 {
                     Enabled = true,
                     CurrentVersion = new Version(1, 0, 0),
-                    InstallTarget = Path.Combine(root, assetName),
-                    PlatformOverride = (OSPlatform.Linux, Architecture.X64),
+                    InstallTarget = Path.Combine(root, "cc-director.exe"),
+                    PlatformOverride = platform,
                 },
-                new DownloadableReleaseHandler("v9.9.9", assetName, content, sha));
+                handler);
 
             var outcome = await service.CheckAndStageAsync();
-            var state = UpdaterState.Load();
-
-            Assert.Equal(UpdatePhase.Staged, outcome);
-            Assert.NotNull(state.StagedExecutable);
-            Assert.Equal(assetName, Path.GetFileName(state.StagedExecutable));
-            Assert.True(File.GetUnixFileMode(state.StagedExecutable!).HasFlag(UnixFileMode.UserExecute),
-                "the staged Linux build must be executable");
+            return (outcome, UpdaterState.Load());
         }
         finally
         {
@@ -378,42 +369,82 @@ public class UpdateCheckOutcomeTests
         }
     }
 
-    /// <summary>Answers the releases/latest call with a complete release carrying exactly the named files.</summary>
-    private sealed class NamedAssetsHandler(string tag, params string[] names) : HttpMessageHandler
+    /// <summary>
+    /// A fake of the download server: serves exactly the files it was given, answers 404 for anything
+    /// else, and records every address asked for, in order.
+    /// </summary>
+    private sealed class FakeDownloadServer : HttpMessageHandler
     {
+        private readonly Dictionary<string, Func<HttpResponseMessage>> _routes = new(StringComparer.Ordinal);
+        private readonly List<string> _refusedFolders = [];
+        private Action? _onEveryRequest;
+
+        public List<string> Requests { get; } = [];
+
+        public FakeDownloadServer Stable(string tag)
+        {
+            var version = tag.TrimStart('v');
+            var json = $$"""{"version":"{{version}}","tag":"{{tag}}","prerelease":false,"manifest":"{{tag}}/release-manifest.json","date":"2026-11-03T00:00:00Z"}""";
+            _routes[$"{Base}/stable.json"] = () => Json(json);
+            return this;
+        }
+
+        public FakeDownloadServer Manifest(string tag, string manifestVersion, params (string Name, string Sha)[] assets)
+        {
+            var entries = string.Join(",", assets.Select(a =>
+                $$"""
+                "{{a.Name}}":{"version":"{{manifestVersion}}","sha256":"{{a.Sha}}","platform":"any","size":0}
+                """));
+            var json = $$"""{"version":"{{manifestVersion}}","tag":"{{tag}}","assets":{""" + entries + "}}";
+            _routes[$"{Base}/{tag}/release-manifest.json"] = () => Json(json);
+            return this;
+        }
+
+        public FakeDownloadServer File(string url, byte[] content)
+        {
+            _routes[url] = () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content) };
+            return this;
+        }
+
+        public FakeDownloadServer Answer(string url, HttpStatusCode status)
+        {
+            _routes[url] = () => new HttpResponseMessage(status) { Content = new StringContent("") };
+            return this;
+        }
+
+        /// <summary>Fail the test outright if anything asks for a file in this version folder.</summary>
+        public FakeDownloadServer RefuseFolder(string tag)
+        {
+            _refusedFolders.Add($"{Base}/{tag}/");
+            return this;
+        }
+
+        public FakeDownloadServer OnEveryRequest(Action action)
+        {
+            _onEveryRequest = action;
+            return this;
+        }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            var assets = string.Join(",", names.Select(n => $$"""{"name":"{{n}}","browser_download_url":"https://example.invalid/{{n}}"}"""));
-            var body = $$"""{"tag_name":"{{tag}}","assets":[{{assets}}]}""";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json"),
-            });
+            var url = request.RequestUri!.ToString();
+            Requests.Add(url);
+            foreach (var folder in _refusedFolders)
+                if (url.StartsWith(folder, StringComparison.Ordinal))
+                    throw new InvalidOperationException($"the check asked for {url} for a release that is already staged");
+            _onEveryRequest?.Invoke();
+            return Task.FromResult(_routes.TryGetValue(url, out var route)
+                ? route()
+                : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") });
         }
+
+        private static HttpResponseMessage Json(string body) =>
+            new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
     }
 
-    /// <summary>Serves a release, its one build, and a manifest carrying that build's hash.</summary>
-    private sealed class DownloadableReleaseHandler(string tag, string assetName, byte[] content, string sha) : HttpMessageHandler
+    private sealed class ThrowingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var path = request.RequestUri!.AbsolutePath;
-            HttpContent body;
-            if (path.EndsWith("/releases/latest", StringComparison.Ordinal))
-                body = new StringContent($$"""
-                    {"tag_name":"{{tag}}","assets":[
-                      {"name":"{{assetName}}","browser_download_url":"https://example.invalid/asset"},
-                      {"name":"release-manifest.json","browser_download_url":"https://example.invalid/manifest"}
-                    ]}
-                    """, Encoding.UTF8, "application/json");
-            else if (path == "/manifest")
-                body = new StringContent("{\"assets\":{\"" + assetName + "\":{\"sha256\":\"" + sha + "\"}}}", Encoding.UTF8, "application/json");
-            else if (path == "/asset")
-                body = new ByteArrayContent(content);
-            else
-                throw new InvalidOperationException($"unexpected request {request.RequestUri}");
-
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = body });
-        }
+            => throw new HttpRequestException("the network is unreachable");
     }
 }

@@ -35,17 +35,17 @@ Download **DevThrottle Setup** from [devthrottle.com/download](https://devthrott
 
 Go to `/download` directly. It says *"Free, no account needed"* and means it. The home page's main **Get started** button takes the other route -- sign up first, download second -- so you will be asked for an account before you have downloaded anything.
 
-The same file is on the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest) as `devthrottle-setup-win-x64.exe` if you would rather take it straight from there.
+The same file is on the [download page](https://devthrottle.com/download) as `devthrottle-setup-win-x64.exe` if you would rather take it straight from there.
 
 ### macOS
 
 Install and open the wizard with one command in Terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash
+curl -fsSL https://devthrottle.com/install-mac.sh | bash
 ```
 
-The command downloads the wizard from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest), verifies its SHA-256 hash against the release manifest, places **DevThrottle Setup** in `~/Applications`, and opens it.
+The command downloads the wizard from the [download page](https://devthrottle.com/download), verifies its SHA-256 hash against the release manifest, places **DevThrottle Setup** in `~/Applications`, and opens it.
 
 It uses `curl` on purpose. The wizard is ad-hoc-signed, not notarized by Apple, so a **browser** download of it is blocked by Gatekeeper — "Apple could not verify 'DevThrottle Setup' is free of malware" — and on macOS 15 (Sequoia) and later that dialog offers no way to open the app (the old right-click -> Open bypass was removed). Downloads made with `curl` are never quarantined, so the wizard opens normally.
 
@@ -57,7 +57,7 @@ On macOS the app is called **DevThrottle** and installs to the Applications fold
 
 The same install, with no window and no clicking. This is the right choice for a headless machine, a script, or an AI coding agent.
 
-Download the command line installer from the [latest release](https://github.com/thefrederiksen/devthrottle/releases/latest) - `devthrottle-setup-cli-win-x64.exe` on Windows, `devthrottle-setup-cli-mac-arm64` on macOS - and run:
+Download the command line installer from the [download page](https://devthrottle.com/download) - `devthrottle-setup-cli-win-x64.exe` on Windows, `devthrottle-setup-cli-mac-arm64` on macOS - and run:
 
 ```powershell
 # Windows
@@ -100,7 +100,7 @@ Hand your agent this. It is the whole prompt.
 Install DevThrottle on this machine, unattended.
 
 1. Download the command line installer for this platform from the latest release:
-   https://github.com/thefrederiksen/devthrottle/releases/latest
+   https://devthrottle.com/download
    Windows: devthrottle-setup-cli-win-x64.exe
    macOS:   devthrottle-setup-cli-mac-arm64
 2. Run:  <installer> install --json --log-file ./devthrottle-install.log

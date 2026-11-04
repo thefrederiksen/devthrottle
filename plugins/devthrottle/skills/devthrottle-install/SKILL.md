@@ -37,9 +37,9 @@ Send the user to the download page and let them run it:
 
 The Windows installer is a three-screen wizard: Welcome, Install, Complete. There is
 no role to pick and no sign-in to get past. The same assets are published on the
-GitHub releases page if the user would rather take them directly:
+download page if the user would rather take them directly:
 
-> https://github.com/thefrederiksen/devthrottle/releases/latest
+> https://devthrottle.com/download
 
 macOS installs from the same download page.
 

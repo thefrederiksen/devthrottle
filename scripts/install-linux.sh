@@ -2,12 +2,12 @@
 #
 # install-linux.sh - Install DevThrottle on Linux with one command:
 #
-#   curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-linux.sh | bash
+#   curl -fsSL https://devthrottle.com/install-linux.sh | bash
 #
 # Why this script exists
 # ----------------------
 # This is the Linux counterpart of scripts/install-mac.sh and it has the same shape on
-# purpose: download the setup wizard from the latest GitHub release with curl, verify its
+# purpose: download the setup wizard from the latest release on our download server with curl, verify its
 # SHA-256 against release-manifest.json, place it, and hand over. The wizard installs and
 # updates every other component from there.
 #
@@ -27,12 +27,13 @@
 # -E makes the ERR trap below fire inside functions too.
 set -Eeuo pipefail
 
-REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
 ASSET="devthrottle-setup-linux-x64"
 MANIFEST="release-manifest.json"
 BIN_NAME="devthrottle-setup"
 DESTINATION_DIR="${DEVTHROTTLE_BIN_DIR:-$HOME/.local/bin}"
-BASE_URL="https://github.com/$REPO/releases/latest/download"
+# Our own download server - the same address as tools/cc-director-setup-engine/DownloadServer.cs.
+# stable.json names the newest stable release; every file of that release is in its tag folder.
+DOWNLOAD_SERVER="https://devthrottle.com/download/files"
 
 GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
 STEP="preconditions"
@@ -135,12 +136,23 @@ STEP="download"
 # ----------------------------------------------------------------------------
 # Download the wizard and the release manifest from the latest release.
 # ----------------------------------------------------------------------------
-log "Downloading the latest DevThrottle Setup wizard..."
-log "  $BASE_URL/$ASSET"
-curl -fL --progress-bar -o "$WORK_DIR/$ASSET" "$BASE_URL/$ASSET" \
-    || fail "Could not download $ASSET. Check your internet connection and that the release exists at https://github.com/$REPO/releases/latest"
-curl -fsSL -o "$WORK_DIR/$MANIFEST" "$BASE_URL/$MANIFEST" \
-    || fail "Could not download $MANIFEST from the release."
+log "Finding the latest DevThrottle release..."
+curl -fsSL -o "$WORK_DIR/stable.json" "$DOWNLOAD_SERVER/stable.json" \
+    || fail "Could not read $DOWNLOAD_SERVER/stable.json. Check your internet connection and try again."
+TAG="$(python3 -c "
+import json
+print(json.load(open('$WORK_DIR/stable.json'))['tag'])
+")" || fail "Could not read the release tag from $DOWNLOAD_SERVER/stable.json."
+[[ "$TAG" =~ ^v[0-9A-Za-z.+-]+$ ]] \
+    || fail "$DOWNLOAD_SERVER/stable.json names '$TAG', which is not a release tag."
+RELEASE_URL="$DOWNLOAD_SERVER/$TAG"
+
+log "Downloading the DevThrottle Setup wizard ($TAG)..."
+log "  $RELEASE_URL/$ASSET"
+curl -fL --progress-bar -o "$WORK_DIR/$ASSET" "$RELEASE_URL/$ASSET" \
+    || fail "Could not download $RELEASE_URL/$ASSET. Check your internet connection and try again."
+curl -fsSL -o "$WORK_DIR/$MANIFEST" "$RELEASE_URL/$MANIFEST" \
+    || fail "Could not download $RELEASE_URL/$MANIFEST."
 
 # ----------------------------------------------------------------------------
 # Verify the download against the SHA-256 hash recorded in the manifest.

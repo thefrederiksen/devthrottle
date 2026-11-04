@@ -91,7 +91,7 @@ public sealed class UpdaterState
 
     /// <summary>
     /// What the last completed check concluded, as an <see cref="UpdatePhase"/> name: UpToDate,
-    /// Staged, ReleaseNotReady, or Failed. Stored as text, not as the enum, so an older build reading
+    /// Staged, NoBuildForThisPlatform, or Failed. Stored as text, not as the enum, so an older build reading
     /// a newer state file gets an unrecognised word it can show rather than a deserialization failure.
     /// </summary>
     [JsonPropertyName("lastCheckOutcome")]
