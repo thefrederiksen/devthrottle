@@ -480,6 +480,18 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The Mail Desk's mailbox checks worth keeping (phase 3, contract section 6.2).</summary>
     public DbSet<MailDeskChannelCheckEntity> MailDeskChannelChecks => Set<MailDeskChannelCheckEntity>();
 
+    /// <summary>The messages left in each factory's inbox (Factory Inbox mission, phase 1).</summary>
+    public DbSet<FactoryInboxMessageEntity> FactoryInboxMessages => Set<FactoryInboxMessageEntity>();
+
+    /// <summary>The bundles a factory's Secretary hands to its Boss (Factory Inbox mission, phase 1).</summary>
+    public DbSet<FactoryInboxBundleEntity> FactoryInboxBundles => Set<FactoryInboxBundleEntity>();
+
+    /// <summary>The Boss's one decision on each factory inbox message (Factory Inbox mission, phase 1).</summary>
+    public DbSet<FactoryInboxDecisionEntity> FactoryInboxDecisions => Set<FactoryInboxDecisionEntity>();
+
+    /// <summary>Each factory's to-do list, added to by a Boss's "to do" decision (Factory Inbox mission, phase 1).</summary>
+    public DbSet<FactoryTodoEntity> FactoryTodos => Set<FactoryTodoEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -1279,6 +1291,65 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.ResolvedReason).HasMaxLength(CcDirector.Gateway.Running.CronRunResultFold.MaxReasonChars);
             // Every read is one channel's rows in the order they were checked.
             b.HasIndex(e => new { e.TenantId, e.ChannelId, e.CheckedUtc });
+        });
+
+        // ---- the Factory Inbox (Factory Inbox mission, phase 1) -----
+
+        modelBuilder.Entity<FactoryInboxMessageEntity>(b =>
+        {
+            b.ToTable("factory_inbox_messages");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Text).HasMaxLength(CcDirector.Gateway.Factory.Inbox.FactoryInboxStore.MaxTextLength);
+            b.Property(e => e.RawText).HasMaxLength(CcDirector.Gateway.Factory.Inbox.FactoryInboxStore.MaxTextLength);
+            b.Property(e => e.Note).HasMaxLength(16);
+            b.Property(e => e.Source).HasMaxLength(16);
+            b.Property(e => e.Surface).HasMaxLength(16);
+            b.Property(e => e.SentBy).HasMaxLength(200);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.ReceivedBySessionId).HasMaxLength(64);
+            b.Property(e => e.ClaimSessionId).HasMaxLength(64);
+            // A factory's thread is read newest first, and the Secretary's read selects one factory's messages by state.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.SentAtUtc });
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.State });
+            b.HasIndex(e => new { e.TenantId, e.BundleId });
+        });
+
+        modelBuilder.Entity<FactoryInboxBundleEntity>(b =>
+        {
+            b.ToTable("factory_inbox_bundles");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.HandedBySessionId).HasMaxLength(64);
+            b.Property(e => e.ReadBySessionId).HasMaxLength(64);
+            // The Boss reads its factory's open bundles, oldest first.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.ClosedAtUtc, e.HandedAtUtc });
+        });
+
+        modelBuilder.Entity<FactoryInboxDecisionEntity>(b =>
+        {
+            b.ToTable("factory_inbox_decisions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Why).HasMaxLength(CcDirector.Gateway.Factory.Inbox.FactoryInboxStore.MaxWhyLength);
+            b.Property(e => e.DelegatedSessionId).HasMaxLength(64);
+            b.Property(e => e.DecidedBySessionId).HasMaxLength(64);
+            // ONE DECISION PER MESSAGE, in the database: two Boss calls deciding the same message at the same moment
+            // cannot both be kept.
+            b.HasIndex(e => new { e.TenantId, e.MessageId }).IsUnique();
+            // The summary reads one factory's decisions since a time.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.DecidedAtUtc });
+        });
+
+        modelBuilder.Entity<FactoryTodoEntity>(b =>
+        {
+            b.ToTable("factory_todos");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Text).HasMaxLength(CcDirector.Gateway.Factory.Inbox.FactoryInboxStore.MaxTextLength);
+            b.Property(e => e.AddedBySessionId).HasMaxLength(64);
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.AddedAtUtc });
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
@@ -2659,6 +2730,10 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<MailDeskDecisionEntity>(modelBuilder);
         ApplyTenantScope<MailDeskRoutedEntity>(modelBuilder);
         ApplyTenantScope<MailDeskChannelCheckEntity>(modelBuilder);
+        ApplyTenantScope<FactoryInboxMessageEntity>(modelBuilder);
+        ApplyTenantScope<FactoryInboxBundleEntity>(modelBuilder);
+        ApplyTenantScope<FactoryInboxDecisionEntity>(modelBuilder);
+        ApplyTenantScope<FactoryTodoEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
@@ -2877,6 +2952,24 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<TriggerRunEntity>().Property(e => e.Outcome).UseCollation("C");
             // factory_seat_briefs: the factory and the seat are two parts of the key that keeps two writers from
             // minting the same version, and the state is a closed word the published read selects on.
+            // The Factory Inbox (phase 1): the factory and the session ids are exact keys every read selects on, and the
+            // state, the note, the source, the surface and the decision kind are closed words compared exactly.
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.State).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.Note).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.Source).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.Surface).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.ReceivedBySessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxMessageEntity>().Property(e => e.ClaimSessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.HandedBySessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxBundleEntity>().Property(e => e.ReadBySessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxDecisionEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxDecisionEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxDecisionEntity>().Property(e => e.DelegatedSessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxDecisionEntity>().Property(e => e.DecidedBySessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryTodoEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryTodoEntity>().Property(e => e.AddedBySessionId).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Seat).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.State).UseCollation("C");

@@ -1766,6 +1766,193 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_goal_numbers", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryInboxBundleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("HandedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HandedBySessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReadBySessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "ClosedAtUtc", "HandedAtUtc");
+
+                    b.ToTable("factory_inbox_bundles", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryInboxDecisionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DecidedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecidedBySessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DelegatedSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TodoId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Why")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "MessageId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Factory", "DecidedAtUtc");
+
+                    b.ToTable("factory_inbox_decisions", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryInboxMessageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("BundleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClaimedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrectionsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LinksJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("MergedIntoId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawText")
+                        .HasMaxLength(20000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReceivedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceivedBySessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Surface")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "BundleId");
+
+                    b.HasIndex("TenantId", "Factory", "SentAtUtc");
+
+                    b.HasIndex("TenantId", "Factory", "State");
+
+                    b.ToTable("factory_inbox_messages", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryJournalEntryEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1944,6 +2131,46 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("factory_registry", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryTodoEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AddedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddedBySessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("FromMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "AddedAtUtc");
+
+                    b.ToTable("factory_todos", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerEventEntity", b =>

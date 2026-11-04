@@ -694,6 +694,22 @@ public sealed class FactoryDefinitionCheckTests
     }
 
     [Fact]
+    public void Check_ASeatNamedSecretary_IsRefusedOnItsSeatKey_BecauseTheNameIsReserved()
+    {
+        // The Factory Inbox's Secretary is recognised by the seat name 'secretary' on its session history, so a defined
+        // seat of that name would be taken for it.
+        var result = Check(With("seats/secretary.yaml", """
+            seat: secretary
+            name: Secretary
+            role: Secretary
+            brief: File the inbox.
+            """));
+
+        AssertOneError(result, "seats/secretary.yaml", 1, FactoryDefinitionCheck.ReservedSecretarySeat);
+        Assert.Contains("'secretary' is reserved", FactoryDefinitionCheck.ReservedSecretarySeat);
+    }
+
+    [Fact]
     public void Check_SeatKeyNotTheFileName_IsAnErrorOnTheSeatKey()
     {
         var result = Check(Edit("seats/writer.yaml", "seat: writer", "seat: author"));

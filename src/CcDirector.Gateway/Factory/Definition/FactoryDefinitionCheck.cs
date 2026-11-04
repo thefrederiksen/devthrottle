@@ -314,6 +314,11 @@ public static class FactoryDefinitionCheck
                         if (!string.Equals(written, info.Name, StringComparison.Ordinal))
                             Error(findings, path, seatKey.KeyLine,
                                 $"This file is seats/{info.Name}.yaml but its seat key says '{written}'; they must be the same.");
+                        // THE SECRETARY'S NAME IS RESERVED (Factory Inbox mission): every factory with a Boss is given a
+                        // Secretary by the product, recognised by this seat name on its session history. A defined seat
+                        // of the same name would be taken for it.
+                        if (string.Equals(info.Name, Inbox.FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase))
+                            Error(findings, path, seatKey.KeyLine, ReservedSecretarySeat);
                         parsed.Seats[info.Name!] = seat;
                     }
                     break;
@@ -1202,6 +1207,12 @@ public static class FactoryDefinitionCheck
 
     private static IReadOnlyList<(string Value, int Line)> Items(DefinitionEntry entry)
         => ((DefinitionList)entry.Value).Items.Cast<DefinitionScalar>().Select(s => (s.Value, s.Line)).ToList();
+
+    /// <summary>The refusal of a defined seat named <c>secretary</c>: the name belongs to the Secretary the product gives
+    /// every factory with a Boss (Factory Inbox mission).</summary>
+    public const string ReservedSecretarySeat =
+        "The seat name 'secretary' is reserved: every factory with a Boss already has a Secretary, given by DevThrottle, " +
+        "that files its inbox. Give this seat another name.";
 
     private static void Error(List<DefinitionFinding> findings, string file, int line, string message)
         => findings.Add(new DefinitionFinding(DefinitionSeverity.Error, file, line, message));
