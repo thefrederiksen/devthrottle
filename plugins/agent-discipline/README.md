@@ -44,5 +44,3 @@ you never look at DevThrottle, they still work.
 Each skill carries only the fields in the [agentskills.io](https://agentskills.io)
 specification - `name`, `description`, `license` - and no host-specific extensions, so the
 same files load under any agent that implements that standard, not only Claude Code.
-
-MIT licensed.

@@ -13,7 +13,7 @@ Run a whole fleet of coding agents at once -- each on its own repo -- from one W
 
 ![DevThrottle](docs/assets/images/cc-director-main.png)
 
-Your job stopped being typing code -- it's watching agents work. DevThrottle is where you watch them: the open source orchestration tool for command-line coding agents.
+Your job stopped being typing code -- it's watching agents work. DevThrottle is where you watch them: the orchestration tool for command-line coding agents.
 
 ## Why DevThrottle
 
@@ -22,7 +22,7 @@ Your job stopped being typing code -- it's watching agents work. DevThrottle is 
 - **Supervise from anywhere.** Voice control and a voice-first mobile app, over a gateway we host for you -- so the machines at home and at the office are reachable wherever you are, with nothing of your own to keep running.
 - **Up and running in about five minutes.** A dead-simple installer -- no admin, no terminal wrangling, no WSL. From download to your first agent in minutes.
 - **Install it without an account.** The Director is free and installs and runs with no sign-up. You sign in later, only when you connect a gateway.
-- **Open source, signed, yours.** MIT licensed, and the Windows installer is code-signed.
+- **Signed, yours.** The Windows installer is code-signed.
 
 ## Get DevThrottle
 
@@ -106,4 +106,4 @@ and they do not sell it. The selling stays on this page, where you chose to read
 
 ---
 
-<sub>DevThrottle is open source (MIT) -- this repo is the source, and you're welcome to read it. The Director installs and runs free, with no account; a DevThrottle login is needed only to connect a gateway. The product experience, onboarding, and support live at <a href="https://devthrottle.com">devthrottle.com</a>. It's MIT, so you can always fork it.</sub>
+<sub>The Director installs and runs free, with no account; a DevThrottle login is needed only to connect a gateway. The product experience, onboarding, and support live at <a href="https://devthrottle.com">devthrottle.com</a>.</sub>
