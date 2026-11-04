@@ -496,9 +496,34 @@ def repo_lock_file(home: Path, repo: Path) -> Path:
     return home / "fetch-locks" / f"{pool_file(home, repo).stem}.lock"
 
 
+def _pool_full(pool: Pool, pool_size: int) -> ToolError:
+    taken = ", ".join(
+        f"{n} {e['state']}" + (f" by {e['holder']}" if e["holder"] else "")
+        + (f" ({e['reason']})" if e["reason"] else "")
+        for n, e in sorted(pool.slots.items()))
+    return ToolError("pool-full", f"pool full ({len(pool.slots)} of {pool_size}): {taken}",
+                     [f"cc-worktrees list --repo {pool.repo}", "cc-worktrees return <path> --lease <lease>",
+                      f"cc-worktrees release <slot> --repo {pool.repo} --confirm-abandon"],
+                     exit_code=EXIT_POOL_FULL)
+
+
+def _no_room(pool: Pool, pool_size: int) -> bool:
+    """No free slot to hand out and no room to create one."""
+    return (not any(e["state"] == FREE for e in pool.slots.values())) and len(pool.slots) >= pool_size
+
+
 def get(repo_path: str, holder: str, pool_size: int) -> dict:
     home = state_home()
     repo = main_repo_root(repo_path)
+    # A pool with no free slot and no room refuses at once, before the fetch. The fetch waits on the
+    # remote and on every other command of this repository, and a caller that gives up first - the
+    # Director, which is given 30 seconds to answer the Gateway - never learns the reason. Nothing is
+    # decided on a remote answer here: a full pool is full whatever the remote says. A slot freed after
+    # this read is the same race as a slot freed a moment after the refusal.
+    with machine_lock(home):
+        pool = load(home, repo)
+        if _no_room(pool, pool_size):
+            raise _pool_full(pool, pool_size)
     with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
         tip, fetch_reason = _tip_under_lock(repo, fetched, fetch_reason)
         if tip is None:
@@ -516,14 +541,7 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
             return _lease_view(pool, name, tip, reused=True, proof=proof)
 
         if len(pool.slots) >= pool_size:
-            taken = ", ".join(
-                f"{n} {e['state']}" + (f" by {e['holder']}" if e["holder"] else "")
-                + (f" ({e['reason']})" if e["reason"] else "")
-                for n, e in sorted(pool.slots.items()))
-            raise ToolError("pool-full", f"pool full ({len(pool.slots)} of {pool_size}): {taken}",
-                            [f"cc-worktrees list --repo {repo}", "cc-worktrees return <path> --lease <lease>",
-                             f"cc-worktrees release <slot> --repo {repo} --confirm-abandon"],
-                            exit_code=EXIT_POOL_FULL)
+            raise _pool_full(pool, pool_size)
 
         try:
             # A name whose pins still stand was released with work nothing could prove landed. Handing
