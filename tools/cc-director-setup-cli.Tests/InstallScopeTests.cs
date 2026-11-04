@@ -6,6 +6,25 @@ namespace CcDirector.Setup.Cli.Tests;
 
 public class InstallScopeTests
 {
+    // Issue #4567: a test install with --root repointed the machine's own Start Menu shortcut at the test copy.
+    [Fact]
+    public void FinalizesTheMachine_RootGiven_False()
+    {
+        Assert.False(InstallScope.FinalizesTheMachine(perUserTouched: true, rootOption: @"C:\temp\scratch-root"));
+    }
+
+    [Fact]
+    public void FinalizesTheMachine_NoRoot_AndSomethingPlaced_True()
+    {
+        Assert.True(InstallScope.FinalizesTheMachine(perUserTouched: true, rootOption: null));
+    }
+
+    [Fact]
+    public void FinalizesTheMachine_NothingPlaced_False()
+    {
+        Assert.False(InstallScope.FinalizesTheMachine(perUserTouched: false, rootOption: null));
+    }
+
     // The headline regression guard: a full Gateway install is a true superset of a Workstation install,
     // so it MUST also install the per-user Python tools bundle. (A stale workstation-only gate once
     // dropped the cc-* tools on a Gateway install; this locks that it never returns.)

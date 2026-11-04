@@ -19,6 +19,16 @@ public static class InstallScope
         && !componentOption.Equals("all", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Whether this pass finishes the install on the MACHINE: the PATH entry, the Start Menu shortcut, the
+    /// macOS login PATH and the Linux app-menu entry. Those live outside the install root, so a run with
+    /// <c>--root &lt;dir&gt;</c> (a test install into a folder of its own) never makes them. Before this, a
+    /// test install on a working machine repointed the machine's own DevThrottle shortcut at the test copy
+    /// (issue #4567).
+    /// </summary>
+    public static bool FinalizesTheMachine(bool perUserTouched, string? rootOption) =>
+        perUserTouched && rootOption is null;
+
+    /// <summary>
     /// Whether this pass installs the per-user Python tools bundle (the shared venv that carries
     /// every cc-* tool). True for a FULL install of EITHER role on either platform: the Gateway is a
     /// per-user tray app (no elevation), so a Gateway install is a true SUPERSET of a Workstation

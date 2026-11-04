@@ -609,7 +609,15 @@ internal static class Commands
         var perUserTouched = toolsInstalled || result.Results.Any(r =>
             r.Status is ApplyStatus.Installed or ApplyStatus.Updated &&
             r.ComponentId is not "gateway");
-        if (perUserTouched && OperatingSystem.IsWindows())
+        var rootOption = args.Option("root");
+        if (perUserTouched && !InstallScope.FinalizesTheMachine(perUserTouched, rootOption))
+        {
+            // --root: a test install into its own folder. The shortcut, PATH and app menu belong to the
+            // machine's real install and are left exactly as they are (issue #4567).
+            if (!json)
+                Console.WriteLine($"Shortcut, PATH and app menu: left alone (--root {rootOption})");
+        }
+        else if (perUserTouched && OperatingSystem.IsWindows())
         {
             var pathChanged = InstallFinalizer.AddBinToPath(layout);
             var shortcut = InstallFinalizer.CreateDirectorShortcut(layout);
