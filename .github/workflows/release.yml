@@ -889,7 +889,6 @@ jobs:
       # generates a competing version nobody wrote: a plausible wrong page is worse than no page,
       # because a page that looks like release notes does not get read.
       - name: Resolve the written release notes
-        id: notes
         run: |
           NOTES="docs/public/release-notes/${GITHUB_REF_NAME}.md"
           if [ ! -f "$NOTES" ]; then

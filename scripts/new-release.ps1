@@ -30,7 +30,7 @@
     3. -Release -Version X.Y.Z [-Yes]
        Finds the last good commit G: the newest commit on main whose "CI result" check passed. Makes ONE commit on top of it that changes only the version in
        Directory.Build.props and adds the notes file - nothing a test could see. Pushes it as branch
-       release/vX.Y.Z, tags it, and pushes the tag; the release workflow builds and publishes. Then
+       release/vX.Y.Z, tags it, and pushes the tag; the release workflow builds and publishes to our download storage. Then
        it merges the branch back into main with a merge commit, so main gets the notes and the
        version, and the tagged commit stays reachable from main. Finally it gives up the claim.
 
@@ -278,9 +278,9 @@ Write-Host "The notes must cover exactly these commits, $lastTag .. ${lastGood}:
 $inRelease | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
 Write-Host ""
 
-# --- 4. The written notes. The workflow publishes this file verbatim and stops without it. ---
+# --- 4. The written notes. The workflow stops without them; the website changelog is made from them. ---
 if (-not (Test-Path $notesPath)) {
-    Fail "No written release notes for $tagName yet." "Write them at $notesPath, covering the commits listed above, and get the owner's sign-off. The workflow publishes that file as the release page and refuses to invent a substitute."
+    Fail "No written release notes for $tagName yet." "Write them at $notesPath, covering the commits listed above, and get the owner's sign-off. The release workflow refuses to run without them and never invents a substitute."
 }
 $notesChars = ((Get-Content $notesPath -Raw) -replace '\s', '').Length
 if ($notesChars -lt 200) {

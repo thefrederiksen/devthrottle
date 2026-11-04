@@ -94,15 +94,14 @@ public sealed class ReleaseWorkflowContractTests
     {
         var yml = Workflow();
 
-        foreach (var banned in new[] { "action-gh-release", "gh release create", "gh release edit", "gh release upload", "/releases/" })
+        foreach (var banned in new[] { "action-gh-release", "gh release ", "/releases" })
         {
             Assert.False(yml.Contains(banned, StringComparison.Ordinal),
                 $"{WorkflowPath} contains \"{banned}\" again. Releases go to our own download storage only; a new "
                 + "GitHub release would take the 'latest' slot from v2.35.0, the bridge every older Director needs.");
         }
 
-        Assert.True(Regex.IsMatch(yml, @"(?m)^permissions:\s*
-\s+contents:\s*read\s*$"),
+        Assert.True(Regex.IsMatch(yml, @"(?m)^permissions:[ ]*\r?\n[ ]+contents:[ ]*read[ ]*\r?$"),
             $"{WorkflowPath} is no longer read-only on the repository at the top level. Nothing in a release "
             + "writes to GitHub any more, so nothing needs write access.");
         Assert.False(Regex.IsMatch(yml, @"contents:\s*write"),
