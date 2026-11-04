@@ -25,13 +25,13 @@ The desktop application is Windows and macOS (Apple Silicon). The gateway, the c
 One command runs the default test suites:
 
 ```powershell
-.\scripts	est-local.ps1
+.\scripts\test-local.ps1
 ```
 
 Three heavier suites are held back from the default run. To run them as well:
 
 ```powershell
-.\scripts	est-local.ps1 -Parked
+.\scripts\test-local.ps1 -Parked
 ```
 
 For the browser front ends:
