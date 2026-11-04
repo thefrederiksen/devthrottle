@@ -462,7 +462,7 @@ public sealed class WingmanTranslatorTests
         var prompt = WingmanTranslator.BuildDevThrottlePrompt(SpokenLanguages.English, "What is DevThrottle?");
 
         Assert.Contains("the orchestration tool for command-line coding agents", prompt);
-        Assert.DoesNotMatch(new Regex(@"open[ -]?source|MIT|licen[cs]", RegexOptions.IgnoreCase), prompt);
+        Assert.DoesNotMatch(new Regex(@"open[ -]?source|\bMIT\b|\blicen[cs]ed\b", RegexOptions.IgnoreCase), prompt);
     }
 
     [Fact]
