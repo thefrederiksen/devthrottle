@@ -2,7 +2,7 @@
 
 Welcome to DevThrottle. This is the public help landing page: it explains what
 DevThrottle is, what it can do, and where to go for every other piece of
-documentation. DevThrottle is fully open source - there is nothing hidden here.
+documentation.
 
 ## What is DevThrottle?
 
@@ -60,8 +60,7 @@ your need:
 - **[Control API](../api/01-control-api.md)** - the REST interface for driving a
   Director programmatically.
 
-## Open source
+## Reporting a problem
 
-The full source, documentation, and issue tracker live on GitHub at
-[github.com/example-org/devthrottle](https://github.com/example-org/devthrottle).
-You can browse the code, report issues, and contribute there.
+Report issues at
+[github.com/thefrederiksen/devthrottle/issues](https://github.com/thefrederiksen/devthrottle/issues).

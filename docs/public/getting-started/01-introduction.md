@@ -1,6 +1,6 @@
 # Introduction to DevThrottle
 
-DevThrottle is an open-source AI agent orchestration framework that brings together 25+ command-line tools for document conversion, media processing, email, browser automation, and AI workflows -- all designed to work with Claude Code.
+DevThrottle is the orchestration tool for command-line coding agents.
 
 ## What is DevThrottle?
 
@@ -72,10 +72,6 @@ Currently behind the alpha flag:
 - **Voice wake-word test** in Settings
 
 Features graduate out of alpha once they have been verified to work reliably.
-
-## Open Source
-
-DevThrottle is fully open source. You can browse the code, submit issues, and contribute at [github.com/example-org/devthrottle](https://github.com/example-org/devthrottle).
 
 ## Next Steps
 

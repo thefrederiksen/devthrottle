@@ -23,4 +23,4 @@ installer and it does not pipe a remote script into a shell, deliberately.
 across your machines, name this session, send one of the rare queued messages and read
 the inbox, ask for a reply without waiting for it, open a new session, and close one down.
 
-MIT licensed. Source: <https://github.com/thefrederiksen/devthrottle>
+Source: <https://github.com/thefrederiksen/devthrottle>
