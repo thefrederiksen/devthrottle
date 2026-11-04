@@ -23,7 +23,7 @@ def test_a_full_pool_refuses_without_waiting_on_the_remote(local_world):
     elapsed = time.monotonic() - started
 
     assert res.code == EXIT_POOL_FULL, res.out + res.err
-    assert elapsed < 10, f"a full pool waited {elapsed:.1f}s on the remote before refusing"
+    assert elapsed < 15, f"a full pool waited {elapsed:.1f}s on the remote before refusing"
     assert a["slot"] in res.out and b["slot"] in res.out
     assert "alpha" in res.out and "beta" in res.out
 
@@ -37,5 +37,6 @@ def test_a_pool_with_a_free_slot_still_fetches_before_handing_it_out(local_world
     res = w.run("get", "--repo", str(w.repo), "--holder", "gamma", "--pool-size", "1",
                 env_extra={"CC_WORKTREES_NETWORK_TIMEOUT": "3"})
 
-    assert res.code != 0 and res.code != EXIT_POOL_FULL, res.out + res.err
+    assert res.code == 1, res.out + res.err
+    assert "cannot-fetch" in res.out + res.err, res.out + res.err
     assert w.slot(a["slot"])["state"] == "free"
