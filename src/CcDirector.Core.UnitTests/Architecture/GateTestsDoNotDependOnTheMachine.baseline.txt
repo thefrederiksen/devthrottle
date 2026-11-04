@@ -400,4 +400,3 @@ sleep | tools/cc-director-setup-engine.Tests/LauncherLaunchdRebuildTests.cs | 1
 fixed-port | tools/cc-director-setup-engine.Tests/LauncherMacInstallerTests.cs | 2
 real-clock | tools/cc-director-setup-engine.Tests/LauncherReadinessWaitTests.cs | 2
 process | tools/cc-director-setup-engine.Tests/PythonToolsInstallerTests.cs | 1
-real-clock | tools/cc-director-setup-engine.Tests/ReleaseSourceTests.cs | 3
