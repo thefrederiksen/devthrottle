@@ -6,7 +6,7 @@ key on the Gateway, because a session never leaves a message as the owner.
 
 Reads anyone in the account may run (the Gateway allows them to a session key, so a Boss reads its own summary):
 
-- `factory inbox list`                       every factory's inbox: unread and total counts, the last message
+- `factory inbox list`                       every factory's inbox: how many messages wait, the last message
 - `factory inbox thread <factory>`           one factory's messages, each with its trail (Sent - Received - decision)
 - `factory inbox summary <factory> [--since]` what came in since a time and the decision on each, built from the log
 - `factory inbox todo <factory>`             the factory's to-do list, written by the Boss's `todo` decisions
@@ -16,7 +16,7 @@ the command never names it:
 
 - `factory inbox new`                        the messages not yet received (the Secretary's work)
 - `factory inbox receive <id>...`            claim and mark Received, with merges and links
-- `factory inbox bundle`                     the Boss reads its open bundle
+- `factory inbox bundle`                     the Boss reads its open bundles
 - `factory inbox bundle --hand <id>...`      the Secretary hands one bundle to the Boss
 - `factory inbox decide <id> <kind>`         the Boss's decision: delegated --session, todo, noted,
                                              declined --why, cannot --why, pushback --why
@@ -60,9 +60,9 @@ TEXT_PREVIEW = 80
 OLD_GATEWAY = ("the Gateway does not know the Factory inbox yet (it answered 404 with no reason) - "
                "it is older than this command.")
 
-LIST_FIELDS = ["factory", "unread", "total", "lastState", "lastSent", "lastText"]
-LIST_DEFAULT = ["factory", "unread", "total", "lastState"]
-MESSAGE_FIELDS = ["id", "state", "sent", "note", "source", "surface", "trail", "text"]
+LIST_FIELDS = ["factory", "title", "waiting", "lastState", "lastSent", "lastText"]
+LIST_DEFAULT = ["factory", "waiting", "lastState", "lastText"]
+MESSAGE_FIELDS = ["id", "state", "sent", "note", "source", "surface", "decision", "why", "bundle", "trail", "text"]
 MESSAGE_DEFAULT = ["id", "state", "trail", "text"]
 
 
@@ -134,6 +134,10 @@ def _cut(text: Any, full: bool) -> tuple:
     return f"{line[:TEXT_PREVIEW - 3]}... ({len(line)} chars)", True
 
 
+def _one_line(value: Any) -> Optional[str]:
+    return axi_cli.ascii_text(str(value)) if value is not None and str(value) != "" else None
+
+
 def _trail(message: Dict[str, Any]) -> str:
     """The trail as the Gateway wrote it, one label per step, joined in the order given."""
     steps = message.get("trail")
@@ -142,34 +146,54 @@ def _trail(message: Dict[str, Any]) -> str:
     return " - ".join(str(step.get("label")) for step in steps if isinstance(step, dict) and step.get("label"))
 
 
+def _decision(message: Dict[str, Any]) -> Dict[str, Any]:
+    decision = message.get("decision")
+    return decision if isinstance(decision, dict) else {}
+
+
 def _message_record(message: Dict[str, Any], full: bool) -> tuple:
     text, cut = _cut(message.get("text"), full)
+    decision = _decision(message)
     return {
         "id": message.get("id"),
-        "state": message.get("stateLabel") or message.get("state"),
+        "state": message.get("stateLabel"),
         "sent": message.get("sentAtUtc"),
-        "note": message.get("note"),
+        "note": message.get("noteLabel"),
         "source": message.get("source"),
         "surface": message.get("surface"),
+        "decision": decision.get("label"),
+        "why": _one_line(decision.get("why")),
+        "bundle": message.get("bundleId"),
         "trail": _trail(message),
         "text": text,
     }, cut
 
 
-def _render_messages(header: List[str], messages: List[Dict[str, Any]], fields: List[str], full: bool,
-                     next_commands: Sequence[str]) -> None:
+def _message_blocks(messages: List[Dict[str, Any]], fields: List[str], full: bool, name: str = "messages") -> List[str]:
+    """The count line, the list, and a line saying how many rows had their text cut."""
     records, cut_rows = [], 0
     for message in messages:
         record, cut = _message_record(message, full)
         records.append(record)
         cut_rows += 1 if cut and "text" in fields else 0
-    blocks = [*(axi_cli.ascii_text(line) for line in header), axi_output.format_count(len(records))]
+    blocks = [axi_output.format_count(len(records))]
     if records:
-        blocks.append(axi_output.render_list("messages", fields, records))
+        blocks.append(axi_output.render_list(name, fields, records))
     if cut_rows:
         blocks.append(f"text cut at {TEXT_PREVIEW} characters in {cut_rows} rows - use --full")
+    return blocks
+
+
+def _render_messages(header: List[str], messages: List[Dict[str, Any]], fields: List[str], full: bool,
+                     next_commands: Sequence[str]) -> None:
+    blocks = [*(axi_cli.ascii_text(line) for line in header), *_message_blocks(messages, fields, full)]
     blocks.append(axi_output.format_help(list(next_commands)))
     axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def _factory_of(answer: Any, given: str) -> str:
+    value = answer.get("factory") if isinstance(answer, dict) else None
+    return str(value) if value else given.strip()
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -177,27 +201,28 @@ def _render_messages(header: List[str], messages: List[Dict[str, Any]], fields: 
 # ---------------------------------------------------------------------------------------------------
 
 def list_inboxes(fields: Optional[str], full: bool, json_output: bool) -> None:
-    """Every factory's inbox: counts and the last message."""
+    """Every factory's inbox: how many messages wait, and the last message."""
     chosen = _check_fields(fields, json_output, LIST_FIELDS, LIST_DEFAULT)
     answer = _get(f"{OWNER_ROUTE}/inbox", [axi_cli.CHECK_GATEWAY])
     rows = _rows(answer, "factories", "factory inboxes")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    records, cut_rows, unread = [], 0, 0
+    records, cut_rows, waiting = [], 0, 0
     for row in rows:
-        text, cut = _cut(row.get("lastText"), full)
+        last = row.get("lastMessage") if isinstance(row.get("lastMessage"), dict) else {}
+        text, cut = _cut(last.get("text"), full)
         cut_rows += 1 if cut and "lastText" in chosen else 0
-        unread += row.get("unread") if isinstance(row.get("unread"), int) else 0
+        waiting += row.get("waiting") if isinstance(row.get("waiting"), int) else 0
         records.append({
             "factory": row.get("factory"),
-            "unread": row.get("unread"),
-            "total": row.get("total"),
-            "lastState": row.get("lastStateLabel"),
-            "lastSent": row.get("lastSentAtUtc"),
-            "lastText": text,
+            "title": _one_line(row.get("title")),
+            "waiting": row.get("waiting"),
+            "lastState": last.get("stateLabel"),
+            "lastSent": last.get("sentAtUtc"),
+            "lastText": text or None,
         })
-    blocks = [axi_output.format_count(len(records)), f"unread: {unread}"]
+    blocks = [axi_output.format_count(len(records)), f"waiting: {waiting}"]
     if records:
         blocks.append(axi_output.render_list("factories", chosen, records))
     if cut_rows:
@@ -214,9 +239,10 @@ def thread(factory: str, fields: Optional[str], full: bool, json_output: bool) -
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    name = axi_cli.bare(answer.get("factory") or factory.strip(), "<factory>")
-    _render_messages([f"factory: {answer.get('factory') or factory.strip()}"], messages, chosen, full,
-                     [f"{_TOOL} summary {name}", f"{_TOOL} todo {name}"])
+    name = _factory_of(answer, factory)
+    shown = axi_cli.bare(name, "<factory>")
+    _render_messages([f"factory: {name}"], messages, chosen, full,
+                     [f"{_TOOL} summary {shown}", f"{_TOOL} todo {shown}"])
 
 
 def summary(factory: str, since: Optional[str], json_output: bool) -> None:
@@ -228,24 +254,21 @@ def summary(factory: str, since: Optional[str], json_output: bool) -> None:
         route += "?" + urllib.parse.urlencode({"since": since.strip()})
     answer = _get(route, [f"{_TOOL} list"])
     items = _rows(answer, "items", "summary items")
+    by_decision = _rows(answer, "byDecision", "decision counts")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    records = [{
-        "messageId": item.get("messageId"),
-        "decision": item.get("decisionLabel") or item.get("decision"),
-        "why": axi_cli.ascii_text(str(item.get("why"))) if item.get("why") else None,
-        "text": _cut(item.get("text"), False)[0],
-    } for item in items]
-    blocks = [f"factory: {axi_cli.ascii_text(str(answer.get('factory') or factory.strip()))}",
-              f"since: {axi_cli.ascii_text(str(answer.get('sinceUtc') or '-'))}"]
-    if isinstance(answer.get("text"), str) and answer["text"].strip():
-        blocks.append(axi_cli.ascii_text(answer["text"].strip()))
-    blocks.append(axi_output.format_count(len(records)))
-    if records:
-        blocks.append(axi_output.render_list("items", ["messageId", "decision", "why", "text"], records))
-    name = axi_cli.bare(answer.get("factory") or factory.strip(), "<factory>")
-    blocks.append(axi_output.format_help([f"{_TOOL} thread {name}"]))
+    name = _factory_of(answer, factory)
+    blocks = [f"factory: {axi_cli.ascii_text(name)}",
+              f"from: {axi_cli.ascii_text(str(answer.get('sinceUtc') or '-'))} "
+              f"to: {axi_cli.ascii_text(str(answer.get('untilUtc') or '-'))}"]
+    if isinstance(answer.get("line"), str) and answer["line"].strip():
+        blocks.append(axi_cli.ascii_text(answer["line"].strip()))
+    if by_decision:
+        blocks.append("by decision: " + ", ".join(
+            f"{axi_cli.ascii_text(str(d.get('label')))} {d.get('count')}" for d in by_decision))
+    blocks.extend(_message_blocks(items, ["id", "state", "decision", "why", "text"], False, "items"))
+    blocks.append(axi_output.format_help([f"{_TOOL} thread {axi_cli.bare(name, '<factory>')}"]))
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
@@ -258,16 +281,15 @@ def todo(factory: str, json_output: bool) -> None:
         return
     records = [{
         "id": item.get("id"),
-        "created": item.get("createdAtUtc"),
-        "messageId": item.get("messageId"),
+        "added": item.get("addedAtUtc"),
+        "fromMessage": item.get("fromMessageId"),
         "text": _cut(item.get("text"), True)[0],
     } for item in items]
-    blocks = [f"factory: {axi_cli.ascii_text(str(answer.get('factory') or factory.strip()))}",
-              axi_output.format_count(len(records))]
+    name = _factory_of(answer, factory)
+    blocks = [f"factory: {axi_cli.ascii_text(name)}", axi_output.format_count(len(records))]
     if records:
-        blocks.append(axi_output.render_list("todo", ["id", "created", "messageId", "text"], records))
-    name = axi_cli.bare(answer.get("factory") or factory.strip(), "<factory>")
-    blocks.append(axi_output.format_help([f"{_TOOL} thread {name}"]))
+        blocks.append(axi_output.render_list("todo", ["id", "added", "fromMessage", "text"], records))
+    blocks.append(axi_output.format_help([f"{_TOOL} thread {axi_cli.bare(name, '<factory>')}"]))
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
@@ -312,7 +334,7 @@ def receive(message_ids: Sequence[str], merges: Sequence[str], links: Sequence[s
     """Claim messages and mark them Received, with merges and links."""
     ids = _ids(message_ids, "receive")
     merge_pairs = _pairs(merges, 2, "--merge", "<message-id>:<into-message-id>")
-    link_triples = _pairs(links, 3, "--link", "<message-id>:<kind>:<target>")
+    link_triples = _pairs(links, 3, "--link", "<message-id>:<kind>:<ref>")
     named = set(ids)
     for message_id, into in merge_pairs:
         if message_id not in named or into not in named:
@@ -324,53 +346,54 @@ def receive(message_ids: Sequence[str], merges: Sequence[str], links: Sequence[s
         if message_id not in named:
             axi_cli.usage_error(f"--link names message {message_id}, which is not being received.")
     body = {
-        "messageIds": ids,
-        "merges": [{"messageId": m, "intoMessageId": i} for m, i in merge_pairs],
-        "links": [{"messageId": m, "kind": k, "target": t} for m, k, t in link_triples],
+        "ids": ids,
+        "merges": [{"id": m, "into": i} for m, i in merge_pairs],
+        "links": [{"id": m, "kind": k, "ref": r} for m, k, r in link_triples],
     }
     answer = _post(_session_route("receive"), body, [f"{_TOOL} new"])
-    messages = _rows(answer, "messages", "received messages")
+    received = _rows(answer, "received", "received messages")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    _render_messages(["Received."], messages, MESSAGE_DEFAULT, False,
+    _render_messages(["Received."], received, MESSAGE_DEFAULT, False,
                      [f"{_TOOL} bundle --hand <id> [<id>...]"])
 
 
+_DECIDE_NEXT = [f"{_TOOL} decide <id> delegated --session <session-id>",
+                f"{_TOOL} decide <id> todo",
+                f"{_TOOL} decide <id> declined --why \"<why>\""]
+
+
 def bundle(message_ids: Sequence[str], hand: bool, json_output: bool) -> None:
-    """Without --hand: the Boss reads its open bundle. With --hand: the Secretary hands one bundle to the Boss."""
+    """Without --hand: the Boss reads its open bundles. With --hand: the Secretary hands one bundle to the Boss."""
     if not hand:
         if message_ids:
             axi_cli.usage_error("message ids are given only with --hand, which hands them to the Boss as one "
-                                f"bundle. To read your open bundle run {_TOOL} bundle with no ids.")
+                                f"bundle. To read your open bundles run {_TOOL} bundle with no ids.")
         answer = _get(_session_route("bundle"), [f"{_TOOL} new"])
-        messages = _rows(answer, "messages", "messages in the bundle")
+        bundles = _rows(answer, "bundles", "open bundles")
         if json_output:
             print(json.dumps(answer, indent=2))
             return
-        if answer.get("bundleId") is None:
-            # The Gateway answers an open-bundle read with bundleId null when none is open - never a 404,
-            # which would read the same as a missing route.
-            if messages:
-                axi_cli.fail("the Gateway said no bundle is open but sent messages with it, so this command "
-                             "will not guess which is true.", [axi_cli.CHECK_GATEWAY])
-            axi_output.write_blocks(sys.stdout, "bundle: none open", axi_output.format_count(0),
-                                    axi_output.format_help([f"{_TOOL} thread <factory>",
-                                                            "cc-devthrottle session done"]))
-            return
-        _render_messages([f"bundle: {answer['bundleId']}"], messages, MESSAGE_DEFAULT, True,
-                         [f"{_TOOL} decide <id> delegated --session <session-id>",
-                          f"{_TOOL} decide <id> todo",
-                          f"{_TOOL} decide <id> declined --why \"<why>\""])
+        blocks = [f"factory: {axi_cli.ascii_text(str(answer.get('factory') or '-'))}",
+                  f"open bundles: {len(bundles)}"]
+        for one in bundles:
+            items = _rows(one, "items", f"messages in bundle {one.get('id')}")
+            blocks.append(axi_cli.ascii_text(f"bundle: {one.get('id')}  handed {one.get('handedAtUtc') or '-'}"))
+            blocks.extend(_message_blocks(items, MESSAGE_DEFAULT, True))
+        blocks.append(axi_output.format_help(_DECIDE_NEXT if bundles
+                                             else [f"{_TOOL} thread <factory>", "cc-devthrottle session done"]))
+        axi_output.write_blocks(sys.stdout, *blocks)
         return
     ids = _ids(message_ids, "hand to the Boss")
-    answer = _post(_session_route("bundle"), {"messageIds": ids}, [f"{_TOOL} new"])
-    bundle_id = axi_cli.confirmed(answer, ["bundleId"], "the hand-over of the bundle", [f"{_TOOL} new"])
-    messages = _rows(answer, "messages", "messages in the bundle")
+    answer = _post(_session_route("bundle"), {"ids": ids}, [f"{_TOOL} new"])
+    handed = answer.get("bundle") if isinstance(answer, dict) else None
+    bundle_id = axi_cli.confirmed(handed, ["id"], "the hand-over of the bundle", [f"{_TOOL} new"])
+    items = _rows(handed, "items", "messages in the bundle")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    _render_messages([f"Handed to the Boss: bundle {bundle_id}."], messages, MESSAGE_DEFAULT, False,
+    _render_messages([f"Handed to the Boss: bundle {bundle_id}."], items, MESSAGE_DEFAULT, False,
                      [f"{_TOOL} new", "cc-devthrottle session done"])
 
 
@@ -394,15 +417,23 @@ def decide(message_id: str, kind: str, session: Optional[str], why: Optional[str
         axi_cli.usage_error(f"--why applies only to {', '.join(NEEDS_WHY)}, not to {decision}.")
     body: Dict[str, Any] = {"kind": decision}
     if has_session:
-        body["sessionId"] = session.strip()
+        body["session"] = session.strip()
     if has_why:
         body["why"] = why.strip()
     answer = _post(_session_route(f"{gateway.path_segment(message_id.strip())}/decide"), body,
                    [f"{_TOOL} bundle"])
-    label = axi_cli.confirmed(answer, ["stateLabel", "decision"], f"the decision on message {message_id.strip()}",
+    message = answer.get("message") if isinstance(answer, dict) else None
+    decided = message.get("decision") if isinstance(message, dict) else None
+    label = axi_cli.confirmed(decided, ["label"], f"the decision on message {message_id.strip()}",
                               [f"{_TOOL} bundle"])
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    axi_cli.write_lines(f"Decided: message {message_id.strip()} is {label}.")
+    lines = [f"Decided: message {message_id.strip()} is {label}."]
+    added = answer.get("todo")
+    if decision == "todo":
+        todo_id = axi_cli.confirmed(added, ["id"], f"the to-do item for message {message_id.strip()}",
+                                    [f"{_TOOL} bundle"])
+        lines.append(f"To-do item {todo_id} added.")
+    axi_cli.write_lines(*lines)
     axi_cli.print_next([f"{_TOOL} bundle"])

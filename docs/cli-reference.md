@@ -2456,7 +2456,7 @@ USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
        cc-devthrottle factory inbox todo <factory> [--json]
 
        cc-devthrottle factory inbox new [--fields F,...] [--full] [--json]
-       cc-devthrottle factory inbox receive <id>... [--merge ID:INTO-ID]... [--link ID:KIND:TARGET]... [--json]
+       cc-devthrottle factory inbox receive <id>... [--merge ID:INTO-ID]... [--link ID:KIND:REF]... [--json]
        cc-devthrottle factory inbox bundle [--json]
        cc-devthrottle factory inbox bundle --hand <id>... [--json]
        cc-devthrottle factory inbox decide <id> delegated --session <session-id> [--json]
@@ -2466,13 +2466,15 @@ USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
 
 **The reads** can be run by anyone in the account, a session included - a Boss reads its own summary.
 
-- `list` - every factory's inbox: unread and total counts and the state of the last message, with an
-  `unread:` total. `--fields` picks from `factory, unread, total, lastState, lastSent, lastText`.
+- `list` - every factory's inbox: how many messages wait and its last message, with a `waiting:` total.
+  `--fields` picks from `factory, title, waiting, lastState, lastSent, lastText`; the default is
+  `factory, waiting, lastState, lastText`.
 - `thread <factory>` - the factory's messages, each with its trail as the Gateway wrote it
-  (`Sent - Received - Delegated`). `--fields` picks from `id, state, sent, note, source, surface, trail, text`;
-  the default is `id, state, trail, text`.
+  (`Sent - Received - Delegated`). `--fields` picks from
+  `id, state, sent, note, source, surface, decision, why, bundle, trail, text`; the default is
+  `id, state, trail, text`.
 - `summary <factory> [--since TIME]` - what came in and the decision on each, built by the Gateway from the
-  log with no agent. `--since` reaches the Gateway, so it applies to `--json` too.
+  log with no agent: the time span, the Gateway's one-line summary, the count per decision, and each message. `--since` reaches the Gateway, so it applies to `--json` too.
 - `todo <factory>` - the factory's to-do list, one item per `todo` decision.
 
 **The seat commands** act as the session that runs them. The Gateway reads the factory from that session's own
@@ -2481,16 +2483,16 @@ record; the command never names it, and outside a session (no `CC_SESSION_ID`) i
 - `new` - the Secretary: the messages not yet received. Nothing new prints `count: 0`, and the next step
   offered is `session done`.
 - `receive <id>...` - the Secretary: claim the messages and mark them Received. `--merge A:B` says A is a
-  duplicate of B; `--link A:KIND:TARGET` attaches what A is about (a run, a report, a record). Both ids of a
+  duplicate of B; `--link A:KIND:REF` attaches what A is about (a run, a report, a record). Both ids of a
   merge, and the id of a link, must be among the ids received, or the command refuses before calling the
   Gateway. A claim held by a session that has ended lapses, and the next Secretary takes the message.
 - `bundle --hand <id>...` - the Secretary hands one bundle to the Boss. The bundle id printed is the one the
   Gateway answered with.
-- `bundle` - the Boss reads its open bundle, text in full. None open prints `bundle: none open` and
-  `count: 0`.
+- `bundle` - the Boss reads its open bundles, each with its messages, text in full. None open prints
+  `open bundles: 0`.
 - `decide <id> <kind>` - the Boss's decision on one message:
   - `delegated --session <id>` - the Gateway accepts only a session this Boss started.
-  - `todo` - adds one item to the factory's to-do list.
+  - `todo` - adds one item to the factory's to-do list; the command prints the item id the Gateway answered.
   - `noted` - nothing else happens.
   - `declined`, `cannot`, `pushback` - each needs `--why`, which the owner reads.
 
@@ -2498,6 +2500,7 @@ record; the command never names it, and outside a session (no `CC_SESSION_ID`) i
   that would be ignored is an error, never silently dropped. The Boss never does the work itself.
 
 Every state word, trail line and decision label is the Gateway's; the command prints them as they came.
+A refusal is the Gateway's sentence (its answer is `{error, code}`), printed as `Error: <sentence>`, exit 1.
 `--json` prints the Gateway's answer unchanged, and `--fields` with `--json` is refused. Message text is cut at
 80 characters in a list (with a line saying how many rows were cut); `--full` shows it whole. Ids are never cut.
 

@@ -5046,7 +5046,7 @@ def factory_inbox_list(
     full: bool = typer.Option(False, "--full", help="Show the whole last message instead of the first 80 characters."),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:
-    """Every factory's inbox: unread and total counts, and the last message."""
+    """Every factory's inbox: how many messages wait, and the last message."""
     factory_inbox_ops.list_inboxes(fields, full, json_output)
 
 
@@ -5104,7 +5104,7 @@ def factory_inbox_receive(
     ),
     link: Optional[List[str]] = typer.Option(
         None, "--link",
-        help="<message-id>:<kind>:<target> - what the message is about, for example a run, report or record. "
+        help="<message-id>:<kind>:<ref> - what the message is about, for example a run, report or record. "
         "Repeat for more.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
@@ -5122,7 +5122,7 @@ def factory_inbox_bundle(
     hand: bool = typer.Option(False, "--hand", help="Hand the named messages to the Boss as one bundle (the Secretary)."),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:
-    """Read your open bundle (the Boss), or hand one over with --hand (the Secretary)."""
+    """Read your open bundles (the Boss), or hand one over with --hand (the Secretary)."""
     factory_inbox_ops.bundle(message_ids or [], hand, json_output)
 
 
