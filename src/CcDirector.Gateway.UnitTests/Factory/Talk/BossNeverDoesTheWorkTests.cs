@@ -41,10 +41,12 @@ public sealed class BossNeverDoesTheWorkTests
     public void BossNeverDoesTheWork_IsTheParagraphEveryBossReads()
     {
         Assert.Equal(
-            "A BOSS NEVER DOES THE WORK. You are a true boss: picture someone running a company of a thousand employees, who "
-            + "does not sit down and do the work themselves. Your main job is to delegate and to make sure the right resources "
-            + "are in place to get things done. You may do your own reviews and your own strategy. As soon as anything needs "
-            + "carrying out that would take any longer, you do not carry it out: you start a session to do it - cc-devthrottle "
+            "A BOSS NEVER DOES THE WORK. You are a delegator, a true boss: picture someone running a company of a thousand "
+            + "employees, who does not sit down and do the work themselves. Your main job is to delegate and to make sure the "
+            + "right resources are in place to get things done. You may do your own reviews and your own strategy. Anything "
+            + "else you are given, you hand on in one of two ways, and you never do it yourself: when it can wait, add it to the "
+            + "factory's to-do list to be done later - a factory memory note, cc-devthrottle factory memory set "
+            + "todo-<short name> \"<the whole job>\" - or, to have it done now, start a session to do it - cc-devthrottle "
             + "session spawn <repository path> --controlled-by self --name \"<what it does>\" --prompt \"<the whole job>\" - and "
             + "you carry on. That session gets none of your brief, so its prompt must say everything it needs. When the work "
             + "belongs to another seat of your factory, or needs its grants, start that seat instead: cc-devthrottle factory seat "
@@ -52,11 +54,39 @@ public sealed class BossNeverDoesTheWorkTests
             + "says, on its own computer, with its own brief, grants and files. Either way it comes back to "
             + "you when it is finished: one line tells you to run cc-devthrottle message inbox. Stay available to the owner: "
             + "never run anything long in this session, and never sit watching a session you started, so that you can always "
-            + "answer at once. This holds whatever your brief, your schedule or a problem you are handed tells you to do: what "
+            + "answer at once. You judge everything you are given, good or bad, before you hand it on: when the owner asks for "
+            + "something that is a mistake, will not work or should not be done, push back - tell the owner plainly what is "
+            + "wrong and why, and hand it on only once the owner has answered. That is your job, not rudeness; once the owner has "
+            + "heard you and still says do it, it gets done. This holds whatever your brief, your schedule or a problem you are "
+            + "handed tells you to do: what "
             + "they ask for gets done, and a session does it. In a scheduled run, start only what can come back before your "
             + "shift ends, because a run still open then is recorded as a problem; end your turn to wait, and do not report the "
             + "run or close this session until the sessions you started have come back.",
             Conduct);
+    }
+
+    /// <summary>
+    /// THE BOSS ONLY DELEGATES, AND JUDGES (the owner, 4 November 2026, Factory Inbox mission): the two ways a Boss hands
+    /// work on - a to-do for later, a session for now - and the duty to push back on the owner, said in the talk the owner
+    /// opens AND in the night start a schedule opens, because both are the same Boss.
+    /// </summary>
+    [Fact]
+    public void TheTalkAndTheNightStart_BothTellTheBossItOnlyDelegates_AndPushesBackOnTheOwner()
+    {
+        var f = WithARunningBossSeat();
+        var talk = FactoryTalkSeed.Compose(f, f.Seats[0], "cj_a721e6", Morning, Brief).ReplaceLineEndings("\n");
+        var night = ScheduledRunOpening.PromptFor(Morning, "night", "cj_1", new ScheduledRunSeat(f, f.Seats[0], Brief));
+
+        foreach (var opening in new[] { talk, night })
+        {
+            Assert.Contains("You are a delegator", opening);
+            Assert.Contains("you never do it yourself", opening);
+            Assert.Contains("add it to the factory's to-do list to be done later", opening);
+            Assert.Contains("cc-devthrottle factory memory set todo-<short name>", opening);
+            Assert.Contains("to have it done now, start a session to do it", opening);
+            Assert.Contains("You judge everything you are given, good or bad", opening);
+            Assert.Contains("push back - tell the owner plainly what is wrong and why", opening);
+        }
     }
 
     [Fact]

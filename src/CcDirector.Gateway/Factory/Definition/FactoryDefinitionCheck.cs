@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Factory;
 using CcDirector.Core.Utilities;
@@ -80,6 +81,54 @@ public static class FactoryDefinitionCheck
     /// </summary>
     public const string AskStopsAnUnattendedRun =
         "This seat starts on a schedule or a check, with nobody there to answer: an ask rule stops the run until a person answers it.";
+
+    /// <summary>
+    /// The notice on a Boss seat whose brief tells the Boss to do the work itself (the owner, 4 November 2026, Factory
+    /// Inbox mission: "The boss is just a delegator ... It can add a to-do item to do later. It can spin up a session, do
+    /// it right away. But it can't be doing it itself."). The Gateway gives every Boss that conduct on every start, so a
+    /// brief that says the opposite contradicts what the Boss is told a few lines later; said on the brief's line, with the
+    /// words that were found, and how to reword it. A notice and not an error: the words are matched, not understood, and
+    /// a factory that worked yesterday is not refused for a phrase.
+    /// </summary>
+    public static string BossBriefDoesTheWork(string phrase) =>
+        $"This brief tells the Boss to do the work itself (\"{phrase}\"). A Boss only delegates: it adds a to-do to be done " +
+        "later, or starts a session to do it now, and never does the work itself. Reword the brief to say what gets done " +
+        "and let the Boss hand it on.";
+
+    /// <summary>
+    /// The phrases that tell a Boss to do the work itself, for <see cref="BossBriefDoesTheWork"/>: doing or carrying out
+    /// the work "yourself", a work verb with "yourself" ("write the article yourself"), and an order not to delegate or
+    /// not to start sessions. Reviews, strategy, judging and deciding are a Boss's own work, so "review it yourself" or
+    /// "decide yourself" is not matched.
+    /// </summary>
+    private static readonly Regex[] BossDoesTheWorkPhrases =
+    {
+        new(@"\b(?:do|does|doing|carry out|carries out|handle|handles|finish|complete)\s+(?:all\s+)?(?:of\s+)?(?:the\s+|this\s+|that\s+|any\s+)?(?:work|job|jobs|task|tasks|it|them)\s+(?:yourself|on your own|personally|in this session)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\b(?:write|build|fix|implement|code|draft|send|create|edit|deploy|publish|post|research|test)\s+(?:[\w'-]+\s+){0,3}?yourself\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\byou\s+(?:do|carry out)\s+(?:all\s+)?(?:of\s+)?the\s+work\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\b(?:do not|don't|never|no need to|without|instead of|rather than)\s+delegat(?:e|es|ing)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\b(?:do not|don't|never)\s+(?:start|spawn)\s+(?:a\s+|any\s+|other\s+)?(?:sessions?|seats?|workers?|helpers?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+    };
+
+    /// <summary>
+    /// The first phrase in <paramref name="brief"/> that tells a Boss to do the work itself, as it is written there with
+    /// its runs of white space made single spaces, or null when there is none. Read across line ends, because a brief is
+    /// wrapped wherever its author's editor wrapped it.
+    /// </summary>
+    public static string? BossDoesTheWorkPhrase(string brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        var text = Regex.Replace(brief, @"\s+", " ");
+        Match? first = null;
+        foreach (var phrase in BossDoesTheWorkPhrases)
+            if (phrase.Match(text) is { Success: true } m && (first is null || m.Index < first.Index)) first = m;
+        return first?.Value;
+    }
 
     /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
@@ -626,6 +675,12 @@ public static class FactoryDefinitionCheck
                 }
             }
 
+            // A BOSS ONLY DELEGATES (Factory Inbox mission): a Boss seat's brief that tells it to do the work itself is
+            // said on the brief's key line, as a notice.
+            if (IsABossSeat(seatId, map) && map.Find("brief") is { } briefEntry
+                && BossDoesTheWorkPhrase(Text(briefEntry)) is { } doesTheWork)
+                Notice(_findings, path, briefEntry.KeyLine, BossBriefDoesTheWork(doesTheWork));
+
             if (map.Find("starts") is { Value: DefinitionList starts })
                 foreach (var start in starts.Items)
                     CheckStart(path, (DefinitionMap)start, machine, named);
@@ -633,6 +688,16 @@ public static class FactoryDefinitionCheck
             if (map.Find("steps") is { Value: DefinitionList steps })
                 foreach (var step in steps.Items.Cast<DefinitionMap>())
                     CheckStep(path, step);
+        }
+
+        /// <summary>
+        /// Whether a seat is a Boss: the seat factory.yaml names as its boss, or a seat whose role is Boss - the same two
+        /// the Gateway gives the Boss conduct to (<see cref="Talk.FactorySeatOpening.IsABoss"/>).
+        /// </summary>
+        private bool IsABossSeat(string seatId, DefinitionMap seat)
+        {
+            if (_p.Factory.Map.Find("bossSeat") is { } boss && Text(boss) == seatId) return true;
+            return seat.Find("role") is { } role && Talk.FactorySeatOpening.HasTheRoleBoss(Text(role));
         }
 
         // A STEP'S WAYS ON (the factory drawing): only a question has a branch or an answer that stays on the main line,

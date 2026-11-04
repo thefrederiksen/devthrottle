@@ -63,9 +63,13 @@ recorded on every session and every run participant.
   from the boss", and a manifest that names the boss seat anything but Boss is refused. Its role word is
   Boss as well, and a manifest that gives the boss any other role word is refused in the same way.
   **A Boss never does the work** (the owner, 1 November 2026). Its main job is to delegate and to make sure the
-  right resources are in place. It may do its own reviews and strategy; anything that would take longer to
-  carry out goes to a session it starts, which comes back to it when finished, and the Boss stays available
-  to the owner meanwhile. The Gateway gives every Boss this conduct on every start, so no seat file repeats it.
+  right resources are in place. **The Boss is a delegator** (the owner, 4 November 2026): it may do its own
+  reviews and strategy, and everything else it hands on in one of two ways - it adds a **to-do** to be done
+  later, or it starts a session to do it now - and it never does the work itself. A session it starts comes
+  back to it when finished, and the Boss stays available to the owner meanwhile. **The Boss judges**: it
+  decides whether what it is given is good or bad, and pushes back on the owner when the owner asks for
+  something that is a mistake; once the owner has heard it and still says do it, it gets done. The Gateway gives every Boss this conduct on every start, so no seat
+  file repeats it.
   A Boss hands work that belongs to another seat, or needs its grants, to that seat
   (`cc-devthrottle factory seat start --seat <seat> --name "<what>" --prompt "<the job>"`). The seat runs as the
   published definition says, owned by the Boss, and hands back when finished. A Boss chooses nothing else about it,
@@ -81,6 +85,41 @@ recorded on every session and every run participant.
   seat factory.yaml names as the boss, a grant that includes it, a rule set it names) needs the owner's approval, passed verbatim (`factory definition publish <factory> --version N --owner-approved "<the owner's words>"`).
   Every other session of a factory saves drafts only, and no factory's session creates a factory. Every
   publish records who did it - the person, or the session's id and name - and the owner's words when given.
+
+## The inboxes
+
+Two inboxes replace email between the owner and the fleet (the owner, 4 November 2026). On screen both sit
+under ONE Inbox entry, with two tabs. They are not alerts (an alert asks for an answer now) and not dev
+reports (a dev report is a document with questions).
+
+- **Factory inbox** - the messages left IN a factory, for its Boss: typed or spoken by the owner, from the
+  phone or the Cockpit, in seconds, without waiting for anything to start. Nobody but the factory reads them.
+  Each message is logged and shows its trail: **Sent** (the Gateway has it), **Received** (the Secretary has
+  filed it), **With the Boss** (handed over in a bundle), then the Boss's decision. Every factory with a Boss
+  has one. Never call it a factory mailbox or a factory queue.
+- **Your inbox** - the messages TO the owner, from the fleet: a Boss's Declined, Cannot be done and Pushed
+  back, each factory's morning summary, and any session that has something to tell the owner. Kind of like
+  email, checked in the morning, on the phone and on the Cockpit; each message is Unread, Read or Archived.
+  "Email me" and "tell me" mean Your inbox; a real email goes out only when the owner names someone else or
+  says "send me an email". Always "Your inbox", never "the user inbox" or "notifications".
+- **Secretary** - the seat that deals with a Factory inbox, so the Boss does not have to be started for every
+  message. The product gives one to every factory with a Boss; nobody defines it. It reads the new messages,
+  merges duplicates, attaches what each is about, marks each Received, notes Good or Bad for the Boss, and
+  hands ONE bundle to the Boss. It never judges, never decides and never starts work sessions, and it closes
+  itself when the inbox is empty. The Secretary is a seat of the factory, not a role: the five roles above
+  are unchanged.
+
+**The decision words** - what a Boss decides about each message in a bundle. One word each, and only these:
+
+- **Delegated** - handed to a session the Boss started to do it now (the session is named with it).
+- **To do** - added to the factory's to-do list, to be done later.
+- **Noted** - nothing to do; kept in the factory's memory.
+- **Declined** - should not be done; the Boss says why.
+- **Cannot be done** - cannot be done; the Boss says why.
+- **Pushed back** - the Boss judged the request a mistake and says so to the owner, and why.
+
+Only Declined, Cannot be done and Pushed back also write a message into Your inbox. Delegated, To do and
+Noted are quiet: they show on the factory's thread and in its factory summary, and the owner is not told.
 
 ## How sessions relate
 
