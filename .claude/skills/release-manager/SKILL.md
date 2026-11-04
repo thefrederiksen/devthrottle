@@ -49,7 +49,7 @@ So now:
 | 6 | Coordinate the internal documentation site | Internal session has the file, building in draft |
 | 7 | The owner signs off on the notes | The owner says the wording is correct |
 | 8 | Deploy the Gateway if the release needs it | `/healthz` reports a commit that has the Gateway side |
-| 9 | Release: `new-release.ps1 -Release -Version <v> -Yes` | Tag pushed, workflow green, release Latest |
+| 9 | Release: `new-release.ps1 -Release -Version <v> -Yes` | Tag pushed, workflow green, channel file names the version |
 | 10 | Announce to the mailing list | Only if the opt-out feature is live and tested |
 | 11 | Post-release verification | Download and unsubscribe both work |
 
@@ -185,7 +185,7 @@ cc-devthrottle message send <session-id> "<one-line message with the file path>"
   Fleet messages must be a single line; newlines are truncated. For anything long,
   write a brief to a file and send the path.
 - The internal session builds in draft and holds until you send an explicit
-  "FINAL" message. Do not send FINAL until the release is published (Step 9).
+  "FINAL" message. Do not send FINAL until the release run is green (Step 9).
 
 ### Step 7: The owner signs off
 
@@ -211,22 +211,25 @@ history), and gives up the claim. Then watch the release workflow to the end:
 ```bash
 gh run list --repo thefrederiksen/devthrottle --workflow release.yml --limit 1
 gh run watch <id> --repo thefrederiksen/devthrottle --exit-status
-gh release view v<version> --repo thefrederiksen/devthrottle --json isDraft,assets
+curl -s https://devthrottle.com/download/files/stable.json        # a stable release
+curl -s https://devthrottle.com/download/files/prerelease.json    # a pre-release
 ```
 
-The release is done when it is published (not a draft) with `release-manifest.json` attached. v2.23.0
-went from tag to published in nine minutes.
+The release is done when the run is green and the channel file names the new version. The run itself
+uploads every file to its version folder, checks each one back against the manifest, and only then moves
+the channel file.
 
-**Do NOT create or publish a GitHub release by hand, and do NOT paste the notes into the release body.**
-The workflow creates the release as a DRAFT, attaches every asset, and publishes it only once
-`release-manifest.json` is attached. A release published before its assets exist is "latest" while
-uninstallable (issue #1079), and a hand-written body is how v1.8.7 shipped a list of pull-request
-titles (issue #1106).
+**There is no GitHub release any more.** v2.35.0 was the last one (owner, 4 November 2026). Releases go
+to our own download storage only, and the workflow cannot write to GitHub. **Never create, publish or
+delete a GitHub release.** The old ones stay for good. A Director older than v2.35.0 looks only at
+GitHub's "latest" release. That stays v2.35.0, the bridge, which moves it across to devthrottle.com.
+A new GitHub release would take that slot, and deleting v2.35.0 would strand every machine that has not
+updated yet.
 
 If the workflow's first job refuses the tag, read its message: the tagged commit was not a tested
 commit plus its notes. Do not work around it.
 
-Once the release is published, send the internal session "FINAL" so it deploys the changelog.
+Once the run is green, send the internal session "FINAL" so it deploys the changelog.
 
 ### Step 10: Announce to the mailing list (gated)
 
@@ -246,7 +249,7 @@ When the precondition is met:
 
 ### Step 11: Post-release verification
 
-- Confirm the latest-release download link serves the new executable.
+- Confirm https://devthrottle.com/download/files/devthrottle-setup-win-x64.exe serves the new executable.
 - Confirm the internal changelog page shows the new version and links resolve.
 - Confirm an unsubscribe link actually opts a test recipient out and is honored.
 
@@ -281,7 +284,7 @@ This feature is built and tested once; thereafter Step 10 simply uses it.
 4. Writes `docs/public/release-notes/v2.24.0.md` and hands the path to the internal session.
 5. Publishes the notes to the owner; the owner says "looks good".
 6. The Gateway is already on a later commit - nothing to deploy.
-7. Runs `-Release -Version 2.24.0 -Yes`; watches the workflow; v2.24.0 is Latest with the manifest.
+7. Runs `-Release -Version 2.24.0 -Yes`; watches the workflow; stable.json names 2.24.0.
 8. Sends the internal session FINAL; checks the download link.
 
 ---
