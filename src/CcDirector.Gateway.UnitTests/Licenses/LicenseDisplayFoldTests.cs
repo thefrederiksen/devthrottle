@@ -66,6 +66,17 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
+    public void Window_NotRunning_ShowsNoNumberAndSaysTheProviderReportsNoWindow()
+    {
+        var dto = LicenseDisplayFold.Window(LicenseWindowReading.NotRunningWindow, T0, readingIsStale: false);
+
+        Assert.Equal(((double?)null, "Not reported", LicenseWindowLevels.NotKnown), (dto.Utilization, dto.UtilizationText, dto.Level));
+        Assert.Equal("The provider reports no 5-hour window", dto.ResetsText);
+        Assert.Null(dto.ResetsAtUtc);
+        Assert.Equal(LicenseWindowLevels.Stale, LicenseDisplayFold.Window(LicenseWindowReading.NotRunningWindow, T0, readingIsStale: true).Level);
+    }
+
+    [Fact]
     public void Account_AtLimit_SaysWhichWindowAndWhenItResets()
     {
         Apply(Report("m1", Holding(A, true, 98.5, 61, readAt: T0.AddMinutes(10)), Holding(B, false)));
