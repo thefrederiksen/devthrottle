@@ -553,7 +553,7 @@ public static class TerminalSubmit
         // THE DEADLINE IS MEASURED, NOT ASSUMED (issue #2818), AND IT RUNS FROM THE LAST SIGN OF PROGRESS (issue #3290).
         // A caller that passed an explicit timeout still gets exactly that fixed deadline - tests and drivers that
         // chose a value keep it.
-        var pressure = MemoryPressure.Level(MemoryProbe.Read());
+        var pressure = MemoryPressure.Level(CurrentMemoryProbe.Read());
         var to = echoTimeout ?? ScaledEchoTimeout(pressure);
         var cap = echoTimeout ?? EchoProgressCap;
         var poll = pollInterval ?? TimeSpan.FromMilliseconds(50);
@@ -623,7 +623,7 @@ public static class TerminalSubmit
 
         // The byte stream is a poor witness for input that WRAPPED across composer rows (issue #1592), so the rendered
         // screen is asked before the text is called missing. The reading is taken NOW, not before typing.
-        pressure = MemoryPressure.Level(MemoryProbe.Read());
+        pressure = MemoryPressure.Level(CurrentMemoryProbe.Read());
         var evidence = await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore);
         if (evidence == ComposerEvidence.Present)
         {
@@ -836,7 +836,7 @@ public static class TerminalSubmit
         // empty a Claude Code composer holding a 200-character line.
         var clearKeys = clearKeysFor?.Invoke(retained.Length);
 
-        var pressure = MemoryPressure.Level(MemoryProbe.Read());
+        var pressure = MemoryPressure.Level(CurrentMemoryProbe.Read());
         var retainedNeedle = NormalizeForEcho(retained);
         // THE ORPHAN IS SOUGHT IN THE COMPOSER REGION, NEVER BY OCCURRENCES ANYWHERE ON SCREEN (Voice Delivery mission,
         // phase 6). The words of a failed send are usually still visible in the conversation above the composer - the
@@ -869,6 +869,24 @@ public static class TerminalSubmit
             SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer holds the previous send's {retained.Length} " +
                                       "characters AND other text - nothing is cleared, so words typed after them are not " +
                                       $"erased, and this send types after them. What it read: {RegionForTrail(composerRegion)}");
+            return;
+        }
+
+        // TEXT THAT IS NO PART OF THE MARKED TEXT IS NOT THE MARKED TEXT ARRIVING LATE (Factory Inbox mission, 4 November
+        // 2026). On a machine short of memory the observation answers UNKNOWN rather than ABSENT when the marked text is not
+        // seen, because a starved agent may not have drawn it yet - and unknown leads to the clear. But where the region
+        // was read and holds text of which the marked text holds no copy, that text is not a late or partial drawing of
+        // the marked text: it is someone else's, the owner's own draft. The clear would erase it, or, unable to empty the
+        // composer, refuse the send with nothing typed; two full suite runs recorded exactly that refusal. So it is
+        // treated as on a machine with memory to spare: not cleared, and the send types after it (the owner's ruling, 21
+        // October 2026).
+        if (!unconditionally && orphan == ComposerEvidence.Unknown && regionHolds is { Length: > 0 }
+            && !retainedNeedle.Contains(regionHolds, StringComparison.Ordinal))
+        {
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's {retained.Length} characters could not be " +
+                                      "ruled out (the machine is short of memory), but the composer holds text that is no part " +
+                                      "of them - not clearing it, and typing after it. " +
+                                      $"What it read: {RegionForTrail(composerRegion)}");
             return;
         }
 
@@ -1235,6 +1253,32 @@ public static class TerminalSubmit
     /// THE DIRECTOR NEVER SETS THIS. Only tests do, and they restore it - see PinnedMachineMemory.
     /// </summary>
     public static IMachineMemoryProbe MemoryProbe { get; set; } = MachineMemoryProbe.Shared;
+
+    /// <summary>
+    /// A memory probe for ONE FLOW of work, carried alongside it as <see cref="SendClock"/> is. <see cref="MemoryProbe"/>
+    /// is one setting for the whole process, so a test that pins it while other test classes run in parallel pins their
+    /// sends too; a test that pins this pins only the sends started from its own flow. THE DIRECTOR NEVER SETS THIS.
+    /// </summary>
+    private static readonly AsyncLocal<IMachineMemoryProbe?> FlowMemoryProbe = new();
+
+    /// <summary>The probe this send reads: the one pinned for this flow, otherwise <see cref="MemoryProbe"/>.</summary>
+    private static IMachineMemoryProbe CurrentMemoryProbe => FlowMemoryProbe.Value ?? MemoryProbe;
+
+    /// <summary>Pin the memory reading for the sends started from the calling flow only, until the result is disposed.
+    /// For tests: the busy-agent send tests read the real machine before this, and a full suite run that happened to
+    /// leave the machine short of memory changed what they decided.</summary>
+    internal static IDisposable PinMemoryForThisFlow(IMachineMemoryProbe probe)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        var before = FlowMemoryProbe.Value;
+        FlowMemoryProbe.Value = probe;
+        return new FlowMemoryPin(before);
+    }
+
+    private sealed class FlowMemoryPin(IMachineMemoryProbe? before) : IDisposable
+    {
+        public void Dispose() => FlowMemoryProbe.Value = before;
+    }
 
     /// <summary>
     /// The composer echo deadline for a measured pressure level. Exactly

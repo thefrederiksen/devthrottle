@@ -3,6 +3,7 @@ using System.Text.Json;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Drivers;
+using CcDirector.Core.Machine;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.TestInfrastructure;
@@ -54,6 +55,32 @@ public sealed class BusyAgentSendTests : IDisposable
         $"Token {token}. " + string.Concat(Enumerable.Range(1, 8).Select(i =>
             $"Sentence {i} of a spoken prompt sent while the agent is busy, long enough to go as a paste. "));
 
+    /// <summary>
+    /// The send, with the machine's memory pinned for this send only. The send reads how much memory the machine has
+    /// free and decides differently when it is short, so these tests used to depend on the machine: a full suite run that
+    /// left it short of memory turned an unconfirmed old mark into "unknown", and the owner's-draft test below failed with
+    /// its text typed no times at all. Healthy unless a test asks for a starved machine.
+    /// </summary>
+    private static async Task<TextSendOutcome> Send(Session session, string text, IMachineMemoryProbe? memory = null)
+    {
+        using var pin = TerminalSubmit.PinMemoryForThisFlow(memory ?? FixedMemory.Healthy);
+        return await session.SendTextAsync(text, SessionTestDoors.TestDoor);
+    }
+
+    private sealed class FixedMemory(MachineMemoryReading reading) : IMachineMemoryProbe
+    {
+        private const ulong Gigabyte = 1024UL * 1024 * 1024;
+
+        // The time is a fixed value: only the real probe's own cache reads it, and this fake has no cache.
+        private static readonly DateTime At = new(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+        public static readonly FixedMemory Healthy = new(MachineMemoryReading.Read(16 * Gigabyte, 12 * Gigabyte, At));
+
+        public static readonly FixedMemory Starved = new(MachineMemoryReading.Read(16 * Gigabyte, 300UL * 1024 * 1024, At));
+
+        public MachineMemoryReading Read() => reading;
+    }
+
     [Fact]
     public async Task SendTextAsync_ClaudeCodeWorkingAndNeverQuiet_PasteIsTakenInWithoutWaitingOutTheLimit()
     {
@@ -64,7 +91,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var startedAt = _clock.GetUtcNow();
 
         // Act
-        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => Send(session, text));
 
         // Assert: taken in on the composer's evidence, in seconds - not the two-minute limit - and in the records once.
         var took = _clock.GetUtcNow() - startedAt;
@@ -84,7 +111,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         var ex = await Assert.ThrowsAsync<PromptNotSubmittedException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert: reported NOT delivered, the text is still in the composer exactly as typed, it was typed once, and
         // nothing cleared it or typed it again.
@@ -107,7 +134,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         var ex = await Assert.ThrowsAsync<PromptNotSubmittedException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert
         Assert.Contains("still in", ex.Message);
@@ -127,7 +154,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = Paragraph("PASTE2");
 
         // Act
-        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => Send(session, text));
 
         // Assert
         Assert.NotNull(terminal.PasteDrawnAt);
@@ -148,7 +175,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = "Token SLOW1. Reply with exactly: ACK";
 
         // Act
-        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        await VirtualTime.RunAsync(_clock, () => Send(session, text));
 
         // Assert: delivered once, typed once, nothing cleared, nothing left behind.
         Assert.Equal(new[] { text }, terminal.Recorded);
@@ -173,7 +200,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = "Token MENU1. Reply with exactly: ACK";
 
         // Act
-        var outcome = await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        var outcome = await VirtualTime.RunAsync(_clock, () => Send(session, text));
         var watchEnded = await VirtualTime.RunAsync(_clock, () => outcome.LateProof!);
 
         // Assert: not reported delivered; the text is where it was, typed once, nothing cleared.
@@ -203,7 +230,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         var ex = await Assert.ThrowsAsync<PromptNotSubmittedException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert: not delivered, the text still in the composer, typed once, never cleared.
         Assert.Contains("still in", ex.Message);
@@ -225,7 +252,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = "Token LATE1. Reply with exactly: ACK";
 
         // Act
-        var outcome = await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        var outcome = await VirtualTime.RunAsync(_clock, () => Send(session, text));
         var composerAtAnswer = terminal.Composer;
         var provenLater = await VirtualTime.RunAsync(_clock, () => outcome.LateProof!);
 
@@ -251,7 +278,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = "Token LOST1. Reply with exactly: ACK";
 
         // Act
-        var outcome = await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        var outcome = await VirtualTime.RunAsync(_clock, () => Send(session, text));
         var provenLater = await VirtualTime.RunAsync(_clock, () => outcome.LateProof!);
 
         // Assert: still delivering when the send returned, never a failure; the watch ends at its limit, which the verb
@@ -279,7 +306,7 @@ public sealed class BusyAgentSendTests : IDisposable
         var text = "???";
 
         // Act
-        var outcome = await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        var outcome = await VirtualTime.RunAsync(_clock, () => Send(session, text));
 
         // Assert: still delivering, not delivered; the text left where it is, typed once, nothing cleared.
         Assert.False(outcome.Confirmed, "a text with no letters or digits was reported delivered without the composer being read");
@@ -304,7 +331,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert: typed once, nothing cleared, never typed again.
         Assert.Equal(1, CountOf(terminal.TypedText, text));
@@ -326,7 +353,7 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert: typed once after the draft, nothing cleared, never typed again, the draft still in front.
         Assert.Equal(1, CountOf(terminal.TypedText, text));
@@ -349,9 +376,34 @@ public sealed class BusyAgentSendTests : IDisposable
 
         // Act
         await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text)));
 
         // Assert
+        Assert.Equal(1, CountOf(terminal.TypedText, text));
+        Assert.Equal(0, terminal.ClearKeysPressed);
+        Assert.StartsWith("fix the login bug", terminal.Composer);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_OwnersDraftWhileAnOldMarkStands_MachineShortOfMemory_TypesAfterTheDraftAndNeverClears()
+    {
+        // Arrange: the case above on a machine short of memory. There the old mark's text, not seen in the composer, is
+        // "unknown" rather than "absent" - a starved agent may not have drawn it yet - and unknown led to the clear: the
+        // clear could not empty a composer holding the owner's draft, so the send was refused with nothing typed (the
+        // failure two full suite runs recorded). What the composer holds is no part of the marked line, so it cannot be
+        // that line arriving late: it is the owner's draft, and the send types after it, as on a healthy machine.
+        var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, composer: "fix the login bug", screenShowsWorking: false);
+        ComposerRetention.MarkMayHoldText(terminal, AgentKind.ClaudeCode.ToString(),
+            "[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox");
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        terminal.TypedDrawDelay = TimeSpan.FromMinutes(5);
+        var text = "Token DRAFT3. Reply with exactly: ACK";
+
+        // Act
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => VirtualTime.RunAsync(_clock, () => Send(session, text, FixedMemory.Starved)));
+
+        // Assert: typed once after the draft, nothing cleared, the draft still in front.
         Assert.Equal(1, CountOf(terminal.TypedText, text));
         Assert.Equal(0, terminal.ClearKeysPressed);
         Assert.StartsWith("fix the login bug", terminal.Composer);
