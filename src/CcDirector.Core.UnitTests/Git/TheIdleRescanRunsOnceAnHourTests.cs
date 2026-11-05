@@ -41,13 +41,30 @@ public sealed class TheIdleRescanRunsOnceAnHourTests
     }
 
     [Fact]
-    public void TheRegisterRow_SaysTheRescanRunsOnceAnHour()
+    public void TheRegisterRow_StatesTheCadenceTheCodeActuallyRegisters()
     {
+        // The expected words are DERIVED from the cadence the job registers with, not written down
+        // here: a row test holding its own literal would still pass after the code changed, which is
+        // the exact drift this change was made to end (outside review of pull request 4593).
+        var jobs = new BackgroundJobs();
+        var monitor = new RepositoryMonitor(enumerate: _ => Array.Empty<string>());
+        var watcher = new RepositoryWatcher(monitor, jobs: jobs);
+        var cadence = Assert.Single(jobs.Snapshot()).Cadence;
+        watcher.Dispose();
+
         var register = File.ReadAllText(Path.Combine(RepositorySourceIndex.Root, "docs", "BackgroundWork.md"));
         var row = Assert.Single(register.Split('\n'), l =>
             l.StartsWith("| Repository watcher:", StringComparison.Ordinal));
 
-        Assert.Contains("full rescan once an hour", row, StringComparison.Ordinal);
-        Assert.DoesNotContain("full rescan every 5 min", row, StringComparison.Ordinal);
+        Assert.Contains($"full rescan {CadenceInWords(cadence)}", row, StringComparison.Ordinal);
+    }
+
+    /// <summary>The register's own way of writing a cadence, so the row and the code are one fact.</summary>
+    private static string CadenceInWords(TimeSpan? cadence)
+    {
+        Assert.NotNull(cadence);
+        var c = cadence.Value;
+        if (c == TimeSpan.FromHours(1)) return "once an hour";
+        return c.TotalHours >= 1 ? $"every {c.TotalHours:0.#} h" : $"every {c.TotalMinutes:0.#} min";
     }
 }
