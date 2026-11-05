@@ -416,6 +416,15 @@ public static partial class LicenseDisplayFold
                 ResetsText = "Reset time not known",
             };
 
+        if (window.NotRunning)
+            return new LicenseWindowDto
+            {
+                Utilization = window.Utilization,
+                UtilizationText = Percent(window.Utilization),
+                Level = readingIsStale ? LicenseWindowLevels.Stale : LicenseWindowLevels.Normal,
+                ResetsText = "No window running",
+            };
+
         var hasReset = window.ResetsAtUtc is { } reset && reset <= nowUtc;
         return new LicenseWindowDto
         {

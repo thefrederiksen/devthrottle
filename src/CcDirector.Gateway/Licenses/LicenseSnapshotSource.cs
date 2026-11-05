@@ -98,7 +98,7 @@ public sealed class LicenseSnapshotSource
         var accounts = overview.Accounts
             .Select(a => new LicenseAccountReading(
                 a.AccountEmail,
-                Window(a.Freshest?.FiveHourUtilization, a.Freshest?.FiveHourResetsAtUtc),
+                FiveHourWindow(a.Freshest),
                 Window(a.Freshest?.SevenDayUtilization, a.Freshest?.SevenDayResetsAtUtc),
                 a.Freshest?.JudgedReadAtUtc,
                 a.Freshest?.FromActiveHolding ?? false,
@@ -145,4 +145,19 @@ public sealed class LicenseSnapshotSource
 
     private static LicenseWindowReading? Window(double? utilization, DateTime? resetsAtUtc)
         => utilization is { } used ? new LicenseWindowReading(used, resetsAtUtc) : null;
+
+    /// <summary>
+    /// The 5-hour window of a reading. A reading that carries the weekly number but no 5-hour number is one whose
+    /// provider answer said <c>"five_hour": null</c>: the reader refuses an answer that carries neither window, so the
+    /// weekly number proves the answer was read. That is a 5-hour window not running
+    /// (<see cref="LicenseWindowReading.NotRunningWindow"/>). A reading with neither number is not known, as before.
+    /// </summary>
+    internal static LicenseWindowReading? FiveHourWindow(LicenseReadingView? freshest)
+    {
+        if (freshest is null)
+            return null;
+        if (freshest.FiveHourUtilization is null && freshest.SevenDayUtilization is not null)
+            return LicenseWindowReading.NotRunningWindow;
+        return Window(freshest.FiveHourUtilization, freshest.FiveHourResetsAtUtc);
+    }
 }

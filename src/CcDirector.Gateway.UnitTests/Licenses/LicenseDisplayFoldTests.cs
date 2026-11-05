@@ -66,6 +66,16 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
+    public void Window_NotRunning_ShowsNothingUsedAndSaysNoWindowIsRunning_NeverNotKnown()
+    {
+        var dto = LicenseDisplayFold.Window(LicenseWindowReading.NotRunningWindow, T0, readingIsStale: false);
+
+        Assert.Equal((0d, "0%", LicenseWindowLevels.Normal), (dto.Utilization, dto.UtilizationText, dto.Level));
+        Assert.Equal("No window running", dto.ResetsText);
+        Assert.Null(dto.ResetsAtUtc);
+    }
+
+    [Fact]
     public void Account_AtLimit_SaysWhichWindowAndWhenItResets()
     {
         Apply(Report("m1", Holding(A, true, 98.5, 61, readAt: T0.AddMinutes(10)), Holding(B, false)));

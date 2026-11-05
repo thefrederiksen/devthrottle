@@ -63,6 +63,40 @@ public sealed class LicenseSnapshotSourceTests : IDisposable
         Assert.Equal(T0.AddHours(2), b.FiveHour.ResetsAtUtc);
     }
 
+    // 2026-11-04: the provider answered "five_hour": null for every account while the weekly number came through. Read
+    // as "not known", that left no account with room and stopped every automatic switch. It is a window not running.
+    [Fact]
+    public void Read_AReadingWithAWeekButNoFiveHourWindow_IsAFiveHourWindowNotRunning_AndTheAccountIsASwitchTarget()
+    {
+        var active = Holding(A, true, sevenDay: 98);
+        active.FiveHour = null;
+        var spare = Holding(B, false, sevenDay: 36);
+        spare.FiveHour = null;
+        Apply(TenantA, Report("m1", active, spare));
+
+        var snapshot = _source.Read(TenantA, T0, NoExhaustions);
+
+        var b = snapshot.Accounts.Single(r => r.AccountEmail == B);
+        Assert.Equal(LicenseWindowReading.NotRunningWindow, b.FiveHour);
+        Assert.Equal((0d, (DateTime?)null, true), (b.FiveHour!.Utilization, b.FiveHour.ResetsAtUtc, b.FiveHour.NotRunning));
+        Assert.True(LicenseDecisionEngine.HasRoom(b));
+        Assert.Equal(new[] { B }, LicenseDecisionEngine.TargetsWithRoom(snapshot, A));
+    }
+
+    [Fact]
+    public void Read_AReadingWithNeitherWindow_StaysNotKnown_NotAWindowNotRunning()
+    {
+        var spare = Holding(B, false);
+        spare.FiveHour = null;
+        spare.SevenDay = null;
+        Apply(TenantA, Report("m1", Holding(A, true), spare));
+
+        var b = _source.Read(TenantA, T0, NoExhaustions).Accounts.Single(r => r.AccountEmail == B);
+
+        Assert.Null(b.FiveHour);
+        Assert.False(LicenseDecisionEngine.HasRoom(b));
+    }
+
     [Fact]
     public void Read_AnAccountNeverRead_HasNoWindowsAndNoReadTime_SoTheEngineReadsItAsStale()
     {

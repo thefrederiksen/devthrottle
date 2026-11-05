@@ -263,6 +263,9 @@ public static class LicenseForecaster
     {
         if (reading is null)
             return new LicenseWindowForecast(name, null, null, null, null);
+        // A window not running has no pace: kept points from an earlier window say nothing about one not yet open.
+        if (reading.NotRunning)
+            return new LicenseWindowForecast(name, reading.Utilization, null, null, null);
 
         var rate = history is null ? null : RatePerHour(history);
         if (stale || readAt is not { } readTime)

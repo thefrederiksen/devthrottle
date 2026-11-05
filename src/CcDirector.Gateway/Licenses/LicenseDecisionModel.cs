@@ -20,7 +20,19 @@ public static class LicenseWindowNames
 /// <summary>One window's numbers as last read from the provider.</summary>
 /// <param name="Utilization">0 to 100, verbatim from the provider.</param>
 /// <param name="ResetsAtUtc">When the window resets; null when the provider gave no time.</param>
-public sealed record LicenseWindowReading(double Utilization, DateTime? ResetsAtUtc);
+/// <param name="NotRunning">The provider reported this window as not running: its answer carried the window as null
+/// while the same answer carried the weekly number. Nothing is used in a window that is not running, so
+/// <paramref name="Utilization"/> is 0 and there is no reset time. See <see cref="NotRunningWindow"/>.</param>
+public sealed record LicenseWindowReading(double Utilization, DateTime? ResetsAtUtc, bool NotRunning = false)
+{
+    /// <summary>
+    /// A 5-hour window the provider reports as not running. The usage answer carries <c>"five_hour": null</c> when no
+    /// 5-hour window is open for the account - seen on every account on 2026-11-04, while the weekly number came through.
+    /// That is a reading, not a gap: an account with no 5-hour window running has used nothing of one, and is not held
+    /// back by it. Reading it as "not known" left every account without room and stopped every automatic switch.
+    /// </summary>
+    public static LicenseWindowReading NotRunningWindow { get; } = new(0, null, NotRunning: true);
+}
 
 /// <summary>
 /// The freshest reading of one account, from whichever machine read it last (contract section 5.2).
