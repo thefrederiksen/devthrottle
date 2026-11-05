@@ -112,7 +112,13 @@ public sealed class ArchiveFactoriesPostgresTests
                 Title = "WarmForward",
                 Folder = @"D:\warm-forward",
                 Computer = "SOREN_NORTH",
-                Seats = { new FactorySeatManifest { Id = "ceo", Name = "CEO", Role = "CEO", BriefFile = "agents/ceo.yaml" } },
+                // Every factory has a Boss (issue #4343): the registry refuses a manifest that names no boss seat.
+                BossSeat = "boss",
+                Seats =
+                {
+                    new FactorySeatManifest { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "agents/boss.yaml" },
+                    new FactorySeatManifest { Id = "ceo", Name = "CEO", Role = "CEO", BriefFile = "agents/ceo.yaml" },
+                },
             }, "the owner", now);
             var archived = store.Archive(TenantId.Local, "machine-care", "the owner", new[] { "machine-care-daily" }, now);
             Assert.Equal(now, archived.ArchivedAtUtc);
