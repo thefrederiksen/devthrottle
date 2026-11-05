@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CcDirector.Core.Dictation;
+using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
@@ -45,10 +46,15 @@ public sealed class FactoryInboxStore
 
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
+    private readonly Func<TenantId, DictationDictionary> _dictionaryOf;
 
-    public FactoryInboxStore(GatewayDatabase db)
+    /// <param name="dictionaryOf">The account's own dictation dictionary - the words the owner listed by hand - read the
+    /// way the dictation path reads it (<c>Transcription.TenantGlossary.Load</c>). A spoken message is corrected with these
+    /// listed words only, never with anything a request carries.</param>
+    public FactoryInboxStore(GatewayDatabase db, Func<TenantId, DictationDictionary> dictionaryOf)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        _dictionaryOf = dictionaryOf ?? throw new ArgumentNullException(nameof(dictionaryOf));
     }
 
     // ---------------------------------------------------------------- the owner's send
@@ -56,21 +62,21 @@ public sealed class FactoryInboxStore
     /// <summary>
     /// Log one message the owner left in a factory, in state <c>sent</c>. The input is checked here and a bad one is
     /// refused with a sentence (<see cref="FactoryInboxRefusedException"/>): an empty or too-long text, an unknown note,
-    /// source or surface. A SPOKEN message must carry the speech model's raw text and the corrections applied to it, and
-    /// applying exactly those corrections to the raw text must give the text - the verbatim rule (CLAUDE.md): what was
-    /// said is what is kept, changed only by the owner's hand-listed corrections. A typed message carries neither.
+    /// source or surface.
+    ///
+    /// THE VERBATIM RULE (CLAUDE.md) for a SPOKEN message: it carries the speech model's raw text and nothing else - no
+    /// text and no corrections of its own. The Gateway applies the account's hand-listed corrections to it with the
+    /// dictation path's own deterministic stage (<see cref="CleanupOrchestrator"/> with no judge, which never applies an
+    /// unlisted correction), keeps the raw text beside the result, and records exactly the corrections it applied. So a
+    /// stored spoken message is always its raw text plus only listed corrections - nothing a client says can change that.
+    /// A typed message carries its text and no raw text.
     /// </summary>
-    public FactoryInboxMessageEntity Send(TenantId tenant, FactoryInboxSendInput input)
+    public async Task<FactoryInboxMessageEntity> SendAsync(TenantId tenant, FactoryInboxSendInput input, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentException.ThrowIfNullOrWhiteSpace(input.Factory);
-        FileLog.Write($"[FactoryInboxStore] Send: tenant={tenant.ToLogString()} factory={input.Factory} source={input.Source} surface={input.Surface}");
+        FileLog.Write($"[FactoryInboxStore] SendAsync: tenant={tenant.ToLogString()} factory={input.Factory} source={input.Source} surface={input.Surface}");
 
-        var text = input.Text ?? "";
-        if (string.IsNullOrWhiteSpace(text))
-            throw new FactoryInboxRefusedException("message_empty", "The message is empty. Write or say what you want the factory to know.");
-        if (text.Length > MaxTextLength)
-            throw new FactoryInboxRefusedException("message_too_long", $"The message is {text.Length} characters; the limit is {MaxTextLength}.");
         if (!FactoryInboxWords.Notes.All.Contains(input.Note))
             throw new FactoryInboxRefusedException("bad_note", $"The note must be one of {string.Join(", ", FactoryInboxWords.Notes.All)}, not '{input.Note}'.");
         if (!FactoryInboxWords.Sources.All.Contains(input.Source))
@@ -78,26 +84,39 @@ public sealed class FactoryInboxStore
         if (input.Surface is not (FactoryInboxWords.Surfaces.Phone or FactoryInboxWords.Surfaces.Cockpit or FactoryInboxWords.Surfaces.Session))
             throw new ArgumentException($"'{input.Surface}' is not a factory inbox surface.", nameof(input));
 
+        string text;
         string? raw = null, corrections = null;
         if (input.Source == FactoryInboxWords.Sources.Spoken)
         {
-            if (input.RawText is null || input.Corrections is null)
-                throw new FactoryInboxRefusedException("spoken_without_transcript",
-                    "A spoken message carries the speech model's raw text and the corrections applied to it.");
+            if (input.Text is not null)
+                throw new FactoryInboxRefusedException("spoken_with_text",
+                    "A spoken message carries only the speech model's raw text; the Gateway applies your listed corrections to it. Send rawText and leave text out.");
+            if (string.IsNullOrWhiteSpace(input.RawText))
+                throw new FactoryInboxRefusedException("message_empty", "Nothing was said. Say what you want the factory to know.");
             if (input.RawText.Length > MaxTextLength)
                 throw new FactoryInboxRefusedException("message_too_long", $"The raw transcript is {input.RawText.Length} characters; the limit is {MaxTextLength}.");
-            var (applied, _) = TranscriptEditEngine.Apply(input.RawText, input.Corrections);
-            if (!string.Equals(applied, text, StringComparison.Ordinal))
-                throw new FactoryInboxRefusedException("spoken_text_not_verbatim",
-                    "The spoken message's text is not its raw transcript with only the listed corrections applied, so it was not kept. " +
-                    "What was said is what is kept.");
             raw = input.RawText;
-            corrections = JsonSerializer.Serialize(input.Corrections.Select(c => new FactoryInboxCorrection(c.Find, c.Replace)), Json);
+            var outcome = await new CleanupOrchestrator().CleanAsync(raw, _dictionaryOf(tenant), "default", ct);
+            // The stored row must prove itself: the raw text plus exactly the recorded corrections is the stored text. A
+            // mismatch is a defect in the correction stage, never something to store.
+            var (replayed, _) = TranscriptEditEngine.Apply(raw, outcome.ChangedWords);
+            if (!string.Equals(replayed, outcome.Text, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"The listed corrections did not reproduce the corrected text of a spoken factory inbox message ({outcome.ChangedWords.Count} corrections).");
+            text = outcome.Text;
+            corrections = JsonSerializer.Serialize(outcome.ChangedWords.Select(c => new FactoryInboxCorrection(c.Find, c.Replace)), Json);
+            FileLog.Write($"[FactoryInboxStore] SendAsync: spoken, listed corrections applied={outcome.ChangedWords.Count}");
         }
-        else if (input.RawText is not null || input.Corrections is not null)
+        else
         {
-            throw new FactoryInboxRefusedException("typed_with_transcript", "A typed message carries no raw transcript and no corrections.");
+            if (input.RawText is not null)
+                throw new FactoryInboxRefusedException("typed_with_transcript", "A typed message carries no raw transcript.");
+            text = input.Text ?? "";
+            if (string.IsNullOrWhiteSpace(text))
+                throw new FactoryInboxRefusedException("message_empty", "The message is empty. Write or say what you want the factory to know.");
         }
+        if (text.Length > MaxTextLength)
+            throw new FactoryInboxRefusedException("message_too_long", $"The message is {text.Length} characters; the limit is {MaxTextLength}.");
 
         var row = new FactoryInboxMessageEntity
         {
@@ -119,7 +138,7 @@ public sealed class FactoryInboxStore
             ctx.FactoryInboxMessages.Add(row);
             ctx.SaveChanges();
         }
-        FileLog.Write($"[FactoryInboxStore] Send: logged {row.Id} in {row.Factory}");
+        FileLog.Write($"[FactoryInboxStore] SendAsync: logged {row.Id} in {row.Factory}");
         return row;
     }
 
@@ -139,7 +158,8 @@ public sealed class FactoryInboxStore
         using var ctx = _db.CreateContext(tenant);
         var query = ctx.FactoryInboxMessages.AsNoTracking().Where(m => m.Factory == factory);
         var total = query.Count();
-        var rows = query.ToList().OrderByDescending(m => m.SentAtUtc).ThenByDescending(m => m.Id).Take(limit).ToList();
+        // Ordered and cut in the database, on the (tenant, factory, sent) index: a thread is never read whole.
+        var rows = query.OrderByDescending(m => m.SentAtUtc).ThenByDescending(m => m.Id).Take(limit).ToList();
         FileLog.Write($"[FactoryInboxStore] Thread: factory={factory} total={total} returned={rows.Count}");
         return (rows, total);
     }
@@ -166,13 +186,26 @@ public sealed class FactoryInboxStore
     public IReadOnlyDictionary<string, FactoryInboxFactoryCounts> CountsByFactory(TenantId tenant)
     {
         using var ctx = _db.CreateContext(tenant);
-        var rows = ctx.FactoryInboxMessages.AsNoTracking().ToList();
-        var counts = rows.GroupBy(m => m.Factory, StringComparer.Ordinal).ToDictionary(
-            g => g.Key,
-            g => new FactoryInboxFactoryCounts(
-                g.Count(m => m.State != FactoryInboxWords.States.Decided),
-                g.OrderByDescending(m => m.SentAtUtc).ThenByDescending(m => m.Id).First()),
-            StringComparer.Ordinal);
+        // Counted and grouped in the database; then only the newest message of each factory is read. No other message
+        // text is loaded.
+        var groups = ctx.FactoryInboxMessages.AsNoTracking()
+            .GroupBy(m => m.Factory)
+            .Select(g => new
+            {
+                Factory = g.Key,
+                Waiting = g.Count(m => m.State != FactoryInboxWords.States.Decided),
+                Newest = g.Max(m => m.SentAtUtc),
+            })
+            .ToList();
+        var counts = new Dictionary<string, FactoryInboxFactoryCounts>(StringComparer.Ordinal);
+        foreach (var g in groups)
+        {
+            var last = ctx.FactoryInboxMessages.AsNoTracking()
+                .Where(m => m.Factory == g.Factory && m.SentAtUtc == g.Newest)
+                .OrderByDescending(m => m.Id)
+                .First();
+            counts[g.Factory] = new FactoryInboxFactoryCounts(g.Waiting, last);
+        }
         FileLog.Write($"[FactoryInboxStore] CountsByFactory: tenant={tenant.ToLogString()} factories={counts.Count}");
         return counts;
     }
@@ -555,10 +588,10 @@ public sealed class FactoryInboxStore
     }
 }
 
-/// <summary>What the owner's send logs. <see cref="RawText"/> and <see cref="Corrections"/> only for a spoken message.</summary>
+/// <summary>What the owner's send logs: <see cref="Text"/> for a typed message, <see cref="RawText"/> only for a spoken one.</summary>
 public sealed record FactoryInboxSendInput(
     string Factory, string? Text, string Note, string Source, string Surface, string SentBy, DateTime NowUtc,
-    string? RawText = null, IReadOnlyList<TranscriptEdit>? Corrections = null);
+    string? RawText = null);
 
 /// <summary>A Secretary's merge: <see cref="Id"/> repeats <see cref="Into"/>.</summary>
 public sealed record FactoryInboxMerge(Guid Id, Guid Into);

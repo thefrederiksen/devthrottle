@@ -1,4 +1,4 @@
-using CcDirector.Core.Dictation;
+using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
@@ -30,7 +30,7 @@ public sealed class FactoryInboxPostgresTests
     private static readonly TenantId B = new("acct-inbox-b");
 
     [RequiresPostgresFact]
-    public void TheFactoryInboxTables_AndTheirStore_OnPostgres()
+    public async Task TheFactoryInboxTables_AndTheirStore_OnPostgres()
     {
         var connection = PostgresProofDatabase.ConnectionFor("factoryinbox");
         var previous = Environment.GetEnvironmentVariable(GatewayDatabase.PostgresConnectionEnvVar);
@@ -39,15 +39,24 @@ public sealed class FactoryInboxPostgresTests
         {
             DropDatabase(connection);
             using var db = new GatewayDatabase(new SingleTenantContext());
-            var store = new FactoryInboxStore(db);
+            // The schema the Gateway's own start-up built is exactly today's model.
+            using (var check = db.CreateContext(A))
+                Assert.False(check.Database.HasPendingModelChanges());
 
-            // A typed and a spoken message; the spoken one keeps its raw transcript beside its text.
-            var typed = store.Send(A, new FactoryInboxSendInput(Factory, "Add an export button", FactoryInboxWords.Notes.Good,
+            var store = new FactoryInboxStore(db, tenant => tenant == A
+                ? new DictationDictionary(["DevThrottle"],
+                    new Dictionary<string, IReadOnlyList<string>> { ["DevThrottle"] = ["dev throttle"] },
+                    new Dictionary<string, DictationProfile>())
+                : DictationDictionary.Empty);
+
+            // A typed and a spoken message; the spoken one gets the account's listed correction and keeps its raw transcript.
+            var typed = await store.SendAsync(A, new FactoryInboxSendInput(Factory, "Add an export button", FactoryInboxWords.Notes.Good,
                 FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Cockpit, "owner-browser", Now));
-            var spoken = store.Send(A, new FactoryInboxSendInput(Factory, "Ask DevThrottle", FactoryInboxWords.Notes.Bad,
+            var spoken = await store.SendAsync(A, new FactoryInboxSendInput(Factory, null, FactoryInboxWords.Notes.Bad,
                 FactoryInboxWords.Sources.Spoken, FactoryInboxWords.Surfaces.Phone, "owner-phone", Now.AddSeconds(1),
-                RawText: "Ask dev throttle", Corrections: [new TranscriptEdit("dev throttle", "DevThrottle")]));
+                RawText: "Ask dev throttle"));
             Assert.Equal("Ask dev throttle", store.Get(A, spoken.Id)!.RawText);
+            Assert.Equal("Ask DevThrottle", store.Get(A, spoken.Id)!.Text);
 
             // One Secretary claims both; a second may take nothing while the first lives, and everything once it has ended.
             Assert.Equal(2, store.Receive(A, Factory, Secretary1, null, [], [], [], Now.AddMinutes(1)).Count);

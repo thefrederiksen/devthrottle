@@ -63,16 +63,18 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         [OtherFactorySession] = SessionFactoryLookup.In("payroll", "boss", 1) with { Kit = FactoryKits.Seat },
     };
 
-    private readonly Dictionary<string, string> _parents = new(StringComparer.Ordinal)
+    // The sessions the Gateway has a history row for, and who started each; a session missing here has no row yet.
+    private readonly Dictionary<string, string?> _parents = new(StringComparer.Ordinal)
     {
         [BossChild] = Boss,
         [Secretary1] = Stranger,
+        [Secretary2] = null,
     };
 
     public async Task InitializeAsync()
     {
         _db = _h.Open();
-        _store = new FactoryInboxStore(_db);
+        _store = new FactoryInboxStore(_db, FactoryInboxStoreTests.DictionaryOf);
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
         builder.Services.AddRouting();
         builder.Services.AddLogging();
@@ -85,7 +87,7 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         });
         FactoryInboxEndpoints.Map(app, new FactoryInboxEndpoints.Parts(
             _store, Resolve, _ => Factories(), (_, sid) => _seats.TryGetValue(sid, out var l) ? l : SessionFactoryLookup.NotKnown,
-            (_, sid) => _parents.TryGetValue(sid, out var p) ? p : null, (_, sid) => _ended.Contains(sid), () => _now));
+            (_, sid) => _parents.TryGetValue(sid, out var p) ? new FactoryInboxRecordedParent(p) : null, (_, sid) => _ended.Contains(sid), () => _now));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();
@@ -215,33 +217,64 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Send_SpokenWhoseTextIsNotTheRawTranscriptPlusCorrections_IsRefused()
+    public async Task Send_SpokenRawTextOnly_GetsTheAccountsListedCorrectionsAndNoOthers()
     {
         var (status, body) = await Post("/gateway/factory/invoices/inbox", Phone, new
         {
-            text = "Ask DevThrottle nicely",
             source = "spoken",
-            rawText = "Ask dev throttle",
-            corrections = new[] { new { find = "dev throttle", replace = "DevThrottle" } },
-        });
-
-        Assert.Equal(HttpStatusCode.BadRequest, status);
-        Assert.Equal("spoken_text_not_verbatim", Code(body));
-    }
-
-    [Fact]
-    public async Task Send_SpokenWithItsListedCorrection_KeepsTheRawText()
-    {
-        var (status, body) = await Post("/gateway/factory/invoices/inbox", Phone, new
-        {
-            text = "Ask DevThrottle",
-            source = "spoken",
-            rawText = "Ask dev throttle",
-            corrections = new[] { new { find = "dev throttle", replace = "DevThrottle" } },
+            rawText = "Do not ask dev throttle now",
         });
 
         Assert.Equal(HttpStatusCode.Created, status);
-        Assert.Equal("Ask dev throttle", body.GetProperty("message").GetProperty("rawText").GetString());
+        var message = body.GetProperty("message");
+        Assert.Equal("Do not ask dev throttle now", message.GetProperty("rawText").GetString());
+        Assert.Equal("Do not ask DevThrottle now", message.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Send_WithCorrectionsFromTheClient_IsRefusedInWords()
+    {
+        // The review's case: an unlisted pair that would turn "not" into "now".
+        var (status, body) = await Post("/gateway/factory/invoices/inbox", Phone, new
+        {
+            source = "spoken",
+            rawText = "do not deploy",
+            corrections = new[] { new { find = "not", replace = "now" } },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("corrections_not_accepted", Code(body));
+        Assert.Equal(0, _store.Thread(A, "invoices", 10).Total);
+    }
+
+    [Fact]
+    public async Task Send_ACorrectionWithNoFind_IsRefusedInWords_NotAnInternalError()
+    {
+        // The review's reproduction of finding 1: this body answered 500 before.
+        var (status, body) = await Post("/gateway/factory/invoices/inbox", Phone, new
+        {
+            text = "Hello",
+            source = "spoken",
+            rawText = "Hello",
+            corrections = new[] { new { replace = "x" } },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("corrections_not_accepted", Code(body));
+    }
+
+    [Fact]
+    public async Task Send_SpokenThatAlsoCarriesText_IsRefused()
+    {
+        var (status, body) = await Post("/gateway/factory/invoices/inbox", Phone, new
+        {
+            text = "do now deploy",
+            source = "spoken",
+            rawText = "do not deploy",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("spoken_with_text", Code(body));
     }
 
     // ---------- the owner's reads ----------
@@ -440,19 +473,40 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
 
         // A session this Boss did not start - its recorded parent is someone else.
         var (notMine, notMineBody) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss, new { kind = "delegated", session = Secretary1 });
-        // A session the Gateway has no record of.
-        var (unknown, unknownBody) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss,
-            new { kind = "delegated", session = "77777777-7777-4777-8777-777777777777" });
+        // A session with a history row that names no parent at all.
+        var (orphan, orphanBody) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss, new { kind = "delegated", session = Secretary2 });
         // No session at all.
         var (none, noneBody) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss, new { kind = "delegated" });
 
         Assert.Equal(HttpStatusCode.Forbidden, notMine);
         Assert.Equal("not_started_by_this_boss", Code(notMineBody));
-        Assert.Equal(HttpStatusCode.Forbidden, unknown);
-        Assert.Equal("not_started_by_this_boss", Code(unknownBody));
+        Assert.Equal(HttpStatusCode.Forbidden, orphan);
+        Assert.Equal("not_started_by_this_boss", Code(orphanBody));
         Assert.Equal(HttpStatusCode.BadRequest, none);
         Assert.Equal("delegated_without_session", Code(noneBody));
         Assert.Empty(_store.DecisionsOf(A, [Guid.Parse(id)]));
+    }
+
+    [Fact]
+    public async Task Decide_DelegatedToASessionTheGatewayHasNoRecordOfYet_SaysTryAgain_NotStartAnother()
+    {
+        // A session seconds old is not on the Director's next push yet. Telling the Boss it is not its own would make it
+        // start a second session for the same message (review finding 4).
+        var id = await LeaveFiledAndHanded("Build the export");
+
+        var (status, body) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss,
+            new { kind = "delegated", session = "77777777-7777-4777-8777-777777777777" });
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("delegated_session_not_yet_known", Code(body));
+        Assert.Contains("do not start another", body.GetProperty("error").GetString());
+        Assert.Empty(_store.DecisionsOf(A, [Guid.Parse(id)]));
+
+        // Once its row arrives, naming this Boss as its parent, the same decision is accepted.
+        _parents["77777777-7777-4777-8777-777777777777"] = Boss;
+        var (later, _) = await Post($"/sessions/{Boss}/factory-inbox/{id}/decide", Boss,
+            new { kind = "delegated", session = "77777777-7777-4777-8777-777777777777" });
+        Assert.Equal(HttpStatusCode.OK, later);
     }
 
     [Fact]

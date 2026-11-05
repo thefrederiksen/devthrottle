@@ -1,5 +1,4 @@
 using System.Text.Json;
-using CcDirector.Core.Dictation;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -51,14 +50,15 @@ internal static class FactoryInboxEndpoints
     /// <summary>What the routes read. Every function is required, so a wiring line that forgot one fails to compile.</summary>
     /// <param name="Factories">The account's registered factories.</param>
     /// <param name="FactoryOf">Which factory and seat a session was started as, from its history row.</param>
-    /// <param name="ParentOf">The session that started a session, from its history row, or null when none is recorded.</param>
+    /// <param name="ParentOf">The session that started a session, from its history row; null when the Gateway has no history
+    /// row for the session yet (a session seconds old), which is a different answer from a row with no parent.</param>
     /// <param name="IsEnded">Whether the Gateway has recorded a session as ended.</param>
     internal sealed record Parts(
         FactoryInboxStore Store,
         Func<HttpContext, TenantId?> ResolveTenant,
         Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> Factories,
         Func<TenantId, string, SessionFactoryLookup> FactoryOf,
-        Func<TenantId, string, string?> ParentOf,
+        Func<TenantId, string, FactoryInboxRecordedParent?> ParentOf,
         Func<TenantId, string, bool> IsEnded,
         Func<DateTime> NowUtc);
 
@@ -100,18 +100,22 @@ internal static class FactoryInboxEndpoints
                 return Error(400, "bad_request_body", $"The body could not be read as JavaScript Object Notation: {ex.Message}");
             }
             if (body is null) return Error(400, "bad_request_body", "The body must be an object with a \"text\".");
+            // THE CORRECTIONS ARE THE GATEWAY'S (the verbatim rule): a client never says which words were corrected. The
+            // field is refused by name rather than ignored, so a client that sends one learns it was not used.
+            if (body.Corrections is not null)
+                return Error(400, "corrections_not_accepted",
+                    "A message carries no corrections. For a spoken message send only rawText; the Gateway applies your listed corrections to it.");
 
-            return Refusals(() =>
+            return await RefusalsAsync(async () =>
             {
-                var message = parts.Store.Send(tenant, new FactoryInboxSendInput(
+                var message = await parts.Store.SendAsync(tenant, new FactoryInboxSendInput(
                     registered.Factory, body.Text,
                     Note: string.IsNullOrWhiteSpace(body.Note) ? FactoryInboxWords.Notes.None : body.Note.Trim().ToLowerInvariant(),
                     Source: string.IsNullOrWhiteSpace(body.Source) ? FactoryInboxWords.Sources.Typed : body.Source.Trim().ToLowerInvariant(),
                     Surface: surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit,
                     SentBy: device.DeviceId,
                     NowUtc: parts.NowUtc(),
-                    RawText: body.RawText,
-                    Corrections: body.Corrections?.Select(c => new TranscriptEdit(c.Find ?? "", c.Replace ?? "")).ToList()));
+                    RawText: body.RawText), ct);
                 return Results.Json(new { message = FactoryInboxFold.Message(message, null) }, statusCode: StatusCodes.Status201Created);
             });
         });
@@ -283,7 +287,17 @@ internal static class FactoryInboxEndpoints
                 if (!Guid.TryParse(delegated, out var delegatedId))
                     return Error(400, "bad_session", $"'{delegated}' is not a session id.");
                 delegated = delegatedId.ToString("D");
-                var parent = parts.ParentOf(caller!.Tenant, delegated);
+                var recorded = parts.ParentOf(caller!.Tenant, delegated);
+                // No history row yet is a different answer from "someone else's": the session may be seconds old and not on
+                // the Director's next push yet. Telling the Boss to start another would start a second session for one job.
+                if (recorded is null)
+                {
+                    FileLog.Write($"[FactoryInboxEndpoints] decide REFUSED for now: the Gateway has no record of {delegated} yet");
+                    return Error(409, "delegated_session_not_yet_known",
+                        $"The Gateway has no record of session {delegated} yet. If you just started it, try again in a moment; " +
+                        "do not start another.");
+                }
+                var parent = recorded.ParentSessionId;
                 if (!Guid.TryParse(parent, out var parentId) || parentId.ToString("D") != caller.SessionId)
                 {
                     FileLog.Write($"[FactoryInboxEndpoints] decide REFUSED: {delegated} was not started by Boss {caller.SessionId} (parent {parent ?? "(none)"})");
@@ -440,6 +454,19 @@ internal static class FactoryInboxEndpoints
         }
     }
 
+    private static async Task<IResult> RefusalsAsync(Func<Task<IResult>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (FactoryInboxRefusedException ex)
+        {
+            FileLog.Write($"[FactoryInboxEndpoints] refused ({ex.Code}): {ex.Message}");
+            return Error(ex.Status, ex.Code, ex.Message);
+        }
+    }
+
     private static IResult Refusals(Func<IResult> action)
     {
         try
@@ -464,13 +491,8 @@ internal static class FactoryInboxEndpoints
         public string? Note { get; set; }
         public string? Source { get; set; }
         public string? RawText { get; set; }
-        public List<CorrectionBody>? Corrections { get; set; }
-    }
-
-    private sealed class CorrectionBody
-    {
-        public string? Find { get; set; }
-        public string? Replace { get; set; }
+        /// <summary>Read only to be refused: a client never sends corrections.</summary>
+        public JsonElement? Corrections { get; set; }
     }
 
     private sealed class ReceiveBody
@@ -505,3 +527,7 @@ internal static class FactoryInboxEndpoints
         public string? Why { get; set; }
     }
 }
+
+/// <summary>What the Gateway's history row records about who started a session. The record itself being null means there is
+/// no history row yet.</summary>
+internal sealed record FactoryInboxRecordedParent(string? ParentSessionId);

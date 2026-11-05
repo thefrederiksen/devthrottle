@@ -1,4 +1,5 @@
 using CcDirector.Core.Dictation;
+using CcDirector.Core.Dictation.Models;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory.Inbox;
@@ -10,11 +11,11 @@ namespace CcDirector.Gateway.Tests.Factory.Inbox;
 
 /// <summary>
 /// THE FACTORY INBOX STORE (Factory Inbox mission, phase 1) over a throwaway database: a message is logged as sent; a
-/// spoken message keeps its raw transcript and is refused unless its text is exactly the raw text with the listed
-/// corrections applied; a Secretary claims and receives; a claim held by an ENDED session is taken by the next Secretary
-/// and one held by a live session is not; a bundle holds what its Secretary received; a decision is made once; to do
-/// writes exactly one to-do row; a repeat is decided with the message it repeats; the bundle closes with its last
-/// decision; and one account never sees another's messages.
+/// spoken message carries only its raw transcript, and the Gateway applies the account's LISTED corrections and nothing
+/// else, keeping the raw text beside the result; a Secretary claims and receives; a claim held by an ENDED session is taken
+/// by the next Secretary and one held by a live session is not; a bundle holds what its Secretary received; a decision is
+/// made once; to do writes exactly one to-do row; a repeat is decided with the message it repeats; the bundle closes with
+/// its last decision; and one account never sees another's messages.
 /// </summary>
 public sealed class FactoryInboxStoreTests : IDisposable
 {
@@ -27,6 +28,14 @@ public sealed class FactoryInboxStoreTests : IDisposable
     private static readonly TenantId B = new("acct-b");
     private static readonly DateTime T0 = new(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>Account A's own dictionary: the owner listed "dev throttle" as a wrong form of "DevThrottle". Account B
+    /// listed nothing.</summary>
+    internal static DictationDictionary DictionaryOf(TenantId tenant) => tenant == A
+        ? new DictationDictionary(["DevThrottle"],
+            new Dictionary<string, IReadOnlyList<string>> { ["DevThrottle"] = ["dev throttle"] },
+            new Dictionary<string, DictationProfile>())
+        : DictationDictionary.Empty;
+
     private readonly GatewayDbTestHarness _h = new();
     private readonly GatewayDatabase _db;
     private readonly FactoryInboxStore _store;
@@ -34,14 +43,18 @@ public sealed class FactoryInboxStoreTests : IDisposable
     public FactoryInboxStoreTests()
     {
         _db = _h.Open();
-        _store = new FactoryInboxStore(_db);
+        _store = new FactoryInboxStore(_db, DictionaryOf);
     }
 
     public void Dispose() => _h.Dispose();
 
     private Guid Send(string text, DateTime? at = null, TenantId? tenant = null)
-        => _store.Send(tenant ?? A, new FactoryInboxSendInput(Factory, text, FactoryInboxWords.Notes.None,
-            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone", at ?? T0)).Id;
+        => _store.SendAsync(tenant ?? A, new FactoryInboxSendInput(Factory, text, FactoryInboxWords.Notes.None,
+            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone", at ?? T0)).GetAwaiter().GetResult().Id;
+
+    private Task<CcDirector.Gateway.Data.Entities.FactoryInboxMessageEntity> Speak(string raw, TenantId? tenant = null)
+        => _store.SendAsync(tenant ?? A, new FactoryInboxSendInput(Factory, null, FactoryInboxWords.Notes.Bad,
+            FactoryInboxWords.Sources.Spoken, FactoryInboxWords.Surfaces.Phone, "owner-phone", T0, RawText: raw));
 
     private static readonly IReadOnlyList<string> NoneEnded = [];
 
@@ -67,45 +80,56 @@ public sealed class FactoryInboxStoreTests : IDisposable
     }
 
     [Fact]
-    public void Send_SpokenMessage_KeepsRawTextAndListedCorrectionsBesideTheText()
+    public async Task SendAsync_SpokenMessage_IsTheRawTranscriptPlusOnlyTheAccountsListedCorrections()
     {
-        var corrections = new[] { new TranscriptEdit("dev throttle", "DevThrottle") };
-
-        var row = _store.Send(A, new FactoryInboxSendInput(Factory, "Ask DevThrottle for the totals", FactoryInboxWords.Notes.Bad,
-            FactoryInboxWords.Sources.Spoken, FactoryInboxWords.Surfaces.Phone, "owner-phone", T0,
-            RawText: "Ask dev throttle for the totals", Corrections: corrections));
+        // "dev throttle" is listed by the owner; "not" and "now" are ordinary words nobody listed, and stay as said.
+        var row = await Speak("Do not ask dev throttle for the totals now");
 
         var kept = _store.Get(A, row.Id)!;
-        Assert.Equal("Ask dev throttle for the totals", kept.RawText);
-        Assert.Equal("Ask DevThrottle for the totals", kept.Text);
-        Assert.Equal(TranscriptEditEngine.Apply(kept.RawText!, FactoryInboxStore.ReadCorrections(kept.CorrectionsJson)
-            .Select(c => new TranscriptEdit(c.Find, c.Replace)).ToList()).Text, kept.Text);
+        Assert.Equal("Do not ask dev throttle for the totals now", kept.RawText);
+        Assert.Equal("Do not ask DevThrottle for the totals now", kept.Text);
+        var corrections = FactoryInboxStore.ReadCorrections(kept.CorrectionsJson);
+        Assert.Equal([new FactoryInboxCorrection("dev throttle", "DevThrottle")], corrections);
+        // Raw plus exactly the recorded corrections is the stored text, and every recorded correction is a listed one.
+        Assert.Equal(kept.Text, TranscriptEditEngine.Apply(kept.RawText!, corrections.Select(c => new TranscriptEdit(c.Find, c.Replace)).ToList()).Text);
+        Assert.All(corrections, c => Assert.Contains(c.Find, DictionaryOf(A).CommonMistranscriptions[c.Replace]));
     }
 
     [Fact]
-    public void Send_SpokenMessageWhoseTextIsNotRawPlusCorrections_IsRefusedAndNothingKept()
+    public async Task SendAsync_SpokenMessageWithNothingListed_IsKeptExactlyAsSaid()
     {
-        var ex = Assert.Throws<FactoryInboxRefusedException>(() => _store.Send(A, new FactoryInboxSendInput(Factory,
-            "Please ask DevThrottle politely for the totals", FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Spoken,
-            FactoryInboxWords.Surfaces.Phone, "owner-phone", T0,
-            RawText: "Ask dev throttle for the totals", Corrections: [new TranscriptEdit("dev throttle", "DevThrottle")])));
+        var row = await Speak("Ask dev throttle for the totals", tenant: B);
 
-        Assert.Equal("spoken_text_not_verbatim", ex.Code);
+        var kept = _store.Get(B, row.Id)!;
+        Assert.Equal("Ask dev throttle for the totals", kept.Text);
+        Assert.Equal(kept.RawText, kept.Text);
+        Assert.Empty(FactoryInboxStore.ReadCorrections(kept.CorrectionsJson));
+    }
+
+    [Fact]
+    public async Task SendAsync_SpokenMessageThatAlsoCarriesText_IsRefusedAndNothingKept()
+    {
+        var ex = await Assert.ThrowsAsync<FactoryInboxRefusedException>(() => _store.SendAsync(A, new FactoryInboxSendInput(Factory,
+            "do now deploy", FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Spoken,
+            FactoryInboxWords.Surfaces.Phone, "owner-phone", T0, RawText: "do not deploy")));
+
+        Assert.Equal("spoken_with_text", ex.Code);
         Assert.Equal(0, _store.Thread(A, Factory, 10).Total);
     }
 
-    [Fact]
-    public void Send_SpokenMessageWithoutRawText_IsRefused()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task SendAsync_SpokenMessageWithNoRawText_IsRefused(string? raw)
     {
-        var ex = Assert.Throws<FactoryInboxRefusedException>(() => _store.Send(A, new FactoryInboxSendInput(Factory, "Hello",
-            FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Spoken, FactoryInboxWords.Surfaces.Phone, "owner-phone", T0)));
-        Assert.Equal("spoken_without_transcript", ex.Code);
+        var ex = await Assert.ThrowsAsync<FactoryInboxRefusedException>(() => Speak(raw!));
+        Assert.Equal("message_empty", ex.Code);
     }
 
     [Fact]
-    public void Send_TypedMessageCarryingARawTranscript_IsRefused()
+    public async Task SendAsync_TypedMessageCarryingARawTranscript_IsRefused()
     {
-        var ex = Assert.Throws<FactoryInboxRefusedException>(() => _store.Send(A, new FactoryInboxSendInput(Factory, "Hello",
+        var ex = await Assert.ThrowsAsync<FactoryInboxRefusedException>(() => _store.SendAsync(A, new FactoryInboxSendInput(Factory, "Hello",
             FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone", T0,
             RawText: "Hello")));
         Assert.Equal("typed_with_transcript", ex.Code);
@@ -121,9 +145,9 @@ public sealed class FactoryInboxStoreTests : IDisposable
     }
 
     [Fact]
-    public void Send_UnknownNote_IsRefused()
+    public async Task SendAsync_UnknownNote_IsRefused()
     {
-        var ex = Assert.Throws<FactoryInboxRefusedException>(() => _store.Send(A, new FactoryInboxSendInput(Factory, "Hi", "great",
+        var ex = await Assert.ThrowsAsync<FactoryInboxRefusedException>(() => _store.SendAsync(A, new FactoryInboxSendInput(Factory, "Hi", "great",
             FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Cockpit, "owner-browser", T0)));
         Assert.Equal("bad_note", ex.Code);
     }
@@ -409,6 +433,34 @@ public sealed class FactoryInboxStoreTests : IDisposable
         => Assert.Equal(tells, FactoryInboxWords.Decisions.TellsTheOwner(kind));
 
     // ---------- the summary counts ----------
+
+    [Fact]
+    public void Thread_ALimit_ReturnsTheNewestFirst_AndTheWholeCount()
+    {
+        var ids = Enumerable.Range(0, 5).Select(i => Send($"Message {i}", T0.AddMinutes(i))).ToList();
+
+        var (messages, total) = _store.Thread(A, Factory, 2);
+
+        Assert.Equal(5, total);
+        Assert.Equal([ids[4], ids[3]], messages.Select(m => m.Id));
+    }
+
+    [Fact]
+    public async Task CountsByFactory_EachFactory_HasItsOwnCountAndNewestMessage()
+    {
+        Send("Invoices one", T0);
+        var newest = Send("Invoices two", T0.AddMinutes(1));
+        var payroll = await _store.SendAsync(A, new FactoryInboxSendInput("payroll", "Payroll one", FactoryInboxWords.Notes.None,
+            FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Cockpit, "owner-browser", T0.AddMinutes(2)));
+
+        var counts = _store.CountsByFactory(A);
+
+        Assert.Equal(2, counts[Factory].Waiting);
+        Assert.Equal(newest, counts[Factory].Last.Id);
+        Assert.Equal(1, counts["payroll"].Waiting);
+        Assert.Equal(payroll.Id, counts["payroll"].Last.Id);
+        Assert.Empty(_store.CountsByFactory(B));
+    }
 
     [Fact]
     public void CountsByFactory_CountsWhatIsNotDecided_AndTheNewestMessage()

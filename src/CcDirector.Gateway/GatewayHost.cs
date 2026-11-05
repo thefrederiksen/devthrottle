@@ -2629,7 +2629,8 @@ public sealed class GatewayHost : IAsyncDisposable
             () => DateTime.UtcNow);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
-        FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb);
+        // A spoken message is corrected with the account's own listed words, read exactly as the dictation path reads them.
+        FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb, Transcription.TenantGlossary.Load);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -5761,7 +5762,7 @@ public sealed class GatewayHost : IAsyncDisposable
             ParentOf: (tenant, sessionId) =>
             {
                 using (_tenantBoundary.EnterScope(tenant))
-                    return _sessionHistory.Get(sessionId)?.ParentSessionId;
+                    return _sessionHistory.Get(sessionId) is { } row ? new Api.FactoryInboxRecordedParent(row.ParentSessionId) : null;
             },
             IsEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
             NowUtc: () => DateTime.UtcNow));
