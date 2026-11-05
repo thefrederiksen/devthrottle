@@ -416,13 +416,14 @@ public static partial class LicenseDisplayFold
                 ResetsText = "Reset time not known",
             };
 
+        // The provider reported no 5-hour window. The engine reads it as not holding the account back; the page shows
+        // no number, because the provider gave none.
         if (window.NotRunning)
             return new LicenseWindowDto
             {
-                Utilization = window.Utilization,
-                UtilizationText = Percent(window.Utilization),
-                Level = readingIsStale ? LicenseWindowLevels.Stale : LicenseWindowLevels.Normal,
-                ResetsText = "No window running",
+                UtilizationText = "Not reported",
+                Level = readingIsStale ? LicenseWindowLevels.Stale : LicenseWindowLevels.NotKnown,
+                ResetsText = "The provider reports no 5-hour window",
             };
 
         var hasReset = window.ResetsAtUtc is { } reset && reset <= nowUtc;
@@ -837,7 +838,7 @@ public static partial class LicenseDisplayFold
             ResetsAtUtc = words.ResetsAtUtc,
             ResetsText = words.ResetsText,
             PercentPerHour = window.PercentPerHour,
-            RateText = WindowRateText(window),
+            RateText = reading?.NotRunning == true ? "No rate: no 5-hour window is reported" : WindowRateText(window),
             ExpectedAtLimitUtc = window.ExpectedAtThresholdUtc is { } at ? Utc(at) : null,
             AveragePercentPerHour = window.AveragePercentPerHour,
             RecentPercentPerHour = window.RecentPercentPerHour,
@@ -845,6 +846,7 @@ public static partial class LicenseDisplayFold
         };
         dto.ExpectedText = window switch
         {
+            _ when reading?.NotRunning == true => "No forecast: the provider reports no 5-hour window, so it does not hold the account back.",
             { Utilization: null } => "Not known.",
             _ when accountIsStale => "No forecast: the latest reading is too old.",
             { ResetsAtUtc: { } reset } when reset <= now => "No forecast: the window has reset since the latest reading.",

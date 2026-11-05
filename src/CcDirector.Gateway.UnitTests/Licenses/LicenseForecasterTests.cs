@@ -64,6 +64,22 @@ public sealed class LicenseForecasterTests
     }
 
     [Fact]
+    public void Forecast_AFiveHourWindowNotReported_GivesNoPace_EvenWithKeptPointsThatRise()
+    {
+        // Kept 5-hour points from before the provider stopped reporting the window rise 10% an hour. A window the
+        // provider reports as not there has no pace: they must not forecast it to 97% and set the next switch time.
+        var reading = Reading(A, 0, 30, active: true) with { FiveHour = LicenseWindowReading.NotRunningWindow };
+        var snapshot = Snapshot([reading], [Machine("windows", A)]);
+        var history = new LicenseAccountHistory(A, Series((60, 77), (0, 87)), Series((60, 30), (0, 30)));
+
+        var account = Assert.Single(LicenseForecaster.Forecast(snapshot, [history]).Accounts);
+
+        Assert.Null(account.FiveHour.PercentPerHour);
+        Assert.Null(account.FiveHour.ExpectedAtThresholdUtc);
+        Assert.Null(account.ExpectedTiredAtUtc);
+    }
+
+    [Fact]
     public void Forecast_WindowThatResetsFirst_IsNotExpectedToReachTheThreshold()
     {
         // 87% at 10% an hour reaches 97% in an hour, but the window resets in 30 minutes.
