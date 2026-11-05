@@ -196,6 +196,13 @@ internal static class UnixSpawn
         //
         // A name that resolves nowhere is ENOENT, the same answer and the same code the Process
         // class gave for it, without a spawn being attempted at all.
+        // ONE KNOWN DIFFERENCE FROM THE PROCESS CLASS, raised in review and left as it is: on POSIX
+        // the resolver checks that the file EXISTS, not that it can be executed, while a libc PATH
+        // search skips a non-executable candidate and keeps looking. So a non-executable file named
+        // git sitting earlier on PATH now shadows the real git further along, and the answer is
+        // "Permission denied" instead of the real git running. Adding an access(X_OK) test belongs
+        // in ExecutableResolver, which Windows shares and which several other callers depend on -
+        // not in a change going out before a release.
         var resolved = ExecutableResolver.Resolve(fileName);
         if (resolved is null) return ENOENT;
 

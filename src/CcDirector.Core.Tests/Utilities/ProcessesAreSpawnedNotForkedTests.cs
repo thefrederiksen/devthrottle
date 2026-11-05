@@ -35,10 +35,16 @@ namespace CcDirector.Core.Tests.Utilities;
 /// going to happen. That is why step 1 below does its control fork on a thread-pool thread too:
 /// proving the handler fires is not enough, it has to be proved to fire somewhere other than here.
 ///
-/// Nothing else in this assembly starts a process - no test file in it constructs one, and the
-/// production paths it exercises all spawn rather than fork - so a process-wide count is stable.
-/// If something did fork concurrently this test would FAIL rather than pass, which is the safe
-/// direction for it to be wrong in, and a true signal that something still forks.
+/// BEING PROCESS-WIDE, IT ALSO SEES OTHER TESTS, so the second reading is a THRESHOLD and not a
+/// zero. No test file in this assembly constructs a process, but the production code other tests
+/// exercise still holds about thirty Process class launchers, and this suite runs four tests at
+/// once. Measured during review: a neighbouring test contributed 1 to a run of 100. Demanding an
+/// exact zero would therefore fail this test on correct code sooner or later, and a gate that cries
+/// wolf gets deleted - which would cost far more than the precision is worth.
+///
+/// The threshold is safe because the two outcomes it separates are nowhere near each other. A path
+/// that forks once per start reads AT LEAST <see cref="Starts"/>; neighbour noise is single digits.
+/// Anything in between is not a thing the code can do, and the ceiling is well clear of both.
 ///
 /// THE CONTROL CHILD TOUCHES NOTHING. Only the forking thread survives a fork, so the child of the
 /// control fork is a managed runtime with one thread and a copy of every lock the others held. It
@@ -50,6 +56,13 @@ public sealed class ProcessesAreSpawnedNotForkedTests
 {
     /// <summary>Enough starts that a per-start fork could not be missed, and still under a second.</summary>
     private const int Starts = 100;
+
+    /// <summary>
+    /// The most forks the rest of the test host may contribute while the loop runs. Half of
+    /// <see cref="Starts"/>: twice the worst neighbour noise anyone has measured by a wide margin,
+    /// and still only half of what the defect this test exists for would read.
+    /// </summary>
+    private const int NeighbourNoiseCeiling = Starts / 2;
 
     private const int SIGKILL = 9;
 
@@ -106,7 +119,12 @@ public sealed class ProcessesAreSpawnedNotForkedTests
         // could not see a fork there would pass no matter what the code did.
         Interlocked.Exchange(ref _forksAnywhere, 0);
         Task.Run(ForkOnceAndHaveTheChildKillItself).GetAwaiter().GetResult();
-        Assert.Equal(1, Volatile.Read(ref _forksAnywhere));
+        // At least one, not exactly one: a neighbouring test may have forked in the same moment,
+        // and this step is asking whether the handler fires at all, off this thread.
+        var seenByTheInstrument = Volatile.Read(ref _forksAnywhere);
+        Assert.True(seenByTheInstrument >= 1,
+            "the fork counter saw nothing for a real fork on a thread-pool thread, so it cannot "
+            + "measure anything below - the handler is not registered, or not firing off this thread");
 
         // STEP 2 - THE ASSERTION THIS TEST EXISTS FOR.
         Interlocked.Exchange(ref _forksAnywhere, 0);
@@ -121,8 +139,13 @@ public sealed class ProcessesAreSpawnedNotForkedTests
             lastOutput = result.StandardOutput;
         }
 
-        // THE FIX. Before it, this read 100.
-        Assert.Equal(0, Volatile.Read(ref _forksAnywhere));
+        // THE FIX. Before it, this read 100 - one fork for every start. Now it reads whatever the
+        // rest of the test host happened to do, which is nothing or close to it.
+        var forksDuringTheStarts = Volatile.Read(ref _forksAnywhere);
+        Assert.True(forksDuringTheStarts < NeighbourNoiseCeiling,
+            $"{Starts} starts through ProcessRunner were accompanied by {forksDuringTheStarts} "
+            + $"fork(s). A path that forks once per start reads at least {Starts}; the ceiling for "
+            + $"noise from other tests is {NeighbourNoiseCeiling}.");
 
         // And the children really ran, so that zero is not the zero of a loop that did nothing.
         Assert.Equal(0, lastExitCode);

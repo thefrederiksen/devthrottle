@@ -242,11 +242,11 @@ public static class ProcessRunner
     /// </summary>
     private static async Task AbandonDrainsAsync(Task outTask, Task errTask)
     {
+        // ObserveQuietlyAsync swallows whatever its task throws, so these two can never fault and
+        // an abandoned one cannot come back later as an unobserved exception. That is what makes
+        // walking away from them safe; nothing further is needed to silence them.
         var both = Task.WhenAll(ObserveQuietlyAsync(outTask), ObserveQuietlyAsync(errTask));
         await Task.WhenAny(both, Task.Delay(DrainGraceAfterKill)).ConfigureAwait(false);
-
-        // Whether or not it finished, make certain nothing it throws later goes unobserved.
-        _ = both.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
     }
 
     private static readonly System.Text.Encoding Utf8NoByteOrderMark =

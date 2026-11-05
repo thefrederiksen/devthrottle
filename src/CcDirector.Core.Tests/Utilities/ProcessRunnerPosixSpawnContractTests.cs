@@ -346,11 +346,19 @@ public sealed class ProcessRunnerPosixSpawnContractTests
     /// if it does not, every single call leaves a zombie in the process table for the life of the
     /// Director - thousands a day on the git path alone, and the crash this fix is for happened on
     /// a machine already short of memory.
+    ///
+    /// COUNTED AGAINST A CEILING, NOT AGAINST ZERO. The process table belongs to the whole test
+    /// host, and this suite runs four tests at once: a neighbouring test's child is itself a zombie
+    /// for the moment between exiting and being collected, which is up to one poll interval. This
+    /// test asserted zero and duly failed on correct code with a single zombie that was not its own.
+    /// As with the fork gate next door, the two outcomes are nowhere near each other - a runner that
+    /// never collects leaves one zombie PER CALL, so the broken answer here is about
+    /// <see cref="Children"/> and the noise is one or two.
     /// </summary>
     [UnixOnlyFact("the posix_spawn path is what this proves; Windows is unchanged.")]
     public async Task TwoHundredChildren_LeaveNoZombiesBehind()
     {
-        for (var i = 0; i < 200; i++)
+        for (var i = 0; i < Children; i++)
             Assert.Equal(0, (await RunAsync("/bin/echo", new[] { i.ToString() })).ExitCode);
 
         var mine = Environment.ProcessId.ToString();
@@ -363,8 +371,21 @@ public sealed class ProcessRunnerPosixSpawnContractTests
             .Where(f => f.Length >= 2 && f[0] == mine && f[1].StartsWith('Z'))
             .ToList();
 
-        Assert.Empty(zombies);
+        Assert.True(zombies.Count < UncollectedCeiling,
+            $"{Children} children left {zombies.Count} uncollected process(es) behind. A runner "
+            + $"that never collects leaves about {Children}; the ceiling for a neighbouring test's "
+            + $"child caught mid-collection is {UncollectedCeiling}.");
     }
+
+    /// <summary>Enough children that a per-call leak is unmistakable.</summary>
+    private const int Children = 200;
+
+    /// <summary>
+    /// The most uncollected children the rest of the test host may be holding at the moment this
+    /// test reads the process table. A twentieth of <see cref="Children"/>: far above anything
+    /// observed, and far below what a broken collect would leave.
+    /// </summary>
+    private const int UncollectedCeiling = Children / 20;
 
     /// <summary>
     /// Every start creates three pipes, six descriptors. Any one of them neither handed to a stream
