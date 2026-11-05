@@ -143,8 +143,11 @@ public sealed class GitBranchService
         var worktreeBranches = await BranchesCheckedOutInWorktreesAsync(repoPath, ct);
 
         // Every branch's configured upstream and whether its remote branch is gone, read for the
-        // whole repository in two git processes rather than three per branch.
-        var upstreams = await ConfiguredUpstreamProbe.ReadAsync(_git, repoPath, ct);
+        // whole repository in two git processes rather than three per branch. Not read at all when
+        // there is no default branch to measure against, because then no branch is judged.
+        var upstreams = mainRef != null
+            ? await ConfiguredUpstreamProbe.ReadAsync(_git, repoPath, ct)
+            : null;
 
         foreach (var raw in list.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -172,7 +175,7 @@ public sealed class GitBranchService
                 // a never-pushed branch's absence from the remote proves nothing (same rule as
                 // worktrees). The probe asks the configured remote for the configured ref name,
                 // both of which can differ from origin/<local-name>.
-                var upstream = upstreams.Verdict(name);
+                var upstream = upstreams!.Verdict(name);
                 inspectionOk &= upstream.InspectionSucceeded;
                 originGone = upstream.HasConfiguredUpstream && upstream.UpstreamGone;
 
