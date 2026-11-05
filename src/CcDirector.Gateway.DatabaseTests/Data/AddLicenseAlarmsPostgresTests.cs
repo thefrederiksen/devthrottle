@@ -113,7 +113,9 @@ public sealed class AddLicenseAlarmsPostgresTests
                     return Task.CompletedTask;
                 },
                 () => now);
-            var kind = new LicenseAlarmKind("not-ready-at-80", "Not ready to switch");
+            // A kind the service still raises. This test first used "not-ready-at-80", which pull request 4528 retired:
+            // a retired kind raises nothing, so the list of open alarms came back empty.
+            var kind = LicenseCannotSwitchAlarm.Kind;
             var machine = Guid.Parse("22222222-2222-2222-2222-222222222222");
             var condition = new LicenseAlarmCondition(machine, "machine-a", "alice@example.com",
                 "machine-a holds no spare that could take it off alice@example.com.", "Sign machine-a in to a second account.");
