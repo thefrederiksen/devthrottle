@@ -374,6 +374,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     private Core.Activity.ActivityEventProducer? _activityProducer;
     private ActivityEventUploader? _activityUploader;
     private RepoStatePusher? _repoStatePusher;
+    private Core.Sessions.IdleTreeInspectionWatcher? _idleTreeInspectionWatcher;
     private Core.Git.SessionGitStatusMonitor? _sessionGitStatusMonitor;
     private TransientErrorAutoResume? _transientErrorAutoResume;
     private TerminalSessionRecorder? _sessionRecorder;
@@ -1135,6 +1136,21 @@ public sealed class ControlApiHost : IAsyncDisposable
                 _repositoryRegistry, DirectorId, Environment.MachineName,
                 liveSessions: LiveSessionRefs);
             _repoStatePusher.Start();
+
+            // And ON TOP of that schedule: when a session parks at the end of a turn, inspect the folder
+            // it works in and report that one repository. The Fleet Manager offers Close only when the
+            // Gateway's report of a session's repository was collected after that session last did
+            // anything; with the six-hourly cycle as the only trigger it never was, so Close was refused
+            // for every session that had worked since the last cycle. Triggering the inspection BY the
+            // last activity makes the rule satisfiable by construction. Throttled per folder, and it does
+            // nothing at all while sessions are working.
+            _idleTreeInspectionWatcher = new Core.Sessions.IdleTreeInspectionWatcher(
+                _sessionManager,
+                folder => _repoStatePusher?.CoveringRepository(folder)?.Path,
+                (folder, ct) => _repoStatePusher is { } pusher
+                    ? pusher.PushOneFolderAsync(folder, ct)
+                    : Task.FromResult<int?>(null));
+            _idleTreeInspectionWatcher.Start();
         }
 
         // Every live session's uncommitted file count, refreshed every fifteen seconds. This poll used to
@@ -2181,6 +2197,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         _terminalStateDetector = null;
         _activityUploader?.Dispose();
         _activityUploader = null;
+        _idleTreeInspectionWatcher?.Dispose();
+        _idleTreeInspectionWatcher = null;
         _repoStatePusher?.Dispose();
         _repoStatePusher = null;
         _sessionGitStatusMonitor?.Dispose();
