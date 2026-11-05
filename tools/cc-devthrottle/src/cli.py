@@ -5055,10 +5055,18 @@ def factory_inbox_thread(
     factory: str = typer.Argument(..., help=_INBOX_FACTORY_HELP),
     fields: Optional[str] = typer.Option(None, "--fields", help=_INBOX_MESSAGE_FIELDS_HELP),
     full: bool = typer.Option(False, "--full", help=_INBOX_FULL_HELP),
+    count: Optional[int] = typer.Option(
+        None, "--count", "-n",
+        help=f"How many of the newest messages to list, 1 to {factory_inbox_ops.THREAD_MAX}. The Gateway gives 100 "
+        "when this is not passed.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:
-    """One factory's messages, each with its trail: Sent - Received - the decision."""
-    factory_inbox_ops.thread(factory, fields, full, json_output)
+    """One factory's messages, each with its trail: Sent - Received - the decision.
+
+    Newest first. When the thread holds more than is listed, the count line says so (count: 100 of 150 total).
+    """
+    factory_inbox_ops.thread(factory, fields, full, count, json_output)
 
 
 @factory_inbox_app.command("summary")
@@ -5067,10 +5075,11 @@ def factory_inbox_summary(
     since: Optional[str] = typer.Option(
         None, "--since", help="Only what came in since this time, for example 2026-11-04T08:00:00Z.",
     ),
+    full: bool = typer.Option(False, "--full", help=_INBOX_FULL_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:
     """What came in and the decision on each, built by the Gateway from the log."""
-    factory_inbox_ops.summary(factory, since, json_output)
+    factory_inbox_ops.summary(factory, since, full, json_output)
 
 
 @factory_inbox_app.command("todo")
@@ -5097,7 +5106,9 @@ def factory_inbox_new(
 
 @factory_inbox_app.command("receive")
 def factory_inbox_receive(
-    message_ids: List[str] = typer.Argument(..., help="The ids of the messages to receive, from 'factory inbox new'."),
+    message_ids: Optional[List[str]] = typer.Argument(
+        None, help="The ids of the messages to receive, from 'factory inbox new'. None: every message you may file.",
+    ),
     merge: Optional[List[str]] = typer.Option(
         None, "--merge",
         help="<message-id>:<into-message-id> - the first is a duplicate of the second. Repeat for more.",
@@ -5111,14 +5122,15 @@ def factory_inbox_receive(
 ) -> None:
     """Claim messages and mark them Received, with merges and links (the Secretary).
 
+    A merge or link may name any message this session holds; the Gateway decides which are allowed.
     A claim held by a session that has ended lapses, so the next Secretary can take the message.
     """
-    factory_inbox_ops.receive(message_ids, merge or [], link or [], json_output)
+    factory_inbox_ops.receive(message_ids or [], merge or [], link or [], json_output)
 
 
 @factory_inbox_app.command("bundle")
 def factory_inbox_bundle(
-    message_ids: Optional[List[str]] = typer.Argument(None, help="With --hand: the ids of the received messages to hand over."),
+    message_ids: Optional[List[str]] = typer.Argument(None, help="With --hand: the ids of the received messages to hand over. None: every message you hold."),
     hand: bool = typer.Option(False, "--hand", help="Hand the named messages to the Boss as one bundle (the Secretary)."),
     json_output: bool = typer.Option(False, "--json", "-j", help=_INBOX_JSON_HELP),
 ) -> None:

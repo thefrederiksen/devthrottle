@@ -243,6 +243,60 @@ def test_thread_prints_the_gateway_trail_and_whole_ids(gateway):
     assert server.calls[0]["path"] == "/gateway/factory/warmforward/inbox"
 
 
+# Review finding 2: the Gateway sends the newest 100 and the size of the whole thread.
+
+def _long_thread(total, shown):
+    return {"factory": "warmforward", "title": "W", "count": total,
+            "messages": [_message(f"m{i}") for i in range(shown)]}
+
+
+def test_thread_longer_than_listed_says_how_many_and_offers_count(gateway):
+    gateway({("GET", "/gateway/factory/warmforward/inbox"): (200, _long_thread(150, 100))})
+    result = _run("thread", "warmforward")
+    assert result.exit_code == 0, result.output
+    assert "count: 100 of 150 total" in result.output
+    assert "newest 100 of 150 shown - use --count up to 500" in result.output
+    assert "cc-devthrottle factory inbox thread warmforward --count 150" in result.output
+
+
+def test_thread_count_reaches_the_gateway_in_json_too(gateway):
+    server = gateway({("GET", "/gateway/factory/warmforward/inbox"): (200, _long_thread(150, 150))})
+    plain = _run("thread", "warmforward", "--count", "150")
+    assert plain.exit_code == 0, plain.output
+    assert "count: 150 of 150 total" in plain.output
+    assert "newest" not in plain.output
+    as_json = _run("thread", "warmforward", "-n", "150", "--json")
+    assert as_json.exit_code == 0, as_json.output
+    assert [c["query"] for c in server.calls] == [{"limit": ["150"]}, {"limit": ["150"]}]
+
+
+def test_thread_over_the_most_one_read_lists_points_at_summary(gateway):
+    gateway({("GET", "/gateway/factory/warmforward/inbox"): (200, _long_thread(900, 500))})
+    result = _run("thread", "warmforward", "--count", "500")
+    assert result.exit_code == 0, result.output
+    assert "count: 500 of 900 total" in result.output
+    assert "at most 500 can be listed; use summary --since for older ones" in result.output
+
+
+@pytest.mark.parametrize("value", ["0", "501"])
+def test_thread_count_out_of_range_is_a_usage_error_before_any_call(gateway, value):
+    server = gateway({})
+    result = _run("thread", "warmforward", "--count", value)
+    assert result.exit_code == 2
+    assert server.calls == []
+
+
+@pytest.mark.parametrize("count", [None, 1, "2"])
+def test_thread_answer_whose_count_cannot_cover_its_messages_is_an_error(gateway, count):
+    answer = {"factory": "warmforward", "title": "W", "messages": [_message("m1"), _message("m2")]}
+    if count is not None:
+        answer["count"] = count
+    gateway({("GET", "/gateway/factory/warmforward/inbox"): (200, answer)})
+    result = _run("thread", "warmforward")
+    assert result.exit_code == 1
+    assert "whether older messages exist is unknown" in result.output
+
+
 def test_thread_fields_show_the_decision_and_note_labels(gateway):
     decided = _message("m1", "Rewrite it", "Decided", _decision("declined", "Declined", "Too big for one go."))
     gateway({("GET", "/gateway/factory/warmforward/inbox"): (200, {"factory": "warmforward", "title": "W",
@@ -297,6 +351,22 @@ def test_summary_plain_shows_the_gateway_line_counts_and_decisions(gateway):
     assert "count: 2" in result.output
     assert "m1,Decided,Delegated,,Add dark mode" in result.output
     assert "m2,Decided,Declined,Too big for one go.,Rewrite it all" in result.output
+
+
+# Review finding 1: the cut-text hint must name a flag the command takes.
+
+def test_summary_cut_text_hint_names_full_and_full_shows_it_whole(gateway):
+    long_text = "This is a long message from the owner that goes well past eighty characters " * 3
+    answer = dict(SUMMARY, count=1, items=[_message("m1", long_text, "Decided", _decision("noted", "Noted"))])
+    gateway({("GET", "/gateway/factory/warmforward/inbox/summary"): (200, answer)})
+    cut = _run("summary", "warmforward")
+    assert cut.exit_code == 0, cut.output
+    assert "text cut at 80 characters in 1 rows - use --full" in cut.output
+    assert long_text.strip() not in cut.output
+    whole = _run("summary", "warmforward", "--full")
+    assert whole.exit_code == 0, whole.output
+    assert long_text.strip() in whole.output
+    assert "use --full" not in whole.output
 
 
 def test_summary_without_the_decision_counts_is_an_error(gateway):
@@ -378,14 +448,12 @@ def test_receive_answer_without_the_received_list_is_an_error(gateway):
 
 
 @pytest.mark.parametrize("args", [
-    ["m1", "--merge", "m2:m1"],            # m2 is not being received
-    ["m1", "m2", "--merge", "m1:m1"],      # into itself
     ["m1", "--merge", "m1"],               # not a pair
-    ["m1", "--link", "m9:run:7"],          # m9 is not being received
+    ["m1", "--merge", "m1:"],              # no second id
     ["m1", "--link", "m1:run"],            # no ref
     ["m1", "m1"],                          # named twice
 ])
-def test_receive_refuses_a_bad_merge_or_link_before_any_call(gateway, args):
+def test_receive_refuses_a_malformed_merge_or_link_before_any_call(gateway, args):
     server = gateway({("POST", f"{SESSION_ROUTE}/receive"): (200, {"factory": "w", "count": 0, "received": []})})
     result = _run("receive", *args)
     assert result.exit_code == 2, result.output
@@ -445,11 +513,52 @@ def test_bundle_ids_without_hand_are_refused(gateway):
     assert server.calls == []
 
 
-def test_bundle_hand_without_ids_is_refused(gateway):
-    server = gateway({})
+# Review finding 3: no ids means every message, and which merges and links are allowed is the Gateway's rule.
+
+def test_receive_with_no_ids_sends_no_ids_so_the_gateway_takes_every_message(gateway):
+    answer = {"factory": "warmforward", "count": 1, "received": [_message("m1")]}
+    server = gateway({("POST", f"{SESSION_ROUTE}/receive"): (200, answer)})
+    result = _run("receive")
+    assert result.exit_code == 0, result.output
+    assert server.calls[0]["body"] == {}
+    assert "Received." in result.output and "count: 1" in result.output
+
+
+def test_receive_merge_naming_a_message_held_from_an_earlier_call_reaches_the_gateway(gateway):
+    answer = {"factory": "warmforward", "count": 1, "received": [_message("m2")]}
+    server = gateway({("POST", f"{SESSION_ROUTE}/receive"): (200, answer)})
+    result = _run("receive", "m2", "--merge", "m2:m1", "--link", "m1:report:r7")
+    assert result.exit_code == 0, result.output
+    assert server.calls[0]["body"] == {"ids": ["m2"], "merges": [{"id": "m2", "into": "m1"}],
+                                       "links": [{"id": "m1", "kind": "report", "ref": "r7"}]}
+
+
+def test_receive_merge_the_gateway_refuses_is_reported_in_its_words(gateway):
+    sentence = "Message m9 is not held by this session, so it cannot be merged or linked."
+    gateway({("POST", f"{SESSION_ROUTE}/receive"): (400, {"error": sentence, "code": "merge_or_link_not_held"})})
+    result = _run("receive", "m1", "--merge", "m1:m9")
+    assert result.exit_code == 1
+    assert sentence in result.output
+
+
+def test_bundle_hand_with_no_ids_sends_no_ids_so_the_gateway_hands_every_held_message(gateway):
+    server = gateway({("POST", f"{SESSION_ROUTE}/bundle"): (200, {"bundle": _bundle("b8", [_message("m1")])})})
     result = _run("bundle", "--hand")
-    assert result.exit_code == 2
-    assert server.calls == []
+    assert result.exit_code == 0, result.output
+    assert server.calls[0]["body"] == {}
+    assert "Handed to the Boss: bundle b8." in result.output
+
+
+def test_receive_and_hand_show_text_whole_because_they_have_no_full_option(gateway):
+    long_text = "q" * 150
+    gateway({("POST", f"{SESSION_ROUTE}/receive"): (200, {"factory": "w", "count": 1,
+                                                         "received": [_message("m1", long_text)]}),
+             ("POST", f"{SESSION_ROUTE}/bundle"): (200, {"bundle": _bundle("b1", [_message("m1", long_text)])})})
+    for args in (["receive"], ["bundle", "--hand"]):
+        result = _run(*args)
+        assert result.exit_code == 0, result.output
+        assert long_text in result.output
+        assert "use --full" not in result.output
 
 
 # ---------------------------------------------------------------------------------------------------

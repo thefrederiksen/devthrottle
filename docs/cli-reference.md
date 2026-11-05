@@ -2451,14 +2451,14 @@ owner's, and the Gateway refuses it to a session key.
 
 ```
 USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
-       cc-devthrottle factory inbox thread <factory> [--fields F,...] [--full] [--json]
-       cc-devthrottle factory inbox summary <factory> [--since TIME] [--json]
+       cc-devthrottle factory inbox thread <factory> [--count N | -n N] [--fields F,...] [--full] [--json]
+       cc-devthrottle factory inbox summary <factory> [--since TIME] [--full] [--json]
        cc-devthrottle factory inbox todo <factory> [--json]
 
        cc-devthrottle factory inbox new [--fields F,...] [--full] [--json]
-       cc-devthrottle factory inbox receive <id>... [--merge ID:INTO-ID]... [--link ID:KIND:REF]... [--json]
+       cc-devthrottle factory inbox receive [<id>...] [--merge ID:INTO-ID]... [--link ID:KIND:REF]... [--json]
        cc-devthrottle factory inbox bundle [--json]
-       cc-devthrottle factory inbox bundle --hand <id>... [--json]
+       cc-devthrottle factory inbox bundle --hand [<id>...] [--json]
        cc-devthrottle factory inbox decide <id> delegated --session <session-id> [--json]
        cc-devthrottle factory inbox decide <id> todo|noted [--json]
        cc-devthrottle factory inbox decide <id> declined|cannot|pushback --why "<why>" [--json]
@@ -2469,8 +2469,11 @@ USAGE: cc-devthrottle factory inbox list [--fields F,...] [--full] [--json]
 - `list` - every factory's inbox: how many messages wait and its last message, with a `waiting:` total.
   `--fields` picks from `factory, title, waiting, lastState, lastSent, lastText`; the default is
   `factory, waiting, lastState, lastText`.
-- `thread <factory>` - the factory's messages, each with its trail as the Gateway wrote it
-  (`Sent - Received - Delegated`). `--fields` picks from
+- `thread <factory>` - the factory's messages, newest first, each with its trail as the Gateway wrote it
+  (`Sent - Received - Delegated`). The Gateway lists the newest 100; `--count N` asks for 1 to 500, and it
+  applies to `--json` too. When the thread holds more than is listed, the count line says so
+  (`count: 100 of 150 total`) and the next step offered is the `--count` that reaches the rest; past 500, it is
+  `summary --since`. `--fields` picks from
   `id, state, sent, note, source, surface, decision, why, bundle, trail, text`; the default is
   `id, state, trail, text`.
 - `summary <factory> [--since TIME]` - what came in and the decision on each, built by the Gateway from the
@@ -2482,12 +2485,14 @@ record; the command never names it, and outside a session (no `CC_SESSION_ID`) i
 
 - `new` - the Secretary: the messages not yet received. Nothing new prints `count: 0`, and the next step
   offered is `session done`.
-- `receive <id>...` - the Secretary: claim the messages and mark them Received. `--merge A:B` says A is a
-  duplicate of B; `--link A:KIND:REF` attaches what A is about (a run, a report, a record). Both ids of a
-  merge, and the id of a link, must be among the ids received, or the command refuses before calling the
-  Gateway. A claim held by a session that has ended lapses, and the next Secretary takes the message.
-- `bundle --hand <id>...` - the Secretary hands one bundle to the Boss. The bundle id printed is the one the
-  Gateway answered with.
+- `receive [<id>...]` - the Secretary: claim the messages and mark them Received; with no ids, every message
+  this session may file. `--merge A:B` says A is a duplicate of B; `--link A:KIND:REF` attaches what A is about
+  (a run, a report, a record). A merge or link may name any message this session holds, from this call or an
+  earlier one; the Gateway refuses, in words, one it does not hold, a merge into itself and a merge chain. The
+  command checks only the shape of each pair and a repeated id. A claim held by a session that has ended lapses,
+  and the next Secretary takes the message.
+- `bundle --hand [<id>...]` - the Secretary hands one bundle to the Boss; with no ids, every message it holds.
+  The bundle id printed is the one the Gateway answered with.
 - `bundle` - the Boss reads its open bundles, each with its messages, text in full. None open prints
   `open bundles: 0`.
 - `decide <id> <kind>` - the Boss's decision on one message:
@@ -2502,7 +2507,8 @@ record; the command never names it, and outside a session (no `CC_SESSION_ID`) i
 Every state word, trail line and decision label is the Gateway's; the command prints them as they came.
 A refusal is the Gateway's sentence (its answer is `{error, code}`), printed as `Error: <sentence>`, exit 1.
 `--json` prints the Gateway's answer unchanged, and `--fields` with `--json` is refused. Message text is cut at
-80 characters in a list (with a line saying how many rows were cut); `--full` shows it whole. Ids are never cut.
+80 characters by the commands that take `--full` (`list`, `thread`, `summary`, `new`), with a line saying how
+many rows were cut; `--full` shows it whole. The others (`receive`, `bundle`) always show it whole. Ids are never cut.
 
 The routes: owner `GET /gateway/factory/inbox`, `GET /gateway/factory/{factory}/inbox`,
 `GET /gateway/factory/{factory}/inbox/summary?since=`, `GET /gateway/factory/{factory}/todo` (and the owner's

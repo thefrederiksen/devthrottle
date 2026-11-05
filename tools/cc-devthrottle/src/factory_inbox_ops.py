@@ -15,9 +15,9 @@ Seat commands, run inside a factory session. The Gateway reads the caller's fact
 the command never names it:
 
 - `factory inbox new`                        the messages not yet received (the Secretary's work)
-- `factory inbox receive <id>...`            claim and mark Received, with merges and links
+- `factory inbox receive [<id>...]`          claim and mark Received (all when no ids), with merges and links
 - `factory inbox bundle`                     the Boss reads its open bundles
-- `factory inbox bundle --hand <id>...`      the Secretary hands one bundle to the Boss
+- `factory inbox bundle --hand [<id>...]`    the Secretary hands one bundle to the Boss (all held when no ids)
 - `factory inbox decide <id> <kind>`         the Boss's decision: delegated --session, todo, noted,
                                              declined --why, cannot --why, pushback --why
 
@@ -55,6 +55,9 @@ DECISIONS = ("delegated", "todo", "noted", "declined", "cannot", "pushback")
 
 #: A message's text is cut at this many characters in a list unless --full is passed.
 TEXT_PREVIEW = 80
+
+#: The most messages one thread read can list. Must match FactoryInboxStore.MaxThread on the Gateway.
+THREAD_MAX = 500
 
 #: What a 404 with no words of its own means here: a Gateway older than this command.
 OLD_GATEWAY = ("the Gateway does not know the Factory inbox yet (it answered 404 with no reason) - "
@@ -169,14 +172,16 @@ def _message_record(message: Dict[str, Any], full: bool) -> tuple:
     }, cut
 
 
-def _message_blocks(messages: List[Dict[str, Any]], fields: List[str], full: bool, name: str = "messages") -> List[str]:
-    """The count line, the list, and a line saying how many rows had their text cut."""
+def _message_blocks(messages: List[Dict[str, Any]], fields: List[str], full: bool, name: str = "messages",
+                    total: Optional[int] = None) -> List[str]:
+    """The count line (`count: N of M total` when the Gateway sent a total), the list, and a line saying how many
+    rows had their text cut. Only a caller with a --full option may pass full=False: the hint names that flag."""
     records, cut_rows = [], 0
     for message in messages:
         record, cut = _message_record(message, full)
         records.append(record)
         cut_rows += 1 if cut and "text" in fields else 0
-    blocks = [axi_output.format_count(len(records))]
+    blocks = [axi_output.format_count(len(records), total)]
     if records:
         blocks.append(axi_output.render_list(name, fields, records))
     if cut_rows:
@@ -231,21 +236,43 @@ def list_inboxes(fields: Optional[str], full: bool, json_output: bool) -> None:
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
-def thread(factory: str, fields: Optional[str], full: bool, json_output: bool) -> None:
-    """One factory's messages, each with its trail."""
+def thread(factory: str, fields: Optional[str], full: bool, count: Optional[int], json_output: bool) -> None:
+    """One factory's messages, newest first, each with its trail. The Gateway sends the newest `count` (100 when
+    not given, at most THREAD_MAX) and the size of the whole thread, so a cut thread says how much is left."""
     chosen = _check_fields(fields, json_output, MESSAGE_FIELDS, MESSAGE_DEFAULT)
-    answer = _get(_factory_route(factory), [f"{_TOOL} list"])
+    route = _factory_route(factory)
+    if count is not None:
+        if count < 1 or count > THREAD_MAX:
+            axi_cli.usage_error(f"--count must be between 1 and {THREAD_MAX}.")
+        route += "?" + urllib.parse.urlencode({"limit": str(count)})
+    answer = _get(route, [f"{_TOOL} list"])
     messages = _rows(answer, "messages", "messages")
+    total = answer.get("count")
+    if not isinstance(total, int) or isinstance(total, bool) or total < len(messages):
+        # The whole thread's size is what tells a reader whether older messages exist; without it, this command
+        # would print the rows it was given as if they were all of them.
+        axi_cli.fail(f"the Gateway answered {len(messages)} messages with count {total!r}, so whether older "
+                     "messages exist is unknown.", [f"{_TOOL} thread {axi_cli.bare(factory.strip(), '<factory>')} --json"])
     if json_output:
         print(json.dumps(answer, indent=2))
         return
     name = _factory_of(answer, factory)
     shown = axi_cli.bare(name, "<factory>")
-    _render_messages([f"factory: {name}"], messages, chosen, full,
-                     [f"{_TOOL} summary {shown}", f"{_TOOL} todo {shown}"])
+    blocks = [axi_cli.ascii_text(f"factory: {name}"), *_message_blocks(messages, chosen, full, total=total)]
+    next_commands = [f"{_TOOL} summary {shown}", f"{_TOOL} todo {shown}"]
+    if total > len(messages):
+        blocks.append(f"newest {len(messages)} of {total} shown"
+                      + (f" - use --count up to {THREAD_MAX}" if len(messages) < THREAD_MAX
+                         else f" - at most {THREAD_MAX} can be listed; use summary --since for older ones"))
+        if len(messages) < THREAD_MAX:
+            next_commands.insert(0, f"{_TOOL} thread {shown} --count {min(total, THREAD_MAX)}")
+        else:
+            next_commands.insert(0, f"{_TOOL} summary {shown} --since <time>")
+    blocks.append(axi_output.format_help(next_commands))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
-def summary(factory: str, since: Optional[str], json_output: bool) -> None:
+def summary(factory: str, since: Optional[str], full: bool, json_output: bool) -> None:
     """What came in since a time and the decision on each, as the Gateway built it from the log."""
     route = _factory_route(factory, "inbox/summary")
     if since is not None:
@@ -267,7 +294,7 @@ def summary(factory: str, since: Optional[str], json_output: bool) -> None:
     if by_decision:
         blocks.append("by decision: " + ", ".join(
             f"{axi_cli.ascii_text(str(d.get('label')))} {d.get('count')}" for d in by_decision))
-    blocks.extend(_message_blocks(items, ["id", "state", "decision", "why", "text"], False, "items"))
+    blocks.extend(_message_blocks(items, ["id", "state", "decision", "why", "text"], full, "items"))
     blocks.append(axi_output.format_help([f"{_TOOL} thread {axi_cli.bare(name, '<factory>')}"]))
     axi_output.write_blocks(sys.stdout, *blocks)
 
@@ -306,7 +333,7 @@ def new_messages(fields: Optional[str], full: bool, json_output: bool) -> None:
         print(json.dumps(answer, indent=2))
         return
     header = [f"factory: {answer.get('factory') or '-'}"]
-    next_commands = ([f"{_TOOL} receive <id> [<id>...]", f"{_TOOL} bundle --hand <id> [<id>...]"] if messages
+    next_commands = ([f"{_TOOL} receive", f"{_TOOL} receive <id> [<id>...]", f"{_TOOL} bundle --hand"] if messages
                      else ["cc-devthrottle session done"])
     _render_messages(header, messages, chosen, full, next_commands)
 
@@ -321,42 +348,34 @@ def _pairs(values: Sequence[str], parts: int, flag: str, shape: str) -> List[Lis
     return out
 
 
-def _ids(message_ids: Sequence[str], verb: str) -> List[str]:
+def _ids(message_ids: Sequence[str]) -> Optional[List[str]]:
+    """The ids named, or None when none were: the Gateway then takes every message this session may take. The only
+    check here is a repeated id, which the command line can see and the Gateway's answer would not explain."""
     ids = [m.strip() for m in message_ids if m.strip()]
-    if not ids:
-        axi_cli.usage_error(f"name at least one message to {verb}; the ids are in {_TOOL} new.")
     if len(set(ids)) != len(ids):
         axi_cli.usage_error(f"a message id is named more than once: {', '.join(sorted({i for i in ids if ids.count(i) > 1}))}.")
-    return ids
+    return ids or None
 
 
 def receive(message_ids: Sequence[str], merges: Sequence[str], links: Sequence[str], json_output: bool) -> None:
-    """Claim messages and mark them Received, with merges and links."""
-    ids = _ids(message_ids, "receive")
+    """Claim messages and mark them Received, with merges and links. With no ids, every message this session may
+    file. Which merges and links are allowed is the Gateway's rule; only the shape of each pair is checked here."""
+    ids = _ids(message_ids)
     merge_pairs = _pairs(merges, 2, "--merge", "<message-id>:<into-message-id>")
     link_triples = _pairs(links, 3, "--link", "<message-id>:<kind>:<ref>")
-    named = set(ids)
-    for message_id, into in merge_pairs:
-        if message_id not in named or into not in named:
-            axi_cli.usage_error(f"--merge {message_id}:{into} names a message not being received; "
-                                "both must be among the ids passed.")
-        if message_id == into:
-            axi_cli.usage_error(f"--merge {message_id}:{into} merges a message into itself.")
-    for message_id, _, _ in link_triples:
-        if message_id not in named:
-            axi_cli.usage_error(f"--link names message {message_id}, which is not being received.")
-    body = {
-        "ids": ids,
-        "merges": [{"id": m, "into": i} for m, i in merge_pairs],
-        "links": [{"id": m, "kind": k, "ref": r} for m, k, r in link_triples],
-    }
+    body: Dict[str, Any] = {}
+    if ids is not None:
+        body["ids"] = ids
+    if merge_pairs:
+        body["merges"] = [{"id": m, "into": i} for m, i in merge_pairs]
+    if link_triples:
+        body["links"] = [{"id": m, "kind": k, "ref": r} for m, k, r in link_triples]
     answer = _post(_session_route("receive"), body, [f"{_TOOL} new"])
     received = _rows(answer, "received", "received messages")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    _render_messages(["Received."], received, MESSAGE_DEFAULT, False,
-                     [f"{_TOOL} bundle --hand <id> [<id>...]"])
+    _render_messages(["Received."], received, MESSAGE_DEFAULT, True, [f"{_TOOL} bundle --hand"])
 
 
 _DECIDE_NEXT = [f"{_TOOL} decide <id> delegated --session <session-id>",
@@ -385,15 +404,15 @@ def bundle(message_ids: Sequence[str], hand: bool, json_output: bool) -> None:
                                              else [f"{_TOOL} thread <factory>", "cc-devthrottle session done"]))
         axi_output.write_blocks(sys.stdout, *blocks)
         return
-    ids = _ids(message_ids, "hand to the Boss")
-    answer = _post(_session_route("bundle"), {"ids": ids}, [f"{_TOOL} new"])
+    ids = _ids(message_ids)
+    answer = _post(_session_route("bundle"), {"ids": ids} if ids is not None else {}, [f"{_TOOL} new"])
     handed = answer.get("bundle") if isinstance(answer, dict) else None
     bundle_id = axi_cli.confirmed(handed, ["id"], "the hand-over of the bundle", [f"{_TOOL} new"])
     items = _rows(handed, "items", "messages in the bundle")
     if json_output:
         print(json.dumps(answer, indent=2))
         return
-    _render_messages([f"Handed to the Boss: bundle {bundle_id}."], items, MESSAGE_DEFAULT, False,
+    _render_messages([f"Handed to the Boss: bundle {bundle_id}."], items, MESSAGE_DEFAULT, True,
                      [f"{_TOOL} new", "cc-devthrottle session done"])
 
 
