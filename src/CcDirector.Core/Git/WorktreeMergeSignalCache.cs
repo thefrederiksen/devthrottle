@@ -19,8 +19,12 @@ namespace CcDirector.Core.Git;
 ///
 /// The age limit exists because two signals can change with neither commit id moving: the
 /// pull-request probe (a pull request opened or merged on the hosting provider) and the upstream
-/// tracking ref (a fetch that pruned the branch's upstream). Five minutes matches the watcher's
-/// periodic reconciliation, so those are re-read on the same cadence the full rescan already had.
+/// tracking ref (a fetch that pruned the branch's upstream). Five minutes is a ceiling on how long
+/// such a change can go unnoticed once something else asks for this repository: an entry older than
+/// that is recomputed on the next compute, whatever asked for it. It no longer matches the watcher's
+/// periodic reconciliation, which runs hourly (<see cref="RepositoryWatcher.DefaultReconcileInterval"/>),
+/// so in practice a fetch raises a file event and the recompute that follows re-reads these signals
+/// long before the hour is up.
 ///
 /// Memory is bounded two ways. The owning <see cref="RepositoryMonitor"/> forgets a repository the
 /// moment it drops it from its model and, after every completed scan, sweeps away every repository the

@@ -66,9 +66,9 @@ public sealed class ScheduledJobMigrationTests : IDisposable
 
         var row = Assert.Single(jobs.Snapshot());
         Assert.Equal("Repository watcher: full reconciliation", row.Name);
-        Assert.Equal(TimeSpan.FromMinutes(5), row.Cadence);
+        Assert.Equal(TimeSpan.FromHours(1), row.Cadence);
         Assert.Equal(BackgroundJobTier.SlowAndSteady, row.Tier);
-        Assert.Equal(12, row.CeilingPerHour);
+        Assert.Equal(1, row.CeilingPerHour);
 
         watcher.Dispose();
         Assert.Empty(jobs.Snapshot());
