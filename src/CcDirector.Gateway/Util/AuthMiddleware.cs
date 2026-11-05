@@ -349,7 +349,8 @@ internal static class AuthMiddleware
             return;
         }
 
-        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, cfg.Hosted, cfg.Sessions, cfg.IsRaised, cfg.SessionSeatOf);
+        var authentication = AuthenticateRequest(ctx, cfg.Token, cfg.Devices, cfg.Hosted, cfg.Sessions, cfg.IsRaised, cfg.SessionSeatOf,
+            cfg.IsTheWakesSecretary);
         if (authentication == AuthenticationResultKind.Authenticated)
         {
             // MTR-15 cancellation cutoff: on hosted, an authenticated device-key request must still belong to
@@ -536,7 +537,8 @@ internal static class AuthMiddleware
         bool rejectSharedToken,
         SessionKeyRegistry? sessions = null,
         Func<SessionCredentialIdentity, bool>? isRaised = null,
-        Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf = null)
+        Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf = null,
+        Func<SessionCredentialIdentity, string, bool>? wokenSecretary = null)
     {
         var strongestFailure = AuthenticationResultKind.UnknownCredential;
 
@@ -562,7 +564,7 @@ internal static class AuthMiddleware
                 // key is an agent's credential, carried by a command line, and it is never a browser's. The
                 // cookie path below exists for browser WebSockets, which cannot set a header; extending a
                 // session key to it would put an agent's credential on a surface a page can be made to send.
-                var session = AuthenticateSession(ctx, sessions, provided, isRaised, seatOf);
+                var session = AuthenticateSession(ctx, sessions, provided, isRaised, seatOf, wokenSecretary);
                 if (session == AuthenticationResultKind.Authenticated)
                     return session;
                 // A scope refusal is TERMINAL - it returns here rather than falling through to the cookie.
@@ -695,7 +697,8 @@ internal static class AuthMiddleware
         SessionKeyRegistry? sessions,
         string credential,
         Func<SessionCredentialIdentity, bool>? isRaised,
-        Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf)
+        Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf,
+        Func<SessionCredentialIdentity, string, bool>? wokenSecretary)
     {
         if (sessions is null)
             return AuthenticationResultKind.UnknownCredential;
@@ -722,7 +725,7 @@ internal static class AuthMiddleware
                         verdict.Reason, resolution.Identity.SessionId.ToString()));
                     return AuthenticationResultKind.OutOfScopeSessionKey;
                 }
-                if (RefuseASecretary(ctx, resolution.Identity, seatOf) is { } secretary)
+                if (RefuseASecretary(ctx, resolution.Identity, seatOf, wokenSecretary) is { } secretary)
                 {
                     ctx.Items[SecretaryStartRefusalItemKey] = secretary;
                     NoteKnownRefusal(ctx, new KnownRefusal(resolution.Identity.Tenant.Value, "session key",
@@ -753,15 +756,18 @@ internal static class AuthMiddleware
     /// THE SECRETARY STARTS NOTHING (Factory Inbox mission, phase 2): the one place every start door asks it. Only a path
     /// <see cref="Factory.Inbox.SecretaryStartLimit.IsAStartDoor"/> names reads the caller's history row, so an ordinary
     /// request costs no extra read. The row read is the session this key proves, in the key's own account. A null reader
-    /// means this host records no seats, and nothing is refused for it.
+    /// means this host records no seats, and nothing is refused for it. The wake's record is read only for a session in a
+    /// factory whose seat does not already make it the Secretary (<see cref="Factory.Inbox.SecretaryStartLimit.IsASecretary"/>).
     /// </summary>
     private static Factory.Inbox.SecretaryStartRefusal? RefuseASecretary(
-        HttpContext ctx, SessionCredentialIdentity identity, Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf)
+        HttpContext ctx, SessionCredentialIdentity identity, Func<SessionCredentialIdentity, SessionFactoryLookup>? seatOf,
+        Func<SessionCredentialIdentity, string, bool>? wokenSecretary)
     {
         if (seatOf is null || !Factory.Inbox.SecretaryStartLimit.IsAStartDoor(ctx.Request.Method, ctx.Request.Path.Value))
             return null;
         var lookup = seatOf(identity);
-        var refusal = Factory.Inbox.SecretaryStartLimit.Refuse(lookup);
+        var refusal = Factory.Inbox.SecretaryStartLimit.Refuse(lookup,
+            wokenSecretary is null ? null : factory => wokenSecretary(identity, factory));
         if (refusal is not null)
             FileLog.Write($"[AuthMiddleware] start door REFUSED for session {identity.SessionId:D}: {ctx.Request.Method} " +
                           $"{Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")} - {refusal.Code} " +
@@ -1006,6 +1012,14 @@ internal static class AuthMiddleware
         /// Null means this host records no seats, and no start door is refused for it.
         /// </summary>
         public Func<SessionCredentialIdentity, SessionFactoryLookup>? SessionSeatOf { get; init; }
+
+        /// <summary>
+        /// Factory Inbox mission, phase 2: whether the wake's row for a factory records the session behind a verified
+        /// session key as that factory's Secretary - the only mark an UNDEFINED factory's Secretary carries. Read in the
+        /// key's own account, at a start door only, and only for a session in that factory whose seat does not already say
+        /// Secretary. Null means this host keeps no wake record.
+        /// </summary>
+        public Func<SessionCredentialIdentity, string, bool>? IsTheWakesSecretary { get; init; }
 
         /// <summary>
         /// Writes the record of one action a raised session took that an unraised key could not: the session, which

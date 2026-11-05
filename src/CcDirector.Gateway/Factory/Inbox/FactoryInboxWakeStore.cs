@@ -36,6 +36,15 @@ public sealed class FactoryInboxWakeStore
         return ctx.FactoryInboxWakes.AsNoTracking().FirstOrDefault(w => w.Factory == factory);
     }
 
+    /// <summary>True when the factory's wake row records <paramref name="sessionId"/> as the Secretary it started - the
+    /// only mark an undefined factory's Secretary carries, read by the start-door refusal (<see cref="SecretaryStartLimit"/>).</summary>
+    public bool RecordsAsSecretary(TenantId tenant, string factory, string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return Find(tenant, factory)?.SecretarySessionId is { } recorded
+               && string.Equals(recorded, sessionId, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// The factory's wake row, written now when there is none. Two writers creating it at once are held apart by the
     /// unique index on the factory: the one that loses reads the row the other wrote.

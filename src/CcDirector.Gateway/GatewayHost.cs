@@ -5124,6 +5124,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     using (_tenantBoundary.EnterScope(identity.Tenant))
                         return _sessionHistory.FactoryOf(identity.SessionId.ToString("D"));
                 },
+                // An undefined factory's Secretary carries no seat; the wake's row is what records it.
+                IsTheWakesSecretary = (identity, factory) =>
+                    FactoryInboxWakes.RecordsAsSecretary(identity.Tenant, factory, identity.SessionId.ToString("D")),
             };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
