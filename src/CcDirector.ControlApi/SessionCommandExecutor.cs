@@ -1272,7 +1272,18 @@ internal static class SessionCommandExecutor
         // matters only for a restored session that persisted a different one. Where they differ, the working
         // directory is the tree the agent process was actually running in - which is the tree whose
         // uncommitted changes the operator is about to walk away from, and the whole point of Ruling 2.
-        string? worktreePath = string.IsNullOrWhiteSpace(session.WorkingDirectory) ? null : session.WorkingDirectory;
+        //
+        // A FACTORY SEAT'S KIT WORK FOLDER IS NOT A WORKTREE (review of the kit-folder race, 4 November 2026). It is a
+        // folder the Director wrote and deletes itself when the seat ends, so "did it have uncommitted changes" has no
+        // answer worth a git call - and that call was the race: on a machine where git takes seconds to start it outran
+        // the probe's budget, and the git being killed still held the folder when the kit was deleted. No probe runs
+        // there, and the stop reports no worktree, as for a session with no working folder.
+        var inKitWorkFolder = IsTheKitWorkFolder(session);
+        if (inKitWorkFolder)
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} runs in its kit work folder, not a worktree - no worktree probe");
+        string? worktreePath = string.IsNullOrWhiteSpace(session.WorkingDirectory) || inKitWorkFolder
+            ? null
+            : session.WorkingDirectory;
         bool? worktreeDirty = worktreePath is null
             ? null
             : await ProbeWorktreeUncommittedAsync(guid, worktreePath, worktreeProbe);
@@ -1525,6 +1536,19 @@ internal static class SessionCommandExecutor
                 + $"did not answer ({ex.GetType().Name}: {ex.Message}) - reporting UNKNOWN, not clean");
             return null;
         }
+    }
+
+    /// <summary>Whether the session runs in its own factory kit's <c>work/</c> folder - a folder the Director made and
+    /// removes, never a git worktree.</summary>
+    private static bool IsTheKitWorkFolder(Session session)
+    {
+        if (session.FactoryKitDirectory is not { Length: > 0 } kit || string.IsNullOrWhiteSpace(session.WorkingDirectory))
+            return false;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(
+            Path.GetFullPath(session.WorkingDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(FactoryRunKit.WorkDirectoryOf(kit)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            comparison);
     }
 
     /// <summary>The worktree probe outcome as one word, for the log line.</summary>

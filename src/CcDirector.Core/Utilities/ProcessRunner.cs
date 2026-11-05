@@ -325,18 +325,22 @@ public static class ProcessRunner
     /// machine, was cancelled, and the kit folder delete that followed failed on a folder the dying git still held - so
     /// a seat ended for good kept its folder. Bounded by <see cref="KilledExitLimit"/>, and logged when the child
     /// outlives it, because a child that cannot be ended must not hold the caller up for ever.
+    ///
+    /// THE KERNEL WAIT, NOT <see cref="Process.WaitForExitAsync"/> (review of this change, finding 1, measured). On
+    /// Windows the asynchronous wait checks <see cref="Process.HasExited"/> first, which is true as soon as the exit code
+    /// is set - and <c>TerminateProcess</c> sets it at once and tears the process down afterwards, releasing its working
+    /// folder only then. So after a kill it returned at once and 32 of 40 deletes still failed. The synchronous
+    /// <see cref="Process.WaitForExit(int)"/> waits on the process handle itself, which is signalled only when the
+    /// process is gone; with it 0 of 20 failed. It blocks, so it runs on the thread pool, never on the caller's thread.
     /// </summary>
     private static async Task WaitForKilledExitAsync(Process proc, string fileName)
     {
-        using var limit = new CancellationTokenSource(KilledExitLimit);
         try
         {
-            await proc.WaitForExitAsync(limit.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync FAILED: {fileName} was killed but had not exited after " +
-                          $"{KilledExitLimit.TotalSeconds:F0}s; returning without it");
+            var gone = await Task.Run(() => proc.WaitForExit((int)KilledExitLimit.TotalMilliseconds)).ConfigureAwait(false);
+            if (!gone)
+                FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync FAILED: {fileName} was killed but had not exited after " +
+                              $"{KilledExitLimit.TotalSeconds:F0}s; returning without it");
         }
         catch (InvalidOperationException ex)
         {

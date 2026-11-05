@@ -145,6 +145,55 @@ public sealed class FactoryKitSurvivesARestoreTests : IDisposable
         Assert.False(Directory.Exists(dir));
     }
 
+    /// <summary>A worktree probe that answers clean and counts the folders it was asked about - a fake, so no git runs.</summary>
+    private sealed class CountingProbe
+    {
+        public List<string> AskedAbout { get; } = new();
+
+        public Task<CcDirector.Core.Git.GitCountResult> Probe(string path, CancellationToken _)
+        {
+            AskedAbout.Add(path);
+            return Task.FromResult(new CcDirector.Core.Git.GitCountResult(true, 0));
+        }
+    }
+
+    private static Gateway.Contracts.DirectorCommand KillCommand(Guid id) =>
+        new() { CommandId = "stop-kit", Verb = "kill", SessionId = id.ToString() };
+
+    [Fact]
+    public async Task TheStopOfASeatInItsKitWorkFolder_RunsNoWorktreeProbe_AndDeletesTheKitFolder()
+    {
+        // The kit's work folder is not a worktree. The probe was the race: on a machine where git took seconds to start
+        // it outran its budget, and the git being killed still held the folder when the kit was deleted.
+        using var manager = Manager();
+        var session = CreateAsTheVerbDoes(manager, AHomeSeat());
+        var dir = session.FactoryKitDirectory!;
+        Assert.Equal(FactoryRunKit.WorkDirectoryOf(dir), session.WorkingDirectory);
+        var probe = new CountingProbe();
+
+        var result = await SessionCommandExecutor.KillAsync(manager, KillCommand(session.Id), worktreeProbe: probe.Probe);
+
+        Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+        Assert.Empty(probe.AskedAbout);
+        Assert.Null(manager.GetSession(session.Id));
+        Assert.False(Directory.Exists(dir));
+    }
+
+    [Fact]
+    public async Task TheStopOfASessionInAnOrdinaryFolder_StillProbesThatFolder()
+    {
+        // The other side of the rule above: only the kit work folder is skipped.
+        using var manager = Manager();
+        var repo = Directory.CreateDirectory(Path.Combine(_scratch, "repo")).FullName;
+        var session = CreateAsTheVerbDoes(manager, new NewSessionRequest { Agent = "RawCli", RepoPath = repo });
+        var probe = new CountingProbe();
+
+        var result = await SessionCommandExecutor.KillAsync(manager, KillCommand(session.Id), worktreeProbe: probe.Probe);
+
+        Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+        Assert.Equal(new[] { session.WorkingDirectory }, probe.AskedAbout);
+    }
+
     [Fact]
     public void ASeatTheDrainFlagsAfterItsHandover_KeepsItsKit_AndACancelTakesTheKeepBack()
     {
