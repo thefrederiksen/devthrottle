@@ -50,6 +50,9 @@ public static class LicenseReadinessFixes
 /// <param name="Tone">One of <see cref="LicenseTones"/>.</param>
 /// <param name="AlarmAction">When not ready: the one thing to do, as the 80% alarm says it - true to what the last
 /// attempt did, never "signing it in" while nothing is running; else null.</param>
+/// <param name="CoveredLater">True when the machine is ready only because a spare it holds has room again before the
+/// account it is on is forecast to run out (<see cref="LicenseReadinessFold"/>, "covered later"). Such a machine is not
+/// stranded: the 80% warning and the stranded alarm leave it out.</param>
 public sealed record LicenseMachineReadiness(
     Guid MachineId,
     string MachineName,
@@ -65,7 +68,8 @@ public sealed record LicenseMachineReadiness(
     DateTime? NextAttemptAtUtc,
     string Text,
     string Tone,
-    string? AlarmAction)
+    string? AlarmAction,
+    bool CoveredLater = false)
 {
     /// <summary>True when the machine is not ready for the account it would switch to next.</summary>
     public bool IsGap => State == LicenseReadinessStates.NotReady;
@@ -204,6 +208,16 @@ public static class LicenseReadinessFold
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
             if (!targets.TryGetValue(active, out var ranked))
                 targets[active] = ranked = LicenseDecisionEngine.TargetsWithRoom(picture.Snapshot, active);
+            var readyNow = ranked.FirstOrDefault(t => LicenseDecisionEngine.Readiness(state, t, nowUtc).IsReady);
+            // Ready for no account with room now (or none has room), but a spare it is ready for has room again before this
+            // account runs out: covered later.
+            if (readyNow is null && CoveredLater(picture.Snapshot, state, active, expectedRunOutAt(active), nowUtc) is { } later)
+            {
+                judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, later.Spare,
+                    LicenseReadinessStates.Ready, null, null, null, null, null, ReadyLaterText(later.Spare, later.BackAtUtc, active, later.RunsOutAtUtc),
+                    LicenseTones.Good, null, CoveredLater: true));
+                continue;
+            }
             if (ranked.Count == 0)
             {
                 judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, null,
@@ -212,18 +226,10 @@ public static class LicenseReadinessFold
             }
             // Covered when ready for ANY account with room, as the switch itself moves it (each machine to the best account
             // with room it is ready for): ready for the best one is not the only way to be ready (step 2 of the mission).
-            if (ranked.FirstOrDefault(t => LicenseDecisionEngine.Readiness(state, t, nowUtc).IsReady) is { } readyFor)
+            if (readyNow is { } readyFor)
             {
                 judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, readyFor,
                     LicenseReadinessStates.Ready, null, null, null, null, null, ReadyText(readyFor), LicenseTones.Good, null));
-                continue;
-            }
-            // Ready for none now, but a spare it is ready for has room again before this account runs out: covered later.
-            if (CoveredLater(picture.Snapshot, state, active, expectedRunOutAt(active), nowUtc) is { } later)
-            {
-                judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, later.Spare,
-                    LicenseReadinessStates.Ready, null, null, null, null, null, ReadyLaterText(later.Spare, later.BackAtUtc, active, later.RunsOutAtUtc),
-                    LicenseTones.Good, null));
                 continue;
             }
             // Ready for none: judged against the best, the account it would go to and the one a sign-in is started for.
