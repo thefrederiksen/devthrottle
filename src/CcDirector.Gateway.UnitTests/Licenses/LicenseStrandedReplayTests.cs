@@ -247,7 +247,7 @@ public sealed class LicenseStrandedReplayTests : IDisposable
     {
         var approverReadiness = new LicenseApproverReadiness(_approvers, _reads, _directors.IsConnected, () => _now);
         return new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, _reads), _signInLog, _signIns, approverReadiness.WhyNotReady,
-            _directors.IsConnected, _alarms, () => _now);
+            _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
     }
 
     /// <summary>The approver alarm's raise, as the Gateway runs it after a check report and every minute: over the real

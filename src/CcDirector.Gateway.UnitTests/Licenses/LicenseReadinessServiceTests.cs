@@ -101,7 +101,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     /// <summary>A new service over the same database: what a Gateway that restarted would build.</summary>
     private LicenseReadinessService Service()
         => new(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns, (tenant, account) => _approverWhyNot(tenant, account),
-            _directors.IsConnected, _alarms, () => _now);
+            _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
 
     /// <summary>Both machines report now, as the fields above say, and their Directors are connected.</summary>
     private void BothReport(TenantId? tenant = null)
@@ -165,6 +165,54 @@ public sealed class LicenseReadinessServiceTests : IDisposable
             SignInExpiresAtUtc = _now.AddDays(30),
             FinishedAtUtc = _now,
         }));
+    }
+
+    // ----- covered later by a spare it holds (4 November 2026) -----
+
+    // The 4 November picture: machine-a is on account A at 40%. Its one spare, account B, is at its limit and resets in
+    // four days. Account C has room, but machine-a holds no sign-in for it (machine-b does). Judged with the forecast of
+    // when account A runs out that the test passes.
+    private IReadOnlyList<LicenseMachineReadiness> JudgeTheFourthOfNovember(DateTime? aRunsOutAt)
+    {
+        _store.ApplyReport(One, DirA, ++_sequence,
+            Report(MachineA, _now, Holding(A, true, 5, 40, readAt: _now), Holding(B, false, 5, 98, readAt: _now)), _now, TimeSpan.Zero);
+        _store.ApplyReport(One, DirB, ++_sequence,
+            Report(MachineB, _now, Holding(C, true, 5, 10, readAt: _now), Holding(A, false, 5, 40, readAt: _now)), _now, TimeSpan.Zero);
+        _directors.Connect(One, DirA);
+        _directors.Connect(One, DirB);
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        return LicenseReadinessFold.Judge(picture, _log.ListOpen(One), _log.ListSince(One, _now.AddDays(-1)),
+            _ => "No machine is set to approve sign-ins for this account.", _ => true,
+            account => account == A ? aRunsOutAt : null, _now);
+    }
+
+    // Its spare is back (T0 + 4 days) before account A is forecast to run out (T0 + 5 days): ready, no gap, so no
+    // sign-in is wanted and no approver alarm can open for account C.
+    [Fact]
+    public void Judge_ASpareBackBeforeTheAccountRunsOut_IsReady_AndNamesBothTimes()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(T0.AddDays(5)), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.Ready, B, LicenseTones.Good, false), (a.State, a.TargetAccountEmail, a.Tone, a.IsGap));
+        Assert.Equal("Ready: account-b@example.com has room again on Thu 15 Oct 03:12 UTC, before account-a@example.com is expected to reach 97% on Fri 16 Oct 03:12 UTC.", a.Text);
+    }
+
+    // Account A is forecast to run out (T0 + 3 days) before the spare is back: a real gap, judged against account C.
+    [Fact]
+    public void Judge_ASpareBackOnlyAfterTheAccountRunsOut_IsNotReady()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(T0.AddDays(3)), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.NotReady, C, LicenseReadinessFixes.ApproverNotReady), (a.State, a.TargetAccountEmail, a.Fix));
+    }
+
+    // No forecast for account A: judged on today's numbers alone, as before. A missing forecast never covers a machine.
+    [Fact]
+    public void Judge_NoForecastForTheAccount_IsJudgedOnTodayAlone()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(null), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.NotReady, C), (a.State, a.TargetAccountEmail));
     }
 
     // ----- the readiness of each machine, word for word -----

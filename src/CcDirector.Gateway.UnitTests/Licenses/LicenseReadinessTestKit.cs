@@ -25,6 +25,6 @@ internal static class LicenseReadinessTestKit
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, _, _) => Task.CompletedTask, nowUtc);
         return new LicenseReadinessService(store, new LicenseSnapshotSource(store, reads), log, signIns, approvers.WhyNotReady,
-            isConnected, alarms, nowUtc);
+            isConnected, alarms, new LicenseUsageHistory(), nowUtc);
     }
 }

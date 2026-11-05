@@ -79,6 +79,15 @@ public sealed record LicenseMachineReadiness(
 /// second time), what the Gateway is doing about it, and the finished words. The minute check and the Licenses page
 /// call the same function on the same facts, so the page says what the check does. Pure: facts go in, an answer comes out.
 ///
+/// COVERED LATER BY A SPARE IT HOLDS (the owner, 4 November 2026). A machine ready for no account with room NOW is still
+/// ready when a spare it is ready for has room again before the account it is on is forecast to reach the threshold: it
+/// does not need to switch until then, and by then it has somewhere to go. On 4 November SOREN_NORTH switched onto an
+/// account at 37%, its one spare was the account it had just left (at the limit, back in under three days), and the check
+/// asked only about today: it judged the machine not ready, wanted a sign-in to an account with no approver, and the
+/// banner said "1 license problem" for a machine with nothing wrong. With no forecast for the account it is on - a reading
+/// too old, or no pace yet - the machine is judged on today's numbers alone, as before: a missing forecast never makes a
+/// machine look covered.
+///
 /// COVERED BY ANY ACCOUNT WITH ROOM (mission "Licenses - Loud When Stranded", step 2). A machine is ready when it is
 /// ready for AT LEAST ONE account with room (<see cref="LicenseDecisionEngine.TargetsWithRoom"/>), named against the
 /// best of those it is ready for - exactly where the switch would move it. Only a machine ready for none of them is not
@@ -163,15 +172,18 @@ public static class LicenseReadinessFold
     /// <param name="approverWhyNot">For an account: null when its approver can approve, else the sentence of why not
     /// (<see cref="LicenseApproverReadiness.WhyNotReady"/>). Asked only for an account some machine is not ready for.</param>
     /// <param name="isConnected">Whether the Director with this identifier has a stream connection now.</param>
+    /// <param name="expectedRunOutAt">For an account in use: when the forecast expects it to reach the threshold
+    /// (<see cref="LicenseAccountForecast.ExpectedTiredAtUtc"/>), or null when there is no such forecast.</param>
     public static IReadOnlyList<LicenseMachineReadiness> Judge(LicensePicture picture, IReadOnlyList<LicenseSwitchLogEntity> openSignIns,
         IReadOnlyList<LicenseSwitchLogEntity> recentSignIns, Func<string, string?> approverWhyNot, Func<string, bool> isConnected,
-        DateTime nowUtc)
+        Func<string, DateTime?> expectedRunOutAt, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
         ArgumentNullException.ThrowIfNull(openSignIns);
         ArgumentNullException.ThrowIfNull(recentSignIns);
         ArgumentNullException.ThrowIfNull(approverWhyNot);
         ArgumentNullException.ThrowIfNull(isConnected);
+        ArgumentNullException.ThrowIfNull(expectedRunOutAt);
         var machines = picture.Overview.Machines;
         var states = picture.Snapshot.Machines.ToDictionary(m => Key(m.MachineName, m.OsUser), StringComparer.Ordinal);
         var targets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
@@ -204,6 +216,14 @@ public static class LicenseReadinessFold
             {
                 judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, readyFor,
                     LicenseReadinessStates.Ready, null, null, null, null, null, ReadyText(readyFor), LicenseTones.Good, null));
+                continue;
+            }
+            // Ready for none now, but a spare it is ready for has room again before this account runs out: covered later.
+            if (CoveredLater(picture.Snapshot, state, active, expectedRunOutAt(active), nowUtc) is { } later)
+            {
+                judged.Add(new LicenseMachineReadiness(machine.MachineId, machine.MachineName, machine.OsUser, label, active, later.Spare,
+                    LicenseReadinessStates.Ready, null, null, null, null, null, ReadyLaterText(later.Spare, later.BackAtUtc, active, later.RunsOutAtUtc),
+                    LicenseTones.Good, null));
                 continue;
             }
             // Ready for none: judged against the best, the account it would go to and the one a sign-in is started for.
@@ -314,6 +334,35 @@ public static class LicenseReadinessFold
     public const string NoRoomText = "No other account has room for it to switch to.";
 
     public static string ReadyText(string targetAccountEmail) => $"Ready for {targetAccountEmail}.";
+
+    /// <summary>The words for a machine covered later by a spare it holds.</summary>
+    public static string ReadyLaterText(string spare, DateTime backAtUtc, string active, DateTime runsOutAtUtc)
+        => $"Ready: {spare} has room again on {Day(backAtUtc)}, before {active} is expected to reach {LicenseDecisionEngine.ThresholdPercent.ToString("0", CultureInfo.InvariantCulture)}% on {Day(runsOutAtUtc)}.";
+
+    private sealed record Later(string Spare, DateTime BackAtUtc, DateTime RunsOutAtUtc);
+
+    // The spare the machine is ready for that has room again first, when that is no later than the account it is on is
+    // forecast to run out; null when there is no forecast, the account has run out already, or no spare is back in time.
+    private static Later? CoveredLater(LicenseSnapshot snapshot, LicenseMachineState state, string active, DateTime? runsOut, DateTime nowUtc)
+    {
+        if (runsOut is not { } runsOutAt || runsOutAt <= nowUtc)
+            return null;
+        var readings = snapshot.Accounts.ToDictionary(r => LicenseStore.NormalizeEmail(r.AccountEmail), StringComparer.Ordinal);
+        var source = LicenseStore.NormalizeEmail(active);
+        return state.Spares
+            .Select(s => LicenseStore.NormalizeEmail(s.AccountEmail))
+            .Where(s => s != source && LicenseDecisionEngine.Readiness(state, s, nowUtc).IsReady)
+            .Select(s => readings.TryGetValue(s, out var reading) && LicenseDecisionEngine.BackWithRoomAt(snapshot, reading) is { } back
+                ? new Later(s, back, runsOutAt)
+                : null)
+            .OfType<Later>()
+            .Where(l => l.BackAtUtc <= runsOutAt)
+            .OrderBy(l => l.BackAtUtc)
+            .ThenBy(l => l.Spare, StringComparer.Ordinal)
+            .FirstOrDefault();
+    }
+
+    private static string Day(DateTime utc) => Utc(utc).ToString("ddd d MMM HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
     private static string FailedBecause(LicenseSwitchLogEntity row)
     {

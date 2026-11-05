@@ -397,27 +397,42 @@ public static class LicenseDecisionEngine
         if (string.IsNullOrWhiteSpace(sourceAccountEmail))
             throw new ArgumentException("The account in use is required", nameof(sourceAccountEmail));
         var source = Normalize(sourceAccountEmail);
-        var now = snapshot.NowUtc;
         LicenseAccountReturn? first = null;
         foreach (var reading in IndexReadings(snapshot.Accounts).Values.Where(r => !SameAccount(r.AccountEmail, source)))
         {
-            if (reading.NoPaidPlanSinceUtc is not null)
-                continue; // no paid plan: its kept numbers say nothing about when it has room
-            if (reading.FiveHour is not { } five || reading.SevenDay is not { } week)
+            if (BackWithRoomAt(snapshot, reading) is not { } back)
                 continue;
-            var full = new[] { five, week }.Where(w => w.Utilization >= ThresholdPercent).ToList();
-            if (full.Count == 0 && IsReadingStale(reading, now))
-                continue; // under the threshold on a reading too old to trust: when it has room is not known
-            if (full.Any(w => w.ResetsAtUtc is not { } reset || reset <= now))
-                continue; // full, and when it resets is not known
-            var back = full.Count == 0 ? now : full.Max(w => w.ResetsAtUtc!.Value);
-            foreach (var bar in snapshot.Bars.Where(b => SameAccount(b.AccountEmail, reading.AccountEmail) && b.BarredUntilUtc > back))
-                back = bar.BarredUntilUtc;
             if (first is null || back < first.BackAtUtc
                 || (back == first.BackAtUtc && string.CompareOrdinal(reading.AccountEmail, first.AccountEmail) < 0))
                 first = new LicenseAccountReturn(reading.AccountEmail, back);
         }
         return first;
+    }
+
+    /// <summary>
+    /// When one account has room again as a target, from the reset times its reading carries: once every window at or over
+    /// the threshold has reset, and once a bar on it has passed. Null when that cannot be told - no paid plan, a window not
+    /// known, a reading too old to show it under the threshold, or a full window with no reset time ahead. The one rule
+    /// <see cref="FirstBackWithRoom"/> and the readiness check's look ahead both use.
+    /// </summary>
+    public static DateTime? BackWithRoomAt(LicenseSnapshot snapshot, LicenseAccountReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(reading);
+        var now = snapshot.NowUtc;
+        if (reading.NoPaidPlanSinceUtc is not null)
+            return null; // no paid plan: its kept numbers say nothing about when it has room
+        if (reading.FiveHour is not { } five || reading.SevenDay is not { } week)
+            return null;
+        var full = new[] { five, week }.Where(w => w.Utilization >= ThresholdPercent).ToList();
+        if (full.Count == 0 && IsReadingStale(reading, now))
+            return null; // under the threshold on a reading too old to trust: when it has room is not known
+        if (full.Any(w => w.ResetsAtUtc is not { } reset || reset <= now))
+            return null; // full, and when it resets is not known
+        var back = full.Count == 0 ? now : full.Max(w => w.ResetsAtUtc!.Value);
+        foreach (var bar in snapshot.Bars.Where(b => SameAccount(b.AccountEmail, reading.AccountEmail) && b.BarredUntilUtc > back))
+            back = bar.BarredUntilUtc;
+        return back;
     }
 
     /// <summary>
