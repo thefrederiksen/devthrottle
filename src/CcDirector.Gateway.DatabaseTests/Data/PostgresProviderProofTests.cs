@@ -201,6 +201,11 @@ public sealed class PostgresProviderProofTests
             ("api_mode_receipts", "PromptId"),
             ("api_mode_receipts", "SessionId"),
             ("api_mode_receipts", "TurnId"),
+            // The schedule failure notices (AddScheduleFailureNotices, 24 October 2026): the job id and the cause are the
+            // exact key a notice is found again by. The context declared both with collation "C" and they were not listed
+            // here, so this census was red from that day; found by the Factory Inbox phase 1 run.
+            ("cron_failure_notices", "Cause"),
+            ("cron_failure_notices", "JobId"),
             // Two groups of dev report columns, interleaved below because the list is sorted:
             // - The dev report natural keys (the dev reports mission): dev_report_items.ClientItemId and
             //   SessionId, and dev_reports.Key and SessionId. A report is found by (session, report file path)
@@ -262,6 +267,22 @@ public sealed class PostgresProviderProofTests
             ("factory_email_reports", "Kind"),
             ("factory_email_reports", "SlotKey"),
             ("factory_email_reports", "State"),
+            // The Factory Inbox (Factory Inbox mission, phase 1): the factory and the session ids every read and claim
+            // selects on, and the closed words (state, note, source, surface, decision kind) compared exactly.
+            ("factory_inbox_bundles", "Factory"),
+            ("factory_inbox_bundles", "HandedBySessionId"),
+            ("factory_inbox_bundles", "ReadBySessionId"),
+            ("factory_inbox_decisions", "DecidedBySessionId"),
+            ("factory_inbox_decisions", "DelegatedSessionId"),
+            ("factory_inbox_decisions", "Factory"),
+            ("factory_inbox_decisions", "Kind"),
+            ("factory_inbox_messages", "ClaimSessionId"),
+            ("factory_inbox_messages", "Factory"),
+            ("factory_inbox_messages", "Note"),
+            ("factory_inbox_messages", "ReceivedBySessionId"),
+            ("factory_inbox_messages", "Source"),
+            ("factory_inbox_messages", "State"),
+            ("factory_inbox_messages", "Surface"),
             ("factory_journal_entries", "EntryDate"),
             ("factory_journal_entries", "Factory"),
             ("factory_journal_entries", "ImportKey"),
@@ -272,6 +293,9 @@ public sealed class PostgresProviderProofTests
             ("factory_seat_briefs", "Factory"),
             ("factory_seat_briefs", "Seat"),
             ("factory_seat_briefs", "State"),
+            // A factory's to-do list (Factory Inbox mission, phase 1).
+            ("factory_todos", "AddedBySessionId"),
+            ("factory_todos", "Factory"),
             // The Fleet Manager's stop events (the Fleet Manager mission): the event kind selects and groups, the
             // session the event is about and the session it was delivered to are the two inbox reads, the verdict id
             // binds an event to the stop it was about, and the outcome id binds it to the record it was filed on -

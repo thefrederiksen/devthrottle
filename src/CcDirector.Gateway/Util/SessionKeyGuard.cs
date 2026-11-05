@@ -502,6 +502,7 @@ public static class SessionKeyGuard
             if (IsFactoryDefinitionRoute(verb, s)) return true;
             if (IsFactoryRecordRoute(verb, s)) return true;
             if (IsMailDeskRoute(verb, s)) return true;
+            if (IsFactoryInboxRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -708,6 +709,7 @@ public static class SessionKeyGuard
             if (IsFactoryDefinitionRoute(verb, s)) return true;
             if (IsFactoryRecordRoute(verb, s)) return true;
             if (IsMailDeskRoute(verb, s)) return true;
+            if (IsFactoryInboxRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -1453,6 +1455,50 @@ public static class SessionKeyGuard
             5 when s[2] == "rules" => write && s[4] is "add" or "remove",
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// THE FACTORY INBOX (Factory Inbox mission, phase 1), added deliberately, shape by shape.
+    ///
+    /// The SESSION routes are allowed to every session key, and safe to be: each route reads the caller's factory and seat
+    /// from its own recorded session history and lets through only the session named in the path, started as that
+    /// factory's Secretary (list, receive, hand a bundle) or Boss (read the bundles, decide). The guard cannot read an
+    /// identifier or a history row, so it cannot make that ruling and does not try.
+    ///
+    /// The owner's four READS are allowed too - the list, one factory's thread, its summary and its to-do list - because a
+    /// Boss reads its own factory's summary and to-do list. The owner's SEND
+    /// (<c>POST /gateway/factory/{factory}/inbox</c>) is NOT here: a session never leaves a message in the owner's name,
+    /// and the route refuses a session key itself as well.
+    /// </summary>
+    private static bool IsFactoryInboxRoute(string verb, string[] s)
+    {
+        var read = verb is "GET" or "HEAD";
+        if (s.Length >= 3 && s[0] == "gateway" && s[1] == "factory")
+        {
+            // /gateway/factory/inbox - every factory's inbox at a glance.
+            if (s.Length == 3) return read && s[2] == "inbox";
+            // /gateway/factory/{factory}/inbox and /gateway/factory/{factory}/todo.
+            if (s.Length == 4) return read && s[3] is "inbox" or "todo";
+            // /gateway/factory/{factory}/inbox/summary.
+            if (s.Length == 5) return read && s[3] == "inbox" && s[4] == "summary";
+            return false;
+        }
+        if (s.Length >= 3 && s[0] == "sessions" && s[2] == "factory-inbox")
+        {
+            // /sessions/{sid}/factory-inbox - the Secretary's messages to file.
+            if (s.Length == 3) return read;
+            // /receive (POST), /bundle (POST hands one, GET reads the open ones).
+            if (s.Length == 4)
+                return s[3] switch
+                {
+                    "receive" => verb == "POST",
+                    "bundle" => read || verb == "POST",
+                    _ => false,
+                };
+            // /sessions/{sid}/factory-inbox/{messageId}/decide.
+            if (s.Length == 5) return verb == "POST" && s[4] == "decide";
+        }
+        return false;
     }
 
     private static bool IsScheduleRoute(string verb, string[] s)

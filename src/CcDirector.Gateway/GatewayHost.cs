@@ -341,6 +341,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The factory registry and the goal numbers its CEOs post (Factories screen mission, phase A).</summary>
     internal Factory.Registry.FactoryRegistryStore FactoryRegistry { get; }
 
+    /// <summary>The Factory Inbox: the owner's messages to each factory, its Secretary's bundles, its Boss's decisions and
+    /// its to-do list (Factory Inbox mission, phase 1).</summary>
+    internal Factory.Inbox.FactoryInboxStore FactoryInbox { get; }
+
     /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
     /// phase 1).</summary>
     internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
@@ -2625,6 +2629,8 @@ public sealed class GatewayHost : IAsyncDisposable
             () => DateTime.UtcNow);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
+        // A spoken message is corrected with the account's own listed words, read exactly as the dictation path reads them.
+        FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb, Transcription.TenantGlossary.Load);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -5741,6 +5747,25 @@ public sealed class GatewayHost : IAsyncDisposable
         var factoryGate = Api.FactoryAgentsGate.Group(_app, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
         Api.FactoryActivityEndpoints.Map(factoryGate, FactoryActivity);
+        // The Factory Inbox (Factory Inbox mission, phase 1): the owner leaves a factory a message; its Secretary files it
+        // and hands it to the Boss; the Boss decides it. Who may call each session route is read from the caller's own
+        // session history; a claim held by a session the Gateway recorded as ended may be taken by the next Secretary.
+        Api.FactoryInboxEndpoints.Map(factoryGate, new Api.FactoryInboxEndpoints.Parts(
+            Store: FactoryInbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            FactoryOf: (tenant, sessionId) =>
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                    return _sessionHistory.FactoryOf(sessionId);
+            },
+            ParentOf: (tenant, sessionId) =>
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                    return _sessionHistory.Get(sessionId) is { } row ? new Api.FactoryInboxRecordedParent(row.ParentSessionId) : null;
+            },
+            IsEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
+            NowUtc: () => DateTime.UtcNow));
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
