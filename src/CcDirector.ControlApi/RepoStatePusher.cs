@@ -22,6 +22,14 @@ namespace CcDirector.ControlApi;
 ///
 /// It is not started at all when the Director has no repository registry - there is nothing to report - and
 /// its push delegate is a no-op when no Gateway is configured, so an install with no Gateway does no work.
+///
+/// THE SCHEDULE IS NO LONGER THE ONLY TRIGGER. <see cref="PushOneFolderAsync"/> reports ONE repository on
+/// demand, and <see cref="Sessions.IdleTreeInspectionWatcher"/> asks for it when a session working in that
+/// folder parks at the end of a turn. That is what makes the Fleet Manager's Close rule satisfiable: the
+/// rule needs a report collected after the session's last activity, and until this existed the only
+/// reports arrived every six hours, so Close was refused for every session that had worked since the last
+/// one. The push store replaces one row per repository, so reporting a single repository leaves every
+/// other row exactly as it was.
 /// </summary>
 public sealed class RepoStatePusher : IDisposable
 {
@@ -70,6 +78,99 @@ public sealed class RepoStatePusher : IDisposable
         _startupDelay = startupDelay ?? StartupDelay;
         _cycle = cycle ?? TimeSpan.FromHours(CycleHours);
     }
+
+    /// <summary>
+    /// Collect and push ONE repository: the registered repository that <paramref name="folder"/> is, or
+    /// is inside. Returns the number of repositories the Gateway stored, or null when nothing was
+    /// reported - no registered repository covers that folder, the collection produced nothing, or the
+    /// push did not land. Fail-safe exactly as the cycle is: a fault is logged and dropped.
+    /// </summary>
+    public async Task<int?> PushOneFolderAsync(string folder, CancellationToken ct = default)
+    {
+        try
+        {
+            if (CoveringRepository(folder) is not { } repo)
+            {
+                FileLog.Write($"[RepoStatePusher] PushOneFolder: no registered repository covers {folder}; nothing reported");
+                return null;
+            }
+
+            var snapshots = await _collector
+                .CollectAsync(new[] { repo }, _liveSessions?.Invoke(), ct)
+                .ConfigureAwait(false);
+
+            if (snapshots.Count == 0)
+            {
+                // Collecting failed, or the folder is not a git working tree. Saying so matters: an empty
+                // push would read downstream as a clean bill of health invented out of a failure.
+                FileLog.Write($"[RepoStatePusher] PushOneFolder: collected nothing for {repo.Path}; nothing reported");
+                return null;
+            }
+
+            var response = await _push(new RepoStatePushRequest
+            {
+                DirectorId = _directorId,
+                MachineName = _machineName,
+                Repositories = snapshots,
+            }, ct).ConfigureAwait(false);
+
+            if (response is null)
+            {
+                FileLog.Write($"[RepoStatePusher] PushOneFolder: the Gateway did not accept the report of {repo.Path}");
+                return null;
+            }
+
+            FileLog.Write($"[RepoStatePusher] PushOneFolder: the Gateway stored {response.Stored} snapshot for {repo.Path}");
+            return response.Stored;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[RepoStatePusher] PushOneFolder FAILED for {folder}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The registered repository a folder belongs to: the folder itself when it is registered, otherwise
+    /// the LONGEST registered path it sits inside. Internal so a test can pin the matching, which decides
+    /// whose report is refreshed.
+    ///
+    /// The containment test requires a separator boundary, so a sibling folder whose name merely starts
+    /// with a repository's name is never mistaken for being inside it. A session in a linked worktree that
+    /// is not registered and sits outside every registered repository matches nothing, and that is the
+    /// honest answer: the Gateway holds no report covering it either.
+    /// </summary>
+    internal RepositoryConfig? CoveringRepository(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder)) return null;
+
+        var wanted = Normalize(folder);
+        RepositoryConfig? best = null;
+        var bestLength = -1;
+        foreach (var repo in _repositories.Repositories)
+        {
+            if (string.IsNullOrWhiteSpace(repo.Path)) continue;
+            var candidate = Normalize(repo.Path);
+            bool covers = wanted.Equals(candidate, StringComparison.OrdinalIgnoreCase)
+                || (wanted.Length > candidate.Length
+                    && wanted.StartsWith(candidate, StringComparison.OrdinalIgnoreCase)
+                    && (wanted[candidate.Length] == Path.DirectorySeparatorChar
+                        || wanted[candidate.Length] == Path.AltDirectorySeparatorChar));
+            if (covers && candidate.Length > bestLength)
+            {
+                best = repo;
+                bestLength = candidate.Length;
+            }
+        }
+        return best;
+    }
+
+    private static string Normalize(string path)
+        => path.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     /// <summary>Start the background loop. Idempotent.</summary>
     public void Start()

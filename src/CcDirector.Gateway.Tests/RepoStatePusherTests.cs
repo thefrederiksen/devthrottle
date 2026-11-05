@@ -170,6 +170,103 @@ public sealed class RepoStatePusherTests : IDisposable
         pusher.Dispose();
     }
 
+    // ---- reporting ONE repository, when a session working in it parks ------------------------------
+
+    [Fact]
+    public async Task PushOneFolder_ReportsOnlyThatRepository()
+    {
+        RepoStatePushRequest? captured = null;
+        var pusher = NewPusher((req, _) =>
+        {
+            captured = req;
+            return Task.FromResult<RepoStatePushResponse?>(new RepoStatePushResponse { Stored = req.Repositories.Count });
+        });
+
+        var stored = await pusher.PushOneFolderAsync(_repo);
+
+        Assert.Equal(1, stored);
+        Assert.Equal(_repo, Assert.Single(captured!.Repositories).Path);
+    }
+
+    [Fact]
+    public async Task PushOneFolder_FromASubfolderOfTheRepository_ReportsTheRepository()
+    {
+        var inside = Path.Combine(_repo, "src", "deep");
+        Directory.CreateDirectory(inside);
+        RepoStatePushRequest? captured = null;
+        var pusher = NewPusher((req, _) =>
+        {
+            captured = req;
+            return Task.FromResult<RepoStatePushResponse?>(new RepoStatePushResponse { Stored = req.Repositories.Count });
+        });
+
+        Assert.Equal(1, await pusher.PushOneFolderAsync(inside));
+        Assert.Equal(_repo, Assert.Single(captured!.Repositories).Path);
+    }
+
+    /// <summary>
+    /// A folder no registered repository covers reports NOTHING, and says so. Reporting the whole machine
+    /// instead would turn a session parking into the six-hourly cycle's work, dozens of times a day.
+    /// </summary>
+    [Fact]
+    public async Task PushOneFolder_AFolderNoRepositoryCovers_PushesNothing()
+    {
+        var pushes = 0;
+        var pusher = NewPusher((_, _) =>
+        {
+            pushes++;
+            return Task.FromResult<RepoStatePushResponse?>(new RepoStatePushResponse { Stored = 1 });
+        });
+
+        Assert.Null(await pusher.PushOneFolderAsync(Path.Combine(_root, "somewhere-else")));
+        Assert.Equal(0, pushes);
+    }
+
+    [Fact]
+    public async Task PushOneFolder_AGatewayThatRefuses_DoesNotThrow()
+    {
+        var pusher = NewPusher((_, _) => Task.FromResult<RepoStatePushResponse?>(null));
+
+        Assert.Null(await pusher.PushOneFolderAsync(_repo));
+    }
+
+    [Fact]
+    public async Task PushOneFolder_AGatewayThatThrows_DoesNotThrow()
+    {
+        var pusher = NewPusher((_, _) => throw new HttpRequestException("no route to the Gateway"));
+
+        Assert.Null(await pusher.PushOneFolderAsync(_repo));
+    }
+
+    /// <summary>
+    /// The longest covering registration wins, and a sibling whose name merely starts with a
+    /// repository's name is not inside it. Both decide WHOSE report gets refreshed, and a wrong answer
+    /// here would refresh the wrong row and leave the Close rule exactly as blind as before.
+    /// </summary>
+    [Fact]
+    public void CoveringRepository_PicksTheLongestMatch_AndRefusesASibling()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(_root, "many.json"));
+        var outer = Path.Combine(_root, "work");
+        var inner = Path.Combine(outer, "widgets");
+        var sibling = Path.Combine(outer, "widgets-old");
+        registry.SeedFrom(new[]
+        {
+            new RepositoryConfig { Name = "work", Path = outer },
+            new RepositoryConfig { Name = "widgets", Path = inner },
+        });
+        var pusher = NewPusher((_, _) => Task.FromResult<RepoStatePushResponse?>(null), registry);
+
+        Assert.Equal(inner, pusher.CoveringRepository(Path.Combine(inner, "src"))?.Path);
+        Assert.Equal(inner, pusher.CoveringRepository(inner)?.Path);
+        Assert.Equal(inner, pusher.CoveringRepository(inner + Path.DirectorySeparatorChar)?.Path);
+        // Inside "work", but NOT inside "work/widgets" - the separator boundary is what tells them apart.
+        Assert.Equal(outer, pusher.CoveringRepository(sibling)?.Path);
+        Assert.Null(pusher.CoveringRepository(Path.Combine(_root, "elsewhere")));
+        Assert.Null(pusher.CoveringRepository("   "));
+        Assert.Null(pusher.CoveringRepository(null));
+    }
+
     private static void RunGit(string workingDir, params string[] args)
     {
         var psi = new ProcessStartInfo
