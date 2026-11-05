@@ -198,6 +198,95 @@ internal static class UnixNativeMethods
     [DllImport(LibC, SetLastError = true)]
     public static extern int posix_spawnattr_setflags(IntPtr attr, short flags);
 
+    /// <summary>
+    /// POSIX_SPAWN_SETPGROUP: put the child in the process group named by
+    /// <see cref="posix_spawnattr_setpgroup"/>. 0x0002 on both macOS and Linux glibc - unlike
+    /// POSIX_SPAWN_SETSID above, this one does NOT differ by platform.
+    /// </summary>
+    public const short POSIX_SPAWN_SETPGROUP = 0x0002;
+
+    /// <summary>
+    /// Set the child's process group. Zero means "the child becomes the leader of a new group whose
+    /// id is its own pid", which is what lets a caller kill the child AND everything it started with
+    /// a single kill(-pid). Takes effect only with POSIX_SPAWN_SETPGROUP in the flags.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int posix_spawnattr_setpgroup(IntPtr attr, int pgroup);
+
+    /// <summary>
+    /// Create a pipe. On return fds[0] is the read end and fds[1] is the write end.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int pipe([Out] int[] fds);
+
+    // fcntl commands and flags. F_SETFD is 2 and FD_CLOEXEC is 1 on both macOS and Linux.
+    public const int F_SETFD = 2;
+    public const int FD_CLOEXEC = 1;
+
+    /// <summary>
+    /// Manipulate a file descriptor. Used here only as fcntl(fd, F_SETFD, FD_CLOEXEC) to stop a
+    /// descriptor being inherited across an exec.
+    ///
+    /// fcntl is a C VARIADIC function: int fcntl(int, int, ...) - the SAME hazard documented for
+    /// <see cref="ioctl"/> above, and it bites in exactly the same way. On Apple Silicon (arm64)
+    /// macOS the variadic argument must be passed on the STACK, not in a register, so a plain
+    /// <c>int arg</c> parameter leaves fcntl reading garbage off the stack. It then sets the
+    /// descriptor's flags to whatever it found, WITHOUT failing, so the call appears to work and
+    /// the descriptor is simply not marked close-on-exec. Measured: a child started while this was
+    /// declared the plain way inherited four of the parent's pipe descriptors, and the write end of
+    /// its own standard input among them - so it never saw end of input and never exited.
+    /// Call <see cref="SetCloseOnExec"/> rather than either of these directly.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true)]
+    public static extern int fcntl(int fd, int cmd, int arg);
+
+    /// <summary>
+    /// fcntl for arm64 macOS, where the variadic argument must arrive on the STACK. Six dummy
+    /// register arguments push <paramref name="arg"/> into the ninth position, which is the first
+    /// one AArch64 spills to the stack - precisely where a variadic callee looks for it. The
+    /// dummies land in x3-x7 and fcntl ignores them. Same entry point; only the call shape differs.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true, EntryPoint = "fcntl")]
+    public static extern int fcntl_stackarg(
+        int fd, int cmd,
+        long d2, long d3, long d4, long d5, long d6, long d7,
+        int arg);
+
+    /// <summary>
+    /// Mark a descriptor close-on-exec, so no child started anywhere in this process can inherit
+    /// it. Returns false if the operating system refused, which a caller must not ignore: an
+    /// unmarked pipe end leaking into an unrelated child is a read that never reaches end of file.
+    /// </summary>
+    public static bool SetCloseOnExec(int fd)
+    {
+        var rc = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            && RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? fcntl_stackarg(fd, F_SETFD, 0, 0, 0, 0, 0, 0, FD_CLOEXEC)
+            : fcntl(fd, F_SETFD, FD_CLOEXEC);
+        return rc != -1;
+    }
+
+    /// <summary>
+    /// The operating system's own sentence for an error number. Used so a launch that failed for a
+    /// reason other than a missing file reports itself in the system's words - "Permission denied",
+    /// "Exec format error" - rather than being handed to a person as a bare number.
+    /// </summary>
+    [DllImport(LibC)]
+    public static extern IntPtr strerror(int errnum);
+
+    /// <summary>The message for an error number, or the number itself if the system has no text for it.</summary>
+    public static string StrError(int errnum)
+    {
+        try
+        {
+            var p = strerror(errnum);
+            var text = p == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(p);
+            return string.IsNullOrWhiteSpace(text) ? $"error {errnum}" : text!;
+        }
+        catch (DllNotFoundException) { return $"error {errnum}"; }
+        catch (EntryPointNotFoundException) { return $"error {errnum}"; }
+    }
+
     /// <summary>Return the name of the subordinate PTY device for a master fd.</summary>
     [DllImport(LibC, SetLastError = true)]
     public static extern IntPtr ptsname(int fd);

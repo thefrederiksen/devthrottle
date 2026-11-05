@@ -12,6 +12,14 @@ namespace CcDirector.Core.Utilities;
 ///   2. Orphaned children on cancellation. Disposing a <see cref="Process"/> does NOT terminate the
 ///      operating-system process. When the caller cancels, the whole process tree is killed so a
 ///      hung child (a stuck credential or network prompt) does not outlive the cancelled call.
+///   3. fork() in a process with many threads (devthrottle#4577). ON macOS AND LINUX THIS CLASS
+///      DOES NOT USE <see cref="Process"/> AT ALL - it spawns through <see cref="UnixSpawn"/>,
+///      which calls posix_spawn. The .NET Process class has no other way to start a process on
+///      Unix than fork(), and forking a Director with dozens of allocating threads duplicates the
+///      C allocator's locks in a held state; libmalloc's own parent-side recovery handler then
+///      aborted the WHOLE Director on 2026-11-04. posix_spawn performs the fork and the exec inside
+///      one libc operation with nothing marshalled in between, so no such handler ever runs.
+///      Windows has no fork and keeps the Process path unchanged.
 /// </summary>
 public static class ProcessRunner
 {
@@ -49,7 +57,18 @@ public static class ProcessRunner
     /// As the overload without it, and also adds <paramref name="environment"/> to the child's environment only - this
     /// process's own environment is not changed. Null or empty adds nothing.
     /// </summary>
-    public static async Task<Result> RunAsync(
+    public static Task<Result> RunAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
+        IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
+        => OperatingSystem.IsWindows()
+            ? RunWithProcessClassAsync(fileName, args, workingDirectory, standardInput, environment, ct)
+            : RunWithPosixSpawnAsync(fileName, args, workingDirectory, standardInput, environment, ct);
+
+    /// <summary>
+    /// WINDOWS. There is no fork() here, so the <see cref="Process"/> class carries no such hazard
+    /// and this is the path it has always taken.
+    /// </summary>
+    private static async Task<Result> RunWithProcessClassAsync(
         string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
         IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
     {
@@ -110,6 +129,150 @@ public static class ProcessRunner
             await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
             await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// macOS AND LINUX. Starts the child with posix_spawn (see <see cref="UnixSpawn"/>) and keeps
+    /// every term of the contract above: both pipes drained concurrently, the same Started and
+    /// StartErrorCode answers for a child that could not start, and nothing left running when the
+    /// caller cancels - here by signalling the process group the child leads, which reaches a
+    /// grandchild a kill aimed at the child alone would miss.
+    /// </summary>
+    private static async Task<Result> RunWithPosixSpawnAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
+        IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
+    {
+        // posix_spawnp REPORTS a failed start rather than throwing: the reason comes back as the
+        // return value, so the Started=false result the contract above documents is reached by the
+        // ordinary path instead of a catch. ENOENT is 2 here exactly as it was from
+        // Win32Exception.NativeErrorCode, which is the number every caller reads.
+        //
+        // Started on the thread pool through the same seam as the Windows path, never on the
+        // caller's thread (issue #4556). posix_spawn is a fraction of the cost of the fork it
+        // replaces, but a caller on the desktop's UI thread still must not be the one that waits
+        // for a child to come up - and the rule holding for every caller is what makes it true.
+        UnixSpawn.Child? child = null;
+        var errno = 0;
+        await ProcessStartOffThread.StartAsync(() =>
+        {
+            errno = UnixSpawn.TrySpawn(
+                fileName, args, workingDirectory,
+                redirectStandardInput: standardInput is not null, environment, out child);
+            return errno == 0;
+        }).ConfigureAwait(false);
+
+        if (errno != 0 || child is null)
+            // The OPERATING SYSTEM'S REASON ALONE - "No such file or directory", "Permission
+            // denied". Not a sentence of our own around it: callers put this inside one of theirs
+            // (GitLaunchFailure writes "git could not be started: " in front of it), and a message
+            // that introduced itself as well read "git could not be started: /path/notgit could
+            // not be started: Permission denied". Caught in review of devthrottle#4577.
+            return new Result(
+                -1, "", CcDirector.Core.UnixPty.UnixNativeMethods.StrError(errno),
+                Started: false, StartErrorCode: errno);
+
+        using (child)
+        {
+            // Pipes carry bytes; git and the command-line tools speak UTF-8. Stated rather than
+            // inherited from the console, because the Director is a desktop application and may
+            // have no console whose encoding could be asked.
+            using var outReader = new StreamReader(child.StandardOutput, Utf8NoByteOrderMark);
+            using var errReader = new StreamReader(child.StandardError, Utf8NoByteOrderMark);
+
+            // Start draining BOTH pipes immediately and concurrently - neither read waits on the
+            // other. This is hazard 1 above, and it is no less real on this path.
+            var outTask = outReader.ReadToEndAsync(ct);
+            var errTask = errReader.ReadToEndAsync(ct);
+            try
+            {
+                if (standardInput is not null)
+                    await WriteStandardInputAsync(child.StandardInput!, standardInput, ct).ConfigureAwait(false);
+                var exitCode = await child.WaitAsync(ct).ConfigureAwait(false);
+                var stdout = await outTask.ConfigureAwait(false);
+                var stderr = await errTask.ConfigureAwait(false);
+                return new Result(exitCode, stdout, stderr, Started: true);
+            }
+            catch (OperationCanceledException)
+            {
+                // Kill the child's whole process group and collect its status. Without the collect
+                // every cancelled call would leave a zombie for the life of the Director - the
+                // Process class did that for us, and taking the start over means taking the ending
+                // over too. It happens FIRST, so a cancelled call has stopped costing anything the
+                // moment it returns, whatever the drains are doing.
+                child.KillAndCollect();
+
+                // THEN give the drains a bounded moment, and no more.
+                //
+                // These reads are on synchronous pipe descriptors, where a read already blocked in
+                // the kernel does not come back for a cancellation token - it comes back when the
+                // last write end closes. Killing the process group closes the ones the child and
+                // its descendants hold, which is the normal case. But a descendant that called
+                // setsid has left that group, and anything the child passed the pipe to may outlive
+                // it: then the final write end closes whenever that unrelated process feels like
+                // it, and awaiting the drains outright made the cancelled call wait exactly that
+                // long. Measured in review of devthrottle#4577: twelve seconds against under one
+                // for the path this replaced, which killed by walking the process tree instead.
+                //
+                // Cancellation has to mean the call returns. Output is forfeit on this path - it is
+                // thrown away with the exception either way - so the drains get a grace period for
+                // the common case and are then abandoned, still observed so neither surfaces later
+                // as an unobserved fault.
+                await AbandonDrainsAsync(outTask, errTask).ConfigureAwait(false);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// How long a cancelled call waits for its drains to finish before walking away from them.
+    ///
+    /// Short on purpose. The captured output is DISCARDED on this path - the caller gets an
+    /// exception, not a result - so there is nothing to wait for on its account. The only reason to
+    /// wait at all is that a killed child's pipes close in microseconds, and waiting that long
+    /// means the reads finish and their thread-pool threads come back instead of being abandoned
+    /// mid-read. Past that there is nothing to gain, and a cancelled call must return.
+    /// </summary>
+    private static readonly TimeSpan DrainGraceAfterKill = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Wait briefly for both drains, then abandon them - while making sure neither can raise an
+    /// unobserved exception afterwards. A read left blocked on a descriptor somebody else still
+    /// holds open is not ours to wait for; see the cancellation path above.
+    /// </summary>
+    private static async Task AbandonDrainsAsync(Task outTask, Task errTask)
+    {
+        // ObserveQuietlyAsync swallows whatever its task throws, so these two can never fault and
+        // an abandoned one cannot come back later as an unobserved exception. That is what makes
+        // walking away from them safe; nothing further is needed to silence them.
+        var both = Task.WhenAll(ObserveQuietlyAsync(outTask), ObserveQuietlyAsync(errTask));
+        await Task.WhenAny(both, Task.Delay(DrainGraceAfterKill)).ConfigureAwait(false);
+    }
+
+    private static readonly System.Text.Encoding Utf8NoByteOrderMark =
+        new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
+    /// As <see cref="WriteStandardInputAsync(Process, string, CancellationToken)"/>, for a raw pipe.
+    /// </summary>
+    private static async Task WriteStandardInputAsync(Stream pipe, string standardInput, CancellationToken ct)
+    {
+        try
+        {
+            await using var writer = new StreamWriter(pipe, Utf8NoByteOrderMark, leaveOpen: true);
+            await writer.WriteAsync(standardInput.AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            // The child closed its end first. Its exit code carries the outcome.
+        }
+        finally
+        {
+            // Closing the write end is what makes the child read to END of input rather than
+            // waiting forever for more.
+            try { pipe.Dispose(); }
+            catch (IOException) { /* the pipe is already broken; nothing is left to close */ }
         }
     }
 

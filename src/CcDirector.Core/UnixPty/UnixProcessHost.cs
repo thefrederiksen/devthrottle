@@ -95,6 +95,11 @@ public sealed class UnixProcessHost : IDisposable
         IntPtr attr = AllocZeroed(1024);
         try
         {
+            // Held across the spawn, for the reason UnixSpawn.DescriptorGate gives: this is the
+            // other spawner in the Director, and a session started while a pipe elsewhere is still
+            // unmarked would inherit that pipe's write end for as long as the session lives.
+            lock (CcDirector.Core.Utilities.UnixSpawn.DescriptorGate)
+            {
             Check(posix_spawnattr_init(attr), "posix_spawnattr_init");
             Check(posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID), "posix_spawnattr_setflags");
 
@@ -117,6 +122,7 @@ public sealed class UnixProcessHost : IDisposable
             if (rc != 0)
                 throw new InvalidOperationException(
                     $"posix_spawnp failed for '{spawnTarget}' (rc={rc}, errno={Marshal.GetLastWin32Error()}).");
+            }
         }
         finally
         {
