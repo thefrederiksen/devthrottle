@@ -366,13 +366,19 @@ internal static class FactoryInboxEndpoints
             return Error(404, "factory_not_found", $"'{lookup.Factory}' is not a factory of this account.");
 
         var seat = lookup.SeatIsInherited ? null : lookup.Seat;
-        if (kind == SeatKind.Secretary && !string.Equals(seat, FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase))
+        // THE WAKE'S RECORD (phase 2): the session the wake started as this factory's Secretary or Boss - the only way an
+        // UNDEFINED factory's seat is known, since it carries no seat - as a trigger remembers the session it started.
+        var woken = parts.Wakes.Find(tenant, registered.Factory);
+        var recordedSecretary = woken?.SecretarySessionId is { } s && string.Equals(s, sessionId, StringComparison.OrdinalIgnoreCase);
+        var recordedBoss = woken?.BossSessionId is { } b && string.Equals(b, sessionId, StringComparison.OrdinalIgnoreCase);
+        if (kind == SeatKind.Secretary && !recordedSecretary
+            && !string.Equals(seat, FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase))
         {
             FileLog.Write($"[FactoryInboxEndpoints] REFUSED {sessionId}: seat '{lookup.Seat}' (kit {lookup.Kit ?? "none"}) is not the Secretary of {registered.Factory}");
             return Error(403, "not_the_secretary",
                 $"Only the Secretary of '{registered.Factory}' files its inbox, and this session was not started as its Secretary.");
         }
-        if (kind == SeatKind.Boss
+        if (kind == SeatKind.Boss && !recordedBoss
             && (string.IsNullOrWhiteSpace(registered.BossSeat) || !string.Equals(seat, registered.BossSeat.Trim(), StringComparison.OrdinalIgnoreCase)))
         {
             FileLog.Write($"[FactoryInboxEndpoints] REFUSED {sessionId}: seat '{lookup.Seat}' (kit {lookup.Kit ?? "none"}) is not the Boss of {registered.Factory}");

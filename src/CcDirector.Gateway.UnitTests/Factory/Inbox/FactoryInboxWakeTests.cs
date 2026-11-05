@@ -34,6 +34,7 @@ public sealed class FactoryInboxWakeTests : IDisposable
     private const string TheFactory = DefinitionFixture.FactoryId;
     private const string BossMachine = "SOREN_NORTH";
     private const string BossDirector = "d-north";
+    private const string UndefinedFolder = "D:/factories/devthrottle";
     private static readonly TenantId A = new("acct-a");
     private static readonly DateTime T0 = new(2026, 11, 5, 9, 0, 0, DateTimeKind.Utc);
 
@@ -417,16 +418,83 @@ public sealed class FactoryInboxWakeTests : IDisposable
     }
 
     [Fact]
-    public async Task AFactoryWithNoPublishedDefinition_WaitsAndSaysSo()
+    public async Task AnUndefinedFactory_StartsItsSecretaryInItsFolder_OnTheBossSeatsComputer_AndRecordsIt()
     {
         Send(T0);
         _env.PublishedOf = () => null;
+        var wake = NewWake();
+
+        var look = await LookAt(wake, T0.AddSeconds(60));
+
+        Assert.Equal(FactoryInboxWakeAct.Started, look.Secretary);
+        var (machine, req) = Assert.Single(_env.Starts);
+        Assert.Equal(BossMachine, machine);
+        // No definition, so no kit and no seat: a session in the factory, in its folder, as its talk starts.
+        Assert.Equal(UndefinedFolder, req.RepoPath);
+        Assert.Equal(TheFactory, req.Factory);
+        Assert.Null(req.FactorySeat);
+        Assert.Null(req.FactoryKit);
+        Assert.Null(req.FactoryDefinitionVersion);
+        Assert.Equal(BossDirector, req.Director);
+        Assert.False(_env.LastAskedForAKit);
+        Assert.Contains("cc-devthrottle factory inbox new", req.PrePrompt);
+        Assert.Contains(FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
+        // The wake's row is what records it as the Secretary.
+        Assert.Equal(FakeEnvironment.FirstSessionId, _wakes.Find(A, TheFactory)!.SecretarySessionId);
+        // Not reported yet, it is starting: no second one.
+        Assert.Equal(FactoryInboxWakeAct.Starting, (await LookAt(wake, T0.AddSeconds(75))).Secretary);
+        Assert.Single(_env.Starts);
+    }
+
+    [Fact]
+    public async Task AnUndefinedFactorysBoss_IsStartedInItsFolder_WithItsPublishedBrief_AndRecorded()
+    {
+        Send(T0);
+        _env.PublishedOf = () => null;
+        _env.Brief = new FactoryGivenBrief(2, "Run the invoices.", FactoryBriefVersionKinds.Brief);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+        var wake = NewWake();
+
+        var look = await LookAt(wake, T0.AddSeconds(72));
+
+        Assert.Equal(FactoryInboxWakeAct.Started, look.Boss);
+        var (machine, req) = Assert.Single(_env.Starts);
+        Assert.Equal(BossMachine, machine);
+        Assert.Equal(UndefinedFolder, req.RepoPath);
+        Assert.Null(req.FactorySeat);
+        Assert.Contains("Run the invoices.", req.PrePrompt);
+        Assert.Contains("cc-devthrottle factory inbox bundle", req.PrePrompt);
+        Assert.Contains(FactorySeatOpening.BossNeverDoesTheWork, req.PrePrompt);
+        Assert.EndsWith(FactorySeatOpening.OwnerWordIsFinal, req.PrePrompt);
+        Assert.Equal(FakeEnvironment.FirstSessionId, _wakes.Find(A, TheFactory)!.BossSessionId);
+    }
+
+    [Fact]
+    public async Task AnUndefinedFactorysBossWhoseBriefIsAFile_IsToldItsPath()
+    {
+        Send(T0);
+        _env.PublishedOf = () => null;
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+
+        await LookAt(NewWake(), T0.AddSeconds(72));
+
+        var (_, req) = Assert.Single(_env.Starts);
+        Assert.Contains($"Read your brief first: {UndefinedFolder}/agents/boss.yaml", req.PrePrompt);
+    }
+
+    [Fact]
+    public async Task AnUndefinedFactoryWithNoFolder_WaitsAndSaysWhy()
+    {
+        Send(T0);
+        _env.PublishedOf = () => null;
+        _env.Registered.Folder = "";
 
         var look = await LookAt(NewWake(), T0.AddSeconds(60));
 
         Assert.Equal(FactoryInboxWakeAct.Waiting, look.Secretary);
         Assert.Empty(_env.Starts);
-        Assert.Equal(FactoryInboxWords.Waiting.NotDefined, _wakes.Find(A, TheFactory)!.SecretaryWaiting);
+        Assert.Equal("Waiting - the Secretary cannot be started: it is registered with no folder",
+            FactoryInboxFold.WaitingOf(_wakes.Find(A, TheFactory))!.Secretary);
     }
 
     [Fact]
@@ -506,9 +574,9 @@ public sealed class FactoryInboxWakeTests : IDisposable
         {
             Factory = TheFactory,
             Title = "DevThrottle",
-            Folder = "",
+            Folder = UndefinedFolder,
             BossSeat = "boss",
-            Seats = { new RegisteredFactorySeatDto { Id = "boss", Name = "Boss", Role = "Boss", Computer = BossMachine } },
+            Seats = { new RegisteredFactorySeatDto { Id = "boss", Name = "Boss", Role = "Boss", Computer = BossMachine, BriefFile = "agents/boss.yaml" } },
         };
         public Func<PublishedFactoryDefinition?> PublishedOf = () =>
             new PublishedFactoryDefinition(3, FactoryDefinitionCheck.Read(DefinitionFixture.Publishable()).Definition!);
@@ -521,6 +589,8 @@ public sealed class FactoryInboxWakeTests : IDisposable
         public readonly Queue<FleetManagerPromptSend> RingAnswers = new();
         public int AcceptedRings;
         public readonly List<TimeSpan> Delays = new();
+        public FactoryGivenBrief? Brief;
+        public bool LastAskedForAKit;
 
         public RegisteredFactoryDto? Factory(TenantId tenant, string factory)
             => string.Equals(factory, Registered.Factory, StringComparison.OrdinalIgnoreCase) ? Registered : null;
@@ -538,7 +608,13 @@ public sealed class FactoryInboxWakeTests : IDisposable
 
         public bool HasEnded(TenantId tenant, string sessionId) => Ended.Contains(sessionId);
 
-        public string? DirectorOn(TenantId tenant, string machine) => DirectorsOnMachine.TryGetValue(machine, out var d) ? d : null;
+        public FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat) => Brief;
+
+        public string? DirectorOn(TenantId tenant, string machine, bool buildsKit)
+        {
+            LastAskedForAKit = buildsKit;
+            return DirectorsOnMachine.TryGetValue(machine, out var d) ? d : null;
+        }
 
         public Task<TriggerStartAttempt> StartAsync(TenantId tenant, string machine, NewSessionRequest request, CancellationToken ct)
         {

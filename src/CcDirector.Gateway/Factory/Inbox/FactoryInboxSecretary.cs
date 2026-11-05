@@ -113,7 +113,9 @@ public static class FactoryInboxSecretary
     /// words, <see cref="FactorySeatOpening"/>), where its kit is, and what to do with the bundle. The seat start adds the
     /// Boss's standing paragraphs (<see cref="FactorySeatStart.Build"/>).
     /// </summary>
-    public static string BossOpening(RegisteredFactoryDto factory, RegisteredFactorySeatDto boss, FactoryGivenBrief brief, int bundles)
+    /// <param name="inAKit">A defined factory's Boss starts with a seat kit, and is told where it is.</param>
+    public static string BossOpening(RegisteredFactoryDto factory, RegisteredFactorySeatDto boss, FactoryGivenBrief brief, int bundles,
+        bool inAKit)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(boss);
@@ -121,7 +123,18 @@ public static class FactoryInboxSecretary
         return FactorySeatOpening.WhoYouAre(factory, boss) + "\n\n"
                + $"Your brief is given to you here in full, as the Gateway holds it ({brief.VersionWords}).\n\n"
                + FactorySeatOpening.BriefBlock(brief, "\n") + "\n\n"
-               + FactorySeatOpening.KitSentence + "\n\n"
+               + (inAKit ? FactorySeatOpening.KitSentence + "\n\n" : "")
+               + BossBundleWork(bundles);
+    }
+
+    /// <summary>The Boss's first prompt in an UNDEFINED factory whose brief is still a file: told the file's path, as its
+    /// talk is, then what to do with the bundle.</summary>
+    public static string BossOpeningFromAFile(RegisteredFactoryDto factory, RegisteredFactorySeatDto boss, int bundles)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(boss);
+        return FactorySeatOpening.WhoYouAre(factory, boss) + "\n\n"
+               + $"Read your brief first: {FactoryTalkSeed.InFolder(factory.Folder, boss.BriefFile)}\n\n"
                + BossBundleWork(bundles);
     }
 

@@ -92,16 +92,15 @@ public static class FactoryInboxWords
         /// on another computer.</summary>
         public const string NoDirector = "no-director";
 
-        /// <summary>The factory has no published definition, so the Gateway cannot build a Secretary's kit for it.</summary>
-        public const string NotDefined = "not-defined";
-
-        /// <summary>The factory's published definition cannot be read, or does not hold the Boss seat.</summary>
-        public const string DefinitionUnreadable = "definition-unreadable";
+        /// <summary>The seat cannot be started as the factory stands: its published definition cannot be read or holds no
+        /// Boss seat, or its Boss seat is not registered, names no computer, or the factory has no folder. The detail says
+        /// which.</summary>
+        public const string CannotStart = "cannot-start";
 
         /// <summary>The start was sent and failed; the detail is the reason the machine gave.</summary>
         public const string StartFailed = "start-failed";
 
-        public static readonly IReadOnlyList<string> All = [NoDirector, NotDefined, DefinitionUnreadable, StartFailed];
+        public static readonly IReadOnlyList<string> All = [NoDirector, CannotStart, StartFailed];
     }
 
     /// <summary>The seat a message waits for, as the waiting sentence names it.</summary>
@@ -120,8 +119,7 @@ public static class FactoryInboxWords
             Waiting.NoDirector => named.Length == 0
                 ? "Waiting - no Director is running on the Boss's computer; it goes on when one connects there"
                 : $"Waiting - no Director is running on the Boss's computer, {named}; it goes on when one connects there",
-            Waiting.NotDefined => "Waiting - this factory has no published definition, so it has no Secretary yet; publish its definition",
-            Waiting.DefinitionUnreadable => $"Waiting - the {seat} cannot be started from this factory's published definition: {named}",
+            Waiting.CannotStart => $"Waiting - the {seat} cannot be started: {named}",
             Waiting.StartFailed => $"Waiting - the {seat} did not start: {named}; it is tried again",
             _ => throw new ArgumentOutOfRangeException(nameof(code), code, "not a factory inbox waiting reason"),
         };

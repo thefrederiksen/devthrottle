@@ -5,6 +5,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Definition;
+using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Fleet;
 
@@ -32,9 +33,14 @@ public interface IFactoryInboxWakeEnvironment
     /// restart) has NOT ended.</summary>
     bool HasEnded(TenantId tenant, string sessionId);
 
-    /// <summary>A Director of the account that is connected now and runs on <paramref name="machine"/>, or null. The wake
-    /// starts nothing on another computer, and never launches one.</summary>
-    string? DirectorOn(TenantId tenant, string machine);
+    /// <summary>The PUBLISHED brief the Gateway holds for one seat of an undefined factory, or null when it holds none;
+    /// throws <see cref="InvalidOperationException"/> with the reason when it cannot be given (as a talk's brief read).</summary>
+    FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat);
+
+    /// <summary>A Director of the account that is connected now and runs on <paramref name="machine"/> - one that builds a
+    /// seat's kit when <paramref name="buildsKit"/> - or null. The wake starts nothing on another computer, and never
+    /// launches one.</summary>
+    string? DirectorOn(TenantId tenant, string machine, bool buildsKit);
 
     /// <summary>Start one session on the machine, through the one resolve-then-create path schedules and triggers use.</summary>
     Task<TriggerStartAttempt> StartAsync(TenantId tenant, string machine, NewSessionRequest request, CancellationToken ct);
@@ -313,46 +319,31 @@ public sealed class FactoryInboxWake
     private async Task<(FactoryInboxWakeAct Act, DateTime? Again)> StartSecretaryAsync(TenantId tenant, RegisteredFactoryDto registered,
         FactoryInboxWakeEntity row, FactoryInboxWakeFacts facts, CancellationToken ct)
     {
-        var factory = registered.Factory;
-        var now = _env.NowUtc();
-        PublishedFactoryDefinition? published;
-        try
-        {
-            published = _env.Published(tenant, factory);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Secretary, FactoryInboxWords.Waiting.DefinitionUnreadable, ex.Message);
-        }
+        var plan = PlanSecretary(tenant, registered, facts.ToFile.Count);
+        return await ClaimAndStartAsync(tenant, registered.Factory, row, FactoryInboxWords.WaitingFor.Secretary, plan,
+            facts.ToFile.Max(m => m.SentAtUtc), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The Secretary's create. A DEFINED factory: the seat made up from its published Boss seat
+    /// (<see cref="FactoryInboxSecretary.SeatOf"/>), started by the one seat start, so the Director builds its kit and stamps
+    /// the mark. AN UNDEFINED factory: a session in the factory, in its folder, on the Boss seat's computer, as a talk with
+    /// such a factory starts - it has no kit and no seat, so the wake's row is what records it as the Secretary.
+    /// </summary>
+    private Planned PlanSecretary(TenantId tenant, RegisteredFactoryDto registered, int waiting)
+    {
+        if (!TryPublished(tenant, registered.Factory, out var published, out var unreadable))
+            return Planned.Cannot(unreadable!);
+        var name = FactoryInboxSecretary.SessionName(registered);
+        var opening = FactoryInboxSecretary.Opening(registered, waiting);
         if (published is null)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Secretary, FactoryInboxWords.Waiting.NotDefined, null);
-        var withSecretary = FactoryInboxSecretary.WithSecretary(published.Definition);
-        var seat = withSecretary is null ? null : FactoryInboxSecretary.SeatOf(published.Definition);
-        if (withSecretary is null || seat is null)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Secretary, FactoryInboxWords.Waiting.DefinitionUnreadable,
-                $"version {published.Version} names no Boss seat it holds");
+            return InTheFolder(registered, name, FactorySeatOpening.WithOwnerWord(opening));
 
-        var machine = seat.MachineOrDefault(published.Definition.Defaults);
-        if (_env.DirectorOn(tenant, machine) is not { } director)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Secretary, FactoryInboxWords.Waiting.NoDirector, machine);
-
-        // THE CLAIM, taken before anything is sent: whoever updates the version it read starts the Secretary.
-        if (!_wakes.TryUpdate(tenant, factory, row.Version, w =>
-            {
-                w.SecretarySessionId = null;
-                w.SecretaryStartedAtUtc = now;
-                w.SecretaryToldUpToUtc = null;
-            }, now))
-            return (FactoryInboxWakeAct.ClaimTakenByAnother, now.Add(LookAgain));
-
-        var sent = facts.ToFile.Where(m => m.State == FactoryInboxWords.States.Sent).ToList();
-        var told = facts.ToFile.Max(m => m.SentAtUtc);
-        var request = FactorySeatStart.Build(new PublishedFactoryDefinition(published.Version, withSecretary), seat,
-            FactoryInboxSecretary.SessionName(registered), FactoryInboxSecretary.Opening(registered, facts.ToFile.Count)).Request;
-        Automated(request, director);
-        FileLog.Write($"[FactoryInboxWake] starting the Secretary of {factory} on {machine} (director {director}), v{published.Version}, {facts.ToFile.Count} to file ({sent.Count} new)");
-        var attempt = await StartSafeAsync(tenant, machine, request, ct).ConfigureAwait(false);
-        return Started(tenant, factory, FactoryInboxWords.WaitingFor.Secretary, attempt, told);
+        if (FactoryInboxSecretary.WithSecretary(published.Definition) is not { } withSecretary
+            || FactoryInboxSecretary.SeatOf(published.Definition) is not { } seat)
+            return Planned.Cannot($"version {published.Version} of its definition names no Boss seat it holds");
+        var built = FactorySeatStart.Build(new PublishedFactoryDefinition(published.Version, withSecretary), seat, name, opening);
+        return new Planned(built.Request, built.Machine, NeedsKit: true, null);
     }
 
     // ---------------------------------------------------------------- the Boss
@@ -388,41 +379,127 @@ public sealed class FactoryInboxWake
         }
 
         // None alive: ONE Boss starts at once, as itself - the night-start seat kit.
-        PublishedFactoryDefinition? published;
+        var plan = PlanBoss(tenant, registered, bossSeat, facts.Unread.Count);
+        return await ClaimAndStartAsync(tenant, factory, row, FactoryInboxWords.WaitingFor.Boss, plan,
+            facts.Unread.Max(b => b.HandedAtUtc), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The Boss's create. A DEFINED factory: its Boss seat started by the one seat start, with the seat kit - its brief,
+    /// grants, files, records and skills - exactly as a night start is, never the Boss start door's rules-only kit. AN
+    /// UNDEFINED factory: a session in the factory, in its folder, on the Boss seat's computer, given its published brief
+    /// when the Gateway holds one and told the path of its brief file otherwise, as its talk is; the wake's row records it.
+    /// </summary>
+    private Planned PlanBoss(TenantId tenant, RegisteredFactoryDto registered, string bossSeat, int bundles)
+    {
+        var registeredSeat = registered.Seats.FirstOrDefault(s => string.Equals(s.Id, bossSeat, StringComparison.OrdinalIgnoreCase));
+        if (registeredSeat is null) return Planned.Cannot($"its Boss seat '{bossSeat}' is not registered");
+        if (!TryPublished(tenant, registered.Factory, out var published, out var unreadable))
+            return Planned.Cannot(unreadable!);
+        var name = FactoryInboxSecretary.BossSessionName(registered);
+        if (published is null)
+        {
+            FactoryGivenBrief? brief;
+            try
+            {
+                brief = _env.PublishedBrief(tenant, registered.Factory, registeredSeat.Id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Planned.Cannot(ex.Message);
+            }
+            var opening = brief is null
+                ? FactoryInboxSecretary.BossOpeningFromAFile(registered, registeredSeat, bundles)
+                : FactoryInboxSecretary.BossOpening(registered, registeredSeat, brief, bundles, inAKit: false);
+            return InTheFolder(registered, name,
+                FactorySeatOpening.WithOwnerWord(FactorySeatOpening.WithBossNeverDoesTheWork(opening)));
+        }
+
+        if (published.Seat(bossSeat) is not { } seat)
+            return Planned.Cannot(FactorySeatStart.SeatNotInVersion(published, bossSeat));
+        var built = FactorySeatStart.Build(published, seat, name,
+            FactoryInboxSecretary.BossOpening(registered, registeredSeat, published.BriefOf(seat), bundles, inAKit: true));
+        return new Planned(built.Request, built.Machine, NeedsKit: true, null);
+    }
+
+    /// <summary>A start of an UNDEFINED factory's seat: in the factory's folder, on the Boss seat's computer, in the factory.</summary>
+    private static Planned InTheFolder(RegisteredFactoryDto registered, string name, string prompt)
+    {
+        var boss = registered.Seats.FirstOrDefault(s => string.Equals(s.Id, registered.BossSeat?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (boss is null) return Planned.Cannot($"its Boss seat '{registered.BossSeat}' is not registered");
+        if (string.IsNullOrWhiteSpace(boss.Computer)) return Planned.Cannot($"its Boss seat '{boss.Id}' names no computer");
+        if (string.IsNullOrWhiteSpace(registered.Folder)) return Planned.Cannot("it is registered with no folder");
+        var request = new NewSessionRequest
+        {
+            RepoPath = registered.Folder,
+            Agent = "ClaudeCode",
+            Factory = registered.Factory,
+            Name = name,
+            PrePrompt = prompt,
+        };
+        return new Planned(request, boss.Computer.Trim(), NeedsKit: false, null);
+    }
+
+    /// <summary>The published definition, read once; false with the reason when it is published and cannot be read.</summary>
+    private bool TryPublished(TenantId tenant, string factory, out PublishedFactoryDefinition? published, out string? unreadable)
+    {
+        unreadable = null;
         try
         {
             published = _env.Published(tenant, factory);
+            return true;
         }
         catch (InvalidOperationException ex)
         {
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Boss, FactoryInboxWords.Waiting.DefinitionUnreadable, ex.Message);
+            published = null;
+            unreadable = ex.Message;
+            return false;
         }
-        if (published is null)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Boss, FactoryInboxWords.Waiting.NotDefined, null);
-        var seat = published.Seat(bossSeat);
-        var registeredSeat = registered.Seats.FirstOrDefault(s => string.Equals(s.Id, bossSeat, StringComparison.OrdinalIgnoreCase));
-        if (seat is null || registeredSeat is null)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Boss, FactoryInboxWords.Waiting.DefinitionUnreadable,
-                seat is null ? FactorySeatStart.SeatNotInVersion(published, bossSeat) : $"the Boss seat '{bossSeat}' is not registered");
-        var machine = seat.MachineOrDefault(published.Definition.Defaults);
-        if (_env.DirectorOn(tenant, machine) is not { } director)
-            return Wait(tenant, factory, row, FactoryInboxWords.WaitingFor.Boss, FactoryInboxWords.Waiting.NoDirector, machine);
+    }
 
+    /// <summary>A start the wake has worked out, or why it cannot be made.</summary>
+    private sealed record Planned(NewSessionRequest? Request, string? Machine, bool NeedsKit, string? CannotStart)
+    {
+        public static Planned Cannot(string why) => new(null, null, false, why);
+    }
+
+    /// <summary>
+    /// Start a planned seat: on a Director running on its computer - one that builds a seat's kit when the start is a seat
+    /// start - after taking the start's claim. Every way it cannot go is recorded as the factory's waiting reason.
+    /// </summary>
+    private async Task<(FactoryInboxWakeAct Act, DateTime? Again)> ClaimAndStartAsync(TenantId tenant, string factory,
+        FactoryInboxWakeEntity row, FactoryInboxWords.WaitingFor who, Planned plan, DateTime toldUpTo, CancellationToken ct)
+    {
+        if (plan.CannotStart is { } why || plan.Request is null || plan.Machine is null)
+            return Wait(tenant, factory, row, who, FactoryInboxWords.Waiting.CannotStart, plan.CannotStart ?? "nothing could be built to start");
+        if (_env.DirectorOn(tenant, plan.Machine, plan.NeedsKit) is not { } director)
+            return Wait(tenant, factory, row, who, FactoryInboxWords.Waiting.NoDirector, plan.Machine);
+
+        // THE CLAIM, taken before anything is sent: whoever updates the version it read starts the seat.
+        var now = _env.NowUtc();
+        var secretary = who == FactoryInboxWords.WaitingFor.Secretary;
         if (!_wakes.TryUpdate(tenant, factory, row.Version, w =>
             {
-                w.BossSessionId = null;
-                w.BossStartedAtUtc = now;
-                w.BossToldUpToUtc = null;
+                if (secretary)
+                {
+                    w.SecretarySessionId = null;
+                    w.SecretaryStartedAtUtc = now;
+                    w.SecretaryToldUpToUtc = null;
+                }
+                else
+                {
+                    w.BossSessionId = null;
+                    w.BossStartedAtUtc = now;
+                    w.BossToldUpToUtc = null;
+                }
             }, now))
             return (FactoryInboxWakeAct.ClaimTakenByAnother, now.Add(LookAgain));
 
-        var toldUpTo = facts.Unread.Max(b => b.HandedAtUtc);
-        var request = FactorySeatStart.Build(published, seat, FactoryInboxSecretary.BossSessionName(registered),
-            FactoryInboxSecretary.BossOpening(registered, registeredSeat, published.BriefOf(seat), facts.Unread.Count)).Request;
-        Automated(request, director);
-        FileLog.Write($"[FactoryInboxWake] starting the Boss of {factory} ({seat.Seat}) on {machine} (director {director}), v{published.Version}, {facts.Unread.Count} unread bundles");
-        var attempt = await StartSafeAsync(tenant, machine, request, ct).ConfigureAwait(false);
-        return Started(tenant, factory, FactoryInboxWords.WaitingFor.Boss, attempt, toldUpTo);
+        Automated(plan.Request, director);
+        FileLog.Write($"[FactoryInboxWake] starting the {who} of {factory} on {plan.Machine} (director {director}), "
+                      + (plan.NeedsKit ? $"seat {plan.Request.FactorySeat} v{plan.Request.FactoryDefinitionVersion}" : $"in the folder {plan.Request.RepoPath} (no definition)"));
+        var attempt = await StartSafeAsync(tenant, plan.Machine, plan.Request, ct).ConfigureAwait(false);
+        return Started(tenant, factory, who, attempt, toldUpTo);
     }
 
     // ---------------------------------------------------------------- shared

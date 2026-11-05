@@ -4533,11 +4533,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 roster: tenant => PushedSessions.SnapshotFresh(tenant, _streamStaleAfter),
                 lastKnown: (tenant, sid) => PushedSessions.TryGetLastKnownSession(tenant, sid),
                 hasEnded: (tenant, sid) => DevReportSessionLiveness(tenant, sid).Reach == DevReports.DevReportSessionReach.Ended,
-                directorOn: (tenant, machine) => Registry.ListDirectors(tenant)
+                publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat),
+                directorOn: (tenant, machine, buildsKit) => Registry.ListDirectors(tenant)
                     .Where(d => d.StoppedAtUtc is null
                                 && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)
                                 && IsDirectorConnected(tenant, d.DirectorId)
-                                && _factoryKitCapabilities.BuildsFactoryKit(tenant, d.DirectorId))
+                                && (!buildsKit || _factoryKitCapabilities.BuildsFactoryKit(tenant, d.DirectorId)))
                     .OrderBy(d => d.DirectorId, StringComparer.Ordinal)
                     .Select(d => d.DirectorId)
                     .FirstOrDefault(),

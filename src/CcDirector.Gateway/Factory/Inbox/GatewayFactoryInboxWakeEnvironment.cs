@@ -1,6 +1,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory.Definition;
+using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Fleet;
 
@@ -19,7 +20,8 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
     private readonly Func<TenantId, IReadOnlyList<(string DirectorId, SessionDto Session)>> _roster;
     private readonly Func<TenantId, string, (string DirectorId, SessionDto Session)?> _lastKnown;
     private readonly Func<TenantId, string, bool> _hasEnded;
-    private readonly Func<TenantId, string, string?> _directorOn;
+    private readonly Func<TenantId, string, string, FactoryGivenBrief?> _publishedBrief;
+    private readonly Func<TenantId, string, bool, string?> _directorOn;
     private readonly Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> _start;
     private readonly Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> _ring;
 
@@ -29,7 +31,8 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         Func<TenantId, IReadOnlyList<(string DirectorId, SessionDto Session)>> roster,
         Func<TenantId, string, (string DirectorId, SessionDto Session)?> lastKnown,
         Func<TenantId, string, bool> hasEnded,
-        Func<TenantId, string, string?> directorOn,
+        Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief,
+        Func<TenantId, string, bool, string?> directorOn,
         Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> start,
         Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> ring)
     {
@@ -38,6 +41,7 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         _roster = roster ?? throw new ArgumentNullException(nameof(roster));
         _lastKnown = lastKnown ?? throw new ArgumentNullException(nameof(lastKnown));
         _hasEnded = hasEnded ?? throw new ArgumentNullException(nameof(hasEnded));
+        _publishedBrief = publishedBrief ?? throw new ArgumentNullException(nameof(publishedBrief));
         _directorOn = directorOn ?? throw new ArgumentNullException(nameof(directorOn));
         _start = start ?? throw new ArgumentNullException(nameof(start));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
@@ -53,7 +57,9 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
 
     public bool HasEnded(TenantId tenant, string sessionId) => _hasEnded(tenant, sessionId);
 
-    public string? DirectorOn(TenantId tenant, string machine) => _directorOn(tenant, machine);
+    public FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat) => _publishedBrief(tenant, factory, seat);
+
+    public string? DirectorOn(TenantId tenant, string machine, bool buildsKit) => _directorOn(tenant, machine, buildsKit);
 
     public Task<TriggerStartAttempt> StartAsync(TenantId tenant, string machine, NewSessionRequest request, CancellationToken ct)
         => _start(tenant, machine, request, ct);
