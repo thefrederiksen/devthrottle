@@ -12,6 +12,14 @@ namespace CcDirector.Core.Utilities;
 ///   2. Orphaned children on cancellation. Disposing a <see cref="Process"/> does NOT terminate the
 ///      operating-system process. When the caller cancels, the whole process tree is killed so a
 ///      hung child (a stuck credential or network prompt) does not outlive the cancelled call.
+///   3. fork() in a process with many threads (devthrottle#4577). ON macOS AND LINUX THIS CLASS
+///      DOES NOT USE <see cref="Process"/> AT ALL - it spawns through <see cref="UnixSpawn"/>,
+///      which calls posix_spawn. The .NET Process class has no other way to start a process on
+///      Unix than fork(), and forking a Director with dozens of allocating threads duplicates the
+///      C allocator's locks in a held state; libmalloc's own parent-side recovery handler then
+///      aborted the WHOLE Director on 2026-11-04. posix_spawn performs the fork and the exec inside
+///      one libc operation with nothing marshalled in between, so no such handler ever runs.
+///      Windows has no fork and keeps the Process path unchanged.
 /// </summary>
 public static class ProcessRunner
 {
@@ -49,7 +57,18 @@ public static class ProcessRunner
     /// As the overload without it, and also adds <paramref name="environment"/> to the child's environment only - this
     /// process's own environment is not changed. Null or empty adds nothing.
     /// </summary>
-    public static async Task<Result> RunAsync(
+    public static Task<Result> RunAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
+        IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
+        => OperatingSystem.IsWindows()
+            ? RunWithProcessClassAsync(fileName, args, workingDirectory, standardInput, environment, ct)
+            : RunWithPosixSpawnAsync(fileName, args, workingDirectory, standardInput, environment, ct);
+
+    /// <summary>
+    /// WINDOWS. There is no fork() here, so the <see cref="Process"/> class carries no such hazard
+    /// and this is the path it has always taken.
+    /// </summary>
+    private static async Task<Result> RunWithProcessClassAsync(
         string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
         IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
     {
@@ -110,6 +129,104 @@ public static class ProcessRunner
             await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
             await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// macOS AND LINUX. Starts the child with posix_spawn (see <see cref="UnixSpawn"/>) and keeps
+    /// every term of the contract above: both pipes drained concurrently, the same Started and
+    /// StartErrorCode answers for a child that could not start, and nothing left running when the
+    /// caller cancels - here by signalling the process group the child leads, which reaches a
+    /// grandchild a kill aimed at the child alone would miss.
+    /// </summary>
+    private static async Task<Result> RunWithPosixSpawnAsync(
+        string fileName, IReadOnlyList<string> args, string? workingDirectory, string? standardInput,
+        IReadOnlyDictionary<string, string>? environment, CancellationToken ct)
+    {
+        // posix_spawnp REPORTS a failed start rather than throwing: the reason comes back as the
+        // return value, so the Started=false result the contract above documents is reached by the
+        // ordinary path instead of a catch. ENOENT is 2 here exactly as it was from
+        // Win32Exception.NativeErrorCode, which is the number every caller reads.
+        //
+        // Started on the thread pool through the same seam as the Windows path, never on the
+        // caller's thread (issue #4556). posix_spawn is a fraction of the cost of the fork it
+        // replaces, but a caller on the desktop's UI thread still must not be the one that waits
+        // for a child to come up - and the rule holding for every caller is what makes it true.
+        UnixSpawn.Child? child = null;
+        var errno = 0;
+        await ProcessStartOffThread.StartAsync(() =>
+        {
+            errno = UnixSpawn.TrySpawn(
+                fileName, args, workingDirectory,
+                redirectStandardInput: standardInput is not null, environment, out child);
+            return errno == 0;
+        }).ConfigureAwait(false);
+
+        if (errno != 0 || child is null)
+            return new Result(
+                -1, "", $"{fileName} could not be started: {CcDirector.Core.UnixPty.UnixNativeMethods.StrError(errno)}",
+                Started: false, StartErrorCode: errno);
+
+        using (child)
+        {
+            // Pipes carry bytes; git and the command-line tools speak UTF-8. Stated rather than
+            // inherited from the console, because the Director is a desktop application and may
+            // have no console whose encoding could be asked.
+            using var outReader = new StreamReader(child.StandardOutput, Utf8NoByteOrderMark);
+            using var errReader = new StreamReader(child.StandardError, Utf8NoByteOrderMark);
+
+            // Start draining BOTH pipes immediately and concurrently - neither read waits on the
+            // other. This is hazard 1 above, and it is no less real on this path.
+            var outTask = outReader.ReadToEndAsync(ct);
+            var errTask = errReader.ReadToEndAsync(ct);
+            try
+            {
+                if (standardInput is not null)
+                    await WriteStandardInputAsync(child.StandardInput!, standardInput, ct).ConfigureAwait(false);
+                var exitCode = await UnixSpawn.WaitAsync(child.Pid, ct).ConfigureAwait(false);
+                var stdout = await outTask.ConfigureAwait(false);
+                var stderr = await errTask.ConfigureAwait(false);
+                return new Result(exitCode, stdout, stderr, Started: true);
+            }
+            catch (OperationCanceledException)
+            {
+                UnixSpawn.KillGroup(child.Pid);
+                // Observe the drain tasks so a killed-pipe read does not surface as an unobserved fault.
+                await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
+                await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
+                // Collect the status of what we just killed. Without this every cancelled call
+                // would leave a zombie for the life of the Director - the Process class did this
+                // for us, and taking the start over means taking the ending over too.
+                UnixSpawn.ReapBestEffort(child.Pid);
+                throw;
+            }
+        }
+    }
+
+    private static readonly System.Text.Encoding Utf8NoByteOrderMark =
+        new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
+    /// As <see cref="WriteStandardInputAsync(Process, string, CancellationToken)"/>, for a raw pipe.
+    /// </summary>
+    private static async Task WriteStandardInputAsync(Stream pipe, string standardInput, CancellationToken ct)
+    {
+        try
+        {
+            await using var writer = new StreamWriter(pipe, Utf8NoByteOrderMark, leaveOpen: true);
+            await writer.WriteAsync(standardInput.AsMemory(), ct).ConfigureAwait(false);
+            await writer.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (IOException)
+        {
+            // The child closed its end first. Its exit code carries the outcome.
+        }
+        finally
+        {
+            // Closing the write end is what makes the child read to END of input rather than
+            // waiting forever for more.
+            try { pipe.Dispose(); }
+            catch (IOException) { /* the pipe is already broken; nothing is left to close */ }
         }
     }
 
