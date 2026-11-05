@@ -1146,6 +1146,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             // nothing at all while sessions are working.
             _idleTreeInspectionWatcher = new Core.Sessions.IdleTreeInspectionWatcher(
                 _sessionManager,
+                folder => _repoStatePusher?.CoveringRepository(folder)?.Path,
                 (folder, ct) => _repoStatePusher is { } pusher
                     ? pusher.PushOneFolderAsync(folder, ct)
                     : Task.FromResult<int?>(null));
