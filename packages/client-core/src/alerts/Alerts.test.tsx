@@ -17,7 +17,7 @@ import { AlertsProvider, ALERTS_POLL_MS, useAlerts } from "./AlertsProvider";
 import { AlertsBell } from "./AlertsBell";
 import { AlertsList, ANSWERED_LINE_MS } from "./AlertsList";
 import { badgeText, bellLabel, listAlerts, type AlertDto } from "./alertsClient";
-import { LONG_REASON, LONG_VERSION, messageAlert, restartAlert, secretAlert } from "./alertsFixtures.testkit";
+import { LONG_REASON, LONG_VERSION, messageAlert, restartAlert, secretAlert, stuckAlert } from "./alertsFixtures.testkit";
 
 interface FakeState {
   alerts: AlertDto[];
@@ -245,6 +245,20 @@ describe("the list", () => {
     expect(within(card).getByRole("button", { name: "Approve" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Deny" })).toBeTruthy();
     expect(card.querySelector("details")?.open).toBe(false);
+  });
+
+  it("AlertsList_FactoryInboxStuck_ShowsEveryReasonOnce_InTheGatewaysWords_AndNoButtons", async () => {
+    const alert = stuckAlert();
+    given([alert]);
+    renderList();
+    const card = await screen.findByTestId("alert-card");
+    expect(within(card).getByRole("heading", { name: "The Factory inbox of Invoices is stuck" })).toBeTruthy();
+    expect(within(card).getByTestId("alert-detail").getAttribute("data-kind")).toBe("factory-inbox-stuck");
+    if (alert.kind !== "factory-inbox-stuck") throw new Error("the fixture is a stuck alert");
+    // The first reason is the summary and the second is listed: each sentence reaches the screen exactly once.
+    for (const r of alert.detail.reasons) expect(card.textContent?.split(r.sentence)).toHaveLength(2);
+    expect(within(card).queryByText(/cannot answer this kind of alert/)).toBeNull();
+    expect(within(within(card).getByTestId("alert-detail")).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("AlertsList_SecretTransfer_ApprovedFromTheCard_LeavesNeedsYou_WithALineSayingSo_ThenTheLineGoes", async () => {

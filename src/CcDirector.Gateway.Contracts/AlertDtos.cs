@@ -15,8 +15,12 @@ public static class AlertKinds
     /// <summary>A session asked to message another session (<see cref="FleetMessageLinkRequestDto"/> is the detail).</summary>
     public const string MessageRequest = "message-request";
 
+    /// <summary>A factory's inbox is stuck: a message not received, or a bundle not decided, in time (Factory Inbox
+    /// mission). The detail names the factory and every reason, in words.</summary>
+    public const string FactoryInboxStuck = "factory-inbox-stuck";
+
     /// <summary>Every kind, in the order the sources are composed.</summary>
-    public static readonly IReadOnlyList<string> All = new[] { RestartRequest, SecretTransfer, MessageRequest };
+    public static readonly IReadOnlyList<string> All = new[] { RestartRequest, SecretTransfer, MessageRequest, FactoryInboxStuck };
 
     /// <summary>The alert id of a source record: <c>"{kind}:{sourceId}"</c>.</summary>
     public static string IdOf(string kind, string sourceId) => kind + ":" + sourceId;

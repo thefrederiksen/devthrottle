@@ -121,3 +121,21 @@ export function messageAlert(overrides: Partial<Common> = {}, detail: Partial<Me
     detail: messageRequest(detail),
   };
 }
+
+/** A stuck factory inbox with two reasons, as the Gateway words them: the first is also the summary. */
+export function stuckAlert(overrides: Partial<Common> = {}): AlertDto {
+  const first = "A message was not received in 15 minutes: no Director is running on SOREN_NORTH, the Boss's computer, so no Secretary can start. Start the Director on SOREN_NORTH.";
+  const second = "A bundle was handed to the Boss more than 2 hours ago and not decided: no Boss has read it.";
+  return {
+    ...common("factory-inbox-stuck:invoices", { title: "The Factory inbox of Invoices is stuck", summary: first, status: "Stuck", tone: "bad", ...overrides }),
+    kind: "factory-inbox-stuck",
+    detail: {
+      factory: "invoices",
+      title: "Invoices",
+      reasons: [
+        { cause: "no-director", sentence: first, count: 1, sinceUtc: "2026-10-24T21:15:00Z" },
+        { cause: "boss-did-not-decide", sentence: second, count: 1, sinceUtc: "2026-10-24T21:30:00Z" },
+      ],
+    },
+  };
+}
