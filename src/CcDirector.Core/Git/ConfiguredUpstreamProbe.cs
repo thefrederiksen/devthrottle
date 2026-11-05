@@ -21,6 +21,14 @@ namespace CcDirector.Core.Git;
 /// scan a whole machine deliberately do not. Until 22 September 2026 this probe ran <c>git ls-remote</c>
 /// instead, one network round trip to the hosting provider per branch per inventory; on one
 /// Director that was 51,864 calls in a day, none of them asked for by a person.
+///
+/// IT IS READ ONCE PER REPOSITORY, NOT ONCE PER BRANCH. Until 5 November 2026 it started three
+/// git processes for every branch of every worktree on every inventory - which on this fleet's
+/// busiest Mac was 8,658 of the 42,093 git commands the Director ran in sixteen hours, a fifth of
+/// them, for an answer that changes only when somebody deletes a branch. The two reads below
+/// answer every branch of a repository at once, and <see cref="ConfiguredUpstreamSnapshot.Verdict"/>
+/// then starts no process at all. Nothing is cached between inventories: the snapshot lives for one
+/// pass and is read again on the next, so it can never be stale (owner's decision, 5 November 2026).
 /// </summary>
 public static class ConfiguredUpstreamProbe
 {
@@ -33,78 +41,37 @@ public static class ConfiguredUpstreamProbe
     /// </summary>
     public readonly record struct UpstreamVerdict(bool HasConfiguredUpstream, bool UpstreamGone, bool InspectionSucceeded);
 
-    // One tab-separated line: the resolved upstream ref (empty when git cannot map the configured
-    // upstream to a remote-tracking ref), then the tracking state without brackets, which is the
-    // word "gone" when the remote-tracking ref does not exist.
-    private const string UpstreamFormat = "%(upstream)%09%(upstream:track,nobracket)";
+    // One tab-separated line per branch: its own name, the resolved upstream ref (empty when git
+    // cannot map the configured upstream to a remote-tracking ref), then the tracking state without
+    // brackets, which is the word "gone" when the remote-tracking ref does not exist.
+    private const string RefFormat = "%(refname:short)%09%(upstream)%09%(upstream:track,nobracket)";
 
-    /// <param name="unrefreshedRemotes">Remotes the caller tried and failed to refresh. A branch
-    /// configured to one of them cannot be inspected: its tracking ref may be stale in the direction
-    /// that reads as "gone", which on a destructive path would be a false proof of merge.</param>
-    public static async Task<UpstreamVerdict> ProbeAsync(
-        GitCommandRunner git, string repoPath, string branch, CancellationToken ct,
-        IReadOnlyCollection<string>? unrefreshedRemotes = null)
+    /// <summary>
+    /// Reads one repository's whole branch-to-upstream picture: two git processes, whatever the
+    /// number of branches. A read that fails returns a snapshot whose every verdict fails closed.
+    /// </summary>
+    public static async Task<ConfiguredUpstreamSnapshot> ReadAsync(
+        GitCommandRunner git, string repoPath, CancellationToken ct = default)
     {
-        var remote = await git.RunAsync(repoPath, new[] { "config", "--get", $"branch.{branch}.remote" }, ct);
-        // --get-all, not --get: git permits MULTIPLE merge values (an octopus pull), and --get
-        // silently returns only the last one - which could be gone while another configured
-        // merge ref survives, a false "upstream gone" on a destructive path (ruling R2-7).
-        var merge = await git.RunAsync(repoPath, new[] { "config", "--get-all", $"branch.{branch}.merge" }, ct);
-        var remoteName = remote.Success ? remote.Output.Trim() : "";
-        var mergeRefs = merge.Success
-            ? merge.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            : Array.Empty<string>();
-
-        if (remoteName.Length == 0 || mergeRefs.Length == 0)
-            return new UpstreamVerdict(HasConfiguredUpstream: false, UpstreamGone: false, InspectionSucceeded: true);
-
-        if (mergeRefs.Length > 1)
+        var refs = await git.RunAsync(repoPath, new[] { "for-each-ref", $"--format={RefFormat}", "refs/heads/" }, ct);
+        if (!refs.Success)
         {
-            // Ambiguous configuration fails closed: the branch is simply NOT eligible for the
-            // origin-gone signal, exactly as if no upstream were configured.
-            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} has {mergeRefs.Length} configured merge values - C2 does not apply");
-            return new UpstreamVerdict(HasConfiguredUpstream: false, UpstreamGone: false, InspectionSucceeded: true);
+            FileLog.Write($"[ConfiguredUpstreamProbe] for-each-ref FAILED for {repoPath}: {refs.Error}");
+            return ConfiguredUpstreamSnapshot.CouldNotRead($"git for-each-ref failed: {refs.Error}");
         }
 
-        if (unrefreshedRemotes is not null && unrefreshedRemotes.Contains(remoteName))
+        // --get-regexp, not --get per branch: git permits MULTIPLE merge values (an octopus pull),
+        // and this form prints every one of them, which is what keeps the ambiguous case refusable
+        // rather than silently reduced to its last value (ruling R2-7).
+        var config = await git.RunAsync(repoPath, new[] { "config", "--get-regexp", "^branch\\." }, ct);
+        // Exit 1 is "no key matched" - a repository that configures no branch at all. That is an
+        // answer, not a failure.
+        if (!config.Success && config.ExitCode != 1)
         {
-            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} tracks {remoteName}, which could not be refreshed - cannot inspect");
-            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
+            FileLog.Write($"[ConfiguredUpstreamProbe] config --get-regexp FAILED for {repoPath}: {config.Error}");
+            return ConfiguredUpstreamSnapshot.CouldNotRead($"git config --get-regexp failed: {config.Error}");
         }
 
-        // Ask git for the branch's own view of its upstream. This reads refs on disk only.
-        var tracking = await git.RunAsync(repoPath, new[] { "for-each-ref", $"--format={UpstreamFormat}", $"refs/heads/{branch}" }, ct);
-        if (!tracking.Success)
-        {
-            FileLog.Write($"[ConfiguredUpstreamProbe] for-each-ref FAILED for branch {branch}: {tracking.Error}");
-            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
-        }
-
-        var line = tracking.Output.Trim('\r', '\n', ' ');
-        if (line.Length == 0)
-        {
-            // The branch has upstream configuration but no ref of its own - git prints nothing.
-            // Nothing can be said about it, so say so rather than guess.
-            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch} has an upstream configured but refs/heads/{branch} does not exist - cannot inspect");
-            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
-        }
-
-        var tab = line.IndexOf('\t');
-        var upstreamRef = tab < 0 ? line : line[..tab];
-        var track = tab < 0 ? "" : line[(tab + 1)..].Trim();
-
-        if (upstreamRef.Length == 0)
-        {
-            // Configured, but git cannot map it to a remote-tracking ref (a remote with no fetch
-            // refspec, or a merge value outside refs/heads). The ref cannot be read locally, so
-            // the inspection fails closed - never "gone", which would be a false proof of merge.
-            FileLog.Write($"[ConfiguredUpstreamProbe] branch {branch}: git cannot map {remoteName}/{mergeRefs[0]} to a remote-tracking ref - cannot inspect");
-            return new UpstreamVerdict(HasConfiguredUpstream: true, UpstreamGone: false, InspectionSucceeded: false);
-        }
-
-        return new UpstreamVerdict(
-            HasConfiguredUpstream: true,
-            UpstreamGone: string.Equals(track, "gone", StringComparison.Ordinal),
-            InspectionSucceeded: true);
+        return ConfiguredUpstreamSnapshot.Parse(refs.Output, config.Success ? config.Output : "");
     }
 }

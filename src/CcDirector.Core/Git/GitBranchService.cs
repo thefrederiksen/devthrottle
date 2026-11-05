@@ -142,6 +142,10 @@ public sealed class GitBranchService
         // Branches held by linked worktrees (never deletable from under them).
         var worktreeBranches = await BranchesCheckedOutInWorktreesAsync(repoPath, ct);
 
+        // Every branch's configured upstream and whether its remote branch is gone, read for the
+        // whole repository in two git processes rather than three per branch.
+        var upstreams = await ConfiguredUpstreamProbe.ReadAsync(_git, repoPath, ct);
+
         foreach (var raw in list.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var parts = raw.Split('\t');
@@ -168,7 +172,7 @@ public sealed class GitBranchService
                 // a never-pushed branch's absence from the remote proves nothing (same rule as
                 // worktrees). The probe asks the configured remote for the configured ref name,
                 // both of which can differ from origin/<local-name>.
-                var upstream = await ConfiguredUpstreamProbe.ProbeAsync(_git, repoPath, name, ct);
+                var upstream = upstreams.Verdict(name);
                 inspectionOk &= upstream.InspectionSucceeded;
                 originGone = upstream.HasConfiguredUpstream && upstream.UpstreamGone;
 
