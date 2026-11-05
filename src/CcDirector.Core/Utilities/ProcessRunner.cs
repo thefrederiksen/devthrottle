@@ -125,6 +125,7 @@ public static class ProcessRunner
         catch (OperationCanceledException)
         {
             TryKillTree(proc);
+            await WaitForKilledExitAsync(proc, fileName).ConfigureAwait(false);
             // Observe the drain tasks so a killed-pipe read does not surface as an unobserved fault.
             await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
             await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
@@ -309,6 +310,42 @@ public static class ProcessRunner
         catch
         {
             // Already exited, or the operating system refused - best effort, nothing more to do.
+        }
+    }
+
+    /// <summary>How long a cancelled call waits for the child it killed to be gone. A kill lands in milliseconds; this
+    /// bounds only a child the operating system will not let us end.</summary>
+    internal static readonly TimeSpan KilledExitLimit = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// WAIT FOR THE KILLED CHILD TO BE GONE BEFORE THE CANCELLED CALL RETURNS (Factory Inbox mission, 4 November 2026).
+    /// <see cref="Process.Kill(bool)"/> only asks the operating system to end the tree; it returns while the child may
+    /// still hold its working folder, so a caller that cancelled and then removed that folder raced the kill. The stop
+    /// verb did exactly that: its git probe in a factory seat's kit folder outran its three-second budget on a starved
+    /// machine, was cancelled, and the kit folder delete that followed failed on a folder the dying git still held - so
+    /// a seat ended for good kept its folder. Bounded by <see cref="KilledExitLimit"/>, and logged when the child
+    /// outlives it, because a child that cannot be ended must not hold the caller up for ever.
+    ///
+    /// THE KERNEL WAIT, NOT <see cref="Process.WaitForExitAsync"/> (review of this change, finding 1, measured). On
+    /// Windows the asynchronous wait checks <see cref="Process.HasExited"/> first, which is true as soon as the exit code
+    /// is set - and <c>TerminateProcess</c> sets it at once and tears the process down afterwards, releasing its working
+    /// folder only then. So after a kill it returned at once and 32 of 40 deletes still failed. The synchronous
+    /// <see cref="Process.WaitForExit(int)"/> waits on the process handle itself, which is signalled only when the
+    /// process is gone; with it 0 of 20 failed. It blocks, so it runs on the thread pool, never on the caller's thread.
+    /// </summary>
+    private static async Task WaitForKilledExitAsync(Process proc, string fileName)
+    {
+        try
+        {
+            var gone = await Task.Run(() => proc.WaitForExit((int)KilledExitLimit.TotalMilliseconds)).ConfigureAwait(false);
+            if (!gone)
+                FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync FAILED: {fileName} was killed but had not exited after " +
+                              $"{KilledExitLimit.TotalSeconds:F0}s; returning without it");
+        }
+        catch (InvalidOperationException ex)
+        {
+            // not-an-error: the process object holds no process any more (it was never started or is already reaped)
+            FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync: {fileName} has no process to wait for: {ex.Message}");
         }
     }
 
