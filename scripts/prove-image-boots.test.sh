@@ -85,17 +85,28 @@ if ! docker build -q -t "$TAG:base" "$WORK" >/dev/null; then
 fi
 cleanup_tags+=("$TAG:base")
 
-export BOOT_TIMEOUT_SECONDS=15
+# THE BUDGETS. A case that must FAIL waits out its whole budget, so it gets a short one: 15 seconds, which the
+# silent case's expected words name. A case that must PASS gets a budget with room in it, because what it
+# needs is counted in polls, and every poll costs the script's 3-second sleep plus the time its own docker,
+# curl and jq calls take. The first poll always finds the fake not yet listening (HTTP 000), so
+# starting-then-healthy needs six polls - one refused, two answered 503, three passes - which is 15 seconds of
+# sleep alone. With a 15-second budget it passed only when no poll ran even one second late; on a GitHub
+# runner one did (0s, 3s, 7s, 10s, 13s - run 42112688067) and the third pass fell past the deadline. A passing
+# case never waits out its budget, so 60 seconds costs nothing when it passes.
+FAIL_BUDGET_SECONDS=15
+PASS_BUDGET_SECONDS=60
 failures=0
 # run_case <shape> <expected exit> <expected words> [more expected words]
 run_case() {
   local shape=$1 want_exit=$2 want_text=$3 want_more=${4:-}
+  local budget=$FAIL_BUDGET_SECONDS
+  [ "$want_exit" -eq 0 ] && budget=$PASS_BUDGET_SECONDS
   local image="$TAG:$shape"
   printf 'FROM %s\nENV SHAPE=%s\n' "$TAG:base" "$shape" | docker build -q -t "$image" - >/dev/null
   cleanup_tags+=("$image")
   local start end got_exit
   start=$(date +%s)
-  BOOT_NAME_SUFFIX="test-$$-$shape" bash "$PROOF" "$image" abc1234 > "$WORK/out-$shape" 2>&1
+  BOOT_TIMEOUT_SECONDS="$budget" BOOT_NAME_SUFFIX="test-$$-$shape" bash "$PROOF" "$image" abc1234 > "$WORK/out-$shape" 2>&1
   got_exit=$?
   end=$(date +%s)
   local ok=true
