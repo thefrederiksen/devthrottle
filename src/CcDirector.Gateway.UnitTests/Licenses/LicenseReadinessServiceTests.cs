@@ -101,7 +101,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     /// <summary>A new service over the same database: what a Gateway that restarted would build.</summary>
     private LicenseReadinessService Service()
         => new(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns, (tenant, account) => _approverWhyNot(tenant, account),
-            _directors.IsConnected, _alarms, () => _now);
+            _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
 
     /// <summary>Both machines report now, as the fields above say, and their Directors are connected.</summary>
     private void BothReport(TenantId? tenant = null)
@@ -165,6 +165,95 @@ public sealed class LicenseReadinessServiceTests : IDisposable
             SignInExpiresAtUtc = _now.AddDays(30),
             FinishedAtUtc = _now,
         }));
+    }
+
+    // ----- covered later by a spare it holds (4 November 2026) -----
+
+    // The 4 November picture: machine-a is on account A at 40%. Its one spare, account B, is at its limit and resets in
+    // four days. Account C has room, but machine-a holds no sign-in for it (machine-b does). Judged with the forecast of
+    // when account A runs out that the test passes.
+    private IReadOnlyList<LicenseMachineReadiness> JudgeTheFourthOfNovember(DateTime? aRunsOutAt, double aWeekly = 40, bool withC = true)
+        => JudgeAndPicture(aRunsOutAt, aWeekly, withC).Judged;
+
+    private (LicensePicture Picture, IReadOnlyList<LicenseMachineReadiness> Judged) JudgeAndPicture(DateTime? aRunsOutAt, double aWeekly, bool withC)
+    {
+        _store.ApplyReport(One, DirA, ++_sequence,
+            Report(MachineA, _now, Holding(A, true, 5, aWeekly, readAt: _now), Holding(B, false, 5, 98, readAt: _now)), _now, TimeSpan.Zero);
+        // machine-b keeps account C in use (or, with no account C, account B) and holds account A as a spare.
+        _store.ApplyReport(One, DirB, ++_sequence,
+            Report(MachineB, _now, withC ? Holding(C, true, 5, 10, readAt: _now) : Holding(B, true, 5, 98, readAt: _now),
+                Holding(A, false, 5, aWeekly, readAt: _now)), _now, TimeSpan.Zero);
+        _directors.Connect(One, DirA);
+        _directors.Connect(One, DirB);
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var judged = LicenseReadinessFold.Judge(picture, _log.ListOpen(One), _log.ListSince(One, _now.AddDays(-1)),
+            _ => "No machine is set to approve sign-ins for this account.", _ => true,
+            account => account == A ? aRunsOutAt : null, _now);
+        return (picture, judged);
+    }
+
+    // The review of PR 4580: at 85% the 80% warning names machine-a as unable to switch. Covered later, it is not
+    // stranded: the warning leaves it out, and never throws for a machine judged ready (that throw stopped the whole
+    // minute check for the tenant).
+    [Fact]
+    public void CannotSwitchWarning_At85_LeavesOutAMachineCoveredLater_AndDoesNotThrow()
+    {
+        var (picture, judged) = JudgeAndPicture(T0.AddDays(5), aWeekly: 85, withC: true);
+
+        Assert.True(Assert.Single(judged, j => j.MachineName == MachineA).CoveredLater);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One));
+        Assert.DoesNotContain(warnings, c => c.MachineId == judged.Single(j => j.MachineName == MachineA).MachineId);
+        Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One)));
+    }
+
+    // The control: at 85% with the spare back only after account A runs out, the 80% warning still names machine-a.
+    [Fact]
+    public void CannotSwitchWarning_At85_StillNamesAMachineNotCoveredInTime()
+    {
+        var (picture, judged) = JudgeAndPicture(T0.AddDays(3), aWeekly: 85, withC: true);
+
+        var a = Assert.Single(judged, j => j.MachineName == MachineA);
+        Assert.False(a.CoveredLater);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One));
+        Assert.Contains(warnings, c => c.MachineId == a.MachineId);
+    }
+
+    // Only two accounts, so no account has room now: covered later still applies, rather than "no account has room".
+    [Fact]
+    public void Judge_NoAccountWithRoomNow_ButASpareBackInTime_IsReady()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(T0.AddDays(5), withC: false), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.Ready, B, true), (a.State, a.TargetAccountEmail, a.CoveredLater));
+    }
+
+    // Its spare is back (T0 + 4 days) before account A is forecast to run out (T0 + 5 days): ready, no gap, so no
+    // sign-in is wanted and no approver alarm can open for account C.
+    [Fact]
+    public void Judge_ASpareBackBeforeTheAccountRunsOut_IsReady_AndNamesBothTimes()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(T0.AddDays(5)), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.Ready, B, LicenseTones.Good, false), (a.State, a.TargetAccountEmail, a.Tone, a.IsGap));
+        Assert.Equal("Ready: account-b@example.com has room again on Thu 15 Oct 03:12 UTC, before account-a@example.com is expected to reach 97% on Fri 16 Oct 03:12 UTC.", a.Text);
+    }
+
+    // Account A is forecast to run out (T0 + 3 days) before the spare is back: a real gap, judged against account C.
+    [Fact]
+    public void Judge_ASpareBackOnlyAfterTheAccountRunsOut_IsNotReady()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(T0.AddDays(3)), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.NotReady, C, LicenseReadinessFixes.ApproverNotReady), (a.State, a.TargetAccountEmail, a.Fix));
+    }
+
+    // No forecast for account A: judged on today's numbers alone, as before. A missing forecast never covers a machine.
+    [Fact]
+    public void Judge_NoForecastForTheAccount_IsJudgedOnTodayAlone()
+    {
+        var a = Assert.Single(JudgeTheFourthOfNovember(null), j => j.MachineName == MachineA);
+
+        Assert.Equal((LicenseReadinessStates.NotReady, C), (a.State, a.TargetAccountEmail));
     }
 
     // ----- the readiness of each machine, word for word -----

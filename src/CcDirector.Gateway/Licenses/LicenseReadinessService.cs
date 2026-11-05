@@ -58,16 +58,20 @@ public sealed class LicenseReadinessService
     private readonly Func<TenantId, string, bool> _isConnected;
     private readonly LicenseAlarmService _alarms;
     private readonly Func<DateTime> _nowUtc;
+    private readonly LicenseUsageHistory _history;
 
     // One readiness check per tenant at a time: the host starts a pass every minute, and a raise may wait on an email.
     private readonly ConcurrentDictionary<TenantId, byte> _ticking = new();
 
     /// <param name="approverWhyNot">Track C's one approver check: <see cref="LicenseApproverReadiness.WhyNotReady"/>.</param>
     /// <param name="isConnected">Whether a tenant's Director, by its identifier, has a stream connection now.</param>
+    /// <param name="history">The kept readings the forecast takes its pace from: a machine covered later by a spare is judged
+    /// against when the account it is on is forecast to run out.</param>
     public LicenseReadinessService(LicenseStore store, LicenseSnapshotSource snapshots, LicenseSignInLog log, LicenseSignInService signIns,
         Func<TenantId, string, string?> approverWhyNot, Func<TenantId, string, bool> isConnected, LicenseAlarmService alarms,
-        Func<DateTime> nowUtc)
+        LicenseUsageHistory history, Func<DateTime> nowUtc)
     {
+        _history = history ?? throw new ArgumentNullException(nameof(history));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -89,8 +93,13 @@ public sealed class LicenseReadinessService
         IReadOnlyList<Data.Entities.LicenseSwitchLogEntity> openSignIns, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
+        // A stale forecast says nothing about when the account runs out, so it gives no time.
+        var runsOut = LicenseForecaster.Forecast(picture.Snapshot, _history.Read(tenant, nowUtc)).Accounts
+            .Where(a => !a.IsStale && a.ExpectedTiredAtUtc is not null)
+            .ToDictionary(a => LicenseStore.NormalizeEmail(a.AccountEmail), a => a.ExpectedTiredAtUtc, StringComparer.Ordinal);
         return LicenseReadinessFold.Judge(picture, openSignIns, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
-            account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId), nowUtc);
+            account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId),
+            account => runsOut.TryGetValue(LicenseStore.NormalizeEmail(account), out var at) ? at : null, nowUtc);
     }
 
     /// <summary>

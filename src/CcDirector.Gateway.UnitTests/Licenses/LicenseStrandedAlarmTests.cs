@@ -125,7 +125,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     private async Task<LicenseReadinessTick> Tick()
     {
         var tick = await new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns,
-            (tenant, account) => _approverWhyNot(tenant, account), _directors.IsConnected, _alarms, () => _now).TickAsync(One, CancellationToken.None);
+            (tenant, account) => _approverWhyNot(tenant, account), _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now).TickAsync(One, CancellationToken.None);
         if (_directorAnswers)
             await _signIns.WhenIdleAsync();
         return tick;

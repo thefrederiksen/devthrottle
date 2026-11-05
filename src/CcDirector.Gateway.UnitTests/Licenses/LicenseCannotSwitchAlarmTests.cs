@@ -126,7 +126,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
     private Task<LicenseReadinessTick> Tick()
         => new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns, _approverReadiness.WhyNotReady,
-            _directors.IsConnected, _alarms, () => _now).TickAsync(One, CancellationToken.None);
+            _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now).TickAsync(One, CancellationToken.None);
 
     private void Later(int minutes)
     {

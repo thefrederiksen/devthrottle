@@ -3156,7 +3156,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Readiness on every minute (phase 6): the account each machine would switch to next, a sign-in started at once
         // for each machine not ready for it, and the license alarm when one is still not ready at 80%.
         LicenseReadiness = new Licenses.LicenseReadinessService(LicenseStore, LicenseSnapshots, LicenseSignInLog, LicenseSignIns,
-            LicenseApproverReadiness.WhyNotReady, IsDirectorConnected, LicenseAlarms, LicenseNow.UtcNow);
+            LicenseApproverReadiness.WhyNotReady, IsDirectorConnected, LicenseAlarms, LicenseHistory, LicenseNow.UtcNow);
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued

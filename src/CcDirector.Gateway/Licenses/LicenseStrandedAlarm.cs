@@ -119,6 +119,10 @@ public static class LicenseStrandedAlarm
         foreach (var stranded in LicenseDecisionEngine.MachinesThatCannotSwitch(snapshot, atPercent))
         {
             var machine = machines.Single(m => SameMachine(m, stranded.MachineName, stranded.OsUser));
+            // Covered later by a spare it holds (back before its account is forecast to run out): not stranded, nothing to
+            // warn about. At the threshold the forecast says "now", so a machine at its limit is never covered later.
+            if (judged.Any(j => j.MachineId == machine.MachineId && j.CoveredLater))
+                continue;
             var label = LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser);
             // Judged on the same picture against the same account: NextTarget is the best account with room, which is the
             // account a stranded machine is named against. Anything else is a defect, not a case to word around.
