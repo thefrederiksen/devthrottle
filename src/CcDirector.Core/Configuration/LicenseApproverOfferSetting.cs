@@ -6,7 +6,9 @@ namespace CcDirector.Core.Configuration;
 /// <summary>
 /// License Switching phase 6 (Track C): whether this machine offers its browser profiles as approvers. Stored in
 /// config.json beside the setting that turns license switching on, under "licenseSwitching" -&gt; "offerApprovers".
-/// OFF by default, and only an explicit <c>true</c> turns it on.
+/// ON by default, and only an explicit <c>false</c> turns it off. The owner, 5 November 2026: "Any computer should be
+/// allowed to use any license." Off by default, no machine had ever offered a profile, so no account had an approver
+/// and no machine could take a sign-in to an account it did not already hold - SOREN_NORTH held two of four accounts.
 ///
 /// On, the Director's daily approver check also looks at every one of this Director's own browser profiles - asking
 /// each which account it is signed in to claude.ai as - and the Gateway may register a profile proven able to approve
@@ -16,8 +18,8 @@ namespace CcDirector.Core.Configuration;
 /// </summary>
 public static class LicenseApproverOfferSetting
 {
-    /// <summary>Default posture: off. A missing file, section, key or a value that is not a boolean is off.</summary>
-    public const bool Default = false;
+    /// <summary>Default posture: on. A missing file, section, key or a value that is not a boolean is on.</summary>
+    public const bool Default = true;
 
     /// <summary>The effective value of <c>licenseSwitching.offerApprovers</c> in config.json.</summary>
     public static bool Get() => ReadFrom(CcDirectorConfigService.ReadRaw());
@@ -27,7 +29,7 @@ public static class LicenseApproverOfferSetting
     {
         ArgumentNullException.ThrowIfNull(root);
         if (root["licenseSwitching"] is not JsonObject section) return Default;
-        return section["offerApprovers"] is JsonValue value && value.GetValueKind() == JsonValueKind.True;
+        return !(section["offerApprovers"] is JsonValue value && value.GetValueKind() == JsonValueKind.False);
     }
 
     /// <summary>Persists <paramref name="offer"/>, deep-merging into config.json so every other section - and the
