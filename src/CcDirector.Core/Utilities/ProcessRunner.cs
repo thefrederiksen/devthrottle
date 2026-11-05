@@ -125,6 +125,7 @@ public static class ProcessRunner
         catch (OperationCanceledException)
         {
             TryKillTree(proc);
+            await WaitForKilledExitAsync(proc, fileName).ConfigureAwait(false);
             // Observe the drain tasks so a killed-pipe read does not surface as an unobserved fault.
             await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
             await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
@@ -309,6 +310,38 @@ public static class ProcessRunner
         catch
         {
             // Already exited, or the operating system refused - best effort, nothing more to do.
+        }
+    }
+
+    /// <summary>How long a cancelled call waits for the child it killed to be gone. A kill lands in milliseconds; this
+    /// bounds only a child the operating system will not let us end.</summary>
+    internal static readonly TimeSpan KilledExitLimit = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// WAIT FOR THE KILLED CHILD TO BE GONE BEFORE THE CANCELLED CALL RETURNS (Factory Inbox mission, 4 November 2026).
+    /// <see cref="Process.Kill(bool)"/> only asks the operating system to end the tree; it returns while the child may
+    /// still hold its working folder, so a caller that cancelled and then removed that folder raced the kill. The stop
+    /// verb did exactly that: its git probe in a factory seat's kit folder outran its three-second budget on a starved
+    /// machine, was cancelled, and the kit folder delete that followed failed on a folder the dying git still held - so
+    /// a seat ended for good kept its folder. Bounded by <see cref="KilledExitLimit"/>, and logged when the child
+    /// outlives it, because a child that cannot be ended must not hold the caller up for ever.
+    /// </summary>
+    private static async Task WaitForKilledExitAsync(Process proc, string fileName)
+    {
+        using var limit = new CancellationTokenSource(KilledExitLimit);
+        try
+        {
+            await proc.WaitForExitAsync(limit.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync FAILED: {fileName} was killed but had not exited after " +
+                          $"{KilledExitLimit.TotalSeconds:F0}s; returning without it");
+        }
+        catch (InvalidOperationException ex)
+        {
+            // not-an-error: the process object holds no process any more (it was never started or is already reaped)
+            FileLog.Write($"[ProcessRunner] WaitForKilledExitAsync: {fileName} has no process to wait for: {ex.Message}");
         }
     }
 
