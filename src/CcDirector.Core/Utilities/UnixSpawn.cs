@@ -55,6 +55,17 @@ internal static class UnixSpawn
     /// </summary>
     private static readonly object SpawnGate = new();
 
+    /// <summary>
+    /// The same gate, for the one other place in the Director that spawns a child of its own -
+    /// <c>UnixProcessHost</c>, which starts agent sessions on a pseudo-terminal. It must hold this
+    /// while it spawns, or a session started in the microseconds between a <c>pipe()</c> here and
+    /// the close-on-exec mark that follows it would inherit a write end of that pipe and keep it
+    /// open for the whole life of the session - and the git read waiting on the other end would
+    /// never reach end of file. Low odds, a permanent hang when it lands. Raised in review of
+    /// devthrottle#4577.
+    /// </summary>
+    internal static object DescriptorGate => SpawnGate;
+
     /// <summary>ENOENT - "no such file or directory", the code for an executable that is not there.</summary>
     internal const int ENOENT = 2;
 
@@ -74,6 +85,62 @@ internal static class UnixSpawn
         public FileStream StandardOutput { get; init; } = null!;
         public FileStream StandardError { get; init; } = null!;
 
+        /// <summary>
+        /// Set once this child's exit status has been collected. AFTER THAT THE PID MUST NEVER BE
+        /// USED AGAIN. A collected pid is free for the operating system to hand to a brand new
+        /// process, so a late kill(-pid) would signal a process group that has nothing to do with
+        /// us, and a late waitpid could take the exit status of a SIBLING child - another child of
+        /// ours, or one the runtime started - and report it as this one's. Both were reachable
+        /// before: the wait can succeed and the drain that follows it can still throw on
+        /// cancellation, which sent the cancellation path at an already-collected pid. Caught in
+        /// review of devthrottle#4577.
+        /// </summary>
+        private bool _collected;
+
+        /// <summary>
+        /// Wait for this child to exit and return its exit code, using the convention the .NET
+        /// <see cref="System.Diagnostics.Process"/> class reports on Unix: the exit status for a
+        /// normal exit, and 128 plus the signal number for a child a signal killed.
+        /// </summary>
+        public async Task<int> WaitAsync(CancellationToken ct)
+        {
+            var delayMs = 1;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (TryReap(Pid, out var exitCode))
+                {
+                    _collected = true;
+                    return exitCode;
+                }
+
+                await Task.Delay(delayMs, ct).ConfigureAwait(false);
+                delayMs = Math.Min(delayMs * 2, PollCeilingMs);
+            }
+        }
+
+        /// <summary>
+        /// Kill this child and everything it started, then collect its status so it does not sit as
+        /// a zombie for the life of the Director. Does NOTHING if the status has already been
+        /// collected - see <see cref="_collected"/>; that is the whole point of the flag.
+        /// </summary>
+        public void KillAndCollect()
+        {
+            if (_collected || Pid <= 0) return;
+
+            // A negative pid means "the process group with this id". This child leads a group of
+            // its own whose id IS its pid, so this cannot reach anything outside what we started.
+            kill(-Pid, SIGKILL);
+            kill(Pid, SIGKILL);
+
+            for (var attempt = 0; attempt < CollectAttempts; attempt++)
+            {
+                if (TryReap(Pid, out _)) { _collected = true; return; }
+                Thread.Sleep(CollectPauseMs);
+            }
+        }
+
         public void Dispose()
         {
             TryDispose(StandardInput);
@@ -87,6 +154,11 @@ internal static class UnixSpawn
             catch (IOException) { /* the pipe is already broken; the descriptor is gone either way */ }
         }
     }
+
+    /// <summary>The ceiling the exit poll backs off to, in milliseconds.</summary>
+    private const int PollCeilingMs = 25;
+    private const int CollectAttempts = 200;
+    private const int CollectPauseMs = 5;
 
     /// <summary>
     /// Start <paramref name="fileName"/> with <paramref name="args"/>. Returns 0 and a
@@ -106,7 +178,30 @@ internal static class UnixSpawn
     {
         child = null;
 
-        // argv[0] is the program name as invoked, then the arguments, then a null terminator.
+        // RESOLVE THE PROGRAM HERE, AGAINST THIS PROCESS'S OWN PATH, AND SPAWN AN ABSOLUTE PATH.
+        //
+        // posix_spawnp would search PATH itself - but the C library's PATH, which is NOT the one
+        // this process thinks it has. Environment.SetEnvironmentVariable writes only to the managed
+        // copy; .NET never pushes it down to the native environment. So a folder added to PATH at
+        // run time is invisible to a libc PATH search, while the Process class it replaced resolved
+        // in managed code and never had the problem.
+        //
+        // That is not hypothetical here: GitHubSetup.AddFoundFoldersToProcessPath exists precisely
+        // to add the folders git and gh were found in after an install, and FleetToolPathRepair,
+        // ToolShimPath and BrowserHarnessInstaller rewrite PATH the same way. Without this,
+        // every caller passing a bare name - "git" in GitCommandRunner, GitStatusProvider and
+        // GitSyncStatusProvider, "gh" and "az" in PullRequestService - reports "not installed" on a
+        // Director whose git lives only in a folder added that way, which is the Finder-launched
+        // Mac. Caught in review of devthrottle#4577 before it shipped.
+        //
+        // A name that resolves nowhere is ENOENT, the same answer and the same code the Process
+        // class gave for it, without a spawn being attempted at all.
+        var resolved = ExecutableResolver.Resolve(fileName);
+        if (resolved is null) return ENOENT;
+
+        // argv[0] is the program name AS THE CALLER WROTE IT - a program that prints its own usage
+        // should say what it was asked to be, not where it was found - then the arguments, then a
+        // null terminator. Only the thing being executed is the resolved path.
         var argv = new string?[args.Count + 2];
         argv[0] = fileName;
         for (var i = 0; i < args.Count; i++) argv[i + 1] = args[i];
@@ -190,7 +285,8 @@ internal static class UnixSpawn
                     // executable is ENOENT here, the same number the .NET Process class surfaced as
                     // Win32Exception.NativeErrorCode, so the published contract on StartErrorCode
                     // is unchanged.
-                    rc = posix_spawnp(out pid, fileName, fileActions, attr, argv, envp);
+                    // An absolute path, so posix_spawnp performs no PATH search of its own.
+                    rc = posix_spawnp(out pid, resolved, fileActions, attr, argv, envp);
                     if (rc != 0)
                     {
                         pid = -1;
@@ -237,63 +333,13 @@ internal static class UnixSpawn
     }
 
     /// <summary>
-    /// Wait for the child to exit and return its exit code, using the same convention the .NET
-    /// <see cref="System.Diagnostics.Process"/> class reports on Unix: the exit status for a normal
-    /// exit, and 128 plus the signal number for a child a signal killed.
-    ///
-    /// This POLLS rather than blocking in <c>waitpid</c>. A blocking wait would hold a thread-pool
-    /// thread for the entire life of the child, and a child that closes its output early but keeps
-    /// running would hold it with nothing to show for it. The first poll succeeds for a child that
-    /// has already gone, which is the normal case here because the caller waits only after both
-    /// pipes have reached end-of-file.
-    /// </summary>
-    internal static async Task<int> WaitAsync(int pid, CancellationToken ct)
-    {
-        var delayMs = 1;
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (TryReap(pid, out var exitCode)) return exitCode;
-
-            await Task.Delay(delayMs, ct).ConfigureAwait(false);
-            delayMs = Math.Min(delayMs * 2, 25);
-        }
-    }
-
-    /// <summary>
-    /// Kill the child and every process it started, by signalling the whole process group the child
-    /// leads. This is why <see cref="TrySpawn"/> asks for POSIX_SPAWN_SETPGROUP: cancelling a call
-    /// has to leave nothing running, and a hung grandchild - a credential prompt, a stalled network
-    /// read - is exactly what outlives a kill aimed at the child alone.
-    /// </summary>
-    internal static void KillGroup(int pid)
-    {
-        if (pid <= 0) return;
-        // Negative pid means "the process group with this id". The child leads a group of its own
-        // whose id IS its pid, so this can never reach anything outside what we started.
-        kill(-pid, SIGKILL);
-        kill(pid, SIGKILL);
-    }
-
-    /// <summary>
-    /// Collect the exit status of a child that has been killed, so it does not sit as a zombie for
-    /// the life of the Director. Gives up rather than waiting: there is nobody left to tell.
-    /// </summary>
-    internal static void ReapBestEffort(int pid)
-    {
-        if (pid <= 0) return;
-        for (var attempt = 0; attempt < 200; attempt++)
-        {
-            if (TryReap(pid, out _)) return;
-            Thread.Sleep(5);
-        }
-    }
-
-    /// <summary>
     /// One non-blocking collection attempt. False means "still running" - and also means it for a
     /// child somebody else already collected, which cannot happen for these children: the runtime's
     /// own child handling peeks with waitid(WNOWAIT) and only ever collects pids it started itself.
+    ///
+    /// This POLLS rather than blocking in waitpid, because a blocking wait would hold a thread-pool
+    /// thread for the whole life of the child. The poll runs for that whole life - 1 ms doubling to
+    /// 25 ms - which is a handful of system calls per child and nothing worth optimising.
     /// </summary>
     private static bool TryReap(int pid, out int exitCode)
     {

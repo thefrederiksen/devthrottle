@@ -163,8 +163,13 @@ public static class ProcessRunner
         }).ConfigureAwait(false);
 
         if (errno != 0 || child is null)
+            // The OPERATING SYSTEM'S REASON ALONE - "No such file or directory", "Permission
+            // denied". Not a sentence of our own around it: callers put this inside one of theirs
+            // (GitLaunchFailure writes "git could not be started: " in front of it), and a message
+            // that introduced itself as well read "git could not be started: /path/notgit could
+            // not be started: Permission denied". Caught in review of devthrottle#4577.
             return new Result(
-                -1, "", $"{fileName} could not be started: {CcDirector.Core.UnixPty.UnixNativeMethods.StrError(errno)}",
+                -1, "", CcDirector.Core.UnixPty.UnixNativeMethods.StrError(errno),
                 Started: false, StartErrorCode: errno);
 
         using (child)
@@ -183,24 +188,65 @@ public static class ProcessRunner
             {
                 if (standardInput is not null)
                     await WriteStandardInputAsync(child.StandardInput!, standardInput, ct).ConfigureAwait(false);
-                var exitCode = await UnixSpawn.WaitAsync(child.Pid, ct).ConfigureAwait(false);
+                var exitCode = await child.WaitAsync(ct).ConfigureAwait(false);
                 var stdout = await outTask.ConfigureAwait(false);
                 var stderr = await errTask.ConfigureAwait(false);
                 return new Result(exitCode, stdout, stderr, Started: true);
             }
             catch (OperationCanceledException)
             {
-                UnixSpawn.KillGroup(child.Pid);
-                // Observe the drain tasks so a killed-pipe read does not surface as an unobserved fault.
-                await ObserveQuietlyAsync(outTask).ConfigureAwait(false);
-                await ObserveQuietlyAsync(errTask).ConfigureAwait(false);
-                // Collect the status of what we just killed. Without this every cancelled call
-                // would leave a zombie for the life of the Director - the Process class did this
-                // for us, and taking the start over means taking the ending over too.
-                UnixSpawn.ReapBestEffort(child.Pid);
+                // Kill the child's whole process group and collect its status. Without the collect
+                // every cancelled call would leave a zombie for the life of the Director - the
+                // Process class did that for us, and taking the start over means taking the ending
+                // over too. It happens FIRST, so a cancelled call has stopped costing anything the
+                // moment it returns, whatever the drains are doing.
+                child.KillAndCollect();
+
+                // THEN give the drains a bounded moment, and no more.
+                //
+                // These reads are on synchronous pipe descriptors, where a read already blocked in
+                // the kernel does not come back for a cancellation token - it comes back when the
+                // last write end closes. Killing the process group closes the ones the child and
+                // its descendants hold, which is the normal case. But a descendant that called
+                // setsid has left that group, and anything the child passed the pipe to may outlive
+                // it: then the final write end closes whenever that unrelated process feels like
+                // it, and awaiting the drains outright made the cancelled call wait exactly that
+                // long. Measured in review of devthrottle#4577: twelve seconds against under one
+                // for the path this replaced, which killed by walking the process tree instead.
+                //
+                // Cancellation has to mean the call returns. Output is forfeit on this path - it is
+                // thrown away with the exception either way - so the drains get a grace period for
+                // the common case and are then abandoned, still observed so neither surfaces later
+                // as an unobserved fault.
+                await AbandonDrainsAsync(outTask, errTask).ConfigureAwait(false);
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// How long a cancelled call waits for its drains to finish before walking away from them.
+    ///
+    /// Short on purpose. The captured output is DISCARDED on this path - the caller gets an
+    /// exception, not a result - so there is nothing to wait for on its account. The only reason to
+    /// wait at all is that a killed child's pipes close in microseconds, and waiting that long
+    /// means the reads finish and their thread-pool threads come back instead of being abandoned
+    /// mid-read. Past that there is nothing to gain, and a cancelled call must return.
+    /// </summary>
+    private static readonly TimeSpan DrainGraceAfterKill = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Wait briefly for both drains, then abandon them - while making sure neither can raise an
+    /// unobserved exception afterwards. A read left blocked on a descriptor somebody else still
+    /// holds open is not ours to wait for; see the cancellation path above.
+    /// </summary>
+    private static async Task AbandonDrainsAsync(Task outTask, Task errTask)
+    {
+        var both = Task.WhenAll(ObserveQuietlyAsync(outTask), ObserveQuietlyAsync(errTask));
+        await Task.WhenAny(both, Task.Delay(DrainGraceAfterKill)).ConfigureAwait(false);
+
+        // Whether or not it finished, make certain nothing it throws later goes unobserved.
+        _ = both.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
     }
 
     private static readonly System.Text.Encoding Utf8NoByteOrderMark =

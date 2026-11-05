@@ -42,4 +42,40 @@ public sealed class GitCommandRunnerEnvironmentTests
         // all", which an empty expansion would otherwise print identically.
         Assert.Equal("[0]", result.Output);
     }
+
+    /// <summary>
+    /// A LAUNCH FAILURE IS ONE SENTENCE, NOT TWO NESTED ONES.
+    ///
+    /// <see cref="GitLaunchFailure.Describe"/> writes "git could not be started: " and then the
+    /// reason it was handed. When ProcessRunner's own failure text also introduced itself, the
+    /// result read "git could not be started: /path/to/thing could not be started: Permission
+    /// denied" - the same clause twice, in a sentence shown on the Worktrees page and by the branch
+    /// services. Found in review of devthrottle#4577; ENOENT was the one code that escaped it,
+    /// because Describe replaces the reason entirely for that one.
+    ///
+    /// A file that exists but cannot be executed is how a non-ENOENT launch failure is reached
+    /// without depending on anything about the machine.
+    /// </summary>
+    [UnixOnlyFact("file modes and the EACCES launch failure are POSIX; Windows refuses for other reasons.")]
+    public async Task ALaunchFailureThatIsNotAMissingFile_SaysItOnce()
+    {
+        var dir = Directory.CreateTempSubdirectory("ccd-git-noexec-");
+        try
+        {
+            var notExecutable = Path.Combine(dir.FullName, "notgit");
+            await File.WriteAllTextAsync(notExecutable, "#!/bin/sh\necho hello\n");
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(notExecutable, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            var result = await new GitCommandRunner(notExecutable)
+                .RunAsync(Directory.GetCurrentDirectory(), new[] { "--version" });
+
+            Assert.False(result.Success);
+            Assert.Equal("git could not be started: Permission denied", result.Error);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
 }

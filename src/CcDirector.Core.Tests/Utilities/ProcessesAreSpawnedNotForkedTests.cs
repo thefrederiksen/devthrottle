@@ -27,11 +27,18 @@ namespace CcDirector.Core.Tests.Utilities;
 /// across a hundred starts mean anything. If this file's handler ever stops being wired up, the
 /// first assertion fails rather than the second quietly becoming vacuous.
 ///
-/// EVERYTHING RUNS ON ONE DEDICATED THREAD, and the counter is <see cref="ThreadStaticAttribute"/>.
-/// The suite runs up to four tests at once and other tests do start processes; a fork on another
-/// thread must not be counted as ours, and ours must not be hidden among theirs. A prepare handler
-/// always runs on the thread that called <c>fork()</c>, so counting per-thread makes this test
-/// immune to whatever else the assembly is doing at the time.
+/// THE COUNTER WATCHES EVERY THREAD, AND IT HAS TO.
+/// <see cref="ProcessRunner"/> starts its child on a thread-pool thread and not on the caller's
+/// (<c>ProcessStartOffThread</c>, issue #4556), so a fork would happen on a thread the test never
+/// touches. An earlier version of this test counted per-thread, on the measuring thread, and
+/// therefore PASSED against the forking code - it was measuring a thread where nothing was ever
+/// going to happen. That is why step 1 below does its control fork on a thread-pool thread too:
+/// proving the handler fires is not enough, it has to be proved to fire somewhere other than here.
+///
+/// Nothing else in this assembly starts a process - no test file in it constructs one, and the
+/// production paths it exercises all spawn rather than fork - so a process-wide count is stable.
+/// If something did fork concurrently this test would FAIL rather than pass, which is the safe
+/// direction for it to be wrong in, and a true signal that something still forks.
 ///
 /// THE CONTROL CHILD TOUCHES NOTHING. Only the forking thread survives a fork, so the child of the
 /// control fork is a managed runtime with one thread and a copy of every lock the others held. It
@@ -66,16 +73,15 @@ public sealed class ProcessesAreSpawnedNotForkedTests
     [DllImport("libc")]
     private static extern int kill(int pid, int sig);
 
-    /// <summary>Counted per thread. See the class note: the suite is parallel and other tests fork.</summary>
-    [ThreadStatic]
-    private static int _forksOnThisThread;
+    /// <summary>Every fork in this process, on any thread. See the class note for why not per-thread.</summary>
+    private static int _forksAnywhere;
 
     /// <summary>
     /// Held in a static for the life of the process. A <c>pthread_atfork</c> handler can NEVER be
     /// unregistered, so the delegate behind this pointer must never become collectable - if it did,
     /// the next fork anywhere in this process would call freed memory.
     /// </summary>
-    private static readonly AtforkHandler PrepareHandler = () => _forksOnThisThread++;
+    private static readonly AtforkHandler PrepareHandler = () => Interlocked.Increment(ref _forksAnywhere);
     private static readonly IntPtr PrepareHandlerPointer = Marshal.GetFunctionPointerForDelegate(PrepareHandler);
     private static int _registered;
 
@@ -90,70 +96,61 @@ public sealed class ProcessesAreSpawnedNotForkedTests
     {
         RegisterForkCounterOnce();
 
-        var forksFromARealFork = -1;
-        var forksFromAHundredStarts = -1;
+        // Call both of the child's P/Invokes here, in the parent, so their interop stubs are
+        // already compiled when the child reaches them. Signal 0 sends nothing at all; it only
+        // asks whether this process could signal itself, which it can.
+        Assert.Equal(0, kill(getpid(), 0));
+
+        // STEP 1 - PROVE THE INSTRUMENT, ON A THREAD-POOL THREAD.
+        // On the pool, because that is where ProcessRunner starts its children, and a counter that
+        // could not see a fork there would pass no matter what the code did.
+        Interlocked.Exchange(ref _forksAnywhere, 0);
+        Task.Run(ForkOnceAndHaveTheChildKillItself).GetAwaiter().GetResult();
+        Assert.Equal(1, Volatile.Read(ref _forksAnywhere));
+
+        // STEP 2 - THE ASSERTION THIS TEST EXISTS FOR.
+        Interlocked.Exchange(ref _forksAnywhere, 0);
         var lastExitCode = int.MinValue;
         var lastOutput = "";
-        Exception? failure = null;
-
-        var measuring = new Thread(() =>
+        for (var i = 0; i < Starts; i++)
         {
-            try
-            {
-                // Call both of the child's P/Invokes here, in the parent, so their interop stubs are
-                // already compiled when the child reaches them. Signal 0 sends nothing at all; it
-                // only asks whether this process could signal itself, which it can.
-                var self = getpid();
-                Assert.Equal(0, kill(self, 0));
+            var result = ProcessRunner
+                .RunAsync("/bin/echo", new[] { "ok" }, workingDirectory: null, CancellationToken.None)
+                .GetAwaiter().GetResult();
+            lastExitCode = result.ExitCode;
+            lastOutput = result.StandardOutput;
+        }
 
-                // STEP 1 - PROVE THE INSTRUMENT with a fork nobody can argue about.
-                _forksOnThisThread = 0;
-                var pid = fork();
-                if (pid == 0)
-                {
-                    // THE CHILD. One thread, somebody else's locks, nothing safe to call.
-                    kill(getpid(), SIGKILL);
-                    // Not reached. If it ever were, the parent's waitpid below would still collect
-                    // this process, and the test would fail on the exit status rather than hang.
-                    return;
-                }
-                Assert.True(pid > 0, $"fork() failed, errno {Marshal.GetLastWin32Error()}");
-                Assert.Equal(pid, waitpid(pid, out var status, 0));
-                // Killed by signal 9: the low seven bits of the status are the signal number.
-                Assert.Equal(SIGKILL, status & 0x7F);
-                forksFromARealFork = _forksOnThisThread;
-
-                // STEP 2 - THE ASSERTION THIS TEST EXISTS FOR.
-                _forksOnThisThread = 0;
-                for (var i = 0; i < Starts; i++)
-                {
-                    var result = ProcessRunner
-                        .RunAsync("/bin/echo", new[] { "ok" }, workingDirectory: null, CancellationToken.None)
-                        .GetAwaiter().GetResult();
-                    lastExitCode = result.ExitCode;
-                    lastOutput = result.StandardOutput;
-                }
-                forksFromAHundredStarts = _forksOnThisThread;
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-        });
-        measuring.Start();
-        // A watchdog, not a wait on a result: it turns a hang into a named failure.
-        Assert.True(measuring.Join(TimeSpan.FromMinutes(2)), "The measuring thread did not finish.");
-        if (failure is not null) throw failure;
-
-        // THE INSTRUMENT WORKS. If this line fails, nothing below it means anything - which is
-        // precisely why it is asserted rather than assumed.
-        Assert.Equal(1, forksFromARealFork);
-
-        // THE FIX. Before it, a hundred starts through ProcessRunner read 100 here.
-        Assert.Equal(0, forksFromAHundredStarts);
+        // THE FIX. Before it, this read 100.
+        Assert.Equal(0, Volatile.Read(ref _forksAnywhere));
 
         // And the children really ran, so that zero is not the zero of a loop that did nothing.
         Assert.Equal(0, lastExitCode);
         Assert.Equal("ok", lastOutput.Trim());
+    }
+
+    /// <summary>
+    /// One real fork, whose child does exactly one thing and then stops existing.
+    ///
+    /// Only the forking thread survives a fork, so this child is a managed runtime with one thread
+    /// and a copy of every lock the others were holding - the very situation this whole change
+    /// exists to avoid. It therefore allocates nothing, touches no managed library, and signals
+    /// itself dead through two interop stubs that were deliberately called in the parent first so
+    /// neither needs to be compiled here. One fork in a test is not nothing, but it is one, and it
+    /// is the only way to show that the instrument can see what it claims to measure.
+    /// </summary>
+    private static void ForkOnceAndHaveTheChildKillItself()
+    {
+        var pid = fork();
+        if (pid == 0)
+        {
+            kill(getpid(), SIGKILL);
+            return; // not reached
+        }
+
+        Assert.True(pid > 0, $"fork() failed, errno {Marshal.GetLastWin32Error()}");
+        Assert.Equal(pid, waitpid(pid, out var status, 0));
+        // Killed by signal 9: the low seven bits of the wait status are the signal number.
+        Assert.Equal(SIGKILL, status & 0x7F);
     }
 }

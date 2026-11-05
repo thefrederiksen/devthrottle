@@ -217,6 +217,58 @@ public sealed class ProcessRunnerPosixSpawnContractTests
     }
 
     /// <summary>
+    /// A PROGRAM ON A FOLDER ADDED TO PATH AT RUN TIME IS STILL FOUND.
+    ///
+    /// posix_spawnp searches the C library's PATH - and that is NOT the PATH this process thinks it
+    /// has. <c>Environment.SetEnvironmentVariable</c> writes only the managed copy; .NET never
+    /// pushes it down to the native environment. So spawning by bare name through posix_spawnp
+    /// cannot see a folder added that way, while the Process class it replaced resolved the name in
+    /// managed code and always could.
+    ///
+    /// The Director does exactly this: <c>GitHubSetup.AddFoundFoldersToProcessPath</c> adds the
+    /// folders git and gh were found in after an install, and FleetToolPathRepair, ToolShimPath and
+    /// BrowserHarnessInstaller rewrite PATH the same way. Without resolving in the parent, every
+    /// caller passing a bare name reported "git is not installed on this machine" on a Director
+    /// whose git lived only in such a folder - which is the Finder-launched Mac. Measured during
+    /// review of devthrottle#4577: this test fails with code 2 against posix_spawnp, and passes
+    /// against the Process class it replaced.
+    /// </summary>
+    [UnixOnlyFact("the posix_spawn path is what this proves; Windows is unchanged.")]
+    public async Task ABareNameOnAFolderAddedToPathAtRunTime_IsStillFound()
+    {
+        var dir = Directory.CreateTempSubdirectory("ccd-spawn-path-");
+        var name = "ccd-path-probe-4577";
+        try
+        {
+            var script = Path.Combine(dir.FullName, name);
+            await File.WriteAllTextAsync(script, "#!/bin/sh\necho found-on-the-added-folder\n");
+            // The attribute keeps this off Windows, but the compiler checks the call site rather
+            // than the attribute, so the guard has to be written out.
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(script,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var pathBefore = Environment.GetEnvironmentVariable("PATH");
+            Environment.SetEnvironmentVariable("PATH", dir.FullName + Path.PathSeparator + pathBefore);
+            try
+            {
+                var r = await RunAsync(name, Array.Empty<string>());
+
+                Assert.True(r.Started, $"not started, code {r.StartErrorCode}: {r.StandardError}");
+                Assert.Equal("found-on-the-added-folder", r.StandardOutput.Trim());
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PATH", pathBefore);
+            }
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A machine with no git is a supported machine (devthrottle_internal issue #1048). The code
     /// must be ENOENT - the one number that means the same thing on every platform - because the
     /// callers that say "not installed" read the code and never the message text.
@@ -229,7 +281,11 @@ public sealed class ProcessRunnerPosixSpawnContractTests
         Assert.False(r.Started);
         Assert.Equal(-1, r.ExitCode);
         Assert.Equal(2, r.StartErrorCode);
-        Assert.Contains("could not be started", r.StandardError);
+
+        // THE OPERATING SYSTEM'S REASON, AND NOTHING WRAPPED AROUND IT. Callers put this inside a
+        // sentence of their own, so a sentence here too reads as a stutter - see the GitCommandRunner
+        // test below, which is the regression guard for having done exactly that.
+        Assert.Equal("No such file or directory", r.StandardError);
     }
 
     /// <summary>
