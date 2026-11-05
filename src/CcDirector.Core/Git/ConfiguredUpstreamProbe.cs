@@ -41,10 +41,15 @@ public static class ConfiguredUpstreamProbe
     /// </summary>
     public readonly record struct UpstreamVerdict(bool HasConfiguredUpstream, bool UpstreamGone, bool InspectionSucceeded);
 
-    // One tab-separated line per branch: its own name, the resolved upstream ref (empty when git
-    // cannot map the configured upstream to a remote-tracking ref), then the tracking state without
-    // brackets, which is the word "gone" when the remote-tracking ref does not exist.
-    private const string RefFormat = "%(refname:short)%09%(upstream)%09%(upstream:track,nobracket)";
+    // One tab-separated line per branch: its FULL ref name, the resolved upstream ref (empty when
+    // git cannot map the configured upstream to a remote-tracking ref), then the tracking state
+    // without brackets, which is the word "gone" when the remote-tracking ref does not exist.
+    //
+    // %(refname), not %(refname:short): the short form shortens only as far as stays unambiguous, so
+    // a branch with a tag of the same name prints as "heads/1.2.3" while git worktree list reports
+    // its branch as "1.2.3". The two would not match, and a worktree the Director could correctly
+    // rule merged would become permanently unreapable (outside review of pull request 4592).
+    private const string RefFormat = "%(refname)%09%(upstream)%09%(upstream:track,nobracket)";
 
     /// <summary>
     /// Reads one repository's whole branch-to-upstream picture: two git processes, whatever the

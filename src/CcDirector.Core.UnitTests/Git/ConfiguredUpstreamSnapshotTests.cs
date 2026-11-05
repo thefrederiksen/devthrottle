@@ -16,14 +16,15 @@ namespace CcDirector.Core.UnitTests.Git;
 /// </summary>
 public sealed class ConfiguredUpstreamSnapshotTests
 {
-    // git for-each-ref --format=%(refname:short)%09%(upstream)%09%(upstream:track,nobracket) refs/heads/
+    // git for-each-ref --format=%(refname)%09%(upstream)%09%(upstream:track,nobracket) refs/heads/
     private const string Refs =
-        "gone\trefs/remotes/origin/gone\tgone\n" +
-        "keep\trefs/remotes/origin/keep\tahead 2, behind 1\n" +
-        "main\trefs/remotes/origin/main\t\n" +
-        "never\t\t\n" +
-        "unmapped\t\t\n" +
-        "release/1.2.3\trefs/remotes/origin/release/1.2.3\t\n";
+        "refs/heads/gone\trefs/remotes/origin/gone\tgone\n" +
+        "refs/heads/keep\trefs/remotes/origin/keep\tahead 2, behind 1\n" +
+        "refs/heads/main\trefs/remotes/origin/main\t\n" +
+        "refs/heads/never\t\t\n" +
+        "refs/heads/unmapped\t\t\n" +
+        "refs/heads/release/1.2.3\trefs/remotes/origin/release/1.2.3\t\n" +
+        "refs/heads/shadowed-by-a-tag\trefs/remotes/origin/shadowed-by-a-tag\tgone\n";
 
     // git config --get-regexp ^branch.
     private const string Config =
@@ -43,7 +44,9 @@ public sealed class ConfiguredUpstreamSnapshotTests
         "branch.deleted-locally.remote origin\n" +
         "branch.deleted-locally.merge refs/heads/deleted-locally\n" +
         "branch.release/1.2.3.remote origin\n" +
-        "branch.release/1.2.3.merge refs/heads/release/1.2.3\n";
+        "branch.release/1.2.3.merge refs/heads/release/1.2.3\n" +
+        "branch.shadowed-by-a-tag.remote origin\n" +
+        "branch.shadowed-by-a-tag.merge refs/heads/shadowed-by-a-tag\n";
 
     private static ConfiguredUpstreamSnapshot Snapshot() => ConfiguredUpstreamSnapshot.Parse(Refs, Config);
 
@@ -183,5 +186,40 @@ public sealed class ConfiguredUpstreamSnapshotTests
         Assert.True(v.Verdict("gone").UpstreamGone);
         Assert.False(v.Verdict("keep").UpstreamGone);
         Assert.False(v.Verdict("octopus").HasConfiguredUpstream);
+    }
+
+    [Fact]
+    public void Verdict_BranchSharingItsNameWithATag_IsStillJudged()
+    {
+        // %(refname:short) would print this branch as "heads/shadowed-by-a-tag" while git worktree
+        // list reports it as "shadowed-by-a-tag", so the two would never meet and a worktree that is
+        // genuinely merged would be unreapable for good. The read asks for %(refname) and strips the
+        // prefix, so the names agree.
+        var v = Snapshot().Verdict("shadowed-by-a-tag");
+        Assert.True(v.InspectionSucceeded);
+        Assert.True(v.HasConfiguredUpstream);
+        Assert.True(v.UpstreamGone);
+    }
+
+    [Fact]
+    public void Parse_ShortRefNames_AreStillRead()
+    {
+        // The prefix is stripped when it is there, so a line with no prefix is read as it stands.
+        var v = ConfiguredUpstreamSnapshot.Parse("gone\trefs/remotes/origin/gone\tgone", "branch.gone.remote origin\nbranch.gone.merge refs/heads/gone");
+        Assert.True(v.Verdict("gone").UpstreamGone);
+    }
+
+    [Fact]
+    public void Parse_ConfigurationKeyNamingNoBranch_IsSkippedRatherThanThrowing()
+    {
+        // git accepts a plain "branch.merge" and "branch.remote" and prints them here. They name no
+        // branch; slicing a name out of them asks for a negative length. Before this was guarded, a
+        // hand-edited configuration failed a whole repository's inventory.
+        var snapshot = ConfiguredUpstreamSnapshot.Parse(Refs,
+            "branch.merge x\nbranch.remote y\n" + Config);
+
+        Assert.Null(snapshot.Unreadable);
+        Assert.True(snapshot.Verdict("gone").UpstreamGone);
+        Assert.False(snapshot.Verdict("never").HasConfiguredUpstream);
     }
 }

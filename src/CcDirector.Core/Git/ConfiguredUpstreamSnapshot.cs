@@ -15,6 +15,10 @@ namespace CcDirector.Core.Git;
 public sealed class ConfiguredUpstreamSnapshot
 {
     private static readonly string[] LineBreaks = { "\r\n", "\n", "\r" };
+    private const string HeadsPrefix = "refs/heads/";
+    private const string BranchPrefix = "branch.";
+    private const string RemoteSuffix = ".remote";
+    private const string MergeSuffix = ".merge";
 
     private readonly Dictionary<string, (string Upstream, string Track)> _refs;
     private readonly Dictionary<string, string> _configuredRemote;
@@ -49,7 +53,8 @@ public sealed class ConfiguredUpstreamSnapshot
     /// <summary>
     /// Builds the snapshot from the two command outputs.
     /// <paramref name="forEachRefOutput"/> is one line per branch:
-    /// <c>name TAB upstream TAB track</c>. <paramref name="branchConfigOutput"/> is one line per
+    /// <c>refs/heads/name TAB upstream TAB track</c>; the prefix is stripped, so a branch is keyed by
+    /// the same name <c>git worktree list</c> reports for it. <paramref name="branchConfigOutput"/> is one line per
     /// configured value: <c>branch.&lt;name&gt;.&lt;key&gt; &lt;value&gt;</c>, and an empty string
     /// when the repository configures no branch at all.
     /// </summary>
@@ -62,6 +67,8 @@ public sealed class ConfiguredUpstreamSnapshot
             if (parts.Length < 1)
                 continue;
             var name = parts[0].Trim();
+            if (name.StartsWith(HeadsPrefix, StringComparison.Ordinal))
+                name = name[HeadsPrefix.Length..];
             if (name.Length == 0)
                 continue;
             var upstream = parts.Length > 1 ? parts[1].Trim() : "";
@@ -80,21 +87,25 @@ public sealed class ConfiguredUpstreamSnapshot
                 continue;
             var key = line[..space];
             var value = line[(space + 1)..].Trim();
-            if (value.Length == 0 || !key.StartsWith("branch.", StringComparison.Ordinal))
+            if (value.Length == 0 || !key.StartsWith(BranchPrefix, StringComparison.Ordinal))
                 continue;
 
-            if (key.EndsWith(".remote", StringComparison.Ordinal))
+            // A key with no branch name between the prefix and the suffix - git accepts a plain
+            // "branch.merge" and prints it here - names no branch, so there is nothing to record.
+            // Slicing it would ask for a negative length and throw (outside review of pull request 4592).
+            if (key.EndsWith(RemoteSuffix, StringComparison.Ordinal))
             {
-                var name = key["branch.".Length..^".remote".Length];
-                // Last value wins, which is what `git config --get` returned to the per-branch read.
-                if (name.Length > 0)
-                    remotes[name] = value;
-            }
-            else if (key.EndsWith(".merge", StringComparison.Ordinal))
-            {
-                var name = key["branch.".Length..^".merge".Length];
-                if (name.Length == 0)
+                if (key.Length <= BranchPrefix.Length + RemoteSuffix.Length)
                     continue;
+                var name = key[BranchPrefix.Length..^RemoteSuffix.Length];
+                // Last value wins, which is what `git config --get` returned to the per-branch read.
+                remotes[name] = value;
+            }
+            else if (key.EndsWith(MergeSuffix, StringComparison.Ordinal))
+            {
+                if (key.Length <= BranchPrefix.Length + MergeSuffix.Length)
+                    continue;
+                var name = key[BranchPrefix.Length..^MergeSuffix.Length];
                 if (!merges.TryGetValue(name, out var list))
                     merges[name] = list = new List<string>();
                 list.Add(value);

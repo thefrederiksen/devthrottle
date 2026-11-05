@@ -76,6 +76,33 @@ public sealed class UpstreamIsReadOncePerRepositoryTests : IClassFixture<Upstrea
     }
 
     [Fact]
+    public async Task ReadAsync_BranchSharingItsNameWithATag_IsStillJudged()
+    {
+        // The whole reason the read asks for %(refname) rather than %(refname:short): the short form
+        // shortens only as far as stays unambiguous, so this branch prints as "heads/1.2.3" and would
+        // never match the name git worktree list reports. A worktree genuinely merged would then be
+        // unreapable for good, and recomputed on every pass because a fail-closed answer is not cached.
+        var snapshot = await ConfiguredUpstreamProbe.ReadAsync(new GitCommandRunner(), _repo.Path);
+
+        var shadowed = snapshot.Verdict("1.2.3");
+        Assert.True(shadowed.InspectionSucceeded);
+        Assert.True(shadowed.HasConfiguredUpstream);
+        Assert.True(shadowed.UpstreamGone);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ConfigurationKeyNamingNoBranch_DoesNotFailTheRead()
+    {
+        // git accepts a plain "branch.merge", which names no branch. A hand-edited configuration
+        // holding one used to fail a whole repository's inventory.
+        var repo = _repo.CopyWithTwoLevelBranchKey();
+        var snapshot = await ConfiguredUpstreamProbe.ReadAsync(new GitCommandRunner(), repo);
+
+        Assert.Null(snapshot.Unreadable);
+        Assert.True(snapshot.Verdict("gone").UpstreamGone);
+    }
+
+    [Fact]
     public async Task ReadAsync_WhateverTheBranchCount_StartsTwoGitProcesses()
     {
         var counting = new CountingGit();
@@ -149,11 +176,37 @@ public sealed class UpstreamIsReadOncePerRepositoryTests : IClassFixture<Upstrea
             // Never pushed, so no upstream configuration of any kind.
             Git(Path, "branch", "-q", "never");
 
+            // A branch whose remote branch was deleted AND which shares its name with a tag, so
+            // %(refname:short) would print it as "heads/1.2.3" while git worktree list reports the
+            // worktree's branch as "1.2.3". The tag is created last, so the commands above cannot
+            // trip over the ambiguity themselves.
+            Git(Path, "branch", "-q", "1.2.3");
+            Git(Path, "push", "-q", "origin", "1.2.3:refs/heads/1.2.3");
+            Git(Path, "branch", "--set-upstream-to=origin/1.2.3", "1.2.3");
+            Git(Path, "push", "-q", "origin", "--delete", "1.2.3");
+            Git(Path, "fetch", "-q", "--prune", "origin");
+            Git(Path, "tag", "1.2.3", "refs/heads/1.2.3");
+
             // Two configured merge values - the ambiguous case the verdict refuses to judge.
             Git(Path, "branch", "-q", "octopus");
             Git(Path, "config", "branch.octopus.remote", "origin");
             Git(Path, "config", "branch.octopus.merge", "refs/heads/one");
             Git(Path, "config", "--add", "branch.octopus.merge", "refs/heads/two");
+        }
+
+        /// <summary>A copy of the repository carrying a configuration key that names no branch.</summary>
+        public string CopyWithTwoLevelBranchKey()
+        {
+            var dest = System.IO.Path.Combine(_root, "two-level-key");
+            Directory.CreateDirectory(dest);
+            foreach (var dir in Directory.GetDirectories(Path, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(System.IO.Path.Combine(dest, System.IO.Path.GetRelativePath(Path, dir)));
+            foreach (var file in Directory.GetFiles(Path, "*", SearchOption.AllDirectories))
+                File.Copy(file, System.IO.Path.Combine(dest, System.IO.Path.GetRelativePath(Path, file)), overwrite: true);
+
+            Git(dest, "config", "branch.merge", "x");
+            Git(dest, "config", "branch.remote", "y");
+            return dest;
         }
 
         public void Dispose()
