@@ -133,10 +133,6 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
     }
 
     /// <summary>
-    /// Every ask inside one gap collapses into the SAME trailing inspection. Three sessions parking in
-    /// the same minute must not queue three.
-    /// </summary>
-    /// <summary>
     /// Every park inside one gap collapses into the SAME trailing inspection. The wait is held open here,
     /// the way a real two-minute wait is, so the parks arrive while the trailing inspection is still
     /// pending - which is the only arrangement that can prove they collapse rather than queue.
