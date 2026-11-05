@@ -100,7 +100,11 @@ public static class FactoryInboxWords
         /// <summary>The start was sent and failed; the detail is the reason the machine gave.</summary>
         public const string StartFailed = "start-failed";
 
-        public static readonly IReadOnlyList<string> All = [NoDirector, CannotStart, StartFailed];
+        /// <summary>A Director runs on the seat's computer but is too old to build a seat's kit. It goes on when that
+        /// Director is updated - never on another computer.</summary>
+        public const string DirectorCannotBuildKit = "director-cannot-build-kit";
+
+        public static readonly IReadOnlyList<string> All = [NoDirector, CannotStart, StartFailed, DirectorCannotBuildKit];
     }
 
     /// <summary>The seat a message waits for, as the waiting sentence names it.</summary>
@@ -119,6 +123,9 @@ public static class FactoryInboxWords
             Waiting.NoDirector => named.Length == 0
                 ? "Waiting - no Director is running on the Boss's computer; it goes on when one connects there"
                 : $"Waiting - no Director is running on the Boss's computer, {named}; it goes on when one connects there",
+            Waiting.DirectorCannotBuildKit => named.Length == 0
+                ? "Waiting - the Director on the Boss's computer cannot build a seat kit; it goes on when that Director is updated"
+                : $"Waiting - the Director on the Boss's computer, {named}, cannot build a seat kit; it goes on when that Director is updated",
             Waiting.CannotStart => $"Waiting - the {seat} cannot be started: {named}",
             Waiting.StartFailed => $"Waiting - the {seat} did not start: {named}; it is tried again",
             _ => throw new ArgumentOutOfRangeException(nameof(code), code, "not a factory inbox waiting reason"),

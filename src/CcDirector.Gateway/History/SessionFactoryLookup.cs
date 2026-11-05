@@ -36,11 +36,14 @@ public readonly record struct SessionFactoryLookup
     public string? Name { get; init; }
 
     /// <summary>The kind of kit the session was given with its seat: <c>seat</c> for a session started AS the seat,
-    /// <c>rules-only</c> for a child that inherited it from the session that spawned it (SpawnFactory), or null.</summary>
+    /// <c>rules-only</c> for a child that inherited it from the session that spawned it (SpawnFactory) and for a Boss the
+    /// owner's agent started through the Boss start door (<c>SpawnFactory.TryStartTheBoss</c>), or null.</summary>
     public string? Kit { get; init; }
 
-    /// <summary>True when the session's seat was INHERITED from the session that spawned it, not started as it - the
-    /// one marker of a child: every inheritance writes the rules-only kit, and nothing else does.</summary>
+    /// <summary>True when the session carries its seat with the rules-only kit, so it was not started AS the seat: a
+    /// child that inherited it from the session that spawned it, or a Boss the owner's agent started through the Boss
+    /// start door. Those two, and nothing else, write the rules-only kit. Neither is the seat for the factory inbox or for
+    /// a seat start (the Tech Lead's ruling on the wake review, 5 November 2026: the inbox's Boss is a seat-kit Boss).</summary>
     public bool SeatIsInherited => string.Equals(Kit?.Trim(), CcDirector.Gateway.Contracts.FactoryKits.RulesOnly, StringComparison.Ordinal);
 
     /// <summary>True when the session is in a factory AND carries a seat and its version: what a child inherits.</summary>

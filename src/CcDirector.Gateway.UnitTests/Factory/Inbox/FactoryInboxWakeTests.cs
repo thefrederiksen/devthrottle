@@ -239,6 +239,43 @@ public sealed class FactoryInboxWakeTests : IDisposable
     }
 
     [Fact]
+    public async Task ABossTheOwnersAgentStartedThroughTheBossStartDoor_IsNotTheInboxsBoss_SoOneSeatKitBossStartsBesideIt()
+    {
+        // The Tech Lead's ruling on the wake review (5 November 2026): the start door's Boss carries the rules-only kit
+        // and no parent; it is alive and waiting for a prompt, and it is still not the inbox's Boss.
+        Send(T0);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+        _env.RosterRows.Add(Seat("door-boss", "boss", kit: FactoryKits.RulesOnly));
+        var wake = NewWake();
+
+        var look = await LookAt(wake, T0.AddSeconds(72));
+        await LookAt(wake, T0.AddSeconds(73));
+
+        Assert.Equal(FactoryInboxWakeAct.Started, look.Boss);
+        var (_, req) = Assert.Single(_env.Starts);
+        Assert.Equal("boss", req.FactorySeat);
+        Assert.Equal(FactoryKits.Seat, req.FactoryKit);
+        // Nothing is typed into the owner's conversation with it.
+        Assert.DoesNotContain(_env.Rings, r => r.SessionId == "door-boss");
+    }
+
+    [Fact]
+    public async Task ARungSecretary_IsToldOnlyTheMessagesItWasNotToldOf()
+    {
+        Send(T0);
+        _env.RosterRows.Add(Seat("sec-1", FactoryInboxSeats.Secretary));
+        var wake = NewWake();
+        // Told of the first by a ring once its window closed; a second arrives after.
+        await LookAt(wake, T0.AddSeconds(60));
+        Send(T0.AddSeconds(90));
+
+        await LookAt(wake, T0.AddSeconds(150));
+
+        Assert.Equal(2, _env.Rings.Count);
+        Assert.Equal(FactoryInboxSecretary.RingLine(1), _env.Rings[1].Text);
+    }
+
+    [Fact]
     public async Task ABossesChild_IsNotABoss_SoOneBossStarts_WithTheSeatKitNotTheRulesOnlyKit()
     {
         Send(T0);
@@ -385,6 +422,28 @@ public sealed class FactoryInboxWakeTests : IDisposable
     }
 
     // ---------- no computer, no definition, a failed start ----------
+
+    [Fact]
+    public async Task ADirectorOnTheBossesComputerThatCannotBuildAKit_StartsNothing_AndSaysToUpdateIt()
+    {
+        Send(T0);
+        _env.CannotBuildKit.Add(BossMachine);
+        var wake = NewWake();
+
+        var waiting = await LookAt(wake, T0.AddSeconds(60));
+
+        Assert.Equal(FactoryInboxWakeAct.Waiting, waiting.Secretary);
+        Assert.Empty(_env.Starts);
+        var row = _wakes.Find(A, TheFactory)!;
+        Assert.Equal(FactoryInboxWords.Waiting.DirectorCannotBuildKit, row.SecretaryWaiting);
+        Assert.Equal("Waiting - the Director on the Boss's computer, SOREN_NORTH, cannot build a seat kit; it goes on when that Director is updated",
+            FactoryInboxFold.WaitingOf(row)!.Secretary);
+
+        // Updated, it builds kits: the start goes on, there.
+        _env.CannotBuildKit.Clear();
+        Assert.Equal(FactoryInboxWakeAct.Started, (await LookAt(wake, T0.AddSeconds(75))).Secretary);
+        Assert.Null(_wakes.Find(A, TheFactory)!.SecretaryWaiting);
+    }
 
     [Fact]
     public async Task NoDirectorOnTheBossesComputer_StartsNothing_SaysWhy_AndGoesOnWhenOneConnectsThere()
@@ -583,6 +642,7 @@ public sealed class FactoryInboxWakeTests : IDisposable
         public readonly List<(string DirectorId, SessionDto Session)> RosterRows = new();
         public readonly HashSet<string> Ended = new(StringComparer.Ordinal);
         public readonly Dictionary<string, string> DirectorsOnMachine = new(StringComparer.OrdinalIgnoreCase) { [BossMachine] = BossDirector };
+        public readonly HashSet<string> CannotBuildKit = new(StringComparer.OrdinalIgnoreCase);
         public readonly List<(string Machine, NewSessionRequest Request)> Starts = new();
         public Func<NewSessionRequest, Task<TriggerStartAttempt>>? StartAnswer;
         public readonly List<(string DirectorId, string SessionId, string Text)> Rings = new();
@@ -613,6 +673,7 @@ public sealed class FactoryInboxWakeTests : IDisposable
         public string? DirectorOn(TenantId tenant, string machine, bool buildsKit)
         {
             LastAskedForAKit = buildsKit;
+            if (buildsKit && CannotBuildKit.Contains(machine)) return null;
             return DirectorsOnMachine.TryGetValue(machine, out var d) ? d : null;
         }
 

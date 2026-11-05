@@ -296,7 +296,7 @@ public sealed class FactoryInboxWake
             if (untold.Count == 0) return (FactoryInboxWakeAct.AlreadyTold, null);
             var closes = untold[0].SentAtUtc.Add(Window);
             if (now < closes) return (FactoryInboxWakeAct.WindowOpen, closes);
-            var rung = await RingAsync(tenant, factory, sighting, FactoryInboxSecretary.RingLine(sent.Count), ct).ConfigureAwait(false);
+            var rung = await RingAsync(tenant, factory, sighting, FactoryInboxSecretary.RingLine(untold.Count), ct).ConfigureAwait(false);
             if (!rung) return (FactoryInboxWakeAct.RingDeferred, now.Add(LookAgain));
             var newest = sent.Max(m => m.SentAtUtc);
             // Recorded on the row as the session that was rung, so a later look does not ring it again for these.
@@ -367,7 +367,7 @@ public sealed class FactoryInboxWake
             var told = row.BossSessionId is not null && SameId(row.BossSessionId, sighting.SessionId) ? row.BossToldUpToUtc : null;
             var untold = facts.Unread.Where(b => told is null || b.HandedAtUtc > told).ToList();
             if (untold.Count == 0) return (FactoryInboxWakeAct.AlreadyTold, null);
-            var rung = await RingAsync(tenant, factory, sighting, FactoryInboxSecretary.BossRingLine(facts.Unread.Count), ct).ConfigureAwait(false);
+            var rung = await RingAsync(tenant, factory, sighting, FactoryInboxSecretary.BossRingLine(untold.Count), ct).ConfigureAwait(false);
             if (!rung) return (FactoryInboxWakeAct.RingDeferred, now.Add(LookAgain));
             var newest = facts.Unread.Max(b => b.HandedAtUtc);
             _wakes.TryUpdate(tenant, factory, row.Version, w =>
@@ -473,7 +473,12 @@ public sealed class FactoryInboxWake
         if (plan.CannotStart is { } why || plan.Request is null || plan.Machine is null)
             return Wait(tenant, factory, row, who, FactoryInboxWords.Waiting.CannotStart, plan.CannotStart ?? "nothing could be built to start");
         if (_env.DirectorOn(tenant, plan.Machine, plan.NeedsKit) is not { } director)
-            return Wait(tenant, factory, row, who, FactoryInboxWords.Waiting.NoDirector, plan.Machine);
+            // Which of the two it is decides what the owner is told to do: start a Director there, or update the one there.
+            return Wait(tenant, factory, row, who,
+                plan.NeedsKit && _env.DirectorOn(tenant, plan.Machine, buildsKit: false) is not null
+                    ? FactoryInboxWords.Waiting.DirectorCannotBuildKit
+                    : FactoryInboxWords.Waiting.NoDirector,
+                plan.Machine);
 
         // THE CLAIM, taken before anything is sent: whoever updates the version it read starts the seat.
         var now = _env.NowUtc();
@@ -509,9 +514,11 @@ public sealed class FactoryInboxWake
     private sealed record Sighting(SeatState State, string? DirectorId, string? SessionId, string? ActivityState);
 
     /// <summary>
-    /// Is the seat alive in this factory? A session of the factory with this seat and a seat kit that has not exited, in
+    /// Is the seat alive in this factory? A session of the factory with this seat and a SEAT kit that has not exited, in
     /// the fresh roster - the one this last started first; else the one this last started, by what its Director last
-    /// pushed; else a start this holds that has not been reported yet, inside the grace.
+    /// pushed; else a start this holds that has not been reported yet, inside the grace. A rules-only session in the seat -
+    /// a child, or a Boss started through the Boss start door - is not the seat, so it neither counts as alive nor is rung
+    /// (the Tech Lead's ruling on the wake review, 5 November 2026).
     /// </summary>
     private Sighting Find(TenantId tenant, string factory, string seat, string? rememberedSessionId, DateTime? claimedAtUtc, DateTime now)
     {
