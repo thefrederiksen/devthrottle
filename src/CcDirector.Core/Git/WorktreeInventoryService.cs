@@ -69,6 +69,10 @@ public sealed class WorktreeInventoryService
             // changing), and a remote that could not be refreshed must fail its branches closed now.
             bool reuseSignals = _signalCache != null && !fetchPrune && stale.Count == 0;
             int reused = 0;
+            // Every branch's upstream answer for this repository, read at most ONCE for the whole
+            // pass and only if some worktree actually needs it - a pass whose signals are all reused
+            // still starts no git process. It is not kept between passes.
+            var upstreams = new UpstreamReadOnce(_git, repositoryPath);
             var sessionsByPath = BuildSessionMap(liveSessions);
 
             var listResult = await _git.RunAsync(repositoryPath, new[] { "worktree", "list", "--porcelain" }, ct);
@@ -102,7 +106,7 @@ public sealed class WorktreeInventoryService
                 bool isPrimary = !primaryAssigned;
                 primaryAssigned = true;
 
-                var (info, wasReused) = await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, mainCommitId, reuseSignals, sessionsByPath, poolSlotDirectories, stale, ct);
+                var (info, wasReused) = await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, mainCommitId, reuseSignals, sessionsByPath, poolSlotDirectories, stale, upstreams, ct);
                 worktrees.Add(info);
                 if (wasReused)
                     reused++;
@@ -132,7 +136,7 @@ public sealed class WorktreeInventoryService
         }
     }
 
-    private async Task<(WorktreeInfo Info, bool Reused)> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, string? mainCommitId, bool reuseSignals, IReadOnlyDictionary<string, List<string>> sessionsByPath, IReadOnlyList<string> poolSlotDirectories, IReadOnlyCollection<string> unrefreshedRemotes, CancellationToken ct)
+    private async Task<(WorktreeInfo Info, bool Reused)> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, string? mainCommitId, bool reuseSignals, IReadOnlyDictionary<string, List<string>> sessionsByPath, IReadOnlyList<string> poolSlotDirectories, IReadOnlyCollection<string> unrefreshedRemotes, UpstreamReadOnce upstreams, CancellationToken ct)
     {
         // A cc-worktrees pool slot, by either of that tool's own markers: its records, or the layout it
         // creates. Decided before any git question, because the answer does not depend on one.
@@ -158,7 +162,7 @@ public sealed class WorktreeInventoryService
         bool signalsOk = true;
         if (signals == null)
         {
-            (signals, signalsOk) = await ComputeSignalsAsync(repositoryPath, entry, isPrimary, mainRef, unrefreshedRemotes, ct);
+            (signals, signalsOk) = await ComputeSignalsAsync(repositoryPath, entry, isPrimary, mainRef, unrefreshedRemotes, upstreams, ct);
             // Only a fully successful inspection is remembered: a fail-closed answer is recomputed.
             if (signalsOk && key != null)
                 _signalCache?.Store(repositoryPath, entry.Path, key, signals);
@@ -216,7 +220,7 @@ public sealed class WorktreeInventoryService
     /// origin/main: the merge signals (C1 to C3), ahead and behind, and the git half of the last
     /// activity. The flag is false when any merge question could not be answered - the caller fails closed.
     /// </summary>
-    private async Task<(WorktreeMergeSignalCache.Signals Signals, bool Ok)> ComputeSignalsAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyCollection<string> unrefreshedRemotes, CancellationToken ct)
+    private async Task<(WorktreeMergeSignalCache.Signals Signals, bool Ok)> ComputeSignalsAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyCollection<string> unrefreshedRemotes, UpstreamReadOnce upstreams, CancellationToken ct)
     {
         bool ok = true;
         bool prMerged = false, hasOpenPr = false, originGone = false, containedInMain = false, detachedAncestor = false;
@@ -239,7 +243,7 @@ public sealed class WorktreeInventoryService
                 // never-pushed branch has no upstream, and treating that absence as proof-of-merge
                 // would mark unpushed work safe to delete. The probe asks the configured remote for
                 // the configured ref name, both of which can differ from origin/<local-name>.
-                var upstream = await ConfiguredUpstreamProbe.ProbeAsync(_git, repositoryPath, entry.Branch, ct, unrefreshedRemotes);
+                var upstream = (await upstreams.GetAsync(ct)).Verdict(entry.Branch, unrefreshedRemotes);
                 ok &= upstream.InspectionSucceeded;
                 originGone = upstream.HasConfiguredUpstream && upstream.UpstreamGone;
 
@@ -392,5 +396,26 @@ public sealed class WorktreeInventoryService
     {
         FileLog.Write($"[WorktreeInventoryService] inventory FAILED: {error}");
         return new WorktreeInventory { RepositoryPath = repositoryPath, Success = false, Error = error };
+    }
+
+    /// <summary>
+    /// One repository's upstream snapshot, read on first use and then reused for the rest of a single
+    /// inventory pass. Not a cache: it is created per pass and dropped with it, so no verdict in it
+    /// can outlive the pass that read it. The inventory loop is sequential, so no lock is needed.
+    /// </summary>
+    private sealed class UpstreamReadOnce
+    {
+        private readonly GitCommandRunner _git;
+        private readonly string _repoPath;
+        private ConfiguredUpstreamSnapshot? _snapshot;
+
+        public UpstreamReadOnce(GitCommandRunner git, string repoPath)
+        {
+            _git = git;
+            _repoPath = repoPath;
+        }
+
+        public async Task<ConfiguredUpstreamSnapshot> GetAsync(CancellationToken ct)
+            => _snapshot ??= await ConfiguredUpstreamProbe.ReadAsync(_git, _repoPath, ct);
     }
 }
