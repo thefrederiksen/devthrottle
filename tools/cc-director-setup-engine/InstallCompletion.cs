@@ -144,7 +144,7 @@ public static class InstallCompletion
     public static string MacPlaceText(string installedBundle)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedBundle);
-        var folder = Path.GetDirectoryName(installedBundle.TrimEnd('/')) ?? installedBundle;
+        var folder = MacPath.DirectoryOf(installedBundle.TrimEnd('/'));
         var which = string.Equals(folder, MacAppsFolder.SystemAppsDir, StringComparison.Ordinal)
             ? "the Applications folder"
             : "the Applications folder in your home folder";

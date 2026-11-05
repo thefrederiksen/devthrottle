@@ -68,12 +68,12 @@ public static class MacDirectorRelocation
 
         // Only the installed name moves. A development slot ("Director Dev.app", "CC Director 2.app") and a copy
         // somebody renamed are not an install, and the bundle that moves keeps its name.
-        if (!string.Equals(Path.GetFileName(running), Path.GetFileName(installed), StringComparison.Ordinal))
+        if (!string.Equals(MacPath.FileNameOf(running), MacPath.FileNameOf(installed), StringComparison.Ordinal))
             return MacRelocationDecision.NotApplicable;
 
         // Only out of the user's own Applications folder, and only into a different folder. A copy run from a disk
         // image or from Downloads is not an install; the person decides where that one goes.
-        if (!string.Equals(Path.GetDirectoryName(running), Trim(userAppsDir), StringComparison.Ordinal))
+        if (!string.Equals(MacPath.DirectoryOf(running), Trim(userAppsDir), StringComparison.Ordinal))
             return MacRelocationDecision.NotApplicable;
 
         if (!string.Equals(readBundleIdentifier(running), MacBundlePurger.ProductBundleIdentifier, StringComparison.Ordinal))
@@ -108,7 +108,7 @@ public static class MacDirectorRelocation
                 return new MacRelocationResult(false, runningBundle,
                     $"DevThrottle is running from {runningBundle}, but another copy is already at {installed}. "
                     + "That copy is the one DevThrottle keeps up to date. Quit DevThrottle, move this copy to the Trash, "
-                    + $"and open the one in {Path.GetDirectoryName(installed)}.");
+                    + $"and open the one in {MacPath.DirectoryOf(installed)}.");
 
             case MacRelocationDecision.Move:
                 try
@@ -119,7 +119,7 @@ public static class MacDirectorRelocation
                 {
                     log($"[MacDirectorRelocation] move FAILED: {ex.GetType().Name}: {ex.Message}");
                     return new MacRelocationResult(false, runningBundle,
-                        $"DevThrottle is in {runningBundle}. It belongs in {Path.GetDirectoryName(installed)}, but it could "
+                        $"DevThrottle is in {runningBundle}. It belongs in {MacPath.DirectoryOf(installed)}, but it could "
                         + $"not be moved there ({ex.Message}). Drag it into the Applications folder in the Finder.");
                 }
 
