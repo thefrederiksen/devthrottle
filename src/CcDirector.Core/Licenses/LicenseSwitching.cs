@@ -36,7 +36,7 @@ public sealed class LicenseSwitching : IDisposable
     /// <param name="heldOnDisk">What the machine's key store holds, read from its account files. While switching is off
     /// and it holds a spare, <see cref="Start"/> still tells the Gateway so (issue #4327). Null: nothing is sent while off.</param>
     public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled,
-        Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = false, ILicenseBrowserProfiles? browserProfiles = null,
+        Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = Configuration.LicenseApproverOfferSetting.Default, ILicenseBrowserProfiles? browserProfiles = null,
         LicenseHeldOnDisk? heldOnDisk = null)
     {
         BrowserLane = new LicenseBrowserLane(signInDelay);
