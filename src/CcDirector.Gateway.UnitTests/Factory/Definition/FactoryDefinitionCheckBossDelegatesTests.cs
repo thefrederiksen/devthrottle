@@ -91,6 +91,37 @@ public sealed class FactoryDefinitionCheckBossDelegatesTests
         Assert.Null(FactoryDefinitionCheck.BossDoesTheWorkPhrase(brief));
     }
 
+    /// <summary>
+    /// A PROHIBITION IS NOT AN ORDER (phase 0 review, finding 1): the exact sentences the review found flagged - the live
+    /// Marketing Boss brief's limit on secrets, and briefs that restate the rule itself.
+    /// </summary>
+    [Theory]
+    [InlineData("cc-secrets. Never send or request it yourself.")]
+    [InlineData("Never do it yourself; delegate.")]
+    [InlineData("You do not do the work yourself - you start a session.")]
+    [InlineData("You never do the work yourself.")]
+    public void BossDoesTheWorkPhrase_ASentenceThatForbidsTheWork_IsNotFlagged(string brief)
+    {
+        Assert.Null(FactoryDefinitionCheck.BossDoesTheWorkPhrase(brief));
+    }
+
+    [Fact]
+    public void BossDoesTheWorkPhrase_AnOrderInTheNextClause_AfterAProhibition_IsStillFlagged()
+    {
+        Assert.Equal("send the report yourself",
+            FactoryDefinitionCheck.BossDoesTheWorkPhrase("Never send or request it yourself. Then send the report yourself."));
+        Assert.Equal("do it yourself", FactoryDefinitionCheck.BossDoesTheWorkPhrase("Ask nobody; do it yourself."));
+    }
+
+    [Fact]
+    public void Check_TheLiveMarketingBossLimit_GetsNoNotice()
+    {
+        var content = Edit("seats/boss.yaml", BossBriefLine,
+            "  Run the factory.\n  The key lives in cc-secrets. Never send or request it yourself.");
+
+        Assert.Empty(DelegateNotices(content));
+    }
+
     [Fact]
     public void BossDoesTheWorkPhrase_ReturnsTheFirstPhraseInTheBrief()
     {

@@ -99,7 +99,8 @@ public static class FactoryDefinitionCheck
     /// The phrases that tell a Boss to do the work itself, for <see cref="BossBriefDoesTheWork"/>: doing or carrying out
     /// the work "yourself", a work verb with "yourself" ("write the article yourself"), and an order not to delegate or
     /// not to start sessions. Reviews, strategy, judging and deciding are a Boss's own work, so "review it yourself" or
-    /// "decide yourself" is not matched.
+    /// "decide yourself" is not matched. The first three are ORDERS and are guarded by <see cref="ForbiddenBefore"/>; the
+    /// last two are already prohibitions of delegating, so they are not.
     /// </summary>
     private static readonly Regex[] BossDoesTheWorkPhrases =
     {
@@ -115,6 +116,27 @@ public static class FactoryDefinitionCheck
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
     };
 
+    /// <summary>How many of <see cref="BossDoesTheWorkPhrases"/>, from the start, are orders a prohibition can turn round.</summary>
+    private const int GuardedOrders = 3;
+
+    /// <summary>
+    /// A NEGATION IN FRONT TURNS AN ORDER INTO A PROHIBITION (phase 0 review, finding 1): "Never send or request it
+    /// yourself" forbids the Boss to send; "You never do the work yourself" restates the rule. So an order is not
+    /// matched when one of these words stands in the last four words before it, in the same clause.
+    /// </summary>
+    private static readonly Regex ForbiddenBefore = new(
+        @"\b(?:not|don't|dont|never|no|without|mustn't|cannot|can't|nor)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+
+    /// <summary>Whether the order at <paramref name="index"/> in <paramref name="text"/> is forbidden, not given.</summary>
+    private static bool IsForbidden(string text, int index)
+    {
+        var before = text[..index];
+        var clauseStart = before.LastIndexOfAny(new[] { '.', ';', ':', '!', '?', '\n' }) + 1;
+        var words = before[clauseStart..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return ForbiddenBefore.IsMatch(string.Join(' ', words.TakeLast(4)));
+    }
+
     /// <summary>
     /// The first phrase in <paramref name="brief"/> that tells a Boss to do the work itself, as it is written there with
     /// its runs of white space made single spaces, or null when there is none. Read across line ends, because a brief is
@@ -125,8 +147,12 @@ public static class FactoryDefinitionCheck
         ArgumentNullException.ThrowIfNull(brief);
         var text = Regex.Replace(brief, @"\s+", " ");
         Match? first = null;
-        foreach (var phrase in BossDoesTheWorkPhrases)
-            if (phrase.Match(text) is { Success: true } m && (first is null || m.Index < first.Index)) first = m;
+        for (var i = 0; i < BossDoesTheWorkPhrases.Length; i++)
+        {
+            var m = BossDoesTheWorkPhrases[i].Matches(text)
+                .FirstOrDefault(c => i >= GuardedOrders || !IsForbidden(text, c.Index));
+            if (m is not null && (first is null || m.Index < first.Index)) first = m;
+        }
         return first?.Value;
     }
 
