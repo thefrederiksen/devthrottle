@@ -109,7 +109,18 @@ internal static class FactoryKitEndpoints
             return Refused(StatusCodes.Status500InternalServerError,
                 $"version {wanted} of the definition of {folded} is published but could not be read, so no kit was built: {read.Findings.FirstOrDefault()?.Message}");
         }
-        if (!definition.Seats.Any(s => string.Equals(s.Seat, seat, StringComparison.Ordinal)))
+        // THE SECRETARY (Factory Inbox mission, phase 2) is a seat no definition holds: the Gateway makes it up from the
+        // Boss seat, and its kit is the factory's rules and its brief - no records, grants, files or skills.
+        var secretary = string.Equals(seat, Factory.Inbox.FactoryInboxSeats.Secretary, StringComparison.Ordinal);
+        if (secretary)
+        {
+            if (Factory.Inbox.FactoryInboxSecretary.WithSecretary(definition) is not { } withSecretary)
+                return Refused(StatusCodes.Status404NotFound,
+                    $"version {wanted} of the definition of {folded} names no Boss seat it holds, so it has no Secretary and no kit was built.");
+            definition = withSecretary;
+            FileLog.Write($"[FactoryKitEndpoints] Kit: the Secretary of {folded} v{wanted}, made up from its Boss seat {definition.BossSeat}");
+        }
+        else if (!definition.Seats.Any(s => string.Equals(s.Seat, seat, StringComparison.Ordinal)))
             return Refused(StatusCodes.Status404NotFound,
                 $"version {wanted} of the definition of {folded} has no seat '{seat}', so no kit was built. Its seats are: {string.Join(", ", definition.Seats.Select(s => s.Seat))}.");
 
@@ -119,7 +130,7 @@ internal static class FactoryKitEndpoints
         IReadOnlyList<FactoryDocumentSummary> documents = Array.Empty<FactoryDocumentSummary>();
         var attachments = new List<FactoryKitAttachment>();
         var attachmentsTotal = 0;
-        if (kind == FactoryKits.Seat)
+        if (kind == FactoryKits.Seat && !secretary)
         {
             var page = stores.Journal.List(tenant, folded, seat, limit: FactoryKitComposer.MaxJournalEntries);
             journalTotal = page.Total;

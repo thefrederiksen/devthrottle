@@ -82,6 +82,51 @@ public static class FactoryInboxWords
         public const string Merged = "merged";
     }
 
+    /// <summary>
+    /// Why the wake could not start the seat a factory's messages wait for (Factory Inbox mission, phase 2). Stored on the
+    /// factory's wake row and shown on the thread in <see cref="WaitingLabel"/>'s words, so a message that waits says why.
+    /// </summary>
+    public static class Waiting
+    {
+        /// <summary>No Director is running on the computer the seat runs on. It goes on when one connects there - never
+        /// on another computer.</summary>
+        public const string NoDirector = "no-director";
+
+        /// <summary>The factory has no published definition, so the Gateway cannot build a Secretary's kit for it.</summary>
+        public const string NotDefined = "not-defined";
+
+        /// <summary>The factory's published definition cannot be read, or does not hold the Boss seat.</summary>
+        public const string DefinitionUnreadable = "definition-unreadable";
+
+        /// <summary>The start was sent and failed; the detail is the reason the machine gave.</summary>
+        public const string StartFailed = "start-failed";
+
+        public static readonly IReadOnlyList<string> All = [NoDirector, NotDefined, DefinitionUnreadable, StartFailed];
+    }
+
+    /// <summary>The seat a message waits for, as the waiting sentence names it.</summary>
+    public enum WaitingFor { Secretary, Boss }
+
+    /// <summary>
+    /// The state label of a message that waits: what it waits for and why, in one sentence a client prints as it is.
+    /// <paramref name="detail"/> is the computer with no Director, or the reason a start or a definition read failed.
+    /// </summary>
+    public static string WaitingLabel(WaitingFor who, string code, string? detail)
+    {
+        var seat = who == WaitingFor.Secretary ? "Secretary" : "Boss";
+        var named = string.IsNullOrWhiteSpace(detail) ? "" : detail.Trim();
+        return code switch
+        {
+            Waiting.NoDirector => named.Length == 0
+                ? "Waiting - no Director is running on the Boss's computer; it goes on when one connects there"
+                : $"Waiting - no Director is running on the Boss's computer, {named}; it goes on when one connects there",
+            Waiting.NotDefined => "Waiting - this factory has no published definition, so it has no Secretary yet; publish its definition",
+            Waiting.DefinitionUnreadable => $"Waiting - the {seat} cannot be started from this factory's published definition: {named}",
+            Waiting.StartFailed => $"Waiting - the {seat} did not start: {named}; it is tried again",
+            _ => throw new ArgumentOutOfRangeException(nameof(code), code, "not a factory inbox waiting reason"),
+        };
+    }
+
     /// <summary>What a message's state is shown as. A decided message shows its decision.</summary>
     public static string StateLabel(string state, string? decision) => state switch
     {

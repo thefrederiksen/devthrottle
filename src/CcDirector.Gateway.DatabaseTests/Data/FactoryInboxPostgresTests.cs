@@ -101,6 +101,18 @@ public sealed class FactoryInboxPostgresTests
             Assert.Empty(store.Todos(B, Factory));
             Assert.Empty(store.CountsByFactory(B));
             Assert.Empty(store.OpenBundles(B, Factory, Boss, Now));
+
+            // THE WAKE'S CLAIM (phase 2): one row per factory, and of two writers on one read version only one changes it -
+            // the conditional update that keeps two Gateway processes from starting two Secretaries.
+            var wakes = new FactoryInboxWakeStore(db);
+            var row = wakes.Row(A, Factory, Now);
+            Assert.Equal(row.Id, wakes.Row(A, Factory, Now.AddSeconds(1)).Id);
+            Assert.True(wakes.TryUpdate(A, Factory, row.Version, w => w.SecretaryStartedAtUtc = Now, Now));
+            Assert.False(wakes.TryUpdate(A, Factory, row.Version, w => w.SecretaryStartedAtUtc = Now.AddSeconds(5), Now.AddSeconds(5)));
+            Assert.Equal(Now, wakes.Find(A, Factory)!.SecretaryStartedAtUtc);
+            Assert.Null(wakes.Find(B, Factory));
+            // The wake reads what waits from the inbox tables: here nothing, every message decided.
+            Assert.Empty(wakes.FactoriesWithWork(A));
         }
         finally
         {

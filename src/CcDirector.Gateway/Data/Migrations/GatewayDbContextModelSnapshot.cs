@@ -1953,6 +1953,74 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_inbox_messages", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryInboxWakeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BossSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("BossStartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("BossToldUpToUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BossWaiting")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BossWaitingDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecretarySessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SecretaryStartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SecretaryToldUpToUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecretaryWaiting")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecretaryWaitingDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory")
+                        .IsUnique();
+
+                    b.ToTable("factory_inbox_wakes", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryJournalEntryEntity", b =>
                 {
                     b.Property<Guid>("Id")
