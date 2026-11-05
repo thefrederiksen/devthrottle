@@ -6,15 +6,15 @@ namespace CcDirector.Core.Git;
 /// Holds one answer of a live-session provider for a short time, so the repository monitor's full rescan asks
 /// the Gateway for the fleet roster once per <see cref="MaxAge"/> instead of once per repository.
 ///
-/// Why: the monitor consults its provider on EVERY compute, and a full rescan (every five minutes, plus each
-/// reconciliation) computes every repository under the roots. On the owner's machine that is 75 repositories,
+/// Why: the monitor consults its provider on EVERY compute, and a full rescan (hourly, plus each
+/// reconciliation a file event asks for) computes every repository under the roots. On the owner's machine that is 75 repositories,
 /// so each rescan fetched the whole fleet roster 75 times - about 68 KB each, never a 304 - which the Gateway's
 /// traffic meter measured at roughly 80 MB an hour, most of the hosted Gateway's overnight data out.
 ///
 /// What it costs: a repository computed within <see cref="MaxAge"/> of the last fetch sees a roster up to that
-/// old, and the label it produces stands until that repository is next computed - which can be the next
-/// five-minute rescan. So a session that starts in a new worktree just before a recompute can leave that worktree
-/// shown as not in use (and counted in the orphan badge) for up to one rescan. That roster only decides how a
+/// old, and the label it produces stands until that repository is next computed - which, with no file event in
+/// between, is the next hourly rescan. So a session that starts in a new worktree just before a recompute can
+/// leave that worktree shown as not in use (and counted in the orphan badge) for up to an hour. That roster only decides how a
 /// worktree is SHOWN; the reaper never reads it - it asks its own authoritative provider right before it removes
 /// anything and refuses a worktree a live session is in - so a stale answer cannot cause a removal.
 ///

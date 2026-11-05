@@ -27,7 +27,9 @@ namespace CcDirector.Core.Git;
 /// and some state changes emit no event a per-repo watcher can see (a repository created by
 /// "git init" in an existing folder, a slow clone whose directory appeared before its .git). Two
 /// safety nets cover these: a <see cref="FileSystemWatcher.Error"/> handler and a periodic timer both
-/// raise <see cref="ReconciliationRequested"/>, which the host wires to a full rescan.
+/// raise <see cref="ReconciliationRequested"/>, which the host wires to a full rescan. The timer runs
+/// once an hour (<see cref="DefaultReconcileInterval"/>) - it catches what the events missed, and is
+/// not what keeps the screen current.
 /// </summary>
 public sealed class RepositoryWatcher : IDisposable
 {
@@ -36,6 +38,24 @@ public sealed class RepositoryWatcher : IDisposable
 
     /// <summary>The longest a change may wait for its repository to settle before it is recomputed anyway.</summary>
     public static readonly TimeSpan DefaultMaxWait = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How often the full rescan runs when no event asked for one: ONE SWEEP AN HOUR (the owner's
+    /// decision, 5 November 2026). It was five minutes, unconditionally, which this file's own
+    /// register row called out as wrong - 288 full rescans a day of every repository on the machine,
+    /// whether or not anything had changed, which on one Mac was most of 42,093 git commands in
+    /// sixteen hours with nobody at it.
+    ///
+    /// An hour is safe because this timer is a SAFETY NET, not the thing that keeps the screen
+    /// current: a save, a commit, a checkout or a fetch raises a file event and is recomputed within
+    /// the settle window above, and a worktree's commits and checkouts raise events too, because a
+    /// linked worktree's HEAD and reflog live under the primary's .git, which is watched. Two answers
+    /// do drift for up to an hour until a worktree folder gets a watch of its own: whether a worktree
+    /// has edited files, and whether a session has moved into one. Both can only over-state how much
+    /// is outstanding, and nothing destructive reads them - the worktree reaper re-fetches and
+    /// recomputes every verdict from scratch before it removes anything.
+    /// </summary>
+    public static readonly TimeSpan DefaultReconcileInterval = TimeSpan.FromHours(1);
 
     private readonly TimeSpan _settle;
     private readonly TimeSpan _maxWait;
@@ -75,9 +95,9 @@ public sealed class RepositoryWatcher : IDisposable
         _maxWait = maxWait ?? DefaultMaxWait;
         if (_maxWait < _settle)
             throw new ArgumentException($"maxWait ({_maxWait}) must not be shorter than settle ({_settle})", nameof(maxWait));
-        var interval = reconcileInterval ?? TimeSpan.FromMinutes(5);
+        var interval = reconcileInterval ?? DefaultReconcileInterval;
         // A slow-and-steady job on the scheduler (docs/BackgroundWork.md): the safety net behind the
-        // file events, on the cadence it always had.
+        // file events, once an hour.
         _reconcileTimer = (jobs ?? Background.BackgroundJobs.Default).Register(
             new Background.BackgroundJobSpec("Repository watcher: full reconciliation", Background.BackgroundJobTier.SlowAndSteady, interval, "the watcher is disposed"),
             _ => { RaiseReconciliation("periodic reconciliation"); return Task.CompletedTask; });

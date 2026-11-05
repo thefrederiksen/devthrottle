@@ -5,7 +5,7 @@ namespace CcDirector.Core.UnitTests.Git;
 
 /// <summary>
 /// The repository monitor asked its live-session provider on every repository it computed, and on the owner's
-/// machine that provider fetches the whole fleet roster from the Gateway - 75 fetches per five-minute rescan,
+/// machine that provider fetches the whole fleet roster from the Gateway - 75 fetches per rescan,
 /// about 80 MB an hour of the hosted Gateway's data out. These pin the cache that stops it: one fetch serves a
 /// whole rescan, an answer is reused only for its maximum age, and a failure is never held.
 ///
