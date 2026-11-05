@@ -10,7 +10,7 @@ Security problems are different: see [SECURITY.md](SECURITY.md), and please do n
 
 ## Building it
 
-You need the **.NET 10 SDK** (`global.json` pins 10.0.301) and, for the browser front ends, **Node.js 20 or later**. Nothing else -- no administrator rights, no Docker, no database.
+You need the **.NET 10 SDK** (`global.json` pins 10.0.403) and, for the browser front ends, **Node.js 20 or later**. Nothing else -- no administrator rights, no Docker, no database.
 
 ```powershell
 git clone https://github.com/thefrederiksen/devthrottle
