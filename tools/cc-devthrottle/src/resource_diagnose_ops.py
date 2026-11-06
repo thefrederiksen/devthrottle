@@ -45,11 +45,13 @@ from .axi_cli import axi_output
 
 RECORDING_FOLDER = "resource-recording"
 FORMAT_VERSION = 1
-_FILE_NAME = re.compile(r"^samples-([0-9]{12})\.jsonl$")
+# `samples-<first seq>.jsonl`, and `samples-<first seq>-<part>.jsonl` for the retry after a write that
+# failed part way (see ResourceRecorder): the retry carries some of the same samples again.
+_FILE_NAME = re.compile(r"^samples-([0-9]{12})(?:-([1-9][0-9]*))?\.jsonl$")
 
-#: A sample is "now" when it is younger than this on the wall clock: the recorder writes once a minute,
-#: so a healthy recording's newest line is up to a minute old, and a minute more is allowed for a slow disk.
-FRESH_SECONDS = 120
+#: The recorder writes once a minute, so the newest WRITTEN line of a recording being written normally is
+#: under this old. Older is reported as a fact with its possible reasons, never as a verdict on the Director.
+WRITE_INTERVAL_SECONDS = 60
 
 DEFAULT_MINUTES = 60
 DEFAULT_MINUTES_AT = 10
@@ -128,19 +130,21 @@ class Recording:
     oldest_seq: Optional[int] = None
     newest_seq: Optional[int] = None
     unreadable_lines: int = 0
+    repeated_lines: int = 0
     newer_version_lines: int = 0
     lines: list[dict[str, Any]] = field(default_factory=list)  # oldest first by seq
 
 
-def _recording_files(directory: Path) -> list[tuple[int, Path]]:
+def _recording_files(directory: Path) -> list[tuple[int, int, Path]]:
+    """(first seq, part, path), oldest first."""
     if not directory.is_dir():
         return []
     files = []
     for path in directory.iterdir():
         match = _FILE_NAME.match(path.name)
         if match and path.is_file():
-            files.append((int(match.group(1)), path))
-    files.sort()
+            files.append((int(match.group(1)), int(match.group(2) or 0), path))
+    files.sort(key=lambda f: (f[0], f[1]))
     return files
 
 
@@ -170,9 +174,11 @@ def read_recording(directory: Path, *, newest_seconds: Optional[float], read_eve
         return recording
     recording.oldest_seq = files[0][0]
 
-    newest_first: list[dict[str, Any]] = []
+    # Gather files newest first until the window is covered (or all, for --at), then read them OLDEST
+    # first and keep the first whole line of each seq: a retry's second copy of a sample is never counted.
+    gathered: list[list[dict[str, Any]]] = []
     newest_recording_seconds: Optional[float] = None
-    for _, path in reversed(files):
+    for _, _, path in reversed(files):
         file_lines = []
         for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if not raw.strip():
@@ -185,9 +191,9 @@ def read_recording(directory: Path, *, newest_seconds: Optional[float], read_eve
                 recording.newer_version_lines += 1
                 continue
             file_lines.append(line)
-        newest_first.extend(reversed(file_lines))
-        if newest_recording_seconds is None and newest_first:
-            newest_recording_seconds = newest_first[0]["recordingSeconds"]
+        gathered.append(file_lines)
+        if newest_recording_seconds is None and file_lines:
+            newest_recording_seconds = max(line["recordingSeconds"] for line in file_lines)
         if (
             not read_everything
             and newest_seconds is not None
@@ -197,6 +203,14 @@ def read_recording(directory: Path, *, newest_seconds: Optional[float], read_eve
         ):
             break
 
+    by_seq: dict[int, dict[str, Any]] = {}
+    for file_lines in reversed(gathered):
+        for line in file_lines:
+            if line["seq"] in by_seq:
+                recording.repeated_lines += 1
+            else:
+                by_seq[line["seq"]] = line
+    newest_first = list(by_seq.values())
     newest_first.sort(key=lambda line: line["seq"])
     recording.lines = newest_first
     if newest_first:
@@ -267,10 +281,16 @@ def _readable(part: Optional[dict[str, Any]], key: str) -> Optional[float]:
 
 
 def _worst_recorded(lines: list[dict[str, Any]]) -> Optional[str]:
+    """The highest level the Director recorded in the minute, saying how many samples it rests on when
+    some were Unknown - eleven Unknown and one Normal is not a Normal minute."""
     levels = [line["verdict"]["worst"] for line in lines if line.get("verdict")]
     if not levels:
         return None
-    return max(levels, key=lambda level: _LEVEL_ORDER.get(level, 0))
+    worst = max(levels, key=lambda level: _LEVEL_ORDER.get(level, 0))
+    unknown = sum(1 for level in levels if level == "Unknown")
+    if unknown and worst != "Unknown":
+        return f"{worst} ({unknown} of {len(levels)} Unknown)"
+    return worst
 
 
 def _slow_recorded(lines: list[dict[str, Any]]) -> Optional[str]:
@@ -285,6 +305,8 @@ def _slow_recorded(lines: list[dict[str, Any]]) -> Optional[str]:
                     causes.append(cause)
     if causes:
         return "+".join(_CAUSE_WORDS.get(cause, cause.lower()) for cause in causes)
+    if any(diagnosis.get("isSlow") for diagnosis in diagnoses):
+        return "yes, no cause recorded"
     if any(not diagnosis.get("couldDiagnose") for diagnosis in diagnoses):
         return "not known"
     return "no"
@@ -379,10 +401,11 @@ def _session_cell(process: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _session_total(value: str, unknown: int, process_count: int) -> str:
-    """A session's total, honest about what it left out. When NO process could be read the sum is zero
-    over nothing, and "at least 0%" would be the made-up zero in other words - so that is a dash."""
-    if unknown >= process_count:
+def _session_total(value: Optional[str], unknown: int, process_count: int) -> str:
+    """A session's total, honest about what it left out. When NO process could be read the recording
+    holds null (a sum over nothing measured nothing), and "at least 0%" would be the made-up zero in
+    other words - so that is a dash."""
+    if value is None or unknown >= process_count:
         return f"- (none of {process_count} readable)"
     return f"at least {value} ({unknown} not readable)" if unknown else value
 
@@ -398,6 +421,7 @@ def diagnose(
     instance: Optional[str],
     json_output: bool,
     fields: Optional[str],
+    samples: bool = False,
     *,
     now_utc: Optional[datetime] = None,
     local_zone: Any = None,
@@ -405,6 +429,8 @@ def diagnose(
     """The command. `now_utc` and `local_zone` are for tests; the command uses the machine's own."""
     if json_output and fields is not None:
         usage_errors.usage_error(axi_cli.FIELDS_WITH_JSON)
+    if samples and not json_output:
+        usage_errors.usage_error("--samples adds the window's samples to --json; use it with --json")
     chosen_fields = usage_errors.parse_fields(fields, HISTORY_FIELDS, DEFAULT_HISTORY_FIELDS)
     if minutes is not None and not 1 <= minutes <= MAX_MINUTES:
         usage_errors.usage_error(f"--minutes must be from 1 to {MAX_MINUTES} (24 hours), not {minutes}")
@@ -427,7 +453,8 @@ def diagnose(
     notes = _notes(recording, window, rows, newest, now_utc, at_utc)
 
     if json_output:
-        print(json.dumps(_json_payload(recording, window_minutes, at_utc, window, focus, newest, rows, notes, now_utc), indent=2))
+        print(json.dumps(_json_payload(recording, window_minutes, at_utc, window, focus, newest, rows, notes, now_utc,
+                                       samples), indent=2))
         return
     _write_text(recording, window_minutes, at_utc, window, focus, newest, rows, notes, chosen_fields, now_utc, local_zone)
 
@@ -441,12 +468,16 @@ def _notes(recording: Recording, window, rows, newest, now_utc: datetime, at_utc
     age = _newest_age(newest, now_utc)
     if age is not None and age < 0:
         notes.append(
-            f"the newest sample is stamped {_age_words(age)} in the future: this machine's wall clock has moved "
-            "backwards since it was taken")
-    elif age is not None and age > FRESH_SECONDS:
+            f"the newest written sample is stamped {_age_words(age)} later than this machine's clock reads now")
+    elif age is not None and age > 2 * WRITE_INTERVAL_SECONDS:
+        # What is known is the age. Why is not: the Director may be stopped, it may be holding samples
+        # while the disk refuses writes, or the wall clock may have been set forward.
         notes.append(
-            f"the newest sample is {_age_words(age)} old: the Director is not recording now, so this is history, "
-            "not the machine now")
+            f"the newest written sample is {_age_words(age)} old by this machine's clock, and the recording is "
+            "written once a minute: the Director may be stopped, the disk may be refusing its writes, or the "
+            "clock may have been set forward")
+    if recording.repeated_lines:
+        notes.append(f"{recording.repeated_lines} line(s) repeated a sample already read (a write retried after failing part way) and were left out")
     if recording.unreadable_lines:
         notes.append(f"{recording.unreadable_lines} line(s) of the recording were not whole (a crash or a refused write) and were left out")
     if recording.newer_version_lines:
@@ -460,9 +491,13 @@ def _notes(recording: Recording, window, rows, newest, now_utc: datetime, at_utc
         notes.append("the wall clock went backwards across a Director restart in this window")
     steps = [line for line in window if line.get("clockStepSeconds") is not None]
     if steps:
+        # The recorder cannot tell a clock that was set from a machine that slept (the monotonic clock
+        # stops in suspend on Linux), so this says what was measured, not which clock moved.
+        sizes = ", ".join(f"{line['clockStepSeconds']:+.0f}" for line in steps)
         notes.append(
-            f"the wall clock stepped {len(steps)} time(s) in this window; a clock time can appear twice, and the rows are "
-            "kept in the order they were recorded")
+            f"the wall clock and the Director's own clock disagreed {len(steps)} time(s) in this window, by {sizes} "
+            "seconds (the clock was set, or the machine slept); a clock time can appear twice, and the rows are kept "
+            "in the order they were recorded")
     if at_utc is not None and not window and recording.lines:
         notes.append(
             f"nothing was recorded near that time; the recording covers {recording.lines[0]['takenAtUtc']} to "
@@ -470,7 +505,8 @@ def _notes(recording: Recording, window, rows, newest, now_utc: datetime, at_utc
     return notes
 
 
-def _json_payload(recording, window_minutes, at_utc, window, focus, newest, rows, notes, now_utc) -> dict[str, Any]:
+def _json_payload(recording, window_minutes, at_utc, window, focus, newest, rows, notes, now_utc,
+                  include_samples: bool) -> dict[str, Any]:
     age = _newest_age(newest, now_utc)
     return {
         "recording": {
@@ -479,10 +515,10 @@ def _json_payload(recording, window_minutes, at_utc, window, focus, newest, rows
             "oldestSeq": recording.oldest_seq,
             "newestSeq": recording.newest_seq,
             "unreadableLines": recording.unreadable_lines,
+            "repeatedLines": recording.repeated_lines,
             "newerVersionLines": recording.newer_version_lines,
             "newestTakenAtUtc": newest["takenAtUtc"] if newest else None,
             "newestAgeSeconds": age,
-            "recordingNow": age is not None and 0 <= age <= FRESH_SECONDS,
         },
         "window": {
             "minutes": window_minutes,
@@ -493,7 +529,9 @@ def _json_payload(recording, window_minutes, at_utc, window, focus, newest, rows
         "newest": newest,
         "history": rows,
         "notes": notes,
-        "samples": window,
+        # Every line of the window verbatim is megabytes for an hour, so it is asked for with --samples. The
+        # key is always present, so the shape never changes: null means "not asked for", [] means "none".
+        "samples": window if include_samples else None,
     }
 
 
@@ -510,11 +548,11 @@ def _write_text(recording, window_minutes, at_utc, window, focus, newest, rows, 
         return
 
     age = _newest_age(newest, now_utc)
-    state = "the Director is recording" if age is not None and 0 <= age <= FRESH_SECONDS else "the Director is NOT recording now"
-    blocks.append(f"newest: {newest['takenAtUtc']}, {_age_words(age)} ago, seq {newest['seq']} ({state})")
+    when = f"{_age_words(age)} ago" if age >= 0 else f"{_age_words(age)} later than this machine's clock reads now"
+    blocks.append(f"newest written: {newest['takenAtUtc']}, {when}, seq {newest['seq']} (written once a minute)")
     if recording.oldest_seq is not None:
-        kept = recording.newest_seq - recording.oldest_seq + 1
-        blocks.append(f"kept: {kept} samples in {recording.files} file(s), seq {recording.oldest_seq} to {recording.newest_seq}")
+        # A span of sequence numbers, not a count of samples: samples lost to a refused write sit inside it.
+        blocks.append(f"recorded: seq {recording.oldest_seq} to {recording.newest_seq} in {recording.files} file(s)")
 
     if focus is not None:
         local = _stamp(focus).astimezone(local_zone).strftime("%Y-%m-%d %H:%M:%S %z")
@@ -524,7 +562,8 @@ def _write_text(recording, window_minutes, at_utc, window, focus, newest, rows, 
 
     blocks.append(axi_output.format_count(len(window), total=None))
     blocks.append(_window_words(window_minutes, at_utc, len(rows)))
-    records = [_history_record(row) for row in rows]
+    spans_days = len({row["minute"][:10] for row in rows}) > 1
+    records = [_history_record(row, spans_days) for row in rows]
     blocks.append(axi_output.render_list("history", chosen_fields, records))
     if notes:
         blocks.append(axi_output.render_list("notes", ["note"], [{"note": note} for note in notes]))
@@ -532,7 +571,7 @@ def _write_text(recording, window_minutes, at_utc, window, focus, newest, rows, 
     blocks.append(axi_output.format_help([
         f"{_COMMAND} --at <HH:MM>",
         f"{_COMMAND} --minutes 1440 --fields minute,cpu-peak,memory-available-min,worst,slow",
-        f"{_COMMAND} --json",
+        f"{_COMMAND} --json --samples",
     ]))
     axi_output.write_blocks(sys.stdout, *blocks)
 
@@ -585,7 +624,8 @@ def _focus_blocks(line: dict[str, Any]) -> list[str]:
         [{
             "id": s["sessionId"],
             "name": s.get("name"),
-            "cpu": _session_total(f"{s['cpuPercent']:.1f}%", s["processesWithUnknownProcessor"], s["processCount"]),
+            "cpu": _session_total(None if s["cpuPercent"] is None else f"{s['cpuPercent']:.1f}%",
+                                  s["processesWithUnknownProcessor"], s["processCount"]),
             "memory": _session_total(_gb(s["memoryBytes"]), s["processesWithUnknownMemory"], s["processCount"]),
             "processes": s["processCount"],
         } for s in sessions]))
@@ -628,10 +668,11 @@ def _machine_line(line: dict[str, Any]) -> str:
     ]))
 
 
-def _history_record(row: dict[str, Any]) -> dict[str, Any]:
-    minute = row["minute"][11:]  # HH:MM; the date is in the window line and the JSON
+def _history_record(row: dict[str, Any], spans_days: bool) -> dict[str, Any]:
+    # HH:MM, with the date as well when the window crosses midnight, so two days' 08:26 cannot be confused.
+    minute = row["minute"].replace("T", " ") if spans_days else row["minute"][11:]
     if row["clockStepSeconds"] is not None:
-        minute += " (clock stepped)"
+        minute += " (clocks disagreed)"
     elif row["runStart"]:
         minute += " (Director started)"
     cpu_avg = row["cpuAvgPercent"]

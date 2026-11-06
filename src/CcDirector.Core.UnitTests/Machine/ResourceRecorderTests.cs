@@ -440,6 +440,8 @@ public sealed class ResourceRecorderTests : IDisposable
         var during = Parse(lines[1]).GetProperty("processes");
         Assert.False(during.GetProperty("couldRead").GetBoolean());
         Assert.Equal("permission denied", during.GetProperty("unreadableReason").GetString());
+        Assert.Equal(JsonValueKind.Null, during.GetProperty("count").ValueKind);
+        Assert.Equal(JsonValueKind.Null, during.GetProperty("withUnknownProcessor").ValueKind);
         var after = Parse(lines[2]).GetProperty("processes").GetProperty("listed").EnumerateArray().Single();
         Assert.Equal("s", after.GetProperty("formerSessionId").GetString());
     }
@@ -479,6 +481,27 @@ public sealed class ResourceRecorderTests : IDisposable
         var processes = line.GetProperty("processes");
         Assert.Equal(1, processes.GetProperty("withUnknownProcessor").GetInt32());
         Assert.Equal(1, processes.GetProperty("withUnknownMemory").GetInt32());
+    }
+
+    [Fact]
+    public void Record_SessionWhoseProcessesAllHaveUnknownFigures_WritesNullTotalsNotZero()
+    {
+        var clock = new SteppingClock(Morning);
+        var unknown = new RecordedSession(new SessionUsage("s", 501, 0, 0, new[] { 501 }, 1, 1), "S");
+        var partly = new RecordedSession(new SessionUsage("p", 600, 2.5, 300_000_000, new[] { 600, 601 }, 1, 0), "P");
+
+        using (var recorder = new ResourceRecorder(_directory, clock))
+            recorder.Record(Moment(clock, new[] { Proc(501, "x", null, null), Proc(600, "y"), Proc(601, "z", cpu: null) },
+                new[] { unknown, partly }));
+
+        var sessions = Parse(ResourceRecordingReader.ReadRetained(_directory).Lines.Single())
+            .GetProperty("sessions").EnumerateArray().ToList();
+        Assert.Equal(JsonValueKind.Null, sessions[0].GetProperty("cpuPercent").ValueKind);
+        Assert.Equal(JsonValueKind.Null, sessions[0].GetProperty("memoryBytes").ValueKind);
+        // A total over SOME readable processes is a lower bound, written with its count of unknowns.
+        Assert.Equal(2.5, sessions[1].GetProperty("cpuPercent").GetDouble());
+        Assert.Equal(1, sessions[1].GetProperty("processesWithUnknownProcessor").GetInt32());
+        Assert.Equal(300_000_000UL, sessions[1].GetProperty("memoryBytes").GetUInt64());
     }
 
     // -------------------------------------------------------------------------------------------
@@ -532,6 +555,44 @@ public sealed class ResourceRecorderTests : IDisposable
         Assert.Equal(ResourceRecorder.HeldAtMost + 1, lines.Count);
         Assert.Equal(10, Parse(lines[0]).GetProperty("samplesLostBefore").GetInt32());
         Assert.All(lines.Skip(1), l => Assert.Equal(0, Parse(l).GetProperty("samplesLostBefore").GetInt32()));
+    }
+
+    [Fact]
+    public void Record_WriteFailedPartWay_RetryGoesToANewFileAndEachSampleIsReadOnce()
+    {
+        // The reviewer's scenario: an append reaches a full disk after six whole lines and part of the seventh,
+        // and a minute later the whole held batch is written again. Appending the retry onto that file would
+        // glue a whole line onto the torn one and count six samples twice.
+        var clock = new SteppingClock(Morning);
+        using var recorder = new ResourceRecorder(_directory, clock);
+        var firstFile = Path.Combine(_directory, ResourceRecorder.FileName(0));
+
+        // Arrange: the first write is refused (a folder stands where the file would go).
+        Directory.CreateDirectory(firstFile);
+        RecordEvery5Seconds(recorder, clock, 13);
+        Assert.Equal(13, recorder.HeldCount);
+
+        // What the refused write left behind: six whole lines and a torn seventh, at the same name.
+        Directory.Delete(firstFile);
+        File.WriteAllText(firstFile, string.Join("", Enumerable.Range(0, 6).Select(i =>
+            $"{{\"v\":1,\"seq\":{i},\"recordingSeconds\":{i * 5},\"takenAtUtc\":\"2026-11-06T08:00:{i * 5:D2}Z\"}}\n")) +
+            "{\"v\":1,\"seq\":6,\"recor");
+        var tornBefore = File.ReadAllText(firstFile);
+
+        // Act: the next minute's write.
+        RecordEvery5Seconds(recorder, clock, 12);
+
+        // Assert: nothing was appended to the torn file; the retry is a file of its own.
+        Assert.Equal(tornBefore, File.ReadAllText(firstFile));
+        Assert.True(File.Exists(Path.Combine(_directory, ResourceRecorder.FileName(0, part: 1))));
+
+        var read = ResourceRecordingReader.ReadRetained(_directory);
+        Assert.Equal(Enumerable.Range(0, 25).Select(i => (long)i), read.Lines.Select(l => l.Seq));
+        Assert.Equal(6, read.RepeatedLines);
+        Assert.Equal(1, read.UnreadableLines);
+        // The copy kept of a repeated sample is the one written first.
+        Assert.DoesNotContain("\"run\"", read.Lines[0].Json);
+        Assert.Contains("\"run\"", read.Lines[6].Json);
     }
 
     [Fact]

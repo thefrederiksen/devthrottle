@@ -119,7 +119,9 @@ public sealed class ResourceRecordingGoldenTests : IDisposable
             var swap = SwapReading.Read(8 * GiB, (ulong)(0.4 * GiB));
             var stall = StallReading.Read(StallSource.LinuxPressureStall,
                 cpuStalledPercent: 0.06, memoryStalledPercent: 0.17,
-                ioStalledPercent: diskLoad ? Math.Round(31 + wobble, 1) : 1.8);
+                ioStalledPercent: diskLoad ? Math.Round(31 + wobble, 1) : 1.8,
+                // devlinux showed a load of 19 to 23 while 80 per cent idle: tasks waiting on the disk count in it.
+                loadAverageOneMinute: diskLoad ? 21.4 : 2.1);
 
             var disks = DiskEvidenceSet.Read(new[]
             {

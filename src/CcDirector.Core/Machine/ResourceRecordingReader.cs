@@ -16,7 +16,11 @@ public sealed record RecordedLine(long Seq, double RecordingSeconds, DateTime Ta
 /// quietly skipped them would present a recording with a hole in it as a complete one.
 /// </param>
 /// <param name="FileCount">How many files the recording is held in.</param>
-public sealed record ResourceRecordingRead(IReadOnlyList<RecordedLine> Lines, int UnreadableLines, int FileCount);
+/// <param name="RepeatedLines">
+/// Whole lines whose <c>seq</c> was already read - the samples a retry wrote again after a write failed
+/// part way. Counted and left out, so no sample is counted twice.
+/// </param>
+public sealed record ResourceRecordingRead(IReadOnlyList<RecordedLine> Lines, int UnreadableLines, int FileCount, int RepeatedLines);
 
 /// <summary>
 /// Reads the 24-hour local recording. The diagnose command reads the same files the same way, in Python;
@@ -38,26 +42,42 @@ public static class ResourceRecordingReader
         if (maxLines <= 0) throw new ArgumentOutOfRangeException(nameof(maxLines), "Ask for at least one line.");
 
         var files = ResourceRecorder.RecordingFiles(directory);
-        var newestFirst = new List<RecordedLine>();
-        var unreadable = 0;
 
-        for (var i = files.Count - 1; i >= 0 && newestFirst.Count < maxLines; i--)
+        // Gather the newest files until they hold enough lines, then walk them OLDEST FIRST so the copy of a
+        // repeated seq that is kept is the one written first - the original, not a retry's second copy.
+        var needed = new List<string[]>();
+        var gathered = 0;
+        // One file more than the count needs, because repeated lines count toward it and are then dropped.
+        for (var i = files.Count - 1; i >= 0 && gathered < maxLines + ResourceRecorder.SamplesPerFile; i--)
         {
-            var lines = File.ReadAllLines(files[i].Path);
-            for (var j = lines.Length - 1; j >= 0 && newestFirst.Count < maxLines; j--)
+            var lines = ResourceRecorder.ReadLinesShared(files[i].Path);
+            needed.Add(lines);
+            gathered += lines.Length;
+        }
+        needed.Reverse();
+
+        var bySeq = new Dictionary<long, RecordedLine>();
+        var unreadable = 0;
+        var repeated = 0;
+        foreach (var lines in needed)
+        {
+            foreach (var text in lines)
             {
-                if (lines[j].Length == 0) continue;
-                if (ResourceRecorder.TryReadPosition(lines[j], out var seq, out var recordingSeconds, out var takenAt))
-                    newestFirst.Add(new RecordedLine(seq, recordingSeconds, takenAt, lines[j]));
-                else
+                if (text.Length == 0) continue;
+                if (!ResourceRecorder.TryReadPosition(text, out var seq, out var recordingSeconds, out var takenAt))
+                {
                     unreadable++;
+                    continue;
+                }
+                if (!bySeq.TryAdd(seq, new RecordedLine(seq, recordingSeconds, takenAt, text))) repeated++;
             }
         }
 
-        // Seq, not the file order and never the wall clock, is the order. Within a file it already is; this
-        // makes it true across files whatever the folder listing did.
-        var ordered = newestFirst.OrderBy(l => l.Seq).ToList();
-        FileLog.Write($"[ResourceRecordingReader] ReadNewest: lines={ordered.Count}, unreadable={unreadable}, files={files.Count}");
-        return new ResourceRecordingRead(ordered, unreadable, files.Count);
+        // Seq, not the file order and never the wall clock, is the order.
+        var ordered = bySeq.Values.OrderBy(l => l.Seq).ToList();
+        if (ordered.Count > maxLines) ordered = ordered.GetRange(ordered.Count - maxLines, maxLines);
+        FileLog.Write($"[ResourceRecordingReader] ReadNewest: lines={ordered.Count}, unreadable={unreadable}, " +
+                      $"repeated={repeated}, files={files.Count}");
+        return new ResourceRecordingRead(ordered, unreadable, files.Count, repeated);
     }
 }

@@ -775,7 +775,7 @@ _ACTIONS = [
             "answers for a past moment. Read-only."
         ),
         "command": "cc-devthrottle machine diagnose [--minutes <n>] [--at <HH:MM|ISO time>] [--instance <name>] "
-                   "[--fields <names>] [--json]",
+                   "[--fields <names>] [--json [--samples]]",
         "mutatesState": False,
         "args": [{"name": "minutes", "required": False}, {"name": "at", "required": False},
                  {"name": "instance", "required": False}, {"name": "fields", "required": False}],
@@ -3170,6 +3170,8 @@ def machine_diagnose(
         None, "--instance", help="Another Director on this machine, by its folder under instances. Default: this session's."),
     json_output: bool = typer.Option(
         False, "--json", "-j", help="Output JSON: every field, the window's samples verbatim. Filters still apply."),
+    samples: bool = typer.Option(
+        False, "--samples", help="With --json: include every sample of the window verbatim (large)."),
     fields: Optional[str] = typer.Option(
         None, "--fields",
         help="History columns, comma separated. Default: minute, cpu-avg, cpu-peak, memory-available-min, worst, slow. "
@@ -3184,7 +3186,7 @@ def machine_diagnose(
     """
     from .resource_diagnose_ops import diagnose
 
-    diagnose(minutes, at, instance, json_output, fields)
+    diagnose(minutes, at, instance, json_output, fields, samples)
 
 
 @machine_app.command("apps")

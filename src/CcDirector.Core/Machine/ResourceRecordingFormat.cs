@@ -144,6 +144,7 @@ internal static class ResourceRecordingFormat
         WriteNumberOrNull(w, "memoryStalledPercent", stall.MemoryStalledPercent);
         WriteNumberOrNull(w, "ioStalledPercent", stall.IoStalledPercent);
         WriteNumberOrNull(w, "runQueueLength", stall.RunQueueLength);
+        WriteNumberOrNull(w, "loadAverageOneMinute", stall.LoadAverageOneMinute);
         WriteNumberOrNull(w, "hardPageFaultsPerSecond", stall.HardPageFaultsPerSecond);
         WriteNumberOrNull(w, "macOsMemoryPressureLevel", stall.MacOsMemoryPressureLevel);
         WriteNumberOrNull(w, "processesWaitingOnDisk", stall.ProcessesWaitingOnDisk);
@@ -180,11 +181,13 @@ internal static class ResourceRecordingFormat
     {
         w.WriteStartObject("processes");
         WriteReadState(w, set.CouldRead, set.UnreadableReason);
-        w.WriteNumber("count", set.Processes.Count);
-        w.WriteNumber("withUnknownProcessor", set.Processes.Count(p => p.CpuPercent is null));
-        w.WriteNumber("withUnknownMemory", set.Processes.Count(p => p.MemoryBytes is null));
-        w.WriteNumber("outlivedOrLeftSession", summary.OutlivedOrLeftCount);
-        w.WriteNumber("outlivedOrLeftSessionNotListed", summary.OutlivedOrLeftNotListed);
+        // When the list could not be read there are no counts: zero processes would be a made-up figure.
+        int? Counted(int value) => set.CouldRead ? value : null;
+        WriteNumberOrNull(w, "count", Counted(set.Processes.Count));
+        WriteNumberOrNull(w, "withUnknownProcessor", Counted(set.Processes.Count(p => p.CpuPercent is null)));
+        WriteNumberOrNull(w, "withUnknownMemory", Counted(set.Processes.Count(p => p.MemoryBytes is null)));
+        WriteNumberOrNull(w, "outlivedOrLeftSession", Counted(summary.OutlivedOrLeftCount));
+        WriteNumberOrNull(w, "outlivedOrLeftSessionNotListed", Counted(summary.OutlivedOrLeftNotListed));
         w.WriteStartArray("listed");
         foreach (var recorded in summary.Listed)
         {
@@ -220,10 +223,13 @@ internal static class ResourceRecordingFormat
             w.WriteNumber("rootPid", u.RootPid);
             w.WriteNumber("processCount", u.Pids.Count);
             // The two sums are LOWER BOUNDS when their count of unknowns is above zero; the counts travel
-            // beside them so a reader can say "at least". See SessionUsage.
-            w.WriteNumber("cpuPercent", u.CpuPercent);
+            // beside them so a reader can say "at least". See SessionUsage. When NO process in the tree could
+            // be read, the sum is zero over nothing, and that zero is written as null: it measured nothing.
+            var noneReadForProcessor = u.ProcessesWithUnknownProcessor >= u.Pids.Count;
+            var noneReadForMemory = u.ProcessesWithUnknownMemory >= u.Pids.Count;
+            WriteNumberOrNull(w, "cpuPercent", noneReadForProcessor ? null : u.CpuPercent);
             w.WriteNumber("processesWithUnknownProcessor", u.ProcessesWithUnknownProcessor);
-            w.WriteNumber("memoryBytes", u.MemoryBytes);
+            WriteNumberOrNull(w, "memoryBytes", noneReadForMemory ? null : u.MemoryBytes);
             w.WriteNumber("processesWithUnknownMemory", u.ProcessesWithUnknownMemory);
             w.WriteEndObject();
         }

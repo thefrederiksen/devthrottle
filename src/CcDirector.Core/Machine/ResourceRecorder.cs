@@ -18,13 +18,23 @@ namespace CcDirector.Core.Machine;
 /// a slow disk is the whole point of batching, and the price is that a power cut can lose the last minute
 /// or so. Stopping the Director cleanly writes what is held (<see cref="Dispose"/>).
 ///
-/// THE RECORDING IS FILES OF ONE HOUR EACH, named by sequence number, never by the clock. A line's
+/// THE RECORDING IS FILES OF ABOUT ONE HOUR EACH, named by sequence number, never by the clock. A line's
 /// <c>seq</c> is one more than the line before it, across every Director run, and files are ordered and
-/// pruned on it.
+/// pruned on it. A file starts a new one only at the start of a write, so one write is always one append;
+/// a file therefore holds at most <see cref="SamplesPerFile"/> plus one held batch, an hour and a half at
+/// the worst, after a long refused write.
 ///
-/// IT IS PRUNED BY COUNT, NEVER BY THE WALL CLOCK. It keeps the newest <see cref="RetainedSamples"/> -
-/// 24 hours at one sample every five seconds - and deletes whole files of the oldest once a file can go
-/// with at least that many left, so it holds between 24 and 25 hours. Pruning by "older than 24 hours
+/// A WRITE THAT FAILS PART WAY NEVER HAS ANOTHER WRITE GLUED ONTO IT. The retry goes to a new file with a
+/// part number (<c>samples-000000000060-1.jsonl</c>), because a refused append can leave whole lines and
+/// a torn one behind, and the retry carries those same samples again. Both readers keep the first whole
+/// line of each <c>seq</c> and count the rest as repeated, so a sample is never counted twice.
+///
+/// IT IS PRUNED ON SEQUENCE NUMBERS, NEVER BY THE WALL CLOCK. It keeps the newest
+/// <see cref="RetainedSamples"/> sequence numbers - 24 hours of sampling at one every five seconds - and
+/// deletes whole files of the oldest once a file can go with at least that span left. Samples lost to a
+/// refused write fall inside that span, so after a loss it holds fewer than 17,280 lines and still exactly
+/// 24 hours of sampling: the promise is 24 hours, and older samples are not kept to make up the number.
+/// Pruning by "older than 24 hours
 /// on the wall clock" is the defect this design refuses: a clock that jumps a day forward would delete
 /// the whole recording, which is the evidence it exists to keep, and one that jumps backwards would keep
 /// stale lines forever and file new ones before old ones. A count cannot be moved by any clock. The cost,
@@ -57,8 +67,9 @@ namespace CcDirector.Core.Machine;
 /// and it writes the full count and how many had unknown figures. A process whose figures are both
 /// unknown cannot be ranked and is counted, not named.
 ///
-/// NOT THREAD-SAFE BY DESIGN: the sampler calls it from its one five-second loop. Every call is on the
-/// sampler's background thread, never the user-interface thread, because it reads and writes the disk.
+/// THREAD-SAFE: the sampler records from its loop, and the Director stops on another thread, so every
+/// public call takes one lock. Every call reads or writes the disk, so none belongs on the user-interface
+/// thread.
 /// </summary>
 public sealed class ResourceRecorder : IDisposable
 {
@@ -121,8 +132,12 @@ public sealed class ResourceRecorder : IDisposable
     // carry the count of what was lost just before it.
     private readonly List<(RecordingPosition Position, ResourceMoment Moment, RecordedProcessSummary Processes)> _held = new();
     private long _lastWriteTimestamp;
+    private readonly object _gate = new();
     private string? _currentFile;
     private int _currentFileLines;
+    // True from the moment an append starts until it has finished. Still true at the next write means the
+    // last one failed part way, so the next one must start a new file.
+    private bool _appendUnfinished;
     private int _lostUnreported;
     private int _lostTotal;
 
@@ -155,10 +170,16 @@ public sealed class ResourceRecorder : IDisposable
     }
 
     /// <summary>Samples taken by this run and not yet written.</summary>
-    public int HeldCount => _held.Count;
+    public int HeldCount
+    {
+        get { lock (_gate) return _held.Count; }
+    }
 
     /// <summary>Samples this run dropped unwritten because the disk refused the writes.</summary>
-    public int LostCount => _lostTotal;
+    public int LostCount
+    {
+        get { lock (_gate) return _lostTotal; }
+    }
 
     /// <summary>
     /// Records one sample. Writes the held samples in one append when <see cref="WriteEvery"/> has passed
@@ -172,6 +193,11 @@ public sealed class ResourceRecorder : IDisposable
     public void Record(ResourceMoment moment)
     {
         ArgumentNullException.ThrowIfNull(moment);
+        lock (_gate) RecordLocked(moment);
+    }
+
+    private void RecordLocked(ResourceMoment moment)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var timestamp = _time.GetTimestamp();
@@ -201,10 +227,8 @@ public sealed class ResourceRecorder : IDisposable
         {
             FileLog.Write($"[ResourceRecorder] Record: write FAILED, {_held.Count} samples held for the next minute: {ex.Message}");
             // Try again in a minute, not on every sample: a refusing disk is not asked twelve times a minute.
+            // The retry starts a new file on its own - see _appendUnfinished.
             _lastWriteTimestamp = timestamp;
-            // And into a NEW file: a refused append may have left part of a line at the end of this one, and
-            // writing on after it would glue the next whole line onto the torn one and lose both.
-            _currentFile = null;
         }
     }
 
@@ -215,25 +239,31 @@ public sealed class ResourceRecorder : IDisposable
     /// </summary>
     public void Flush()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        FileLog.Write($"[ResourceRecorder] Flush: held={_held.Count}");
-        Write();
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            FileLog.Write($"[ResourceRecorder] Flush: held={_held.Count}");
+            Write();
+        }
     }
 
     /// <summary>Writes what is held and closes the recording. A refused write is logged; the samples are then lost.</summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        FileLog.Write($"[ResourceRecorder] Dispose: held={_held.Count}");
-        try
+        lock (_gate)
         {
-            Write();
+            if (_disposed) return;
+            FileLog.Write($"[ResourceRecorder] Dispose: held={_held.Count}");
+            try
+            {
+                Write();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"[ResourceRecorder] Dispose: final write FAILED, {_held.Count} samples lost: {ex.Message}");
+            }
+            _disposed = true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            FileLog.Write($"[ResourceRecorder] Dispose: final write FAILED, {_held.Count} samples lost: {ex.Message}");
-        }
-        _disposed = true;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -368,9 +398,10 @@ public sealed class ResourceRecorder : IDisposable
 
         // A run's first write starts a new file, and so does a full one: a file only ever holds lines of one
         // run, so a line torn by a crash at the end of a file is never followed by another run's lines.
-        if (_currentFile is null || _currentFileLines >= SamplesPerFile)
+        // And so does a write after one that failed part way, so nothing is ever appended after a torn line.
+        if (_currentFile is null || _currentFileLines >= SamplesPerFile || _appendUnfinished)
         {
-            _currentFile = Path.Combine(_directory, FileName(_held[0].Position.Seq));
+            _currentFile = UnusedFileName(_held[0].Position.Seq);
             _currentFileLines = 0;
         }
 
@@ -385,12 +416,15 @@ public sealed class ResourceRecorder : IDisposable
         }
         var bytes = Encoding.UTF8.GetBytes(text.ToString());
 
-        // ONE append. FileShare.Read so the diagnose command can read while the Director writes.
-        using (var stream = new FileStream(_currentFile, FileMode.Append, FileAccess.Write, FileShare.Read,
-                   bufferSize: 1, FileOptions.None))
+        // ONE append. FileShare.Read so a reader can open the file while the Director writes; the readers
+        // open it sharing write in turn (see ReadLinesShared), which Windows needs from both sides.
+        _appendUnfinished = true;
+        using (var stream = new FileStream(_currentFile, FileMode.Append, FileAccess.Write,
+                   FileShare.Read | FileShare.Delete, bufferSize: 1, FileOptions.None))
         {
             stream.Write(bytes, 0, bytes.Length);
         }
+        _appendUnfinished = false;
 
         var written = _held.Count;
         _currentFileLines += written;
@@ -411,26 +445,28 @@ public sealed class ResourceRecorder : IDisposable
         var files = RecordingFiles(_directory);
         var newestSeq = _nextSeq - 1;
         var deleted = 0;
-        while (files.Count > 1 && newestSeq - files[1].FirstSeq + 1 >= RetainedSamples)
+        var kept = 0;
+        // A file may go when the file after it still starts within the newest RetainedSamples sequence numbers.
+        for (var i = 0; i + 1 < files.Count && newestSeq - files[i + 1].FirstSeq + 1 >= RetainedSamples; i++)
         {
             try
             {
-                File.Delete(files[0].Path);
+                File.Delete(files[i].Path);
+                deleted++;
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // On Windows a file cannot be deleted while another program has it open - the diagnose
-                // command reading the oldest hour, say. The samples were already written, so this is not a
-                // failed write: leave the file and try again after the next one, a minute from now.
-                // not-an-error: the samples are written; an open file is deleted on the next minute's prune.
-                FileLog.Write($"[ResourceRecorder] Prune: could not delete {Path.GetFileName(files[0].Path)} yet, will retry: {ex.Message}");
-                break;
+                // command, an indexer, an editor - and a read-only file refuses as well. The samples were
+                // written, so this is not a failed write. Leave this file for the next minute's prune and go
+                // on to the next old one, so one stuck file never stops the recording being bounded.
+                // not-an-error: the samples are written; this file is tried again a minute from now.
+                FileLog.Write($"[ResourceRecorder] Prune: could not delete {Path.GetFileName(files[i].Path)} yet, will retry: {ex.Message}");
+                kept++;
             }
-            files.RemoveAt(0);
-            deleted++;
         }
-        if (deleted > 0)
-            FileLog.Write($"[ResourceRecorder] Prune: deleted {deleted} file(s); oldest kept seq={files[0].FirstSeq}, newest seq={newestSeq}");
+        if (deleted > 0 || kept > 0)
+            FileLog.Write($"[ResourceRecorder] Prune: deleted {deleted} file(s), {kept} could not be deleted yet; newest seq={newestSeq}");
     }
 
     private void ReadWhereThePreviousRunEnded()
@@ -442,7 +478,7 @@ public sealed class ResourceRecorder : IDisposable
         // skipped here, and the reader skips it too and counts it.
         for (var i = files.Count - 1; i >= 0; i--)
         {
-            var lines = File.ReadAllLines(files[i].Path);
+            var lines = ReadLinesShared(files[i].Path);
             for (var j = lines.Length - 1; j >= 0; j--)
             {
                 if (!TryReadPosition(lines[j], out var seq, out var recordingSeconds, out var takenAtUtc)) continue;
@@ -482,21 +518,56 @@ public sealed class ResourceRecorder : IDisposable
         }
     }
 
-    internal static string FileName(long firstSeq) =>
-        FilePrefix + firstSeq.ToString("D12", CultureInfo.InvariantCulture) + FileExtension;
+    internal static string FileName(long firstSeq, int part = 0) =>
+        FilePrefix + firstSeq.ToString("D12", CultureInfo.InvariantCulture) +
+        (part == 0 ? "" : "-" + part.ToString(CultureInfo.InvariantCulture)) + FileExtension;
 
-    /// <summary>The recording's files, oldest first by the sequence number in their name.</summary>
-    internal static List<(string Path, long FirstSeq)> RecordingFiles(string directory)
+    /// <summary>A file name for a write starting at <paramref name="firstSeq"/> that no file has yet.</summary>
+    private string UnusedFileName(long firstSeq)
     {
-        var files = new List<(string, long)>();
+        for (var part = 0; ; part++)
+        {
+            var path = Path.Combine(_directory, FileName(firstSeq, part));
+            if (!File.Exists(path)) return path;
+        }
+    }
+
+    /// <summary>
+    /// The recording's files, oldest first by the sequence number in their name, then by part. A name that
+    /// is not the recording's own shape is not the recording's and is left alone.
+    /// </summary>
+    internal static List<(string Path, long FirstSeq, int Part)> RecordingFiles(string directory)
+    {
+        var files = new List<(string Path, long FirstSeq, int Part)>();
         if (!Directory.Exists(directory)) return files;
         foreach (var path in Directory.EnumerateFiles(directory, FilePrefix + "*" + FileExtension))
         {
-            var name = Path.GetFileNameWithoutExtension(path);
-            if (long.TryParse(name.AsSpan(FilePrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var first))
-                files.Add((path, first));
+            var name = Path.GetFileNameWithoutExtension(path).AsSpan(FilePrefix.Length);
+            var dash = name.IndexOf('-');
+            var seqText = dash < 0 ? name : name[..dash];
+            var part = 0;
+            if (seqText.Length != 12) continue;
+            if (!long.TryParse(seqText, NumberStyles.None, CultureInfo.InvariantCulture, out var first)) continue;
+            if (dash >= 0 && (!int.TryParse(name[(dash + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out part) || part < 1))
+                continue;
+            files.Add((path, first, part));
         }
-        files.Sort((a, b) => a.Item2.CompareTo(b.Item2));
+        files.Sort((a, b) => a.FirstSeq != b.FirstSeq ? a.FirstSeq.CompareTo(b.FirstSeq) : a.Part.CompareTo(b.Part));
         return files;
+    }
+
+    /// <summary>
+    /// A file's lines, opened so the Director may go on writing it and pruning may delete it meanwhile. On
+    /// Windows a reader that shares only reading refuses the writer, and the writer's minute append would
+    /// then fail as though the disk had refused it.
+    /// </summary>
+    internal static string[] ReadLinesShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line) lines.Add(line);
+        return lines.ToArray();
     }
 }

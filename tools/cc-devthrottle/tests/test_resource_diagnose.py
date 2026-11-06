@@ -98,7 +98,8 @@ def test_text_slowMachine_printsTheRecordedDiagnosisCulpritAndVerdictVerbatim(di
         "process": "dotnet", "pid": "41872", "session": SESSION_140, "session-name": SESSION_140_NAME,
         "disk": "sdc", "disk-kind": "Spinning",
     }]
-    assert "(the Director is recording)" in out
+    assert "newest written: 2026-11-06T08:26:55Z, 30 seconds ago, seq 71" in out
+    assert "recorded: seq 0 to 71 in 1 file(s)" in out
 
 
 def test_text_everyIdAndNameIsReadBackWhole(director, capsys):
@@ -168,11 +169,14 @@ def test_text_fields_choosesTheHistoryColumns(director, capsys):
     assert rows[0]["unreadable"] == "1"
 
 
-def test_text_staleRecording_saysTheDirectorIsNotRecording(director, capsys):
+def test_text_oldRecording_saysHowOldAndWhyItMightBe_withoutDecidingWhich(director, capsys):
+    # The command cannot know whether the Director stopped, is holding samples on a refusing disk, or the
+    # clock was set forward - so it says the age and the possibilities, and rules on none of them.
     out = run_direct(capsys, now=NEWEST + timedelta(hours=3))
 
-    assert "(the Director is NOT recording now)" in out
-    assert "this is history, not the machine now" in out
+    assert "3 hours 0 minutes ago" in out
+    assert "the Director may be stopped, the disk may be refusing its writes, or the clock may have been set forward" in out
+    assert "NOT recording" not in out
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -187,6 +191,10 @@ def test_json_isParsedAndCarriesEveryField(director):
     payload = json.loads(result.output)
     assert set(payload) == {"recording", "window", "focus", "newest", "history", "notes", "samples"}
     assert payload["window"] == {"minutes": 60, "atUtc": None, "count": 72}
+    assert payload["samples"] is None  # not asked for: the key stays, so the shape never changes
+    assert payload["recording"]["repeatedLines"] == 0
+    assert "recordingNow" not in payload["recording"]
+    payload = json.loads(invoke("--json", "--samples").output)
     assert payload["recording"]["newestSeq"] == 71
     assert payload["recording"]["oldestSeq"] == 0
     assert payload["focus"]["seq"] == 71
@@ -204,7 +212,7 @@ def test_json_isParsedAndCarriesEveryField(director):
 
 def test_json_minutesFilter_appliesToJson(director):
     whole = json.loads(invoke("--json").output)
-    two = json.loads(invoke("--json", "--minutes", "2").output)
+    two = json.loads(invoke("--json", "--samples", "--minutes", "2").output)
 
     assert two["window"]["minutes"] == 2
     assert two["window"]["count"] == 24
@@ -214,7 +222,7 @@ def test_json_minutesFilter_appliesToJson(director):
 
 
 def test_json_atFilter_appliesToJson_andFocusIsTheNearestSample(director):
-    payload = json.loads(invoke("--json", "--at", "2026-11-06T08:23:02Z", "--minutes", "2").output)
+    payload = json.loads(invoke("--json", "--samples", "--at", "2026-11-06T08:23:02Z", "--minutes", "2").output)
 
     assert payload["window"]["atUtc"] == "2026-11-06T08:23:02Z"
     assert payload["focus"]["seq"] == 24  # 08:23:00, the nearest
@@ -224,7 +232,7 @@ def test_json_atFilter_appliesToJson_andFocusIsTheNearestSample(director):
 
 
 def test_json_atNothingRecorded_isAnEmptyWindowThatSaysWhy(director):
-    payload = json.loads(invoke("--json", "--at", "2026-11-05T08:00:00Z").output)
+    payload = json.loads(invoke("--json", "--samples", "--at", "2026-11-05T08:00:00Z").output)
 
     assert payload["window"]["count"] == 0
     assert payload["samples"] == []
@@ -247,6 +255,7 @@ def test_json_atNothingRecorded_isAnEmptyWindowThatSaysWhy(director):
     (["--at", "half past eight"], "--at takes a clock time"),
     (["--at", "2026-11-06T08:26:00"], "--at needs a time zone"),
     (["--instance", "nope"], "no Director instance is named 'nope'"),
+    (["--samples"], "--samples adds the window's samples to --json"),
 ])
 def test_usageErrors_exit2_andSayWhatIsWrong(director, args, says):
     result = invoke(*args)
@@ -271,7 +280,8 @@ def test_noRecording_saysCountZero_inTextAndJson(tmp_path, monkeypatch):
     assert "has not recorded yet" in text.output
     assert payload["window"]["count"] == 0
     assert payload["newest"] is None
-    assert payload["samples"] == []
+    assert payload["samples"] is None
+    assert json.loads(invoke("--json", "--samples").output)["samples"] == []  # asked for, and there are none
     assert payload["recording"]["files"] == 0
 
 
@@ -300,9 +310,10 @@ def test_wallClockStep_rowsKeptApartAndSaid(director, capsys):
 
     _, rows = axi_output.parse_list(out, "history")
     # The recording's own timeline still says the last hour holds every sample, in the order taken.
-    assert rows[-1]["minute"] == "07:26 (clock stepped)"
+    assert rows[-1]["minute"] == "07:26 (clocks disagreed)"
     assert sum(1 for r in rows if r["minute"].startswith("08:2")) == 5
-    assert "the wall clock stepped 1 time(s) in this window" in out
+    assert "the wall clock and the Director's own clock disagreed 1 time(s) in this window, by -3600 seconds" in out
+    assert "(the clock was set, or the machine slept)" in out
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -326,3 +337,75 @@ def test_outsideASession_oneDirector_isThatOne(tmp_path, monkeypatch):
     (tmp_path / "instances" / "only").mkdir(parents=True)
 
     assert ops.recording_directory(None) == tmp_path / "instances" / "only" / "resource-recording"
+
+
+def _rewrite(director, change):
+    path = director / "resource-recording" / FIXTURE.name
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    change(lines)
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    return lines
+
+
+def test_retriedWrite_repeatedSamplesAreReadOnceAndSaid(director):
+    # What the recorder leaves after a write that failed part way: the original file with whole lines and a
+    # torn one, and the retry in a part file carrying some of the same samples again.
+    folder = director / "resource-recording"
+    lines = (folder / FIXTURE.name).read_text(encoding="utf-8").splitlines()
+    (folder / FIXTURE.name).write_text("\n".join(lines[:66]) + "\n" + lines[66][:40], encoding="utf-8")
+    (folder / "samples-000000000060-1.jsonl").write_text("\n".join(lines[60:]) + "\n", encoding="utf-8")
+
+    payload = json.loads(invoke("--json", "--samples").output)
+
+    assert [s["seq"] for s in payload["samples"]] == list(range(72))
+    assert payload["recording"]["repeatedLines"] == 6
+    assert payload["recording"]["unreadableLines"] == 1
+    assert any("repeated a sample already read" in n for n in payload["notes"])
+    assert sum(r["samples"] for r in payload["history"]) == 72
+
+
+def test_minuteWithUnknownVerdicts_saysHowManyTheWorstRestsOn(director, capsys):
+    def unknown_first_minute(lines):
+        for line in lines[1:12]:
+            line["verdict"]["worst"] = "Unknown"
+    _rewrite(director, unknown_first_minute)
+
+    _, rows = axi_output.parse_list(run_direct(capsys), "history")
+
+    assert rows[0]["worst"] == "Normal (11 of 12 Unknown)"
+    assert rows[1]["worst"] == "Normal"
+
+
+def test_slowWithNoCauseRecorded_isNotPrintedAsNotSlow(director, capsys):
+    def no_cause(lines):
+        lines[71]["diagnosis"]["causes"] = []
+        for line in lines[60:71]:
+            line["diagnosis"]["isSlow"] = False
+            line["diagnosis"]["causes"] = []
+    _rewrite(director, no_cause)
+
+    _, rows = axi_output.parse_list(run_direct(capsys), "history")
+
+    assert rows[-1]["slow"] == "yes, no cause recorded"
+
+
+def test_windowAcrossMidnight_rowsCarryTheDate(director, capsys):
+    def across_midnight(lines):
+        for line in lines:
+            stamp = datetime.strptime(line["takenAtUtc"], "%Y-%m-%dT%H:%M:%SZ") + timedelta(hours=15, minutes=36)
+            line["takenAtUtc"] = stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+    _rewrite(director, across_midnight)
+
+    out = run_direct(capsys, now=datetime(2026, 11, 7, 0, 3, 30, tzinfo=timezone.utc))
+
+    _, rows = axi_output.parse_list(out, "history")
+    assert rows[0]["minute"].startswith("2026-11-06 23:57")
+    assert rows[-1]["minute"] == "2026-11-07 00:02"
+
+
+def test_json_sessionWithNoReadableProcessor_isNullNotZero(director):
+    payload = json.loads(invoke("--json", "--samples").output)
+
+    first = payload["samples"][0]["sessions"][0]
+    assert first["cpuPercent"] is None
+    assert first["processesWithUnknownProcessor"] == first["processCount"]
