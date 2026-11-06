@@ -355,19 +355,24 @@ public sealed class LinuxResourceProbe : IResourceProbe
         // processor now as well as those waiting for one, and includes this reader itself.
         return StallReading.Read(
             StallSource.LinuxPressureStall,
-            cpuStalledPercent: cpu,
-            memoryStalledPercent: memory,
-            ioStalledPercent: io,
+            cpuStalledPercent: cpu.TenSeconds,
+            memoryStalledPercent: memory.TenSeconds,
+            ioStalledPercent: io.TenSeconds,
+            cpuStalledPercentOneMinute: cpu.OneMinute,
+            memoryStalledPercentOneMinute: memory.OneMinute,
+            ioStalledPercentOneMinute: io.OneMinute,
             runQueueLength: running,
             loadAverageOneMinute: oneMinute,
             processesWaitingOnDisk: processesWaitingOnDisk);
     }
 
     /// <summary>
-    /// One pressure file's "some avg10". A file that is there but cannot be read means pressure stall
-    /// information is compiled in and switched off (the psi=0 boot option), which the reason says.
+    /// One pressure file's "some avg10" and "some avg60": the share of the last ten seconds and of the
+    /// last minute in which a program was stalled, as the kernel averages each. A file that is there but
+    /// cannot be read means pressure stall information is compiled in and switched off (the psi=0 boot
+    /// option), which the reason says.
     /// </summary>
-    private static double ReadPressure(string path)
+    private static (double TenSeconds, double OneMinute) ReadPressure(string path)
     {
         string text;
         try
@@ -379,8 +384,11 @@ public sealed class LinuxResourceProbe : IResourceProbe
             throw new IOException($"{path} could not be read ({ex.Message}); pressure stall information may be switched off on this kernel (psi=0)", ex);
         }
 
-        return LinuxProcParsing.ParsePressureSomeAverage10(text)
-               ?? throw new InvalidDataException($"{path} carried no 'some avg10' figure");
+        var tenSeconds = LinuxProcParsing.ParsePressureSomeAverage10(text)
+                         ?? throw new InvalidDataException($"{path} carried no 'some avg10' figure");
+        var oneMinute = LinuxProcParsing.ParsePressureSomeAverage60(text)
+                        ?? throw new InvalidDataException($"{path} carried no 'some avg60' figure");
+        return (tenSeconds, oneMinute);
     }
 
     // ---------------------------------------------------------------------------------------------

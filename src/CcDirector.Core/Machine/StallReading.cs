@@ -62,9 +62,17 @@ public enum StallSource
 /// <param name="CouldRead">False when no stall figure could be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>
 /// <param name="Source">Which platform mechanism the figures came from. <see cref="StallSource.None"/> when unreadable.</param>
-/// <param name="CpuStalledPercent">Share of time some program was waiting for a processor, 0 to 100 (Linux "some avg10").</param>
-/// <param name="MemoryStalledPercent">Share of time some program was waiting on memory, 0 to 100 (Linux "some avg10").</param>
-/// <param name="IoStalledPercent">Share of time some program was waiting on the disk, 0 to 100 (Linux "some avg10").</param>
+/// <param name="CpuStalledPercent">Share of the LAST TEN SECONDS some program was waiting for a processor, 0 to 100 (Linux "some avg10").</param>
+/// <param name="MemoryStalledPercent">Share of the LAST TEN SECONDS some program was waiting on memory, 0 to 100 (Linux "some avg10").</param>
+/// <param name="IoStalledPercent">Share of the LAST TEN SECONDS some program was waiting on the disk, 0 to 100 (Linux "some avg10").</param>
+/// <param name="CpuStalledPercentOneMinute">
+/// The same share over the LAST MINUTE, as the kernel itself averages it (Linux "some avg60"). It is a
+/// different quantity from <paramref name="CpuStalledPercent"/>: averaging a few ten-second figures does
+/// not give it, because they cover only the seconds they were read in. The slowness diagnosis judges a
+/// minute, so this is the figure it reads where the kernel offers one.
+/// </param>
+/// <param name="MemoryStalledPercentOneMinute">The memory stall share over the last minute (Linux "some avg60").</param>
+/// <param name="IoStalledPercentOneMinute">The disk stall share over the last minute (Linux "some avg60").</param>
 /// <param name="RunQueueLength">
 /// The INSTANTANEOUS number of threads ready to run at the moment of reading. On Linux that is the
 /// kernel's runnable count from <c>/proc/loadavg</c>: the threads running on a processor now PLUS those
@@ -97,6 +105,9 @@ public readonly record struct StallReading(
     double? CpuStalledPercent,
     double? MemoryStalledPercent,
     double? IoStalledPercent,
+    double? CpuStalledPercentOneMinute,
+    double? MemoryStalledPercentOneMinute,
+    double? IoStalledPercentOneMinute,
     double? RunQueueLength,
     double? LoadAverageOneMinute,
     double? HardPageFaultsPerSecond,
@@ -123,6 +134,9 @@ public readonly record struct StallReading(
         double? cpuStalledPercent = null,
         double? memoryStalledPercent = null,
         double? ioStalledPercent = null,
+        double? cpuStalledPercentOneMinute = null,
+        double? memoryStalledPercentOneMinute = null,
+        double? ioStalledPercentOneMinute = null,
         double? runQueueLength = null,
         double? loadAverageOneMinute = null,
         double? hardPageFaultsPerSecond = null,
@@ -132,14 +146,15 @@ public readonly record struct StallReading(
         if (source == StallSource.None)
             throw new ArgumentException("A stall reading that succeeded must name where it came from.", nameof(source));
         return new(CouldRead: true, UnreadableReason: null, source, cpuStalledPercent, memoryStalledPercent,
-            ioStalledPercent, runQueueLength, loadAverageOneMinute, hardPageFaultsPerSecond, macOsMemoryPressureLevel,
+            ioStalledPercent, cpuStalledPercentOneMinute, memoryStalledPercentOneMinute, ioStalledPercentOneMinute,
+            runQueueLength, loadAverageOneMinute, hardPageFaultsPerSecond, macOsMemoryPressureLevel,
             processesWaitingOnDisk);
     }
 
     /// <summary>A reading that failed, carrying why. Every figure is null.</summary>
     public static StallReading Unreadable(string reason) =>
         new(CouldRead: false, ResourceReadingGuard.Reason(reason), StallSource.None,
-            null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null);
 
     /// <summary>Short, log-safe description listing only the figures that were offered. Prints no figure when the reading failed.</summary>
     public override string ToString()
@@ -150,6 +165,9 @@ public readonly record struct StallReading(
         if (CpuStalledPercent is { } cpu) parts.Add(string.Create(CultureInfo.InvariantCulture, $"processor {cpu:F1}%"));
         if (MemoryStalledPercent is { } memory) parts.Add(string.Create(CultureInfo.InvariantCulture, $"memory {memory:F1}%"));
         if (IoStalledPercent is { } io) parts.Add(string.Create(CultureInfo.InvariantCulture, $"disk {io:F1}%"));
+        if (CpuStalledPercentOneMinute is { } cpuMinute) parts.Add(string.Create(CultureInfo.InvariantCulture, $"processor {cpuMinute:F1}% over a minute"));
+        if (MemoryStalledPercentOneMinute is { } memoryMinute) parts.Add(string.Create(CultureInfo.InvariantCulture, $"memory {memoryMinute:F1}% over a minute"));
+        if (IoStalledPercentOneMinute is { } ioMinute) parts.Add(string.Create(CultureInfo.InvariantCulture, $"disk {ioMinute:F1}% over a minute"));
         if (RunQueueLength is { } queue) parts.Add(string.Create(CultureInfo.InvariantCulture, $"{queue:F0} threads runnable now"));
         if (LoadAverageOneMinute is { } load) parts.Add(string.Create(CultureInfo.InvariantCulture, $"load average {load:F2} over one minute"));
         if (HardPageFaultsPerSecond is { } faults) parts.Add(string.Create(CultureInfo.InvariantCulture, $"{faults:F0} hard page faults/s"));

@@ -353,7 +353,7 @@ public class ResourceSampleContractTests
     public void AnUnreadableStallReadingThatStillNamesASource_IsRejected()
     {
         var lying = new StallReading(CouldRead: false, UnreadableReason: "pressure is off in this kernel",
-            StallSource.LinuxPressureStall, null, null, null, null, null, null, null, null);
+            StallSource.LinuxPressureStall, null, null, null, null, null, null, null, null, null, null, null);
 
         var broken = ResourceSampleContract.Violations(Healthy(stall: lying));
 
@@ -429,6 +429,7 @@ public class ResourceSampleContractTests
     {
         var sourceless = new StallReading(CouldRead: true, UnreadableReason: null, StallSource.None,
             CpuStalledPercent: 1, MemoryStalledPercent: null, IoStalledPercent: null,
+            CpuStalledPercentOneMinute: null, MemoryStalledPercentOneMinute: null, IoStalledPercentOneMinute: null,
             RunQueueLength: null, LoadAverageOneMinute: null, HardPageFaultsPerSecond: null,
             MacOsMemoryPressureLevel: null, ProcessesWaitingOnDisk: null);
 

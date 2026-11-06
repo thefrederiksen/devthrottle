@@ -242,6 +242,10 @@ public sealed class LinuxResourceProbeTests : IDisposable
         Assert.Equal(11.50, stall.CpuStalledPercent);
         Assert.Equal(1.99, stall.MemoryStalledPercent);
         Assert.Equal(16.41, stall.IoStalledPercent);
+        // The kernel's own one-minute figures, a different quantity from the ten-second ones above.
+        Assert.Equal(4.65, stall.CpuStalledPercentOneMinute);
+        Assert.Equal(0.55, stall.MemoryStalledPercentOneMinute);
+        Assert.Equal(23.17, stall.IoStalledPercentOneMinute);
         // Two quantities, two fields: "22.25 21.23 18.63 47/3981" is a one-minute load average of 22.25
         // and 47 threads runnable at this moment. Neither stands in for the other.
         Assert.Equal(47, stall.RunQueueLength);

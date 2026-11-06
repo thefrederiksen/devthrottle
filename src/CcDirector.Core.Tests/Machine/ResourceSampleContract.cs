@@ -210,6 +210,9 @@ public static class ResourceSampleContract
             ("the processor stall figure", stall.CpuStalledPercent),
             ("the memory stall figure", stall.MemoryStalledPercent),
             ("the disk stall figure", stall.IoStalledPercent),
+            ("the one-minute processor stall figure", stall.CpuStalledPercentOneMinute),
+            ("the one-minute memory stall figure", stall.MemoryStalledPercentOneMinute),
+            ("the one-minute disk stall figure", stall.IoStalledPercentOneMinute),
         })
         {
             if (value is { } percent) Percentage(what, percent, broken);
