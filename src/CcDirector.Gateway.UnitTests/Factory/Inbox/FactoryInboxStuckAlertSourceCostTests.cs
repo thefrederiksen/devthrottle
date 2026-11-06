@@ -87,13 +87,14 @@ public sealed class FactoryInboxStuckAlertSourceCostTests : IDisposable
     }
 
     [Fact]
-    public void List_AccountWithNoInboxWork_CostsAtMostOneStatement_AndAsksNeitherTheRegistryNorTheLiveness()
+    public void List_AccountWithNoInboxWork_CostsExactlyOneStatement_AndAsksNeitherTheRegistryNorTheLiveness()
     {
         var before = _commands.Count;
 
         Assert.Empty(_source.List(A, T0.AddDays(1)));
 
-        Assert.True(_commands.Count - before <= 1, $"an idle account cost {_commands.Count - before} statements");
+        // EXACTLY one, not "at most one": the one read always runs, so a counter that counted nothing would fail here.
+        Assert.True(_commands.Count - before == 1, $"an idle account cost {_commands.Count - before} statements");
         Assert.Equal(0, _registryCalls);
         Assert.Equal(0, _livenessCalls);
         Assert.Equal(0, _directorCalls);

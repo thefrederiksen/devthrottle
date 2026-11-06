@@ -12,7 +12,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// row - not received, held by a Secretary, a bundle not decided - in ONE grouped UNION ALL, and the hosted Gateway runs
 /// that statement on PostgreSQL, where a set operation is translated differently from SQLite. So it is run here on the
 /// schema the Gateway's own start-up builds: two stuck factories, every reason in each, the words and counts the owner
-/// reads, and another account seeing none of it. Times are chosen here; no clock is read.
+/// reads, and another account seeing none of it. Times are chosen here; no clock is read. It proves the translation and
+/// the alerts, not the statement count: that is pinned by FactoryInboxStuckAlertSourceCostTests.
 /// </summary>
 public sealed class FactoryInboxStuckAlertPostgresTests
 {
@@ -23,7 +24,7 @@ public sealed class FactoryInboxStuckAlertPostgresTests
     private static readonly TenantId B = new("acct-stuck-b");
 
     [RequiresPostgresFact]
-    public async Task List_EveryReasonInTwoFactories_IsReadInOneStatement_OnPostgres()
+    public async Task List_EveryReasonInTwoFactories_RaisesTheSameAlerts_OnPostgres()
     {
         var connection = PostgresProofDatabase.ConnectionFor("factoryinboxstuck");
         var previous = Environment.GetEnvironmentVariable(GatewayDatabase.PostgresConnectionEnvVar);
