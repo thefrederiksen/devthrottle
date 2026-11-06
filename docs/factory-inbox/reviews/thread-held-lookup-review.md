@@ -563,3 +563,104 @@ On devlinux, rebased onto `origin/main`, with .NET 10.0.403, `DOTNET_USE_POLLING
 `-p:EnableWindowsTargeting=true`:
 - `CcDirector.Gateway.UnitTests`, filtered to `FullyQualifiedName~FactoryInbox|FullyQualifiedName~Dictation|FullyQualifiedName~Voice`:
   921 passed, 0 failed.
+
+## Third look (6 November 2026)
+
+Reviewed by a third, separate review session (fleet session e7b86379, "Factory Inbox - Reviewer - thread held lookup third
+look (4690)"), on machine devlinux. Worktree `devthrottle-fi-review-4690`, detached at commit `20675fac8`. I read; I
+changed no product code. The tree holds nothing but this section.
+
+**Verdict: APPROVE.** Findings 3, 4 and 5 of the re-review are each closed by the newest commit, each with its probe
+committed as a real test that fails on the previous commit's behaviour. No path brings back a walk of the share per thread
+read. The start-up warm-up cannot block the start and cannot bring the process down. I found no new harm. Two observations,
+neither a merge condition.
+
+### Scope
+
+Only the newest commit, `git show 20675fac8` (four files, 241 lines added, 20 removed), against the three findings the
+re-review returned CHANGES on, plus the developer's answers to them. I read the whole of `PendingFor` and
+`EnumeratePendingRecordsWithId` as they now stand, the new `WarmEveryPartition`, `ReadRecordFile`'s four answers,
+`IsMintedAccountTenant` and `PartitionRootFor`, `DictationLockIndex` in full (for the gate's granularity), the host's
+start-up task and its position relative to `_app.StartAsync()`, the host's construction of `_dictationUploads`, the
+`TenantId` constructor, the tenant pass's hosted contract, the tombstone sweep's treatment of a malformed record, and the
+five new tests with their helpers. I did not re-review anything the first two reviews settled, and I measured nothing on the
+hosted share.
+
+What I ran: the brief's filter on `CcDirector.Gateway.UnitTests` with `DOTNET_USE_POLLING_FILE_WATCHER=1` and
+`-p:EnableWindowsTargeting=true`: 921 passed, 0 failed, 0 skipped, 1 minute 18 seconds, exit code 0.
+
+### Finding 3: closed
+
+At the partition read, `EnumeratePendingRecordsWithId` now yields a null record for a canonical upload whose read answers
+`Unreadable` OR `Malformed` (the `is ... or ...` pattern ends before the `&&`, so the canonical-name check applies to both,
+as the C# grammar requires and as the first new test proves by passing). The index puts both into the partition's
+re-read set. In `PendingFor`'s re-read loop, `Malformed` now has its own case: return without `Settled`, so the identifier
+stays in the set; `Settled` is reached only for a record that belongs to another tenant. A later read that answers
+`Present` goes through `RecordWritten`, which removes it from the re-read set and puts it in the pending map, so the
+recording is shown on that read and on every later one, for the session lock too. A record that reads as malformed on a
+confirming read of an index-named upload (first loop) is skipped and the index entry is kept, so it is confirmed again on
+the next read. Nothing errors on a malformed record, which keeps the developer's reason for not breaking the thread on
+corruption.
+
+The two probes are committed as `PendingFor_RecordReadAsEmptyOnceDuringHydration_IsShownOnceItReadsRight` (the first probe
+verbatim, with its last line now the expectation) and
+`PendingFor_RecordUnreadableAtHydrationThenEmptyOnReRead_IsKeptForReReadAndShownOnceItReadsRight`, whose
+`Assert.Equal(new[] { open.UploadId }, reads)` pins that the record was kept in the re-read set and read exactly once on
+the read that showed it. Both fail on `9779b9915` by the re-review's own run and pass here.
+
+### Finding 4: closed
+
+In the first loop of `PendingFor`, a confirming read that answers `Unreadable` now adds the upload to `stillUnreadable`
+before any other test on the read, so the method throws `InvalidOperationException` and the thread route's existing catch
+answers 503 with code `held_recordings_unknown`. The index entry is untouched, so the next read confirms it again; the
+committed test `PendingFor_ConfirmingReadOfARecordTheIndexNamesFails_IsAnErrorNotNothingHeld` asserts the error type and
+then the recording shown once the hold is released. The re-review's probe passed on `9779b9915` with `Assert.Null(error)`;
+this test is that probe with the opposite assertion, so it would fail on the old code.
+
+### Finding 5: closed
+
+`WarmEveryPartition(hosted)` does not use the tenant pass. On hosted it lists the directories under
+`<base>/tenants/` and keeps only names that `IsMintedAccountTenant` accepts, the same predicate `PartitionRootFor` uses to
+create a partition, so the set it reads is exactly the set that can exist; a folder of any other spelling is skipped (the
+test's `not-a-tenant` folder). Each is reached through `ForTenant`, and `_lockIndex.LockedSessions(store._root, ...)`
+hydrates that partition under its own gate; null counts as failed, anything else as read. On self-host it reads the one
+Local partition. Both the store's log line and the host's state the two counts, not an intention. The host calls it on
+`_dictationUploads`, which is the base handle built on `CcStorage.DictationUploads()` with `TenantId.Local`, so
+`_partitionBase` is the base root and `tenants/` resolves correctly.
+
+Start-up safety, re-checked on this commit:
+
+- **Does not block the start.** The task is `Task.Run` at `GatewayHost.cs` line 7366, after `_app.StartAsync()` at line
+  7097, and is not awaited.
+- **Cannot crash the process.** Everything in the task is inside a `try` that logs. `Directory.EnumerateDirectories` on a
+  share fault, `ForTenant`'s `EnsureRoot`, and anything else that throws lands in that catch; `LockedSessions` never
+  throws, because the index catches the hydration failure, leaves the partition unread and answers null.
+- **Does not stall other tenants' requests.** The index's gate is per partition root, so hydrating tenant A's partition
+  holds no lock tenant B's thread read needs. A thread read for tenant A that arrives mid-read waits on A's gate for that
+  one read instead of starting a second walk.
+- **Does not depend on a connected Director.** No tenant pass, no push store, no database: the disk is the only input.
+- **Hosted never warms the Local partition.** That matches the tenant pass's own hosted contract ("never a Local pass"), so
+  nothing that was warmed before is left out now.
+
+The committed test `WarmEveryPartition_Hosted_ReadsEveryAccountPartitionOnDisk_SoAThreadReadReadsOnlyItsOwnRecords` asserts
+the counts (2 read, 0 failed, the third folder skipped), that a thread read for account A afterwards reads exactly one
+record out of twenty-one on disk, and that account B's session lock is already answered from the index.
+`WarmEveryPartition_SelfHost_ReadsTheLocalPartition` does the same for self-host.
+
+### No walk of the share per thread read is brought back
+
+`Invalidate` is still reached only from the two sweeps and the legacy quarantine (`VoiceUploadStore.cs` lines 457, 552 and
+940). `Hydrated` is still set once per partition per process. A thread read still reads only the uploads the index names
+for its target plus the re-read set. The two new tests on `WarmEveryPartition` pin the "one record read on the request"
+property with `RecordReadForTests`.
+
+### Observations (not merge conditions)
+
+1. **A record corrupt for good is now re-read on every thread read.** That is what the re-review asked for, and the cost is
+   one small open per such record per read, bounded by how many malformed records the partition holds. The tombstone sweep
+   leaves a malformed record standing on purpose (issue #2745, `VoiceUploadStore.cs` line 523), so that count can only
+   grow over the life of a partition and is never trimmed. I have no evidence that any partition holds more than a handful,
+   so this is not a finding; it is where to look if a thread read is ever slow again on a partition with no held
+   recordings.
+2. **One stale comment.** The summary on `DictationLockIndex.Settled` still says a malformed record is settled as "durable
+   evidence". After this commit only another tenant's record settles that way. Words only; the code is right.
