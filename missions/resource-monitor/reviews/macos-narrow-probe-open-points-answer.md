@@ -16,12 +16,21 @@ read from **one** `host_statistics64` snapshot, and that call is made inside `Ma
 (issue #2818), not in anything the macOS probe owns.
 
 What was measured, four runs, each bracketing the probe's read between two `vm_stat` reads: the probe's
-available-memory figure landed inside the bracket every time, but **below the middle of it in three
-runs of four** - 0.51, 1.36 and 0.73 percentage points below. That is a lean, not noise: noise would
-fall on both sides. The likeliest cause is ordinary and uninteresting - the probe's read lands a moment
-after the `vm_stat` read it is compared against, on a machine whose available memory moves several
-points per second - but *likeliest* is not *measured*, and it will stay unmeasured until the comparison
-is made from a single snapshot.
+available-memory figure fell **outside the bracket, below its lower edge, in three runs of four** - by
+0.51, 1.36 and 0.73 percentage points. Only run 2 landed inside it. The figures are in
+`missions/resource-monitor/phase-1/macos-narrow-check.txt`, column "probe outside".
+
+That is a lean, not noise: noise would scatter either side. The likeliest cause is ordinary and
+uninteresting - the probe's read lands a moment after the `vm_stat` read it is compared against, on a
+machine whose used memory was falling through the measurement - but *likeliest* is not *measured*, and
+it will stay unmeasured until the comparison is made from a single snapshot. For scale, the machine
+itself moved as much as **4.75 points across a single bracketed read**, which is more than three times
+the worst of these leans.
+
+An earlier revision of this paragraph said the probe "landed inside the bracket every time". That was
+false, it contradicted this document's own heading and closing section, and it contradicted the proof
+file. It is corrected here rather than quietly: a document that answers an evidence question has to be
+checked against the evidence it cites, and this one was not.
 
 Until then, nothing in this mission should quote the macOS memory figure to better than about one and a
 half percentage points.
@@ -32,10 +41,10 @@ The reviewer is right and this is the more important of the two memory points, b
 the evidence can carry rather than about a number.
 
 Bracketing bounds a quantity **only if that quantity moved monotonically between the two reads.** It
-did not have to. Available memory on this machine moved 4.75 points across a single read during these
-runs, in both directions. So a figure that lands inside the bracket may have landed there while the
-true value was briefly outside it, and a figure that landed outside would not prove the probe wrong
-either.
+did not have to. Available memory on this machine moved as much as 4.75 points across a single
+bracketed read. So a figure that lands inside the bracket may have landed there while the true value
+was briefly outside it, and a figure that landed outside - which is what three of these four runs did -
+does not prove the probe wrong either.
 
 This is why the measurement lesson in `missions/resource-monitor/qa-plan.md` says a single-reading
 comparison against the five-point threshold means nothing in either direction: the same probe measured
@@ -43,7 +52,7 @@ comparison against the five-point threshold means nothing in either direction: t
 Bracketing is better than that, and it is still not proof. Only the single-snapshot comparison in
 point 1 is proof, and it is the memory probe's to make.
 
-## 3. `FoldStall` cannot tell "could not read it" from "this platform does not offer it" - REFERRED, deliberately not fixed here
+## 3. `FoldStall` cannot tell "could not read it" from "this platform does not offer it" - REFERRED as issue #4648, deliberately not fixed here
 
 `FoldStall` returns the same `null` when `vm.loadavg` could not be read as when the platform publishes
 no stall figure at all. Those are different facts and a diagnosis needs to tell them apart: the first
@@ -84,17 +93,18 @@ bracketed, to within 1.36 points with the caveat in point 2. Points 1 and 2 are 
 memory figure is **known**; points 3 and 4 are about what the shared types can **express** and what a
 verdict may **claim**.
 
-## And one the review did not raise - found twice, independently, while deriving the shared contract on macOS
+## And one the review did not raise - found twice, independently, while deriving the shared contract on macOS (issue #4649)
 
 `ResourceProbeContractLiveTests.ReadWithRates` reads the probe twice and sleeps
 `MachineMemoryProbe.CacheFor` plus 250 milliseconds in between, so that every rate has an interval. It
 does not ask the probe under test how long **that** probe caches a sample for.
 
-It was safe, and safe only by coincidence: `MachineMemoryProbe.CacheFor`, `MacOsResourceProbe.CacheFor`
-and `LinuxResourceProbe.CacheFor` all happened to be one second, so the sleep was 1.25 seconds and the
-second `Read` was a genuinely fresh sample. Raise any one platform's own cache past that sleep and its
-second `Read` returns the **first** sample back out of the cache, every rate in the sample under test is
-the first sample's, and the contract tests go on passing.
+It was safe, and safe only by coincidence. `LinuxResourceProbe.CacheFor` was already written as
+`MachineMemoryProbe.CacheFor`, so those two could not drift; it was the **macOS** constant that was its
+own literal one second and happened to match. The sleep was therefore 1.25 seconds and the second
+`Read` was a genuinely fresh sample. Raise a platform's own cache past that sleep and its second `Read`
+returns the **first** sample back out of the cache - so the sample under test is the first sample, which
+has no rates at all - and the contract tests go on passing.
 
 **Two of the four contract tests would not notice, and that is the part worth keeping in mind.**
 `ASampleFromThisMachine_KeepsEveryRuleTheInterfaceStates` passes, because `ResourceSampleContract`
@@ -122,10 +132,18 @@ written down with any confidence: it is the kind of coupling that reads as fine 
 
 Neither referral is a place for them to be forgotten, so each has an address:
 
-- **The skip-reason ordering** - on the wrong platform, the skip reason now names the removable obstacle
-  (the opt-in variable) before the permanent one (the platform), which is backwards. It is **issue
-  #4644**, which carries the reasoning the deleted `MacOsLiveMachineFactAttribute` used to hold in its
-  doc comment, so that reasoning did not go with the file.
-- **The contract's sleep, and `StallReading`'s single `null`** - both are changes to shared types that
-  all three probes return or run against, so both are with the Tech Lead. A macOS-only answer to either
-  would put the three platforms out of step, which is the failure the shared contract exists to prevent.
+- **The skip-reason ordering** - on the wrong platform, the skip reason names the removable obstacle
+  (the opt-in variable) before the permanent one (the platform), which is backwards. **Issue #4644**,
+  which carries the reasoning the deleted `MacOsLiveMachineFactAttribute` used to hold in its doc
+  comment, so that reasoning did not go with the file.
+- **`StallReading`'s single `null`** for "could not read it" and "this platform does not publish it" -
+  point 3 above. **Issue #4648.**
+- **The contract's sleep** - point 5 above, the check that fails open. **Issue #4649.**
+
+The last two are changes to shared types that all three probes return or run against, which is why
+neither is answered on macOS alone: that would put the three platforms out of step, which is the exact
+failure the shared contract exists to prevent.
+
+**Each has an issue number rather than a name, and that is deliberate.** An earlier revision of this
+section said these two were "with the Tech Lead" - which is the message-shaped home that this
+document's own opening paragraph says loses things. A referral nobody can look up is not a referral.
