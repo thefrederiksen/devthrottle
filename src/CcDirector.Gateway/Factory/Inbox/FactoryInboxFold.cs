@@ -32,7 +32,25 @@ public static class FactoryInboxFold
             Links: FactoryInboxStore.ReadLinks(m.LinksJson),
             BundleId: m.BundleId?.ToString("D"),
             Decision: decision is null ? null : Decision(decision),
-            Trail: Trail(m, decision, handedAtUtc));
+            Trail: Trail(m, decision, handedAtUtc),
+            Tone: FactoryInboxWords.Tone(m.State, decision?.Kind),
+            SourceLabel: FactoryInboxWords.SourceLabel(m.Source));
+    }
+
+    /// <summary>
+    /// One factory's row on the Factory inbox list (phase 4): the line under its name, the waiting line, and its badge -
+    /// the newest message's state in short with its tone, or "No messages" in grey. Every word is decided here; the
+    /// screens print them.
+    /// </summary>
+    public static FactoryInboxRowDto Row(int waiting, FactoryInboxMessageEntity? last, FactoryInboxDecisionEntity? lastDecision)
+    {
+        if (last is null)
+            return new FactoryInboxRowDto(FactoryInboxWords.NoMessagesLine, null, FactoryInboxWords.NoMessagesBadge, FactoryInboxWords.Tones.Grey);
+        return new FactoryInboxRowDto(
+            Line: last.Text,
+            WaitingLine: FactoryInboxWords.WaitingLine(waiting),
+            Badge: FactoryInboxWords.StateLabel(last.State, lastDecision?.Kind),
+            Tone: FactoryInboxWords.Tone(last.State, lastDecision?.Kind));
     }
 
     /// <summary>The waiting sentence a message shows, or null when it does not wait.</summary>
@@ -127,7 +145,13 @@ public sealed record FactoryInboxWaitingLabels(string? Secretary, string? Boss);
 public sealed record FactoryInboxMessageDto(
     string Id, string Factory, string Text, string? RawText, string Note, string NoteLabel, string Source, string Surface,
     DateTime SentAtUtc, string State, string StateLabel, string? MergedInto, IReadOnlyList<FactoryInboxLinkDto> Links,
-    string? BundleId, FactoryInboxDecisionDto? Decision, IReadOnlyList<FactoryInboxTrailStepDto> Trail);
+    string? BundleId, FactoryInboxDecisionDto? Decision, IReadOnlyList<FactoryInboxTrailStepDto> Trail, string Tone,
+    string SourceLabel);
+
+/// <summary>A factory's row on the Factory inbox list: <see cref="Line"/> under its name (its newest message, or that it has
+/// none), <see cref="WaitingLine"/> (null with no messages), and a short <see cref="Badge"/> with the <see cref="Tone"/> a
+/// screen colours it by.</summary>
+public sealed record FactoryInboxRowDto(string Line, string? WaitingLine, string Badge, string Tone);
 
 /// <summary>One decision as it is shown.</summary>
 public sealed record FactoryInboxDecisionDto(

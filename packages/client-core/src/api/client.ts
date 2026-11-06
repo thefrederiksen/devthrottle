@@ -2460,7 +2460,7 @@ export interface UtteranceCaptureHealth {
 // most this size so no single request body exceeds the Gateway limit (Kestrel's default is roughly
 // thirty megabytes; a twenty-minute clip is larger). This is independent of how the server later
 // splits the reassembled clip into bounded transcription requests - it only bounds the upload hop.
-const MAX_UPLOAD_CHUNK_BYTES = 5_000_000;
+export const MAX_UPLOAD_CHUNK_BYTES = 5_000_000;
 
 // What a finished transcription hands back: the words, and the id of the utterance they came from.
 //
@@ -2549,7 +2549,7 @@ export async function transcribeUtterance(
 
 // Hex SHA256 of the upload bytes via the Web Crypto API (available in any secure context, which a
 // microphone-capable page already is).
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -3237,7 +3237,7 @@ export function transcriptionFailureMessage(serverError: string | undefined, sta
     : "The transcription service had a problem and couldn't process your recording. Dictation was not transcribed.";
 }
 
-function extForMime(mime: string | undefined): string {
+export function extForMime(mime: string | undefined): string {
   const m = (mime ?? "").toLowerCase();
   if (m.includes("webm")) return "webm";
   if (m.includes("ogg")) return "ogg";

@@ -5162,3 +5162,24 @@ a.banner-btn {
   margin-top: 18px;
   margin-bottom: 0;
 }
+
+/* ---- The Inbox (Factory Inbox mission, phase 4): the shared factory inbox screens (client-core factoryInbox.css),
+   re-tuned for touch. Layout only; every word and tone is the Gateway's. ---- */
+.screen .fi-phone-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.screen .fi-row {
+  padding: 12px;
+}
+.screen .fi-composer-buttons button {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+.screen .fi-bubble,
+.screen .fi-meta,
+.screen .fi-trail {
+  max-width: 92%;
+}

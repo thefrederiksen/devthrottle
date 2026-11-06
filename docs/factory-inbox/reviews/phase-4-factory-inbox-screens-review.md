@@ -302,3 +302,138 @@ switch on. Deferring it to its own pull request before phase 6 is safe.
 switch. Merge: not yet.** Rebase onto origin/main (two small conflicts, the test fixture's `Parts`), add the wake call
 after `SendAsync` with its test, and pass the waiting label on the voice route's 201. That one commit then needs only a
 narrow look at itself; nothing else in this pull request needs re-reading.
+
+## Author's answers to the re-review (6 November 2026)
+
+By the finishing run's Developer on devlinux (fleet session 7b3ef84e, "Factory Inbox - Developer - phase 4 screens
+rebase and spoken wake (4603)"), in the worktree `devthrottle-fi-p4a`.
+
+**Rebase - done.** The branch is rebased onto origin/main `18819d624`. The two conflicts were adjacent additions and
+both sides are kept: in `FactoryInboxWords.cs` main's `Waiting` reasons and `WaitingLabel` sit beside this branch's
+`Tones`, `Tone`, `NoMessagesLine`, `NoMessagesBadge` and `WaitingLine`; in `GatewayHost.cs` the typed route keeps main's
+`Wakes`, `MessageSent` and `BundleHanded`, and the voice mapping follows it. The voice test fixture's typed-route
+`Parts` now takes main's ten arguments.
+
+**New 1, the wake call - accepted, done.** The voice `Parts` gains `Wakes` and `MessageSent`, wired in `GatewayHost.cs`
+exactly as the typed route's (`_ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc)`, never awaited).
+`CompleteAsync` calls `parts.MessageSent(tenant, message.Factory, message.SentAtUtc)` right after the message is stored
+and its tombstone written; since finding 3, `SentAtUtc` is the Send press, so the gather window is measured from the
+press. A repeated complete answers from the tombstone and never reaches the call, so it does not wake twice. Tests:
+`Complete_SpokenMessage_OpensTheGatherWindowFromTheSendPress` (press an hour before the complete; the wake is told the
+account, the factory and the press time), `Complete_Repeated_TellsTheWakeOnce`, and
+`Complete_FailedTranscription_TellsTheWakeNothing`. Red proof: with only the call removed, the first two fail.
+
+**New 2, the trial-merge conflicts - done** (see Rebase).
+
+**New 3, the waiting label on the voice 201 - accepted, done.** The 201 passes
+`FactoryInboxFold.WaitingOf(parts.Wakes.Find(tenant, message.Factory))`, the same label the typed route passes. Test:
+`Complete_FactoryWaiting_AnswersWithTheSameWaitingLabelAsATypedMessage`. Red proof: with the old two-argument call it
+fails, and only it.
+
+**Finding 2 - stays deferred** to its own pull request (step B of `MISSION-FINISH.md`), as the re-review found safe.
+Nothing for it is built here.
+
+**Observations outside this change - not taken here.** The `stream.test.ts` leak and the `DevReportViews` timeout are
+not this branch's; neither showed in this run.
+
+Runs on devlinux after the rebase and the fix (.NET 10.0.403 at `~/.dotnet`, `DOTNET_USE_POLLING_FILE_WATCHER=1`):
+
+| Run | Result |
+| --- | --- |
+| Gateway.UnitTests, every test under `CcDirector.Gateway.Tests.Factory` | 3114 of 3114 passed |
+| Gateway.UnitTests, `FactoryInboxVoiceEndpointTests` + `FactoryInboxEndpointTests` after the red proofs were undone | 54 of 54 passed |
+| client-core `vitest run --minWorkers=1 --maxWorkers=2` | 2439 of 2439 passed, 190 files, no unhandled errors |
+| Cockpit `apps/cockpit` | 1456 of 1456 passed, 134 files |
+| phone `apps/mobile` | 204 of 204 passed, 40 files |
+
+## Final re-review after the rebase (6 November 2026)
+
+By a separate review session on devlinux (fleet session af46bf1a, "Factory Inbox - Reviewer - phase 4 screens final
+re-review (4603)"), in the worktree `devthrottle-fi-review-4603`, detached at `76beed1c1`, which is the head of pull
+request 4603. The branch sits on origin/main `18819d624`; origin/main has since gained two commits, both under
+`missions/resource-monitor`, which touch nothing this change touches. The worktree was not edited except for one red
+proof, described below, which was undone with `git checkout` and checked clean before this section was written.
+
+### Scope
+
+The re-review asked for a narrow look at the one commit that answered it; this section looks at the three things it
+named and nothing else. Finding 2 of the first review is deferred to its own pull request by agreement and is not
+raised again here.
+
+**1. The rebase.** The pre-rebase branch (`9a5345b3b..3d6d381fe`, the two commits the re-review read) was compared with
+the rebased branch (`18819d624..69a81449b`, the first two commits here) as whole patches, with the index lines and the
+hunk headers stripped. The two commits `12e385d69` and `69a81449b` are the first review's state and the finding 1 and 3
+fixes respectively, carried over one for one. The file set is identical. The patches differ in exactly four places, each a
+context line, not a changed line: in `FactoryInboxEndpoints.cs` the list route's row now also passes `WaitingOf(parts,
+tenant, f.Factory)` (main's phase 2 line); in `FactoryInboxFold.cs` the hunk now sits after main's
+`FactoryInboxWaitingLabels` record; in `FactoryInboxWords.cs` the hunk now follows main's `Waiting` reasons; and in
+`GatewayHost.cs` the voice mapping now follows main's `MessageSent` and `BundleHanded` lines in the typed route's `Parts`.
+Then, from the other side: every line the rebased branch removes from the four files main also changed
+(`FactoryInboxEndpoints.cs`, `FactoryInboxFold.cs`, `FactoryInboxWords.cs`, `GatewayHost.cs`) is the same set of lines the
+pre-rebase branch removed from its own base - the typed route's refusal checks moved into the shared `RefuseOwnerSend`
+and the fold's trail signature - and in `FactoryInboxWords.cs` and `GatewayHost.cs` the branch removes nothing at all.
+Every member named on main's `FactoryInboxWords.cs` is on the rebased file, and so is every member the pre-rebase branch
+added. The ten lines of the pre-rebase `GatewayHost.cs` that are not on the rebased file are all lines of the old base
+that main itself rewrote before `18819d624`, none of them the branch's. The voice test fixture's typed-route `Parts` takes
+main's ten arguments (`_wakes`, a recording delegate for `MessageSent`, an empty one for `BundleHanded`). Nothing of
+main's and nothing of the branch's was lost.
+
+**2. The wake call.** `FactoryInboxVoiceEndpoints.CompleteAsync` lines 240 to 245: the message is stored by
+`SendAsync` with `NowUtc: sentAtUtc`, the Send press that finding 3 made required (line 133, refused before anything is
+transcribed); the tombstone is written; then `parts.MessageSent(tenant, message.Factory, message.SentAtUtc)`. The store
+sets `SentAtUtc = input.NowUtc` (`FactoryInboxStore.cs` line 132), so the wake is told the press. The typed route's call
+is the same three arguments in the same place (`FactoryInboxEndpoints.cs` line 115), and both are wired in
+`GatewayHost.cs` to the same `TheFactoryInboxWake().MessageSent`, never awaited (lines 5884 and 5902). The wake
+schedules its look at `sentAtUtc + Window` (`FactoryInboxWake.cs` line 177), and the look itself reads the window from
+the stored messages' `SentAtUtc` (`LookAsync`), so the stored time and the scheduled time agree. Not twice: a repeated
+complete is read from the tombstone at line 163 and answered by `Terminal()` before any transcription or store write, and
+two completes in flight at once for the same recording are serialised by the per-account, per-upload semaphore at line
+139, so only the first reaches line 245. Not on a failed transcription: the retryable (503), out of credits (402),
+permanent (422) and nothing-heard (422) answers all return before `SendAsync`, and so does a store refusal. The tests
+pin all three: `Complete_SpokenMessage_OpensTheGatherWindowFromTheSendPress` (press an hour before the complete; the
+delegate receives the account, "invoices" and the press), `Complete_Repeated_TellsTheWakeOnce`, and
+`Complete_FailedTranscription_TellsTheWakeNothing`.
+
+**3. The waiting label.** The voice 201 is `FactoryInboxFold.Message(message, null, null,
+FactoryInboxFold.WaitingOf(parts.Wakes.Find(tenant, message.Factory)))` (lines 246 to 247). The typed 201 is
+`FactoryInboxFold.Message(message, null, null, WaitingOf(parts, tenant, message.Factory))` (line 116), and that private
+helper is exactly `FactoryInboxFold.WaitingOf(parts.Wakes.Find(tenant, factory))` (line 462). Same fold, same row, same
+label. The test `Complete_FactoryWaiting_AnswersWithTheSameWaitingLabelAsATypedMessage` sets the Secretary waiting
+reason to no Director with the detail SOREN_NORTH and asserts the sentence that main's own
+`TheThread_ShowsWhyAMessageWaits_InTheWordsTheGatewayDecided` asserts for a typed message. The composer itself does not
+print the 201's label; after either kind of send it has the caller read the list or thread again
+(`FactoryComposer.tsx` line 47), so on the screen the label arrives by the same list route for both. The 201 parity
+is the contract between the two routes, and it holds.
+
+### Runs
+
+All in the foreground in this worktree, with .NET 10.0.403 at `~/.dotnet`, `DOTNET_USE_POLLING_FILE_WATCHER=1` and
+`-p:EnableWindowsTargeting=true`.
+
+| Run | Result |
+| --- | --- |
+| Gateway.UnitTests, `FullyQualifiedName~FactoryInbox` (eleven classes, among them `FactoryInboxVoiceEndpointTests` 19, `FactoryInboxEndpointTests` 35, `FactoryInboxWakeTests` 28) | 195 of 195 passed, 36 seconds |
+| RED PROOF: `FactoryInboxVoiceEndpointTests` with line 245 removed and the 201 put back to the two-argument `Message(message, null)` | 3 failed of 19, exactly `Complete_SpokenMessage_OpensTheGatherWindowFromTheSendPress`, `Complete_Repeated_TellsTheWakeOnce` and `Complete_FactoryWaiting_AnswersWithTheSameWaitingLabelAsATypedMessage`; the other sixteen passed. The file was restored and `git status` was clean afterwards. |
+
+Not run here: the three web suites. The commit under review (`76beed1c1`) changes no file under `apps/` or `packages/`,
+and the re-review and the author both ran them green on the code that `12e385d69` and `69a81449b` carry unchanged.
+Not re-read: anything outside the three points above, as the re-review asked.
+
+### Observations, no harm proven
+
+- **A spoken message's clock is the device's; a typed message's is the Gateway's.** The typed route dates a message
+  with `parts.NowUtc()`; the spoken route, by finding 3, with the `sentAtUtc` the phone or Cockpit sends. The gather
+  window and the thread's time therefore follow the device clock for a spoken message. A device clock ahead of the
+  Gateway delays the Secretary's look by the skew; one behind closes the window early. The session dictation route has
+  the same property, the first review asked for exactly this, and a device clock is normally kept by the network, so
+  nothing is proven wrong. Worth knowing when a spoken message's trail time looks odd.
+- **A Gateway that stops between the tombstone and the wake call** (lines 241 to 245) has stored the message and told the
+  wake nothing. The heartbeat sweep looks at every factory with work every fifteen seconds (`FactoriesWithWork`), so the
+  message is found on the next pass. The typed route has the same two-step shape. Not a defect.
+
+### Verdict
+
+**APPROVE.** The rebase kept both sides whole; the spoken complete tells the wake the Send press exactly once, from the
+same place and with the same arguments as the typed route, and nothing on a failed transcription; the 201 carries the
+same waiting label as a typed message's. Each is pinned by a test that is red without the change. Nothing in scope needs
+another look before merge.

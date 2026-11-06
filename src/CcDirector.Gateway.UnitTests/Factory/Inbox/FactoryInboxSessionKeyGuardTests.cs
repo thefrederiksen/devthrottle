@@ -38,6 +38,9 @@ public sealed class FactoryInboxSessionKeyGuardTests
     [InlineData("POST", "/gateway/factory/invoices/todo")]
     [InlineData("DELETE", "/gateway/factory/invoices/todo")]
     [InlineData("POST", "/gateway/factory/invoices/inbox/summary")]
+    // THE OWNER'S SPOKEN SEND (phase 4): refused exactly as the typed one is.
+    [InlineData("POST", "/gateway/factory/invoices/inbox/voice")]
+    [InlineData("POST", "/gateway/factory/invoices/inbox/voice/" + Mid + "/complete")]
     // Shapes nobody added.
     [InlineData("GET", "/gateway/factory/invoices/outbox")]
     [InlineData("GET", "/gateway/factory/invoices/inbox/everything")]

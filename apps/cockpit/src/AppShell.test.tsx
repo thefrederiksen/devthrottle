@@ -161,9 +161,9 @@ import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
 import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
-import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
+import { resetFactoryInboxOfferCache } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
 import { getMailDeskChannels } from "@devthrottle/client-core/maildesk/mailDeskClient";
 import { resetBoxesSwitchCache } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 
@@ -186,6 +186,7 @@ describe("Cockpit left rail", () => {
     cleanup();
     factory.enabled = false;
     resetFactorySwitchCache();
+    resetFactoryInboxOfferCache();
     myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     myTeams.held = null;
     vi.clearAllMocks();
@@ -293,8 +294,10 @@ describe("Cockpit left rail", () => {
   });
 
   // FACTORIES IS ALWAYS SHOWN (owner, 8 Oct 2026): fourth in Work, promoted with the Fleet Manager, whatever the
-  // Gateway's factory switch says - the rail no longer asks it. Off, the Factories page says how to start.
-  it("always shows Factories, fourth in Work and promoted, without asking the Gateway's factory switch", async () => {
+  // Gateway's factory switch says. Off, the Factories page says how to start. The rail does read the switch again since
+  // the Factory Inbox mission (phase 4) - for the Inbox entry alone, which the mission keeps behind it - so this proves
+  // the Factories row is drawn with the switch OFF, not that the switch is never read.
+  it("always shows Factories, fourth in Work and promoted, with the Gateway's factory switch off", async () => {
     factory.enabled = false;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -307,7 +310,8 @@ describe("Cockpit left rail", () => {
     const promoted = Array.from(document.querySelectorAll(".nav-link-promoted .nav-link-label")).map((el) => el.textContent);
     expect(promoted).toEqual(["Fleet Manager", "Factories"]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(getFactoryAgentsSwitch).not.toHaveBeenCalled();
+    expect(railLabels()[3]).toBe("Factories");
+    expect(railLabels()).not.toContain("Inbox");
   });
 
   // A person with no team on a Gateway with Teams on: the rail has no team block, and the menu behind their name offers
@@ -426,6 +430,37 @@ describe("Cockpit left rail", () => {
     const block = screen.getByTestId("nav-team");
     expect(block.textContent).toContain("DevThrottle");
     expect(within(block).getByRole("link", { name: /Team/ }).getAttribute("href")).toBe("/settings?tab=members");
+  });
+
+  // The Inbox (Factory Inbox mission, phase 4): behind the factory area switch until the mission's screens are whole.
+  describe("the Inbox entry", () => {
+    function renderShell() {
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+    }
+
+    it("is offered in Work directly after Factories when the Gateway says factories are on", async () => {
+      factory.enabled = true;
+      renderShell();
+
+      await waitFor(() => expect(railLabels()).toContain("Inbox"));
+      const work = Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+      expect(work.indexOf("Inbox")).toBe(work.indexOf("Factories") + 1);
+      expect(screen.getByRole("link", { name: /Inbox/ }).getAttribute("href")).toBe("/inbox");
+    });
+
+    it("is not drawn when the Gateway says factories are off", async () => {
+      factory.enabled = false;
+      renderShell();
+
+      await waitFor(() => expect(railLabels()).toContain("Factories"));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(railLabels()).not.toContain("Inbox");
+      expect(document.querySelector("a[href='/inbox']")).toBeNull();
+    });
   });
 
   describe("the Mail Desk entry", () => {

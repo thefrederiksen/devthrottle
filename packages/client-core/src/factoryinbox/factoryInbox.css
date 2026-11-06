@@ -1,0 +1,334 @@
+/* The factory inbox screens, shared by the Cockpit and the mobile app (Factory Inbox mission, phase 4).
+ *
+ * Every colour is a theme token both shells define in their own :root; this file names no colour of its own. A tone is
+ * the Gateway's word (data-tone) and maps to one token: ok to --ok, amber to --warn, red to --attention, grey to
+ * --text-dim. The tone never rests on colour alone: the badge and the state carry the Gateway's words beside it.
+ *
+ * Sizing here is the DESKTOP baseline. The phone re-tunes it under a `.screen` ancestor in its own stylesheet. */
+
+.fi-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.fi-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.fi-tab[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- the list (mockup A) ---- */
+.fi-list,
+.fi-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.fi-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fi-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.fi-row:hover {
+  border-color: var(--accent);
+}
+.fi-row[aria-current="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.fi-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fi-row-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.fi-row-line {
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fi-row-waiting {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* A badge and a state: the Gateway's word, in its tone. */
+.fi-badge,
+.fi-state {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  border: 1px solid currentColor;
+  color: var(--text-dim);
+}
+.fi-state {
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+[data-tone="ok"].fi-badge,
+[data-tone="ok"].fi-state {
+  color: var(--ok);
+}
+[data-tone="amber"].fi-badge,
+[data-tone="amber"].fi-state {
+  color: var(--warn);
+}
+[data-tone="red"].fi-badge,
+[data-tone="red"].fi-state {
+  color: var(--attention);
+}
+[data-tone="grey"].fi-badge {
+  color: var(--text-dim);
+}
+
+.fi-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+/* ---- the thread (mockup B) ---- */
+.fi-thread-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fi-thread-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+}
+.fi-thread-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.fi-summary-button {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.fi-summary-button[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+.fi-summary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.fi-summary-line {
+  margin: 0;
+  font-size: 14px;
+}
+.fi-summary-window {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.fi-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.fi-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.fi-bubble {
+  max-width: 85%;
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.fi-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  max-width: 85%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.fi-note-label[data-note="good"] {
+  color: var(--ok);
+}
+.fi-note-label[data-note="bad"] {
+  color: var(--attention);
+}
+.fi-trail {
+  margin: 0;
+  max-width: 85%;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+/* ---- the composer ---- */
+.fi-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.fi-composer-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.fi-composer-pick select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+}
+.fi-composer-text {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.fi-composer-text:focus,
+.fi-composer-pick select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.fi-composer-buttons {
+  display: flex;
+  gap: 8px;
+}
+.fi-composer-buttons button,
+.fi-composer-refused button {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.fi-composer-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.fi-note[data-note="good"][aria-pressed="true"] {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.fi-note[data-note="bad"][aria-pressed="true"] {
+  border-color: var(--attention);
+  color: var(--attention);
+}
+.fi-composer-buttons .fi-send {
+  margin-left: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.fi-composer-status {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.fi-composer-error {
+  color: var(--attention);
+  font-size: 13px;
+  border: 1px solid var(--attention);
+  border-radius: 6px;
+  padding: 6px 10px;
+  overflow-wrap: anywhere;
+}
+.fi-composer-refused {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ---- the Cockpit's two columns (mockup D) ---- */
+.fi-split {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.fi-reading {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.fi-reading-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+}
