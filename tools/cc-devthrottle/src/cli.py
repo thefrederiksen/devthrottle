@@ -767,6 +767,20 @@ _ACTIONS = [
         "args": [{"name": "mission", "required": True}],
     },
     {
+        "id": "machine-diagnose",
+        "description": (
+            "Why is THIS machine slow, now or at a time that has passed: the Director's own verdict (processor, memory, "
+            "swap) and slowness diagnosis - cause, evidence, culprit process, session and disk, next step - plus the last "
+            "hour minute by minute, read from the Director's 24-hour local recording. Needs no Gateway. --at <HH:MM> "
+            "answers for a past moment. Read-only."
+        ),
+        "command": "cc-devthrottle machine diagnose [--minutes <n>] [--at <HH:MM|ISO time>] [--instance <name>] "
+                   "[--fields <names>] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "minutes", "required": False}, {"name": "at", "required": False},
+                 {"name": "instance", "required": False}, {"name": "fields", "required": False}],
+    },
+    {
         "id": "machine-list",
         "description": (
             "List the computers this account can search and start applications on. A computer appears "
@@ -3142,6 +3156,35 @@ def director_restart_history(
     from . import smart_restart_ops
 
     smart_restart_ops.restart_history(director, machine, count, json_output)
+
+
+@machine_app.command("diagnose")
+def machine_diagnose(
+    minutes: Optional[int] = typer.Option(
+        None, "--minutes", "-m",
+        help="How much history, 1 to 1440. Default 60, or 10 around --at. Applies to --json too."),
+    at: Optional[str] = typer.Option(
+        None, "--at",
+        help="A past moment: a clock time on this machine (08:26) or an ISO time (2026-11-06T08:26:00Z). Applies to --json too."),
+    instance: Optional[str] = typer.Option(
+        None, "--instance", help="Another Director on this machine, by its folder under instances. Default: this session's."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output JSON: every field, the window's samples verbatim. Filters still apply."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="History columns, comma separated. Default: minute, cpu-avg, cpu-peak, memory-available-min, worst, slow. "
+             "Valid: minute, samples, cpu-avg, cpu-peak, memory-available-min, swap-used-max, disk-stalled-peak, worst, "
+             "slow, unreadable."),
+) -> None:
+    """Why is this machine slow? Verdict, diagnosis and the last hour, from local disk.
+
+    Reads the Director's 24-hour recording of five-second samples on this machine's disk, so it needs no
+    Gateway and answers for a slowdown that has already passed. The verdict and the diagnosis are the
+    Director's own, printed as it recorded them; a figure that could not be read is a dash, never a zero.
+    """
+    from .resource_diagnose_ops import diagnose
+
+    diagnose(minutes, at, instance, json_output, fields)
 
 
 @machine_app.command("apps")

@@ -256,6 +256,15 @@ public static class CcStorage
     public static string Browsers() => Path.Combine(Base(), "browsers");
 
     /// <summary>
+    /// The Resource Monitor's 24-hour local recording: resource-recording/ (issue #2811). One per Director
+    /// instance, because each Director runs its own sampler and two writers on one set of files would
+    /// interleave their lines. <c>cc-devthrottle machine diagnose</c> reads it from the same place - the
+    /// folder a session receives as CC_DIRECTOR_ROOT - so the path is answered here and composed nowhere
+    /// else. See <see cref="Machine.ResourceRecorder"/>.
+    /// </summary>
+    public static string ResourceRecording() => Path.Combine(Base(), "resource-recording");
+
+    /// <summary>
     /// Director instance-discovery directory: config/director/instances/. Each running Director writes
     /// a <c>{directorId}.json</c> here and the Gateway watches it. Honors the
     /// <c>CC_DIRECTOR_INSTANCES_DIR</c> override (issue #322) so tests can pin JUST this directory to a
