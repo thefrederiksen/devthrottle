@@ -54,6 +54,13 @@ public sealed record GatewayHostOptions
     public Tenancy.PreLaunchGrace RemoteAccessGrace { get; init; } = Tenancy.PreLaunchGrace.NotSet;
 
     /// <summary>
+    /// The 7-day Pro trial at an account's first Director (Website Black mission). OFF BY DEFAULT. Production takes it
+    /// from <see cref="Tenancy.FirstDirectorTrial.EnvVar"/> on the hosted service; a test states it. Asked only on a
+    /// hosted Gateway, and only by the Director door of hosted enrolment.
+    /// </summary>
+    public Tenancy.FirstDirectorTrial FirstDirectorTrial { get; init; } = Tenancy.FirstDirectorTrial.Off;
+
+    /// <summary>
     /// The clock the statistics store waits on: its startup deadline and its reopen backoff. Production uses the
     /// system clock, and that is the default. A test whose subject is not those waits passes a clock that stands
     /// still, so an open that is merely slow on a loaded machine is waited for, no retry fires during the test,
@@ -76,6 +83,7 @@ public sealed record GatewayHostOptions
             // Read only where it is asked. A self-hosted Gateway has no plans and is not gated (decision D5), so it
             // never reads these settings and cannot be stopped by one.
             RemoteAccessGrace = hosted ? Tenancy.PreLaunchGrace.FromEnvironment() : Tenancy.PreLaunchGrace.NotSet,
+            FirstDirectorTrial = hosted ? Tenancy.FirstDirectorTrial.FromEnvironment() : Tenancy.FirstDirectorTrial.Off,
         };
     }
 }
