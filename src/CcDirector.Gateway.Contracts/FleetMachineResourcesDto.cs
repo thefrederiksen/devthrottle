@@ -44,7 +44,9 @@ public sealed class FleetMachineCapacityDto
     public long? SpareBytes { get; set; }
 
     /// <summary>A short state for the Status column when the machine is over a limit now, for example "CPU hot" or
-    /// "Memory tight". Null when it is not.</summary>
+    /// "Memory tight". Null when it is not - and ALWAYS null when the machine is not reporting: whether the machine can be
+    /// reached is the reach line's verdict, so the capacity fold does not stack a second status on it. <see cref="Why"/>
+    /// still carries the capacity detail.</summary>
     public string? StatusLabel { get; set; }
 
     public string StatusTone { get; set; } = FleetTone.Idle;
@@ -67,6 +69,23 @@ public sealed class MachineResourceHistoryDto
 
     /// <summary>The span the rows cover, in hours.</summary>
     public int Hours { get; set; }
+
+    /// <summary>The start of the span the Gateway read, by the Gateway's clock. The chart's left edge.</summary>
+    public DateTime FromUtc { get; set; }
+
+    /// <summary>The end of the span the Gateway read: the Gateway's NOW. The chart's right edge, so a machine that has gone
+    /// silent shows the silence instead of a chart that looks current.</summary>
+    public DateTime ToUtc { get; set; }
+
+    /// <summary>Each stretch of the span in which no five-minute summary arrived from the machine, oldest first, with the
+    /// Gateway's words. A gap is not an idle machine: nothing was measured there.</summary>
+    public List<ResourceGapDto> Gaps { get; set; } = new();
+
+    /// <summary>The crossings, the refused windows and the gaps as one list, oldest first, in the Gateway's words and tones.</summary>
+    public List<ResourceEventDto> Events { get; set; } = new();
+
+    /// <summary>What to show instead of the factory table when there are rows but no session was recorded. Null otherwise.</summary>
+    public string? NoFactoriesMessage { get; set; }
 
     /// <summary>What to show instead of the chart and the table when there are no rows. Null when there are rows.</summary>
     public string? EmptyMessage { get; set; }
@@ -98,6 +117,44 @@ public sealed class MachineResourceWindowDto
     /// <summary>Why the Gateway refused this window's figures, or null when it took them. A refused window has no
     /// figures but is NOT a gap: the machine sent something impossible, which is a fault to show, not an idle stretch.</summary>
     public string? RefusedReason { get; set; }
+
+    /// <summary>Why this window has no processor figure - refused, or not read and why - or null when it has one.</summary>
+    public ResourceWindowNoteDto? ProcessorNote { get; set; }
+
+    /// <summary>Why this window has no memory figure, or null when it has one.</summary>
+    public ResourceWindowNoteDto? MemoryNote { get; set; }
+}
+
+/// <summary>Why one window has no figure for one resource, as the chart draws it in place of the figure.</summary>
+public sealed class ResourceWindowNoteDto
+{
+    /// <summary>For example "Processor not read: the processor counters did not answer".</summary>
+    public string Label { get; set; } = "";
+
+    public string Tone { get; set; } = FleetTone.Idle;
+}
+
+/// <summary>A stretch of the span with no five-minute summary from the machine.</summary>
+public sealed class ResourceGapDto
+{
+    public DateTime StartUtc { get; set; }
+
+    public DateTime EndUtc { get; set; }
+
+    /// <summary>For example "No resource summary arrived for 2 hours 10 minutes".</summary>
+    public string Label { get; set; } = "";
+
+    public string Tone { get; set; } = FleetTone.Idle;
+}
+
+/// <summary>One line of the expanded machine's event list.</summary>
+public sealed class ResourceEventDto
+{
+    public DateTime AtUtc { get; set; }
+
+    public string Label { get; set; } = "";
+
+    public string Tone { get; set; } = FleetTone.Idle;
 }
 
 /// <summary>One crossing as the chart marks it.</summary>

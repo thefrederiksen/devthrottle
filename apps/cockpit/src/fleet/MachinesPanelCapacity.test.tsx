@@ -50,10 +50,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function draw() {
-  render(
+function draw(shown: FleetMachines = view) {
+  return render(
     <MemoryRouter>
-      <MachinesPanel view={view} error={null} onChanged={() => undefined} />
+      <MachinesPanel view={shown} error={null} onChanged={() => undefined} />
     </MemoryRouter>,
   );
 }
@@ -93,7 +93,8 @@ describe("MachinesPanel: capacity columns", () => {
     expect(cells.getByTestId("fm-cpu").textContent).toBe(CAPACITY_DASH);
     expect(cells.getByTestId("fm-memory").textContent).toBe(CAPACITY_DASH);
     expect(cells.getByTestId("fm-spare").textContent).toBe(CAPACITY_DASH);
-    expect(cells.getByTestId("fm-capacity-status").textContent).toBe("Offline");
+    // One status per machine: the reach line owns reachability, so the capacity fold sends no second pill.
+    expect(cells.queryByTestId("fm-capacity-status")).toBeNull();
     expect(cells.getByTestId("fm-capacity-why").textContent).toBe(OFFLINE_WHY);
     // No zero, no percent and no gigabyte figure anywhere in the offline row: offline is not idle.
     expect(offline.textContent).not.toMatch(/\b0(\.0)?\s*(%|GB)/);
@@ -123,12 +124,12 @@ describe("MachinesPanel: one machine expanded", () => {
   ];
 
   it("reads the machine's history only when expanded, and draws the factories' labels verbatim", async () => {
-    const hot = {
-      ...window("2026-11-06T11:50:00Z", [88, 99], [34, 36]),
-      crossings: [{ startedUtc: "2026-11-06T11:51:00Z", resource: "CPU", label: "CPU red for 90 seconds, peak 99%", tone: "bad" as const }],
-    };
+    const crossing = { startedUtc: "2026-11-06T11:51:00Z", resource: "CPU", label: "CPU red for 90 seconds, peak 99%", tone: "bad" as const };
+    const hot = { ...window("2026-11-06T11:50:00Z", [88, 99], [34, 36]), crossings: [crossing] };
     answers["GET /machines/devlinux/resources"] = () =>
-      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), hot], factories));
+      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), hot], factories, {
+        events: [{ atUtc: crossing.startedUtc, label: crossing.label, tone: crossing.tone }],
+      }));
     draw();
     expect(calls.filter((c) => c.includes("/resources"))).toEqual([]);
 
@@ -150,26 +151,92 @@ describe("MachinesPanel: one machine expanded", () => {
 
   // Review of pull request 4646: a refused window was covered only by the geometry test. On screen it must be a stripe
   // carrying the Gateway's reason, and the reason must appear in the events list - never a zero on the line.
-  it("draws a refused window as a stripe with the Gateway's reason, and lists the reason", async () => {
-    const reason = "its processor peak was 412%, above the 100% a whole machine can reach";
-    const refused = { ...window("2026-11-06T11:50:00Z", null, null), refusedReason: reason };
+  // Review finding 3: the stripe and the event list carry the Gateway's words and tone, not ones the client wrote.
+  it("draws a refused window with the Gateway's note and tone, and lists the Gateway's event", async () => {
+    const note = { label: "Figures refused: its processor peak was 412%, above the 100% a whole machine can reach", tone: "bad" as const };
+    const refused = { ...window("2026-11-06T11:50:00Z", null, null), refusedReason: "its processor peak was 412%", processorNote: note, memoryNote: note };
     answers["GET /machines/devlinux/resources"] = () =>
-      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), refused, window("2026-11-06T11:55:00Z", [41, 72], [33, 35])], factories));
+      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), refused, window("2026-11-06T11:55:00Z", [41, 72], [33, 35])], factories, {
+        events: [{ atUtc: refused.windowStartUtc, label: note.label, tone: "bad" }],
+      }));
     draw();
 
     fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
 
     await screen.findByTestId("fmr-factories");
     const cpu = within(screen.getByTestId("fmr-chart-CPU"));
-    expect(cpu.getAllByTestId("fmr-stripe-refused")).toHaveLength(1);
-    expect(cpu.getByTestId("fmr-stripe-refused").textContent).toContain(reason);
+    const stripe = cpu.getByTestId("fmr-stripe-note");
+    expect(stripe.textContent).toContain(note.label);
+    expect(stripe.getAttribute("class")).toContain("dstat-err");
     expect(cpu.getAllByTestId("fmr-run")).toHaveLength(2);
-    expect(screen.getByTestId("fmr-events").textContent).toContain(reason);
+    const listed = within(screen.getByTestId("fmr-events")).getByText(note.label);
+    expect(listed.closest("li")!.className).toContain("dstat-err");
+  });
+
+  // Review findings 1 and 2: a machine silent since 02:00 shows that silence as the Gateway's gap, up to its now.
+  it("draws the Gateway's gap up to the right edge for a machine that went silent", async () => {
+    const gap = { startUtc: "2026-11-06T02:05:00Z", endUtc: "2026-11-06T12:00:00Z", label: "No resource summary has arrived for 9 hours 55 minutes", tone: "idle" as const };
+    answers["GET /machines/devlinux/resources"] = () =>
+      json(200, history([window("2026-11-06T02:00:00Z", [40, 70], [33, 35])], factories, {
+        gaps: [gap],
+        events: [{ atUtc: gap.startUtc, label: gap.label, tone: gap.tone }],
+      }));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    await screen.findByTestId("fmr-factories");
+    for (const chart of ["fmr-chart-CPU", "fmr-chart-Memory"]) {
+      const stripe = within(screen.getByTestId(chart)).getByTestId("fmr-stripe-gap");
+      expect(stripe.textContent).toContain(gap.label);
+      expect(Number(stripe.getAttribute("x")) + Number(stripe.getAttribute("width"))).toBeCloseTo(712, 0);
+    }
+    expect(within(screen.getByTestId("fmr-events")).getByText(gap.label)).toBeTruthy();
+  });
+
+  it("shows the Gateway's sentence when no session was recorded", async () => {
+    answers["GET /machines/devlinux/resources"] = () =>
+      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], [], { noFactoriesMessage: "No sessions were recorded on this machine in this span." }));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    expect((await screen.findByTestId("fmr-no-factories")).textContent).toBe("No sessions were recorded on this machine in this span.");
+  });
+
+  // Review finding 7: the expanded history re-reads on the table's own refresh, so it never sits stale under a live row.
+  it("reads the expanded history again when the table refreshes", async () => {
+    answers["GET /machines/devlinux/resources"] = () => json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories));
+    const shown = draw();
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+    await screen.findByTestId("fmr-factories");
+    expect(calls.filter((c) => c.includes("/resources"))).toHaveLength(1);
+
+    shown.rerender(
+      <MemoryRouter>
+        <MachinesPanel view={{ ...view, machines: [...view.machines] }} error={null} onChanged={() => undefined} />
+      </MemoryRouter>,
+    );
+
+    await vi.waitFor(() => expect(calls.filter((c) => c.includes("/resources"))).toHaveLength(2));
+    // The chart already drawn stays up while the next read is in flight.
+    expect(screen.getByTestId("fmr-factories")).toBeTruthy();
+  });
+
+  it("refuses a history without the Gateway's span instead of drawing it against an invented clock", async () => {
+    answers["GET /machines/devlinux/resources"] = () =>
+      json(200, { ...history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories), fromUtc: undefined, toUtc: undefined });
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("could not read the machine's resource history");
+    expect(screen.queryByTestId("fmr-chart-CPU")).toBeNull();
   });
 
   it("shows the Gateway's empty message instead of an empty chart", async () => {
     answers["GET /machines/demo-win11/resources"] = () =>
-      json(200, { machine: "demo-win11", hours: 24, emptyMessage: "No resource summaries from demo-win11 in the last 24 hours.", windows: [], factories: [] });
+      json(200, history([], [], { machine: "demo-win11", emptyMessage: "No resource summaries from demo-win11 in the last 24 hours.", noFactoriesMessage: null }));
     draw();
 
     fireEvent.click(within(row("demo-win11")).getByRole("button", { name: "Show demo-win11's last 24 hours" }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CHART, WINDOW_MS, chartGeometry, chartSpan } from "./machineResourcesChart";
-import { history, window } from "./machineCapacityFixtures";
+import { CHART, NO_NOTE_LABEL, chartGeometry, chartSpan } from "./machineResourcesChart";
+import { SPAN_FROM, SPAN_TO, history, window } from "./machineCapacityFixtures";
 
 // The 24-hour chart's geometry (Mission: Resource Monitor, section 5k). What these pin is the defect class this
 // mission keeps producing: a PLAUSIBLE picture of a fault. An unread figure is never drawn as zero, an impossible figure
@@ -21,11 +21,25 @@ describe("chartGeometry", () => {
     expect(chartGeometry(history([]), "CPU")).toBeNull();
   });
 
-  it("ChartSpan_EndsWhereTheNewestWindowEnds_AndCoversTheGatewaysHours", () => {
+  // Review of pull request 4646, finding 1: the span was anchored to the newest window, so a machine silent for ten
+  // hours drew a chart that looked current. It is now exactly the span the Gateway read, ending at the Gateway's now.
+  it("ChartSpan_IsExactlyTheSpanTheGatewayRead_NotTheNewestWindow", () => {
     const span = chartSpan(history([window(T0, [1, 2], [1, 2]), window(T1, [1, 2], [1, 2])]))!;
 
-    expect(span.endMs).toBe(Date.parse(T1) + WINDOW_MS);
-    expect(span.endMs - span.startMs).toBe(24 * 3_600_000);
+    expect(span.startMs).toBe(Date.parse(SPAN_FROM));
+    expect(span.endMs).toBe(Date.parse(SPAN_TO));
+  });
+
+  it("ChartSpan_WithoutTheGatewaysSpan_IsNull_NeverAnInventedClock", () => {
+    expect(chartSpan(history([window(T0, [1, 2], [1, 2])], [], { fromUtc: "", toUtc: "" }))).toBeNull();
+  });
+
+  it("ChartGeometry_TheNewestWindowSitsWhereTimePutsIt_NotAtTheRightEdge", () => {
+    // T1 is two hours before the span's end: its window ends well short of the right edge.
+    const g = chartGeometry(history([window(T0, [10, 20], [10, 20]), window(T1, [10, 20], [10, 20])]), "CPU")!;
+
+    const xs = [...g.runs[0].averagePath.matchAll(/[ML](-?[\d.]+),/g)].map((m) => Number(m[1]));
+    expect(Math.max(...xs)).toBeLessThan(CHART.right - 50);
   });
 
   it("ChartGeometry_ConsecutiveWindows_DrawOneRunWithAverageAndPeak", () => {
@@ -45,7 +59,9 @@ describe("chartGeometry", () => {
   it("ChartGeometry_UnreadWindow_IsAStripe_NeverAZeroOnTheLine", () => {
     const g = chartGeometry(history([window(T0, [40, 50], [50, 55]), window(T1, null, [50, 55]), window(T2, [40, 50], [50, 55])]), "CPU")!;
 
-    expect(g.stripes).toEqual([expect.objectContaining({ kind: "unread", windowStartUtc: T1, reason: null })]);
+    expect(g.stripes).toEqual([
+      expect.objectContaining({ kind: "note", startUtc: T1, label: "Processor not read: the processor counters did not answer", tone: "idle" }),
+    ]);
     expect(g.runs).toHaveLength(2);
     // Nothing is drawn at 0%: the line never dips to the axis for the window that was not read.
     for (const run of g.runs) expect(Math.max(...ys(run.averagePath))).toBeLessThan(CHART.bottom - 1);
@@ -57,17 +73,19 @@ describe("chartGeometry", () => {
     const g = chartGeometry(history([halfRead]), "CPU")!;
 
     expect(g.runs).toEqual([]);
-    expect(g.stripes.map((s) => s.kind)).toEqual(["unread"]);
+    expect(g.stripes.map((s) => s.kind)).toEqual(["note"]);
+    // The Gateway sent no note for a figure it did not send: the stripe says the answer was broken, never a meaning.
+    expect(g.stripes[0].label).toBe(NO_NOTE_LABEL);
   });
 
-  it("ChartGeometry_RefusedWindow_IsAStripeCarryingTheGatewaysReason", () => {
-    const refused = { ...window(T1, null, null), refusedReason: "its processor peak was 400%, above 100" };
+  // Finding 3: the words and the tone of a refused window are the Gateway's note, drawn as sent.
+  it("ChartGeometry_RefusedWindow_IsAStripeWithTheGatewaysNoteAndTone", () => {
+    const note = { label: "Figures refused: its processor peak was 400%, above 100", tone: "bad" as const };
+    const refused = { ...window(T1, null, null), refusedReason: "its processor peak was 400%, above 100", processorNote: note, memoryNote: note };
 
     const g = chartGeometry(history([window(T0, [10, 20], [30, 40]), refused]), "Memory")!;
 
-    expect(g.stripes).toEqual([
-      expect.objectContaining({ kind: "refused", windowStartUtc: T1, reason: "its processor peak was 400%, above 100" }),
-    ]);
+    expect(g.stripes).toEqual([expect.objectContaining({ kind: "note", startUtc: T1, label: note.label, tone: "bad" })]);
   });
 
   it("ChartGeometry_FigureAbove100_GrowsTheAxis_NeverClampsTheFigure", () => {
@@ -86,11 +104,27 @@ describe("chartGeometry", () => {
     expect(g.yMax).toBe(100);
   });
 
-  it("ChartGeometry_StretchWithNoWindow_BreaksTheLine", () => {
-    const g = chartGeometry(history([window(T0, [10, 20], [10, 20]), window(T3, [10, 20], [10, 20])]), "CPU")!;
+  // Finding 2: a stretch with no window was blank chart. It is now the Gateway's gap, drawn as a stripe on both charts.
+  it("ChartGeometry_StretchWithNoWindow_BreaksTheLine_AndDrawsTheGatewaysGap", () => {
+    const gap = { startUtc: T1, endUtc: T3, label: "No resource summary arrived for 10 minutes", tone: "idle" as const };
+    const h = history([window(T0, [10, 20], [10, 20]), window(T3, [10, 20], [10, 20])], [], { gaps: [gap] });
 
-    expect(g.runs).toHaveLength(2);
-    expect(g.stripes).toEqual([]);
+    for (const resource of ["CPU", "Memory"] as const) {
+      const g = chartGeometry(h, resource)!;
+      expect(g.runs).toHaveLength(2);
+      expect(g.stripes).toEqual([expect.objectContaining({ kind: "gap", startUtc: T1, endUtc: T3, label: gap.label, tone: "idle" })]);
+    }
+  });
+
+  it("ChartGeometry_AGapRunningPastTheSpan_IsClippedToIt", () => {
+    const gap = { startUtc: "2026-11-06T11:00:00Z", endUtc: "2026-11-06T13:00:00Z", label: "No resource summary has arrived for 1 hour", tone: "idle" as const };
+
+    const g = chartGeometry(history([window(T0, [10, 20], [10, 20])], [], { gaps: [gap] }), "CPU")!;
+
+    const stripe = g.stripes[0];
+    expect(stripe.x + stripe.width).toBeCloseTo(CHART.right, 0);
+    // The hover still reports the gap's own span.
+    expect(stripe.endUtc).toBe(gap.endUtc);
   });
 
   it("ChartGeometry_Crossings_AreMarkedOnTheirOwnResourceOnly_WithTheGatewaysWords", () => {

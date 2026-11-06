@@ -75,7 +75,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     }
 
     [Fact]
-    public void Fold_NoRunningDirector_ShowsDashesNeverZeros()
+    public void Fold_NoRunningDirector_ShowsDashesNeverZeros_AndNoStatusOfItsOwn()
     {
         var windows = Stored(Steady(W0.AddMinutes(25), 0, 0));
 
@@ -86,7 +86,8 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Equal(FleetMachineCapacityDto.Dash, capacity.MemoryLabel);
         Assert.Equal(FleetMachineCapacityDto.Dash, capacity.SpareLabel);
         Assert.Null(capacity.SpareBytes);
-        Assert.Equal("Offline", capacity.StatusLabel);
+        // No second status: whether the machine can be reached is the reach line's verdict; the capacity detail is in Why.
+        Assert.Null(capacity.StatusLabel);
         Assert.Contains("Offline is not idle", capacity.Why);
     }
 
@@ -103,6 +104,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.False(capacity.Reporting);
         Assert.Equal(FleetMachineCapacityDto.Dash, capacity.ProcessorLabel);
         Assert.Contains("no resource summary in the last 15 minutes", capacity.Why);
+        Assert.Null(capacity.StatusLabel);
     }
 
     [Fact]
@@ -249,7 +251,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         _store.Store(Tenant, "director-1", Batch(Steady(W0, 30, 8 * Gb, "devlinux", share), refused));
         var from = Now.AddHours(-24);
 
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now,
             _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
 
         Assert.Equal("at least 31% / 31%", Assert.Single(view.Factories).ProcessorLabel);
@@ -263,7 +265,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         _store.Store(Tenant, "director-1", Batch(Steady(W0, 30, 8 * Gb), refused));
         var from = Now.AddHours(-24);
 
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now,
             _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
 
         Assert.Equal(2, view.Windows.Count);
@@ -339,7 +341,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
             WithRedSpike(W0.AddMinutes(5))));
         var from = Now.AddHours(-24);
 
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now,
             _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
 
         Assert.Null(view.EmptyMessage);
@@ -386,7 +388,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         _store.Store(Tenant, "director-1", Batch(Steady(W0, 60, 8 * Gb, "devlinux", known, unknown)));
         var from = Now.AddHours(-24);
 
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now,
             _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
 
         var marketing = Assert.Single(view.Factories);
@@ -401,7 +403,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         _store.Store(Tenant, "director-1", Batch(Steady(W0, 60, 8 * Gb, "devlinux", partial)));
         var from = Now.AddHours(-24);
 
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now,
             _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
 
         var row = Assert.Single(_store.SessionWindows(Tenant, "devlinux", from, Now)!);
@@ -412,7 +414,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     [Fact]
     public void History_NoRows_SaysSo()
     {
-        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Array.Empty<ResourceWindowEntity>(), Array.Empty<ResourceSessionWindowEntity>());
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24, Now.AddHours(-24), Now, Array.Empty<ResourceWindowEntity>(), Array.Empty<ResourceSessionWindowEntity>());
 
         Assert.Empty(view.Windows);
         Assert.Equal("No resource summaries from devlinux in the last 24 hours.", view.EmptyMessage);

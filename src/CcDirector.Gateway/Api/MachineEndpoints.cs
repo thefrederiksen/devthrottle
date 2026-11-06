@@ -365,7 +365,7 @@ internal static class MachineEndpoints
             const int hours = 24;
             var now = launchers.UtcNow;
             var from = now.AddHours(-hours);
-            var view = MachineResourceHistoryFold.Fold(machine, hours,
+            var view = MachineResourceHistoryFold.Fold(machine, hours, from, now,
                 resourceSummaries?.MachineWindows(tenant, from, now.AddMinutes(1)),
                 resourceSummaries?.SessionWindows(tenant, machine, from, now.AddMinutes(1)));
             FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/resources tenant={tenant.Value}: windows={view.Windows.Count}, "

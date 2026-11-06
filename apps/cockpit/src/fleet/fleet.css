@@ -1131,16 +1131,19 @@
   fill: currentColor;
 }
 
-/* A refused window is a fault, drawn in the danger colour; a window whose figure was not read is drawn dim. Neither is
-   ever drawn as an empty stretch of chart, which would read as an idle machine. */
-.fmr-stripe-refused {
-  fill: var(--attention);
-  opacity: 0.6;
+/* A stripe stands in for a figure that is not there. Its colour is the Gateway's tone (the dstat-* class sets
+   currentColor); its kind only sets how strongly it is drawn. A gap - no summary at all - is fainter and outlined, so
+   it never reads as either a reading or a quiet machine. */
+.fmr-stripe {
+  fill: currentColor;
+  opacity: 0.55;
 }
 
-.fmr-stripe-unread {
-  fill: var(--dot-idle);
-  opacity: 0.55;
+.fmr-stripe-gap {
+  opacity: 0.22;
+  stroke: currentColor;
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
 }
 
 .fmr-events {

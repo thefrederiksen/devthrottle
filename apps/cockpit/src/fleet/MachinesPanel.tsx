@@ -177,7 +177,7 @@ export function MachinesPanel({
                     {open && (
                       <tr className="fm-resources-row">
                         <td colSpan={COLUMNS}>
-                          <MachineResourcesPanel machine={m.machine} />
+                          <MachineResourcesPanel machine={m.machine} refreshToken={view} />
                         </td>
                       </tr>
                     )}

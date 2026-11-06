@@ -76,7 +76,8 @@ export interface FleetMachineCapacity {
   spareLabel: string;
   /** The same figure in bytes, for sorting only. Null when not known, which sorts last. */
   spareBytes?: number | null;
-  /** "CPU hot", "Memory critical", "Offline", "Figures refused"... Null when the machine is not over a limit. */
+  /** "CPU hot", "Memory critical", "Figures refused"... Null when the machine is not over a limit, and always null when
+   *  it is not reporting: reachability is the reach line's verdict, and {@link why} carries the capacity detail. */
   statusLabel?: string | null;
   statusTone: FleetTone;
   /** Why the figures are dashes or "cannot read", in a sentence. Null for a normal reading. */
@@ -108,6 +109,31 @@ export interface MachineResourceWindow {
   crossings: ResourceCrossingMark[];
   /** Why the Gateway refused this window's figures. A refused window is a fault to show, not an idle stretch. */
   refusedReason?: string | null;
+  /** Why this window has no processor figure (refused, or not read and why), in the Gateway's words. Null when it has one. */
+  processorNote?: ResourceWindowNote | null;
+  /** Why this window has no memory figure. Null when it has one. */
+  memoryNote?: ResourceWindowNote | null;
+}
+
+/** Why one window has no figure for one resource (C# ResourceWindowNoteDto), drawn in place of the figure. */
+export interface ResourceWindowNote {
+  label: string;
+  tone: FleetTone;
+}
+
+/** A stretch of the span with no five-minute summary from the machine (C# ResourceGapDto). Not an idle machine. */
+export interface ResourceGap {
+  startUtc: string;
+  endUtc: string;
+  label: string;
+  tone: FleetTone;
+}
+
+/** One line of the expanded machine's event list (C# ResourceEventDto), oldest first, as the Gateway folded it. */
+export interface ResourceEvent {
+  atUtc: string;
+  label: string;
+  tone: FleetTone;
 }
 
 /** One factory's cost on the machine over the span (C# FactoryResourceCostDto) - grouped by Factory, never Mission. */
@@ -125,6 +151,15 @@ export interface FactoryResourceCost {
 export interface MachineResourceHistory {
   machine: string;
   hours: number;
+  /** The span the Gateway read, by its clock. The chart lays out exactly this, so its right edge is the Gateway's now. */
+  fromUtc: string;
+  toUtc: string;
+  /** Where no summary arrived, oldest first. */
+  gaps: ResourceGap[];
+  /** Crossings, refused windows and gaps as one list, oldest first. */
+  events: ResourceEvent[];
+  /** Shown instead of the factory table when there are rows but no session was recorded. */
+  noFactoriesMessage?: string | null;
   /** What to show instead of the chart and the table. Null when there are rows. */
   emptyMessage?: string | null;
   windows: MachineResourceWindow[];
@@ -189,8 +224,13 @@ export async function getMachineResources(machine: string, signal?: AbortSignal)
   if (!res.ok) throw await GatewayError.from(res, "read the machine's resource history");
   const body = (await res.json()) as MachineResourceHistory;
   // A body without the lists is not an idle machine - drawing an empty chart would read as one.
-  if (!Array.isArray(body?.windows) || !Array.isArray(body?.factories)) {
-    throw new GatewayError(res.status, "The Gateway answered the machine's resource history without its 'windows' and 'factories' lists.");
+  if (!Array.isArray(body?.windows) || !Array.isArray(body?.factories) || !Array.isArray(body?.gaps) || !Array.isArray(body?.events)) {
+    throw new GatewayError(res.status, "The Gateway answered the machine's resource history without its 'windows', 'factories', 'gaps' and 'events' lists.");
+  }
+  // The chart lays out the Gateway's span. Without it the client would have to invent a clock, which is the defect the
+  // span exists to prevent - so a history without one is refused, not drawn against the newest window.
+  if (!Number.isFinite(Date.parse(body.fromUtc)) || !Number.isFinite(Date.parse(body.toUtc))) {
+    throw new GatewayError(res.status, "The Gateway answered the machine's resource history without the span it covers.");
   }
   return body;
 }

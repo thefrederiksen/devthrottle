@@ -56,7 +56,8 @@ export const OFFLINE: FleetMachineCapacity = {
   memoryTone: "idle",
   spareLabel: CAPACITY_DASH,
   spareBytes: null,
-  statusLabel: "Offline",
+  // No status of its own: reachability is the reach line's verdict.
+  statusLabel: null,
   statusTone: "idle",
   why: OFFLINE_WHY,
   readingWindowStartUtc: null,
@@ -90,9 +91,31 @@ export function window(at: string, cpu: [number, number] | null, memory: [number
     memoryPeakPercent: memory?.[1] ?? null,
     crossings: [],
     refusedReason: null,
+    processorNote: cpu === null ? { label: "Processor not read: the processor counters did not answer", tone: "idle" } : null,
+    memoryNote: memory === null ? { label: "Memory not read: /proc/meminfo could not be opened", tone: "idle" } : null,
   };
 }
 
-export function history(windows: MachineResourceWindow[], factories: MachineResourceHistory["factories"] = []): MachineResourceHistory {
-  return { machine: "devlinux", hours: 24, emptyMessage: null, windows, factories };
+/** The span every fixture history covers unless a test says otherwise: the 24 hours ending at 12:00. */
+export const SPAN_FROM = "2026-11-05T12:00:00Z";
+export const SPAN_TO = "2026-11-06T12:00:00Z";
+
+export function history(
+  windows: MachineResourceWindow[],
+  factories: MachineResourceHistory["factories"] = [],
+  extra: Partial<MachineResourceHistory> = {},
+): MachineResourceHistory {
+  return {
+    machine: "devlinux",
+    hours: 24,
+    fromUtc: SPAN_FROM,
+    toUtc: SPAN_TO,
+    emptyMessage: null,
+    windows,
+    factories,
+    gaps: [],
+    events: [],
+    noFactoriesMessage: factories.length === 0 ? "No sessions were recorded on this machine in this span." : null,
+    ...extra,
+  };
 }

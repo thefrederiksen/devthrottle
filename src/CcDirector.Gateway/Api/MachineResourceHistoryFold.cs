@@ -1,0 +1,223 @@
+using System.Globalization;
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Stats;
+using CcDirector.Gateway.Stats.Data.Entities;
+
+namespace CcDirector.Gateway.Api;
+
+/// <summary>
+/// One machine expanded (Mission: Resource Monitor, section 5k), folded once on the Gateway: the span it covers, the
+/// five-minute rows for the chart with a note wherever a figure is missing, the gaps where no summary arrived, every
+/// crossing marked with its words and tone, one list of those events, and the cost per registered factory, grouped by
+/// each session's Factory value - never by Mission. Pure. The Cockpit draws every word and tone as sent (CLAUDE.md rule 7).
+/// </summary>
+internal static class MachineResourceHistoryFold
+{
+    public const string NoFactory = "No factory";
+
+    public const string NoFactoriesMessage = "No sessions were recorded on this machine in this span.";
+
+    /// <param name="fromUtc">The start of the span the Gateway read.</param>
+    /// <param name="toUtc">The end of the span: the Gateway's now.</param>
+    public static MachineResourceHistoryDto Fold(string machine, int hours, DateTime fromUtc, DateTime toUtc,
+        IReadOnlyList<ResourceWindowEntity>? windows, IReadOnlyList<ResourceSessionWindowEntity>? sessionWindows)
+    {
+        var dto = new MachineResourceHistoryDto { Machine = machine, Hours = hours, FromUtc = fromUtc, ToUtc = toUtc };
+        if (windows is null || sessionWindows is null)
+        {
+            dto.EmptyMessage = "The Gateway's statistics store is not open, so this machine's history cannot be shown.";
+            return dto;
+        }
+        var mine = windows.Where(w => string.Equals(w.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (mine.Count == 0)
+        {
+            dto.EmptyMessage = $"No resource summaries from {machine} in the last {hours} hours.";
+            return dto;
+        }
+
+        // Two Directors on one machine both measure the whole machine: one row per window start, the fuller one.
+        var rows = mine.GroupBy(w => w.WindowStartUtc).Select(g => g.OrderByDescending(x => x.SampleCount).First())
+            .OrderBy(w => w.WindowStartUtc)
+            .ToList();
+        foreach (var w in rows)
+        {
+            var total = w.MemoryTotalBytes is > 0 ? w.MemoryTotalBytes : null;
+            var window = new MachineResourceWindowDto
+            {
+                WindowStartUtc = w.WindowStartUtc,
+                ProcessorAveragePercent = w.ProcessorAveragePercent,
+                ProcessorPeakPercent = w.ProcessorPeakPercent,
+                MemoryAveragePercent = total is { } t1 && w.MemoryAverageUsedBytes is { } a ? a * 100.0 / t1 : null,
+                MemoryPeakPercent = total is { } t2 && w.MemoryPeakUsedBytes is { } p ? p * 100.0 / t2 : null,
+                Crossings = ResourceSummaryStore.CrossingsOf(w).Select(Mark).ToList(),
+                RefusedReason = w.RefusedReason,
+            };
+            window.ProcessorNote = window.ProcessorAveragePercent is null || window.ProcessorPeakPercent is null
+                ? NoteFor(w, "Processor", w.ProcessorUnreadableReason)
+                : null;
+            window.MemoryNote = window.MemoryAveragePercent is null || window.MemoryPeakPercent is null
+                ? NoteFor(w, "Memory", w.MemoryUnreadableReason
+                    ?? (total is null ? "the machine's total memory was not read, so no share can be given" : null))
+                : null;
+            dto.Windows.Add(window);
+        }
+
+        foreach (var (start, end, isTail) in ResourceWindowGaps.Of(rows, fromUtc, toUtc))
+            dto.Gaps.Add(new ResourceGapDto
+            {
+                StartUtc = start,
+                EndUtc = end,
+                Label = isTail
+                    ? $"No resource summary has arrived for {Duration(end - start)}"
+                    : $"No resource summary arrived for {Duration(end - start)}",
+                Tone = FleetTone.Idle,
+            });
+
+        // The event list, oldest first: crossings, refused windows and gaps. An unread figure is drawn on the chart where
+        // it happened and is not listed - a counter that did not answer for twenty minutes would otherwise be eight lines.
+        dto.Events = dto.Windows.SelectMany(w => w.Crossings.Select(c => new ResourceEventDto { AtUtc = c.StartedUtc, Label = c.Label, Tone = c.Tone }))
+            .Concat(dto.Windows.Where(w => w.RefusedReason is not null)
+                .Select(w => new ResourceEventDto { AtUtc = w.WindowStartUtc, Label = $"Figures refused: {w.RefusedReason}", Tone = FleetTone.Bad }))
+            .Concat(dto.Gaps.Select(g => new ResourceEventDto { AtUtc = g.StartUtc, Label = g.Label, Tone = g.Tone }))
+            .OrderBy(e => e.AtUtc)
+            .ToList();
+
+        // A refused window keeps no session rows, so every factory's cost over a span that holds one is a lower bound.
+        var anyRefused = mine.Any(w => w.RefusedReason is not null);
+        dto.Factories = sessionWindows
+            .Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(s => string.IsNullOrWhiteSpace(s.Factory) ? NoFactory : s.Factory!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => FactoryCost(g, anyRefused))
+            .OrderBy(f => f.Factory == NoFactory ? 1 : 0)
+            .ThenByDescending(f => f.ProcessorPeakPercent ?? -1)
+            .ThenBy(f => f.Factory, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (dto.Factories.Count == 0) dto.NoFactoriesMessage = NoFactoriesMessage;
+        return dto;
+    }
+
+    /// <summary>Why one window has no figure for one resource. A refused window says so, in the fault tone; an unread one
+    /// carries the reason the store kept.</summary>
+    private static ResourceWindowNoteDto NoteFor(ResourceWindowEntity w, string resource, string? unreadReason) =>
+        w.RefusedReason is { } refused
+            ? new ResourceWindowNoteDto { Label = $"Figures refused: {refused}", Tone = FleetTone.Bad }
+            : new ResourceWindowNoteDto
+            {
+                Label = $"{resource} not read: {unreadReason ?? "the Director gave no reason"}",
+                Tone = FleetTone.Idle,
+            };
+
+    /// <summary>"2 hours 10 minutes", "45 minutes", "1 day 3 hours" - whole minutes, never rounded up.</summary>
+    internal static string Duration(TimeSpan span)
+    {
+        var minutes = (long)Math.Floor(span.TotalMinutes);
+        var days = minutes / 1440;
+        var hours = minutes % 1440 / 60;
+        var mins = minutes % 60;
+        var parts = new List<string>();
+        if (days > 0) parts.Add(Unit(days, "day"));
+        if (hours > 0) parts.Add(Unit(hours, "hour"));
+        if (mins > 0 && days == 0) parts.Add(Unit(mins, "minute"));
+        return parts.Count == 0 ? "under a minute" : string.Join(" ", parts);
+
+        static string Unit(long n, string word) => n.ToString(CultureInfo.InvariantCulture) + " " + word + (n == 1 ? "" : "s");
+    }
+
+    private static ResourceCrossingMarkDto Mark(ResourceCrossing c)
+    {
+        var resource = c.Resource == ResourceSummaryContract.Processor ? "CPU" : "Memory";
+        var peak = c.PeakPercent is { } p ? $", peak {ResourceCapacityFold.Percent(p)}" : "";
+        return new ResourceCrossingMarkDto
+        {
+            StartedUtc = c.StartedUtc,
+            Resource = resource,
+            Label = $"{resource} {c.Level} for {c.Seconds} seconds{peak}",
+            Tone = c.Level == ResourceSummaryContract.Red ? FleetTone.Bad : FleetTone.Warn,
+        };
+    }
+
+    /// <summary>
+    /// A factory's sessions run side by side, so within one window their figures ADD: the factory's average is the mean,
+    /// over the windows it ran in, of its sessions' summed averages, and its peak is the highest summed peak.
+    ///
+    /// AN UNKNOWN IS NEVER ADDED AS ZERO. When a session's figure could not be read, or a session had processes whose
+    /// figures could not be read, the sum leaves them out and is a LOWER BOUND, and the label says "at least" - a cost
+    /// reported without that would be too cheap and still look plausible, which is the worst kind of wrong.
+    /// </summary>
+    private static FactoryResourceCostDto FactoryCost(IGrouping<string, ResourceSessionWindowEntity> factory, bool spanHasRefusedWindow)
+    {
+        var byWindow = factory.GroupBy(s => s.WindowStartUtc).ToList();
+        var partialProcesses = spanHasRefusedWindow || factory.Any(s => s.ProcessesWithUnknownFigures > 0);
+
+        var cpuAverages = Sums(byWindow, s => s.ProcessorAveragePercent);
+        var cpuPeaks = Sums(byWindow, s => s.ProcessorPeakPercent);
+        var memAverages = Sums(byWindow, s => s.MemoryAverageUsedBytes);
+        var memPeaks = Sums(byWindow, s => s.MemoryPeakUsedBytes);
+
+        double? cpuPeak = cpuPeaks.Values.Count == 0 ? null : cpuPeaks.Values.Max();
+        var cpuAtLeast = partialProcesses || cpuAverages.LeftOut || cpuPeaks.LeftOut ? "at least " : "";
+        var memAtLeast = partialProcesses || memAverages.LeftOut || memPeaks.LeftOut ? "at least " : "";
+        return new FactoryResourceCostDto
+        {
+            Factory = factory.Key,
+            Sessions = factory.Select(s => s.SessionId).Distinct(StringComparer.Ordinal).Count(),
+            ProcessorPeakPercent = cpuPeak,
+            ProcessorLabel = cpuAverages.Values.Count == 0 || cpuPeak is null
+                ? "cannot read"
+                : $"{cpuAtLeast}{ResourceCapacityFold.Percent(cpuAverages.Values.Average())} / {ResourceCapacityFold.Percent(cpuPeak.Value)}",
+            MemoryLabel = memAverages.Values.Count == 0 || memPeaks.Values.Count == 0
+                ? "cannot read"
+                : $"{memAtLeast}{ResourceCapacityFold.Gigabytes((long)memAverages.Values.Average())} / {ResourceCapacityFold.Gigabytes((long)memPeaks.Values.Max())} GB",
+        };
+    }
+
+    /// <summary>Per window, the sum of the figures that were read - and whether any session's figure had to be left out.</summary>
+    private static (List<double> Values, bool LeftOut) Sums<T>(List<IGrouping<DateTime, ResourceSessionWindowEntity>> byWindow,
+        Func<ResourceSessionWindowEntity, T?> figure) where T : struct, IConvertible
+    {
+        var values = new List<double>();
+        var leftOut = false;
+        foreach (var window in byWindow)
+        {
+            var read = window.Select(figure).Where(v => v.HasValue).Select(v => Convert.ToDouble(v!.Value)).ToList();
+            if (read.Count < window.Count()) leftOut = true;
+            if (read.Count > 0) values.Add(read.Sum());
+        }
+        return (values, leftOut);
+    }
+}
+
+/// <summary>
+/// THE ONE DEFINITION of "a stretch we did not measure" in the Gateway (Mission: Resource Monitor). The expanded machine's
+/// chart draws these, and the capacity fold's hour (issue #4679) is meant to read the same function rather than invent a
+/// second one, so the columns and the chart under them cannot contradict each other on one screen.
+///
+/// A gap is a stretch of the span covered by no window that is at least one window long - long enough to have held a
+/// summary. Before the newest window the rule is exact, because windows are five-minute slots and abut. After it, the
+/// window now being collected is not missing yet: it is due when it ends, so the tail counts as a gap only once a WHOLE
+/// window beyond the newest has had time to end and arrive.
+/// </summary>
+internal static class ResourceWindowGaps
+{
+    /// <summary>One window, the five-minute logging contract.</summary>
+    public static readonly TimeSpan Window = TimeSpan.FromSeconds(ResourceSummaryContract.WindowSeconds);
+
+    /// <summary>The gaps in [<paramref name="fromUtc"/>, <paramref name="toUtc"/>], oldest first. IsTail marks the stretch
+    /// running up to <paramref name="toUtc"/> - "has not arrived since", rather than "did not arrive".</summary>
+    public static IReadOnlyList<(DateTime StartUtc, DateTime EndUtc, bool IsTail)> Of(
+        IEnumerable<ResourceWindowEntity> windows, DateTime fromUtc, DateTime toUtc)
+    {
+        var gaps = new List<(DateTime, DateTime, bool)>();
+        var cursor = fromUtc;
+        foreach (var w in windows.OrderBy(w => w.WindowStartUtc))
+        {
+            var start = w.WindowStartUtc;
+            var end = start.AddSeconds(w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds);
+            if (start - cursor >= Window) gaps.Add((cursor, start, false));
+            if (end > cursor) cursor = end;
+        }
+        // The window being collected now ends one window after the newest, and is due then; only past that is it missing.
+        if (toUtc - cursor >= Window + Window) gaps.Add((cursor, toUtc, true));
+        return gaps;
+    }
+}

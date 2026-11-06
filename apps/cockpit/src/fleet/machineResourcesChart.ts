@@ -4,12 +4,16 @@ import type { MachineResourceHistory, MachineResourceWindow } from "@devthrottle
 // Gateway sent is drawn and nothing about what it means: every figure, crossing word and tone arrives folded by the
 // Gateway's MachineResourceHistoryFold.
 //
-// THE FOUR THINGS THIS FILE MUST NEVER DO, because each one turns a fault into a believable picture:
+// The span is the Gateway's too: the chart lays out exactly [fromUtc, toUtc], so its right edge is the Gateway's now
+// and a machine that went silent shows the silence. The client never invents a clock.
+//
+// THE FIVE THINGS THIS FILE MUST NEVER DO, because each one turns a fault into a believable picture:
 //  - draw a figure that was not read as zero, or as an empty band - an empty band reads as an idle machine;
 //  - clamp a figure to fit the axis - a per-core 400% squeezed to a tidy 100% hides the defect the contract catches.
 //    The axis grows to the figure instead;
 //  - draw the average without the peak, or the peak without the average - both travel, always, together;
-//  - join two windows across a stretch with no window - the line would invent the readings in between.
+//  - join two windows across a stretch with no window - the line would invent the readings in between;
+//  - leave a stretch the Gateway says no summary arrived in as blank chart - blank reads as a quiet machine.
 
 /** The length of one summary window: the five-minute logging contract (mission section 6). */
 export const WINDOW_MS = 5 * 60 * 1000;
@@ -30,14 +34,19 @@ export interface ChartRun {
   windows: number;
 }
 
-/** A window drawn as a stripe instead of a figure: refused by the Gateway, or with this resource not read. */
+/**
+ * A stretch drawn as a stripe instead of a figure: a window with no figure for this resource ("note"), or a stretch with
+ * no window at all ("gap"). The kind decides only the shape; what it means - the words and the tone - is the Gateway's.
+ */
 export interface ChartStripe {
   x: number;
   width: number;
-  windowStartUtc: string;
-  kind: "refused" | "unread";
-  /** The Gateway's refusal reason, verbatim, for a refused window; null for an unread one. */
-  reason: string | null;
+  /** The stretch's own span. A hover reports this, never the drawn width. */
+  startUtc: string;
+  endUtc: string;
+  kind: "note" | "gap";
+  label: string;
+  tone: string;
 }
 
 export interface ChartMark {
@@ -83,13 +92,19 @@ function figuresOf(w: MachineResourceWindow, resource: ChartResource): [number, 
 
 const round = (n: number) => Math.round(n * 10) / 10;
 
-/** The span the chart covers: the Gateway's hours, ending where the newest window ends. Null when there are no rows. */
+/** Said for a window with no figure that arrived with no note - a broken answer, never guessed into a meaning. */
+export const NO_NOTE_LABEL = "The Gateway sent no figure and no reason for this window.";
+
+/** The span the chart covers: exactly the one the Gateway read. Null when there are no rows or no readable span. */
 export function chartSpan(history: MachineResourceHistory): { startMs: number; endMs: number } | null {
-  const starts = history.windows.map((w) => Date.parse(w.windowStartUtc)).filter((t) => Number.isFinite(t));
-  if (starts.length === 0) return null;
-  const endMs = Math.max(...starts) + WINDOW_MS;
-  return { startMs: endMs - history.hours * 3_600_000, endMs };
+  const startMs = Date.parse(history.fromUtc);
+  const endMs = Date.parse(history.toUtc);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+  if (!history.windows.some((w) => Number.isFinite(Date.parse(w.windowStartUtc)))) return null;
+  return { startMs, endMs };
 }
+
+const iso = (ms: number) => new Date(ms).toISOString();
 
 /** Lay out one resource's chart. Null when there are no rows to draw - the caller shows the Gateway's EmptyMessage. */
 export function chartGeometry(history: MachineResourceHistory, resource: ChartResource): ChartGeometry | null {
@@ -146,18 +161,37 @@ export function chartGeometry(history: MachineResourceHistory, resource: ChartRe
     const figures = w.refusedReason == null ? figuresOf(w, resource) : null;
     if (figures === null) {
       closeRun();
+      const note = resource === "CPU" ? w.processorNote : w.memoryNote;
       stripes.push({
         x: x(at),
         width: round(x(at + WINDOW_MS) - x(at)),
-        windowStartUtc: w.windowStartUtc,
-        kind: w.refusedReason == null ? "unread" : "refused",
-        reason: w.refusedReason ?? null,
+        startUtc: w.windowStartUtc,
+        endUtc: iso(at + WINDOW_MS),
+        kind: "note",
+        label: note?.label ?? NO_NOTE_LABEL,
+        tone: note?.tone ?? "idle",
       });
       continue;
     }
     current.push({ at, average: figures[0], peak: figures[1] });
   }
   closeRun();
+
+  // The Gateway's gaps, clipped to the span: the same stretch on both charts, because no summary means neither figure.
+  for (const gap of history.gaps) {
+    const from = Math.max(Date.parse(gap.startUtc), startMs);
+    const to = Math.min(Date.parse(gap.endUtc), endMs);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue;
+    stripes.push({
+      x: x(from),
+      width: round(x(to) - x(from)),
+      startUtc: gap.startUtc,
+      endUtc: gap.endUtc,
+      kind: "gap",
+      label: gap.label,
+      tone: gap.tone,
+    });
+  }
 
   const marks: ChartMark[] = [];
   for (const { w } of windows) {

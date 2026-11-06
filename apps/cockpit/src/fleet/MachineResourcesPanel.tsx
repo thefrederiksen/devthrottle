@@ -63,19 +63,16 @@ export function ResourceChart({ geometry }: { geometry: ChartGeometry }) {
 
         {geometry.stripes.map((s) => (
           <rect
-            key={`${s.kind}-${s.windowStartUtc}`}
+            key={`${s.kind}-${s.startUtc}`}
             data-testid={`fmr-stripe-${s.kind}`}
             x={s.x}
             y={CHART.top}
+            // The mark may be wider than the stretch so it stays visible; the title reports the stretch's own span.
             width={Math.max(s.width, 3)}
             height={CHART.bottom - CHART.top}
-            className={`fmr-stripe-${s.kind}`}
+            className={`fmr-stripe fmr-stripe-${s.kind} ${toneClass(s.tone)}`}
           >
-            <title>
-              {s.kind === "refused"
-                ? `${stamp(s.windowStartUtc)}: the Gateway refused this window's figures because ${s.reason}`
-                : `${stamp(s.windowStartUtc)}: no ${title.toLowerCase()} figure for this window`}
-            </title>
+            <title>{`${stamp(s.startUtc)} to ${stamp(s.endUtc)}: ${s.label}`}</title>
           </rect>
         ))}
 
@@ -114,15 +111,8 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
       </div>
     );
   }
-  // The crossings and the refused windows as one list, oldest first: the order is layout, every word is the Gateway's.
-  const events = [
-    ...history.windows.flatMap((w) =>
-      w.crossings.map((c) => ({ at: c.startedUtc, tone: c.tone, text: c.label })),
-    ),
-    ...history.windows
-      .filter((w) => w.refusedReason != null)
-      .map((w) => ({ at: w.windowStartUtc, tone: "bad", text: `Figures refused: ${w.refusedReason}` })),
-  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  // The event list is the Gateway's - what is in it, its order, its words and its tones.
+  const events = history.events;
 
   return (
     <div className="fmr-body">
@@ -134,17 +124,17 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
       {events.length > 0 && (
         <ul className="fmr-events" data-testid="fmr-events">
           {events.map((e, i) => (
-            <li key={`${e.at}-${i}`} className={toneClass(e.tone)}>
-              <span className="ddim">{stamp(e.at)}</span> {e.text}
+            <li key={`${e.atUtc}-${i}`} className={toneClass(e.tone)}>
+              <span className="ddim">{stamp(e.atUtc)}</span> {e.label}
             </li>
           ))}
         </ul>
       )}
 
       <div className="fmr-factories-title">Cost per factory, last {history.hours} hours</div>
-      {history.factories.length === 0 ? (
-        <div className="fmr-empty" data-testid="fmr-no-factories">No sessions were recorded on this machine in this span.</div>
-      ) : (
+      {history.noFactoriesMessage != null ? (
+        <div className="fmr-empty" data-testid="fmr-no-factories">{history.noFactoriesMessage}</div>
+      ) : history.factories.length > 0 && (
         <table className="dtbl fmr-factories" data-testid="fmr-factories">
           <thead>
             <tr>
@@ -170,8 +160,12 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
   );
 }
 
-/** Reads GET /machines/{machine}/resources when shown, and draws it. */
-export function MachineResourcesPanel({ machine }: { machine: string }) {
+/**
+ * Reads GET /machines/{machine}/resources when shown, and draws it. It reads again whenever {@link refreshToken} changes -
+ * the Machines table passes its own view, so the expanded chart is re-read on the table's refresh and never sits stale
+ * under a live row. The chart already shown stays up while the next read is in flight.
+ */
+export function MachineResourcesPanel({ machine, refreshToken }: { machine: string; refreshToken?: unknown }) {
   const [history, setHistory] = useState<MachineResourceHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -194,7 +188,7 @@ export function MachineResourcesPanel({ machine }: { machine: string }) {
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, refreshToken]);
 
   return (
     <div className="fmr-panel" data-testid="fmr-panel">

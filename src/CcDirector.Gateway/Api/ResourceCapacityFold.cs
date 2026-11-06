@@ -19,7 +19,7 @@ namespace CcDirector.Gateway.Api;
 ///  - A tone comes from the newest window's crossings: red is bad, amber is warn, none is ok. A figure the machine
 ///    could not read says "cannot read" in the idle tone, with the reason in <see cref="FleetMachineCapacityDto.Why"/>.
 ///  - An offline machine (no running Director) and a silent one (no window in the last 15 minutes) show dashes, never
-///    zeros. Offline is not idle.
+///    zeros, and no status of their own - reachability is the reach line's. Offline is not idle.
 ///
 /// Pure: every input is handed in.
 /// </summary>
@@ -52,9 +52,9 @@ internal static class ResourceCapacityFold
     public static FleetMachineCapacityDto Fold(bool directorRunning, IReadOnlyList<ResourceWindowEntity>? windows, DateTime nowUtc)
     {
         if (windows is null)
-            return NotReporting("Offline", "The Gateway's statistics store is not open, so no resource figures can be shown.");
+            return NotReporting("The Gateway's statistics store is not open, so no resource figures can be shown.");
         if (!directorRunning)
-            return NotReporting("Offline", "No Director on this machine is running, so it is not measuring anything. Offline is not idle.");
+            return NotReporting("No Director on this machine is running, so it is not measuring anything. Offline is not idle.");
 
         var recent = windows
             .Where(w => w.WindowStartUtc >= nowUtc - PeakSpan)
@@ -69,9 +69,9 @@ internal static class ResourceCapacityFold
             // A Director whose CLOCK is behind sends on time but stamps its windows in the past: received recently, timed
             // long ago. That is a clock problem, and naming the connection would send someone to the wrong place.
             if (newestReceived is { } received && received >= nowUtc - SilentAfter)
-                return NotReporting(null, "This machine sent a resource summary in the last 15 minutes, but every window it sent "
+                return NotReporting("This machine sent a resource summary in the last 15 minutes, but every window it sent "
                                           + "is stamped more than 15 minutes ago by the Gateway's clock. Its clock is probably behind.");
-            return NotReporting(null, "This machine has sent no resource summary in the last 15 minutes. Its Director may be "
+            return NotReporting("This machine has sent no resource summary in the last 15 minutes. Its Director may be "
                                       + "older than the resource monitor, or its connection to the Gateway may be down.");
         }
 
@@ -223,10 +223,14 @@ internal static class ResourceCapacityFold
         static string Time(DateTime utc) => utc.ToString("HH:mm", CultureInfo.InvariantCulture) + " UTC";
     }
 
-    private static FleetMachineCapacityDto NotReporting(string? status, string why) => new()
+    /// <summary>
+    /// A machine that is not reporting gets dashes and a reason, and NO status: whether it can be reached is the reach
+    /// line's verdict (another fold owns it), so a second pill saying "Offline" under it would be two verdicts on one
+    /// machine. The capacity detail is in <see cref="FleetMachineCapacityDto.Why"/>.
+    /// </summary>
+    private static FleetMachineCapacityDto NotReporting(string why) => new()
     {
         Reporting = false,
-        StatusLabel = status,
         StatusTone = FleetTone.Idle,
         Why = why,
     };
@@ -262,124 +266,5 @@ internal static class ResourceCapacityFold
         return gb >= 10
             ? Math.Round(gb, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture)
             : gb.ToString("0.0", CultureInfo.InvariantCulture);
-    }
-}
-
-/// <summary>
-/// One machine expanded (Mission: Resource Monitor, section 5k), folded once on the Gateway: the five-minute rows for the
-/// chart, each crossing marked with its words and tone, and the cost per registered factory, grouped by each session's
-/// Factory value - never by Mission. Pure.
-/// </summary>
-internal static class MachineResourceHistoryFold
-{
-    public const string NoFactory = "No factory";
-
-    public static MachineResourceHistoryDto Fold(string machine, int hours, IReadOnlyList<ResourceWindowEntity>? windows,
-        IReadOnlyList<ResourceSessionWindowEntity>? sessionWindows)
-    {
-        var dto = new MachineResourceHistoryDto { Machine = machine, Hours = hours };
-        if (windows is null || sessionWindows is null)
-        {
-            dto.EmptyMessage = "The Gateway's statistics store is not open, so this machine's history cannot be shown.";
-            return dto;
-        }
-        var mine = windows.Where(w => string.Equals(w.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (mine.Count == 0)
-        {
-            dto.EmptyMessage = $"No resource summaries from {machine} in the last {hours} hours.";
-            return dto;
-        }
-
-        // Two Directors on one machine both measure the whole machine: one row per window start, the fuller one.
-        foreach (var w in mine.GroupBy(w => w.WindowStartUtc).Select(g => g.OrderByDescending(x => x.SampleCount).First())
-                     .OrderBy(w => w.WindowStartUtc))
-        {
-            var total = w.MemoryTotalBytes is > 0 ? w.MemoryTotalBytes : null;
-            dto.Windows.Add(new MachineResourceWindowDto
-            {
-                WindowStartUtc = w.WindowStartUtc,
-                ProcessorAveragePercent = w.ProcessorAveragePercent,
-                ProcessorPeakPercent = w.ProcessorPeakPercent,
-                MemoryAveragePercent = total is { } t1 && w.MemoryAverageUsedBytes is { } a ? a * 100.0 / t1 : null,
-                MemoryPeakPercent = total is { } t2 && w.MemoryPeakUsedBytes is { } p ? p * 100.0 / t2 : null,
-                Crossings = ResourceSummaryStore.CrossingsOf(w).Select(Mark).ToList(),
-                RefusedReason = w.RefusedReason,
-            });
-        }
-
-        // A refused window keeps no session rows, so every factory's cost over a span that holds one is a lower bound.
-        var anyRefused = mine.Any(w => w.RefusedReason is not null);
-        dto.Factories = sessionWindows
-            .Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(s => string.IsNullOrWhiteSpace(s.Factory) ? NoFactory : s.Factory!, StringComparer.OrdinalIgnoreCase)
-            .Select(g => FactoryCost(g, anyRefused))
-            .OrderBy(f => f.Factory == NoFactory ? 1 : 0)
-            .ThenByDescending(f => f.ProcessorPeakPercent ?? -1)
-            .ThenBy(f => f.Factory, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        return dto;
-    }
-
-    private static ResourceCrossingMarkDto Mark(ResourceCrossing c)
-    {
-        var resource = c.Resource == ResourceSummaryContract.Processor ? "CPU" : "Memory";
-        var peak = c.PeakPercent is { } p ? $", peak {ResourceCapacityFold.Percent(p)}" : "";
-        return new ResourceCrossingMarkDto
-        {
-            StartedUtc = c.StartedUtc,
-            Resource = resource,
-            Label = $"{resource} {c.Level} for {c.Seconds} seconds{peak}",
-            Tone = c.Level == ResourceSummaryContract.Red ? FleetTone.Bad : FleetTone.Warn,
-        };
-    }
-
-    /// <summary>
-    /// A factory's sessions run side by side, so within one window their figures ADD: the factory's average is the mean,
-    /// over the windows it ran in, of its sessions' summed averages, and its peak is the highest summed peak.
-    ///
-    /// AN UNKNOWN IS NEVER ADDED AS ZERO. When a session's figure could not be read, or a session had processes whose
-    /// figures could not be read, the sum leaves them out and is a LOWER BOUND, and the label says "at least" - a cost
-    /// reported without that would be too cheap and still look plausible, which is the worst kind of wrong.
-    /// </summary>
-    private static FactoryResourceCostDto FactoryCost(IGrouping<string, ResourceSessionWindowEntity> factory, bool spanHasRefusedWindow)
-    {
-        var byWindow = factory.GroupBy(s => s.WindowStartUtc).ToList();
-        var partialProcesses = spanHasRefusedWindow || factory.Any(s => s.ProcessesWithUnknownFigures > 0);
-
-        var cpuAverages = Sums(byWindow, s => s.ProcessorAveragePercent);
-        var cpuPeaks = Sums(byWindow, s => s.ProcessorPeakPercent);
-        var memAverages = Sums(byWindow, s => s.MemoryAverageUsedBytes);
-        var memPeaks = Sums(byWindow, s => s.MemoryPeakUsedBytes);
-
-        double? cpuPeak = cpuPeaks.Values.Count == 0 ? null : cpuPeaks.Values.Max();
-        var cpuAtLeast = partialProcesses || cpuAverages.LeftOut || cpuPeaks.LeftOut ? "at least " : "";
-        var memAtLeast = partialProcesses || memAverages.LeftOut || memPeaks.LeftOut ? "at least " : "";
-        return new FactoryResourceCostDto
-        {
-            Factory = factory.Key,
-            Sessions = factory.Select(s => s.SessionId).Distinct(StringComparer.Ordinal).Count(),
-            ProcessorPeakPercent = cpuPeak,
-            ProcessorLabel = cpuAverages.Values.Count == 0 || cpuPeak is null
-                ? "cannot read"
-                : $"{cpuAtLeast}{ResourceCapacityFold.Percent(cpuAverages.Values.Average())} / {ResourceCapacityFold.Percent(cpuPeak.Value)}",
-            MemoryLabel = memAverages.Values.Count == 0 || memPeaks.Values.Count == 0
-                ? "cannot read"
-                : $"{memAtLeast}{ResourceCapacityFold.Gigabytes((long)memAverages.Values.Average())} / {ResourceCapacityFold.Gigabytes((long)memPeaks.Values.Max())} GB",
-        };
-    }
-
-    /// <summary>Per window, the sum of the figures that were read - and whether any session's figure had to be left out.</summary>
-    private static (List<double> Values, bool LeftOut) Sums<T>(List<IGrouping<DateTime, ResourceSessionWindowEntity>> byWindow,
-        Func<ResourceSessionWindowEntity, T?> figure) where T : struct, IConvertible
-    {
-        var values = new List<double>();
-        var leftOut = false;
-        foreach (var window in byWindow)
-        {
-            var read = window.Select(figure).Where(v => v.HasValue).Select(v => Convert.ToDouble(v!.Value)).ToList();
-            if (read.Count < window.Count()) leftOut = true;
-            if (read.Count > 0) values.Add(read.Sum());
-        }
-        return (values, leftOut);
     }
 }
