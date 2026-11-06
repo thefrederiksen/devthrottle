@@ -1,0 +1,228 @@
+THE CHECKS FOR THE NARROWED MAC RESOURCE PROBE, RUN ON THIS MACHINE
+
+Machine        devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Software kit   dotnet 10.0.403
+Run at         2026-11-06
+Scope          memory, the processor, swap, the stall signals, the processes, and the per-disk
+               evidence the slowness diagnosis needs. No disk meter, no disk throughput, no
+               per-volume figures, no network reading.
+
+WHAT THIS FILE IS, AND WHAT THE OTHER TWO ARE. This is the record for the probe as it ships after
+the owner narrowed the mission on 2026-11-06. The two files beside it - macos-check.txt and
+macos-live-reading.txt - are the 15 October record of the WIDER probe on the closed pull request
+4035, and they still describe readings this code no longer takes (volumes, free space per volume,
+network throughput, disk read and write speeds). They are kept because the review of 4035 cites
+them as evidence, not because they describe what ships. macos-disk-busy-risk.txt is still current:
+it is the measurement that settled what the IOKit disk-time counter means, and the narrowed disk
+type is built on its conclusion.
+
+The solution has two projects that only build for Windows, so the build carries the switch the
+error message itself names. scripts/test-local.ps1 is PowerShell and cannot run on a Mac.
+
+====================================================================================================
+1. dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+
+   Build succeeded.
+   0 Warning(s) from the C# projects.
+
+   (The run also prints two Vite chunk-size notes from the web bundle. They are not this change's
+   and they are not C# warnings.)
+
+====================================================================================================
+2. dotnet test src/CcDirector.Core.UnitTests -c Release -p:EnableWindowsTargeting=true
+                --filter "Category=Resources"
+
+   Passed!  Failed: 0, Passed: 190, Skipped: 0, Total: 190, Duration: 36 ms
+
+   (190 rather than this probe's own 113: the narrowed shared interface, merged as #4620, brought its
+   own tests with it. This probe's are the parsing tests plus the clock regression test in section 7.)
+
+   PURE FUNCTIONS, AND THE DURATION IS THE PROOF OF IT. Twenty-nine milliseconds for 112 tests is
+   not a suite that touches a disk, waits on a clock or makes a system call. Every one of them runs
+   on captured output committed beside it, so the arithmetic is covered on a Windows or Linux build
+   machine as well as here.
+
+====================================================================================================
+3. dotnet test src/CcDirector.Core.Tests -c Release -p:EnableWindowsTargeting=true
+                --filter "Category=Resources"
+
+   Passed!  Failed: 0, Passed: 36, Skipped: 0, Total: 36, Duration: 559 ms
+
+   SKIPPED: 0 IS PART OF THE RESULT. These tests are gated by MacOsOnlyFact, which SKIPS with a
+   stated reason off macOS rather than returning early and reporting a pass. A skip here would mean
+   the suite had certified nothing, so zero skips on a Mac is what says all 35 really read the
+   machine.
+
+====================================================================================================
+4. THE PROBE READING THIS MACHINE, through the narrowed interface
+
+   The first sample, which is the Director's very first meter draw:
+
+     processor     processor unreadable (first sample, no interval yet)
+     memory        6.2 GB available of 16.0 GB
+     swap          swap 3.1 GB used of 4.0 GB
+     stalls        stalls (MacOsSignals): run queue 20.2, macOS memory pressure level 1
+     disk evidence disk disk0 (solid-state, in the system volume) unreadable (first sample, no interval yet)
+     processes     404 listed, 0 claiming a processor share
+
+   A rate genuinely cannot be worked out from one reading, and the probe says so rather than
+   reporting nought per cent busy - which would be indistinguishable from an idle machine, on every
+   Director start-up. Memory, swap and the stall signals need no interval and are reported.
+
+   NOT ONE OF THE 404 PROCESSES CLAIMS A PROCESSOR SHARE, and that line is the fix for the one
+   defect this code's review found. It used to hand every process with no earlier reading its
+   LIFETIME average - 328 of 513 on the first sample, including one that had been running two days
+   and read 5.78 per cent, in a field defined as the share of the machine over the last interval,
+   inside this very sample. It was not a zero, but it was a plausible figure for a quantity nobody
+   measured. Memory is still readable for the processes the platform allows, so the list has not
+   shrunk; only the figure that was never measured is withheld.
+
+   Ten seconds later:
+
+     processor     processor 67% busy, busiest core 100%, 10 cores
+     memory        6.1 GB available of 16.0 GB
+     stalls        stalls (MacOsSignals): run queue 19.5, macOS memory pressure level 1
+     disk evidence disk disk0 (solid-state, in the system volume) 0.1 operations in flight,
+                   0.16 ms per read, 0.08 ms per write
+     processes     400 listed, 151 with figures the platform refuses
+     busiest three, as a share of the whole machine:
+          1.97%  cc-director (process 10502)
+          1.88%  Google Chrome Helper (process 6936)
+          1.65%  RustDesk (process 835)
+
+   Every figure is non-zero and real. Three things in that reading are worth naming:
+
+   - "in the system volume" is the IOKit walk working. The system volume's own device is an Apple
+     file system volume inside a container synthesized on a partition, so without walking up to the
+     hardware no disk would ever be marked as the one the machine runs from.
+   - 151 of 400 processes are listed WITH THEIR FIGURES NULL rather than left out. An ordinary user
+     is refused the processor time and memory of another user's process. The old probe took the list
+     from the same call it took the figures from and so dropped them entirely - which on 15 October
+     lost the two busiest processes on this machine, both Spotlight indexing as root, out of a set
+     reporting that it had read fine.
+   - BusyPercent is absent from the disk line because it is null on this platform, and the time per
+     operation carries the signal instead. That is the finding of macos-disk-busy-risk.txt.
+
+====================================================================================================
+5. THE PROCESSOR, AGAINST THE MACHINE'S OWN MONITOR
+
+   Four consecutive ten-second windows, with "top -l 5 -s 10 -n 0" started alongside so its interval
+   ticks line up one-for-one with the probe's windows. top reports idle, so the busy figure is
+   100 minus idle.
+
+     window   the probe      top        difference
+        1      67.04 %     67.29 %        0.25
+        2      69.45 %     69.36 %        0.09
+        3      65.35 %     65.49 %        0.14
+
+   Worst disagreement 0.25 percentage points, against a requirement of 5.
+
+   MEASURED THREE TIMES, ON THREE DIFFERENT BUILDS, and the figures are quoted from the last because
+   the arithmetic underneath them changed twice. Against the wall-clock interval: 0.01, 0.05, 0.00,
+   0.42 over a load falling from 66 to 48. Against the monotonic interval: 0.08, 0.02, 0.63, 0.23
+   over a load rising from 62 to 95 - which is the range the amber and red limits sit in. On the
+   code that ships, rebased onto the merged interface: the table above. Every run passes the same
+   way, which is the point - the clock change fixed a failure case that needs the clock to step and
+   did not move the ordinary reading.
+
+   THE WINDOWS HAVE TO BE LINED UP OR THE COMPARISON MEANS NOTHING. A first attempt compared one
+   probe window against whatever tick top happened to print and read 32 percentage points apart on a
+   machine that was swinging between 30 and 78 per cent busy. That was the measurement being wrong,
+   not the probe: once the windows were matched the two agree to within a quarter of a point. A
+   single unaligned window on a moving machine can disagree by any amount and proves nothing in
+   either direction - and the same mistake, in its own form, had to be corrected for memory in
+   section 6. Both are the same lesson: on a machine under load, two readings of one quantity taken
+   at different moments are two different quantities.
+
+====================================================================================================
+6. MEMORY, AGAINST THE MACHINE'S OWN COUNTERS
+
+   The right counterpart is vm_stat, not top. top's "used" counts the compressor and cached files,
+   which is a different quantity; the probe reports what MachineMemoryProbe has reported since the
+   issue 2818 fix - free plus inactive plus purgeable pages, in the same spirit as Linux's
+   MemAvailable. So the check is against the page counts that figure is built from.
+
+   THE FIRST PROTOCOL HERE WAS NOT GOOD ENOUGH, AND IT IS WORTH SAYING WHY. Comparing the probe
+   against ONE vm_stat reading taken just before or after it gave 0.22, 0.15 and 0.34 points on a
+   calm machine - and 5.95 points, OUTSIDE the five-point requirement, on a loaded one. Neither
+   number measured the probe. Available memory on this machine moves by several percentage points in
+   a few seconds under load, so a single reading at a different moment is a different quantity, and a
+   run that happens to agree is luck rather than evidence.
+
+   So the probe's read is BRACKETED: vm_stat, then the probe, then vm_stat again. A figure that lands
+   between the two is reading the same quantity the operating system is, whatever the machine is
+   doing in between.
+
+     run   vm_stat before   the probe   vm_stat after   machine moved   probe outside
+      1        60.81 %        60.21 %      60.72 %          0.09            0.51
+      2        60.70 %        63.15 %      65.45 %          4.75            0.00
+      3        65.46 %        62.93 %      64.29 %          1.17            1.36
+      4        64.28 %        60.60 %      61.33 %          2.95            0.73
+
+   Worst the probe fell outside the operating system's own range: 1.36 percentage points, against a
+   requirement of 5 - while the machine itself moved as much as 4.75 points across a single read.
+   That last column is the honest figure for this check, and the one before it is why the naive
+   version of it could not be trusted in either direction.
+
+   TWO LIMITS OF THIS INSTRUMENT, both raised by the reviewer and both real.
+
+   First, the probe fell BELOW the bracket in three of the four runs rather than scattering either
+   side of it, by 0.51, 1.36 and 0.73 points. A consistent lean is not what random timing looks like,
+   so it is more likely that the probe's reading is taken a moment later than vm_stat's within each
+   run, on a machine whose used memory was falling. It is well inside the requirement either way, and
+   this says plainly that it is a lean rather than noise.
+
+   Second, LANDING INSIDE THE BRACKET IS NOT PROOF. The bracket only bounds the quantity if it moved
+   monotonically between the two vm_stat reads, and nothing here establishes that: a figure that went
+   up and came back down would bound a probe reading that was wrong in between. It is a better
+   instrument than one reading and it is not an exact one.
+
+   The exact check would read vm_stat's own formula and the probe's figure out of the SAME
+   host_statistics64 snapshot, so no time passes between them at all. That belongs to the memory
+   probe rather than to this one - MachineMemoryProbe is the pre-existing, already-tested reading
+   from issue #2818 and this probe does not measure memory twice - so it is recorded here as the way
+   to settle it rather than done here.
+
+====================================================================================================
+7. THE CLOCK, AND A REGRESSION TEST THAT WAS CHECKED AGAINST THE DEFECT
+
+   Wall-clock time STAMPS a sample; only a monotonic clock MEASURES an interval. This probe originally
+   did both off DateTime.UtcNow, which was finding 8 of the review of pull request 4035 - declined
+   there, then fixed in the shared interface for the memory probe, with the rule written to cover the
+   resource probes too. This probe now follows it: it takes a TimeProvider, ages its cache and
+   measures every interval with GetTimestamp and GetElapsedTime, and uses the wall clock only for
+   ResourceSample.TakenAtUtc. Its per-second rates go through the shared ResourceRate rather than a
+   division written here.
+
+   Why it matters: time synchronisation steps the wall clock backwards routinely. Under the old code a
+   step back of more than a second made the cached sample look as though it came from the FUTURE, and
+   the probe went on serving that one stale reading until the wall clock caught up - a five-second
+   meter showing a machine that is filling up as though nothing were happening.
+
+   THE TEST WAS CHECKED AGAINST THE DEFECT, NOT JUST WRITTEN. I reintroduced wall-clock cache aging
+   and ran it:
+
+     with the defect present   Failed: 1   "Assert.NotSame() Failure: Values are the same instance"
+     with the defect fixed     Passed: 1
+
+   A regression test that passes either way certifies nothing, so it was worth the two minutes to
+   confirm this one actually fails on the behaviour it is named for.
+
+====================================================================================================
+8. WHAT THESE CHECKS DO NOT COVER
+
+   - ONE MACHINE, ONE DISK, ONE KIND OF DISK. An Apple M4 with a single internal solid-state disk.
+     No spinning hard drive has ever been measured on macOS, so the Rotational branch of the medium
+     type is covered by a committed fixture and by the code path, not by hardware.
+   - NO INTEL MAC. The entry-point binding that review finding 4 is about rests on the exported
+     symbol tables read on this machine, not on a reproduction. Measured here: libsystem_kernel
+     exports _statfs, _statfs$INODE64 and _statfs64, with the last two at the same address and the
+     plain name at a different one in the Intel slice - which is exactly the trap, and why the
+     binding names statfs64.
+   - NO EXTERNAL OR NETWORK VOLUME, so a disk appearing or disappearing mid-sample is untested.
+   - THE PowerShell GATE DID NOT RUN. It cannot run on a Mac.
+   - THE WALL CLOCK WAS ONLY STEPPED IN A TEST, never on the real machine. The clock rule is proved
+     against a driven TimeProvider, not by letting time synchronisation correct this Mac mid-sample.
+   - THE LIMITS ARE NOT TESTED HERE. What counts as amber or red for the processor, and what counts
+     as a slow millisecond-per-write on macOS, are proposals until the phase 2 load harness runs
+     them on all three platforms. This file says the figures are right, not that the thresholds are.

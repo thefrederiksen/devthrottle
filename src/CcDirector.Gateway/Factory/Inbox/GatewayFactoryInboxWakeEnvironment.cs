@@ -25,6 +25,7 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
     private readonly Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> _start;
     private readonly Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> _ring;
     private readonly FactoryAgentsSwitch _factoryAgents;
+    private readonly Func<TenantId, string, (string Factory, string Seat)?> _bossStartOf;
 
     public GatewayFactoryInboxWakeEnvironment(
         Func<TenantId, string, RegisteredFactoryDto?> factory,
@@ -36,7 +37,8 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         Func<TenantId, string, bool, string?> directorOn,
         Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> start,
         Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> ring,
-        FactoryAgentsSwitch factoryAgents)
+        FactoryAgentsSwitch factoryAgents,
+        Func<TenantId, string, (string Factory, string Seat)?> bossStartOf)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _published = published ?? throw new ArgumentNullException(nameof(published));
@@ -48,6 +50,7 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         _start = start ?? throw new ArgumentNullException(nameof(start));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
         _factoryAgents = factoryAgents ?? throw new ArgumentNullException(nameof(factoryAgents));
+        _bossStartOf = bossStartOf ?? throw new ArgumentNullException(nameof(bossStartOf));
     }
 
     public RegisteredFactoryDto? Factory(TenantId tenant, string factory) => _factory(tenant, factory);
@@ -59,6 +62,11 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
     public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId) => _lastKnown(tenant, sessionId);
 
     public bool HasEnded(TenantId tenant, string sessionId) => _hasEnded(tenant, sessionId);
+
+    public bool StartedAsTheBoss(TenantId tenant, string sessionId, string factory, string seat)
+        => _bossStartOf(tenant, sessionId) is { } mark
+           && string.Equals(mark.Factory, factory, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(mark.Seat, seat, StringComparison.OrdinalIgnoreCase);
 
     public FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat) => _publishedBrief(tenant, factory, seat);
 

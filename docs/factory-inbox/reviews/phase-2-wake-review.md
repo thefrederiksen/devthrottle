@@ -172,6 +172,19 @@ by its opening and rung for a second is rung with "2 new factory inbox messages"
    and `FactoryInboxWake.Find` says why a rules-only session in the seat is not counted. New test:
    `FactoryInboxWakeTests.ABossTheOwnersAgentStartedThroughTheBossStartDoor_IsNotTheInboxsBoss_SoOneSeatKitBossStartsBesideIt`
    (it passes with or without this commit's code change, because the behaviour was already as ruled; it now holds it).
+
+   **OVERTURNED BY THE OWNER, 6 November 2026, for a recorded Boss.** Soren, in chat: "Yes, I also want to allow those."
+   Issue #4598 gave the Gateway a record of every Boss it starts for a session in no factory (`factory_boss_starts`).
+   A Boss with that record is the inbox's Boss: it decides bundles, starts seats, and the wake rings it instead of
+   starting a seat-kit Boss beside it - option (b) above, with the record as the marker. A rules-only session in the
+   Boss seat with NO record (a Boss's child, a restored or reopened child, a start-door Boss from before the record
+   existed) is still not the Boss, as ruled. Tests:
+   `FactoryInboxWakeTests.ABossTheGatewayRecordedAsStartedByASessionInNoFactory_IsTheInboxsBoss_AndIsRungNotDoubled`,
+   `FactoryInboxWakeTests.ABossTheOwnersAgentStartedThroughTheBossStartDoor_WithNoRecord_IsNotTheInboxsBoss_SoOneSeatKitBossStartsBesideIt`,
+   `FactoryInboxEndpointTests.Decide_ByTheBossASessionInNoFactoryStarted_IsAccepted`,
+   `FactorySeatStartByTheBossTests.Start_ByTheBossASessionInNoFactoryStarted_IsAllowed_though_its_kit_is_rules_only`.
+   Known limit, the same one a schedule-started Boss has: a recorded Boss the wake has never rung is not on the wake's
+   row, so if its Director is disconnected when bundles wait, the roster lacks it and one seat-kit Boss starts beside it.
 2. Declined, kept as a known limit. Matching an undefined factory's start by its session name would be a second way of
    recognising a seat, beside the row, for a gap of milliseconds during a deploy. And the harm is smaller than the review
    states: a session started in that gap is not on the wake's row, so the inbox routes refuse it as the Secretary or the

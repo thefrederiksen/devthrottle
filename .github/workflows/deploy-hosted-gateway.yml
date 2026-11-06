@@ -26,10 +26,11 @@ name: Deploy hosted Gateway
 # devthrottle_internal - and persist across deploys), so this workflow needs NO stored secrets - only an
 # Azure OIDC federated login as the devthrottle-hosted-gateway service principal.
 #
-# It sets EXACTLY TWO app settings, and only when asked: the Teams switches CC_GATEWAY_TEAMS and
-# CC_GATEWAY_TEAM_MENTOR, through the `teams` and `team_mentor` inputs below. Each input is on, off or
-# unchanged (the default); unchanged writes nothing. This is the only supported way to change those two
-# settings - never `az` by hand and never the Portal. Writing an app setting restarts the site by itself,
+# It sets EXACTLY THREE app settings, and only when asked: the Teams switches CC_GATEWAY_TEAMS and
+# CC_GATEWAY_TEAM_MENTOR, through the `teams` and `team_mentor` inputs below, and the first-Director trial
+# CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR, through the `trial_at_first_director` input. Each input is on, off or
+# unchanged (the default); on writes 1, off writes 0, unchanged writes nothing. This is the only supported
+# way to change those three settings - never `az` by hand and never the Portal. Writing an app setting restarts the site by itself,
 # so a run that changes a switch makes TWO clean hand-overs inside the measured deploy step: write the
 # settings, wait until production is back on the OUTGOING commit, then pin the new image. Both gaps are
 # measured and printed. A run that changes no switch is the ordinary single-restart deploy.
@@ -71,6 +72,16 @@ on:
         default: unchanged
       team_mentor:
         description: 'Team Mentor weekly writer (CC_GATEWAY_TEAM_MENTOR): on writes 1, off writes 0, unchanged leaves it alone. Does nothing unless Teams is also on.'
+        type: choice
+        options: [unchanged, 'on', 'off']
+        default: unchanged
+      # The 7-day Pro trial at an account's first Director (Website Black mission; FirstDirectorTrial.cs). The
+      # ONE way to turn it on: the image carries no ENV line for it. Off unless a run asks for it: unchanged
+      # writes nothing, so the setting stays unset and the Gateway reads it as off. The Gateway reads exactly
+      # 1 as on and 0 as off, and refuses to start on any other value, so this input can only write 1 or 0.
+      # Turning it on is the owner's decision at the Website Black flip, and nobody else's.
+      trial_at_first_director:
+        description: 'First-Director 7-day Pro trial (CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR): on writes 1, off writes 0, unchanged leaves it alone. The owner decides when it is turned on.'
         type: choice
         options: [unchanged, 'on', 'off']
         default: unchanged
@@ -272,6 +283,7 @@ jobs:
         env:
           TEAMS_INPUT: ${{ inputs.teams }}
           MENTOR_INPUT: ${{ inputs.team_mentor }}
+          TRIAL_INPUT: ${{ inputs.trial_at_first_director }}
         run: |
           set -euo pipefail
           to_value() {
@@ -284,11 +296,14 @@ jobs:
           }
           teams_want=$(to_value "${TEAMS_INPUT:-unchanged}")
           mentor_want=$(to_value "${MENTOR_INPUT:-unchanged}")
+          trial_want=$(to_value "${TRIAL_INPUT:-unchanged}")
           {
             echo "teams_want=$teams_want"
             echo "mentor_want=$mentor_want"
+            echo "trial_want=$trial_want"
           } >> "$GITHUB_OUTPUT"
           echo "Teams switch inputs: teams=${TEAMS_INPUT:-unchanged}, team_mentor=${MENTOR_INPUT:-unchanged}."
+          echo "Trial switch input: trial_at_first_director=${TRIAL_INPUT:-unchanged}."
 
       - name: Azure login (OIDC, no stored secret)
         uses: azure/login@v2
@@ -480,6 +495,7 @@ jobs:
         env:
           TEAMS_WANT: ${{ steps.teams_input.outputs.teams_want }}
           MENTOR_WANT: ${{ steps.teams_input.outputs.mentor_want }}
+          TRIAL_WANT: ${{ steps.teams_input.outputs.trial_want }}
         run: |
           set -euo pipefail
           read_setting() {
@@ -488,16 +504,22 @@ jobs:
           }
           teams_old=$(read_setting CC_GATEWAY_TEAMS)
           mentor_old=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          trial_old=$(read_setting CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR)
           teams_write=""
           mentor_write=""
+          trial_write=""
           if [ -n "$TEAMS_WANT" ] && [ "$TEAMS_WANT" != "$teams_old" ]; then teams_write="$TEAMS_WANT"; fi
           if [ -n "$MENTOR_WANT" ] && [ "$MENTOR_WANT" != "$mentor_old" ]; then mentor_write="$MENTOR_WANT"; fi
+          if [ -n "$TRIAL_WANT" ] && [ "$TRIAL_WANT" != "$trial_old" ]; then trial_write="$TRIAL_WANT"; fi
           {
             echo "teams_old=$teams_old"
             echo "mentor_old=$mentor_old"
+            echo "trial_old=$trial_old"
             echo "teams_write=$teams_write"
             echo "mentor_write=$mentor_write"
+            echo "trial_write=$trial_write"
           } >> "$GITHUB_OUTPUT"
+          echo "CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR now: ${trial_old:-<unset>}; wanted: ${TRIAL_WANT:-unchanged}; to write: ${trial_write:-nothing}"
           echo "CC_GATEWAY_TEAMS now: ${teams_old:-<unset>}; wanted: ${TEAMS_WANT:-unchanged}; to write: ${teams_write:-nothing}"
           echo "CC_GATEWAY_TEAM_MENTOR now: ${mentor_old:-<unset>}; wanted: ${MENTOR_WANT:-unchanged}; to write: ${mentor_write:-nothing}"
 
@@ -577,9 +599,11 @@ jobs:
           # the ordinary single-restart deploy.
           TEAMS_WRITE="${{ steps.teams_before.outputs.teams_write }}"
           MENTOR_WRITE="${{ steps.teams_before.outputs.mentor_write }}"
+          TRIAL_WRITE="${{ steps.teams_before.outputs.trial_write }}"
           SETTINGS=()
           if [ -n "$TEAMS_WRITE" ]; then SETTINGS+=("CC_GATEWAY_TEAMS=$TEAMS_WRITE"); fi
           if [ -n "$MENTOR_WRITE" ]; then SETTINGS+=("CC_GATEWAY_TEAM_MENTOR=$MENTOR_WRITE"); fi
+          if [ -n "$TRIAL_WRITE" ]; then SETTINGS+=("CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=$TRIAL_WRITE"); fi
           settings_gap=none
           if [ "${#SETTINGS[@]}" -gt 0 ]; then
             expect_teams=""
@@ -742,10 +766,13 @@ jobs:
         env:
           TEAMS_INPUT: ${{ inputs.teams }}
           MENTOR_INPUT: ${{ inputs.team_mentor }}
+          TRIAL_INPUT: ${{ inputs.trial_at_first_director }}
           TEAMS_WANT: ${{ steps.teams_input.outputs.teams_want }}
           MENTOR_WANT: ${{ steps.teams_input.outputs.mentor_want }}
+          TRIAL_WANT: ${{ steps.teams_input.outputs.trial_want }}
           TEAMS_OLD: ${{ steps.teams_before.outputs.teams_old }}
           MENTOR_OLD: ${{ steps.teams_before.outputs.mentor_old }}
+          TRIAL_OLD: ${{ steps.teams_before.outputs.trial_old }}
           SETTINGS_GAP: ${{ steps.readiness.outputs.settings_gap_seconds }}
           IMAGE_GAP: ${{ steps.readiness.outputs.restart_gap_seconds }}
           TARGET: ${{ steps.short.outputs.short }}
@@ -757,6 +784,7 @@ jobs:
           }
           teams_after=$(read_setting CC_GATEWAY_TEAMS)
           mentor_after=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          trial_after=$(read_setting CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR)
           health=$(curl -s -m 15 "${GATEWAY_URL}/healthz" || true)
           served_commit=$(printf '%s' "$health" | jq -r '.commit // "none"' 2>/dev/null || echo "unreachable")
           served_teams=$(printf '%s' "$health" | jq -r 'if .teams == null then "none" else (.teams|tostring) end' 2>/dev/null || echo "unreachable")
@@ -769,6 +797,7 @@ jobs:
             echo "|---|---|---|---|---|"
             echo "| CC_GATEWAY_TEAMS | ${TEAMS_OLD:-unset} | ${TEAMS_INPUT:-unchanged} | ${teams_after:-unset} | /healthz teams=${served_teams} on commit ${served_commit} |"
             echo "| CC_GATEWAY_TEAM_MENTOR | ${MENTOR_OLD:-unset} | ${MENTOR_INPUT:-unchanged} | ${mentor_after:-unset} | not reported by /healthz |"
+            echo "| CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR | ${TRIAL_OLD:-unset} | ${TRIAL_INPUT:-unchanged} | ${trial_after:-unset} | not reported by /healthz; the start-up log line [FirstDirectorTrial] FromEnvironment says on or off |"
             echo ""
             echo "The Gateway reads a switch as on only when it is exactly 1. The Mentor's writer runs only when both are 1."
             echo "The Mentor switch is verified as a SETTING only. The running evidence is the Gateway log line"
@@ -781,6 +810,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "CC_GATEWAY_TEAMS: before ${TEAMS_OLD:-<unset>}, after ${teams_after:-<unset>}, served teams=${served_teams} on ${served_commit}"
           echo "CC_GATEWAY_TEAM_MENTOR: before ${MENTOR_OLD:-<unset>}, after ${mentor_after:-<unset>} (not served on /healthz)"
+          echo "CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR: before ${TRIAL_OLD:-<unset>}, after ${trial_after:-<unset>} (not served on /healthz)"
           bad=0
           if [ -n "$TEAMS_WANT" ]; then
             expect_teams=false
@@ -795,6 +825,12 @@ jobs:
           fi
           if [ -n "$MENTOR_WANT" ] && [ "$mentor_after" != "$MENTOR_WANT" ]; then
             echo "ERROR: CC_GATEWAY_TEAM_MENTOR was requested as $MENTOR_WANT and production holds '${mentor_after}'."; bad=1
+          fi
+          if [ -n "$TRIAL_WANT" ] && [ "$trial_after" != "$TRIAL_WANT" ]; then
+            echo "ERROR: CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR was requested as $TRIAL_WANT and production holds '${trial_after}'."; bad=1
+          fi
+          if [ -z "$TRIAL_WANT" ] && [ "$trial_after" != "$TRIAL_OLD" ]; then
+            echo "ERROR: CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR was NOT requested, and it changed from '${TRIAL_OLD}' to '${trial_after}'."; bad=1
           fi
           exit "$bad"
 

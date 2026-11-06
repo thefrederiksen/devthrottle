@@ -132,6 +132,49 @@ public static class FactoryInboxWords
         };
     }
 
+    /// <summary>
+    /// The one word a screen maps to a colour (Factory Inbox mission, phase 4; CLAUDE.md rule 7). The client never turns
+    /// a state or a decision into a colour itself: it reads this word and picks its own token for it.
+    /// </summary>
+    public static class Tones
+    {
+        /// <summary>Dealt with: delegated, put on the to-do list, or noted.</summary>
+        public const string Ok = "ok";
+
+        /// <summary>On its way: sent, received, or with the Boss and not yet decided.</summary>
+        public const string Amber = "amber";
+
+        /// <summary>Not done: declined, cannot be done, or pushed back.</summary>
+        public const string Red = "red";
+
+        /// <summary>Nothing to show: a factory with no messages yet.</summary>
+        public const string Grey = "grey";
+    }
+
+    /// <summary>The tone of a message, from its state and its decision.</summary>
+    public static string Tone(string state, string? decision) => state switch
+    {
+        States.Sent or States.Received or States.WithBoss => Tones.Amber,
+        States.Decided when decision is null => Tones.Ok,
+        States.Decided => Decisions.TellsTheOwner(decision) ? Tones.Red : Tones.Ok,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "not a factory inbox state"),
+    };
+
+    /// <summary>The line a factory's row shows under its name when it has no message yet.</summary>
+    public const string NoMessagesLine = "No messages yet";
+
+    /// <summary>The badge a factory's row shows when it has no message yet.</summary>
+    public const string NoMessagesBadge = "No messages";
+
+    /// <summary>How many of a factory's messages still wait for the Boss's decision, as the row says it.</summary>
+    public static string WaitingLine(int waiting) => waiting switch
+    {
+        < 0 => throw new ArgumentOutOfRangeException(nameof(waiting), waiting, "a count of messages is never negative"),
+        0 => "All dealt with",
+        1 => "1 waiting for a decision",
+        _ => $"{waiting} waiting for a decision",
+    };
+
     /// <summary>What a message's state is shown as. A decided message shows its decision.</summary>
     public static string StateLabel(string state, string? decision) => state switch
     {
@@ -162,6 +205,14 @@ public static class FactoryInboxWords
         Notes.Good => "Good",
         Notes.Bad => "Bad",
         _ => throw new ArgumentOutOfRangeException(nameof(note), note, "not a factory inbox note"),
+    };
+
+    /// <summary>How a message was put in, as the thread shows it beside the message (phase 4).</summary>
+    public static string SourceLabel(string source) => source switch
+    {
+        Sources.Typed => "Typed",
+        Sources.Spoken => "Spoken",
+        _ => throw new ArgumentOutOfRangeException(nameof(source), source, "not a factory inbox source"),
     };
 
     /// <summary>Where a message came from, as a phrase.</summary>

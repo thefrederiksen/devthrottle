@@ -4566,7 +4566,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     }
                 },
                 ring: fleetManagerEnvironment.SendPromptAsync,
-                factoryAgents: FactoryAgentsSwitch),
+                factoryAgents: FactoryAgentsSwitch,
+                // Issue #4598: a Boss the Gateway recorded as started by a session in no factory is the Boss the wake rings.
+                bossStartOf: _sessionHistory.BossStartOf),
             _triggerStartLifetime.Token);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
@@ -5691,9 +5693,12 @@ public sealed class GatewayHost : IAsyncDisposable
             var teamEnrollment = TeamsReleased
                 ? Api.HostedEnrollmentEndpoint.TeamEnrollment.Over(TeamRegistry, TeamAccess, PushedSessions, _directorConnections)
                 : null;
+            // The 7-day Pro trial at an account's first Director (Website Black mission) rides on the Director door
+            // only, and only does anything while Options.FirstDirectorTrial is on - off unless the deploy workflow's
+            // trial_at_first_director input has written CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=1 (FirstDirectorTrial.cs).
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                teams: teamEnrollment);
+                teams: teamEnrollment, trials: TrialRegistry, firstDirectorTrial: Options.FirstDirectorTrial);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
@@ -5887,6 +5892,23 @@ public sealed class GatewayHost : IAsyncDisposable
             // Phase 2: the write is the event. Neither route waits for the wake; a look runs on the Gateway's lifetime.
             MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
             BundleHanded: (tenant, factory) => _ = TheFactoryInboxWake().BundleHanded(tenant, factory)));
+        // A spoken factory inbox message (Factory Inbox mission, phase 4): the same durable upload and staging a session's
+        // dictation uses, opened through the dictation's own tenant gate so the chunk leg finds the same partition, and
+        // transcribed with no dictionary stage - the store applies only the account's listed corrections (verbatim rule).
+        var factoryInboxUploads = new Api.DictationTenantGate(_dictationUploads, _tenantBoundary);
+        var factoryInboxTranscription = _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault,
+            history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, aiGate: AiGate, transcripts: _transcripts);
+        Api.FactoryInboxVoiceEndpoints.Map(factoryGate, new Api.FactoryInboxVoiceEndpoints.Parts(
+            Store: FactoryInbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            OpenUploads: ctx => factoryInboxUploads.TryOpen(ctx, out var store, out _, out _) ? store : null,
+            Transcribe: (tenant, audio, fileName, mime, ct) => factoryInboxTranscription.TranscribeAsync(
+                audio, fileName, mime, applyCorrection: false, ct, tenant: tenant, source: "factory-inbox"),
+            NowUtc: () => DateTime.UtcNow,
+            Wakes: FactoryInboxWakes,
+            // Phase 2, as on the typed route: the write is the event, and the route never waits for the wake.
+            MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc)));
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));

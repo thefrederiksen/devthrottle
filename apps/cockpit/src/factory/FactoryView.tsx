@@ -9,6 +9,7 @@ import {
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
+import { FactoryComposer } from "@devthrottle/client-core/factoryinbox/FactoryComposer";
 import { getCronJob, setCronJobEnabled, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { savedWarnings } from "@devthrottle/client-core/schedule/savedWarnings";
 import { Button, ErrorBanner, LoadingState } from "../components";
@@ -49,6 +50,10 @@ export function FactoryView() {
   const view = useView<FactoryPageView>((s) => getFactoryPage(factory, s), factory, "load this factory");
   // What the owner's last action did, in the Gateway's words (round 2); it stays until the next one.
   const [notice, setNotice] = useState<string | null>(null);
+  // "Leave a message" (Factory Inbox mission, phase 4; mockup D): the shared composer, for this factory. This page is
+  // only ever shown inside FactoryAreaGate, so the factory area switch - the inbox's switch - is already on.
+  const [leaving, setLeaving] = useState(false);
+  const [left, setLeft] = useState(false);
   const done = (text: string) => {
     setNotice(text);
     view.reload();
@@ -114,11 +119,27 @@ export function FactoryView() {
           </div>
         </div>
         <div className="fa-head-actions">
+          <Button aria-expanded={leaving} onClick={() => setLeaving((v) => !v)} data-testid="fa-leave-message">
+            Leave a message
+          </Button>
           {page.talk !== null && <TalkButton talk={page.talk} />}
           {page.archive !== null && <OwnerActionButton action={page.archive} onDone={done} />}
         </div>
       </header>
 
+      {leaving && (
+        <section className="fa-panel" data-testid="fa-leave-message-panel">
+          <h2 className="fa-section-title">Leave a message for {page.title}</h2>
+          <FactoryComposer factory={page.id} factoryTitle={page.title} surface="cockpit" onLeft={() => setLeft(true)} />
+          {left && (
+            <p className="fa-dim">
+              <Link className="fa-link" to={`/inbox/${encodeURIComponent(page.id)}`}>
+                Open this factory's inbox
+              </Link>
+            </p>
+          )}
+        </section>
+      )}
       {notice !== null && (
         <div className="fa-notice" role="status" data-testid="fa-notice">
           {notice}

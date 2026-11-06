@@ -130,8 +130,10 @@ public sealed class HostedProTrialTests : IDisposable
         // Pricing Change mission nobody is. The paid read SUCCEEDS and finds nothing, the account has never been
         // seen by this Gateway (no tenant), and it still enrols its Director - on free, with the ledger untouched.
         //
-        // HOW THIS FAILS ON PURPOSE: put the GrantIfFirstArrival call back into the enrolment gate and the row
-        // count and the tier assertions both go red.
+        // HOW THIS FAILS ON PURPOSE: the GrantIfFirstArrival call IS back in the enrolment gate, behind the
+        // first-Director trial setting (FirstDirectorTrial.cs), which this test does not pass, so it pins "off by
+        // default". Make the gate grant without that setting - or default the setting to on - and the row count and
+        // the tier assertions both go red.
         var db = OpenWithEntitlements();
         var (devices, tenants, validator) = Wire(db);
         var trials = new TrialRegistry(db);

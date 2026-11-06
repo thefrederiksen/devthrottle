@@ -557,13 +557,30 @@ public sealed class SessionHistoryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            var id = sessionId.Trim();
-            var mark = ctx.FactoryBossStarts.AsNoTracking()
-                .Where(e => e.SessionId == id)
-                .Select(e => new { e.Factory, e.Seat })
-                .FirstOrDefault();
-            return mark is null ? null : (mark.Factory, mark.Seat);
+            return BossStartIn(ctx, sessionId);
         }
+    }
+
+    /// <summary><see cref="BossStartOf(string)"/> in the account a caller resolved EXPLICITLY - the factory inbox wake,
+    /// which runs outside any request.</summary>
+    public (string Factory, string Seat)? BossStartOf(Core.Tenancy.TenantId tenant, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return BossStartIn(ctx, sessionId);
+        }
+    }
+
+    private static (string Factory, string Seat)? BossStartIn(GatewayDbContext ctx, string sessionId)
+    {
+        var id = sessionId.Trim();
+        var mark = ctx.FactoryBossStarts.AsNoTracking()
+            .Where(e => e.SessionId == id)
+            .Select(e => new { e.Factory, e.Seat })
+            .FirstOrDefault();
+        return mark is null ? null : (mark.Factory, mark.Seat);
     }
 
     /// <summary>

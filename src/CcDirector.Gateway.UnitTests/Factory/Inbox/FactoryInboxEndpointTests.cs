@@ -476,17 +476,16 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Decide_ByTheBossASessionInNoFactoryStarted_IsStillRefused_the_inboxs_Boss_is_a_seat_kit_Boss()
+    public async Task Decide_ByTheBossASessionInNoFactoryStarted_IsAccepted()
     {
-        // Issue #4598's record lets that Boss publish its definition; the inbox keeps the Tech Lead's ruling of
-        // 5 November 2026 that its Boss is a seat-kit Boss.
+        // The owner's ruling of 6 November 2026, which overturned the Tech Lead's ruling of 5 November 2026 for a Boss the
+        // Gateway recorded as started by a session in no factory: it decides the factory inbox's bundles.
         var id = await LeaveFiledAndHanded("One");
 
         var (status, body) = await Post($"/sessions/{OwnersBoss}/factory-inbox/{id}/decide", OwnersBoss, new { kind = "noted" });
 
-        Assert.Equal(HttpStatusCode.Forbidden, status);
-        Assert.Equal("not_the_boss", Code(body));
-        Assert.Empty(_store.DecisionsOf(A, [Guid.Parse(id)]));
+        Assert.True(status == HttpStatusCode.OK, body.ToString());
+        Assert.Single(_store.DecisionsOf(A, [Guid.Parse(id)]));
     }
 
     [Fact]

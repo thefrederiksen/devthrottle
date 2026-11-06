@@ -45,6 +45,10 @@
     "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
     "./history/FolderListing": "./src/history/FolderListing.tsx",
     "./maildesk/MailDeskPage": "./src/maildesk/MailDeskPage.tsx",
+    "./factoryinbox/FactoryComposer": "./src/factoryinbox/FactoryComposer.tsx",
+    "./factoryinbox/FactoryInboxListView": "./src/factoryinbox/FactoryInboxListView.tsx",
+    "./factoryinbox/FactoryInboxThreadView": "./src/factoryinbox/FactoryInboxThreadView.tsx",
+    "./factoryinbox/InboxTabs": "./src/factoryinbox/InboxTabs.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

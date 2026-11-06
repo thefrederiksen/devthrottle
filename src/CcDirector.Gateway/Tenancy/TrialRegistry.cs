@@ -129,9 +129,9 @@ public sealed record TrialExtension(
 /// The free-trial ledger: the Gateway's own record of which accounts were granted a 14-day Pro trial, and when
 /// each trial ends.
 ///
-/// NO NEW TRIAL IS GRANTED (Pricing Change mission, B3, owner decision D1 of 11 October 2026: "There is no more 14
-/// day trial"). The hosted enrollment path used to grant one at an account's first arrival and no longer calls
-/// <see cref="GrantIfFirstArrival"/>; nothing in the Gateway does. THE LEDGER IS STILL READ: a trial that was
+/// NO NEW 14-DAY TRIAL IS GRANTED (Pricing Change mission, B3, owner decision D1 of 11 October 2026: "There is no
+/// more 14 day trial"). The ONE grant left is the 7-day trial at an account's first Director, which is OFF unless
+/// <see cref="FirstDirectorTrial"/> turns it on (Website Black mission, 5 November 2026). THE LEDGER IS STILL READ: a trial that was
 /// already running is honoured to its end by <see cref="Evaluate"/>, through the entitlement read, and an
 /// administrator can still extend one (<see cref="ExtendIfLater"/>). No row and no table was removed. What follows
 /// describes the grant as it was made, because it is what the rows in the ledger mean.
@@ -278,10 +278,9 @@ public sealed class TrialRegistry
     /// Grant the 14-day Pro trial to an account arriving at the hosted Gateway for the FIRST time, and return
     /// what now covers it.
     ///
-    /// This is the ONLY place a trial is created, and SINCE THE PRICING CHANGE MISSION (B3) NO PART OF THE GATEWAY
-    /// CALLS IT: the hosted enrollment path, its one caller, stopped granting trials. It is kept because it is the
-    /// one writer of a ledger that is still read, and granting trials again would be a decision to call it, not
-    /// code to write.
+    /// This is the ONLY place a trial is created. Since the Pricing Change mission (B3) the hosted enrollment path
+    /// stopped granting the 14-day trial. Since the Website Black mission it calls this again, with a 7-day length,
+    /// ONLY through the Director door and ONLY while <see cref="FirstDirectorTrial"/> is on (off by default).
     ///
     /// IDEMPOTENT AND NEVER EXTENDING. An account that already has a trial row gets that row back exactly as
     /// it stands - live or expired - and nothing is written. That is what makes one trial per account a
@@ -296,7 +295,23 @@ public sealed class TrialRegistry
     /// tenant registry's table, not this one's.</param>
     /// <param name="nowUtc">The grant instant; the trial ends at this plus <see cref="TrialLength"/>.</param>
     public TrialDecision GrantIfFirstArrival(string accountSubject, bool alreadyKnownToGateway, DateTime nowUtc)
+        => GrantIfFirstArrival(accountSubject, alreadyKnownToGateway, nowUtc, TrialLength);
+
+    /// <summary>
+    /// The same grant, with the length of a NEW trial stated by the caller. The one caller in the Gateway is the
+    /// first-Director trial (<see cref="FirstDirectorTrial"/>, 7 days, Website Black mission). Everything above holds
+    /// unchanged: an existing row, live or expired, is returned exactly as it stands and its end is never moved, so
+    /// the length matters only for an account that has never had a trial.
+    /// </summary>
+    /// <param name="accountSubject">The verified account subject.</param>
+    /// <param name="alreadyKnownToGateway">True when this Gateway already holds a tenant for the account.</param>
+    /// <param name="nowUtc">The grant instant; the trial ends at this plus <paramref name="trialLength"/>.</param>
+    /// <param name="trialLength">How long a NEW trial runs. Must be positive.</param>
+    public TrialDecision GrantIfFirstArrival(string accountSubject, bool alreadyKnownToGateway, DateTime nowUtc, TimeSpan trialLength)
     {
+        if (trialLength <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(trialLength), trialLength, "A trial must run for a positive length of time.");
+
         if (string.IsNullOrWhiteSpace(accountSubject))
         {
             FileLog.Write("[TrialRegistry] GrantIfFirstArrival: NO TRIAL - no account subject was supplied");
@@ -335,7 +350,7 @@ public sealed class TrialRegistry
                     return new TrialDecision(TrialOutcome.None);
                 }
 
-                var expires = nowUtc + TrialLength;
+                var expires = nowUtc + trialLength;
                 ctx.AccountTrials.Add(new Data.Entities.AccountTrialEntity
                 {
                     Subject = subject,
@@ -344,7 +359,7 @@ public sealed class TrialRegistry
                 });
                 ctx.SaveChanges();
 
-                FileLog.Write($"[TrialRegistry] GrantIfFirstArrival: GRANTED a {TrialLength.TotalDays:0}-day Pro trial to a first-seen account (no subject logged), ending {expires:O}");
+                FileLog.Write($"[TrialRegistry] GrantIfFirstArrival: GRANTED a {trialLength.TotalDays:0}-day Pro trial to a first-seen account (no subject logged), ending {expires:O}");
                 return new TrialDecision(TrialOutcome.Active, expires);
             }
             catch (DbUpdateException)
@@ -353,15 +368,21 @@ public sealed class TrialRegistry
                 // non-single-writer deployment - the in-process lock above does not cover those). One trial per
                 // account is the rule, so the loser adopts the winner's row: re-read what the key enforced.
                 // This is not a fallback that hides a problem - the primary key is the source of truth and we
-                // are reading back the value it enforced. A still-absent row would be a genuine failure, so it
-                // re-throws rather than granting again.
+                // are reading back the value it enforced.
+                //
+                // A still-absent row means it was NOT a race: the database refused the insert itself (Entity
+                // Framework wraps every provider failure during SaveChanges in DbUpdateException). Nothing was
+                // granted and we do not know what covers this account, so the answer is UNKNOWN - the same
+                // retry as any other write failure below - never a throw (this type does not throw) and never a
+                // second grant. Website Black review, finding 1.
                 var winner = Evaluate(subject, nowUtc);
-                if (winner.Outcome != TrialOutcome.None)
+                if (winner.Outcome == TrialOutcome.Active)
                 {
                     FileLog.Write("[TrialRegistry] GrantIfFirstArrival: lost a grant race, adopting the trial the winner wrote");
                     return winner;
                 }
-                throw;
+                FileLog.Write($"[TrialRegistry] GrantIfFirstArrival: WRITE FAILED (insert refused, re-read answered {winner.Outcome}) - answering UNKNOWN, which must be retried");
+                return new TrialDecision(TrialOutcome.Unknown);
             }
             catch (Exception ex)
             {

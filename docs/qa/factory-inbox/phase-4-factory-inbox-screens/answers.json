@@ -1,0 +1,754 @@
+{
+  "factory-inbox-list": {
+    "request": "GET /gateway/factory/inbox",
+    "status": 200,
+    "body": {
+      "count": 5,
+      "factories": [
+        {
+          "factory": "booking",
+          "title": "Booking",
+          "row": {
+            "line": "Move Friday's shoot to Monday.",
+            "waitingLine": "All dealt with",
+            "badge": "Declined",
+            "tone": "red"
+          },
+          "waiting": 0,
+          "lastMessage": {
+            "id": "cfd9cd84-96f6-4009-98aa-b360a956adaa",
+            "factory": "booking",
+            "text": "Move Friday's shoot to Monday.",
+            "rawText": null,
+            "note": "none",
+            "noteLabel": "",
+            "source": "typed",
+            "surface": "phone",
+            "sentAtUtc": "2026-11-06T04:01:30.6381901Z",
+            "state": "decided",
+            "stateLabel": "Declined",
+            "mergedInto": null,
+            "links": [],
+            "bundleId": "eb631105-17a0-4e72-b36c-ac87bd002c3c",
+            "decision": {
+              "kind": "declined",
+              "label": "Declined",
+              "why": "The client's contract fixes Friday; moving it breaks the contract.",
+              "sessionId": null,
+              "todoId": null,
+              "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+              "decidedAtUtc": "2026-11-06T04:08:30Z"
+            },
+            "trail": [
+              {
+                "step": "sent",
+                "label": "Sent from the phone",
+                "atUtc": "2026-11-06T04:01:30.6381901Z"
+              },
+              {
+                "step": "received",
+                "label": "Received by the Secretary",
+                "atUtc": "2026-11-06T04:03:30Z"
+              },
+              {
+                "step": "with-boss",
+                "label": "Handed to the Boss",
+                "atUtc": "2026-11-06T04:04:30Z"
+              },
+              {
+                "step": "decided",
+                "label": "Declined: The client's contract fixes Friday; moving it breaks the contract.",
+                "atUtc": "2026-11-06T04:08:30Z"
+              }
+            ],
+            "tone": "red",
+            "sourceLabel": "Typed"
+          }
+        },
+        {
+          "factory": "managed-marketing",
+          "title": "Managed Marketing",
+          "row": {
+            "line": "Love the new thumbnails.",
+            "waitingLine": "1 waiting for a decision",
+            "badge": "With the Boss",
+            "tone": "amber"
+          },
+          "waiting": 1,
+          "lastMessage": {
+            "id": "a29ff10f-8270-48a6-a5b6-de207fb56ac7",
+            "factory": "managed-marketing",
+            "text": "Love the new thumbnails.",
+            "rawText": null,
+            "note": "good",
+            "noteLabel": "Good",
+            "source": "typed",
+            "surface": "phone",
+            "sentAtUtc": "2026-11-06T04:01:30.627788Z",
+            "state": "with-boss",
+            "stateLabel": "With the Boss",
+            "mergedInto": null,
+            "links": [],
+            "bundleId": "082e6112-2686-4773-b2a0-78982696ca0c",
+            "decision": null,
+            "trail": [
+              {
+                "step": "sent",
+                "label": "Sent from the phone",
+                "atUtc": "2026-11-06T04:01:30.627788Z"
+              },
+              {
+                "step": "received",
+                "label": "Received by the Secretary",
+                "atUtc": "2026-11-06T04:03:30Z"
+              },
+              {
+                "step": "with-boss",
+                "label": "Handed to the Boss",
+                "atUtc": "2026-11-06T04:04:30Z"
+              }
+            ],
+            "tone": "amber",
+            "sourceLabel": "Typed"
+          }
+        },
+        {
+          "factory": "newsletter",
+          "title": "Newsletter",
+          "row": {
+            "line": "Draft next week's issue around the three new case studies.",
+            "waitingLine": "1 waiting for a decision",
+            "badge": "Sent",
+            "tone": "amber"
+          },
+          "waiting": 1,
+          "lastMessage": {
+            "id": "d2650764-80f9-4996-80ad-ff50eb22f3b4",
+            "factory": "newsletter",
+            "text": "Draft next week's issue around the three new case studies.",
+            "rawText": null,
+            "note": "none",
+            "noteLabel": "",
+            "source": "typed",
+            "surface": "phone",
+            "sentAtUtc": "2026-11-06T04:01:30.6597281Z",
+            "state": "sent",
+            "stateLabel": "Sent",
+            "mergedInto": null,
+            "links": [],
+            "bundleId": null,
+            "decision": null,
+            "trail": [
+              {
+                "step": "sent",
+                "label": "Sent from the phone",
+                "atUtc": "2026-11-06T04:01:30.6597281Z"
+              }
+            ],
+            "tone": "amber",
+            "sourceLabel": "Typed"
+          }
+        },
+        {
+          "factory": "private",
+          "title": "Private",
+          "row": {
+            "line": "No messages yet",
+            "waitingLine": null,
+            "badge": "No messages",
+            "tone": "grey"
+          },
+          "waiting": 0,
+          "lastMessage": null
+        },
+        {
+          "factory": "website-factory",
+          "title": "Website Factory",
+          "row": {
+            "line": "The contact form on the pricing page sends nothing.",
+            "waitingLine": "1 waiting for a decision",
+            "badge": "With the Boss",
+            "tone": "amber"
+          },
+          "waiting": 1,
+          "lastMessage": {
+            "id": "6625f4a9-9269-48f4-8272-8184e57d498d",
+            "factory": "website-factory",
+            "text": "The contact form on the pricing page sends nothing.",
+            "rawText": null,
+            "note": "bad",
+            "noteLabel": "Bad",
+            "source": "typed",
+            "surface": "phone",
+            "sentAtUtc": "2026-11-06T04:01:30.6336727Z",
+            "state": "with-boss",
+            "stateLabel": "With the Boss",
+            "mergedInto": null,
+            "links": [],
+            "bundleId": "8745ef5f-272e-458f-91f8-a0abf6c77a50",
+            "decision": null,
+            "trail": [
+              {
+                "step": "sent",
+                "label": "Sent from the phone",
+                "atUtc": "2026-11-06T04:01:30.6336727Z"
+              },
+              {
+                "step": "received",
+                "label": "Received by the Secretary",
+                "atUtc": "2026-11-06T04:03:30Z"
+              },
+              {
+                "step": "with-boss",
+                "label": "Handed to the Boss",
+                "atUtc": "2026-11-06T04:04:30Z"
+              }
+            ],
+            "tone": "amber",
+            "sourceLabel": "Typed"
+          }
+        }
+      ]
+    }
+  },
+  "managed-marketing-thread": {
+    "request": "GET /gateway/factory/managed-marketing/inbox",
+    "status": 200,
+    "body": {
+      "factory": "managed-marketing",
+      "title": "Managed Marketing",
+      "count": 3,
+      "messages": [
+        {
+          "id": "a29ff10f-8270-48a6-a5b6-de207fb56ac7",
+          "factory": "managed-marketing",
+          "text": "Love the new thumbnails.",
+          "rawText": null,
+          "note": "good",
+          "noteLabel": "Good",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.627788Z",
+          "state": "with-boss",
+          "stateLabel": "With the Boss",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "082e6112-2686-4773-b2a0-78982696ca0c",
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.627788Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "0b4b672b-e837-4ec9-8049-e6d0bbe8b5e5",
+          "factory": "managed-marketing",
+          "text": "Add a weekly video round-up.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.6203285Z",
+          "state": "decided",
+          "stateLabel": "To do",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "todo",
+            "label": "To do",
+            "why": null,
+            "sessionId": null,
+            "todoId": "a15f1cb5-70ac-4255-8728-55e20a0b27ac",
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:07:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.6203285Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Added to the factory's to-do list",
+              "atUtc": "2026-11-06T04:07:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "f33d7e01-a1bb-469c-9bc8-aa11d27fe0cf",
+          "factory": "managed-marketing",
+          "text": "The LinkedIn draft this morning is too salesy.",
+          "rawText": null,
+          "note": "bad",
+          "noteLabel": "Bad",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.5748645Z",
+          "state": "decided",
+          "stateLabel": "Delegated",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "delegated",
+            "label": "Delegated",
+            "why": null,
+            "sessionId": "a1b2c3d4-0000-4000-8000-000000000003",
+            "todoId": null,
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:06:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.5748645Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Delegated to session a1b2c3d4-0000-4000-8000-000000000003",
+              "atUtc": "2026-11-06T04:06:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        }
+      ]
+    }
+  },
+  "managed-marketing-summary": {
+    "request": "GET /gateway/factory/managed-marketing/inbox/summary",
+    "status": 200,
+    "body": {
+      "factory": "managed-marketing",
+      "sinceUtc": "2026-11-05T04:01:30.8988238Z",
+      "untilUtc": "2026-11-06T04:01:30.8988238Z",
+      "count": 3,
+      "line": "3 messages came in; 0 decisions made; 1 still waiting.",
+      "byDecision": [],
+      "items": [
+        {
+          "id": "f33d7e01-a1bb-469c-9bc8-aa11d27fe0cf",
+          "factory": "managed-marketing",
+          "text": "The LinkedIn draft this morning is too salesy.",
+          "rawText": null,
+          "note": "bad",
+          "noteLabel": "Bad",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.5748645Z",
+          "state": "decided",
+          "stateLabel": "Delegated",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "delegated",
+            "label": "Delegated",
+            "why": null,
+            "sessionId": "a1b2c3d4-0000-4000-8000-000000000003",
+            "todoId": null,
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:06:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.5748645Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Delegated to session a1b2c3d4-0000-4000-8000-000000000003",
+              "atUtc": "2026-11-06T04:06:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "0b4b672b-e837-4ec9-8049-e6d0bbe8b5e5",
+          "factory": "managed-marketing",
+          "text": "Add a weekly video round-up.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.6203285Z",
+          "state": "decided",
+          "stateLabel": "To do",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "todo",
+            "label": "To do",
+            "why": null,
+            "sessionId": null,
+            "todoId": "a15f1cb5-70ac-4255-8728-55e20a0b27ac",
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:07:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.6203285Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Added to the factory's to-do list",
+              "atUtc": "2026-11-06T04:07:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "a29ff10f-8270-48a6-a5b6-de207fb56ac7",
+          "factory": "managed-marketing",
+          "text": "Love the new thumbnails.",
+          "rawText": null,
+          "note": "good",
+          "noteLabel": "Good",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.627788Z",
+          "state": "with-boss",
+          "stateLabel": "With the Boss",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "082e6112-2686-4773-b2a0-78982696ca0c",
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.627788Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        }
+      ]
+    }
+  },
+  "booking-thread": {
+    "request": "GET /gateway/factory/booking/inbox",
+    "status": 200,
+    "body": {
+      "factory": "booking",
+      "title": "Booking",
+      "count": 1,
+      "messages": [
+        {
+          "id": "cfd9cd84-96f6-4009-98aa-b360a956adaa",
+          "factory": "booking",
+          "text": "Move Friday's shoot to Monday.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.6381901Z",
+          "state": "decided",
+          "stateLabel": "Declined",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "eb631105-17a0-4e72-b36c-ac87bd002c3c",
+          "decision": {
+            "kind": "declined",
+            "label": "Declined",
+            "why": "The client's contract fixes Friday; moving it breaks the contract.",
+            "sessionId": null,
+            "todoId": null,
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:08:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.6381901Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Declined: The client's contract fixes Friday; moving it breaks the contract.",
+              "atUtc": "2026-11-06T04:08:30Z"
+            }
+          ],
+          "tone": "red",
+          "sourceLabel": "Typed"
+        }
+      ]
+    }
+  },
+  "send-to-archived-factory": {
+    "request": "POST /gateway/factory/old-shop/inbox",
+    "status": 409,
+    "body": {
+      "error": "'old-shop' is archived, so it takes no messages. Restore it from the Factories screen first.",
+      "code": "factory_archived"
+    }
+  },
+  "send-with-the-machine-token": {
+    "request": "POST /gateway/factory/booking/inbox",
+    "status": 403,
+    "body": {
+      "error": "Only the owner's phone or Cockpit leaves a message in a factory inbox.",
+      "code": "owner_device_required"
+    }
+  },
+  "managed-marketing-thread-after-the-run": {
+    "request": "GET /gateway/factory/managed-marketing/inbox",
+    "status": 200,
+    "body": {
+      "factory": "managed-marketing",
+      "title": "Managed Marketing",
+      "count": 4,
+      "messages": [
+        {
+          "id": "3338b987-114b-4925-93bf-fa2f79f1ff4c",
+          "factory": "managed-marketing",
+          "text": "Please make the round-up five minutes at most.",
+          "rawText": null,
+          "note": "bad",
+          "noteLabel": "Bad",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:47.8419388Z",
+          "state": "sent",
+          "stateLabel": "Sent",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": null,
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:47.8419388Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "a29ff10f-8270-48a6-a5b6-de207fb56ac7",
+          "factory": "managed-marketing",
+          "text": "Love the new thumbnails.",
+          "rawText": null,
+          "note": "good",
+          "noteLabel": "Good",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.627788Z",
+          "state": "with-boss",
+          "stateLabel": "With the Boss",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "082e6112-2686-4773-b2a0-78982696ca0c",
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.627788Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "0b4b672b-e837-4ec9-8049-e6d0bbe8b5e5",
+          "factory": "managed-marketing",
+          "text": "Add a weekly video round-up.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.6203285Z",
+          "state": "decided",
+          "stateLabel": "To do",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "todo",
+            "label": "To do",
+            "why": null,
+            "sessionId": null,
+            "todoId": "a15f1cb5-70ac-4255-8728-55e20a0b27ac",
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:07:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.6203285Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Added to the factory's to-do list",
+              "atUtc": "2026-11-06T04:07:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "f33d7e01-a1bb-469c-9bc8-aa11d27fe0cf",
+          "factory": "managed-marketing",
+          "text": "The LinkedIn draft this morning is too salesy.",
+          "rawText": null,
+          "note": "bad",
+          "noteLabel": "Bad",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T04:01:30.5748645Z",
+          "state": "decided",
+          "stateLabel": "Delegated",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": "fa813651-6538-40a4-a709-21ed7bfcab30",
+          "decision": {
+            "kind": "delegated",
+            "label": "Delegated",
+            "why": null,
+            "sessionId": "a1b2c3d4-0000-4000-8000-000000000003",
+            "todoId": null,
+            "decidedBySessionId": "b0550000-0000-4000-8000-000000000001",
+            "decidedAtUtc": "2026-11-06T04:06:30Z"
+          },
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T04:01:30.5748645Z"
+            },
+            {
+              "step": "received",
+              "label": "Received by the Secretary",
+              "atUtc": "2026-11-06T04:03:30Z"
+            },
+            {
+              "step": "with-boss",
+              "label": "Handed to the Boss",
+              "atUtc": "2026-11-06T04:04:30Z"
+            },
+            {
+              "step": "decided",
+              "label": "Delegated to session a1b2c3d4-0000-4000-8000-000000000003",
+              "atUtc": "2026-11-06T04:06:30Z"
+            }
+          ],
+          "tone": "ok",
+          "sourceLabel": "Typed"
+        }
+      ]
+    }
+  }
+}

@@ -6,6 +6,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Inbox;
 using CcDirector.Gateway.History;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -81,22 +82,8 @@ internal static class FactoryInboxEndpoints
         {
             FileLog.Write($"[FactoryInboxEndpoints] POST {OwnerPrefix}/{factory}/inbox: identity={AuthMiddleware.IdentityKind(ctx)}");
             if (parts.ResolveTenant(ctx) is not { } tenant) return NoTenant();
-            var device = AuthMiddleware.AuthenticatedDevice(ctx);
-            if (AuthMiddleware.CallingSession(ctx) is { } session)
-            {
-                FileLog.Write($"[FactoryInboxEndpoints] send REFUSED to session {session.SessionId:D}");
-                return Error(403, "session_key_out_of_scope",
-                    "a session key may not leave a message in a factory inbox; only the owner's phone or Cockpit leaves one.");
-            }
-            var surface = SessionOriginSurfaces.FromDeviceType(device?.DeviceType);
-            if (device is null || surface == SessionOriginSurfaces.Unknown)
-                return Error(403, "owner_device_required", "Only the owner's phone or Cockpit leaves a message in a factory inbox.");
-
-            if (Registered(parts, tenant, factory, out var registered) is { } missing) return missing;
-            if (registered!.ArchivedAtUtc is not null)
-                return Error(409, "factory_archived", $"'{registered.Factory}' is archived, so it takes no messages. Restore it from the Factories screen first.");
-            if (string.IsNullOrWhiteSpace(registered.BossSeat))
-                return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a message left there.");
+            if (RefuseOwnerSend(ctx, tenant, factory, parts.Factories, out var owner) is { } refusedSend) return refusedSend;
+            var (registered, device, surface) = owner!;
 
             SendBody? body;
             try
@@ -120,7 +107,7 @@ internal static class FactoryInboxEndpoints
                     registered.Factory, body.Text,
                     Note: string.IsNullOrWhiteSpace(body.Note) ? FactoryInboxWords.Notes.None : body.Note.Trim().ToLowerInvariant(),
                     Source: string.IsNullOrWhiteSpace(body.Source) ? FactoryInboxWords.Sources.Typed : body.Source.Trim().ToLowerInvariant(),
-                    Surface: surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit,
+                    Surface: surface,
                     SentBy: device.DeviceId,
                     NowUtc: parts.NowUtc(),
                     RawText: body.RawText), ct);
@@ -146,10 +133,14 @@ internal static class FactoryInboxEndpoints
                 .Select(f =>
                 {
                     var c = counts.TryGetValue(f.Factory, out var found) ? found : null;
+                    var lastDecision = c is not null && decisions.TryGetValue(c.Last.Id, out var ld) ? ld : null;
                     return new
                     {
                         factory = f.Factory,
                         title = f.Title,
+                        // The row's words and tone (phase 4): the screens print these and decide nothing.
+                        row = FactoryInboxFold.Row(c?.Waiting ?? 0, c?.Last, lastDecision),
+
                         waiting = c?.Waiting ?? 0,
                         lastMessage = c is null ? null : FactoryInboxFold.Message(c.Last,
                             decisions.TryGetValue(c.Last.Id, out var d) ? d : null, HandedOf(handed, c.Last), WaitingOf(parts, tenant, f.Factory)),
@@ -400,12 +391,50 @@ internal static class FactoryInboxEndpoints
         return ended;
     }
 
+    /// <summary>Who leaves a message, and where it goes, once the owner's send has passed every check.</summary>
+    internal sealed record OwnerSend(RegisteredFactoryDto Factory, DeviceCredentialIdentity Device, string Surface);
+
+    /// <summary>
+    /// THE OWNER'S SEND CHECKS, ONCE: the typed send and the spoken one (<see cref="FactoryInboxVoiceEndpoints"/>) refuse in
+    /// the same words. A session key and the machine token are refused; only the owner's phone or Cockpit leaves a message,
+    /// and only in a registered factory that is not archived and names a Boss seat. Null on success with
+    /// <paramref name="owner"/> set; otherwise the refusal.
+    /// </summary>
+    internal static IResult? RefuseOwnerSend(HttpContext ctx, TenantId tenant, string factory,
+        Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> factories, out OwnerSend? owner)
+    {
+        owner = null;
+        var device = AuthMiddleware.AuthenticatedDevice(ctx);
+        if (AuthMiddleware.CallingSession(ctx) is { } session)
+        {
+            FileLog.Write($"[FactoryInboxEndpoints] send REFUSED to session {session.SessionId:D}");
+            return Error(403, "session_key_out_of_scope",
+                "a session key may not leave a message in a factory inbox; only the owner's phone or Cockpit leaves one.");
+        }
+        var surface = SessionOriginSurfaces.FromDeviceType(device?.DeviceType);
+        if (device is null || surface == SessionOriginSurfaces.Unknown)
+            return Error(403, "owner_device_required", "Only the owner's phone or Cockpit leaves a message in a factory inbox.");
+
+        if (Registered(factories, tenant, factory, out var registered) is { } missing) return missing;
+        if (registered!.ArchivedAtUtc is not null)
+            return Error(409, "factory_archived", $"'{registered.Factory}' is archived, so it takes no messages. Restore it from the Factories screen first.");
+        if (string.IsNullOrWhiteSpace(registered.BossSeat))
+            return Error(409, "factory_has_no_boss", $"'{registered.Factory}' names no Boss seat, so nobody would read a message left there.");
+        owner = new OwnerSend(registered, device,
+            surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit);
+        return null;
+    }
+
     private static IResult? Registered(Parts parts, TenantId tenant, string factory, out RegisteredFactoryDto? registered)
+        => Registered(parts.Factories, tenant, factory, out registered);
+
+    private static IResult? Registered(Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> factories, TenantId tenant, string factory,
+        out RegisteredFactoryDto? registered)
     {
         registered = null;
         if (!Factory.FactoryNames.TryFactory(factory, out var folded, out var badName))
             return Error(400, "bad_factory", badName ?? $"'{factory}' is not one spelling of a factory id.");
-        registered = parts.Factories(tenant).FirstOrDefault(f => string.Equals(f.Factory, folded, StringComparison.OrdinalIgnoreCase));
+        registered = factories(tenant).FirstOrDefault(f => string.Equals(f.Factory, folded, StringComparison.OrdinalIgnoreCase));
         return registered is null
             ? Error(404, "factory_not_found", $"'{folded}' is not a factory of this account.")
             : null;
@@ -508,7 +537,7 @@ internal static class FactoryInboxEndpoints
 
     private static IResult NoTenant() => Error(403, "no_tenant", "No account is bound to this request.");
 
-    private static IResult Error(int status, string code, string error)
+    internal static IResult Error(int status, string code, string error)
         => Results.Json(new { error, code }, statusCode: status);
 
     private sealed class SendBody
