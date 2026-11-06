@@ -2942,7 +2942,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Issue #3392: the session row its Director last pushed says when a run's prompt never reached the agent.
             // Assigned further down this constructor, before the first sweep or request can call this.
             lastKnownSession: (tenant, directorId, sessionId) => PushedSessions.GetLastKnown(tenant, directorId).Sessions
-                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)));
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)),
+            // Factory Failures: a run waiting on the workers it started is not waiting on a person. Read the same way.
+            controlsALiveSession: (tenant, sessionId) => GatewayEndpoints.ControlsALiveSession(Registry, PushedSessions, tenant, sessionId));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
@@ -3038,6 +3040,8 @@ public sealed class GatewayHost : IAsyncDisposable
             definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
             // A check-started seat is told who it is from the registration, as a scheduled run is (Factory Failures).
             registeredFactoryOf: (tenant, factory) => FactoryRegistry.Find(tenant, factory),
+            // A check-started session is a run that owes its report, in the same store as a scheduled run's (Factory Failures).
+            recordCheckStartedRun: (tenant, triggerId, run) => _cronRuns.AppendFor(tenant, triggerId, run),
             // Mail Desk phase 1: a Mail Desk screening check of an account Mail Desk is off for is refused, unrecorded.
             mailDeskOn: MailDeskSwitch.IsOn,
             // Mail Desk phase 3: every Mail Desk report is handed to the screening, never decided on its count.

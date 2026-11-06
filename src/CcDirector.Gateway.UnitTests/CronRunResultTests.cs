@@ -40,6 +40,8 @@ public sealed class CronRunResultTests : IDisposable
     private readonly Dictionary<(string Director, string Name), List<string>> _named = new();
     // The session rows each Director last pushed, by (Director, session) (issue #3392).
     private readonly Dictionary<(string Director, string SessionId), SessionDto> _sessions = new();
+    // The sessions that control a live session - a Boss waiting on the workers it started (Factory Failures).
+    private readonly HashSet<string> _controllers = new(StringComparer.Ordinal);
     // Every schedule last status the service corrected: (schedule, its fire, the status).
     private readonly List<(string JobId, DateTime FiredUtc, string Status)> _settled = new();
 
@@ -89,7 +91,8 @@ public sealed class CronRunResultTests : IDisposable
             mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
                 new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
                 _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend),
-            lastKnownSession: (_, director, sid) => _sessions.TryGetValue((director, sid), out var s) ? s : null);
+            lastKnownSession: (_, director, sid) => _sessions.TryGetValue((director, sid), out var s) ? s : null,
+            controlsALiveSession: (_, sid) => _controllers.Contains(sid));
         return (service, runs, activity);
     }
 
@@ -445,6 +448,207 @@ public sealed class CronRunResultTests : IDisposable
         service.Report(TenantId.Local, "s1", "ok", null);
 
         Assert.Equal(CronRunProblems.PromptNotDelivered, runs.List("cj_a").Single().Problem);
+    }
+
+    // ---- Factory Failures, 6 November 2026: a run waiting on a person without reporting ----------------------
+
+    private static readonly DateTime Fired = new(2026, 11, 6, 3, 31, 38, DateTimeKind.Utc);
+
+    private static SessionDto Waiting(DateTime since, string state = "WaitingForInput") => new()
+    {
+        SessionId = "s1", Status = "Running", ActivityState = state, WaitingSince = since, LastActivityAt = since,
+    };
+
+    [Fact]
+    public void IdleWithoutReportProblem_WaitingTwentyMinutes_IsAProblem()
+    {
+        var run = Started("s1", Fired);
+
+        var problem = CronRunResultFold.IdleWithoutReportProblem(run, Waiting(Fired.AddSeconds(4)), Fired.AddSeconds(4).AddMinutes(20),
+            CronRunResultFold.IdleWithoutReportLimit);
+
+        Assert.NotNull(problem);
+        Assert.Equal(CronRunProblems.WaitedWithoutReporting, problem!.Kind);
+        Assert.Equal("its session waited on a person for 20 minutes without reporting - open the session to see what it asked", problem.Reason);
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_WaitingNineteenMinutes_IsNull()
+    {
+        var problem = CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), Waiting(Fired),
+            Fired.AddMinutes(19).AddSeconds(59), CronRunResultFold.IdleWithoutReportLimit);
+
+        Assert.Null(problem);
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_Working_IsNull()
+    {
+        var working = Waiting(Fired, "Working");
+
+        Assert.Null(CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), working, Fired.AddHours(3),
+            CronRunResultFold.IdleWithoutReportLimit));
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_Reported_IsNull()
+    {
+        var run = Started("s1", Fired);
+        run.Result = CronRunResults.Ok;
+
+        Assert.Null(CronRunResultFold.IdleWithoutReportProblem(run, Waiting(Fired), Fired.AddHours(3),
+            CronRunResultFold.IdleWithoutReportLimit));
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_IdleWithNoOutputForTwentyMinutes_IsAProblem()
+    {
+        var idle = Waiting(Fired, "Idle");
+        idle.WaitingSince = null;
+
+        var problem = CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), idle, Fired.AddMinutes(25),
+            CronRunResultFold.IdleWithoutReportLimit);
+
+        Assert.Equal("its session sat idle for 25 minutes without reporting - open the session to see what it asked", problem!.Reason);
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_ASessionWaitingOnTheWorkersItStarted_IsNull()
+    {
+        // A Boss is told to end its turn and wait until the sessions it started come back: that is not waiting on a person.
+        Assert.Null(CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), Waiting(Fired), Fired.AddHours(2),
+            CronRunResultFold.IdleWithoutReportLimit, controlsALiveSession: true));
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_AnEndedSession_IsNull_TheEndingRuleDecidesIt()
+    {
+        var ended = Waiting(Fired);
+        ended.Status = "Exited";
+
+        Assert.Null(CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), ended, Fired.AddHours(2),
+            CronRunResultFold.IdleWithoutReportLimit));
+    }
+
+    [Fact]
+    public void Sweep_ARunWaitingOnAPersonForTwentyMinutes_IsAProblemInsideItsShift_AndItsSessionStaysOpen()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "forward-engineer");
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(21);
+
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+
+        var run = runs.List("cj_a").Single();
+        Assert.Equal((CronRunResults.Problem, CronRunProblems.WaitedWithoutReporting), (run.Result, run.Problem));
+        Assert.Equal("Running", _sessions[("dir-1", "s1")].Status);
+    }
+
+    [Fact]
+    public void Sweep_ACheckStartedRunLeftWaiting_TurnsItsFactoryFailing()
+    {
+        // End to end (Factory Failures, 6 November 2026): the CPMC forward-engineer, started by its check at 22:31, asked
+        // for its brief and waited all night while its factory read RUNNING. Recorded as the trigger records it, swept
+        // by the same sweep as a scheduled run, its failed activity row now turns the factory FAILING.
+        var (service, runs, activity) = Build();
+        var trigger = new CcDirector.Gateway.Data.Entities.TriggerEntity
+        {
+            Name = "cpmc-forward-engineer", Factory = "cpmc",
+            Seat = "forward-engineer", FactoryAgent = "forward-engineer", Machine = "devlinux", DefinitionVersion = 6,
+        };
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        var run = CcDirector.Gateway.Factory.Triggers.TriggerService.CheckStartedRun(trigger, "942c6dba", "dir-1", "devlinux",
+            fired, "cpmc-forward-engineer - 22:31", 6);
+        runs.AppendFor(TenantId.Local, "7a1c0000-0000-4000-8000-000000000109", run);
+        _sessions[("dir-1", "942c6dba")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(25);
+
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+
+        var failed = Assert.Single(activity.Query(TenantId.Local, outcome: FactoryActivityOutcome.Failed).Rows);
+        Assert.Equal(("cpmc", "forward-engineer", "cpmc-forward-engineer"), (failed.Factory, failed.FactoryAgent, failed.Subject));
+        var cpmc = new RegisteredFactoryDto
+        {
+            Factory = "cpmc", Title = "CPMC", Computer = "devlinux", BossSeat = "boss",
+            Seats = new() { new RegisteredFactorySeatDto { Id = "boss", Name = "Boss", Role = "Boss" },
+                            new RegisteredFactorySeatDto { Id = "forward-engineer", Name = "Forward Engineer", Role = "Engineer" } },
+        };
+        var rows = new List<FactoryActivityDto> { failed };
+        var folded = new CcDirector.Gateway.Factory.FactoryFoldInputs(rows, false, false, Array.Empty<FactoryActivityDto>(),
+            Array.Empty<FactoryActivityDto>(), Array.Empty<CcDirector.Gateway.Factory.FactoryTriggerFacts>(), new HashSet<string>(),
+            new CcDirector.Gateway.Factory.FactoryWindow(CcDirector.Gateway.Factory.FactoryAgentsFold.WindowLast7d, _now.AddDays(-7), _now),
+            TimeZoneInfo.Utc, _now);
+        var screen = CcDirector.Gateway.Factory.FactoriesScreenFold.List(new CcDirector.Gateway.Factory.FactoriesScreenInputs(
+            new[] { cpmc }, folded, Array.Empty<CronJobDto>(), new Dictionary<string, GoalNumberDto>(),
+            Array.Empty<FactoryActivityDto>(), new Dictionary<string, IReadOnlyList<CronRunRecord>>()));
+        Assert.Equal("FAILING", screen.Rows.Single().StatusWord);
+    }
+
+    [Fact]
+    public void IdleWithoutReportProblem_AMenuOpenForTwentyMinutes_IsAProblem()
+    {
+        // An update offer or a folder-trust menu the agent put up is the same stall: the Director's waiting clock covers it.
+        Assert.NotNull(CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), Waiting(Fired, "MenuOpen"),
+            Fired.AddMinutes(20), CronRunResultFold.IdleWithoutReportLimit));
+    }
+
+    [Fact]
+    public void Report_ARunThatWaitedThenReportsOk_KeepsTheProblemWithTheReport_AndClosesItsSession()
+    {
+        // The owner answered the seat, it finished and reported ok: the problem stays on the record, its report is added,
+        // and its session closes - a check-started session that stayed open would hold its trigger's lock for good.
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "forward-engineer");
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(21);
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+        _now = fired.AddMinutes(40);
+
+        var answer = service.Report(TenantId.Local, "s1", "ok", "the owner answered; mail sent");
+
+        var response = answer.Answer!;
+        Assert.True(response.CloseSession);
+        Assert.Contains("it waited on a person without reporting - but its work is done", response.Text);
+        var run = runs.List("cj_a").Single();
+        Assert.Equal((CronRunResults.Problem, CronRunProblems.WaitedWithoutReporting), (run.Result, run.Problem));
+        Assert.EndsWith("ok: the owner answered; mail sent", run.ResultReason);
+    }
+
+    [Fact]
+    public void Report_ARunThatWaitedThenReportsAProblem_StaysOpen()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "forward-engineer");
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(21);
+        service.Sweep(TenantId.Local);
+
+        var response = service.Report(TenantId.Local, "s1", "problem", "no brief").Answer!;
+
+        Assert.False(response.CloseSession);
+        Assert.Equal(CronRunProblems.WaitedWithoutReporting, runs.List("cj_a").Single().Problem);
+    }
+
+    [Fact]
+    public void Sweep_ABossWaitingOnItsWorkers_IsLeftPending()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "boss");
+        var fired = TorontoTime(2026, 11, 5, 9);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddMinutes(2));
+        _controllers.Add("s1");
+        _now = fired.AddMinutes(90);
+
+        Assert.Equal(0, service.Sweep(TenantId.Local));
+        Assert.Equal(CronRunResults.Pending, runs.List("cj_a").Single().Result);
     }
 
     // ---- issue #3907: a scheduled session whose seat is at its limit ------------------------------------------

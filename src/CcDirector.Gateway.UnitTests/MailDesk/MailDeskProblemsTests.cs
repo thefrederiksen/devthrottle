@@ -62,7 +62,7 @@ public sealed class MailDeskProblemsTests : IDisposable
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
             settleLastStatus: (_, _, _) => false,
             mailDesk: new MailDeskProblemSource(_switch.IsOn, _channels, _checks, _ => _spend),
-            lastKnownSession: (_, _, _) => null);
+            lastKnownSession: (_, _, _) => null, controlsALiveSession: (_, _) => false);
     }
 
     public void Dispose() => _h.Dispose();

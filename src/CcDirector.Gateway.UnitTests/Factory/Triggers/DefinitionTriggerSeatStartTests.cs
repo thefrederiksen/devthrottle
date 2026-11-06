@@ -46,7 +46,7 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
             nowUtc: () => Now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(_definitions, tenant, factory),
-            registeredFactoryOf: (tenant, factory) => new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Find(tenant, factory), mailDeskOn: _ => false);
+            registeredFactoryOf: (tenant, factory) => new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Find(tenant, factory), recordCheckStartedRun: (_, _, _) => { }, mailDeskOn: _ => false);
 
         // Saved and published as the owner, into an account where the factory was never registered.
         var content = DefinitionFixture.Valid();
@@ -86,14 +86,15 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
         Assert.Equal(("ClaudeCode", "claude-sonnet-5-5", Factory), (request.Agent, request.Model, request.Factory));
         Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
         Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
-        // Opened from the registration the publish wrote, with the brief of version 1 and the kit.
+        // Opened from the registration the publish wrote, with the brief of version 1, the kit and the report instruction.
         Assert.Contains("This run was started by the check '" + trigger.Name + "'.", request.PrePrompt);
         Assert.Contains("--- your brief, definition version 1 ---", request.PrePrompt);
         Assert.Contains(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.KitSentence, request.PrePrompt);
         Assert.Contains(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.KitSentence + "\n\n"
                         + "The factory's goal is part of its definition. If it should change, "
                         + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.GoalChange
-                        + "\n\nNew mail: 2. from ada@example.com", request.PrePrompt);
+                        + "\n\nNew mail: 2. from ada@example.com\n\n"
+                        + CcDirector.Gateway.Running.ScheduledRunClosingInstruction.Text, request.PrePrompt);
         Assert.EndsWith(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
         // What the check found reaches the agent as check.json: the outreach seat's first start, from version 1.
         var check = request.FactoryCheck!;

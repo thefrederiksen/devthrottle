@@ -70,7 +70,7 @@ public sealed class BackupMachinesClaimTests : IDisposable
             directorRunsDefinitionChecks: (_, _) => true,
             machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null,
-            registeredFactoryOf: (_, factory) => _published.TryGetValue(factory, out var r) ? RegisteredAsPublished.Of(r) : null, mailDeskOn: _ => false);
+            registeredFactoryOf: (_, factory) => _published.TryGetValue(factory, out var r) ? RegisteredAsPublished.Of(r) : null, recordCheckStartedRun: (_, _, _) => { }, mailDeskOn: _ => false);
 
     /// <summary>A definition trigger as a publish writes it, on <see cref="MachineA"/> with the backups given.</summary>
     private Guid AddTrigger(params string[] backups)

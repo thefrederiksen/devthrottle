@@ -46,6 +46,7 @@ public sealed class CronRunResultService
     private readonly Func<string, DateTime, string, bool> _settleLastStatus;
     private readonly MailDesk.MailDeskProblemSource _mailDesk;
     private readonly Func<TenantId, string, string, SessionDto?> _lastKnownSession;
+    private readonly Func<TenantId, string, bool> _controlsALiveSession;
 
     /// <summary>
     /// The least time a start whose outcome was not known is given for its session to appear, however near the end of
@@ -77,6 +78,9 @@ public sealed class CronRunResultService
     /// <param name="lastKnownSession">The session row a Director last pushed - (account, Director id, session id) - or null
     /// when it reported none: how a run whose prompt never reached the agent is found (issue #3392). REQUIRED, so a
     /// wiring line that forgot it fails to compile rather than leaving every such run reading as started.</param>
+    /// <param name="controlsALiveSession">Whether a session (account, session id) controls a live session - a worker it
+    /// is waiting on - so a run waiting on its own workers is not counted as waiting on a person
+    /// (<see cref="CronRunResultFold.IdleWithoutReportProblem"/>).</param>
     public CronRunResultService(
         CronRunHistoryStore runs,
         Func<string, CronJobDto?> jobById,
@@ -89,8 +93,10 @@ public sealed class CronRunResultService
         Func<TenantId, string, string, IReadOnlyList<string>> scheduleSessionsByName,
         Func<string, DateTime, string, bool> settleLastStatus,
         MailDesk.MailDeskProblemSource mailDesk,
-        Func<TenantId, string, string, SessionDto?> lastKnownSession)
+        Func<TenantId, string, string, SessionDto?> lastKnownSession,
+        Func<TenantId, string, bool> controlsALiveSession)
     {
+        _controlsALiveSession = controlsALiveSession ?? throw new ArgumentNullException(nameof(controlsALiveSession));
         _lastKnownSession = lastKnownSession ?? throw new ArgumentNullException(nameof(lastKnownSession));
         _mailDesk = mailDesk ?? throw new ArgumentNullException(nameof(mailDesk));
         _scheduleSessionsByName = scheduleSessionsByName ?? throw new ArgumentNullException(nameof(scheduleSessionsByName));
@@ -154,7 +160,8 @@ public sealed class CronRunResultService
         }
 
         var job = _jobById(found.JobId);
-        var name = job?.Name ?? found.JobId;
+        // A check-started run has no schedule; its run carries the trigger's name.
+        var name = job?.Name ?? found.Run.JobName ?? found.JobId;
         // THE SCHEDULE'S CLOSE-ITSELF SETTING DECIDES whether an ok run closes its session, read as the schedule has
         // it now. A schedule deleted while its run was going has no setting left to read; its run closes, as every
         // schedule does unless its owner switched that off.
@@ -182,7 +189,7 @@ public sealed class CronRunResultService
             if (written.Applied)
             {
                 TryWriteOwedActivity(tenant, runId);
-                return Answer(found.JobId, name, written.Run, alreadyRecorded: false, closesItself);
+                return Answer(found.JobId, name, written.Run, alreadyRecorded: false, closesItself, reportedOk: wanted == CronRunResults.Ok);
             }
             run = written.Run;
         }
@@ -219,13 +226,15 @@ public sealed class CronRunResultService
                 ? new ResultChange(CronRunResults.Ok, null, line, null)
                 : new ResultChange(CronRunResults.Problem, CronRunProblems.Reported, line, null), null);
 
-        if (run.Result == CronRunResults.Problem && run.Problem == CronRunProblems.RanPastShift
+        if (run.Result == CronRunResults.Problem && run.Problem is CronRunProblems.RanPastShift or CronRunProblems.WaitedWithoutReporting
             && !(run.ResultReason ?? "").Contains(SessionReportMarker, StringComparison.Ordinal))
         {
-            // The Gateway already recorded that this run went past its shift. That stays true whatever the run says now,
-            // so the report is added to the problem, once, rather than replacing it.
+            // The Gateway already recorded that this run went past its shift, or waited on a person without reporting.
+            // That stays true whatever the run says now, so the report is added to the problem, once, rather than
+            // replacing it. A run that waited is usually answered by the owner and then finishes: its late ok still
+            // closes its session (Answer), so a check-started run's session does not hold its trigger's lock for good.
             var combined = Truncate($"{run.ResultReason}{SessionReportMarker}{ReportWords(wanted, line)}");
-            return new Decision(new ResultChange(CronRunResults.Problem, CronRunProblems.RanPastShift, combined, run.ResultReason ?? ""), null);
+            return new Decision(new ResultChange(CronRunResults.Problem, run.Problem, combined, run.ResultReason ?? ""), null);
         }
 
         var same = wanted == CronRunResults.Ok
@@ -245,9 +254,13 @@ public sealed class CronRunResultService
     /// <summary>What an ok run's session is told when its schedule is set not to close itself.</summary>
     public const string StaysOpenBySetting = "This session stays open, because its schedule is set not to close itself.";
 
-    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded, bool closesItself)
+    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded,
+        bool closesItself, bool reportedOk = false)
     {
         var ok = stored.Result == CronRunResults.Ok;
+        // A run that waited on a person and then reported ok has done its work: the problem stays on the record, and its
+        // session closes as an ok run's does (Factory Failures).
+        var waitedThenOk = !alreadyRecorded && reportedOk && stored.Problem == CronRunProblems.WaitedWithoutReporting;
         var afterOk = closesItself ? "This session now closes itself." : StaysOpenBySetting;
         var text = (ok, alreadyRecorded) switch
         {
@@ -256,6 +269,10 @@ public sealed class CronRunResultService
             (false, true) => $"The problem on the run of {name} is already recorded. This session stays open for someone to look at.",
             _ when stored.Problem == CronRunProblems.RanPastShift =>
                 $"Recorded your report on the run of {name}. It stays a problem - it ran past its shift - so this session stays open for someone to look at.",
+            _ when waitedThenOk =>
+                $"Recorded your report on the run of {name}. It stays a problem - it waited on a person without reporting - but its work is done. {afterOk}",
+            _ when stored.Problem == CronRunProblems.WaitedWithoutReporting =>
+                $"Recorded your report on the run of {name}. It stays a problem - it waited on a person without reporting - so this session stays open for someone to look at.",
             _ => $"Recorded the problem on the run of {name}. This session stays open for someone to look at.",
         };
         return CronRunResultOutcome<CronRunResultResponse>.Ok(new CronRunResultResponse
@@ -265,7 +282,7 @@ public sealed class CronRunResultService
             JobName = name,
             // Read off what is STORED, never the word asked for: only a run whose result is ok closes - and only when
             // its schedule is set to close itself. A problem stays open whatever the setting.
-            CloseSession = ok && closesItself,
+            CloseSession = (ok || waitedThenOk) && closesItself,
             Text = text,
         });
     }
@@ -381,7 +398,10 @@ public sealed class CronRunResultService
             var session = string.IsNullOrWhiteSpace(p.Run.SessionId) || string.IsNullOrWhiteSpace(p.Run.TargetDirectorId)
                 ? null
                 : _lastKnownSession(tenant, p.Run.TargetDirectorId, p.Run.SessionId);
+            // A session waiting on a person, or idle, without reporting is told next, long before its shift ends.
             var problem = CronRunResultFold.PromptNotDeliveredProblem(p.Run, session)
+                ?? CronRunResultFold.IdleWithoutReportProblem(p.Run, session, now, CronRunResultFold.IdleWithoutReportLimit,
+                    session is not null && _controlsALiveSession(tenant, session.SessionId))
                 ?? CronRunResultFold.GatewayProblemFor(p.Run, ending,
                     CronRunEndingFold.TextOf(ending, p.Run.FiredUtc, endedUtc, now), shift, now);
             if (problem is null) continue;

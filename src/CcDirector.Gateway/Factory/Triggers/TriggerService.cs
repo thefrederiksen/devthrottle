@@ -121,6 +121,7 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly Func<TenantId, string, RegisteredFactoryDto?> _registeredFactoryOf;
+    private readonly Action<TenantId, string, CronRunRecord> _recordCheckStartedRun;
     private readonly Func<TenantId, bool> _mailDeskOn;
     private readonly MailDesk.MailDeskService? _mailDesk;
     // The Mail Desk starts whose screening is running right now on this Gateway (phase 3, section 2): a second report
@@ -152,6 +153,10 @@ public sealed class TriggerService
     /// <param name="registeredFactoryOf">The registration of a factory (by id) in the account, or null when it is not
     /// registered. A definition trigger's session is told who it is from it, as a scheduled run is; a seat with no
     /// registration is refused, never started without being told who it is and given its brief.</param>
+    /// <param name="recordCheckStartedRun">Where a definition trigger's started session is recorded as a run that owes
+    /// its report (<see cref="CronRunHistoryStore.AppendFor"/>): the account, the trigger's id as the run's job, and the
+    /// run. So the sweep, the failure reporter, the factory activity rows, FAILING and the 08:00 email apply to a
+    /// check-started run exactly as to a scheduled one.</param>
     /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
     /// A Mail Desk screening check reported for an account it is off for is refused before anything is recorded.</param>
     /// <param name="mailDesk">Where a Mail Desk start's report is handed (Mail Desk phase 3, section 2). Null in a
@@ -162,9 +167,11 @@ public sealed class TriggerService
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
         Func<TenantId, string, PublishedFactoryDefinition?> definitionOf,
-        Func<TenantId, string, RegisteredFactoryDto?> registeredFactoryOf, Func<TenantId, bool> mailDeskOn,
+        Func<TenantId, string, RegisteredFactoryDto?> registeredFactoryOf,
+        Action<TenantId, string, CronRunRecord> recordCheckStartedRun, Func<TenantId, bool> mailDeskOn,
         MailDesk.MailDeskService? mailDesk = null)
     {
+        _recordCheckStartedRun = recordCheckStartedRun ?? throw new ArgumentNullException(nameof(recordCheckStartedRun));
         _registeredFactoryOf = registeredFactoryOf ?? throw new ArgumentNullException(nameof(registeredFactoryOf));
         _mailDesk = mailDesk;
         _startLifetime = startLifetime;
@@ -634,6 +641,11 @@ public sealed class TriggerService
         {
             recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now, machine);
             what = $"Found session {found.SessionId}, named {name}, from the start of {trigger.Name} whose outcome was not known, and took it as the lock";
+            // The adopted session started from the check, so it owes its report like one whose start came back at once.
+            if (recorded is not null && trigger.IsDefinitionCheck)
+                RecordCheckStartedRun(tenant, trigger.Id, CheckStartedRun(trigger, found.SessionId,
+                    string.IsNullOrWhiteSpace(found.DirectorId) ? directorId : found.DirectorId,
+                    machine ?? trigger.Machine, startedUtc, name, trigger.DefinitionVersion));
         }
         else if (now - startedUtc >= StartGrace)
         {
@@ -651,6 +663,45 @@ public sealed class TriggerService
         _activity.Append(tenant, ActivityFor(trigger, recorded.Run, what), callingActor: null);
         FileLog.Write($"[TriggerService] ResolveUnknownStart: trigger={trigger.Name}, outcome={recorded.Run.Outcome}, session={recorded.Run.SessionId ?? "none"}, name={name}");
         return recorded.Trigger;
+    }
+
+    /// <summary>
+    /// A CHECK-STARTED RUN IS A RUN (the Factory Failures mission, 6 November 2026). The run a definition trigger's
+    /// started session is recorded as: under the trigger's id, pending its report, fixed to the trigger's factory and
+    /// seat and the definition version its kit was built from, with the session, its Director and its name. Before this,
+    /// such a session owed no report, so one that asked a person for its brief and waited all night left its factory
+    /// RUNNING. Pure.
+    /// </summary>
+    internal static CronRunRecord CheckStartedRun(TriggerEntity trigger, string sessionId, string directorId, string machine,
+        DateTime startedUtc, string? sessionName, int? definitionVersion)
+    {
+        ArgumentNullException.ThrowIfNull(trigger);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        var at = DateTime.SpecifyKind(startedUtc, DateTimeKind.Utc);
+        return new CronRunRecord
+        {
+            ScheduledUtc = at,
+            FiredUtc = at,
+            Machine = machine,
+            TargetDirectorId = directorId,
+            SessionId = sessionId,
+            SessionName = sessionName,
+            InfraStatus = "started",
+            TaskStatus = CronRunHistoryStore.TaskStatusUnknown,
+            Result = CronRunResults.Pending,
+            Factory = trigger.Factory,
+            Seat = trigger.Seat,
+            JobName = trigger.Name,
+            BriefVersion = definitionVersion,
+            BriefVersionKind = definitionVersion is null ? null : FactoryBriefVersionKinds.Definition,
+        };
+    }
+
+    // Under the trigger's lock. A write that fails throws to the caller's entry point, which logs it.
+    private void RecordCheckStartedRun(TenantId tenant, Guid triggerId, CronRunRecord run)
+    {
+        _recordCheckStartedRun(tenant, triggerId.ToString("D"), run);
+        FileLog.Write($"[TriggerService] RecordCheckStartedRun: trigger={run.JobName} ({triggerId:D}), session={run.SessionId}, director={run.TargetDirectorId}, version={run.BriefVersion?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
     }
 
     /// <param name="Machine">The reporting Director's machine, or null when the report did not say.</param>
@@ -732,6 +783,9 @@ public sealed class TriggerService
                 _activity.Append(p.Tenant, ActivityFor(p.Trigger, recorded.Run), callingActor: null);
                 if (started)
                     KeepState(p.Tenant, p.Trigger, p.DirectorId, p.State, recorded.Run.Id.ToString("D"));
+                if (started && p.Trigger.IsDefinitionCheck)
+                    RecordCheckStartedRun(p.Tenant, p.Trigger.Id, CheckStartedRun(p.Trigger, attempt.SessionId!, p.Request.Director ?? p.DirectorId,
+                        p.StartMachine, p.CheckedUtc, p.Request.Name, p.Request.FactoryDefinitionVersion ?? p.Trigger.DefinitionVersion));
                 FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name}, outcome={outcome}, outcomeUnknown={attempt.OutcomeUnknown}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, session={attempt.SessionId ?? "none"}, reason={reason ?? "none"}");
                 return recorded.Run;
             }

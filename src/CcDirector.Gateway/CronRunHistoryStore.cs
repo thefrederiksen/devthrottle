@@ -76,6 +76,28 @@ public sealed class CronRunHistoryStore
     }
 
     /// <summary>
+    /// Record one run for <paramref name="jobId"/> in <paramref name="tenant"/>'s account, named outright rather than read
+    /// from the ambient scope: a definition trigger's start finishes off any request (the Factory Failures mission, 6
+    /// November 2026), so there is no ambient account to read. Pruned like <see cref="Append"/>.
+    /// </summary>
+    public void AppendFor(Core.Tenancy.TenantId tenant, string jobId, CronRunRecord record)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("a valid account is required", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(jobId))
+            throw new ArgumentException("job id is required", nameof(jobId));
+        ArgumentNullException.ThrowIfNull(record);
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var entity = AddInContext(ctx, ctx.ActiveTenant!, jobId, record);
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] AppendFor: account={tenant.ToLogString()}, job={jobId}, run={entity.Id}, session={record.SessionId ?? "none"}, result={entity.Result}");
+        }
+    }
+
+    /// <summary>
     /// Add one run to <paramref name="ctx"/> and remove what the cap lets go, WITHOUT saving: the caller's SaveChanges
     /// commits both at once. Used by <see cref="Append"/> and by the schedule store, which records the runs missed
     /// while the Gateway was down in the same write that moves those schedules on (so the evidence cannot be lost

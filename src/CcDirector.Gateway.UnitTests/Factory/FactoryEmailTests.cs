@@ -70,7 +70,7 @@ public sealed class FactoryEmailTests : IDisposable
         mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
             new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
             _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend),
-        lastKnownSession: (_, _, _) => null);
+        lastKnownSession: (_, _, _) => null, controlsALiveSession: (_, _) => false);
 
     private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
     private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);

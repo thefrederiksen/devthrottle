@@ -103,6 +103,49 @@ public static class CronRunResultFold
     }
 
     /// <summary>
+    /// How long a run's open session may wait on a person, or sit idle, without reporting before that is a problem: 20
+    /// minutes. Long enough that a session thinking between turns, or a person answering a permission prompt, is never
+    /// counted; short enough that a seat which asked for its brief at 22:31 is in front of the owner that evening, not at
+    /// the end of its shift. On 5 November 2026 such a seat ended its first turn 3.8 seconds after it started.
+    /// </summary>
+    public static readonly TimeSpan IdleWithoutReportLimit = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// A RUN WAITING ON A PERSON WITHOUT REPORTING (the Factory Failures mission, 6 November 2026). A pending run whose
+    /// session is still open and has been WaitingForInput, WaitingForPerm or MenuOpen for longer than <paramref name="limit"/> -
+    /// read from the Director's <see cref="SessionDto.WaitingSince"/>, never the Gateway's in-memory needs-you clock, which
+    /// is empty after a restart - or Idle with no terminal output for that long (<see cref="SessionDto.LastActivityAt"/>),
+    /// is a problem. The session is not closed: the owner opens it to see what it asked. Null otherwise, and for a
+    /// session the Gateway has no row for, which the shift and ending rules decide.
+    ///
+    /// A SESSION WAITING ON ITS OWN WORKERS IS NOT WAITING ON A PERSON. A Boss is told to end its turn and wait, not
+    /// reporting, until the sessions it started come back; while it <paramref name="controlsALiveSession"/>, it is not
+    /// counted, and the shift rule still bounds it.
+    /// </summary>
+    public static GatewayRecordedProblem? IdleWithoutReportProblem(CronRunRecord run, SessionDto? session, DateTime nowUtc,
+        TimeSpan limit, bool controlsALiveSession = false)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        if (run.Result != CronRunResults.Pending || session is null || controlsALiveSession) return null;
+        if (session.Status is "Exiting" or "Exited" or "Failed") return null;
+        DateTime? since = session.ActivityState switch
+        {
+            // MenuOpen is a menu the agent put up - an update offer, a folder-trust question - which the Director's waiting
+            // clock covers too: a seat parked on one all night is this same stall.
+            "WaitingForInput" or "WaitingForPerm" or "MenuOpen" => session.WaitingSince,
+            "Idle" => session.LastActivityAt,
+            _ => null,
+        };
+        if (since is not { } from) return null;
+        var waited = nowUtc - DateTime.SpecifyKind(from, DateTimeKind.Utc);
+        if (waited < limit) return null;
+        var minutes = (int)waited.TotalMinutes;
+        var how = session.ActivityState == "Idle" ? "sat idle" : "waited on a person";
+        return new GatewayRecordedProblem(CronRunProblems.WaitedWithoutReporting,
+            $"its session {how} for {minutes.ToString(CultureInfo.InvariantCulture)} minutes without reporting - open the session to see what it asked");
+    }
+
+    /// <summary>
     /// The refusal for a one-line reason, or null when it may be stored. <paramref name="required"/> says whether an
     /// empty one is refused.
     /// </summary>
