@@ -229,6 +229,8 @@ public class WindowsResourceProbeContractLiveTests : ResourceProbeContractLiveTe
 {
     protected override string ProbeName => "the Windows probe";
 
+    protected override TimeSpan ProbeCacheFor => WindowsResourceProbe.CacheFor;
+
     protected override IResourceProbe CreateProbe()
     {
         // The inherited tests are gated on the opt-in variable alone, not on the platform, so a live run
