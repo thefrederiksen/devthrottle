@@ -302,4 +302,112 @@ public sealed class DictationSessionLockIndexTests : IDisposable
 
         Assert.Equal(held.UploadId, Assert.Single(found).UploadId);
     }
+
+    [Fact]
+    public void PendingFor_RecordReadAsEmptyOnceDuringHydration_IsShownOnceItReadsRight()
+    {
+        // Finding 3 of the 4690 re-review, its probe committed: this share has answered reads with zero bytes, and an
+        // empty read parses as malformed, which used to be cached as "not held" for the life of the process.
+        var writer = NewStore();
+        var open = writer.OpenPending(null, "factory-inbox:invoices");
+        var record = Path.Combine(_root, open.UploadId, "record.json");
+        var good = File.ReadAllText(record);
+        File.WriteAllText(record, "");            // the share answers a read with no bytes, once
+        var reader = NewStore();                   // a fresh process: first read of the partition
+
+        var whileEmpty = reader.PendingFor("factory-inbox:invoices");
+        File.WriteAllText(record, good);           // the bytes are back
+        var afterGood = reader.PendingFor("factory-inbox:invoices");
+        var freshProcess = NewStore().PendingFor("factory-inbox:invoices");
+
+        Assert.Empty(whileEmpty);                  // a malformed record is skipped, never breaks the thread
+        Assert.Single(freshProcess);
+        Assert.Equal(open.UploadId, Assert.Single(afterGood).UploadId);
+    }
+
+    [Fact]
+    public void PendingFor_RecordUnreadableAtHydrationThenEmptyOnReRead_IsKeptForReReadAndShownOnceItReadsRight()
+    {
+        // The second probe of finding 3: an empty re-read used to settle the record for good. It is re-read until it reads.
+        var writer = NewStore();
+        var open = writer.OpenPending(null, "factory-inbox:invoices");
+        var record = Path.Combine(_root, open.UploadId, "record.json");
+        var good = File.ReadAllText(record);
+        var reader = NewStore();
+        using (HoldUnreadable(record))
+            Assert.Throws<InvalidOperationException>(() => reader.PendingFor("factory-inbox:invoices"));
+        File.WriteAllText(record, "");
+        var whileEmpty = reader.PendingFor("factory-inbox:invoices");
+        File.WriteAllText(record, good);
+        var reads = new List<string>();
+        reader.RecordReadForTests = reads.Add;
+
+        var afterGood = reader.PendingFor("factory-inbox:invoices");
+
+        Assert.Empty(whileEmpty);
+        Assert.Equal(new[] { open.UploadId }, reads);
+        Assert.Equal(open.UploadId, Assert.Single(afterGood).UploadId);
+    }
+
+    [Fact]
+    public void PendingFor_ConfirmingReadOfARecordTheIndexNamesFails_IsAnErrorNotNothingHeld()
+    {
+        // Finding 4 of the 4690 re-review, its probe committed with the answer it should have had.
+        var store = NewStore();
+        var open = store.OpenPending(null, "factory-inbox:invoices");
+        var record = Path.Combine(_root, open.UploadId, "record.json");
+        Assert.Single(store.PendingFor("factory-inbox:invoices")); // the index names it
+
+        Exception? error;
+        using (HoldUnreadable(record))
+            error = Record.Exception(() => store.PendingFor("factory-inbox:invoices"));
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Single(store.PendingFor("factory-inbox:invoices")); // and it is shown once it reads
+    }
+
+    private static readonly TenantId AccountA = new("a1b2c3d4-0000-4000-8000-00000000000a");
+    private static readonly TenantId AccountB = new("a1b2c3d4-0000-4000-8000-00000000000b");
+
+    [Fact]
+    public void WarmEveryPartition_Hosted_ReadsEveryAccountPartitionOnDisk_SoAThreadReadReadsOnlyItsOwnRecords()
+    {
+        // Finding 5 of the 4690 re-review: the start-up warm-up must reach every tenant's partition on the hosted
+        // Gateway, including tenants with no Director connected, and say truthfully how many it read.
+        var writer = NewStore();
+        var held = writer.ForTenant(AccountA).OpenPending(null, "factory-inbox:invoices");
+        for (var i = 0; i < 20; i++) writer.ForTenant(AccountA).OpenPending(null, "session-a");
+        writer.ForTenant(AccountB).OpenPending(null, "session-b");
+        Directory.CreateDirectory(Path.Combine(_root, VoiceUploadStore.TenantPartitionDirectoryName, "not-a-tenant"));
+        var restarted = NewStore(); // a fresh process
+
+        var (read, failed) = restarted.WarmEveryPartition(hosted: true);
+        var accountA = restarted.ForTenant(AccountA);
+        var reads = new List<string>();
+        accountA.RecordReadForTests = reads.Add;
+        var found = accountA.PendingFor("factory-inbox:invoices");
+
+        Assert.Equal((2, 0), (read, failed));
+        Assert.Equal(held.UploadId, Assert.Single(found).UploadId);
+        Assert.Equal(new[] { held.UploadId }, reads); // already read at start-up: no walk on the request
+        Assert.True(restarted.ForTenant(AccountB).IsSessionLocked("session-b"));
+    }
+
+    [Fact]
+    public void WarmEveryPartition_SelfHost_ReadsTheLocalPartition()
+    {
+        var writer = NewStore();
+        var held = writer.OpenPending(null, "factory-inbox:invoices");
+        writer.OpenPending(null, "session-a");
+        var restarted = NewStore();
+
+        var (read, failed) = restarted.WarmEveryPartition(hosted: false);
+        var reads = new List<string>();
+        restarted.RecordReadForTests = reads.Add;
+        var found = restarted.PendingFor("factory-inbox:invoices");
+
+        Assert.Equal((1, 0), (read, failed));
+        Assert.Equal(held.UploadId, Assert.Single(found).UploadId);
+        Assert.Equal(new[] { held.UploadId }, reads);
+    }
 }

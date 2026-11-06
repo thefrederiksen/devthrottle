@@ -497,3 +497,69 @@ and the recovery.
    improvement on it, not a regression. Noted so nobody later reads the unreadable set as a lock input.
 2. The `FileShare.None` hold in the three new tests works on Linux here (916 green) because .NET maps it to an advisory lock
    that another `FileStream` in the same process honours. It is the right way to make a read fail on all three platforms.
+
+## The developer's answers to the re-review (6 November 2026)
+
+### Finding 3: accepted, fixed as the reviewer suggested
+
+I could not show that a malformed read is durable, and the share's own recorded behaviour says otherwise, so a malformed
+read is now treated as unsettled:
+
+- **When the partition is first read:** a canonical upload whose record reads as `Malformed` goes into the same re-read
+  set as an `Unreadable` one.
+- **In the re-read loop:** a record that is still malformed is skipped for that read and kept in the set. It never makes
+  the thread error, so a record that is corrupt for good costs one small read per thread read. A record that was read
+  wrongly once is shown the moment it reads right.
+- **What settles it:** only a successful read or a write. Another tenant's record is still settled.
+
+Both probes are committed:
+- `PendingFor_RecordReadAsEmptyOnceDuringHydration_IsShownOnceItReadsRight` is the first probe as written.
+- `PendingFor_RecordUnreadableAtHydrationThenEmptyOnReRead_IsKeptForReReadAndShownOnceItReadsRight` is the second probe.
+  Its `Assert.Empty(reads)` was the finding, so it now expects exactly one re-read of that record.
+
+### Finding 4: accepted, fixed
+
+In the first loop of `PendingFor`, a confirming read that answers `Unreadable` now goes into the same still-unreadable
+list as the second loop's. The thread therefore errors (a 503 with code `held_recordings_unknown`) and never answers
+"nothing held". A malformed confirming read is skipped and the index entry kept, for the reason in finding 3.
+
+The probe is committed as `PendingFor_ConfirmingReadOfARecordTheIndexNamesFails_IsAnErrorNotNothingHeld`. Before, it
+expected no error and an empty answer. Now it expects the error, and then the recording shown once the record reads.
+
+### Finding 5: accepted, fixed, and my earlier answer was wrong
+
+My answer to question 2 said the Gateway reads every tenant's partition at start-up. That was true on self-host and
+false on the hosted Gateway, because the tenant pass there only knows tenants whose Director is connected.
+
+The warm-up no longer uses the tenant pass. A new method, `VoiceUploadStore.WarmEveryPartition(hosted)`, finds the
+partitions on disk:
+- **Hosted:** every folder under `tenants/` whose name is a minted account identifier, in the exact form a partition is
+  created under. Each one is read into the index. This includes tenants with no Director connected, which is the owner
+  on the phone while the Director is off.
+- **Self-host:** the one local partition.
+
+It returns how many partitions were read and how many could not be read. The log line in `GatewayHost` and the store's
+own log line state those counts, not an intention.
+
+Tests:
+- `WarmEveryPartition_Hosted_ReadsEveryAccountPartitionOnDisk_SoAThreadReadReadsOnlyItsOwnRecords`: two account
+  partitions plus a folder that is not a tenant. It expects 2 read and 0 failed, and that a thread read afterwards reads
+  only the held record.
+- `WarmEveryPartition_SelfHost_ReadsTheLocalPartition`.
+
+What stays as the reviewer described:
+- **Tenants without a connected Director:** the six-hourly re-read after the sweep only reaches tenants the tenant pass
+  knows. A tenant the pass does not know is not swept either, so its index is never cleared and the start-up read stands.
+- **Requests during the warm-up:** a thread read that arrives before the warm-up has reached its tenant still waits for
+  that one read.
+
+### Question 3, question 4 and observations 1 and 2
+
+Agreed as written, no change.
+
+### What was run
+
+On devlinux, rebased onto `origin/main`, with .NET 10.0.403, `DOTNET_USE_POLLING_FILE_WATCHER=1` and
+`-p:EnableWindowsTargeting=true`:
+- `CcDirector.Gateway.UnitTests`, filtered to `FullyQualifiedName~FactoryInbox|FullyQualifiedName~Dictation|FullyQualifiedName~Voice`:
+  921 passed, 0 failed.

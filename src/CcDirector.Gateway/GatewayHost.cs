@@ -7355,21 +7355,19 @@ public sealed class GatewayHost : IAsyncDisposable
             $"than {DictationTombstoneMaxAge.TotalDays:0.###} days, and abandoning PENDING records with no " +
             $"activity for {StalePendingMaxAge.TotalHours:0.###}h so their session lock is released");
 
-        // Read every tenant's dictation partition into the pending index once, in the background, at start-up. The
-        // factory inbox thread and the session lock both answer from that index; whoever asked first used to pay the
-        // walk of the whole partition on a request, which on the hosted share is tens of seconds for a long history.
-        // A request that arrives while this is still reading waits for that partition's read rather than starting a
-        // second one. A failure is logged and leaves the partition unread, so the first question tries again.
+        // Read every dictation partition into the pending index once, in the background, at start-up. The factory inbox
+        // thread and the session lock both answer from that index; whoever asked first used to pay the walk of the whole
+        // partition on a request, which on the hosted share is tens of seconds for a long history. The partitions are
+        // found on DISK, not through the tenant pass: on hosted that pass only knows tenants whose Director is connected,
+        // which at start-up is none (finding 5 of the 4690 re-review). A request that arrives while a partition is still
+        // being read waits for that read rather than starting a second one. A partition that fails is left unread, so its
+        // first question tries again; the log line says how many were read and how many failed.
         _ = Task.Run(() =>
         {
             try
             {
-                _tenantPass.ForEachTenant(() =>
-                {
-                    if (_tenantPass.Current is not { } tenant) return;
-                    _dictationUploads.ForTenant(tenant).LockedSessionIds();
-                });
-                FileLog.Write("[GatewayHost] dictation pending index read for every tenant at start-up");
+                var (read, failed) = _dictationUploads.WarmEveryPartition(Hosted);
+                FileLog.Write($"[GatewayHost] dictation pending index at start-up: {read} partition(s) read, {failed} could not be read");
             }
             catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation pending index start-up read FAILED: {ex}"); }
         });
