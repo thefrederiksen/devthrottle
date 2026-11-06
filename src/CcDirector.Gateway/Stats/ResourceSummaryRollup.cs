@@ -37,6 +37,9 @@ public sealed record ResourceRollupResult(
 /// </summary>
 public sealed class ResourceSummaryRollup
 {
+    /// <summary>How long before a run starts its hours are stamped rolled; see <see cref="RunOnce"/>.</summary>
+    public static readonly TimeSpan RollGrace = TimeSpan.FromMinutes(1);
+
     private readonly Func<IDbContextFactory<GatewayStatsDbContext>?> _factory;
     private readonly TimeProvider _time;
 
@@ -70,8 +73,13 @@ public sealed class ResourceSummaryRollup
             .Distinct()
             .ToList();
 
+        // THE HOUR IS STAMPED ONE MINUTE EARLY. The store reads its clock before it commits, so a window committed while
+        // this run was reading carries a received time just BEFORE runStarted and was not in the rows read. Stamped at
+        // runStarted it would look covered and never roll again (review finding 2). Stamped a minute early, any window
+        // received in that minute makes the hour due once more - harmless, because a roll-up replaces the hour whole.
+        var rolledAt = runStarted - RollGrace;
         foreach (var hour in due)
-            RollHour(db, hour.Tenant, hour.DirectorId, ResourceSummaryStore.Utc(hour.HourStartUtc), runStarted);
+            RollHour(db, hour.Tenant, hour.DirectorId, ResourceSummaryStore.Utc(hour.HourStartUtc), rolledAt);
 
         var windowCutoff = runStarted - ResourceSummaryStore.WindowRetention;
         var hourCutoff = runStarted - ResourceSummaryStore.HourRetention;
@@ -183,6 +191,10 @@ public sealed class ResourceSummaryRollupJob : IDisposable
     /// <summary>How often the roll-up runs.</summary>
     public static readonly TimeSpan Period = TimeSpan.FromHours(1);
 
+    /// <summary>The first run, this long after start - so a Gateway restarted more often than hourly still rolls up and
+    /// deletes (review note 11).</summary>
+    public static readonly TimeSpan FirstDelay = TimeSpan.FromMinutes(1);
+
     private readonly ResourceSummaryRollup _rollup;
     private readonly TimeProvider _time;
     private ITimer? _timer;
@@ -201,12 +213,12 @@ public sealed class ResourceSummaryRollupJob : IDisposable
     /// <summary>The last run's result, or null before the first run finishes or when it failed.</summary>
     public ResourceRollupResult? LastResult { get; private set; }
 
-    /// <summary>Start the hourly timer: the first run one period from now, then every period.</summary>
+    /// <summary>Start the timer: the first run <see cref="FirstDelay"/> from now, then every period.</summary>
     public void Start()
     {
         if (_timer is not null) return;
-        FileLog.Write($"[ResourceSummaryRollupJob] Start: rolling up resource summaries every {Period.TotalMinutes:F0} minutes");
-        _timer = _time.CreateTimer(_ => Tick(), null, Period, Period);
+        FileLog.Write($"[ResourceSummaryRollupJob] Start: rolling up resource summaries {FirstDelay.TotalMinutes:F0} minute(s) from now, then every {Period.TotalMinutes:F0} minutes");
+        _timer = _time.CreateTimer(_ => Tick(), null, FirstDelay, Period);
     }
 
     private void Tick()

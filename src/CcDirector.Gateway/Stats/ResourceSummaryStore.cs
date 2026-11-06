@@ -34,6 +34,10 @@ public sealed class ResourceSummaryStore
     /// for a Director clock that runs a little fast.</summary>
     public static readonly TimeSpan FutureTolerance = TimeSpan.FromMinutes(10);
 
+    /// <summary>The most samples a window may claim. A five-second sampler takes 60 in five minutes; timer jitter can add
+    /// a few, and twice that is the most that is believable.</summary>
+    public const int MaxSamplesPerWindow = 120;
+
     internal static readonly JsonSerializerOptions CrossingJson = new(JsonSerializerDefaults.Web);
 
     private readonly Func<IDbContextFactory<GatewayStatsDbContext>?> _factory;
@@ -46,7 +50,7 @@ public sealed class ResourceSummaryStore
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _time = time ?? throw new ArgumentNullException(nameof(time));
-        FileLog.Write("[ResourceSummaryStore] ctor: five-minute resource summaries are kept in the statistics database");
+        FileLog.Write("[ResourceSummaryStore] constructed: five-minute resource summaries are kept in the statistics database");
     }
 
     /// <summary>
@@ -73,6 +77,22 @@ public sealed class ResourceSummaryStore
         var valid = new List<ResourceSummaryWindow>();
         foreach (var window in windows)
         {
+            // FROM THE FUTURE IS NOT "FOR GOOD". A Director whose clock runs fast sends windows that end ahead of this
+            // Gateway's clock; the same window is acceptable once this clock catches up. So it is neither held nor
+            // refused: the Director keeps it and sends it again on a later reseed. Refusing it for good would leave a
+            // fast-clocked machine with no rows at all (review finding 1).
+            if (window is null)
+            {
+                FileLog.Write($"[ResourceSummaryStore] Store: director={directorId} sent an empty window entry; it names no window, so there is nothing to answer");
+                continue;
+            }
+            if (Utc(window.WindowStartUtc).AddSeconds(window.WindowSeconds) > now + FutureTolerance)
+            {
+                FileLog.Write($"[ResourceSummaryStore] Store: window {window.WindowStartUtc:O} from director={directorId} ends more than "
+                              + $"{FutureTolerance.TotalMinutes:F0} minutes ahead of the Gateway's clock ({now:O}); NOT stored yet - the "
+                              + "Director keeps it and sends it again. Its clock is probably fast.");
+                continue;
+            }
             var refusal = StructuralRefusalFor(window, now);
             if (refusal is null)
             {
@@ -83,10 +103,10 @@ public sealed class ResourceSummaryStore
             FileLog.Write($"[ResourceSummaryStore] Store: refused window {window.WindowStartUtc:O} from director={directorId}: {refusal}");
         }
 
-        // The same window twice in one batch is stored once: the first copy wins, as it does across batches.
+        // The same window twice in one batch is stored once: the copy with the most samples, as across batches.
         var distinct = valid
             .GroupBy(w => Utc(w.WindowStartUtc))
-            .Select(g => g.First())
+            .Select(g => g.OrderByDescending(w => w.SampleCount).First())
             .ToList();
         if (distinct.Count == 0) return ack;
 
@@ -94,18 +114,29 @@ public sealed class ResourceSummaryStore
         using var db = factory.CreateDbContext();
         var already = db.ResourceWindows
             .Where(w => w.Tenant == tenant.Value && w.DirectorId == directorId && starts.Contains(w.WindowStartUtc))
-            .Select(w => w.WindowStartUtc)
             .ToList()
-            .Select(Utc)
-            .ToHashSet();
+            .ToDictionary(w => Utc(w.WindowStartUtc));
 
         var stored = 0;
         var refusedFigures = 0;
+        var replaced = 0;
         foreach (var window in distinct)
         {
             var start = Utc(window.WindowStartUtc);
             ack.HeldWindowStartsUtc.Add(start);
-            if (already.Contains(start)) continue;
+            if (already.TryGetValue(start, out var existing))
+            {
+                // A resend after a lost acknowledgement is the same window again: nothing to do. A copy with MORE samples
+                // is a fuller measurement of the same five minutes - a clock that moved back closed a fragment first - so
+                // it replaces the fragment, and the hour rolls again because the row is received anew (review note 5).
+                if (window.SampleCount <= existing.SampleCount) continue;
+                FileLog.Write($"[ResourceSummaryStore] Store: window {start:O} from director={directorId} replaces a held copy of "
+                              + $"{existing.SampleCount} samples with one of {window.SampleCount}");
+                db.ResourceWindows.Remove(existing);
+                db.ResourceSessionWindows.RemoveRange(db.ResourceSessionWindows.Where(s =>
+                    s.Tenant == tenant.Value && s.DirectorId == directorId && s.WindowStartUtc == start));
+                replaced++;
+            }
             if (FiguresRefusalFor(window) is { } refused)
             {
                 // Stored MARKED, not dropped, and its session rows - from the same suspect measurement - are not kept.
@@ -124,7 +155,8 @@ public sealed class ResourceSummaryStore
             stored++;
         }
         db.SaveChanges();
-        FileLog.Write($"[ResourceSummaryStore] Store: director={directorId} stored={stored} (figures refused in {refusedFigures}) alreadyHeld={already.Count} rejected={ack.RejectedWindowStartsUtc.Count}");
+        FileLog.Write($"[ResourceSummaryStore] Store: director={directorId} stored={stored} (figures refused in {refusedFigures}, "
+                      + $"fuller copies replacing held ones {replaced}) alreadyHeld={already.Count} rejected={ack.RejectedWindowStartsUtc.Count}");
         return ack;
     }
 
@@ -133,14 +165,20 @@ public sealed class ResourceSummaryStore
     public IReadOnlyList<ResourceWindowEntity>? MachineWindows(TenantId tenant, DateTime fromUtc, DateTime toUtc)
     {
         var factory = _factory();
-        if (factory is null) return null;
+        if (factory is null)
+        {
+            FileLog.Write($"[ResourceSummaryStore] MachineWindows: tenant={tenant.ToLogString()} - the statistics store is not open");
+            return null;
+        }
         using var db = factory.CreateDbContext();
         var from = Utc(fromUtc);
         var to = Utc(toUtc);
-        return db.ResourceWindows.AsNoTracking()
+        var rows = db.ResourceWindows.AsNoTracking()
             .Where(w => w.Tenant == tenant.Value && w.WindowStartUtc >= from && w.WindowStartUtc < to)
             .OrderBy(w => w.WindowStartUtc)
             .ToList();
+        FileLog.Write($"[ResourceSummaryStore] MachineWindows: tenant={tenant.ToLogString()} {from:O}..{to:O} rows={rows.Count}");
+        return rows;
     }
 
     /// <summary>Every session window of this tenant on one machine that starts in the range, oldest first. Null when
@@ -148,17 +186,23 @@ public sealed class ResourceSummaryStore
     public IReadOnlyList<ResourceSessionWindowEntity>? SessionWindows(TenantId tenant, string machineName, DateTime fromUtc, DateTime toUtc)
     {
         var factory = _factory();
-        if (factory is null) return null;
+        if (factory is null)
+        {
+            FileLog.Write($"[ResourceSummaryStore] SessionWindows: tenant={tenant.ToLogString()} machine={machineName} - the statistics store is not open");
+            return null;
+        }
         using var db = factory.CreateDbContext();
         var from = Utc(fromUtc);
         var to = Utc(toUtc);
-        return db.ResourceSessionWindows.AsNoTracking()
+        var rows = db.ResourceSessionWindows.AsNoTracking()
             .Where(w => w.Tenant == tenant.Value && w.WindowStartUtc >= from && w.WindowStartUtc < to)
             .OrderBy(w => w.WindowStartUtc)
             .ToList()
             // Machine names are compared the way the Machines view groups them: ignoring case.
             .Where(w => string.Equals(w.MachineName, machineName, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        FileLog.Write($"[ResourceSummaryStore] SessionWindows: tenant={tenant.ToLogString()} machine={machineName} rows={rows.Count}");
+        return rows;
     }
 
     /// <summary>Every machine hour of this tenant that starts in the range, oldest first. Null when the statistics
@@ -166,14 +210,20 @@ public sealed class ResourceSummaryStore
     public IReadOnlyList<ResourceHourEntity>? MachineHours(TenantId tenant, DateTime fromUtc, DateTime toUtc)
     {
         var factory = _factory();
-        if (factory is null) return null;
+        if (factory is null)
+        {
+            FileLog.Write($"[ResourceSummaryStore] MachineHours: tenant={tenant.ToLogString()} - the statistics store is not open");
+            return null;
+        }
         using var db = factory.CreateDbContext();
         var from = Utc(fromUtc);
         var to = Utc(toUtc);
-        return db.ResourceHours.AsNoTracking()
+        var rows = db.ResourceHours.AsNoTracking()
             .Where(h => h.Tenant == tenant.Value && h.HourStartUtc >= from && h.HourStartUtc < to)
             .OrderBy(h => h.HourStartUtc)
             .ToList();
+        FileLog.Write($"[ResourceSummaryStore] MachineHours: tenant={tenant.ToLogString()} rows={rows.Count}");
+        return rows;
     }
 
     /// <summary>Why a window can never be stored at all - it has no place to go - or null when it can. A window whose
@@ -187,25 +237,35 @@ public sealed class ResourceSummaryStore
             return $"it is {window.WindowSeconds} seconds long, not {ResourceSummaryContract.WindowSeconds}";
         if (string.IsNullOrWhiteSpace(window.MachineName))
             return "it names no machine";
-        var start = Utc(window.WindowStartUtc);
-        if (start.AddSeconds(window.WindowSeconds) > nowUtc + FutureTolerance)
-            return "it ends in the future by the Gateway's clock";
-        if (start < nowUtc - WindowRetention)
-            return "it is older than the 90 days five-minute rows are kept";
+        // By HOUR, not by start: once any window of an hour has passed retention its hour is final, and a late window for
+        // it would make the roll-up rebuild the hour from what is left (review note 6).
+        if (HourOf(Utc(window.WindowStartUtc)) < nowUtc - WindowRetention)
+            return "its hour is older than the 90 days five-minute rows are kept";
         return null;
     }
 
     /// <summary>Why a window's figures cannot be true of any machine, or null when they can.</summary>
     internal static string? FiguresRefusalFor(ResourceSummaryWindow window)
     {
-        if (FiguresProblem(window.Machine, isMachine: true) is { } machineProblem)
+        // The sample counts are the roll-up's WEIGHTS, so they are checked like figures: one window claiming a million
+        // samples would otherwise own its hour's average (review finding 3b).
+        if (window.SampleCount <= 0 || window.SampleCount > MaxSamplesPerWindow)
+            return $"it claims {window.SampleCount} samples, where a five-second sampler takes about 60 in five minutes (at most {MaxSamplesPerWindow} accepted)";
+        var start = Utc(window.WindowStartUtc);
+        var end = start.AddSeconds(window.WindowSeconds);
+        if (FiguresProblem(window.Machine, isMachine: true, window.SampleCount, start, end) is { } machineProblem)
             return $"the machine's figures are impossible: {machineProblem}";
+        var machineTotal = window.Machine is { MemoryCouldRead: true } m ? m.MemoryTotalBytes : null;
         foreach (var session in window.Sessions ?? new List<ResourceSessionSummary>())
         {
             if (session is null) return "it holds an empty session row";
             if (session.ProcessesWithUnknownFigures < 0) return $"session {session.SessionId} counts fewer than no unknown processes";
-            if (FiguresProblem(session.Figures, isMachine: false) is { } sessionProblem)
+            if (session.SampleCount <= 0 || session.SampleCount > window.SampleCount)
+                return $"session {session.SessionId} claims {session.SampleCount} samples in a window of {window.SampleCount}";
+            if (FiguresProblem(session.Figures, isMachine: false, session.SampleCount, start, end) is { } sessionProblem)
                 return $"session {session.SessionId}'s figures are impossible: {sessionProblem}";
+            if (machineTotal is { } total && session.Figures.MemoryPeakUsedBytes is { } sessionPeak && sessionPeak > total)
+                return $"session {session.SessionId}'s memory peak {sessionPeak} bytes is more than the machine's total {total}";
         }
         return null;
     }
@@ -215,9 +275,11 @@ public sealed class ResourceSummaryStore
     /// DIRECTOR, surfaced by refusing the window - never clamped into range, which would turn a per-core 400% into a
     /// believable 100% and hide the very defect the range exists to catch. The refusal is logged on both sides.
     /// </summary>
-    internal static string? FiguresProblem(ResourceSummaryFigures? f, bool isMachine)
+    internal static string? FiguresProblem(ResourceSummaryFigures? f, bool isMachine, int sampleCount, DateTime windowStart, DateTime windowEnd)
     {
         if (f is null) return "there are none";
+        if (f.ProcessorSamples < 0 || f.ProcessorSamples > sampleCount || f.MemorySamples < 0 || f.MemorySamples > sampleCount)
+            return $"processor samples {f.ProcessorSamples} or memory samples {f.MemorySamples} is outside the {sampleCount} samples taken";
         if (f.ProcessorCouldRead)
         {
             if (f.ProcessorAveragePercent is not { } average || f.ProcessorPeakPercent is not { } peak)
@@ -247,6 +309,9 @@ public sealed class ResourceSummaryStore
                 return $"a crossing has the level '{c.Level}', which is neither amber nor red";
             if (c.Seconds <= 0 || c.Seconds > ResourceSummaryContract.WindowSeconds)
                 return $"a crossing lasts {c.Seconds} seconds, outside one window";
+            var startedUtc = Utc(c.StartedUtc);
+            if (startedUtc < windowStart || startedUtc.AddSeconds(c.Seconds) > windowEnd)
+                return $"a crossing from {startedUtc:O} for {c.Seconds} seconds does not lie inside its window {windowStart:O}";
             if (c.PeakPercent is { } p && !IsPercent(p)) return $"a crossing peaks at {p} per cent";
         }
         return null;

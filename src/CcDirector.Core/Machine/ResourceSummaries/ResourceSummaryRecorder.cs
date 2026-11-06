@@ -30,7 +30,7 @@ public sealed class ResourceSummaryRecorder
         if (string.IsNullOrWhiteSpace(machineName))
             throw new ArgumentException("The recorder needs the machine's name.", nameof(machineName));
         _machineName = machineName.Trim();
-        FileLog.Write($"[ResourceSummaryRecorder] ctor: recording five-minute windows for machine={_machineName}");
+        FileLog.Write($"[ResourceSummaryRecorder] constructed: recording five-minute windows for machine={_machineName}");
     }
 
     /// <summary>Add one five-second sample. Closes the current window first when the sample belongs to another.</summary>

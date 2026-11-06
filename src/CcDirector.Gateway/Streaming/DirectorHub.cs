@@ -427,12 +427,11 @@ public sealed class DirectorHub : Hub
             var registered = _registry.Get(tenant, directorId)?.MachineName;
             if (!string.IsNullOrWhiteSpace(registered) && batch?.Windows is { } windows)
             {
-                foreach (var window in windows.Where(w => w is not null && !string.Equals(w.MachineName, registered, StringComparison.Ordinal)))
-                {
-                    FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} named machine '{window.MachineName}' "
-                                  + $"for window {window.WindowStartUtc:O}; filed under its registered machine '{registered}'");
-                    window.MachineName = registered;
-                }
+                var renamed = windows.Where(w => w is not null && !string.Equals(w.MachineName, registered, StringComparison.Ordinal)).ToList();
+                if (renamed.Count > 0)
+                    FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} named machine '{renamed[0].MachineName}' "
+                                  + $"in {renamed.Count} window(s); filed under its registered machine '{registered}'");
+                foreach (var window in renamed) window.MachineName = registered;
             }
             var ack = _resourceSummaries.Store(tenant, directorId, batch);
             FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} windows={batch?.Windows.Count ?? 0} "

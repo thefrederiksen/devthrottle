@@ -108,7 +108,9 @@ public sealed class ResourceSummaryStoreTests : IDisposable
 
         var ack = store.Store(Tenant, Director, Batch(offBoundary, noMachine, future, Steady(W0.AddMinutes(10), 10, 4 * Gb)));
 
-        Assert.Equal(3, ack.RejectedWindowStartsUtc.Count);
+        // Off the boundary and nameless can never be stored. The window from the future is in NEITHER list: it is
+        // taken once the Gateway's clock catches up.
+        Assert.Equal(new[] { W0.AddMinutes(1), W0.AddMinutes(5) }, ack.RejectedWindowStartsUtc);
         Assert.Equal(W0.AddMinutes(10), Assert.Single(ack.HeldWindowStartsUtc));
         Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(3))!);
     }
@@ -126,6 +128,11 @@ public sealed class ResourceSummaryStoreTests : IDisposable
     [InlineData("memory above total", "more than the machine's total")]
     [InlineData("session processor 400", "session s-1")]
     [InlineData("crossing of an unknown resource", "neither the processor nor memory")]
+    [InlineData("crossing outside its window", "does not lie inside its window")]
+    [InlineData("a million processor samples", "outside the 60 samples taken")]
+    [InlineData("a million samples", "claims 1000000 samples")]
+    [InlineData("session memory above the machine's total", "more than the machine's total")]
+    [InlineData("session samples above the window's", "claims 61 samples in a window of 60")]
     public void Store_ImpossibleFigures_AreStoredMarkedRefusedWithTheReason_NeverDropped(string defect, string reasonContains)
     {
         var store = NewStore();
@@ -140,6 +147,13 @@ public sealed class ResourceSummaryStoreTests : IDisposable
             case "crossing of an unknown resource":
                 window.Machine.Crossings.Add(new ResourceCrossing { Resource = "disk", Level = ResourceSummaryContract.Red, StartedUtc = W0, Seconds = 60 });
                 break;
+            case "crossing outside its window":
+                window.Machine.Crossings.Add(new ResourceCrossing { Resource = ResourceSummaryContract.Processor, Level = ResourceSummaryContract.Red, StartedUtc = W0.AddDays(-1), Seconds = 60 });
+                break;
+            case "a million processor samples": window.Machine.ProcessorSamples = 1_000_000; break;
+            case "a million samples": window.SampleCount = 1_000_000; break;
+            case "session memory above the machine's total": window.Sessions[0].Figures.MemoryPeakUsedBytes = 400 * Gb; window.Sessions[0].Figures.MemoryAverageUsedBytes = 1 * Gb; break;
+            case "session samples above the window's": window.Sessions[0].SampleCount = 61; break;
         }
 
         var ack = store.Store(Tenant, Director, Batch(window));
@@ -156,6 +170,96 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         Assert.Equal(0, row.ProcessorSamples);
         Assert.Equal("[]", row.CrossingsJson);
         Assert.Empty(store.SessionWindows(Tenant, "devlinux", W0, W0.AddHours(1))!);
+    }
+
+    [Fact]
+    public void Store_AWindowFromTheFuture_IsNeitherHeldNorRefused_AndIsTakenOnceTheClockCatchesUp()
+    {
+        // A Director whose clock runs 16 minutes fast: its 10:40 window ends at 10:45 while the Gateway says 10:30.
+        var store = NewStore();
+        var early = Steady(W0.AddMinutes(40), 30, 8 * Gb);
+
+        var first = store.Store(Tenant, Director, Batch(early));
+
+        Assert.Empty(first.HeldWindowStartsUtc);
+        Assert.Empty(first.RejectedWindowStartsUtc);
+        Assert.Null(first.NotStoredReason);
+        Assert.Empty(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+
+        _clock.Advance(TimeSpan.FromMinutes(6));
+        var second = store.Store(Tenant, Director, Batch(early));
+
+        Assert.Equal(W0.AddMinutes(40), Assert.Single(second.HeldWindowStartsUtc));
+        Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+    }
+
+    [Fact]
+    public void Store_AFullerCopyOfAHeldWindow_ReplacesTheFragment_AndAResendChangesNothing()
+    {
+        // A clock that moved back closed a two-minute fragment of 10:00 first; the whole window follows.
+        var store = NewStore();
+        var fragment = ResourceSummaryBuilder.Build(W0, "devlinux", Enumerable.Range(0, 24).Select(i => Sample(W0.AddSeconds(5 * i), 90, 8 * Gb)));
+        store.Store(Tenant, Director, Batch(fragment));
+
+        var ack = store.Store(Tenant, Director, Batch(Steady(W0, 30, 8 * Gb, "devlinux", new ResourceSummarySessionSample("s-1", null, 5, 1 * Gb, null))));
+        store.Store(Tenant, Director, Batch(fragment));
+
+        Assert.Equal(W0, Assert.Single(ack.HeldWindowStartsUtc));
+        var row = Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+        Assert.Equal(60, row.SampleCount);
+        Assert.Equal(30, row.ProcessorAveragePercent);
+        Assert.Single(store.SessionWindows(Tenant, "devlinux", W0, W0.AddHours(1))!);
+    }
+
+    [Fact]
+    public void Store_ALateWindowForAnHourAlreadyPastRetention_IsRefusedForGood()
+    {
+        // 90 days and 30 minutes on, the hour of W0 has begun losing its windows; a 10:35 window may not rebuild it.
+        var store = NewStore();
+        _clock.SetUtcNow(new DateTimeOffset(W0.AddDays(90).AddMinutes(30)));
+
+        var ack = store.Store(Tenant, Director, Batch(Steady(W0.AddMinutes(35), 30, 8 * Gb)));
+
+        Assert.Equal(W0.AddMinutes(35), Assert.Single(ack.RejectedWindowStartsUtc));
+    }
+
+    [Fact]
+    public void Rollup_AWindowCommittedWhileTheRunWasReading_RollsItsHourAgain()
+    {
+        var store = NewStore();
+        store.Store(Tenant, Director, Batch(Steady(W0, 20, 4 * Gb)));
+        var rollup = new ResourceSummaryRollup(() => _db.Factory, _clock);
+        var runAt = _clock.GetUtcNow().UtcDateTime.AddMilliseconds(1);
+        _clock.SetUtcNow(new DateTimeOffset(runAt));
+        Assert.Equal(1, rollup.RunOnce().HoursRolled);
+
+        // A window whose store read the clock just BEFORE that run started, and committed after the run read its rows.
+        using (var db = _db.Open())
+        {
+            var straggler = db.ResourceWindows.AsNoTracking().Single();
+            straggler.WindowStartUtc = W0.AddMinutes(5);
+            straggler.ReceivedUtc = runAt.AddMilliseconds(-0.5);
+            straggler.ProcessorAveragePercent = 80;
+            straggler.ProcessorPeakPercent = 80;
+            db.ResourceWindows.Add(straggler);
+            db.SaveChanges();
+        }
+
+        Assert.Equal(1, rollup.RunOnce().HoursRolled);
+        using var check = _db.Open();
+        Assert.Equal(2, check.ResourceHours.Single().WindowCount);
+    }
+
+    [Fact]
+    public void RollupJob_FirstRunsAMinuteAfterStart_ThenHourly()
+    {
+        using var job = new ResourceSummaryRollupJob(new ResourceSummaryRollup(() => _db.Factory, _clock), _clock);
+        job.Start();
+
+        _clock.Advance(ResourceSummaryRollupJob.FirstDelay);
+        Assert.Equal(1, job.Runs);
+        _clock.Advance(ResourceSummaryRollupJob.Period);
+        Assert.Equal(2, job.Runs);
     }
 
     [Fact]
@@ -233,7 +337,7 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         job.Start();
         Assert.Equal(0, job.Runs);
 
-        _clock.Advance(ResourceSummaryRollupJob.Period);
+        _clock.Advance(ResourceSummaryRollupJob.FirstDelay);
 
         Assert.Equal(1, job.Runs);
         Assert.Equal(2, job.LastResult!.HoursRolled);
@@ -257,7 +361,7 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         using var job = new ResourceSummaryRollupJob(new ResourceSummaryRollup(() => _db.Factory, _clock), _clock);
         job.Start();
 
-        _clock.Advance(ResourceSummaryRollupJob.Period);
+        _clock.Advance(ResourceSummaryRollupJob.FirstDelay);
 
         using var db = _db.Open();
         var sessionHour = db.ResourceSessionHours.Single();
@@ -273,9 +377,9 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         var store = NewStore();
         var rollup = new ResourceSummaryRollup(() => _db.Factory, _clock);
         store.Store(Tenant, Director, Batch(Steady(W0, 20, 4 * Gb)));
-        // The run starts after the window arrived. (A run that starts on the very tick a window arrives cannot tell
-        // whether it read that window, so it rolls the hour again next time - harmless, and the safe side.)
-        _clock.Advance(TimeSpan.FromMinutes(1));
+        // The run starts more than the roll-up's one-minute grace after the window arrived. (A run within that minute
+        // cannot be sure it read the window, so it rolls the hour again next time - harmless, and the safe side.)
+        _clock.Advance(ResourceSummaryRollup.RollGrace + TimeSpan.FromSeconds(1));
         Assert.Equal(1, rollup.RunOnce().HoursRolled);
         Assert.Equal(0, rollup.RunOnce().HoursRolled);
 
@@ -298,10 +402,10 @@ public sealed class ResourceSummaryStoreTests : IDisposable
     /// </summary>
     private ResourceRollupResult OneScheduledRunAt(DateTime when)
     {
-        _clock.SetUtcNow(new DateTimeOffset(when - ResourceSummaryRollupJob.Period));
+        _clock.SetUtcNow(new DateTimeOffset(when - ResourceSummaryRollupJob.FirstDelay));
         using var job = new ResourceSummaryRollupJob(new ResourceSummaryRollup(() => _db.Factory, _clock), _clock);
         job.Start();
-        _clock.Advance(ResourceSummaryRollupJob.Period);
+        _clock.Advance(ResourceSummaryRollupJob.FirstDelay);
         Assert.Equal(1, job.Runs);
         return job.LastResult!;
     }

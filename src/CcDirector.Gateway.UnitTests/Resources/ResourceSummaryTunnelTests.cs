@@ -121,6 +121,10 @@ public sealed class ResourceSummaryTunnelTests : IAsyncLifetime
 
     private static IEnumerable<DateTime> EveryFiveMinutes(int count) => Enumerable.Range(0, count).Select(i => T0.AddMinutes(5 * i));
 
+    /// <summary>The figure every sample of the k-th window carries, so each stored row can be checked against its own
+    /// window: a catch-up that filed one window's figures under another, or sent the same figures twice, fails.</summary>
+    private static double CpuOfWindow(int k) => 10 + 5 * k;
+
     [Fact]
     public async Task TenMinuteDisconnect_LeavesNoGapInTheStoredFiveMinuteRows()
     {
@@ -128,20 +132,25 @@ public sealed class ResourceSummaryTunnelTests : IAsyncLifetime
         var outbox = new ResourceSummaryOutbox(_clock);
         var recorder = new ResourceSummaryRecorder(outbox, "devlinux");
         var director = NewDirector(outbox);
-        var heldDuringOutage = -1;
+        var heldDuringOutage = new List<DateTime>();
         var storedBeforeReconnect = new List<DateTime>();
 
-        // Thirty minutes of five-second samples. The tunnel re-pushes every minute while it is up, and is down from
-        // minute 10 to minute 20.
+        // Thirty minutes of five-second samples, each window at its own processor figure and every sample carrying one
+        // session. The tunnel re-pushes every minute while it is up. It DROPS on the very tick the 10:05 window closes,
+        // before that window is pushed, and is back at minute 20.
         for (var second = 0; second < 30 * 60; second += 5)
         {
             var now = T0.AddSeconds(second);
             _clock.SetUtcNow(new DateTimeOffset(now));
-            recorder.Add(Sample(now, cpu: 30, usedBytes: 8 * Gb));
+            var cpu = CpuOfWindow(second / 300);
+            recorder.Add(Sample(now, cpu, 8 * Gb, Core.Machine.ResourceLevel.Normal,
+                new ResourceSummarySessionSample("s-tunnel", "Proof", cpu / 2, 1 * Gb, null)));
 
+            if (second == 10 * 60)
+                await _connection!.StopAsync().Within();
             if (second == 20 * 60)
             {
-                heldDuringOutage = outbox.Count;
+                heldDuringOutage = outbox.Peek(10).Select(w => w.WindowStartUtc).ToList();
                 storedBeforeReconnect = StoredWindowStarts();
                 await _connection!.StartAsync().Within();
             }
@@ -153,21 +162,76 @@ public sealed class ResourceSummaryTunnelTests : IAsyncLifetime
                 // What the Director's own tick does while the tunnel is down: the push finds no connection and keeps
                 // every window.
                 await director.PushResourceSummariesAsync(new HubConnectionCalls(_connection));
-
-            // The tunnel drops right after the minute-10 push.
-            if (second == 10 * 60)
-                await _connection.StopAsync().Within();
         }
         _clock.SetUtcNow(new DateTimeOffset(T0.AddMinutes(30)));
         Assert.True(recorder.CloseIfDue(T0.AddMinutes(30)));
         await ReseedAsync(director);
 
-        // The outage really cost something: the two windows that closed while it was down were held, not sent.
-        Assert.Equal(2, heldDuringOutage);
-        Assert.Equal(EveryFiveMinutes(2), storedBeforeReconnect);
-        // And the catch-up filled them: six contiguous windows, 10:00 to 10:25, each a whole window.
+        // The outage really cost something: the three windows that closed while it was down - including the one that
+        // closed on the tick it dropped - were held, not sent, and only 10:00 had reached the Gateway.
+        Assert.Equal(new[] { T0.AddMinutes(5), T0.AddMinutes(10), T0.AddMinutes(15) }, heldDuringOutage);
+        Assert.Equal(EveryFiveMinutes(1), storedBeforeReconnect);
+        // And the catch-up filled them: six contiguous windows, 10:00 to 10:25, each whole and each with ITS OWN figure.
         Assert.Equal(EveryFiveMinutes(6), StoredWindowStarts());
-        Assert.All(_store!.MachineWindows(TenantId.Local, T0, T0.AddHours(1))!, w => Assert.Equal(60, w.SampleCount));
+        var rows = _store!.MachineWindows(TenantId.Local, T0, T0.AddHours(1))!;
+        for (var k = 0; k < 6; k++)
+        {
+            Assert.Equal(60, rows[k].SampleCount);
+            Assert.Equal(CpuOfWindow(k), rows[k].ProcessorAveragePercent);
+            Assert.Null(rows[k].RefusedReason);
+        }
+        // The session rows came through the catch-up too, one per window, each with its own figure.
+        var sessions = _store.SessionWindows(TenantId.Local, Environment.MachineName, T0, T0.AddHours(1))!;
+        Assert.Equal(EveryFiveMinutes(6), sessions.Select(s => s.WindowStartUtc));
+        Assert.Equal(Enumerable.Range(0, 6).Select(k => CpuOfWindow(k) / 2), sessions.Select(s => s.ProcessorAveragePercent!.Value));
+        Assert.Equal(0, outbox.Count);
+    }
+
+    /// <summary>The Gateway stores a batch and the answer is lost on the way back.</summary>
+    private sealed class AnswerLostOnce : IDirectorHubCalls
+    {
+        private readonly IDirectorHubCalls _inner;
+        private bool _lost;
+        public AnswerLostOnce(IDirectorHubCalls inner) => _inner = inner;
+        public bool IsConnected => _inner.IsConnected;
+        public Task<GatewayCapabilities?> HelloAsync(DirectorStreamHello hello) => _inner.HelloAsync(hello);
+        public Task RegisterSessionKeyAsync(SessionKeyRegistration registration) => _inner.RegisterSessionKeyAsync(registration);
+        public Task PushSnapshotAsync(long sequence, SessionDto[] sessions) => _inner.PushSnapshotAsync(sequence, sessions);
+        public Task PushDeltaAsync(long sequence, SessionDto session) => _inner.PushDeltaAsync(sequence, session);
+        public Task<TurnWatermark?> PushTurnsAsync(long sequence, TurnPushBatch batch, CancellationToken ct) => _inner.PushTurnsAsync(sequence, batch, ct);
+        public Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct) => _inner.PushApiModeEventsAsync(batch, ct);
+        public Task RevokeSessionKeyAsync(string sessionId) => _inner.RevokeSessionKeyAsync(sessionId);
+        public Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories) => _inner.PushRepoSnapshotAsync(sequence, repositories);
+        public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops) => _inner.PushHostedDesktopsAsync(sequence, desktops);
+
+        public async Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch)
+        {
+            var ack = await _inner.PushResourceSummariesAsync(batch);
+            if (_lost) return ack;
+            _lost = true;
+            throw new IOException("the connection dropped before the answer arrived");
+        }
+    }
+
+    [Fact]
+    public async Task ALostAcknowledgement_KeepsTheWindow_AndTheResendIsStoredOnce()
+    {
+        await StartGatewayAsync(withResourceSummaries: true);
+        var outbox = new ResourceSummaryOutbox(_clock);
+        _clock.SetUtcNow(new DateTimeOffset(T0.AddMinutes(6)));
+        var director = NewDirector(outbox);
+        await ReseedAsync(director);
+        outbox.Add(Steady(T0, 30, 8 * Gb));
+
+        await director.PushResourceSummariesAsync(new AnswerLostOnce(new HubConnectionCalls(_connection!)));
+
+        // Stored on the Gateway, but the Director never heard so: it keeps the window.
+        Assert.Single(StoredWindowStarts());
+        Assert.Equal(1, outbox.Count);
+
+        await ReseedAsync(director);
+
+        Assert.Single(StoredWindowStarts());
         Assert.Equal(0, outbox.Count);
     }
 

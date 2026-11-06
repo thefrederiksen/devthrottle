@@ -63,9 +63,17 @@ internal static class ResourceCapacityFold
             .OrderByDescending(w => w.WindowStartUtc)
             .ThenByDescending(w => w.SampleCount)
             .FirstOrDefault();
+        var newestReceived = windows.Count == 0 ? (DateTime?)null : windows.Max(w => w.ReceivedUtc);
         if (newest is null || newest.WindowStartUtc.AddSeconds(newest.WindowSeconds) < nowUtc - SilentAfter)
+        {
+            // A Director whose CLOCK is behind sends on time but stamps its windows in the past: received recently, timed
+            // long ago. That is a clock problem, and naming the connection would send someone to the wrong place.
+            if (newestReceived is { } received && received >= nowUtc - SilentAfter)
+                return NotReporting(null, "This machine sent a resource summary in the last 15 minutes, but every window it sent "
+                                          + "is stamped more than 15 minutes ago by the Gateway's clock. Its clock is probably behind.");
             return NotReporting(null, "This machine has sent no resource summary in the last 15 minutes. Its Director may be "
                                       + "older than the resource monitor, or its connection to the Gateway may be down.");
+        }
 
         // A REFUSED newest window is neither a reading nor silence: the machine sent figures no machine can produce.
         if (newest.RefusedReason is { } refused)
@@ -107,7 +115,8 @@ internal static class ResourceCapacityFold
             dto.MemoryLabel = Percent(usedNow * 100.0 / total);
             dto.MemoryDetail = $"{Gigabytes(usedNow)} / {Gigabytes(total)} GB";
             dto.MemoryTone = ToneOf(crossings, ResourceSummaryContract.Memory);
-            var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes) ?? usedNow;
+            // The newest window has its peak (the store keeps average and peak together), so the hour's peak is known.
+            var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes)!.Value;
             // NEVER CLAMPED. A peak above the machine's total is a reading no machine can give; showing it as "0.0 GB"
             // spare would turn a defect into a believable figure.
             if (peakUsed > total)
@@ -164,10 +173,14 @@ internal static class ResourceCapacityFold
     internal static string Percent(double value) =>
         Math.Round(value, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture) + "%";
 
-    /// <summary>Gigabytes to one decimal place, without a trailing ".0" at 10 or more (the mock-up's "16 GB").</summary>
+    /// <summary>
+    /// Gigabytes to one decimal place, without a trailing ".0" at 10 or more (the mock-up's "16 GB"). BINARY gigabytes
+    /// (1,073,741,824 bytes), because that is what Task Manager, free and Activity Monitor show, and the mission's check
+    /// compares this view with them: a machine everyone calls "16 GB" must read 16 here, not 17 (review note 9).
+    /// </summary>
     internal static string Gigabytes(long bytes)
     {
-        var gb = bytes / 1_000_000_000.0;
+        var gb = bytes / 1_073_741_824.0;
         return gb >= 10
             ? Math.Round(gb, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture)
             : gb.ToString("0.0", CultureInfo.InvariantCulture);

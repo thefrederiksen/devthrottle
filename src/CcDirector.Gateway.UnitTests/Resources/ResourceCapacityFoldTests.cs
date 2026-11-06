@@ -93,7 +93,10 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     [Fact]
     public void Fold_NoWindowInFifteenMinutes_IsNotReporting()
     {
-        var windows = Stored(Steady(W0, 30, 4 * Gb));
+        // The 10:00 window arrived on time at 10:05; nothing since, and the Gateway's now is 10:32.
+        var early = new ResourceSummaryStore(() => _db.Factory, new FakeTimeProvider(new DateTimeOffset(W0.AddMinutes(5))));
+        early.Store(Tenant, "director-1", Batch(Steady(W0, 30, 4 * Gb)));
+        var windows = _store.MachineWindows(Tenant, Now.AddHours(-1), Now.AddMinutes(1))!;
 
         var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
 
@@ -135,6 +138,18 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Null(view.Windows[0].RefusedReason);
         Assert.Contains("outside 0 to 100", view.Windows[1].RefusedReason);
         Assert.Null(view.Windows[1].ProcessorAveragePercent);
+    }
+
+    [Fact]
+    public void Fold_ADirectorWhoseClockIsBehind_IsNamedAsAClockProblem_NotAConnectionProblem()
+    {
+        // Received a minute ago, stamped 10:00 - twenty-seven minutes before the Gateway's now of 10:32.
+        var windows = Stored(Steady(W0, 30, 8 * Gb));
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
+
+        Assert.False(capacity.Reporting);
+        Assert.Contains("clock is probably behind", capacity.Why);
     }
 
     [Fact]

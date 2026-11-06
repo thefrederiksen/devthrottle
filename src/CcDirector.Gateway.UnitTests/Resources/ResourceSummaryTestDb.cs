@@ -54,7 +54,8 @@ internal sealed class ResourceSummaryTestDb : IDisposable
 /// <summary>Hand-made windows, built by the Director's own builder so the shape is the real one.</summary>
 internal static class ResourceWindows
 {
-    public const long Gb = 1_000_000_000;
+    /// <summary>A binary gigabyte, the unit the Gateway's labels use.</summary>
+    public const long Gb = 1L << 30;
 
     public static ResourceSummarySample Sample(DateTime at, double cpu, long usedBytes,
         ResourceLevel cpuLevel = ResourceLevel.Normal, params ResourceSummarySessionSample[] sessions) =>
