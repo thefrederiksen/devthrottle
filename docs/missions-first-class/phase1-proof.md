@@ -120,10 +120,46 @@ Python: `tools/cc-dev-reports` 58 passed; `tools/cc-devthrottle` 5,551 passed an
 the one a mission fixture missing the new fields, fixed, and the four mission test files then 341 passed;
 `tools/test_shipped_tools_contract.py` 52 passed. All with the tools' declared requirements (click 8.2 or later).
 
+## Answers to the review (`_briefs/missions-first-class/phase1-review.md`)
+
+1. **Non-ASCII character in a regular expression - ACCEPTED.** The no-break space is now written ` ` in
+   `MissionDocumentSections.cs`. A byte scan of every line this pull request adds finds no character outside
+   ASCII.
+2. **Command-line reference and readme out of date - ACCEPTED.** `docs/cli-reference.md` (mission list fields,
+   default, example output, the document and goal rules, the broken-row rule; `cc-dev-reports open
+   --mission-document` and the full `--json` key list) and `tools/cc-dev-reports/README.md` are updated, and so
+   is the `--fields` help text inside `cc-devthrottle` itself, which had the same stale list.
+3. **`mission list` fails against a Gateway older than this change - NO CODE, by the Delivery Lead's ruling.**
+   The Delivery Lead deploys the Gateway right after this merges; the pull request says so.
+4. **A republish without the flag left the goal stale - ACCEPTED, as the Delivery Lead ruled.**
+   `MissionDocumentLinker.RefreshIfDocument`: after any publish without the flag, when the report is the
+   document of the publishing session's own Mission, the why and goal are re-read exactly as with the flag, and
+   the answer carries the same `missionDocument` block, which `cc-dev-reports` now prints even without the flag.
+   Tested: `Run_RepublishWithoutTheFlagOfTheMissionsDocument_RefreshesTheGoal`, and the negative
+   `Run_OrdinaryReportWithoutTheFlag_LeavesTheMissionAlone`; on the tool side
+   `test_open_without_the_flag_of_the_missions_document_prints_the_refreshed_link`.
+5. **The no-Mission refusal right after an attach - ACCEPTED, the wording.** The attach route hands the change to
+   the Director, and the Gateway's copy of the row changes on that Director's next push, so the window is real as
+   read from the code (I did not reproduce it live). Recording the attachment on the Gateway's own row is a change
+   to the attach route, outside this phase. The refusal now says: "If you attached it a moment ago, the
+   attachment may not have reached the Gateway yet: wait a few seconds and publish again." Tested in
+   `Resolve_SessionWithNoMission_RefusesWithNoMission`.
+6. **A second copy of `/r/` - ACCEPTED.** `MissionButtonFold` builds the address from `DevReportLinkRoute.Prefix`.
+7. **The publish route's ordering untested - ACCEPTED, differently than proposed.** Rather than host the route, the
+   step after the body is read moved into `DevReports/DevReportPublish.Run`, which the route calls and which is
+   tested over the real report store (a throwaway SQLite database, no port, no clock) and a real mission store
+   on disk: `Run_MissionDocumentFromASessionWithNoMission_RefusesAndWritesNoReport` (nothing written - mutation
+   check: with the early return disabled, this test fails), `Run_MissionDocument_PublishesAndLinks`, and
+   `Run_MissionRemovedBetweenTheLookupAndTheLink_ReportIsWrittenAndTheLinkIsLost` (two stores over one file, as
+   two containers during a deploy: the report exists at version 1 and the link is reported lost, which the route
+   answers 409 `mission_unknown`). The route itself is now only the mapping of that outcome to a response.
+8. **The cut could split a surrogate pair - ACCEPTED.** `MissionDocumentSections.Cut` steps back one unit when the
+   last kept unit is a high surrogate. Tested both sides: `Cut_LimitFallsInsideASurrogatePair_CutsBeforeThePair`
+   and `Cut_LimitFallsAfterAWholePair_KeepsThePair`.
+
 ## Not proven here
 
-- The publish route itself has no route-level test: no suite in the repository hosts the dev report routes.
-  The ordering that matters (refuse before writing) sits in the route; the decisions it calls are tested.
-- A republish WITHOUT `--mission-document` of a report that is already a Mission's document does not refresh
-  the Mission's goal. Republishing with the flag does.
+- The route's mapping from `DevReportPublishOutcome` to a response (status codes, body shape) is not hosted by
+  any test; the outcome it maps is.
+- The window in answer 5 is read from the code, not reproduced live.
 - Nothing on the Director renders the verdict yet; that is phase 2.
