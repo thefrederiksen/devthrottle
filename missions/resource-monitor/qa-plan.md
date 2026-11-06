@@ -222,20 +222,32 @@ quantities.** So:
   without that is not evidence, because the reader cannot tell whether it measured the probe or the
   weather.
 
-## A caveat on running the live project: the opt-in is not a platform check
+## Running the live project: the gate decides per class, so run the WHOLE project
 
-`LiveMachineFactAttribute` gates on `CC_DIRECTOR_LIVE_MACHINE_TESTS` only - it does not check the
-platform. Once the Linux, Windows and macOS classes all derive from the shared contract in one
-project, the command above runs **every** platform's contract class on whatever machine invokes it, so
-the Linux class on a Mac **fails** rather than skipping. A derived class cannot change the attribute
-on the tests it inherits.
+This paragraph used to say the opposite, and the warning it carried is now out of date. It said
+`LiveMachineFactAttribute` gated on `CC_DIRECTOR_LIVE_MACHINE_TESTS` only, that a cross-platform run
+was therefore expected to show failures that were not defects, and that the quality assurance should
+not be run against this project until a platform hook existed. **That hook exists.** It landed with the
+Linux probe, and the macOS classes were moved onto it when the macOS contract derivation landed.
 
-**The fix belongs in the base**, as a platform hook each derived class declares, so the wrong-platform
-classes skip visibly. It is deliberately *not* fixed by having this plan filter by class: a procedure
-somebody has to remember is a procedure that gets forgotten, and the symptom would be a red run that
-looks like a product defect. Until that hook exists, a cross-platform run of this project is expected
-to show failures that are not defects - which is precisely the state this plan exists to prevent, so
-do not run the quality assurance against it until it is fixed.
+So the procedure is the simple one, and it is the same on every machine:
+
+```
+CC_DIRECTOR_LIVE_MACHINE_TESTS=1 dotnet test src/CcDirector.Core.MachineLiveTests -c Release
+```
+
+Every class that reads one platform's own interfaces declares which platform it is for, with
+`[LiveMachinePlatform(...)]`, and the decision is made **per class when the test is discovered** - which
+is what the shared contract needs, because its tests are written once in an abstract base and
+inherited, and an attribute on the base cannot know which platform each derived class is for. On a
+machine of another kind those tests SKIP, visibly, with the reason stated (`Written for Linux; this
+machine is macOS.`). A contract class that declares no platform is reported as an **error** naming the
+fix, rather than run - and failed - everywhere.
+
+**Do not filter by class to work around a platform**, and do not read a skip as a gap in the run: the
+skips are the gate working, and their reasons are the record of what this machine could not be asked.
+What still deserves a reader's attention is a class that neither ran nor skipped, and a run where the
+skip count does not match the platforms this machine is not.
 
 ## Rules the report itself must obey
 

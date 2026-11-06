@@ -408,7 +408,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.Contains(entries, entry => entry.UserId != ourUserId);
     }
 
-    [LiveMachineFact("one process's own figures through proc_pidinfo")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ThisTestProcess_ReadsItsOwnNameParentAndUsage()
     {
@@ -443,7 +443,7 @@ public class MacOsPlatformReaderLiveTests
             new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
-    [LiveMachineFact("one process's own figures through proc_pidinfo")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ManyProcessesOnThisMachine_AreReadableAndTheRestAreNullNotAFailure()
     {
@@ -518,7 +518,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(seconds, 0.001, 86_400.0);
     }
 
-    [LiveMachineFact("one process's own figures through proc_pidinfo")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_AProcessThatDoesNotExist_IsNullRatherThanThrowing()
     {
