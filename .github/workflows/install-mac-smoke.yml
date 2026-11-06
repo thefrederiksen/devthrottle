@@ -24,6 +24,11 @@ permissions:
 jobs:
   install:
     runs-on: macos-15
+    # Measured at about 30 seconds. macOS runners are the scarcest capacity we have - GitHub allows only
+    # five concurrent macOS jobs on this plan - so an unbounded job here can hold a fifth of that
+    # capacity for the six-hour ceiling and starve a release. Queue time is not counted against this
+    # limit, only execution.
+    timeout-minutes: 20
     env:
       # Point the developer tools at a folder that does not exist, so every
       # Xcode stub (python3, git, xcodebuild) fails the way a broken Xcode does.

@@ -43,6 +43,9 @@ jobs:
   set-staff:
     name: Set the staff list on production
     runs-on: ubuntu-latest
+    # Writes one app setting and waits for the restart it causes; no measured history yet, so the cap is
+    # set from the deploy's own restart budget with wide headroom.
+    timeout-minutes: 30
     environment: hosted-gateway-production
 
     steps:
