@@ -24,6 +24,14 @@ ends with `out/summary.json` and `out/summary.md`. The exit code is 0 only when 
 
 The diagnosis check (mission item 6) runs inside steps 2 and 3, on the reading taken under load.
 
+**Every time limit is judged on the recorded sample's own time.** The Director writes its recording once a
+minute, so the newest line the diagnose command can see may be up to a minute old. A step counts a sample only if
+it was TAKEN after the change (the load starting, or stopping), and the 70 seconds are measured from the change to
+that sample's `takenAtUtc` - never to the moment the harness happened to read it. The harness polls for up to 145
+seconds (the limit, plus the one-minute write interval, plus three polls) to see that sample. So a stopped Director
+whose last line was red can never pass "red", and one whose last line was normal can never pass "clear". For the
+memory step the clock starts once the machine is held short of memory, not while it is being filled.
+
 ## Where each figure comes from
 
 **Ours** comes from the Director, through its own diagnose command, `cc-devthrottle machine diagnose --json`
@@ -56,9 +64,11 @@ The recording is written by the sampler, so the meter steps need a Director buil
 ## Safety
 
 - **The memory step never takes the machine to Critical.** It reads memory through Core's real
-  `MachineMemoryProbe` and stops halfway between the meter's Tight and Critical lines, sizing each batch from a
-  fresh reading so a cached one cannot make it overshoot. If the machine reaches Critical anyway, the step
-  releases everything and fails.
+  `MachineMemoryProbe` and aims halfway between the meter's Tight and Critical lines. It allocates at most half a
+  gigabyte between two fresh readings, never more than the room left above that target, and never more in total
+  than the room the first reading showed. A batch that does not show up in the next reading as at least half its
+  size releases everything and stops, because the reading can no longer be trusted to stop the load. If the
+  machine reaches Critical anyway, the step releases everything and fails.
 - **It refuses to start the memory step on a machine that is already short of memory**, because the warning
   could not then be shown raising.
 - The processor load runs at normal priority and stops the moment the step does, pass or fail.
@@ -71,10 +81,13 @@ The recording is written by the sampler, so the meter steps need a Director buil
 | `--diagnose-command "<cmd>"` | Prints the Director's diagnose JSON for steps 1 to 3. Default `cc-devthrottle machine diagnose --json`. |
 | `--screenshot-command "<cmd>"` | With `{path}`. The default is the platform's own: a .NET screen copy on Windows, `screencapture -x` on macOS, `gnome-screenshot -f` on Linux. |
 | `--gateway-block`, `--gateway-unblock` | Commands that cut the Director off from its Gateway and restore it. |
-| `--gateway-rows "<cmd>"` | Prints a JSON array of the UTC window start times stored for this machine. |
+| `--gateway-rows "<cmd>"` | Prints a JSON array of the window start times stored for this machine, each with its offset ("Z"); a time with none is refused. |
 | `--gateway-minutes <n>` | How long to block. Default 10. |
 | `--cost-pid <pid>` | The process running the sampler. |
 | `--cost-minutes <n>` | How long to measure. Default 10. |
+
+An argument the harness does not know stops the run with exit code 2, so a misspelt step is never skipped
+quietly while the run reports PASS.
 
 ## What is not proved by this harness alone
 

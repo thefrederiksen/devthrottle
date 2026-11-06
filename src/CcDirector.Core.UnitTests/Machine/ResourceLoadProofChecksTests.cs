@@ -36,6 +36,47 @@ public class ResourceLoadProofChecksTests
         Assert.Contains("could not read", result.Summary);
     }
 
+    // ---- the warning limit, judged on the recorded sample's own time ----
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(70, true)]
+    [InlineData(71, false)]
+    [InlineData(-1, false)]
+    public void WithinWarningDeadline_CountsOnlySamplesTakenAfterTheChange(int sampleSecondsAfter, bool expected)
+    {
+        Assert.Equal(expected, ProofChecks.WithinWarningDeadline(Noon, Noon.AddSeconds(sampleSecondsAfter)));
+    }
+
+    [Fact]
+    public void PollDeadline_CoversTheLimitPlusTheRecordersWriteInterval()
+    {
+        Assert.True(ProofChecks.PollDeadline >= ProofChecks.WarningDeadline + CcDirector.Core.Machine.ResourceRecorder.WriteEvery);
+    }
+
+    // ---- the Gateway rows ----
+
+    [Fact]
+    public void ParseWindowStarts_ReadsUtcAndOffsetTimes()
+    {
+        var starts = ProofChecks.ParseWindowStarts("""["2026-11-06T12:00:00Z", "2026-11-06T13:05:00+01:00"]""");
+
+        Assert.Equal([Noon, Noon.AddMinutes(5)], starts);
+        Assert.All(starts, start => Assert.Equal(DateTimeKind.Utc, start.Kind));
+    }
+
+    [Fact]
+    public void ParseWindowStarts_ATimeWithNoOffset_Throws_ItWouldBeReadAsLocal()
+    {
+        Assert.Throws<FormatException>(() => ProofChecks.ParseWindowStarts("""["2026-11-06T12:00:00"]"""));
+    }
+
+    [Fact]
+    public void ParseWindowStarts_NotAnArray_Throws()
+    {
+        Assert.Throws<FormatException>(() => ProofChecks.ParseWindowStarts("""{ "rows": [] }"""));
+    }
+
     // ---- the sampler's own cost ----
 
     [Fact]
@@ -127,7 +168,7 @@ public class ResourceLoadProofChecksTests
     // ---- the diagnosis ----
 
     private static MeterObservation Diagnosis(bool couldDiagnose, bool isSlow, string cause) =>
-        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, "{}");
+        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, Noon, "{}");
 
     [Theory]
     [InlineData("Cpu", "Cpu", true)]
@@ -203,6 +244,7 @@ public class ResourceLoadProofChecksTests
 
     private const string Healthy = """
         { "newest": {
+            "takenAtUtc": "2026-11-06T12:00:05Z",
             "cpu": { "couldRead": true, "unreadableReason": null, "totalBusyPercent": 28.0 },
             "memory": { "couldRead": true, "unreadableReason": null, "totalBytes": 1000, "availableBytes": 450 },
             "verdict": { "worst": "Tight", "resources": [
@@ -224,6 +266,25 @@ public class ResourceLoadProofChecksTests
         Assert.True(observation.CouldDiagnose);
         Assert.Equal("Cpu, Disk", observation.Cause);
         Assert.True(ProofChecks.DiagnosisNames(observation, "Disk"));
+    }
+
+    [Fact]
+    public void ParseDiagnose_CarriesWhenTheSampleWasTaken()
+    {
+        Assert.Equal(Noon.AddSeconds(5), ProofChecks.ParseDiagnoseJson(Healthy).TakenAtUtc);
+    }
+
+    [Fact]
+    public void ParseDiagnose_NoRecordedVerdict_BothLevelsUnknown_NeverNormal()
+    {
+        var start = Healthy.IndexOf("\"verdict\"", StringComparison.Ordinal);
+        var end = Healthy.IndexOf("\"diagnosis\"", StringComparison.Ordinal);
+        var json = Healthy[..start] + "\"verdict\": null, " + Healthy[end..];
+
+        var observation = ProofChecks.ParseDiagnoseJson(json);
+
+        Assert.Equal(MeterLevel.Unknown, observation.Cpu.Level);
+        Assert.Equal(MeterLevel.Unknown, observation.Memory.Level);
     }
 
     [Fact]

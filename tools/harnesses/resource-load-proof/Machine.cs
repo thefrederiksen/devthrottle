@@ -131,8 +131,8 @@ public sealed class OsMonitor(bool interactive)
 /// line - and frees it on dispose. It reads the machine through Core's real <see cref="MachineMemoryProbe"/>,
 /// so it stops at exactly the levels the meter is judged on.
 ///
-/// IT WILL NOT TAKE A MACHINE TO CRITICAL. The target is midway between the two lines, and allocation stops
-/// before available memory could fall under <see cref="MemoryPressure.CriticalAbsoluteBytes"/> plus one chunk.
+/// IT WILL NOT TAKE A MACHINE TO CRITICAL. The target is midway between the two lines; see <see cref="TopUp"/>
+/// for the three guards that keep each batch from overshooting it.
 /// A machine that is already Tight before it starts cannot show the warning RAISING, so that is refused.
 /// </summary>
 public sealed class MemoryLoad : IDisposable
@@ -140,11 +140,15 @@ public sealed class MemoryLoad : IDisposable
     private const int ChunkBytes = 128 * 1024 * 1024;
     private const int PageBytes = 4096;
 
+    /// <summary>The most chunks allocated between two fresh readings: half a gigabyte.</summary>
+    private const int BatchChunks = 4;
+
     private static readonly ulong TargetAvailableBytes =
         (MemoryPressure.TightAbsoluteBytes + MemoryPressure.CriticalAbsoluteBytes) / 2;
 
     private readonly List<byte[]> _held = new();
     private readonly IMachineMemoryProbe _probe = new MachineMemoryProbe();
+    private ulong? _ceilingBytes;
 
     /// <summary>How much this load holds now.</summary>
     public ulong HeldBytes => (ulong)_held.Count * ChunkBytes;
@@ -155,18 +159,26 @@ public sealed class MemoryLoad : IDisposable
     /// <summary>
     /// Allocates and touches memory until available memory is at the target, or tops it back up when other
     /// programs have freed some since. Safe to call repeatedly while holding.
+    ///
+    /// THREE GUARDS keep it off Critical. A batch is at most <see cref="BatchChunks"/> chunks and never more than
+    /// the room left above the target, sized from a FRESH reading (the probe caches for a second). After each batch
+    /// the machine is read again, and a batch that did not show up as at least half its size in the reading - a probe
+    /// stuck on one figure, or the system handing back cache as fast as the harness takes it - releases everything
+    /// and stops, because allocating on would be allocating blind. And the load never holds more than the room the
+    /// FIRST reading showed above the target, whatever later readings say.
     /// </summary>
     public void TopUp()
     {
         while (true)
         {
-            var reading = Read();
-            if (reading.AvailableBytes <= TargetAvailableBytes + ChunkBytes) return;
+            var before = Read();
+            if (before.AvailableBytes <= TargetAvailableBytes + ChunkBytes) return;
+            _ceilingBytes ??= before.AvailableBytes - TargetAvailableBytes;
 
-            // The probe caches for a second, so the chunks for one reading are sized from THAT reading and the
-            // next batch waits for a fresh one. Allocating against a stale figure would overshoot the target and
-            // could take the machine past Critical.
-            var chunks = (int)((reading.AvailableBytes - TargetAvailableBytes) / ChunkBytes);
+            var room = Math.Min(before.AvailableBytes - TargetAvailableBytes, _ceilingBytes.Value - Math.Min(HeldBytes, _ceilingBytes.Value));
+            var chunks = (int)Math.Min(BatchChunks, room / ChunkBytes);
+            if (chunks == 0) return;
+
             for (var n = 0; n < chunks; n++)
             {
                 var chunk = GC.AllocateUninitializedArray<byte>(ChunkBytes);
@@ -175,8 +187,18 @@ public sealed class MemoryLoad : IDisposable
                 for (var i = 0; i < chunk.Length; i += PageBytes) chunk[i] = 1;
                 _held.Add(chunk);
             }
-            Console.WriteLine($"[load] holding {HeldBytes / (1024 * 1024)} MB; machine was {reading}");
+
             Thread.Sleep(MachineMemoryProbe.CacheFor + TimeSpan.FromMilliseconds(200));
+            var after = Read();
+            var batch = (ulong)chunks * ChunkBytes;
+            var fell = before.AvailableBytes > after.AvailableBytes ? before.AvailableBytes - after.AvailableBytes : 0;
+            Console.WriteLine($"[load] holding {HeldBytes / (1024 * 1024)} MB; machine now {after}");
+            if (fell < batch / 2)
+            {
+                Dispose();
+                throw new InvalidOperationException(
+                    $"A {batch / (1024 * 1024)} MB batch moved available memory by only {fell / (1024 * 1024)} MB, so the reading cannot be trusted to stop the load; everything was released.");
+            }
         }
     }
 

@@ -32,7 +32,8 @@ public sealed record MeterBar(bool CouldRead, double? Percent, MeterLevel Level)
 /// <param name="IsSlow">The diagnosis: is the machine slow.</param>
 /// <param name="Cause">The diagnosis's cause, as the Director names it, for example "Cpu" or "Cpu, Disk".</param>
 /// <param name="Raw">The JSON the figures were read from, kept for the report.</param>
-public sealed record MeterObservation(MeterBar Cpu, MeterBar Memory, bool CouldDiagnose, bool IsSlow, string Cause, string Raw);
+/// <param name="TakenAtUtc">When the Director took the sample. The recording is written once a minute, so this - never the moment the harness read it - is the time a check is judged on.</param>
+public sealed record MeterObservation(MeterBar Cpu, MeterBar Memory, bool CouldDiagnose, bool IsSlow, string Cause, DateTime TakenAtUtc, string Raw);
 
 /// <summary>The operating system's own figure for one resource, and where it came from.</summary>
 /// <param name="Percent">The figure, 0 to 100.</param>
@@ -50,6 +51,43 @@ public static class ProofChecks
 
     /// <summary>A warning must show within this long of the load starting (mission section 3).</summary>
     public static readonly TimeSpan WarningDeadline = TimeSpan.FromSeconds(70);
+
+    /// <summary>
+    /// How long the harness polls for a recorded sample before giving up: the 70-second limit, plus the recorder's
+    /// one-minute write interval (the sample that proves it may be written up to a minute after it was taken), plus
+    /// three polls. The pass itself is still judged on the sample's own time against <see cref="WarningDeadline"/>.
+    /// </summary>
+    public static readonly TimeSpan PollDeadline = TimeSpan.FromSeconds(70 + 60 + 15);
+
+    /// <summary>
+    /// Whether a recorded sample met the warning limit: taken at or after the change, and no more than
+    /// <see cref="WarningDeadline"/> after it. A sample from before the change never counts.
+    /// </summary>
+    public static bool WithinWarningDeadline(DateTime changeUtc, DateTime sampleTakenAtUtc) =>
+        sampleTakenAtUtc >= changeUtc && sampleTakenAtUtc - changeUtc <= WarningDeadline;
+
+    /// <summary>
+    /// Reads the Gateway rows command's output: a JSON array of window start times. Each must carry its offset
+    /// ("Z" or "+01:00"); a time with none is refused, because reading it as local time would shift every window
+    /// by the machine's offset and report every row missing, or match by luck.
+    /// </summary>
+    public static IReadOnlyList<DateTime> ParseWindowStarts(string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new FormatException("The Gateway rows command must print a JSON array of window start times.");
+
+        var starts = new List<DateTime>();
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            var text = element.GetString() ?? throw new FormatException("A window start time is null.");
+            if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"(Z|[+-]\d{2}:\d{2})$"))
+                throw new FormatException($"The window start \"{text}\" has no offset; write it in UTC with a Z.");
+            starts.Add(DateTimeOffset.Parse(text, CultureInfo.InvariantCulture).UtcDateTime);
+        }
+        return starts;
+    }
 
     /// <summary>The sampler's own processor cost must stay under this share of one core (mission section 3).</summary>
     public const double SamplerCostLimitPercentOfOneCore = 0.5;
@@ -211,7 +249,12 @@ public static class ProofChecks
             throw new FormatException("The diagnose output has no newest sample: the Director has recorded nothing yet, so there is no meter to read.");
 
         var levels = new Dictionary<string, MeterLevel>(StringComparer.Ordinal);
-        foreach (var resource in Required(Required(newest, "verdict", "newest"), "resources", "newest.verdict").EnumerateArray())
+        var verdict = Required(newest, "verdict", "newest");
+        // A sample recorded with no verdict leaves both levels Unknown - never Normal.
+        var resources = verdict.ValueKind == JsonValueKind.Null
+            ? Enumerable.Empty<JsonElement>()
+            : Required(verdict, "resources", "newest.verdict").EnumerateArray();
+        foreach (var resource in resources)
         {
             var kind = Required(resource, "kind", "a verdict resource").GetString() ?? "";
             var levelText = Required(resource, "level", $"the {kind} verdict").GetString();
@@ -247,6 +290,8 @@ public static class ProofChecks
             Required(diagnosis, "couldDiagnose", "newest.diagnosis").GetBoolean(),
             Required(diagnosis, "isSlow", "newest.diagnosis").GetBoolean(),
             causes.Length == 0 ? "None" : string.Join(", ", causes),
+            DateTimeOffset.Parse(Required(newest, "takenAtUtc", "newest").GetString()
+                ?? throw new FormatException("newest.takenAtUtc is null."), CultureInfo.InvariantCulture).UtcDateTime,
             json);
     }
 
@@ -261,9 +306,11 @@ public static class ProofChecks
     }
 
     private static MeterLevel LevelOf(Dictionary<string, MeterLevel> levels, string kind) =>
-        levels.TryGetValue(kind, out var level)
-            ? level
-            : throw new FormatException($"The recorded verdict has no {kind} resource.");
+        levels.Count == 0
+            ? MeterLevel.Unknown
+            : levels.TryGetValue(kind, out var level)
+                ? level
+                : throw new FormatException($"The recorded verdict has no {kind} resource.");
 
     private static JsonElement Required(JsonElement parent, string name, string where) =>
         parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var value)

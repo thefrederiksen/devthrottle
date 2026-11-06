@@ -112,23 +112,39 @@ internal static class Harness
             return Path.GetFileName(path);
         }
 
-        // Polls the Director every five seconds until the condition holds or the deadline passes.
-        private (bool Met, MeterObservation Last, TimeSpan Elapsed) WaitFor(Func<MeterObservation, bool> condition, TimeSpan deadline, string what)
+        // Polls the Director every five seconds until it has RECORDED a sample, taken after `sinceUtc`, that meets the
+        // condition - or the poll deadline passes. The recording is written once a minute, so the newest line can be a
+        // minute old: an observation counts only by the time its sample was taken, never by when the harness read it,
+        // so a stopped Director whose last line happens to be red can never pass "red". The verdict is then judged on
+        // the sample's own time against the 70-second limit.
+        private WaitResult WaitFor(Func<MeterObservation, bool> condition, DateTime sinceUtc, string what)
         {
             var clock = Stopwatch.StartNew();
             while (true)
             {
                 var observation = Observe();
-                Console.WriteLine($"[wait] {clock.Elapsed.TotalSeconds,5:F0} s  CPU {Describe(observation.Cpu)}  MEM {Describe(observation.Memory)}  waiting for {what}");
-                if (condition(observation)) return (true, observation, clock.Elapsed);
-                if (clock.Elapsed >= deadline) return (false, observation, clock.Elapsed);
+                var fresh = observation.TakenAtUtc >= sinceUtc;
+                Console.WriteLine($"[wait] {clock.Elapsed.TotalSeconds,5:F0} s  sample {observation.TakenAtUtc:HH:mm:ss}{(fresh ? "" : " (before the change)")}  CPU {Describe(observation.Cpu)}  MEM {Describe(observation.Memory)}  waiting for {what}");
+                if (fresh && condition(observation))
+                    return new WaitResult(ProofChecks.WithinWarningDeadline(sinceUtc, observation.TakenAtUtc), observation,
+                        observation.TakenAtUtc - sinceUtc, Seen: true);
+                if (clock.Elapsed >= ProofChecks.PollDeadline)
+                    return new WaitResult(false, observation, observation.TakenAtUtc - sinceUtc, Seen: false);
                 Thread.Sleep(Poll);
             }
         }
 
+        private static string Verdict(WaitResult result, string reached, string since) =>
+            result.Met
+                ? $"{reached} {result.Elapsed.TotalSeconds:F0} s after {since}, by the recorded sample's own time"
+                : result.Seen
+                    ? $"{reached} only {result.Elapsed.TotalSeconds:F0} s after {since} - OVER the {ProofChecks.WarningDeadline.TotalSeconds:F0} s limit"
+                    : $"NOT {reached}: no recorded sample met it within {ProofChecks.PollDeadline.TotalSeconds:F0} s of polling (newest sample {result.Last.TakenAtUtc:HH:mm:ss} UTC, CPU {Describe(result.Last.Cpu)}, MEM {Describe(result.Last.Memory)})";
+
         public StepResult IdleAgreement()
         {
             var ours = Observe();
+            var age = DateTime.UtcNow - ours.TakenAtUtc;
             var shot = Shot("1-idle-meter");
             var cpu = ProofChecks.Agreement("CPU", ours.Cpu.Percent, _os.Cpu(ours.Cpu.Percent, options.OsCpu));
             var memory = ProofChecks.Agreement("MEM", ours.Memory.Percent, _os.Memory(ours.Memory.Percent, options.OsMemory));
@@ -137,6 +153,7 @@ internal static class Harness
                 {
                     ["cpu"] = cpu.Summary,
                     ["memory"] = memory.Summary,
+                    ["sample"] = $"taken {ours.TakenAtUtc:O}, {age.TotalSeconds:F0} s before the operating system's figures were read",
                     ["diagnose output"] = ours.Raw,
                 },
                 [shot]);
@@ -146,19 +163,20 @@ internal static class Harness
         {
             var readings = new Dictionary<string, string>();
             var shots = new List<string>();
-            (bool Met, MeterObservation Last, TimeSpan Elapsed) red;
+            WaitResult red;
             bool namedCpu;
+            var loadStartedUtc = DateTime.UtcNow;
             using (new CpuLoad(Environment.ProcessorCount))
             {
-                red = WaitFor(o => o.Cpu.Level == MeterLevel.Critical, ProofChecks.WarningDeadline, "CPU red");
-                readings["red"] = red.Met ? $"red after {red.Elapsed.TotalSeconds:F0} s" : $"NOT red within {ProofChecks.WarningDeadline.TotalSeconds:F0} s (CPU {Describe(red.Last.Cpu)})";
+                red = WaitFor(o => o.Cpu.Level == MeterLevel.Critical, loadStartedUtc, "CPU red");
+                readings["red"] = Verdict(red, "red", "the load started");
                 shots.Add(Shot("2-processor-red"));
                 namedCpu = ProofChecks.DiagnosisNames(red.Last, "Cpu");
                 readings["diagnosis under load"] = $"couldDiagnose={red.Last.CouldDiagnose}, isSlow={red.Last.IsSlow}, cause={red.Last.Cause}";
             }
 
-            var clear = WaitFor(o => o.Cpu.Level == MeterLevel.Normal, ProofChecks.WarningDeadline, "CPU back to normal");
-            readings["clear"] = clear.Met ? $"cleared {clear.Elapsed.TotalSeconds:F0} s after the load stopped" : $"NOT cleared within {ProofChecks.WarningDeadline.TotalSeconds:F0} s (CPU {Describe(clear.Last.Cpu)})";
+            var clear = WaitFor(o => o.Cpu.Level == MeterLevel.Normal, DateTime.UtcNow, "CPU back to normal");
+            readings["clear"] = Verdict(clear, "cleared", "the load stopped");
             shots.Add(Shot("2-processor-cleared"));
 
             var passed = red.Met && clear.Met && namedCpu;
@@ -169,12 +187,15 @@ internal static class Harness
         {
             var readings = new Dictionary<string, string>();
             var shots = new List<string>();
-            (bool Met, MeterObservation Last, TimeSpan Elapsed) amber;
+            WaitResult amber;
             bool namedMemory;
             using (var load = new MemoryLoad())
             {
                 load.RequireRoomToRaise();
                 load.TopUp();
+                // The 70 seconds count from the machine BEING short of memory, not from the start of filling it: on a
+                // machine with 20 GB free the filling alone takes most of a minute.
+                var loadStartedUtc = DateTime.UtcNow;
                 readings["held"] = $"{load.HeldBytes / (1024 * 1024)} MB; machine {load.Level()}";
                 amber = WaitFor(o =>
                 {
@@ -182,15 +203,15 @@ internal static class Harness
                     if (load.Level() == CcDirector.Core.Machine.MemoryPressureLevel.Critical)
                         throw new InvalidOperationException("The machine reached Critical while loaded; the load was released at once.");
                     return o.Memory.Level == MeterLevel.Tight;
-                }, ProofChecks.WarningDeadline, "MEM amber");
-                readings["amber"] = amber.Met ? $"amber after {amber.Elapsed.TotalSeconds:F0} s" : $"NOT amber within {ProofChecks.WarningDeadline.TotalSeconds:F0} s (MEM {Describe(amber.Last.Memory)})";
+                }, loadStartedUtc, "MEM amber");
+                readings["amber"] = Verdict(amber, "amber", "the load started");
                 shots.Add(Shot("3-memory-amber"));
                 namedMemory = ProofChecks.DiagnosisNames(amber.Last, "Memory");
                 readings["diagnosis under load"] = $"couldDiagnose={amber.Last.CouldDiagnose}, isSlow={amber.Last.IsSlow}, cause={amber.Last.Cause}";
             }
 
-            var clear = WaitFor(o => o.Memory.Level == MeterLevel.Normal, ProofChecks.WarningDeadline, "MEM back to normal");
-            readings["clear"] = clear.Met ? $"cleared {clear.Elapsed.TotalSeconds:F0} s after the memory was freed" : $"NOT cleared within {ProofChecks.WarningDeadline.TotalSeconds:F0} s (MEM {Describe(clear.Last.Memory)})";
+            var clear = WaitFor(o => o.Memory.Level == MeterLevel.Normal, DateTime.UtcNow, "MEM back to normal");
+            readings["clear"] = Verdict(clear, "cleared", "the memory was freed");
             shots.Add(Shot("3-memory-cleared"));
 
             var passed = amber.Met && clear.Met && namedMemory;
@@ -227,9 +248,8 @@ internal static class Harness
             Console.WriteLine("[gateway] waiting six minutes for the catch-up and the next send");
             Thread.Sleep(TimeSpan.FromMinutes(6));
             var to = ProofChecks.AlignToWindow(DateTime.UtcNow);
-            var stored = JsonSerializer.Deserialize<List<DateTime>>(Shell.Run(rows, TimeSpan.FromMinutes(1)))
-                ?? throw new FormatException("--gateway-rows printed null; it must print a JSON array of window start times in UTC.");
-            var gaps = ProofChecks.Gaps(stored.Select(t => DateTime.SpecifyKind(t.ToUniversalTime(), DateTimeKind.Utc)).ToList(), from, to);
+            var stored = ProofChecks.ParseWindowStarts(Shell.Run(rows, TimeSpan.FromMinutes(1)));
+            var gaps = ProofChecks.Gaps(stored, from, to);
             return new StepResult("", gaps.Passed, gaps.Summary,
                 new()
                 {
@@ -271,6 +291,9 @@ internal static class Harness
     }
 }
 
+/// <summary>The outcome of one wait: whether the limit was met, the last observation, how long after the change its sample was taken, and whether a matching sample was seen at all.</summary>
+internal sealed record WaitResult(bool Met, MeterObservation Last, TimeSpan Elapsed, bool Seen);
+
 /// <summary>One step's outcome, as written into the report.</summary>
 internal sealed record StepResult(string Name, bool Passed, string Summary, Dictionary<string, string> Readings, List<string> Screenshots);
 
@@ -306,8 +329,24 @@ internal sealed record Options(
     /// <summary>The Director's own diagnose command, which reports the newest sample, verdict and diagnosis it recorded.</summary>
     public const string DefaultDiagnoseCommand = "cc-devthrottle machine diagnose --json";
 
+    private static readonly string[] SwitchFlags = ["--idle", "--cpu", "--memory", "--gateway", "--cost", "--non-interactive"];
+
+    private static readonly string[] ValueFlags =
+    [
+        "--report", "--diagnose-command", "--screenshot-command", "--os-cpu", "--os-mem",
+        "--gateway-block", "--gateway-unblock", "--gateway-rows", "--gateway-minutes", "--cost-pid", "--cost-minutes",
+    ];
+
     public static Options Parse(string[] args)
     {
+        // An argument the harness does not know is refused, so a misspelt step ("--memroy") fails the run instead of
+        // quietly being skipped while the run reports PASS (docs/axi-standard.md).
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (ValueFlags.Contains(args[i])) { i++; continue; }
+            if (!SwitchFlags.Contains(args[i])) throw new ArgumentException($"Unknown argument \"{args[i]}\".");
+        }
+
         string? Value(string name)
         {
             var index = Array.IndexOf(args, name);
