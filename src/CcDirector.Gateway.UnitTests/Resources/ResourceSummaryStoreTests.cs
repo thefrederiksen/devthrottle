@@ -172,6 +172,34 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         Assert.Empty(store.SessionWindows(Tenant, "devlinux", W0, W0.AddHours(1))!);
     }
 
+    /// <summary>
+    /// A real sampler does not tick on the exact second. With every sample 0.3 seconds past its five-second tick, a red
+    /// run to the end of the window rounds to end 0.3 seconds past it, and a run beginning in the last half second
+    /// rounds to under a second. Both are correct windows and must be stored as figures, never refused (second review,
+    /// finding 3a).
+    /// </summary>
+    [Theory]
+    [InlineData(24)]
+    [InlineData(59)]
+    public void Store_ARedRunToTheEndOfAWindowOffTheTick_IsStoredNotRefused(int firstRedSample)
+    {
+        var store = NewStore();
+        var offset = TimeSpan.FromSeconds(0.3);
+        var samples = Enumerable.Range(0, 60).Select(i =>
+        {
+            var red = i >= firstRedSample;
+            return Sample(W0.AddSeconds(5 * i) + offset, red ? 99 : 20, 8 * Gb, red ? Core.Machine.ResourceLevel.Critical : Core.Machine.ResourceLevel.Normal);
+        });
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", samples);
+
+        store.Store(Tenant, Director, Batch(window));
+
+        var row = Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+        Assert.Null(row.RefusedReason);
+        Assert.Equal(99, row.ProcessorPeakPercent);
+        Assert.True(Assert.Single(ResourceSummaryStore.CrossingsOf(row)).Seconds >= 1);
+    }
+
     [Fact]
     public void Store_AWindowFromTheFuture_IsNeitherHeldNorRefused_AndIsTakenOnceTheClockCatchesUp()
     {

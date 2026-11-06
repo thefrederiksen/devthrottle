@@ -38,6 +38,9 @@ public sealed class ResourceSummaryStore
     /// a few, and twice that is the most that is believable.</summary>
     public const int MaxSamplesPerWindow = 120;
 
+    /// <summary>How far past its window a crossing's rounded end may reach.</summary>
+    public static readonly TimeSpan CrossingRoundingSlack = TimeSpan.FromSeconds(1);
+
     internal static readonly JsonSerializerOptions CrossingJson = new(JsonSerializerDefaults.Web);
 
     private readonly Func<IDbContextFactory<GatewayStatsDbContext>?> _factory;
@@ -309,8 +312,12 @@ public sealed class ResourceSummaryStore
                 return $"a crossing has the level '{c.Level}', which is neither amber nor red";
             if (c.Seconds <= 0 || c.Seconds > ResourceSummaryContract.WindowSeconds)
                 return $"a crossing lasts {c.Seconds} seconds, outside one window";
+            // The START must lie inside the window. The END may pass it by one second: the Director rounds a crossing's
+            // length to whole seconds (at least one), and a sampler that ticks 0.3 seconds off the five-second mark puts a
+            // run to the end of the window 0.3 seconds past it. Refusing that would refuse correct windows - exactly the
+            // ones carrying a sustained red across a window boundary.
             var startedUtc = Utc(c.StartedUtc);
-            if (startedUtc < windowStart || startedUtc.AddSeconds(c.Seconds) > windowEnd)
+            if (startedUtc < windowStart || startedUtc >= windowEnd || startedUtc.AddSeconds(c.Seconds) > windowEnd + CrossingRoundingSlack)
                 return $"a crossing from {startedUtc:O} for {c.Seconds} seconds does not lie inside its window {windowStart:O}";
             if (c.PeakPercent is { } p && !IsPercent(p)) return $"a crossing peaks at {p} per cent";
         }

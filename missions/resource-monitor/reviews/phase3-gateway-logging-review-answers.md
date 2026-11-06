@@ -30,3 +30,11 @@ previous code and seen to fail first unless said otherwise.
 | Note: factory cost silently omits refused windows | **Fixed.** A span holding a refused window makes every factory's cost "at least". Test: `History_ARefusedWindow_MakesTheFactoryCostAtLeast`, seen failing first. |
 | Note: the migration ids were regenerated | **No store holds an old id.** The ids changed only while the change was unmerged; the one statistics file a test Gateway wrote (the local outage proof, in a throwaway folder) is not reused. Every test store is built fresh from the chain. |
 | Findings 1 to 4 "stand unchanged" | The addendum reviewed the third commit, before the fix commit; all four are fixed there, as answered above. |
+
+## The reviewer's verification of the fixes
+
+Findings 1, 2, 4, 3b, 3c and 3d were confirmed. One defect remained in 3a, found by the reviewer:
+
+| Finding | Answer |
+|---|---|
+| 3a refuses CORRECT windows: a crossing's rounded length puts a run to the end of a window whose samples sit 0.3 seconds off the tick 0.3 seconds past the window, and a crossing begun in the last half second rounds to 0 seconds | **Fixed on both sides.** The builder never reports a crossing under one second; the Gateway requires the start to lie inside the window and allows the rounded end one second past it (`CrossingRoundingSlack`). Test: `Store_ARedRunToTheEndOfAWindowOffTheTick_IsStoredNotRefused` (a red run from sample 24 and from sample 59, every sample 0.3 seconds off the tick), seen failing first, and `Build_ACrossingBegunInTheLastHalfSecond_LastsAtLeastOneSecond`. |
