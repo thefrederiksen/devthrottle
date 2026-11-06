@@ -191,47 +191,79 @@ public static class ProofChecks
     }
 
     /// <summary>
-    /// Reads the Director's diagnose command output. The harness needs exactly these fields, and a missing
-    /// one is an error naming it rather than a guess:
+    /// Reads the output of <c>cc-devthrottle machine diagnose --json</c>: the newest sample the Director recorded,
+    /// with the verdict and the diagnosis it recorded beside it. The harness reads these fields, and a missing one
+    /// is an error naming it rather than a guess:
     /// <code>
-    /// { "meter": { "cpu":    { "couldRead": true, "percent": 28.0, "level": "Normal" },
-    ///              "memory": { "couldRead": true, "percent": 55.0, "level": "Normal" } },
-    ///   "diagnosis": { "couldDiagnose": true, "isSlow": false, "cause": "None" } }
+    /// { "newest": { "cpu":    { "couldRead": true, "totalBusyPercent": 28.0 },
+    ///               "memory": { "couldRead": true, "totalBytes": 17179869184, "availableBytes": 7666225480 },
+    ///               "verdict":   { "resources": [ { "kind": "Cpu", "level": "Normal" }, { "kind": "Memory", "level": "Normal" } ] },
+    ///               "diagnosis": { "couldDiagnose": true, "isSlow": false, "causes": [] } } }
     /// </code>
+    /// MEM is memory in use - total minus available, over total - the same figure the toolbar bar shows.
     /// </summary>
     public static MeterObservation ParseDiagnoseJson(string json)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(json);
         using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
-        var meter = Required(root, "meter", "the root");
-        var diagnosis = Required(root, "diagnosis", "the root");
+        var newest = Required(document.RootElement, "newest", "the root");
+        if (newest.ValueKind == JsonValueKind.Null)
+            throw new FormatException("The diagnose output has no newest sample: the Director has recorded nothing yet, so there is no meter to read.");
+
+        var levels = new Dictionary<string, MeterLevel>(StringComparer.Ordinal);
+        foreach (var resource in Required(Required(newest, "verdict", "newest"), "resources", "newest.verdict").EnumerateArray())
+        {
+            var kind = Required(resource, "kind", "a verdict resource").GetString() ?? "";
+            var levelText = Required(resource, "level", $"the {kind} verdict").GetString();
+            if (!Enum.TryParse<MeterLevel>(levelText, ignoreCase: false, out var level))
+                throw new FormatException($"The {kind} verdict's level is \"{levelText}\", which is not Unknown, Normal, Tight or Critical.");
+            levels[kind] = level;
+        }
+
+        var cpu = Required(newest, "cpu", "newest");
+        var cpuCouldRead = Required(cpu, "couldRead", "newest.cpu").GetBoolean();
+        var cpuPercent = Number(Required(cpu, "totalBusyPercent", "newest.cpu"), "newest.cpu.totalBusyPercent", cpuCouldRead);
+
+        var memory = Required(newest, "memory", "newest");
+        var memoryCouldRead = Required(memory, "couldRead", "newest.memory").GetBoolean();
+        var total = Number(Required(memory, "totalBytes", "newest.memory"), "newest.memory.totalBytes", memoryCouldRead);
+        var available = Number(Required(memory, "availableBytes", "newest.memory"), "newest.memory.availableBytes", memoryCouldRead);
+        double? memoryPercent = null;
+        if (memoryCouldRead)
+        {
+            if (total is not > 0 || available is null || available > total)
+                throw new FormatException($"newest.memory says it could read but does not add up: {available} available of {total}.");
+            memoryPercent = (total.Value - available.Value) / total.Value * 100;
+        }
+
+        var diagnosis = Required(newest, "diagnosis", "newest");
+        var causes = Required(diagnosis, "causes", "newest.diagnosis").EnumerateArray()
+            .Select(cause => cause.GetString() ?? throw new FormatException("A diagnosis cause is null."))
+            .ToArray();
 
         return new MeterObservation(
-            Bar(Required(meter, "cpu", "meter"), "meter.cpu"),
-            Bar(Required(meter, "memory", "meter"), "meter.memory"),
-            Required(diagnosis, "couldDiagnose", "diagnosis").GetBoolean(),
-            Required(diagnosis, "isSlow", "diagnosis").GetBoolean(),
-            Required(diagnosis, "cause", "diagnosis").GetString()
-                ?? throw new FormatException("diagnosis.cause is null; the diagnose command must name a cause, \"None\" when there is none."),
+            new MeterBar(cpuCouldRead, cpuPercent, LevelOf(levels, "Cpu")),
+            new MeterBar(memoryCouldRead, memoryPercent, LevelOf(levels, "Memory")),
+            Required(diagnosis, "couldDiagnose", "newest.diagnosis").GetBoolean(),
+            Required(diagnosis, "isSlow", "newest.diagnosis").GetBoolean(),
+            causes.Length == 0 ? "None" : string.Join(", ", causes),
             json);
     }
 
-    private static MeterBar Bar(JsonElement bar, string path)
+    // A figure on a reading that could not be taken is a made-up number, and a reading that could be taken with no
+    // figure is a broken one; both are refused rather than passed on to a check.
+    private static double? Number(JsonElement element, string path, bool couldRead)
     {
-        var couldRead = Required(bar, "couldRead", path).GetBoolean();
-        var percentElement = Required(bar, "percent", path);
-        double? percent = percentElement.ValueKind == JsonValueKind.Null ? null : percentElement.GetDouble();
-        if (couldRead && percent is null)
-            throw new FormatException($"{path} says it could read but carries no percent.");
-        if (!couldRead && percent is not null)
-            throw new FormatException($"{path} says it could not read but carries a percent of {percent} - that is a made-up figure.");
-
-        var levelText = Required(bar, "level", path).GetString();
-        if (!Enum.TryParse<MeterLevel>(levelText, ignoreCase: false, out var level))
-            throw new FormatException($"{path}.level is \"{levelText}\", which is not Unknown, Normal, Tight or Critical.");
-        return new MeterBar(couldRead, percent, level);
+        var isNull = element.ValueKind == JsonValueKind.Null;
+        if (couldRead && isNull) throw new FormatException($"{path} is null on a reading that says it could read.");
+        if (!couldRead && !isNull) throw new FormatException($"{path} carries {element} on a reading that could not be taken - that is a made-up figure.");
+        return isNull ? null : element.GetDouble();
     }
+
+    private static MeterLevel LevelOf(Dictionary<string, MeterLevel> levels, string kind) =>
+        levels.TryGetValue(kind, out var level)
+            ? level
+            : throw new FormatException($"The recorded verdict has no {kind} resource.");
 
     private static JsonElement Required(JsonElement parent, string name, string where) =>
         parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var value)

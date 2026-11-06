@@ -1,7 +1,6 @@
 // The live load harness for the Resource Monitor (issue #2811, mission section 8). See README.md.
 //
-//   dotnet run --project tools/harnesses/resource-load-proof -- --idle --cpu --memory --report out/ \
-//       --diagnose-command "cc-devthrottle <diagnose action> --json"
+//   dotnet run --project tools/harnesses/resource-load-proof -- --idle --cpu --memory --report out/
 //
 // Each step writes a screenshot and a reading into the report folder, and summary.json / summary.md at the end.
 // The exit code is 0 only when every step that ran passed.
@@ -103,9 +102,7 @@ internal static class Harness
 
         private MeterObservation Observe()
         {
-            var command = options.DiagnoseCommand
-                ?? throw new InvalidOperationException("This step reads the Director's meter, so it needs --diagnose-command.");
-            return ProofChecks.ParseDiagnoseJson(Shell.Run(command, TimeSpan.FromSeconds(60)));
+            return ProofChecks.ParseDiagnoseJson(Shell.Run(options.DiagnoseCommand, TimeSpan.FromSeconds(60)));
         }
 
         private string Shot(string name)
@@ -281,7 +278,7 @@ internal sealed record StepResult(string Name, bool Passed, string Summary, Dict
 internal sealed record Options(
     bool Idle, bool Cpu, bool Memory, bool Gateway, bool Cost,
     string ReportDirectory,
-    string? DiagnoseCommand,
+    string DiagnoseCommand,
     string? ScreenshotCommand,
     bool Interactive,
     double? OsCpu, double? OsMemory,
@@ -297,13 +294,17 @@ internal sealed record Options(
             --gateway   4. block the Gateway, unblock, and expect no gap in the five-minute rows
             --cost      5. the sampler's own processor cost over 10 minutes, under 0.5% of one core
           options:
-            --diagnose-command "<cmd>"   prints the Director's diagnose JSON (steps 1-3)
+            --diagnose-command "<cmd>"   prints the Director's diagnose JSON (steps 1-3);
+                                         default: cc-devthrottle machine diagnose --json
             --screenshot-command "<cmd>" with {path}; default is the platform's own
             --non-interactive            never prompt; pass --os-cpu and --os-mem instead
             --os-cpu <percent> --os-mem <percent>   the operating system's figures, read by hand
             --gateway-block "<cmd>" --gateway-unblock "<cmd>" --gateway-rows "<cmd>" [--gateway-minutes 10]
             --cost-pid <pid> [--cost-minutes 10]
         """;
+
+    /// <summary>The Director's own diagnose command, which reports the newest sample, verdict and diagnosis it recorded.</summary>
+    public const string DefaultDiagnoseCommand = "cc-devthrottle machine diagnose --json";
 
     public static Options Parse(string[] args)
     {
@@ -332,7 +333,7 @@ internal sealed record Options(
         var options = new Options(
             args.Contains("--idle"), args.Contains("--cpu"), args.Contains("--memory"), args.Contains("--gateway"), args.Contains("--cost"),
             Value("--report") ?? throw new ArgumentException("--report <folder> is required."),
-            Value("--diagnose-command"),
+            Value("--diagnose-command") ?? DefaultDiagnoseCommand,
             Value("--screenshot-command"),
             !args.Contains("--non-interactive"),
             Percent("--os-cpu"), Percent("--os-mem"),

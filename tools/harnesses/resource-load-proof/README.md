@@ -6,8 +6,7 @@ Director's meter says against the operating system's own monitor. Run it by hand
 It is never shipped.
 
 ```
-dotnet run --project tools/harnesses/resource-load-proof -- --idle --cpu --memory --report out/ \
-    --diagnose-command "<the Director's diagnose command> --json"
+dotnet run --project tools/harnesses/resource-load-proof -- --idle --cpu --memory --report out/
 ```
 
 Every step writes its reading to `out/<step>.json` and a screenshot of the whole screen beside it, and the run
@@ -27,18 +26,22 @@ The diagnosis check (mission item 6) runs inside steps 2 and 3, on the reading t
 
 ## Where each figure comes from
 
-**Ours** comes from the Director, through its diagnose command (`--diagnose-command`). The harness needs
-exactly these fields and stops with the name of any that is missing:
+**Ours** comes from the Director, through its own diagnose command, `cc-devthrottle machine diagnose --json`
+(change it with `--diagnose-command`). That command reports the newest sample the Director recorded, with the
+verdict and the diagnosis it recorded beside it, so the harness reads exactly what the meter was handed. It
+reads these fields and stops with the name of any that is missing:
 
 ```json
-{ "meter": { "cpu":    { "couldRead": true, "percent": 28.0, "level": "Normal" },
-             "memory": { "couldRead": true, "percent": 55.0, "level": "Normal" } },
-  "diagnosis": { "couldDiagnose": true, "isSlow": false, "cause": "None" } }
+{ "newest": { "cpu":    { "couldRead": true, "totalBusyPercent": 28.0 },
+              "memory": { "couldRead": true, "totalBytes": 17179869184, "availableBytes": 7666225480 },
+              "verdict":   { "resources": [ { "kind": "Cpu", "level": "Normal" }, { "kind": "Memory", "level": "Normal" } ] },
+              "diagnosis": { "couldDiagnose": true, "isSlow": false, "causes": [] } } }
 ```
 
-`level` is one of `Unknown`, `Normal`, `Tight`, `Critical`. An unreadable bar has `couldRead` false and
-`percent` null; a figure on an unreadable bar is refused as a made-up number. `cause` is `None`, or one or more
-of `Cpu`, `Memory`, `Disk` separated by commas.
+MEM is total minus available over total, the same figure the bar shows. A figure on a reading that could not be
+taken is refused as a made-up number, and a recording with no sample yet is an error, not an empty meter. A unit
+test parses every line of the recorder's committed recording, so the harness cannot drift from the real format.
+The recording is written by the sampler, so the meter steps need a Director build that has it running.
 
 **Theirs** is the operating system's own monitor:
 
@@ -65,7 +68,7 @@ of `Cpu`, `Memory`, `Disk` separated by commas.
 | Option | Meaning |
 |---|---|
 | `--report <folder>` | Required. Where the readings and screenshots go. |
-| `--diagnose-command "<cmd>"` | Prints the Director's diagnose JSON. Needed by steps 1 to 3. |
+| `--diagnose-command "<cmd>"` | Prints the Director's diagnose JSON for steps 1 to 3. Default `cc-devthrottle machine diagnose --json`. |
 | `--screenshot-command "<cmd>"` | With `{path}`. The default is the platform's own: a .NET screen copy on Windows, `screencapture -x` on macOS, `gnome-screenshot -f` on Linux. |
 | `--gateway-block`, `--gateway-unblock` | Commands that cut the Director off from its Gateway and restore it. |
 | `--gateway-rows "<cmd>"` | Prints a JSON array of the UTC window start times stored for this machine. |

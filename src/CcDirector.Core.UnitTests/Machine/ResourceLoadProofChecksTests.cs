@@ -199,12 +199,17 @@ public class ResourceLoadProofChecksTests
         Assert.Throws<FormatException>(() => ProofChecks.ParseVmstatBusyPercent(vmstat));
     }
 
-    // ---- the Director's diagnose output ----
+    // ---- the Director's diagnose output (cc-devthrottle machine diagnose --json) ----
 
     private const string Healthy = """
-        { "meter": { "cpu": { "couldRead": true, "percent": 28.0, "level": "Normal" },
-                     "memory": { "couldRead": true, "percent": 55.0, "level": "Tight" } },
-          "diagnosis": { "couldDiagnose": true, "isSlow": false, "cause": "None" } }
+        { "newest": {
+            "cpu": { "couldRead": true, "unreadableReason": null, "totalBusyPercent": 28.0 },
+            "memory": { "couldRead": true, "unreadableReason": null, "totalBytes": 1000, "availableBytes": 450 },
+            "verdict": { "worst": "Tight", "resources": [
+                { "kind": "Cpu", "level": "Normal", "evidence": "28% busy" },
+                { "kind": "Memory", "level": "Tight", "evidence": "450 available" },
+                { "kind": "Swap", "level": "Normal", "evidence": "fine" } ] },
+            "diagnosis": { "couldDiagnose": true, "isSlow": true, "causes": ["Cpu", "Disk"] } } }
         """;
 
     [Fact]
@@ -214,45 +219,97 @@ public class ResourceLoadProofChecksTests
 
         Assert.Equal(28.0, observation.Cpu.Percent);
         Assert.Equal(MeterLevel.Normal, observation.Cpu.Level);
+        Assert.Equal(55.0, observation.Memory.Percent!.Value, 6);
         Assert.Equal(MeterLevel.Tight, observation.Memory.Level);
         Assert.True(observation.CouldDiagnose);
+        Assert.Equal("Cpu, Disk", observation.Cause);
+        Assert.True(ProofChecks.DiagnosisNames(observation, "Disk"));
+    }
+
+    [Fact]
+    public void ParseDiagnose_NoCauses_IsNone()
+    {
+        var observation = ProofChecks.ParseDiagnoseJson(Healthy.Replace("\"causes\": [\"Cpu\", \"Disk\"]", "\"causes\": []"));
+
         Assert.Equal("None", observation.Cause);
     }
 
     [Fact]
-    public void ParseDiagnose_UnreadableBar_HasNoPercent()
+    public void ParseDiagnose_UnreadableProcessor_HasNoPercent()
     {
-        var json = Healthy.Replace("\"couldRead\": true, \"percent\": 28.0, \"level\": \"Normal\"", "\"couldRead\": false, \"percent\": null, \"level\": \"Unknown\"");
+        var json = Healthy.Replace("\"couldRead\": true, \"unreadableReason\": null, \"totalBusyPercent\": 28.0",
+            "\"couldRead\": false, \"unreadableReason\": \"first sample, no interval yet\", \"totalBusyPercent\": null");
 
         var observation = ProofChecks.ParseDiagnoseJson(json);
 
         Assert.False(observation.Cpu.CouldRead);
         Assert.Null(observation.Cpu.Percent);
-        Assert.Equal(MeterLevel.Unknown, observation.Cpu.Level);
     }
 
     [Fact]
-    public void ParseDiagnose_UnreadableBarCarryingAFigure_Throws_ThatIsAMadeUpNumber()
+    public void ParseDiagnose_UnreadableProcessorCarryingAFigure_Throws_ThatIsAMadeUpNumber()
     {
-        var json = Healthy.Replace("\"couldRead\": true, \"percent\": 28.0", "\"couldRead\": false, \"percent\": 0");
+        var json = Healthy.Replace("\"couldRead\": true, \"unreadableReason\": null, \"totalBusyPercent\": 28.0",
+            "\"couldRead\": false, \"unreadableReason\": \"gone\", \"totalBusyPercent\": 0");
 
         var error = Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson(json));
         Assert.Contains("made-up", error.Message);
     }
 
     [Fact]
+    public void ParseDiagnose_MemoryThatDoesNotAddUp_Throws()
+    {
+        var json = Healthy.Replace("\"availableBytes\": 450", "\"availableBytes\": 4500");
+
+        Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson(json));
+    }
+
+    [Fact]
+    public void ParseDiagnose_NothingRecordedYet_Throws_NotAnEmptyMeter()
+    {
+        var error = Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson("""{ "newest": null }"""));
+
+        Assert.Contains("recorded nothing", error.Message);
+    }
+
+    [Fact]
     public void ParseDiagnose_MissingField_ThrowsNamingIt()
     {
-        var error = Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson("""{ "meter": {} , "diagnosis": {} }"""));
+        var error = Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson("""{ "recording": {} }"""));
 
-        Assert.Contains("\"cpu\"", error.Message);
+        Assert.Contains("\"newest\"", error.Message);
+    }
+
+    [Fact]
+    public void ParseDiagnose_VerdictWithoutMemory_Throws()
+    {
+        var json = Healthy.Replace("{ \"kind\": \"Memory\", \"level\": \"Tight\", \"evidence\": \"450 available\" },", "");
+
+        Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson(json));
     }
 
     [Fact]
     public void ParseDiagnose_UnknownLevelWord_Throws()
     {
-        var json = Healthy.Replace("\"level\": \"Normal\"", "\"level\": \"Green\"");
+        Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson(Healthy.Replace("\"level\": \"Normal\", \"evidence\": \"28% busy\"", "\"level\": \"Green\", \"evidence\": \"28% busy\"")));
+    }
 
-        Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseJson(json));
+    [Fact]
+    public void ParseDiagnose_EveryLineTheRecorderWrote_Parses_SoTheHarnessReadsTheRealFormat()
+    {
+        // The committed recording the recorder's golden test writes byte for byte: the real format, not a copy of it.
+        var path = Path.Combine(CcDirector.TestInfrastructure.RepositorySourceIndex.Root,
+            "tools", "cc-devthrottle", "tests", "fixtures", "resource-recording", "samples-000000000000.jsonl");
+        var lines = File.ReadAllLines(path).Where(line => line.Length > 0).ToList();
+        Assert.NotEmpty(lines);
+
+        var observations = lines.Select(line => ProofChecks.ParseDiagnoseJson($"{{ \"newest\": {line} }}")).ToList();
+
+        // The first line is the first sample after start-up, so its processor is unreadable; the recording's last
+        // line is the devlinux disk verdict of 2026-10-15.
+        Assert.False(observations[0].Cpu.CouldRead);
+        Assert.Null(observations[0].Cpu.Percent);
+        Assert.All(observations, observation => Assert.True(observation.Memory.CouldRead));
+        Assert.True(ProofChecks.DiagnosisNames(observations[^1], "Disk"));
     }
 }
