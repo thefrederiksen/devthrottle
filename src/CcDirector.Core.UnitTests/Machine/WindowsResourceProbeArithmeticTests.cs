@@ -311,7 +311,7 @@ public class WindowsResourceProbeArithmeticTests
     }
 
     [Fact]
-    public void StallBetween_RealListUnderLoad_RunQueueIsEveryThreadWaitingForAProcessor()
+    public void StallBetween_RealListUnderLoad_RunQueueIsEveryThreadOnAProcessorOrWaitingForOne_ExceptTheIdleProcess()
     {
         var processes = RealProcesses();
 
@@ -319,8 +319,30 @@ public class WindowsResourceProbeArithmeticTests
 
         Assert.True(reading.CouldRead);
         Assert.Equal(StallSource.WindowsCounters, reading.Source);
-        Assert.Equal(processes.Sum(p => p.ThreadsWaitingOnCpu), reading.RunQueueLength);
-        Assert.True(reading.RunQueueLength >= 25, "the capture tool alone had 25 threads waiting");
+
+        // Every process EXCEPT the System Idle Process (id 0), whose threads are "Running" exactly when
+        // nothing else is. On this capture the idle process holds 23 Running and 25 Standby, so counting
+        // it would report 107 instead of 59 - and an idle machine would read one to two threads of demand
+        // per core for ever.
+        Assert.True(reading.RunQueueLength > 35,
+            $"the run queue read {reading.RunQueueLength} on this capture. 35 means it counted the threads "
+            + "WAITING for a processor and left out the 24 that were on one - a different quantity from the "
+            + "shared contract's and from the one Linux supplies. 107 means the System Idle Process was "
+            + "counted in. The figure for this capture is 59.");
+        var idle = Assert.Single(processes, p => p.ProcessId == 0);
+        Assert.Equal(48, idle.ThreadsWantingAProcessor);
+        Assert.True(reading.RunQueueLength < processes.Sum(p => p.ThreadsWantingAProcessor),
+            $"the run queue read {reading.RunQueueLength}, which is every process including the System Idle "
+            + $"Process - its {idle.ThreadsWantingAProcessor} threads are 'Running' on a processor exactly "
+            + "when nothing else is, the opposite of demand for one, and Linux's runnable count never "
+            + "includes the idle task. A completely idle machine would report one to two threads of demand "
+            + "per core for ever. The figure for this capture is 59.");
+        Assert.Equal(processes.Where(p => p.ProcessId != 0).Sum(p => p.ThreadsWantingAProcessor), reading.RunQueueLength);
+        Assert.Equal(59, reading.RunQueueLength);
+
+        // The capture tool held 48 spinning threads plus the thread doing the reading: 24 on a processor
+        // and 25 waiting for one, all 49 of them real demand at that instant.
+        Assert.Equal(49, Assert.Single(processes, p => p.ProcessId == 57092).ThreadsWantingAProcessor);
     }
 
     [Fact]

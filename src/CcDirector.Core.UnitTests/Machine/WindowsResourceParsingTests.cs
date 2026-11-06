@@ -138,19 +138,66 @@ public class WindowsResourceParsingTests
     [Fact]
     public void ParseProcessInformation_RealCaptureUnderLoad_CountsThreadsWaitingOnAProcessor()
     {
-        // The capture tool ran 48 spinning threads on 24 processors while it read the list, so about
-        // half of its own threads were Ready - runnable, waiting for a processor. This is the figure
-        // the processor queue length is built from.
+        // The capture tool ran 48 spinning threads on 24 processors while it read the list. Its own
+        // threads came out 25 Ready and 24 Running - waiting for a processor, and on one - and the run
+        // queue counts BOTH, because that is the quantity the shared contract defines and the figure
+        // Linux reads from /proc/loadavg. Counting only the waiting ones would report a third of the
+        // truth on this machine under a name that means something else.
         var processes = WindowsResourceParsing.ParseProcessInformation(Fixture("process-information.bin"), ProcessBufferAddress());
 
         var capture = Assert.Single(processes, p => p.Name == "Capture.exe");
         Assert.Equal(57092, capture.ProcessId);
         Assert.Equal(47756, capture.ParentProcessId);
         Assert.Equal(56, capture.ThreadCount);
-        Assert.Equal(25, capture.ThreadsWaitingOnCpu);
+        Assert.True(capture.ThreadsWantingAProcessor > 25,
+            $"the capture tool shows {capture.ThreadsWantingAProcessor} threads wanting a processor, which "
+            + "is the 25 WAITING for one and nothing else: the 24 that were ON a processor were left out. "
+            + "That is a different quantity from the shared contract's and from the one Linux supplies.");
+        Assert.Equal(49, capture.ThreadsWantingAProcessor);
 
-        // An idle service has threads, none of them waiting on a processor.
-        Assert.Equal(0, Assert.Single(processes, p => p.Name == "lsass.exe").ThreadsWaitingOnCpu);
+        // An idle service has threads, none of them on a processor or wanting one.
+        Assert.Equal(0, Assert.Single(processes, p => p.Name == "lsass.exe").ThreadsWantingAProcessor);
+    }
+
+    [Fact]
+    public void ParseProcessInformation_TheRunQueue_CountsThreadsOnAProcessorAsWellAsThoseWaiting()
+    {
+        // THE REGRESSION THIS TEST EXISTS FOR. The run queue was once built from the waiting states
+        // alone, which is a different quantity from the one the shared contract defines and from the one
+        // Linux supplies - and the difference is invisible, because both are ordinary small integers.
+        //
+        // This test is on the PARSER, so it asserts the raw per-process tallies. Whole machine, from a
+        // 24-processor machine with 48 threads spinning: Ready 35, Running 47, Standby 25, DeferredReady
+        // 0, Initialized 24, and 874 Waiting on something other than a processor. The waiting states
+        // alone give 35 and all four give 107 - but 48 of that 107 belongs to the System Idle Process,
+        // whose threads are "Running" exactly when nothing else is, so the figure the probe reports is
+        // 59. WindowsResourceProbe.StallBetween does that excluding and the arithmetic tests assert it;
+        // the parser's job is to report what the bytes say.
+        var processes = WindowsResourceParsing.ParseProcessInformation(
+            Fixture("process-information.bin"), ProcessBufferAddress());
+
+        var everyProcess = processes.Sum(p => p.ThreadsWantingAProcessor);
+        var exceptIdle = processes.Where(p => p.ProcessId != 0).Sum(p => p.ThreadsWantingAProcessor);
+
+        Assert.True(everyProcess > 35,
+            $"every process sums to {everyProcess} threads wanting a processor. 35 means the count took "
+            + "the WAITING states alone and left out the threads that were on a processor, which is a "
+            + "different quantity from the shared contract's and from the one Linux supplies.");
+        Assert.True(exceptIdle > 35,
+            $"excluding the System Idle Process gives {exceptIdle}. 35 means the count took the WAITING "
+            + "states alone; 107 means the idle process was counted in, and its threads are 'Running' "
+            + "exactly when nothing else is, which is the opposite of demand for a processor.");
+        Assert.Equal(107, everyProcess);
+        Assert.Equal(59, exceptIdle);
+
+        // The idle process's share of it, named so a future reader sees why the two figures differ.
+        Assert.Equal(48, Assert.Single(processes, p => p.ProcessId == 0).ThreadsWantingAProcessor);
+
+        // And it is not merely "everything": the threads waiting on something else are excluded, so the
+        // figure is a run queue and not a thread count. This capture has 1,005 threads in all.
+        Assert.Equal(1005, processes.Sum(p => p.ThreadCount));
+        Assert.True(everyProcess < processes.Sum(p => p.ThreadCount),
+            "the run queue counted every thread, so it is not a run queue");
     }
 
     [Fact]

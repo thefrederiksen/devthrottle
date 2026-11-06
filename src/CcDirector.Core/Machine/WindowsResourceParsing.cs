@@ -76,8 +76,43 @@ internal static class WindowsResourceParsing
     /// <summary>KTHREAD_STATE Ready: runnable, and waiting only for a processor.</summary>
     internal const uint ThreadStateReady = 1;
 
+    /// <summary>KTHREAD_STATE Running: ON a processor at the moment of the reading.</summary>
+    internal const uint ThreadStateRunning = 2;
+
+    /// <summary>KTHREAD_STATE Standby: selected to run next on a particular processor, not yet running.</summary>
+    internal const uint ThreadStateStandby = 3;
+
     /// <summary>KTHREAD_STATE DeferredReady: chosen to run, not yet given a processor. Also waiting on the CPU.</summary>
     internal const uint ThreadStateDeferredReady = 7;
+
+    /// <summary>
+    /// THE FOUR STATES THAT MEAN "ON A PROCESSOR NOW, OR WAITING FOR ONE", which is the quantity
+    /// <see cref="StallReading.RunQueueLength"/> is defined as - and the reason RUNNING is in this set
+    /// despite the field's name. THIS IS THE ONE HOME for that reasoning; the probe and the contract
+    /// point here rather than repeating it.
+    ///
+    /// The field is Linux's runnable count from <c>/proc/loadavg</c>, which counts the threads on a
+    /// processor now PLUS those waiting for one - "run queue" in the Linux sense, where
+    /// <c>nr_running</c> includes the task currently running. A Windows figure that counted only the
+    /// waiting threads would be a DIFFERENT QUANTITY under the same name, and the two could never be
+    /// compared or read against one threshold.
+    ///
+    /// MEASURED on the capture committed with these tests - a 24-processor machine with 48 threads
+    /// spinning, the System Idle Process excluded: Ready 25, Running 24, Standby 0, DeferredReady 0, so
+    /// 49 for the one loaded process and 59 for the machine. Counting the waiting states alone gives 35,
+    /// which is a perfectly ordinary reading for 24 processors, so nothing downstream could detect the
+    /// understatement. Excluding the idle process matters just as much in the other direction: its 23
+    /// Running and 25 Standby threads would have taken the machine figure to 107, and an idle machine to
+    /// one or two threads of demand per core - see <see cref="WindowsResourceProbe.StallBetween"/>, which
+    /// does the excluding, because the parser's job is to report what the bytes say.
+    ///
+    /// Standby is in the set because a thread selected to run next on a particular processor is waiting
+    /// on nothing but that processor, which is what Linux counts. Out: Initialized (0), Terminated (4),
+    /// Waiting (5), Transition (6), GateWaitObsolete (8) and WaitingForProcessInSwap (9) - every one of
+    /// them is waiting on something that is not a processor, or is not a live thread at all.
+    /// </summary>
+    private static bool WantsAProcessor(uint state) =>
+        state is ThreadStateReady or ThreadStateRunning or ThreadStateStandby or ThreadStateDeferredReady;
 
     /// <summary>
     /// Decodes the chain <c>NtQuerySystemInformation(SystemProcessInformation)</c> returns: one entry per
@@ -109,11 +144,11 @@ internal static class WindowsResourceParsing
             if (threadsEnd > entry.Length)
                 throw new FormatException($"process entry at offset {offset} claims {threadCount} threads, which runs past the buffer");
 
-            var waitingOnCpu = 0;
+            var wantingAProcessor = 0;
             for (var t = 0; t < threadCount; t++)
             {
                 var state = ReadUInt32(entry, ProcessInformationSize + t * ThreadInformationSize + 68);
-                if (state is ThreadStateReady or ThreadStateDeferredReady) waitingOnCpu++;
+                if (WantsAProcessor(state)) wantingAProcessor++;
             }
 
             processes.Add(new RawProcess(
@@ -124,7 +159,7 @@ internal static class WindowsResourceParsing
                 UserTime: ReadInt64(entry, 40),
                 KernelTime: ReadInt64(entry, 48),
                 ThreadCount: threadCount,
-                ThreadsWaitingOnCpu: waitingOnCpu,
+                ThreadsWantingAProcessor: wantingAProcessor,
                 WorkingSetBytes: ReadUInt64(entry, 144),
                 PrivateBytes: ReadUInt64(entry, 200),
                 ReadBytes: ReadUInt64(entry, 232),
@@ -333,7 +368,7 @@ internal sealed record RawProcess(
     long UserTime,
     long KernelTime,
     int ThreadCount,
-    int ThreadsWaitingOnCpu,
+    int ThreadsWantingAProcessor,
     ulong WorkingSetBytes,
     ulong PrivateBytes,
     ulong ReadBytes,

@@ -280,17 +280,20 @@ public sealed class SlownessDiagnoserTests : IDisposable
     }
 
     [Fact]
-    public void Diagnose_RunQueueWithoutAStallFigure_IsShownButDecidesNothingUntilItsMeaningIsMeasured()
+    public void Diagnose_RunQueueWithoutAStallFigure_IsShownButDecidesNothing()
     {
-        // 200 threads ready on 8 cores would be a crushed machine under either reading of the counter, yet
-        // no threshold has been written for the Windows run queue, so it may not decide the verdict.
+        // 200 threads wanting a processor on 8 cores would be a crushed machine, yet no threshold has been
+        // written for the run queue, so it may not decide the verdict. What it counts IS now measured -
+        // running plus waiting, the same on Linux and Windows - and it still decides nothing: it is one
+        // moment every five seconds of a figure measured swinging 0 to 92 on a real machine, and a
+        // saturated processor is already caught by busy-by-time over the whole interval.
         var diagnosis = Diagnose(Every5Seconds(TimeSpan.FromSeconds(60), _ => Windows(busy: 10, millisecondsPerWrite: 0.5) with
         {
             Stall = StallReading.Read(StallSource.WindowsCounters, runQueueLength: 200, hardPageFaultsPerSecond: 10),
         }));
 
         Assert.False(diagnosis.Cause.HasFlag(SlownessCause.Cpu));
-        Assert.Contains("on average 200 threads were ready to run on 8 cores", AllWords(diagnosis), StringComparison.Ordinal);
+        Assert.Contains("on average 200 threads were on a processor or waiting for one, on 8 cores", AllWords(diagnosis), StringComparison.Ordinal);
     }
 
     [Fact]
