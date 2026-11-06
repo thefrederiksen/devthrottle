@@ -94,6 +94,10 @@ public sealed class MachineResourceWindowDto
 
     /// <summary>Each amber or red crossing in the window, to mark on the chart.</summary>
     public List<ResourceCrossingMarkDto> Crossings { get; set; } = new();
+
+    /// <summary>Why the Gateway refused this window's figures, or null when it took them. A refused window has no
+    /// figures but is NOT a gap: the machine sent something impossible, which is a fault to show, not an idle stretch.</summary>
+    public string? RefusedReason { get; set; }
 }
 
 /// <summary>One crossing as the chart marks it.</summary>

@@ -103,6 +103,41 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     }
 
     [Fact]
+    public void Fold_NewestWindowRefused_SaysTheFiguresWereRefusedAndWhy_NotSilentAndNotIdle()
+    {
+        var refused = Steady(W0.AddMinutes(25), 30, 8 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(Steady(W0.AddMinutes(20), 30, 8 * Gb), refused), Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("cannot read", capacity.ProcessorLabel);
+        Assert.Equal("cannot read", capacity.MemoryLabel);
+        Assert.Equal("cannot read", capacity.SpareLabel);
+        Assert.Null(capacity.SpareBytes);
+        Assert.Equal("Figures refused", capacity.StatusLabel);
+        Assert.Equal(FleetTone.Bad, capacity.StatusTone);
+        Assert.Contains("outside 0 to 100", capacity.Why);
+    }
+
+    [Fact]
+    public void History_ARefusedWindow_IsMarkedWithItsReason()
+    {
+        var refused = Steady(W0.AddMinutes(5), 30, 8 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-1", Batch(Steady(W0, 30, 8 * Gb), refused));
+        var from = Now.AddHours(-24);
+
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+            _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
+
+        Assert.Equal(2, view.Windows.Count);
+        Assert.Null(view.Windows[0].RefusedReason);
+        Assert.Contains("outside 0 to 100", view.Windows[1].RefusedReason);
+        Assert.Null(view.Windows[1].ProcessorAveragePercent);
+    }
+
+    [Fact]
     public void Fold_StatisticsStoreNotOpen_SaysSoInsteadOfGuessing()
     {
         var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows: null, Now);

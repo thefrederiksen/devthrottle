@@ -41,6 +41,7 @@ public static class ResourceSummaryStatsModel
             b.Property(e => e.WindowSeconds).HasColumnName("window_seconds");
             b.Property(e => e.SampleCount).HasColumnName("sample_count");
             b.Property(e => e.ReceivedUtc).HasColumnName("received_utc").HasConversion(UtcConverter);
+            b.Property(e => e.RefusedReason).HasColumnName("refused_reason");
             Figures(b);
             // The Cockpit's reads: a tenant's machines over a time range.
             b.HasIndex(e => new { e.Tenant, e.WindowStartUtc }).HasDatabaseName("ix_resource_window_tenant_window");
@@ -76,6 +77,7 @@ public static class ResourceSummaryStatsModel
             b.Property(e => e.HourStartUtc).HasColumnName("hour_start_utc").HasConversion(UtcConverter);
             b.Property(e => e.MachineName).HasColumnName("machine_name").IsRequired();
             b.Property(e => e.WindowCount).HasColumnName("window_count");
+            b.Property(e => e.RefusedWindows).HasColumnName("refused_windows");
             b.Property(e => e.SampleCount).HasColumnName("sample_count");
             b.Property(e => e.RolledAtUtc).HasColumnName("rolled_at_utc").HasConversion(UtcConverter);
             Figures(b);

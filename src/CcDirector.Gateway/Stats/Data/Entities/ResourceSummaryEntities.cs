@@ -48,6 +48,14 @@ public sealed class ResourceWindowEntity : IResourceFigureColumns
     /// up makes that hour roll up again.</summary>
     public DateTime ReceivedUtc { get; set; }
 
+    /// <summary>
+    /// Why the Gateway refused this window's figures, or null when it took them. A window whose figures no machine can
+    /// produce (a processor above 100 per cent, a peak below its average, more memory in use than the machine has) is
+    /// STORED, with every figure null and this reason, rather than dropped: a dropped window is a silent gap that reads
+    /// exactly like an idle or offline machine, and a refused window is neither.
+    /// </summary>
+    public string? RefusedReason { get; set; }
+
     public int ProcessorSamples { get; set; }
     public double? ProcessorAveragePercent { get; set; }
     public double? ProcessorPeakPercent { get; set; }
@@ -105,6 +113,9 @@ public sealed class ResourceHourEntity : IResourceFigureColumns
 
     /// <summary>How many five-minute windows the hour was rolled from (12 for a whole hour).</summary>
     public int WindowCount { get; set; }
+
+    /// <summary>How many of those windows had their figures refused; they count towards nothing else.</summary>
+    public int RefusedWindows { get; set; }
 
     public int SampleCount { get; set; }
 

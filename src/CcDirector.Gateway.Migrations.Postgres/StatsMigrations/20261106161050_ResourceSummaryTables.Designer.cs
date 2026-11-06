@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
 {
     [DbContext(typeof(GatewayStatsDbContext))]
-    [Migration("20261106155949_ResourceSummaryTables")]
+    [Migration("20261106161050_ResourceSummaryTables")]
     partial class ResourceSummaryTables
     {
         /// <inheritdoc />
@@ -517,6 +517,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                         .HasColumnName("processor_unreadable_reason")
                         .UseCollation("C");
 
+                    b.Property<int>("RefusedWindows")
+                        .HasColumnType("integer")
+                        .HasColumnName("refused_windows");
+
                     b.Property<DateTime>("RolledAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("rolled_at_utc");
@@ -822,6 +826,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                     b.Property<DateTime>("ReceivedUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("received_utc");
+
+                    b.Property<string>("RefusedReason")
+                        .HasColumnType("text")
+                        .HasColumnName("refused_reason")
+                        .UseCollation("C");
 
                     b.Property<int>("SampleCount")
                         .HasColumnType("integer")

@@ -114,17 +114,19 @@ public sealed class ResourceSummaryStoreTests : IDisposable
     }
 
     /// <summary>
-    /// Figures no machine can produce are refused, not stored and not tidied into range: a probe that reports a
-    /// per-core 400% on a four-core machine is a defect to surface, and a clamp to 100 would hide it.
+    /// Figures no machine can produce are never stored as figures and never tidied into range: a probe that reports a
+    /// per-core 400% on a four-core machine is a defect to surface, and a clamp to 100 would hide it. But the window is
+    /// not DROPPED either - a dropped window is a silent gap that looks like an idle or offline machine. It is stored
+    /// marked refused, with the reason, its figures null and its session rows not kept.
     /// </summary>
     [Theory]
-    [InlineData("processor 400")]
-    [InlineData("processor below zero")]
-    [InlineData("peak below average")]
-    [InlineData("memory above total")]
-    [InlineData("session processor 400")]
-    [InlineData("crossing of an unknown resource")]
-    public void Store_ImpossibleFigures_AreRefusedForGood(string defect)
+    [InlineData("processor 400", "outside 0 to 100")]
+    [InlineData("processor below zero", "outside 0 to 100")]
+    [InlineData("peak below average", "below its average")]
+    [InlineData("memory above total", "more than the machine's total")]
+    [InlineData("session processor 400", "session s-1")]
+    [InlineData("crossing of an unknown resource", "neither the processor nor memory")]
+    public void Store_ImpossibleFigures_AreStoredMarkedRefusedWithTheReason_NeverDropped(string defect, string reasonContains)
     {
         var store = NewStore();
         var window = Steady(W0, 30, 8 * Gb, "devlinux", new ResourceSummarySessionSample("s-1", null, 10, 1 * Gb, null));
@@ -142,9 +144,53 @@ public sealed class ResourceSummaryStoreTests : IDisposable
 
         var ack = store.Store(Tenant, Director, Batch(window));
 
-        Assert.Equal(W0, Assert.Single(ack.RejectedWindowStartsUtc));
-        Assert.Empty(ack.HeldWindowStartsUtc);
-        Assert.Empty(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+        // Held, so the Director stops sending it; and present, so it is not a gap.
+        Assert.Equal(W0, Assert.Single(ack.HeldWindowStartsUtc));
+        Assert.Empty(ack.RejectedWindowStartsUtc);
+        var row = Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+        Assert.Contains(reasonContains, row.RefusedReason);
+        Assert.Null(row.ProcessorAveragePercent);
+        Assert.Null(row.ProcessorPeakPercent);
+        Assert.Null(row.MemoryAverageUsedBytes);
+        Assert.Null(row.MemoryPeakUsedBytes);
+        Assert.Equal(0, row.ProcessorSamples);
+        Assert.Equal("[]", row.CrossingsJson);
+        Assert.Empty(store.SessionWindows(Tenant, "devlinux", W0, W0.AddHours(1))!);
+    }
+
+    [Fact]
+    public void Store_ARefusedWindow_CanBeToldApartFromAWindowNeverSent()
+    {
+        var store = NewStore();
+        var refused = Steady(W0, 30, 8 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        store.Store(Tenant, Director, Batch(refused, Steady(W0.AddMinutes(10), 30, 8 * Gb)));
+
+        var rows = store.MachineWindows(Tenant, W0, W0.AddMinutes(15))!;
+
+        // 10:00 refused (a row with its reason), 10:05 never sent (no row), 10:10 a normal reading.
+        Assert.Equal(new[] { W0, W0.AddMinutes(10) }, rows.Select(r => r.WindowStartUtc));
+        Assert.NotNull(rows[0].RefusedReason);
+        Assert.Null(rows[1].RefusedReason);
+    }
+
+    [Fact]
+    public void Rollup_AnHourWithARefusedWindow_CountsItAndKeepsTheOthersFigures()
+    {
+        var store = NewStore();
+        var refused = Steady(W0.AddMinutes(5), 30, 8 * Gb);
+        refused.Machine.MemoryPeakUsedBytes = 99 * Gb;
+        store.Store(Tenant, Director, Batch(Steady(W0, 20, 4 * Gb), refused));
+        _clock.Advance(TimeSpan.FromMinutes(1));
+
+        new ResourceSummaryRollup(() => _db.Factory, _clock).RunOnce();
+
+        using var db = _db.Open();
+        var hour = db.ResourceHours.Single();
+        Assert.Equal(2, hour.WindowCount);
+        Assert.Equal(1, hour.RefusedWindows);
+        Assert.Equal(20, hour.ProcessorAveragePercent);
+        Assert.Equal(4 * Gb, hour.MemoryPeakUsedBytes);
     }
 
     [Fact]

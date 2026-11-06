@@ -73,7 +73,7 @@ public sealed class ResourceSummaryStore
         var valid = new List<ResourceSummaryWindow>();
         foreach (var window in windows)
         {
-            var refusal = RefusalFor(window, now);
+            var refusal = StructuralRefusalFor(window, now);
             if (refusal is null)
             {
                 valid.Add(window);
@@ -100,11 +100,21 @@ public sealed class ResourceSummaryStore
             .ToHashSet();
 
         var stored = 0;
+        var refusedFigures = 0;
         foreach (var window in distinct)
         {
             var start = Utc(window.WindowStartUtc);
             ack.HeldWindowStartsUtc.Add(start);
             if (already.Contains(start)) continue;
+            if (FiguresRefusalFor(window) is { } refused)
+            {
+                // Stored MARKED, not dropped, and its session rows - from the same suspect measurement - are not kept.
+                FileLog.Write($"[ResourceSummaryStore] Store: window {start:O} from director={directorId} stored with its figures REFUSED: {refused}");
+                db.ResourceWindows.Add(RefusedRow(tenant, directorId, window, now, refused));
+                refusedFigures++;
+                stored++;
+                continue;
+            }
             db.ResourceWindows.Add(MachineRow(tenant, directorId, window, now));
             foreach (var session in window.Sessions
                          .Where(s => !string.IsNullOrWhiteSpace(s.SessionId))
@@ -114,7 +124,7 @@ public sealed class ResourceSummaryStore
             stored++;
         }
         db.SaveChanges();
-        FileLog.Write($"[ResourceSummaryStore] Store: director={directorId} stored={stored} alreadyHeld={already.Count} refused={ack.RejectedWindowStartsUtc.Count}");
+        FileLog.Write($"[ResourceSummaryStore] Store: director={directorId} stored={stored} (figures refused in {refusedFigures}) alreadyHeld={already.Count} rejected={ack.RejectedWindowStartsUtc.Count}");
         return ack;
     }
 
@@ -166,8 +176,9 @@ public sealed class ResourceSummaryStore
             .ToList();
     }
 
-    /// <summary>Why a window can never be stored, or null when it can.</summary>
-    internal static string? RefusalFor(ResourceSummaryWindow? window, DateTime nowUtc)
+    /// <summary>Why a window can never be stored at all - it has no place to go - or null when it can. A window whose
+    /// figures are impossible CAN be stored, marked; see <see cref="FiguresRefusalFor"/>.</summary>
+    internal static string? StructuralRefusalFor(ResourceSummaryWindow? window, DateTime nowUtc)
     {
         if (window is null) return "the window is empty";
         if (!ResourceSummaryContract.IsWindowStart(window.WindowStartUtc))
@@ -181,6 +192,12 @@ public sealed class ResourceSummaryStore
             return "it ends in the future by the Gateway's clock";
         if (start < nowUtc - WindowRetention)
             return "it is older than the 90 days five-minute rows are kept";
+        return null;
+    }
+
+    /// <summary>Why a window's figures cannot be true of any machine, or null when they can.</summary>
+    internal static string? FiguresRefusalFor(ResourceSummaryWindow window)
+    {
         if (FiguresProblem(window.Machine, isMachine: true) is { } machineProblem)
             return $"the machine's figures are impossible: {machineProblem}";
         foreach (var session in window.Sessions ?? new List<ResourceSessionSummary>())
@@ -253,6 +270,28 @@ public sealed class ResourceSummaryStore
         };
         CopyFigures(window.Machine ?? new ResourceSummaryFigures(), row, keepTotal: true);
         return row;
+    }
+
+    /// <summary>A window whose figures were refused: present, with the reason, and with no figure at all.</summary>
+    private static ResourceWindowEntity RefusedRow(TenantId tenant, string directorId, ResourceSummaryWindow window, DateTime now, string reason)
+    {
+        var start = Utc(window.WindowStartUtc);
+        var why = $"The Gateway refused this window's figures because {reason}";
+        return new ResourceWindowEntity
+        {
+            Tenant = tenant.Value,
+            DirectorId = directorId,
+            WindowStartUtc = start,
+            HourStartUtc = HourOf(start),
+            MachineName = window.MachineName.Trim(),
+            WindowSeconds = window.WindowSeconds,
+            SampleCount = window.SampleCount,
+            ReceivedUtc = now,
+            RefusedReason = reason,
+            ProcessorUnreadableReason = why,
+            MemoryUnreadableReason = why,
+            CrossingsJson = "[]",
+        };
     }
 
     private static ResourceSessionWindowEntity SessionRow(TenantId tenant, string directorId, ResourceSummaryWindow window,

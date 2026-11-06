@@ -440,6 +440,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("processor_unreadable_reason");
 
+                    b.Property<int>("RefusedWindows")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("refused_windows");
+
                     b.Property<DateTime>("RolledAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("rolled_at_utc");
@@ -714,6 +718,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                     b.Property<DateTime>("ReceivedUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("received_utc");
+
+                    b.Property<string>("RefusedReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("refused_reason");
 
                     b.Property<int>("SampleCount")
                         .HasColumnType("INTEGER")

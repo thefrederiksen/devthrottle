@@ -67,6 +67,21 @@ internal static class ResourceCapacityFold
             return NotReporting(null, "This machine has sent no resource summary in the last 15 minutes. Its Director may be "
                                       + "older than the resource monitor, or its connection to the Gateway may be down.");
 
+        // A REFUSED newest window is neither a reading nor silence: the machine sent figures no machine can produce.
+        if (newest.RefusedReason is { } refused)
+            return new FleetMachineCapacityDto
+            {
+                Reporting = true,
+                ReadingWindowStartUtc = newest.WindowStartUtc,
+                ProcessorLabel = "cannot read",
+                MemoryLabel = "cannot read",
+                SpareLabel = "cannot read",
+                StatusLabel = "Figures refused",
+                StatusTone = FleetTone.Bad,
+                Why = $"The Gateway refused this machine's newest figures because {refused}. That is a fault in how the "
+                      + "Director measured, not an idle machine.",
+            };
+
         var crossings = ResourceSummaryStore.CrossingsOf(newest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
@@ -197,6 +212,7 @@ internal static class MachineResourceHistoryFold
                 MemoryAveragePercent = total is { } t1 && w.MemoryAverageUsedBytes is { } a ? a * 100.0 / t1 : null,
                 MemoryPeakPercent = total is { } t2 && w.MemoryPeakUsedBytes is { } p ? p * 100.0 / t2 : null,
                 Crossings = ResourceSummaryStore.CrossingsOf(w).Select(Mark).ToList(),
+                RefusedReason = w.RefusedReason,
             });
         }
 

@@ -110,6 +110,7 @@ public sealed class ResourceSummaryRollup
             HourStartUtc = hourStart,
             MachineName = windows[^1].MachineName,
             WindowCount = windows.Count,
+            RefusedWindows = windows.Count(w => w.RefusedReason is not null),
             SampleCount = windows.Sum(w => w.SampleCount),
             RolledAtUtc = rolledAt,
         };
