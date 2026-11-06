@@ -25,7 +25,7 @@ public class MacOsPlatformReaderLiveTests
     // Disks
     // =============================================================================================
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadDisks_OnThisMachine_FindsADiskWithANameAndAKnownKind()
     {
@@ -69,7 +69,7 @@ public class MacOsPlatformReaderLiveTests
             "spinning or solid-state");
     }
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadDisks_OnThisMachine_StatisticsAreRealAndCumulative()
     {
@@ -88,7 +88,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(millisecondsPerRead, 0.001, 100.0);
     }
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadDisks_AfterWritingAFile_TheCountersHaveMovedForward()
     {
@@ -163,7 +163,7 @@ public class MacOsPlatformReaderLiveTests
     // Which physical disk a volume sits on
     // =============================================================================================
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_TheBootVolume_ReachesADiskWeHaveStatisticsFor()
     {
@@ -181,14 +181,14 @@ public class MacOsPlatformReaderLiveTests
         Assert.Contains(ancestors, physical.Contains);
     }
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_ADeviceThatDoesNotExist_IsEmptyRatherThanThrowing()
     {
         Assert.Empty(MacOsPlatformReader.ReadAncestorDeviceNames("disk9999"));
     }
 
-    [MacOsOnlyFact("IOKit exists only on macOS")]
+    [MacOsLiveMachineFact("IOKit exists only on macOS")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_NoDeviceName_IsEmpty()
     {
@@ -211,7 +211,7 @@ public class MacOsPlatformReaderLiveTests
     // Processor
     // =============================================================================================
 
-    [MacOsOnlyFact("host_processor_info is a Mach call")]
+    [MacOsLiveMachineFact("host_processor_info is a Mach call")]
     [Trait("Category", "Resources")]
     public void ReadProcessorTicks_OnThisMachine_ReturnsOneBlockForEveryCore()
     {
@@ -230,7 +230,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.All(cores, core => Assert.True(core.Idle > 0, "a core with no idle ticks at all would mean the machine had been fully busy since boot"));
     }
 
-    [MacOsOnlyFact("host_processor_info is a Mach call")]
+    [MacOsLiveMachineFact("host_processor_info is a Mach call")]
     [Trait("Category", "Resources")]
     public void ReadProcessorTicks_TwoReadingsWithWorkBetween_ShowTimePassing()
     {
@@ -289,7 +289,7 @@ public class MacOsPlatformReaderLiveTests
     // Swap, the run queue and the memory-pressure level
     // =============================================================================================
 
-    [MacOsOnlyFact("vm.swapusage is a macOS sysctl")]
+    [MacOsLiveMachineFact("vm.swapusage is a macOS sysctl")]
     [Trait("Category", "Resources")]
     public void ReadSwapUsage_OnThisMachine_IsReadableEvenWhenThereIsNoSwapFile()
     {
@@ -305,7 +305,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(usage.UsedBytes <= usage.TotalBytes);
     }
 
-    [MacOsOnlyFact("vm.loadavg is a macOS sysctl")]
+    [MacOsLiveMachineFact("vm.loadavg is a macOS sysctl")]
     [Trait("Category", "Resources")]
     public void ReadLoadAverage_OnThisMachine_IsARealRunQueueFigure()
     {
@@ -322,7 +322,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(load.FifteenMinutes, 0.0, 1000.0);
     }
 
-    [MacOsOnlyFact("kern.memorystatus_vm_pressure_level is a macOS sysctl")]
+    [MacOsLiveMachineFact("kern.memorystatus_vm_pressure_level is a macOS sysctl")]
     [Trait("Category", "Resources")]
     public void ReadMemoryPressureLevel_OnThisMachine_IsALevelWeRecognise()
     {
@@ -335,7 +335,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.NotEqual(KernelMemoryPressureLevel.Unknown, MacOsKernelPressure.Read(level.Value));
     }
 
-    [MacOsOnlyFact("sysctl is read through libc on macOS")]
+    [MacOsLiveMachineFact("sysctl is read through libc on macOS")]
     [Trait("Category", "Resources")]
     public void ReadSysctl_ANameThatDoesNotExist_IsNullRatherThanThrowing()
     {
@@ -347,7 +347,7 @@ public class MacOsPlatformReaderLiveTests
     // The device behind the volume the machine runs from
     // =============================================================================================
 
-    [MacOsOnlyFact("statfs is a BSD call")]
+    [MacOsLiveMachineFact("statfs is a BSD call")]
     [Trait("Category", "Resources")]
     public void ReadSystemVolumeDevice_OnThisMachine_IsABsdNameIOKitCanMatch()
     {
@@ -369,7 +369,7 @@ public class MacOsPlatformReaderLiveTests
     // Processes
     // =============================================================================================
 
-    [MacOsOnlyFact("the kernel process table is read through sysctl on macOS")]
+    [MacOsLiveMachineFact("the kernel process table is read through sysctl on macOS")]
     [Trait("Category", "Resources")]
     public void ReadKernelProcessTable_OnThisMachine_NamesEveryProcessIncludingAnotherUsers()
     {
@@ -403,7 +403,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.Contains(entries, entry => entry.UserId != ourUserId);
     }
 
-    [MacOsOnlyFact("proc_pidinfo is a libproc call")]
+    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ThisTestProcess_ReadsItsOwnNameParentAndUsage()
     {
@@ -438,7 +438,7 @@ public class MacOsPlatformReaderLiveTests
             new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
-    [MacOsOnlyFact("proc_pidinfo is a libproc call")]
+    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ManyProcessesOnThisMachine_AreReadableAndTheRestAreNullNotAFailure()
     {
@@ -484,7 +484,7 @@ public class MacOsPlatformReaderLiveTests
             "every process was readable, so this run did not exercise the refusal this test is for");
     }
 
-    [MacOsOnlyFact("mach_timebase_info is a Mach call")]
+    [MacOsLiveMachineFact("mach_timebase_info is a Mach call")]
     [Trait("Category", "Resources")]
     public void ReadMachTimebase_OnThisMachine_IsUsableAndConvertsProcessorTimeSensibly()
     {
@@ -513,7 +513,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(seconds, 0.001, 86_400.0);
     }
 
-    [MacOsOnlyFact("proc_pidinfo is a libproc call")]
+    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
     [Trait("Category", "Resources")]
     public void ReadProcess_AProcessThatDoesNotExist_IsNullRatherThanThrowing()
     {

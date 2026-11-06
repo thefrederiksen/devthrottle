@@ -79,7 +79,7 @@ public class MacOsResourceProbeLiveTests
     // The first sample, and the second
     // =============================================================================================
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TheFirstSample_SaysTheRatesHaveNoIntervalYetRatherThanReportingZero()
     {
@@ -104,7 +104,7 @@ public class MacOsResourceProbeLiveTests
         });
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TheFirstSample_StillReportsEverythingThatNeedsNoInterval()
     {
@@ -120,7 +120,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(sample.Processes.CouldRead);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TheSecondSample_ReadsRealFiguresForEveryResource()
     {
@@ -148,7 +148,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(sample.DiskEvidence.CouldRead, sample.DiskEvidence.UnreadableReason);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TheSecondSample_MemoryAgreesWithTheMemoryProbe()
     {
@@ -164,7 +164,7 @@ public class MacOsResourceProbeLiveTests
     // The disk, and the figure this platform does not offer
     // =============================================================================================
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_DiskBusyPercent_IsNullBecauseThisPlatformDoesNotPublishOne()
     {
@@ -181,7 +181,7 @@ public class MacOsResourceProbeLiveTests
         Assert.All(sample.DiskEvidence.Disks, disk => Assert.Null(disk.BusyPercent));
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_DiskQueueDepthAndTimes_AreRealFiguresInsteadOfTheBusyPercentage()
     {
@@ -200,7 +200,7 @@ public class MacOsResourceProbeLiveTests
         if (disk.MillisecondsPerWrite is { } perWrite) Assert.InRange(perWrite, 0.0001, 1000.0);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_EveryPhysicalDisk_HasANameAndAKindThatIsNotGuessed()
     {
@@ -222,7 +222,7 @@ public class MacOsResourceProbeLiveTests
         Assert.Contains(sample.DiskEvidence.Disks, disk => disk.Kind != DiskKind.Unknown);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_WhileAFileIsBeingWritten_TheTimePerWriteAndQueueDepthAreReal()
     {
@@ -274,7 +274,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(disk.AverageQueueDepth > 0);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TheDiskTheMachineRunsFrom_IsNamedAsSuchAndExactlyOneSetIs()
     {
@@ -302,7 +302,7 @@ public class MacOsResourceProbeLiveTests
     // Stall signals
     // =============================================================================================
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_StallSignals_NameThisPlatformAndLeaveWhatItCannotOfferNull()
     {
@@ -333,7 +333,7 @@ public class MacOsResourceProbeLiveTests
     // Processes
     // =============================================================================================
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_Processes_IncludeThisTestProcessWithItsParentAndItsMemory()
     {
@@ -361,7 +361,7 @@ public class MacOsResourceProbeLiveTests
             new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_Processes_EveryOneHasANameAndNoProcessorTimeIsNegative()
     {
@@ -381,7 +381,7 @@ public class MacOsResourceProbeLiveTests
         });
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_Processes_IncludesTheOnesThisUserMayNotMeasure()
     {
@@ -435,7 +435,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(sample.Processes.CouldRead, sample.Processes.UnreadableReason);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_WhileTwoThreadsBurnProcessor_TheProbeAgreesWithTheRuntimesOwnFigure()
     {
@@ -492,7 +492,7 @@ public class MacOsResourceProbeLiveTests
     // The cache
     // =============================================================================================
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_WhenTheWallClockStepsBackMidSample_TheIntervalAndEveryRateSurviveIt()
     {
@@ -543,7 +543,7 @@ public class MacOsResourceProbeLiveTests
         Assert.Equal(Start.Add(TimeSpan.FromHours(-1)).UtcDateTime, sample.TakenAtUtc);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_TwiceInsideTheCacheWindow_IsTheSameSample()
     {
@@ -559,7 +559,7 @@ public class MacOsResourceProbeLiveTests
         Assert.Same(first, second);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_OnceTheCacheHasAged_IsAFreshSample()
     {
@@ -576,7 +576,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(second.TakenAtUtc > first.TakenAtUtc);
     }
 
-    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [MacOsLiveMachineFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
     public void Read_FromManyThreadsAtOnceOnAFreshProbe_TakesExactlyOnePassOverTheMachine()
     {
