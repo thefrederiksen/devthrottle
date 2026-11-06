@@ -349,9 +349,13 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
 
     // ---------- a held recording and the 24-hour sweep (phase 4 review, finding 2) ----------
 
+    // A fixed moment years before any run, so the staging is past the sweep's 24-hour bound without this test reading
+    // the clock.
+    private static readonly DateTime LongAgoUtc = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     /// <summary>Ages a recording's staging past the stale-pending sweep's bound, as a night with the app closed does.</summary>
     private void AgedPastTheSweep(string id)
-        => Directory.SetLastWriteTimeUtc(Path.Combine(_uploads.Root, VoiceUploadStore.NormalizeUploadId(id)!), DateTime.UtcNow.AddDays(-3));
+        => Directory.SetLastWriteTimeUtc(Path.Combine(_uploads.Root, VoiceUploadStore.NormalizeUploadId(id)!), LongAgoUtc);
 
     [Fact]
     public async Task Sweep_HeldRecordingOlderThanADay_IsNotDroppedAndIsLeftOnTheNextRetry()
