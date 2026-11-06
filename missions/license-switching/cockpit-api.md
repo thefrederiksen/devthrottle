@@ -187,6 +187,29 @@ show nothing. Section 6 has the sentences and the tone rule.
 `bad`), `expires soon` (within 3 days, `warning`), `fine` (`good`), `not known` (the machine did not say, `neutral`).
 `expiryText` is the sentence: "Sign-in expires in 9 days", "Sign-in expired 2 hours ago", "Sign-in expiry not known".
 
+### The coverage grid (`coverage`, `LicenseCoverageDto`)
+
+Mission "Licenses - Always Ready, Loud When Not", step 1. Every machine that reports is a row, every PAID account is a
+column (an account with no paid plan is no place to switch to, so it is not a column), and each cell says whether that
+machine holds a fresh sign-in for that account. It is folded once on the Gateway (`LicenseCoverageFold`), the one place
+that decides "gap"; the page draws every `text` in its `tone` and decides nothing.
+
+| Field | What it is |
+|---|---|
+| `text`, `tone` | The whole grid in one sentence: "Every machine holds a fresh sign-in for every paid account." (good), "2 missing sign-ins on 2 machines." (warning), "machine-a cannot switch and is at the limit." (bad), "machine-a is not reporting, so it cannot be switched." (warning), "No machine has reported yet." (neutral). |
+| `gapCount` | How many cells are gaps. |
+| `accounts` | The columns, in account email order: `accountEmail`, `planText`. |
+| `rows` | One per machine, in the overview's machine order: `machine` (a machine reference), `activeAccountEmail`, `text`, `tone`, `gapCount`, and `cells` - one per column, in the same order. |
+| a cell | `accountEmail`, `state`, `text`, `tone`, `isGap`. `state` is `in-use` ("In use"), `held` ("Held"), `ending` ("Ends in 2 days 5 hours", or "Sign-in has ended" - within 7 days), `not-held` ("Not held") or `refused` ("Sign-in refused"). Every state but `in-use` and `held` is a gap. |
+
+**Colour** (the owner, verbatim): "I think a warning should be yellow, not red. It doesn't go red until it goes above
+97%." A gap is `warning`. A cell is `bad` only when its machine is on an account at or above the switching threshold,
+some account has room, and the machine is ready for none of them - the engine's own stranded rule - and the cell is a
+gap for an account with room. A row says "Cannot switch: {account} is at {97% of its 5-hour window}, and it holds no
+fresh sign-in for an account with room." (bad), "Not reporting since {time}, so it cannot be switched until it reports
+again; the cells show its last report." (warning), "Missing a fresh sign-in for 1 paid account." (warning), or "Could
+switch to any paid account now." (good).
+
 ### Example
 
 ```json
@@ -580,7 +603,98 @@ show nothing. Section 6 has the sentences and the tone rule.
       "readinessText": "Ready for account-b@example.com.",
       "readinessTone": "good"
     }
-  ]
+  ],
+  "coverage": {
+    "text": "2 missing sign-ins on 2 machines.",
+    "tone": "warning",
+    "gapCount": 2,
+    "accounts": [
+      {
+        "accountEmail": "account-a@example.com",
+        "planText": "Max"
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "planText": "Max"
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "planText": "Max"
+      }
+    ],
+    "rows": [
+      {
+        "machine": {
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        "activeAccountEmail": "account-a@example.com",
+        "text": "Missing a fresh sign-in for 1 paid account.",
+        "tone": "warning",
+        "gapCount": 1,
+        "cells": [
+          {
+            "accountEmail": "account-a@example.com",
+            "state": "in-use",
+            "text": "In use",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-b@example.com",
+            "state": "held",
+            "text": "Held",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-c@example.com",
+            "state": "not-held",
+            "text": "Not held",
+            "tone": "warning",
+            "isGap": true
+          }
+        ]
+      },
+      {
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "activeAccountEmail": "account-a@example.com",
+        "text": "Missing a fresh sign-in for 1 paid account.",
+        "tone": "warning",
+        "gapCount": 1,
+        "cells": [
+          {
+            "accountEmail": "account-a@example.com",
+            "state": "in-use",
+            "text": "In use",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-b@example.com",
+            "state": "ending",
+            "text": "Ends in 2 days 5 hours",
+            "tone": "warning",
+            "isGap": true
+          },
+          {
+            "accountEmail": "account-c@example.com",
+            "state": "held",
+            "text": "Held",
+            "tone": "good",
+            "isGap": false
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -2010,7 +2124,14 @@ holding itself still carries `renewalFailedText` (section 2), which is where the
   "isEmpty": true,
   "emptyText": "No machine has reported its Claude accounts yet. They appear here once a Director with license switching turned on has connected.",
   "accounts": [],
-  "machines": []
+  "machines": [],
+  "coverage": {
+    "text": "No machine has reported yet.",
+    "tone": "neutral",
+    "gapCount": 0,
+    "accounts": [],
+    "rows": []
+  }
 }
 ```
 

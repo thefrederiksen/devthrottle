@@ -837,3 +837,13 @@
     font-size: 17px;
   }
 }
+
+/* The coverage grid: an account email heads each column; the header keeps its case, unlike the other tables. */
+.lic-coverage th {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.lic-coverage-account {
+  font-weight: 600;
+  color: var(--text);
+}

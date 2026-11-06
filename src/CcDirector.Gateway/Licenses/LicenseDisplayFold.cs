@@ -84,6 +84,8 @@ public static partial class LicenseDisplayFold
             Machines = picture.Overview.Machines.Select(m => Machine(m, picture))
                 .Concat(refusedOnly.Select(r => RefusedMachine(r, now)))
                 .ToList(),
+            // Every machine against every paid account: the one place a gap is decided (LicenseCoverageFold).
+            Coverage = LicenseCoverageFold.Dto(LicenseCoverageFold.Judge(picture)),
         };
         FileLog.Write($"[LicenseDisplayFold] Overview: empty={empty}, canSwitchNow={response.Accounts.Count(a => a.CanSwitchNow)}");
         return response;
@@ -1220,7 +1222,7 @@ public static partial class LicenseDisplayFold
         null => new LicenseExtraUsageDto { State = LicenseExtraUsageStates.NotKnown, Text = "Paid extra usage not known", Utilization = utilization },
     };
 
-    private static string PlanText(string? plan)
+    internal static string PlanText(string? plan)
     {
         var word = plan?.Trim();
         return string.IsNullOrEmpty(word) ? "Not known" : char.ToUpperInvariant(word[0]) + word[1..];

@@ -244,6 +244,47 @@ export interface LicenseOverview {
   emptyText: string | null;
   accounts: LicenseAccount[];
   machines: LicenseMachine[];
+  /** Every machine that reports against every paid account: the Gateway's coverage grid, drawn as given. */
+  coverage: LicenseCoverage;
+}
+
+/**
+ * THE COVERAGE GRID (LicenseCoverageFold on the Gateway): one row per machine, one column per paid account, each cell
+ * saying whether that machine holds a fresh sign-in for that account. The page draws every text in its tone and never
+ * decides what a state means: a gap is "warning" (yellow) and only a machine at the limit with nowhere to go is "bad".
+ */
+export interface LicenseCoverage {
+  text: string;
+  tone: LicenseTone;
+  gapCount: number;
+  /** The columns, in account email order. */
+  accounts: LicenseCoverageAccount[];
+  /** The rows, in the overview's machine order. */
+  rows: LicenseCoverageRow[];
+}
+
+export interface LicenseCoverageAccount {
+  accountEmail: string;
+  planText: string;
+}
+
+export interface LicenseCoverageRow {
+  machine: LicenseMachineRef;
+  activeAccountEmail: string | null;
+  text: string;
+  tone: LicenseTone;
+  gapCount: number;
+  /** One per column, in the same order. */
+  cells: LicenseCoverageCell[];
+}
+
+export interface LicenseCoverageCell {
+  accountEmail: string;
+  /** in-use | held | ending | not-held | refused - for a test or a style hook; the text says it. */
+  state: string;
+  text: string;
+  tone: LicenseTone;
+  isGap: boolean;
 }
 
 /** A window in the overview's own words, and then its forecast. */

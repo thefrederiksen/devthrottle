@@ -150,6 +150,9 @@ public sealed class LicenseOverviewResponse
 
     /// <summary>In machine name order.</summary>
     public List<LicenseMachineDto> Machines { get; set; } = new();
+
+    /// <summary>The coverage grid: every machine that reports against every paid account (<see cref="LicenseCoverageDto"/>).</summary>
+    public LicenseCoverageDto Coverage { get; set; } = new();
 }
 
 /// <summary>One machine, named the same way wherever a list or a sentence names a machine. A machine is a machine
