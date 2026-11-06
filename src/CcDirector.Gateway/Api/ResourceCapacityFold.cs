@@ -11,7 +11,8 @@ namespace CcDirector.Gateway.Api;
 /// here and stamped onto the row it reads; the Cockpit renders them verbatim and decides nothing. A new state is one
 /// edit in this file.
 ///
-/// THE RULES, in one place:
+/// THE RULES, in one place (the hour's peak and Spare also say how much of the hour they rest on - see
+/// <see cref="MeasuredMinutes"/>):
 ///  - "Now" is the newest five-minute window from any Director on the machine; the peak is the highest five-second
 ///    reading in the last hour's windows.
 ///  - Spare is total memory minus the HIGHEST memory in use in the last hour - free memory at the hour's peak, not
@@ -33,7 +34,8 @@ internal static class ResourceCapacityFold
 
     /// <summary>
     /// Stamp a capacity on every machine of a folded Machines view. <paramref name="lastHourWindows"/> is every machine
-    /// window of the tenant from the last <see cref="PeakSpan"/>, or null when the statistics store could not be read.
+    /// window of the tenant from one window before the last <see cref="PeakSpan"/> (so the window straddling the hour's
+    /// start is in), or null when the statistics store could not be read.
     /// </summary>
     public static void Stamp(FleetMachinesDto view, IReadOnlyList<ResourceWindowEntity>? lastHourWindows, DateTime nowUtc)
     {
@@ -56,8 +58,11 @@ internal static class ResourceCapacityFold
         if (!directorRunning)
             return NotReporting("No Director on this machine is running, so it is not measuring anything. Offline is not idle.");
 
+        // Every window with any part inside the hour, including the one straddling its start: the minutes it measured
+        // inside the hour are counted (MeasuredMinutes), so its readings must be too, or a spike in them is claimed as
+        // measured and left out of the peak (review of #4687, finding 3).
         var recent = windows
-            .Where(w => w.WindowStartUtc >= nowUtc - PeakSpan)
+            .Where(w => w.WindowStartUtc.AddSeconds(w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds) > nowUtc - PeakSpan)
             .ToList();
         var newest = recent
             .OrderByDescending(w => w.WindowStartUtc)
@@ -98,6 +103,11 @@ internal static class ResourceCapacityFold
         var memoryGap = HourGap(recent, w => w.MemoryPeakUsedBytes is not null, w => w.MemoryUnreadableReason);
         var processorPeakUnknown = false;
         var spareUnknownFromGap = false;
+        // How much of the hour each figure rests on (issue #4679). Null when the hour was measured whole.
+        var processorMeasured = MeasuredMinutes(windows, nowUtc, w => w.ProcessorSamples);
+        var memoryMeasured = MeasuredMinutes(windows, nowUtc, w => w.MemorySamples);
+        var processorPeakPartial = false;
+        var sparePartial = false;
         var crossings = ResourceSummaryStore.CrossingsOf(newest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
@@ -117,7 +127,9 @@ internal static class ResourceCapacityFold
                 // Every window in the hour read the processor and the newest is one of them, so there is a peak.
                 var peak = recent.Max(w => w.ProcessorPeakPercent)
                            ?? throw new InvalidOperationException("Every window in the hour read the processor, yet none has a peak.");
-                dto.ProcessorDetail = $"peak {Percent(peak)}";
+                // An hour that was not measured whole has no peak, only a highest reading: the real peak is at least it.
+                processorPeakPartial = processorMeasured is not null;
+                dto.ProcessorDetail = processorPeakPartial ? $"peak at least {Percent(peak)}" : $"peak {Percent(peak)}";
             }
         }
         else
@@ -154,6 +166,14 @@ internal static class ResourceCapacityFold
                     why.Add($"The machine reported more memory in use than it has ({Gigabytes(peakUsed)} of {Gigabytes(total)} GB), "
                             + "so its spare capacity is not known.");
                 }
+                // An hour that was not measured whole may have peaked in the part nobody measured, so Spare from it is an
+                // UPPER bound - "at most". It is not sent as a number to sort on: placing a factory by an upper bound is the
+                // mistake Spare exists to prevent, so it sorts with the unknowns (issue #4679).
+                else if (memoryMeasured is not null)
+                {
+                    sparePartial = true;
+                    dto.SpareLabel = $"at most {Gigabytes(total - peakUsed)} GB";
+                }
                 else
                 {
                     dto.SpareBytes = total - peakUsed;
@@ -182,9 +202,70 @@ internal static class ResourceCapacityFold
             if (spareUnknownFromGap) why.Add($"{memoryGap}, so {memoryWhat} not known.");
         }
 
+        // How much of the hour the figures rest on, said once when both rest on the same minutes.
+        if (processorPeakPartial && sparePartial && processorMeasured == memoryMeasured)
+            why.Add($"Only {processorMeasured} of the last {(int)PeakSpan.TotalMinutes} minutes were measured, so the hour's peak "
+                    + "processor use is at least what is shown and the spare capacity at most what is shown.");
+        else
+        {
+            if (processorPeakPartial)
+                why.Add($"The processor was measured for only {processorMeasured} of the last {(int)PeakSpan.TotalMinutes} minutes, "
+                        + "so the hour's peak is at least what is shown.");
+            if (sparePartial)
+                why.Add($"Memory was measured for only {memoryMeasured} of the last {(int)PeakSpan.TotalMinutes} minutes, "
+                        + "so the spare capacity is at most what is shown.");
+        }
+
         (dto.StatusLabel, dto.StatusTone) = StatusOf(dto);
         dto.Why = why.Count == 0 ? null : string.Join(" ", why);
         return dto;
+    }
+
+    /// <summary>A full window's samples: one every five seconds for the window's five minutes.</summary>
+    internal static readonly int FullWindowSamples =
+        (int)(ResourceSummaryContract.WindowSeconds / CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryBuilder.SampleInterval.TotalSeconds);
+
+    /// <summary>
+    /// How many whole minutes of the last hour one resource was measured for, or null when the hour was measured whole
+    /// (issue #4679). It is the hour MINUS what was not measured, so it agrees with the expanded chart by construction:
+    ///  - minus every gap <see cref="ResourceWindowGaps.Of"/> finds - the one definition the chart draws. That rule
+    ///    has two allowances of its own, which this inherits rather than redefines: a stretch shorter than one window is
+    ///    an hour boundary, not a gap, and the stretch after the newest window is not a gap until
+    ///    <see cref="ResourceWindowGaps.TailAllowance"/> (one window plus delivery), because the window being collected
+    ///    is not missing yet. Not <see cref="SilentAfter"/>: that is when the row goes to dashes, a different question;
+    ///  - minus the samples a window is short of a full one, five seconds each, for the part of the window inside the
+    ///    hour. A row of four samples was measured for twenty seconds, not five minutes.
+    /// The hour counts as whole when there is no gap and no window inside it is more than ONE sample short. That one
+    /// sample is an expectation about the sampler (phase 2, not yet built when this was written): a five-second timer
+    /// against five-minute wall-clock boundaries should land 59 as well as 60. A sampler that drifts further than that -
+    /// one that does its work and then waits five seconds will, on a loaded machine - makes every hour read as partial,
+    /// which is the honest answer for such a sampler, not a reason to widen this. The minutes are rounded DOWN.
+    /// <paramref name="windows"/> must include the window straddling the hour's start (the caller reads from
+    /// <see cref="MachineResourceHistoryFold.ReadFromUtc"/>), or the hour's first minutes would count as a gap.
+    /// </summary>
+    internal static int? MeasuredMinutes(IReadOnlyList<ResourceWindowEntity> windows, DateTime nowUtc, Func<ResourceWindowEntity, int> samples)
+    {
+        var hourStart = nowUtc - PeakSpan;
+        var sampleSeconds = CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryBuilder.SampleInterval.TotalSeconds;
+        // One row per window start (two Directors on one machine measure the same machine), the fuller one.
+        var perStart = windows
+            .GroupBy(w => w.WindowStartUtc)
+            .Select(g => (Start: g.Key, Seconds: g.Max(w => w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds),
+                Samples: g.Max(samples)))
+            .Where(w => w.Start.AddSeconds(w.Seconds) > hourStart && w.Start < nowUtc)
+            .ToList();
+        var gaps = ResourceWindowGaps.Of(windows, hourStart, nowUtc);
+        if (gaps.Count == 0 && perStart.All(w => w.Samples >= FullWindowSamples - 1)) return null;
+
+        var gapSeconds = gaps.Sum(g => (g.EndUtc - g.StartUtc).TotalSeconds);
+        var shortSeconds = 0.0;
+        foreach (var w in perStart)
+        {
+            var end = w.Start.AddSeconds(w.Seconds);
+            var inside = ((end < nowUtc ? end : nowUtc) - (w.Start > hourStart ? w.Start : hourStart)).TotalSeconds;
+            shortSeconds += (FullWindowSamples - Math.Min(w.Samples, FullWindowSamples)) * sampleSeconds * (inside / w.Seconds);
+        }
+        return (int)Math.Floor((PeakSpan.TotalSeconds - gapSeconds - shortSeconds) / 60);
     }
 
     /// <summary>
