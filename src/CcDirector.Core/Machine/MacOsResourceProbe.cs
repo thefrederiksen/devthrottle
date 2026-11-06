@@ -62,11 +62,12 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// <see cref="MachineMemoryProbe.CacheFor"/> plus a margin in between, to give the rates an
     /// interval; they do not ask the probe under test what IT caches for. So a macOS cache written as
     /// its own one second would be free to grow past that sleep, and on the day it did, the contract's
-    /// second read would come back out of this cache - every rate in it the first sample's - while two
-    /// of the four contract tests went on passing, because both deliberately accept a rate-less first
-    /// sample. That is a check that fails open in the one suite whose job is to catch a reading that
-    /// means something different on another platform. Tying the two together makes that impossible
-    /// here; a hook on the contract base would fix it for every platform, and is referred upward.
+    /// second read would come back out of this cache - leaving the sample under test the FIRST sample,
+    /// which has no rates at all - while two of the four contract tests went on passing, because both
+    /// deliberately accept a rate-less sample. That is a check that fails open in the one suite whose
+    /// job is to catch a reading that means something different on another platform. Tying the two
+    /// together makes that impossible here; a hook on the contract base would fix it for every
+    /// platform, and is issue #4649.
     /// </summary>
     public static readonly TimeSpan CacheFor = MachineMemoryProbe.CacheFor;
 
