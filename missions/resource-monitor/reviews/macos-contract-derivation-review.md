@@ -259,3 +259,111 @@ is the literal `TimeSpan.FromSeconds(1)` (`MacOsResourceProbe.cs:60`); nothing a
 The proposed fix - the contract asks the probe for its cache interval - needs a member that `IResourceProbe` does
 not have today; a `CacheFor` on the abstract test base, supplied per derived class, does the same job without
 touching the interface. Either is the Tech Lead's call. The finding stands; nothing in it should be withdrawn.
+
+---
+
+# Second pass - commit 3f6df6921 on pull request 4641, and pull request 4642 at b3850b712
+
+The author acted on the first pass and asked for the delta to be confirmed rather than taken on trust. This
+review branch is now rebased onto 3f6df6921, so every measurement below ran against the author's code plus this
+file and nothing else.
+
+## Headline verdict
+
+**Pull request 4641 at 3f6df6921: confirmed, merge it.** All four corrections and both done-instead-of-filed
+follow-ups are what the message says they are. One nit in a doc comment, no action needed before merge.
+
+**Pull request 4642 at b3850b712: the blocking finding from the first pass is still in it.** The revised last
+section is honest. Point 1's body still says the probe landed inside the bracket every time, and the proof file
+still says it fell outside three times in four. That sentence has to change before this merges.
+
+## Pull request 4641, the delta 986e23bef..3f6df6921 - measured
+
+| Run, Release | Result |
+|---|---|
+| Whole project, `CC_DIRECTOR_LIVE_MACHINE_TESTS=1` | 56 passed, 9 skipped, 0 failed, 65 total |
+| Whole project, variable absent | 16 passed, 49 skipped, 0 failed, 65 total |
+| The new theory alone | 2 passed |
+| `CcDirector.Core.UnitTests`, whole suite | 3,143 passed, 23 skipped, 0 failed |
+| The plan's command verbatim, without `-p:EnableWindowsTargeting=true` | 56 passed, 9 skipped, 0 failed |
+
+The last row is there because the rewritten plan paragraph gives a command without the targeting flag, and the
+same plan says Linux needs that flag for the solution build. It is not needed for this one project: the command
+as written works on this Mac.
+
+**1. The false clause** (`MacOsResourceProbeContractLiveTests.cs:15-21`) - gone. The paragraph now claims the
+contract was written against the interface for all three platforms at once and asks questions the probe's own
+suite does not, naming the per-core versus per-machine share. Both are true of `ResourceProbeContractLiveTests`
+as it stands. No author, no date.
+
+**2. The failure mode** - corrected in the contract class and in `MacOsResourceProbeLiveTests`, and the correction
+is accurate: `ReadUncached` checks the platform before reading and the failure off a Mac would be an assertion on
+`CouldRead`. Leaving `MacOsPlatformReaderLiveTests` alone is right. Its tests call the reader directly, with no
+platform check in front of them, so a system call is exactly what they would fail on.
+
+**3. The plan paragraph** (`qa-plan.md:225-250`) - the rewrite says what the code does: one command, the decision
+per class at discovery, skips with the reason, an undeclared contract class as an error. The two things it tells a
+reader to be suspicious of are the right two. The skip reason it quotes is the one the run prints.
+
+**4. `MacOsResourceProbe.CacheFor = MachineMemoryProbe.CacheFor`** (`MacOsResourceProbe.cs:60-71`) - the product
+change, checked for the thing a cross-type static alias can get wrong. `Shared = new()` is declared above
+`CacheFor` and so initialises first, but the constructor (lines 30-33 of the file) reads neither `CacheFor` nor
+anything that depends on it; `Read` reads `CacheFor` at call time. `MachineMemoryProbe`'s type initialiser does
+not reach back into `MacOsResourceProbe`, so there is no cycle. `MacOsResourceProbeSafetyTests.cs:81` advances a
+fake clock by `MacOsResourceProbe.CacheFor + 1 ms` and still passes, which is the test that would have noticed a
+zero-valued constant. The field's doc comment carries the failure scenario and names the base hook as the real
+fix. **One nit:** that comment says the cached second read would carry "every rate in it the first sample's". The
+first sample has no rates; its processor and disk readings are unreadable with the first-sample reason, and the
+two tests pass because the contract checker accepts that. Same wording issue as in 4642, same one-clause fix,
+not worth a round trip on its own.
+
+**5. The theory** (`LiveMachineFactTests.cs:99-119`) - pins exactly the row the first pass found unpinned:
+`Decide(MacOs, isContractClass, thisMachine: Linux)` for both values of `isContractClass`, asserting no error, a
+skip, and both platform names in it. Its comment states the failure scenario. The two cases run and pass, and the
+count arithmetic closes: 63 + 2 = 65.
+
+**6. The `reads` nit** - all three now say `process figures through proc_pidinfo`.
+
+**Not done, issue 4644** - read it. It quotes the real composition from `LiveMachineTestCase.GetSkipReason`, carries
+the deleted attribute's reasoning verbatim, names the one-line change and the test to add, and allows the owner
+of the gate to close it by amending the comment instead. That is the durable record the first pass asked for.
+
+## Pull request 4642 at b3850b712
+
+**Still BLOCKING - point 1, second paragraph, unchanged from 833c04e74.** It still reads "landed inside the
+bracket every time, but below the middle of it in three runs of four". The proof file,
+`macos-narrow-check.txt:156-169`, has the column `probe outside` with 0.51, 0.00, 1.36, 0.73, and the sentence
+"Worst the probe fell outside the operating system's own range: 1.36 percentage points". Runs 1, 3 and 4 were
+below the bracket's lower edge; run 2 was inside. The heading of the same point and the closing section both say
+"below the range" and "to within 1.36 points", which agree with the proof; the body does not. The "several points
+per second" clause in the same paragraph is measured nowhere; the proof's figure is 4.75 points across one
+bracketed read while used memory was falling. The author's message says 4642 had not been seen by this reviewer;
+the first-pass section above, sent before that message, covers it. Nothing else in points 1 to 4 or "What none of
+this is" changed, and all of it checked out on the first pass.
+
+**The revised last section is honest.** Checked sentence by sentence:
+
+- "found twice, independently" - true; this review reached it before reading the document.
+- "all happened to be one second" - still overstated for Linux, whose constant was already written as the alias
+  (`LinuxResourceProbe.cs:52`). The coincidence was the macOS literal alone. Non-blocking; one word.
+- "Two of the four contract tests would not notice ... Only `PerProcessProcessor_...` would catch it, and only
+  because it sleeps three seconds of its own" - correct, and this is the precision the first pass asked for.
+- "every rate in the sample under test is the first sample's" - same nit as the field comment: the first sample
+  has no rates. Non-blocking.
+- "The macOS half is fixed ... as the Linux probe already wrote it" - true at 3f6df6921, and it correctly does not
+  claim the finding is closed.
+- "Tying each probe to the memory probe's constant means no probe can choose its own cache interval without
+  silently breaking a contract test that will still report green" - correct, and it is the right reason to keep the
+  referral open rather than call the alias a fix.
+- "Windows should do the same when its probe lands" - there is no Windows probe on main today
+  (`git grep WindowsResourceProbe origin/main -- src` finds only a mention in the interface comment), so this is a
+  correct forward instruction, not a claim about existing code.
+- "Where the two referred points went" - issue 4644 exists and says what the bullet says; the `StallReading` and
+  base-hook referrals have no issue number, only "with the Tech Lead". That is the same message-shaped home this
+  document's own opening paragraph says loses things. Non-blocking, but by the document's own standard they should
+  have an address too.
+
+## What this pass did not do
+
+Nothing merged, nothing pushed, no comment posted on either pull request. The author's worktree and the shared
+checkout were not touched. This file is the review; it lives on branch `resource-monitor/macos-contract-review`.
