@@ -198,6 +198,110 @@ public sealed class SessionPreambleFileTests : IDisposable
         SessionPreambleFile.DeleteFor(session.Id, _dir);
     }
 
+    // ---------- the factory kit line (issue #4609) ----------
+
+    /// <summary>A home seat of a factory whose kit is written to disk, with a brief and grants.</summary>
+    private Session MakeFactorySeat(bool brief = true, bool grants = true, bool home = true)
+    {
+        var session = MakeSession("CPMC - forward-engineer");
+        var kit = Directory.CreateDirectory(Path.Combine(_dir, "factory-run", session.Id.ToString())).FullName;
+        Directory.CreateDirectory(Path.Combine(kit, FactoryRunKit.WorkFolderName));
+        if (brief) File.WriteAllText(Path.Combine(kit, FactoryRunKit.BriefFileName), "STEP 1: answer the customer.\n");
+        if (grants) File.WriteAllText(Path.Combine(kit, FactoryRunKit.GrantsFileName), "You may send email.\n");
+        session.StampFactory("cpmc");
+        session.StampFactorySeat("forward-engineer", 6, "cpmc/forward-engineer");
+        session.FactoryKitDirectory = kit;
+        session.FactoryHome = home;
+        return session;
+    }
+
+    /// <summary>The user's own text, about the size of the real 10 KB start-up text, so the order is what decides
+    /// whether the kit line reaches the preview.</summary>
+    private InjectedTextStore LongText()
+    {
+        var store = new InjectedTextStore(Path.Combine(_dir, "long-cache.json"));
+        store.WriteCache(new InjectedTextCacheEntry(
+            UseYours: true, Yours: string.Join("\n", Enumerable.Repeat("A fleet rule the agent should know about.", 250)), CachedAtUtc: DateTime.UtcNow));
+        return store;
+    }
+
+    [Fact]
+    public void Render_FactorySeatWithLongStartupText_KitLineSitsInTheFirst2048Bytes()
+    {
+        // Arrange
+        var session = MakeFactorySeat();
+        session.FactoryMemoryDirectory = Path.Combine(_dir, "factory-memory");
+        var kit = session.FactoryKitDirectory!;
+
+        // Act
+        var text = AdditionalContext(SessionPreambleFile.Render(session, "TEST-MACHINE", user: null, LongText()));
+
+        // Assert: the line names the brief, the grants and the working folder by absolute path, and all of it is inside
+        // the two kilobytes the agent is shown before it has to open a file.
+        var line = FactoryRunKit.StartupLine(session)!;
+        Assert.StartsWith(line, text);
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(text) > 8192, "the start-up text should be long, as the real one is");
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(line) <= 2048, $"the kit line is {line.Length} characters");
+        var preview = System.Text.Encoding.UTF8.GetString(System.Text.Encoding.UTF8.GetBytes(text), 0, 2048);
+        Assert.Contains($"Your brief is {Path.Combine(kit, "brief.md")}", preview);
+        Assert.Contains($"your grants are {Path.Combine(kit, "grants.md")}", preview);
+        Assert.Contains($"Your working folder is {Path.Combine(kit, "work")}.", preview);
+        Assert.Contains("you are seat 'forward-engineer' of factory 'cpmc'", preview);
+        Assert.Contains("read the brief in full before you do anything else", preview);
+        // The memory line still comes, after the fleet text.
+        Assert.Contains("Factory memory:", text);
+    }
+
+    [Fact]
+    public void Render_SessionWithNoKit_HasNoKitLine()
+    {
+        var session = MakeSession();
+        session.StampFactory("cpmc");
+
+        var text = AdditionalContext(SessionPreambleFile.Render(session, "TEST-MACHINE", user: null, Ours()));
+
+        Assert.Null(FactoryRunKit.StartupLine(session));
+        Assert.DoesNotContain("Factory seat:", text);
+        Assert.DoesNotContain("brief.md", text);
+    }
+
+    [Fact]
+    public void Render_UnreadableUserTextOnAFactorySeat_StillCarriesTheKitLineAlone()
+    {
+        var session = MakeFactorySeat();
+        var store = new InjectedTextStore(Path.Combine(_dir, "broken-cache.json"));
+        store.WriteCache(new InjectedTextCacheEntry(UseYours: true, Yours: null, CachedAtUtc: DateTime.UtcNow));
+
+        var text = AdditionalContext(SessionPreambleFile.Render(session, "TEST-MACHINE", user: null, store));
+
+        Assert.Equal(FactoryRunKit.StartupLine(session), text);
+    }
+
+    [Fact]
+    public void StartupLine_KitWithNoBriefOrGrants_NamesOnlyTheKit()
+    {
+        // A child of a seat gets a kit of rules only: the line must not send it to a brief that is not there.
+        var session = MakeFactorySeat(brief: false, grants: false, home: false);
+
+        var line = FactoryRunKit.StartupLine(session)!;
+
+        Assert.Contains($"Your kit is {session.FactoryKitDirectory}", line);
+        Assert.DoesNotContain("brief", line);
+        Assert.DoesNotContain("grants", line);
+        Assert.DoesNotContain("working folder", line);
+    }
+
+    [Fact]
+    public void StartupLine_RepositorySeat_DoesNotNameTheWorkFolder()
+    {
+        var session = MakeFactorySeat(home: false);
+
+        var line = FactoryRunKit.StartupLine(session)!;
+
+        Assert.Contains("Your brief is", line);
+        Assert.DoesNotContain("working folder", line);
+    }
+
     /// <summary>
     /// The write must leave no temporary file behind. The pointer watcher filters on the drop extension
     /// precisely so it cannot see a half-written file, and that only holds if the temporary really is

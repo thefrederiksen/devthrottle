@@ -193,6 +193,51 @@ public static class FactoryRunKit
         return line + "\n\n" + prompt;
     }
 
+    /// <summary>What the seat is allowed to do, inside its kit folder.</summary>
+    public const string GrantsFileName = "grants.md";
+
+    /// <summary>
+    /// The line the start-up text carries FIRST for a session whose kit is in place, or null for a session with no kit
+    /// (issue #4609). On 5 November 2026 a seat started in its empty <c>work/</c> folder, was told to "do what your
+    /// brief says", and asked a person for the brief all night: nothing it could see named the kit, and the memory line
+    /// that came last fell outside the two-kilobyte preview the agent is shown of a long start-up text. So this line
+    /// names the brief, the grants and the working folder by absolute path, and only those that are really there: a
+    /// child of a seat has a kit of rules only, and a repository seat works in its checkout, not in <c>work/</c>.
+    /// </summary>
+    public static string? StartupLine(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.FactoryKitDirectory is not { } kit)
+            return null;
+
+        var who = (session.FactorySeat, session.Factory) switch
+        {
+            ({ } seat, { } factory) => $"you are seat '{seat}' of factory '{factory}'",
+            ({ } seat, null) => $"you are seat '{seat}'",
+            (null, { } factory) => $"you work for factory '{factory}'",
+            _ => "this session has a factory kit",
+        };
+        var line = $"Factory seat: {who}. Your kit is {kit} (the path is also in {DirectoryEnvVar}).";
+
+        var brief = Path.Combine(kit, BriefFileName);
+        var grants = Path.Combine(kit, GrantsFileName);
+        var hasBrief = File.Exists(brief);
+        var hasGrants = File.Exists(grants);
+        if (hasBrief && hasGrants)
+            line += $" Your brief is {brief} and your grants are {grants}: read the brief in full before you do anything else.";
+        else if (hasBrief)
+            line += $" Your brief is {brief}: read it in full before you do anything else.";
+        else if (hasGrants)
+            line += $" Your grants are {grants}: read them before you act on anything they cover.";
+
+        if (session.FactoryHome)
+            line += $" Your working folder is {WorkDirectoryOf(kit)}.";
+
+        // Not logged: this is rendered for every live session on the preamble maintainer's timer, and the maintainer
+        // already logs each time the rendered file changes.
+        return line;
+    }
+
     /// <summary>
     /// Where a session's prompts sent as files are saved: the <see cref="PromptFolderName"/> folder of the kit that
     /// <paramref name="environment"/> names in <see cref="DirectoryEnvVar"/>, or an empty string for a session with no
