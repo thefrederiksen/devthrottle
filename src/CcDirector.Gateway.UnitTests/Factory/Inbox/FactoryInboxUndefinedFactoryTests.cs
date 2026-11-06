@@ -212,6 +212,7 @@ public sealed class FactoryInboxUndefinedFactoryTests : IAsyncLifetime
         public Task<FleetManagerPromptSend> RingAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct)
             => Task.FromResult(FleetManagerPromptSend.Accepted);
 
+        public bool FactoryAgentsOn(TenantId tenant) => true;
         public Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.CompletedTask;
         public DateTime NowUtc() => Now;
     }

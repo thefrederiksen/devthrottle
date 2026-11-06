@@ -24,6 +24,7 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
     private readonly Func<TenantId, string, bool, string?> _directorOn;
     private readonly Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> _start;
     private readonly Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> _ring;
+    private readonly FactoryAgentsSwitch _factoryAgents;
 
     public GatewayFactoryInboxWakeEnvironment(
         Func<TenantId, string, RegisteredFactoryDto?> factory,
@@ -34,7 +35,8 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief,
         Func<TenantId, string, bool, string?> directorOn,
         Func<TenantId, string, NewSessionRequest, CancellationToken, Task<TriggerStartAttempt>> start,
-        Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> ring)
+        Func<TenantId, string, string, string, CancellationToken, Task<FleetManagerPromptSend>> ring,
+        FactoryAgentsSwitch factoryAgents)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _published = published ?? throw new ArgumentNullException(nameof(published));
@@ -45,6 +47,7 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
         _directorOn = directorOn ?? throw new ArgumentNullException(nameof(directorOn));
         _start = start ?? throw new ArgumentNullException(nameof(start));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
+        _factoryAgents = factoryAgents ?? throw new ArgumentNullException(nameof(factoryAgents));
     }
 
     public RegisteredFactoryDto? Factory(TenantId tenant, string factory) => _factory(tenant, factory);
@@ -66,6 +69,9 @@ internal sealed class GatewayFactoryInboxWakeEnvironment : IFactoryInboxWakeEnvi
 
     public Task<FleetManagerPromptSend> RingAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct)
         => _ring(tenant, directorId, sessionId, text, ct);
+
+    /// <summary>Asked QUIETLY: the heartbeat asks every 15 seconds, and the answer is the same as the logged one.</summary>
+    public bool FactoryAgentsOn(TenantId tenant) => _factoryAgents.AnswerQuietly(tenant).IsOn;
 
     public Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.Delay(delay, ct);
 

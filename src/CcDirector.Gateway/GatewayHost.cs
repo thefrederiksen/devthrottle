@@ -1069,8 +1069,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private Factory.Inbox.FactoryInboxWake TheFactoryInboxWake()
         => _factoryInboxWake ?? throw new InvalidOperationException("the factory inbox wake is not built yet");
 
-    /// <summary>The wake's heartbeat (Factory Inbox mission, phase 2): one pass at a time, every account in its own scope,
-    /// only for an account the factory agents switch is on for. Never throws.</summary>
+    /// <summary>The wake's heartbeat (Factory Inbox mission, phase 2): one pass at a time, every account in its own scope.
+    /// The wake reads each account's inbox first and asks the factory agents switch only when it holds work. Never throws.</summary>
     private void SweepFactoryInboxWake()
     {
         if (_factoryInboxWake is not { } wake) return;
@@ -1084,7 +1084,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try
         {
             await _tenantPass.ForEachTenantAsync(
-                () => _tenantPass.Current is { } tenant && FactoryAgentsSwitch.IsOn(tenant)
+                () => _tenantPass.Current is { } tenant
                     ? wake.SweepAsync(tenant, _triggerStartLifetime.Token)
                     : Task.CompletedTask,
                 _triggerStartLifetime.Token).ConfigureAwait(false);
@@ -4554,7 +4554,8 @@ public sealed class GatewayHost : IAsyncDisposable
                             : Factory.Triggers.TriggerStartAttempt.Failed(error);
                     }
                 },
-                ring: fleetManagerEnvironment.SendPromptAsync),
+                ring: fleetManagerEnvironment.SendPromptAsync,
+                factoryAgents: FactoryAgentsSwitch),
             _triggerStartLifetime.Token);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.

@@ -618,6 +618,55 @@ public sealed class FactoryInboxWakeTests : IDisposable
 
         Assert.Single(_env.Starts);
         Assert.Equal(new[] { TheFactory }, _wakes.FactoriesWithWork(A));
+        Assert.Equal(1, _env.FactoryAgentsAsked);
+    }
+
+    [Fact]
+    public async Task TheHeartbeat_OverAnEmptyInbox_NeverAsksTheFactoryAgentsSwitch()
+    {
+        // Production cost review (6 November 2026): every 15 seconds, for every account with a Director bound. An empty
+        // inbox costs its two indexed reads and no plan read.
+        _env.Now = T0.AddSeconds(60);
+
+        await NewWake().SweepAsync(A, CancellationToken.None);
+
+        Assert.Equal(0, _env.FactoryAgentsAsked);
+        Assert.Empty(_env.Starts);
+    }
+
+    [Fact]
+    public async Task TheHeartbeat_OverInboxWork_WithTheFactoryAgentsAreaOff_AsksOnce_AndWakesNobody()
+    {
+        Send(T0);
+        _env.Now = T0.AddSeconds(60);
+        _env.FactoryAgentsAreOn = false;
+
+        await NewWake().SweepAsync(A, CancellationToken.None);
+
+        Assert.Equal(1, _env.FactoryAgentsAsked);
+        Assert.Empty(_env.Starts);
+        Assert.Null(_wakes.Find(A, TheFactory));
+    }
+
+    [Fact]
+    public async Task BundleHanded_ReturnsBeforeTheLookReadsAnything_AndTheLookStartsTheBossOffTheCallersThread()
+    {
+        // Production cost review (6 November 2026): the hand route calls this inside its request. The look's first read
+        // is held shut, so a look run on the caller's thread would hold this call too.
+        Send(T0);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+        _env.Now = T0.AddSeconds(72);
+        using var hold = new ManualResetEventSlim(false);
+        _env.HoldTheFactoryRead = hold;
+
+        var look = NewWake().BundleHanded(A, TheFactory);
+
+        Assert.False(look.IsCompleted);
+        Assert.Empty(_env.Starts);
+        hold.Set();
+        var done = await look;
+        Assert.Equal(FactoryInboxWakeAct.Started, done.Boss);
+        Assert.Equal("boss", Assert.Single(_env.Starts).Request.FactorySeat);
     }
 
     // ---------- the fake Gateway around the wake ----------
@@ -651,9 +700,24 @@ public sealed class FactoryInboxWakeTests : IDisposable
         public readonly List<TimeSpan> Delays = new();
         public FactoryGivenBrief? Brief;
         public bool LastAskedForAKit;
+        public bool FactoryAgentsAreOn = true;
+        public int FactoryAgentsAsked;
+        /// <summary>When set, a look's first read waits until it is opened - how a test sees on which thread a look runs.
+        /// The bound is reached only when the look holds the test's own thread, so the test fails instead of hanging.</summary>
+        public ManualResetEventSlim? HoldTheFactoryRead;
 
         public RegisteredFactoryDto? Factory(TenantId tenant, string factory)
-            => string.Equals(factory, Registered.Factory, StringComparison.OrdinalIgnoreCase) ? Registered : null;
+        {
+            if (HoldTheFactoryRead is { } hold && !hold.Wait(TimeSpan.FromSeconds(30)))
+                throw new TimeoutException("the look's read was never opened: the look ran on the caller's thread");
+            return string.Equals(factory, Registered.Factory, StringComparison.OrdinalIgnoreCase) ? Registered : null;
+        }
+
+        public bool FactoryAgentsOn(TenantId tenant)
+        {
+            FactoryAgentsAsked++;
+            return FactoryAgentsAreOn;
+        }
 
         public PublishedFactoryDefinition? Published(TenantId tenant, string factory) => PublishedOf();
 

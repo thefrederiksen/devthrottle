@@ -49,6 +49,10 @@ public interface IFactoryInboxWakeEnvironment
     /// moment, with no draft of the owner's in it (the Fleet Manager's guarded prompt send).</summary>
     Task<FleetManagerPromptSend> RingAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct);
 
+    /// <summary>Whether the account's Factory Agents area is on. Asked by the heartbeat on every sweep, so it is asked
+    /// QUIETLY (<see cref="FactoryAgentsSwitch.AnswerQuietly"/>): the same answer, with no log line every 15 seconds.</summary>
+    bool FactoryAgentsOn(TenantId tenant);
+
     /// <summary>Wait. The wake's only clock for waiting, so a test runs the gather window without sleeping.</summary>
     Task DelayAsync(TimeSpan delay, CancellationToken ct);
 
@@ -173,20 +177,34 @@ public sealed class FactoryInboxWake
         return LookLaterAsync(tenant, factory, sentAtUtc.Add(Window));
     }
 
-    /// <summary>A Secretary handed a bundle: look at its factory now, to ring or start its Boss.</summary>
+    /// <summary>
+    /// A Secretary handed a bundle: look at its factory now, to ring or start its Boss. The look runs on the thread pool,
+    /// never on the caller's thread: the hand route calls this inside its request, and the look's reads and a Boss's
+    /// start are not the request's to wait for (production cost review, 6 November 2026).
+    /// </summary>
     public Task<FactoryInboxWakeLook> BundleHanded(TenantId tenant, string factory)
     {
-        FileLog.Write($"[FactoryInboxWake] BundleHanded: tenant={tenant.ToLogString()} factory={factory}");
-        return LookLaterAsync(tenant, factory, _env.NowUtc());
+        FileLog.Write($"[FactoryInboxWake] BundleHanded: tenant={tenant.ToLogString()} factory={factory} - looking on the thread pool");
+        return Task.Run(() => LookSafeAsync(tenant, factory));
     }
 
-    /// <summary>The heartbeat for one account: look at every factory with something waiting. Never throws.</summary>
+    /// <summary>
+    /// The heartbeat for one account: look at every factory with something waiting. The inbox is read FIRST and the
+    /// account's Factory Agents switch only when it holds work, so an account with an empty inbox costs two indexed reads
+    /// and no plan read (production cost review, 6 November 2026). Never throws.
+    /// </summary>
     public async Task SweepAsync(TenantId tenant, CancellationToken ct)
     {
         IReadOnlyList<string> factories;
         try
         {
             factories = _wakes.FactoriesWithWork(tenant);
+            if (factories.Count == 0) return;
+            if (!_env.FactoryAgentsOn(tenant))
+            {
+                FileLog.Write($"[FactoryInboxWake] SweepAsync: {tenant.ToLogString()} has inbox work in {factories.Count} factories, but its Factory Agents area is off - nothing is woken");
+                return;
+            }
         }
         catch (Exception ex)
         {
