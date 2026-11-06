@@ -1328,23 +1328,30 @@ public partial class App : Application
         if (File.Exists(besideExecutable))
             return besideExecutable;
 
-        var userConfig = Path.Combine(CcStorage.Config(), "appsettings.json");
-        if (!File.Exists(userConfig))
+        // THE WHOLE BODY IS GUARDED. What this replaced was Path.Combine(AppContext.BaseDirectory, ...),
+        // which cannot throw; CcStorage.Config() can - it rejects a relative CC_DIRECTOR_ROOT - and so can
+        // the directory creation. Every caller treats a missing config as "use the defaults", so a failure
+        // here must degrade to that rather than take the start-up path down (issue #4518 review).
+        try
         {
-            try
+            var userConfig = Path.Combine(CcStorage.Config(), "appsettings.json");
+            if (!File.Exists(userConfig))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(userConfig)!);
-            }
-            catch (Exception ex)
-            {
-                // Leave the path as-is; the caller's read is already guarded and will log the failure.
-                System.Diagnostics.Debug.WriteLine($"Failed to create config directory: {ex.Message}");
+                WriteDefaultConfig(userConfig);
             }
 
-            WriteDefaultConfig(userConfig);
+            return userConfig;
         }
-
-        return userConfig;
+        catch (Exception ex)
+        {
+            // Returning the in-bundle path is safe: it does not exist (the check above said so), so every
+            // caller's File.Exists is false and the defaults apply. Nothing is written into the bundle.
+            FileLog.Write(
+                $"[App] ResolveAgentConfigPath FAILED: could not resolve the user config path, "
+                + $"falling back to the built-in defaults: {ex}");
+            return besideExecutable;
+        }
     }
 
     private void LoadConfiguration()

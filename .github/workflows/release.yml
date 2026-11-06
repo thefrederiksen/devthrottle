@@ -180,6 +180,7 @@ jobs:
           --dmg-name devthrottle-mac-arm64.dmg
           --display-name DevThrottle
           --identity '${{ steps.macos-sign.outputs.identity }}'
+          ${{ steps.macos-sign.outputs.signed == 'true' && '--require-certificate' || '' }}
 
       - name: Upload cc-director mac artifact
         uses: actions/upload-artifact@v6
@@ -267,6 +268,7 @@ jobs:
           --zip-name cc-director-setup-mac-arm64.zip
           --bid com.devthrottle.ccdirectorsetup
           --identity '${{ steps.macos-sign.outputs.identity }}'
+          ${{ steps.macos-sign.outputs.signed == 'true' && '--require-certificate' || '' }}
 
       - name: Upload macOS setup wizard artifact
         uses: actions/upload-artifact@v6
@@ -285,6 +287,33 @@ jobs:
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           --nologo
+
+      # Signed with the same one certificate as everything else here, so the whole macOS release
+      # carries a single identity. The Windows setup command line tool is signed already; this one
+      # was uploaded ad-hoc because it is published after the signing step (issue #4518).
+      - name: Sign the setup CLI
+        env:
+          SETUP_CLI: tools/cc-director-setup-cli/bin/Release/net10.0/osx-arm64/publish/cc-director-setup-cli
+          IDENTITY: ${{ steps.macos-sign.outputs.identity }}
+          SIGNED: ${{ steps.macos-sign.outputs.signed }}
+        run: |
+          set -euo pipefail
+          # A bare executable has no Info.plist, so -i gives it the bundle identifier that the
+          # designated requirement is built from.
+          codesign --force --timestamp=none \
+                   -i com.devthrottle.setup-cli \
+                   --sign "${IDENTITY:--}" "$SETUP_CLI"
+          REQUIREMENT="$(codesign -d -r- "$SETUP_CLI" 2>&1 | grep -E "designated" || true)"
+          echo "designated requirement ->"
+          echo "$REQUIREMENT" | sed 's/^/  /'
+          # Checked, not just printed, and checked against SIGNED rather than against the identity:
+          # a renamed or wrongly scoped secret makes the identity EMPTY, which would sign ad-hoc and
+          # break every user's privacy grants with no signal but one line in the log (issue #4518).
+          # SIGNED comes from the action, which knows whether a certificate was supplied at all.
+          if [[ "$SIGNED" == "true" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+            echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
+            exit 1
+          fi
 
       - name: Upload macOS setup CLI artifact
         uses: actions/upload-artifact@v6
@@ -584,6 +613,7 @@ jobs:
         env:
           LAUNCHER: src/CcDirector.Launcher/bin/Release/net10.0/osx-arm64/publish/cc-launcher
           IDENTITY: ${{ steps.macos-sign.outputs.identity }}
+          SIGNED: ${{ steps.macos-sign.outputs.signed }}
         run: |
           set -euo pipefail
           # A bare executable has no Info.plist, so -i gives it the bundle identifier that the
@@ -591,8 +621,17 @@ jobs:
           codesign --force --timestamp=none \
                    -i com.devthrottle.cc-launcher \
                    --sign "${IDENTITY:--}" "$LAUNCHER"
+          REQUIREMENT="$(codesign -d -r- "$LAUNCHER" 2>&1 | grep -E "designated" || true)"
           echo "designated requirement ->"
-          codesign -d -r- "$LAUNCHER" 2>&1 | grep -E "designated" | sed 's/^/  /'
+          echo "$REQUIREMENT" | sed 's/^/  /'
+          # Checked, not just printed, and checked against SIGNED rather than against the identity:
+          # a renamed or wrongly scoped secret makes the identity EMPTY, which would sign ad-hoc and
+          # break every user's privacy grants with no signal but one line in the log (issue #4518).
+          # SIGNED comes from the action, which knows whether a certificate was supplied at all.
+          if [[ "$SIGNED" == "true" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+            echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
+            exit 1
+          fi
 
       - name: Upload launcher mac artifact
         uses: actions/upload-artifact@v6

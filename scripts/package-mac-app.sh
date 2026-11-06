@@ -61,11 +61,15 @@ DMG_NAME=""
 # The codesign identity. Empty means ad-hoc ("-"), which is what a local build and a fork get.
 # CI passes the stable self-signed identity so that privacy grants survive an update.
 IDENTITY="${MACOS_SIGN_IDENTITY:-}"
+# Set by CI when a signing certificate was supplied to the job. It turns "the requirement names a
+# certificate" from a hope into a build failure. See the check after signing.
+REQUIRE_CERTIFICATE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="$2"; shift 2 ;;
         --out)    OUT_DIR="$2"; shift 2 ;;
         --identity) IDENTITY="$2"; shift 2 ;;   # codesign identity; empty => ad-hoc
+        --require-certificate) REQUIRE_CERTIFICATE=1; shift ;;  # fail unless the result names a certificate
         --dmg-name) DMG_NAME="$2"; shift 2 ;;   # also produce a drag-to-Applications DMG
         --app-name) APP_NAME="$2"; shift 2 ;;   # e.g. "CC Director Setup"
         --display-name) DISPLAY_NAME="$2"; shift 2 ;;   # e.g. "DevThrottle" (shown; the folder keeps APP_NAME)
@@ -234,11 +238,35 @@ codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP"
 
 codesign --verify --deep --strict "$APP" 2>&1 | sed 's/^/  codesign: /' || true
 
-# Print the designated requirement. This is the line that decides whether a privacy grant
-# survives: a bare "cdhash H..." means it will not, an "identifier ... and certificate leaf ..."
-# means it will. Printed on every build so a regression is visible in the release log.
+# The designated requirement is the line that decides whether a privacy grant survives: a bare
+# "cdhash H..." means it will not, an "identifier ... and certificate leaf ..." means it will.
+REQUIREMENT="$(codesign -d -r- "$APP" 2>&1 | grep -E "designated|host =>" || true)"
 echo "  codesign: designated requirement ->"
-codesign -d -r- "$APP" 2>&1 | grep -E "designated|host =>" | sed 's/^/    /' || true
+echo "$REQUIREMENT" | sed 's/^/    /'
+
+# AND IT IS CHECKED, not just printed. A print fails open: the identity could arrive EMPTY because a
+# secret was renamed, or scoped to an environment the job does not use, and the release would publish
+# an ad-hoc bundle whose only trace is one line in a thousand-line log - breaking every user's privacy
+# grants again without saying so, which is the exact bug this all exists to fix (issue #4518).
+#
+# Two separate checks, because "ad-hoc" is a legitimate answer for a local build and a fork and a
+# defect for a release:
+#   --require-certificate  CI passes it when the job HAS a certificate. An ad-hoc result is then a
+#                          misconfiguration, and the empty-identity case is caught here and nowhere else.
+#   an identity was given  then it must have produced a certificate-based requirement, whatever the caller
+#                          believed.
+if [[ "$REQUIRE_CERTIFICATE" == "1" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+    echo "ERROR: --require-certificate was passed, but the designated requirement names no certificate." >&2
+    echo "       identity passed: '${IDENTITY:-(empty)}'" >&2
+    echo "       A privacy grant would NOT survive an update. Refusing to package." >&2
+    exit 1
+fi
+
+if [[ "$SIGN_WITH" != "-" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+    echo "ERROR: signed as '$SIGN_WITH', but the designated requirement does not name a certificate." >&2
+    echo "       A privacy grant would NOT survive an update. Refusing to package." >&2
+    exit 1
+fi
 
 # ----------------------------------------------------------------------------
 # Zip with ditto so the bundle's symlinks/perms/resource forks survive transit.

@@ -186,15 +186,34 @@ public sealed class ToolShimPathTests
     }
 
     [Fact]
-    public void GuiLaunchPathDirectories_AreOrderedSoTheUsersOwnBinWinsAfterPrepending()
+    public void GuiLaunchPathDirectories_PrependedInReverse_ReproduceTheWrappersSearchOrder()
     {
-        // Each is prepended in turn, so the LAST one ends up FIRST on PATH. ~/.local/bin holds the cc-*
-        // shims and must beat a Homebrew copy of the same name.
+        // THE ORDER IS A BEHAVIOUR, NOT A DETAIL. The bash wrapper this replaced walked
+        //     ~/.local/bin, ~/.claude/local, /opt/homebrew/bin, /opt/homebrew/sbin, /usr/local/bin
+        // and PREPENDED each one, so what ended up on PATH was that list backwards: /usr/local/bin
+        // searched first, ~/.local/bin last. It decides which copy of claude or python3 a session gets
+        // on a machine holding more than one, so the replacement has to reproduce it exactly.
+        //
+        // The list is therefore written in final PATH order, and the caller walks it in REVERSE because
+        // it prepends. Walking it forwards would reverse the search order silently.
         var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
 
-        var path = dirs.Aggregate((string?)null, ToolShimPath.WithDirectory);
+        var path = dirs.Reverse().Aggregate((string?)null, ToolShimPath.WithDirectory);
 
-        Assert.StartsWith(Path.Combine(Home, ".local", "bin") + Sep, path);
+        Assert.Equal(string.Join(Sep, dirs), path);
+    }
+
+    [Fact]
+    public void GuiLaunchPathDirectories_PrependedInReverse_LeaveAnInheritedPathBehindThem()
+    {
+        // launchd hands a GUI application /usr/bin:/bin:/usr/sbin:/sbin. Whatever was there stays, in
+        // its own order, after the directories we add.
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+        var inherited = string.Join(Sep, "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+
+        var path = dirs.Reverse().Aggregate(inherited, (acc, d) => ToolShimPath.WithDirectory(acc, d));
+
+        Assert.Equal(string.Join(Sep, dirs) + Sep + inherited, path);
     }
 
     [Theory]

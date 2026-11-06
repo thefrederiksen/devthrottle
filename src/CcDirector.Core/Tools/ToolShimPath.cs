@@ -146,9 +146,16 @@ public static class ToolShimPath
     }
 
     /// <summary>
-    /// The directories a desktop launch has to be told about, highest priority last - the agent binaries
-    /// (<c>claude</c> and friends) and Homebrew live here, and launchd hands a GUI application a minimal
-    /// PATH that holds none of them.
+    /// The directories a desktop launch has to be told about - the agent binaries (<c>claude</c> and
+    /// friends) and Homebrew live here, and launchd hands a GUI application a minimal PATH that holds
+    /// none of them.
+    ///
+    /// LISTED IN THE ORDER THEY MUST END UP ON PATH, first entry searched first. That is the order the
+    /// bash wrapper this replaces produced: it walked its own list the other way round and prepended
+    /// each one, so <c>/usr/local/bin</c> came out in front and <c>~/.local/bin</c> last. Preserving it
+    /// matters because it decides which copy of <c>claude</c> or <c>python3</c> a session gets on a
+    /// machine that has more than one, and this change is meant to alter the signature of the bundle,
+    /// not the behaviour of the agents inside it.
     /// </summary>
     internal static IReadOnlyList<string> GuiLaunchPathDirectories(string? home) =>
         string.IsNullOrWhiteSpace(home)
@@ -174,14 +181,24 @@ public static class ToolShimPath
     /// Only the directories that EXIST are added, so a machine without Homebrew does not get a dead entry,
     /// and anything already on PATH is left where it is rather than promoted.
     /// </summary>
-    public static bool EnsureGuiLaunchPathDefaults()
+    /// <param name="log">
+    /// Where to write the one line saying what changed. The setup wizard passes its own setup log; the
+    /// Director leaves it out and gets <c>FileLog</c>.
+    /// </param>
+    public static bool EnsureGuiLaunchPathDefaults(Action<string>? log = null)
     {
-        if (OperatingSystem.IsWindows()) return false;
+        // macOS ONLY, because the bash wrapper this replaces existed only in the macOS .app bundle. A
+        // Linux Director never had it, so adding these directories there would be a new behaviour
+        // smuggled in by a signing change rather than the same behaviour kept.
+        if (!OperatingSystem.IsMacOS()) return false;
 
         var current = Environment.GetEnvironmentVariable("PATH");
         var updated = current;
 
-        foreach (var dir in GuiLaunchPathDirectories(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))
+        // Walked BACKWARDS because each one is prepended: the last directory prepended ends up first,
+        // so iterating the list in reverse leaves it on PATH in the order the list is written, which is
+        // the order the wrapper produced. Forwards here would silently reverse the search order.
+        foreach (var dir in GuiLaunchPathDirectories(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).Reverse())
         {
             if (!Directory.Exists(dir)) continue;
             updated = WithDirectory(updated, dir);
@@ -190,7 +207,8 @@ public static class ToolShimPath
         if (updated == current) return false;
 
         Environment.SetEnvironmentVariable("PATH", updated);
-        FileLog.Write($"[ToolShimPath] EnsureGuiLaunchPathDefaults: PATH is now {updated} (was: {current ?? "(unset)"})");
+        (log ?? FileLog.Write)(
+            $"[ToolShimPath] EnsureGuiLaunchPathDefaults: PATH is now {updated} (was: {current ?? "(unset)"})");
         return true;
     }
 }

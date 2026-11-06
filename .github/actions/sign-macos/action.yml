@@ -33,9 +33,11 @@
 #     MACOS_CERT_P12_BASE64   base64 of the .p12 holding the certificate and its private key
 #     MACOS_CERT_PASSWORD     the password for that .p12
 #
-# UNTIL BOTH EXIST THIS ACTION IS A NO-OP: it reports an empty identity, the packaging script
-# falls back to ad-hoc, and releases keep building exactly as they do today. That is deliberate -
-# a fork, and this repository before the secrets are set, must still produce a working build.
+# WITH NEITHER SET THIS ACTION IS A NO-OP: it reports an empty identity, the packaging script falls
+# back to ad-hoc, and releases keep building exactly as they do today. That is deliberate - a fork,
+# and this repository before the secrets are set, must still produce a working build. With exactly
+# ONE of the two set it FAILS the job instead, because that is a misconfiguration and a silent
+# ad-hoc release would break every user's privacy grants without saying so.
 #
 # The keychain created here lives in the runner's temporary directory and dies with the runner.
 
@@ -73,11 +75,25 @@ runs:
       run: |
         set -euo pipefail
 
-        if [[ -z "${CERT_B64}" ]]; then
-          echo "::notice title=macOS signing::No MACOS_CERT_P12_BASE64 secret - building AD-HOC. Privacy grants will not survive an update."
+        # NEITHER secret set is the deliberate no-op: a fork, and this repository before the one-time
+        # setup. ONE of the two set is a misconfiguration - a renamed, misspelled or environment-scoped
+        # secret - and it is refused rather than guessed at. Falling back to ad-hoc there would publish a
+        # release that quietly breaks every user's privacy grants again, which is the whole bug.
+        if [[ -z "${CERT_B64}" && -z "${CERT_PASSWORD}" ]]; then
+          echo "::notice title=macOS signing::Neither macOS signing secret is set - building AD-HOC. Privacy grants will not survive an update."
           echo "identity=" >> "$GITHUB_OUTPUT"
           echo "signed=false" >> "$GITHUB_OUTPUT"
           exit 0
+        fi
+
+        if [[ -z "${CERT_B64}" ]]; then
+          echo "::error title=macOS signing::MACOS_CERT_PASSWORD is set but MACOS_CERT_P12_BASE64 is not. Set both, or neither."
+          exit 1
+        fi
+
+        if [[ -z "${CERT_PASSWORD}" ]]; then
+          echo "::error title=macOS signing::MACOS_CERT_P12_BASE64 is set but MACOS_CERT_PASSWORD is not. Set both, or neither."
+          exit 1
         fi
 
         KEYCHAIN="$RUNNER_TEMP/devthrottle-signing.keychain-db"
