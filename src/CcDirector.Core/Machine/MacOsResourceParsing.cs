@@ -352,14 +352,15 @@ internal static class MacOsResourceParsing
     }
 
     // ---------------------------------------------------------------------------------------------
-    // The run queue
+    // The load average
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>The size of <c>struct loadavg</c> on a 64-bit machine: three counters, padding, and the scale.</summary>
     internal const int LoadAverageSize = 24;
 
     /// <summary>
-    /// The one, five and fifteen minute run-queue averages, already divided by the kernel's scale.
+    /// The one, five and fifteen minute load averages, already divided by the kernel's scale. Averages over
+    /// time, not a run queue at one moment: see <see cref="StallReading.LoadAverageOneMinute"/>.
     /// </summary>
     internal readonly record struct LoadAverage(double OneMinute, double FiveMinutes, double FifteenMinutes);
 

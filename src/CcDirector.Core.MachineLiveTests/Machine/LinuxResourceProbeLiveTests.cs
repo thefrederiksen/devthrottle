@@ -68,6 +68,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
         Assert.NotNull(sample.Stall.MemoryStalledPercent);
         Assert.NotNull(sample.Stall.IoStalledPercent);
         Assert.True(sample.Stall.RunQueueLength >= 1, "this test's own thread is running while it reads");
+        Assert.NotNull(sample.Stall.LoadAverageOneMinute);
         Assert.NotNull(sample.Stall.ProcessesWaitingOnDisk);
     }
 

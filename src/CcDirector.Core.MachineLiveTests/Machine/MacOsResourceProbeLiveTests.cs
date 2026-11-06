@@ -312,9 +312,11 @@ public class MacOsResourceProbeLiveTests
         Assert.True(stall.CouldRead);
         Assert.Equal(StallSource.MacOsSignals, stall.Source);
 
-        // WHAT THIS PLATFORM HAS. The run queue and the kernel's own memory-pressure level.
-        Assert.NotNull(stall.RunQueueLength);
-        Assert.InRange(stall.RunQueueLength.Value, 0.0, 1000.0);
+        // WHAT THIS PLATFORM HAS. The one-minute load average and the kernel's own memory-pressure level.
+        // It has no instantaneous run queue, so that field is null rather than filled with the average.
+        Assert.NotNull(stall.LoadAverageOneMinute);
+        Assert.InRange(stall.LoadAverageOneMinute.Value, 0.0, 1000.0);
+        Assert.Null(stall.RunQueueLength);
         Assert.NotNull(stall.MacOsMemoryPressureLevel);
         Assert.NotEqual(KernelMemoryPressureLevel.Unknown, stall.MacOsMemoryPressure);
 

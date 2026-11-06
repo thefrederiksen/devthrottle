@@ -242,7 +242,10 @@ public sealed class LinuxResourceProbeTests : IDisposable
         Assert.Equal(11.50, stall.CpuStalledPercent);
         Assert.Equal(1.99, stall.MemoryStalledPercent);
         Assert.Equal(16.41, stall.IoStalledPercent);
+        // Two quantities, two fields: "22.25 21.23 18.63 47/3981" is a one-minute load average of 22.25
+        // and 47 threads runnable at this moment. Neither stands in for the other.
         Assert.Equal(47, stall.RunQueueLength);
+        Assert.Equal(22.25, stall.LoadAverageOneMinute);
         // The kernel's own procs_blocked from /proc/stat: every THREAD blocked on input and output. Only
         // one process's main thread (jbd2/dm-0-8, the root volume's journal) was in state D, so counting
         // main threads would have said 1.

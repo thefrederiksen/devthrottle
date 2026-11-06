@@ -146,6 +146,19 @@ public class LinuxProcParsingTests
     }
 
     [Fact]
+    public void ParseLoadAverageOneMinute_RealFile_ReadsTheFirstField()
+    {
+        Assert.Equal(22.25, LinuxProcParsing.ParseLoadAverageOneMinute(Text("snapshot-2", "proc", "loadavg")));
+    }
+
+    [Fact]
+    public void ParseLoadAverageOneMinute_EmptyOrGarbled_ReturnsNull()
+    {
+        Assert.Null(LinuxProcParsing.ParseLoadAverageOneMinute(""));
+        Assert.Null(LinuxProcParsing.ParseLoadAverageOneMinute("x.y 1 2 3/4 5"));
+    }
+
+    [Fact]
     public void ParseLoadAverageRunning_RealFile_ReadsRunningCount()
     {
         Assert.Equal(6, LinuxProcParsing.ParseLoadAverageRunning(Text("snapshot-1", "proc", "loadavg")));

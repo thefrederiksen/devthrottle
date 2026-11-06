@@ -22,7 +22,7 @@ public enum StallSource
     WindowsCounters = 2,
 
     /// <summary>
-    /// macOS kernel memory-pressure level and run-queue load. Proxies. As with Windows, the per-disk
+    /// macOS kernel memory-pressure level and the one-minute load average. Proxies. As with Windows, the per-disk
     /// figures live on <see cref="DiskEvidence"/> rather than here.
     /// </summary>
     MacOsSignals = 3,
@@ -65,10 +65,31 @@ public enum StallSource
 /// <param name="CpuStalledPercent">Share of time some program was waiting for a processor, 0 to 100 (Linux "some avg10").</param>
 /// <param name="MemoryStalledPercent">Share of time some program was waiting on memory, 0 to 100 (Linux "some avg10").</param>
 /// <param name="IoStalledPercent">Share of time some program was waiting on the disk, 0 to 100 (Linux "some avg10").</param>
-/// <param name="RunQueueLength">Programs ready to run and waiting for a processor.</param>
+/// <param name="RunQueueLength">
+/// The INSTANTANEOUS number of threads ready to run at the moment of reading. On Linux that is the
+/// kernel's runnable count from <c>/proc/loadavg</c>: the threads running on a processor now PLUS those
+/// waiting for one, the reader itself included - so on a 32-core machine it can read 47 with only 15
+/// actually waiting. The Windows probe will fill it from its processor queue length counter, once what
+/// that counter counts (waiting only, or waiting plus running) has been measured. macOS leaves it null: it publishes no
+/// instantaneous count. It is NOT interchangeable with <paramref name="LoadAverageOneMinute"/>, and
+/// nothing may use one in place of the other. Read it against the logical core count: 47 on 32 cores is
+/// not 47 on 4.
+/// </param>
+/// <param name="LoadAverageOneMinute">
+/// The kernel's ONE-MINUTE LOAD AVERAGE: an exponentially decaying average of the runnable count (and,
+/// on Linux, of tasks in an uninterruptible wait on the disk as well, which is how devlinux showed a load
+/// of 19 to 23 while 80 per cent idle). Linux reads it from <c>/proc/loadavg</c>, macOS from
+/// <c>vm.loadavg</c>. Windows leaves it null: it has no load average. It is NOT interchangeable with
+/// <paramref name="RunQueueLength"/> - an average over a minute is a different quantity from a count at
+/// one moment, and a threshold written for one reads the other wrongly. Read it against the logical
+/// core count.
+/// </param>
 /// <param name="HardPageFaultsPerSecond">Memory pages fetched back from disk per second.</param>
 /// <param name="MacOsMemoryPressureLevel">The macOS kernel's own memory-pressure level, as the kernel numbers it.</param>
-/// <param name="ProcessesWaitingOnDisk">Processes currently blocked waiting on the disk.</param>
+/// <param name="ProcessesWaitingOnDisk">
+/// Tasks blocked waiting on input and output right now. On Linux this is the kernel's own
+/// <c>procs_blocked</c>, which counts every THREAD, not only each process's main thread.
+/// </param>
 public readonly record struct StallReading(
     bool CouldRead,
     string? UnreadableReason,
@@ -77,6 +98,7 @@ public readonly record struct StallReading(
     double? MemoryStalledPercent,
     double? IoStalledPercent,
     double? RunQueueLength,
+    double? LoadAverageOneMinute,
     double? HardPageFaultsPerSecond,
     int? MacOsMemoryPressureLevel,
     int? ProcessesWaitingOnDisk)
@@ -102,6 +124,7 @@ public readonly record struct StallReading(
         double? memoryStalledPercent = null,
         double? ioStalledPercent = null,
         double? runQueueLength = null,
+        double? loadAverageOneMinute = null,
         double? hardPageFaultsPerSecond = null,
         int? macOsMemoryPressureLevel = null,
         int? processesWaitingOnDisk = null)
@@ -109,13 +132,14 @@ public readonly record struct StallReading(
         if (source == StallSource.None)
             throw new ArgumentException("A stall reading that succeeded must name where it came from.", nameof(source));
         return new(CouldRead: true, UnreadableReason: null, source, cpuStalledPercent, memoryStalledPercent,
-            ioStalledPercent, runQueueLength, hardPageFaultsPerSecond, macOsMemoryPressureLevel, processesWaitingOnDisk);
+            ioStalledPercent, runQueueLength, loadAverageOneMinute, hardPageFaultsPerSecond, macOsMemoryPressureLevel,
+            processesWaitingOnDisk);
     }
 
     /// <summary>A reading that failed, carrying why. Every figure is null.</summary>
     public static StallReading Unreadable(string reason) =>
         new(CouldRead: false, ResourceReadingGuard.Reason(reason), StallSource.None,
-            null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null);
 
     /// <summary>Short, log-safe description listing only the figures that were offered. Prints no figure when the reading failed.</summary>
     public override string ToString()
@@ -126,10 +150,11 @@ public readonly record struct StallReading(
         if (CpuStalledPercent is { } cpu) parts.Add(string.Create(CultureInfo.InvariantCulture, $"processor {cpu:F1}%"));
         if (MemoryStalledPercent is { } memory) parts.Add(string.Create(CultureInfo.InvariantCulture, $"memory {memory:F1}%"));
         if (IoStalledPercent is { } io) parts.Add(string.Create(CultureInfo.InvariantCulture, $"disk {io:F1}%"));
-        if (RunQueueLength is { } queue) parts.Add(string.Create(CultureInfo.InvariantCulture, $"run queue {queue:F1}"));
+        if (RunQueueLength is { } queue) parts.Add(string.Create(CultureInfo.InvariantCulture, $"{queue:F0} threads runnable now"));
+        if (LoadAverageOneMinute is { } load) parts.Add(string.Create(CultureInfo.InvariantCulture, $"load average {load:F2} over one minute"));
         if (HardPageFaultsPerSecond is { } faults) parts.Add(string.Create(CultureInfo.InvariantCulture, $"{faults:F0} hard page faults/s"));
         if (MacOsMemoryPressureLevel is { } level) parts.Add($"macOS memory pressure level {level}");
-        if (ProcessesWaitingOnDisk is { } waiting) parts.Add($"{waiting} processes waiting on disk");
+        if (ProcessesWaitingOnDisk is { } waiting) parts.Add($"{waiting} tasks waiting on disk");
 
         return parts.Count == 0
             ? $"stalls ({Source}): no figures offered"

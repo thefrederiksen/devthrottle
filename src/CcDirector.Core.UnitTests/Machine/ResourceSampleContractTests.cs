@@ -311,10 +311,49 @@ public class ResourceSampleContractTests
     }
 
     [Fact]
+    public void ANegativeLoadAverage_IsRejected()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, loadAverageOneMinute: -0.5)));
+
+        Assert.Contains(broken, one => one.Contains("one-minute load average", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AMacOsStallReadingCarryingARunQueue_IsRejectedAsASubstitution()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2.2)));
+
+        Assert.Contains(broken, one => one.Contains("macOS does not measure", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AWindowsStallReadingCarryingALoadAverage_IsRejectedAsASubstitution()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.WindowsCounters, loadAverageOneMinute: 2.2)));
+
+        Assert.Contains(broken, one => one.Contains("Windows does not have", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EachPlatformFillingOnlyItsOwnQuantity_IsAccepted()
+    {
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, loadAverageOneMinute: 2.2, macOsMemoryPressureLevel: 1))));
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.WindowsCounters, runQueueLength: 3))));
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.LinuxPressureStall, cpuStalledPercent: 1, memoryStalledPercent: 0,
+                ioStalledPercent: 2, runQueueLength: 47, loadAverageOneMinute: 22.25))));
+    }
+
+    [Fact]
     public void AnUnreadableStallReadingThatStillNamesASource_IsRejected()
     {
         var lying = new StallReading(CouldRead: false, UnreadableReason: "pressure is off in this kernel",
-            StallSource.LinuxPressureStall, null, null, null, null, null, null, null);
+            StallSource.LinuxPressureStall, null, null, null, null, null, null, null, null);
 
         var broken = ResourceSampleContract.Violations(Healthy(stall: lying));
 
@@ -390,7 +429,7 @@ public class ResourceSampleContractTests
     {
         var sourceless = new StallReading(CouldRead: true, UnreadableReason: null, StallSource.None,
             CpuStalledPercent: 1, MemoryStalledPercent: null, IoStalledPercent: null,
-            RunQueueLength: null, HardPageFaultsPerSecond: null,
+            RunQueueLength: null, LoadAverageOneMinute: null, HardPageFaultsPerSecond: null,
             MacOsMemoryPressureLevel: null, ProcessesWaitingOnDisk: null);
 
         var broken = ResourceSampleContract.Violations(Healthy(stall: sourceless));

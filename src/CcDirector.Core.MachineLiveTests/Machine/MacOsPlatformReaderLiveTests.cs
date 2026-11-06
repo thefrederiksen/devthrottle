@@ -307,7 +307,7 @@ public class MacOsPlatformReaderLiveTests
 
     [MacOsLiveMachineFact("vm.loadavg is a macOS sysctl")]
     [Trait("Category", "Resources")]
-    public void ReadLoadAverage_OnThisMachine_IsARealRunQueueFigure()
+    public void ReadLoadAverage_OnThisMachine_IsARealLoadAverage()
     {
         var bytes = MacOsPlatformReader.ReadSysctlBytes("vm.loadavg");
 
@@ -315,7 +315,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.Equal(MacOsResourceParsing.LoadAverageSize, bytes.Length);
         Assert.True(MacOsResourceParsing.TryReadLoadAverage(bytes, out var load, out var why), why);
 
-        // A machine running a test suite has a run queue above zero, and a figure in the thousands
+        // A machine running a test suite has a load average above zero, and a figure in the thousands
         // would mean the kernel's scale was read wrongly.
         Assert.InRange(load.OneMinute, 0.01, 1000.0);
         Assert.InRange(load.FiveMinutes, 0.0, 1000.0);
