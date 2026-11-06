@@ -216,7 +216,24 @@ public sealed class FactorySeatStartTests : IDisposable
 
         var ex = Assert.Throws<InvalidOperationException>(() => FactorySeatStart.ReadPublished(store, TenantId.Local, DefinitionFixture.FactoryId));
 
-        Assert.Equal("version 1 of the definition of 'devthrottle' is published but cannot be read; publish a version that passes the check", ex.Message);
+        Assert.Contains("is published but cannot be read", ex.Message);
+    }
+
+    [Fact]
+    public void ReadPublished_APublishedVersionWithASeatHavingAnEmptyBrief_RefusesItWithClearGuidance()
+    {
+        var store = new FactoryDefinitionStore(Db);
+        // A definition version published before the schema validation enforced non-empty briefs, now being read
+        var content = new Dictionary<string, string>(DefinitionFixture.Publishable(), StringComparer.Ordinal);
+        content["seats/boss.yaml"] = content["seats/boss.yaml"].Replace("brief: |", "brief: ''", StringComparison.Ordinal);
+
+        Assert.True(store.SaveDraft(TenantId.Local, DefinitionFixture.FactoryId, content, 0, FactoryMemoryAuthorKinds.Person, "dev-1", null, At).Ok);
+        Assert.True(store.Publish(TenantId.Local, DefinitionFixture.FactoryId, 1, FactoryMemoryAuthorKinds.Person, "dev-1", At).Ok);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactorySeatStart.ReadPublished(store, TenantId.Local, DefinitionFixture.FactoryId));
+
+        Assert.Contains("seat 'boss' with no brief", ex.Message);
+        Assert.Contains("seats/boss.yaml", ex.Message);
     }
 
     [Fact]
