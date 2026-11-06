@@ -100,6 +100,19 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
         </>
       );
     }
+    case "factory-inbox-stuck": {
+      // Nothing to press: the reasons say what is wrong and what to do, in the Gateway's words. The Gateway makes the
+      // first reason the summary, which is already shown, so only the others are listed - never a sentence twice.
+      const more = alert.detail.reasons.slice(1);
+      if (more.length === 0) return null;
+      return (
+        <ul className="alert-line" data-testid="factory-inbox-stuck-reasons">
+          {more.map((r) => (
+            <li key={r.cause}>{r.sentence}</li>
+          ))}
+        </ul>
+      );
+    }
     default: {
       // A Gateway newer than this app can list a kind this app has no answer for. Say so plainly, never guess.
       return <p className="alert-line alert-dim">This version of the app cannot answer this kind of alert. Update the app to answer it here.</p>;

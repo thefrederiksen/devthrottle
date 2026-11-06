@@ -5028,6 +5028,13 @@ public sealed class GatewayHost : IAsyncDisposable
                     identity.SessionId.ToString(), Fleet.RaisedSessionRecord.DescribeGuardGrant(grant, method, path)),
                 // Issue #4403: a refused credential whose account is known is reported under that account.
                 AccountFailures = AccountFailures,
+                // Factory Inbox mission, phase 2: a Secretary starts nothing. Every start door reads the caller's own
+                // history row, in the session key's own account, through the one lookup the factory routes use.
+                SessionSeatOf = identity =>
+                {
+                    using (_tenantBoundary.EnterScope(identity.Tenant))
+                        return _sessionHistory.FactoryOf(identity.SessionId.ToString("D"));
+                },
             };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
@@ -6316,6 +6323,13 @@ public sealed class GatewayHost : IAsyncDisposable
                     new Secrets.SecretTransferAlertSource(SecretTransfers),
                     new Messaging.MessageRequestAlertSource(MessageLinkRequests, MessageLinkRecord,
                         (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid), notifyOfLink),
+                    // Factory Inbox mission, phase 2: a factory inbox nobody picks up. Read from the inbox's own tables; the
+                    // Boss's computer is the registry's, and a Director "runs on it" exactly as the Talk route asks.
+                    new Factory.Inbox.FactoryInboxStuckAlertSource(_gatewayDb,
+                        factories: tenant => FactoryRegistry.List(tenant),
+                        isEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
+                        directorRunsOn: (tenant, machine) => Registry.ListDirectors(tenant).Any(d =>
+                            d.StoppedAtUtc is null && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))),
                 },
                 new Alerts.AlertMarkStore(_gatewayDb),
                 () => DateTime.UtcNow));

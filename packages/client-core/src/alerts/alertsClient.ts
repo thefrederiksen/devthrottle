@@ -23,7 +23,22 @@ export function toneClass(tone: string): string {
 }
 
 /** What an alert is about. A closed set: the detail view switches on it to pick the action block. */
-export type AlertKind = "restart-request" | "secret-transfer" | "message-request";
+export type AlertKind = "restart-request" | "secret-transfer" | "message-request" | "factory-inbox-stuck";
+
+/** One reason a factory's inbox is stuck (`FactoryInboxStuckReason` on the Gateway): the sentence is rendered verbatim. */
+export interface FactoryInboxStuckReason {
+  cause: string;
+  sentence: string;
+  count: number;
+  sinceUtc: string;
+}
+
+/** The detail of a stuck factory inbox: the factory and every reason, oldest first, all worded on the Gateway. */
+export interface FactoryInboxStuck {
+  factory: string;
+  title: string;
+  reasons: FactoryInboxStuckReason[];
+}
 
 interface AlertFields {
   /** Stable and globally unique: "{kind}:{sourceId}". */
@@ -52,7 +67,8 @@ interface AlertFields {
 export type AlertDto =
   | (AlertFields & { kind: "restart-request"; detail: DirectorRestartRequest })
   | (AlertFields & { kind: "secret-transfer"; detail: SecretTransfer })
-  | (AlertFields & { kind: "message-request"; detail: MessageLinkRequest });
+  | (AlertFields & { kind: "message-request"; detail: MessageLinkRequest })
+  | (AlertFields & { kind: "factory-inbox-stuck"; detail: FactoryInboxStuck });
 
 export interface AlertList {
   alerts: AlertDto[];
@@ -122,6 +138,9 @@ export function askingSessionId(alert: AlertDto): string | null {
       return alert.detail.askedBySessionId ?? null;
     case "message-request":
       return alert.detail.requesterSessionId || null;
+    case "factory-inbox-stuck":
+      // A stuck inbox is the factory's, not a session's: no session asked.
+      return null;
   }
 }
 
