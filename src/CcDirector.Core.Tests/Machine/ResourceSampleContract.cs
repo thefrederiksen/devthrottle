@@ -228,7 +228,15 @@ public static class ResourceSampleContract
                 $"hard page faults read {stall.HardPageFaultsPerSecond:F0} per second, which cannot be negative."));
 
         if (stall.ProcessesWaitingOnDisk < 0)
-            broken.Add($"{stall.ProcessesWaitingOnDisk} processes are waiting on the disk, which cannot be negative.");
+            broken.Add($"{stall.ProcessesWaitingOnDisk} tasks are waiting on the disk, which cannot be negative.");
+
+        // EACH QUANTITY ONLY WHERE THE PLATFORM MEASURES IT. macOS publishes no instantaneous run queue and
+        // Windows no load average, so a figure in the other field is one quantity substituted for another -
+        // a believable number from the wrong measurement.
+        if (stall.Source == StallSource.MacOsSignals && stall.RunQueueLength is not null)
+            broken.Add("a macOS stall reading carries a run queue, which macOS does not measure: its load average belongs in LoadAverageOneMinute.");
+        if (stall.Source == StallSource.WindowsCounters && stall.LoadAverageOneMinute is not null)
+            broken.Add("a Windows stall reading carries a load average, which Windows does not have: its queue length belongs in RunQueueLength.");
 
         // NO CHECK HERE ON THE macOS KERNEL LEVEL, deliberately. An earlier version compared
         // MacOsKernelPressure.Read(level) against StallReading.MacOsMemoryPressure, which is computed by

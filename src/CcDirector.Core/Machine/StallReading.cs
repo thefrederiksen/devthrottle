@@ -22,7 +22,7 @@ public enum StallSource
     WindowsCounters = 2,
 
     /// <summary>
-    /// macOS kernel memory-pressure level and run-queue load. Proxies. As with Windows, the per-disk
+    /// macOS kernel memory-pressure level and the one-minute load average. Proxies. As with Windows, the per-disk
     /// figures live on <see cref="DiskEvidence"/> rather than here.
     /// </summary>
     MacOsSignals = 3,
@@ -69,8 +69,8 @@ public enum StallSource
 /// The INSTANTANEOUS number of threads ready to run at the moment of reading. On Linux that is the
 /// kernel's runnable count from <c>/proc/loadavg</c>: the threads running on a processor now PLUS those
 /// waiting for one, the reader itself included - so on a 32-core machine it can read 47 with only 15
-/// actually waiting. Windows fills it from its processor queue length counter, whose exact meaning
-/// (waiting only, or waiting plus running) is still to be measured. macOS leaves it null: it publishes no
+/// actually waiting. The Windows probe will fill it from its processor queue length counter, once what
+/// that counter counts (waiting only, or waiting plus running) has been measured. macOS leaves it null: it publishes no
 /// instantaneous count. It is NOT interchangeable with <paramref name="LoadAverageOneMinute"/>, and
 /// nothing may use one in place of the other. Read it against the logical core count: 47 on 32 cores is
 /// not 47 on 4.

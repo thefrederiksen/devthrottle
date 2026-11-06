@@ -348,8 +348,8 @@ public sealed class LinuxResourceProbe : IResourceProbe
         var loadText = File.ReadAllText(loadAverage);
         var running = LinuxProcParsing.ParseLoadAverageRunning(loadText);
         var oneMinute = LinuxProcParsing.ParseLoadAverageOneMinute(loadText);
-        if (running is null || oneMinute is null)
-            return StallReading.Unreadable($"{loadAverage} carried no running-task count or no one-minute load average");
+        if (running is null) return StallReading.Unreadable($"{loadAverage} carried no running-task count");
+        if (oneMinute is null) return StallReading.Unreadable($"{loadAverage} carried no one-minute load average");
 
         // The running count is the kernel's "currently runnable" figure, which includes tasks on a
         // processor now as well as those waiting for one, and includes this reader itself.

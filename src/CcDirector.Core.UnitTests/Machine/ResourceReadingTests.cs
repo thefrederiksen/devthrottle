@@ -395,4 +395,15 @@ public class ResourceReadingTests
         Assert.Empty(set.Processes);
         AssertNoFigure(set.ToString());
     }
+
+    [Fact]
+    public void StallReading_ToString_NamesTheRunQueueAndTheLoadAverageAsDifferentQuantities()
+    {
+        var text = StallReading.Read(StallSource.LinuxPressureStall, runQueueLength: 47, loadAverageOneMinute: 22.25,
+            processesWaitingOnDisk: 7).ToString();
+
+        Assert.Contains("47 threads runnable now", text, StringComparison.Ordinal);
+        Assert.Contains("load average 22.25 over one minute", text, StringComparison.Ordinal);
+        Assert.Contains("7 tasks waiting on disk", text, StringComparison.Ordinal);
+    }
 }

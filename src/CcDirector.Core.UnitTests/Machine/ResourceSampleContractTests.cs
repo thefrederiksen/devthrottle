@@ -320,6 +320,36 @@ public class ResourceSampleContractTests
     }
 
     [Fact]
+    public void AMacOsStallReadingCarryingARunQueue_IsRejectedAsASubstitution()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, runQueueLength: 2.2)));
+
+        Assert.Contains(broken, one => one.Contains("macOS does not measure", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AWindowsStallReadingCarryingALoadAverage_IsRejectedAsASubstitution()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.WindowsCounters, loadAverageOneMinute: 2.2)));
+
+        Assert.Contains(broken, one => one.Contains("Windows does not have", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EachPlatformFillingOnlyItsOwnQuantity_IsAccepted()
+    {
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, loadAverageOneMinute: 2.2, macOsMemoryPressureLevel: 1))));
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.WindowsCounters, runQueueLength: 3))));
+        Assert.Empty(ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.LinuxPressureStall, cpuStalledPercent: 1, memoryStalledPercent: 0,
+                ioStalledPercent: 2, runQueueLength: 47, loadAverageOneMinute: 22.25))));
+    }
+
+    [Fact]
     public void AnUnreadableStallReadingThatStillNamesASource_IsRejected()
     {
         var lying = new StallReading(CouldRead: false, UnreadableReason: "pressure is off in this kernel",
