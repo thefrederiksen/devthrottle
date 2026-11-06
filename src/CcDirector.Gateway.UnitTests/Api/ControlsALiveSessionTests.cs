@@ -24,7 +24,7 @@ public sealed class ControlsALiveSessionTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         _registry = new DirectorRegistry(Path.Combine(_root, "instances"));
-        var now = DateTime.UtcNow;
+        var now = new DateTime(2026, 11, 6, 3, 31, 38, DateTimeKind.Utc);
         _registry.RegisterFromStream("director-a", "MACHINE_A", "someone", "1.0", pid: 11, startedAt: now, tenant: Account);
         _registry.RegisterFromStream("director-b", "MACHINE_B", "someone", "1.0", pid: 12, startedAt: now, tenant: Other);
     }
