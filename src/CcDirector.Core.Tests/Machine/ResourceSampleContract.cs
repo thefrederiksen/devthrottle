@@ -91,9 +91,16 @@ public static class ResourceSampleContract
                     $"the busiest core ({busiestCore:F1}%) reads lower than the whole machine ({cpu.TotalBusyPercent:F1}%), so one of the two is measured against the wrong base."));
         }
 
-        // Null is allowed - the platform may not offer a per-core figure - but a number that cannot be
-        // true is not. Zero cores is the made-up zero, not a reading.
-        if (cpu.LogicalCoreCount is { } cores && cores <= 0)
+        // A SUCCESSFUL READ MUST CARRY THE CORE COUNT, and this is the hole it closes rather than a
+        // tidiness rule. Every platform can always answer it - Environment.ProcessorCount alone does - so
+        // null here is never an honest "not offered". And a null count silently disables two of the
+        // strongest things in this contract: ShareOfMachine returns null for every process, and the
+        // sum-past-one-machine check below cannot run at all, so a probe that merely forgot to pass the
+        // count would report nothing per process and still pass everything.
+        if (cpu.LogicalCoreCount is null)
+            broken.Add("the processor was read but gave no logical core count. Every platform can answer "
+                       + "it, and without it no process figure can be expressed as a share of the machine.");
+        else if (cpu.LogicalCoreCount is { } cores && cores <= 0)
             broken.Add($"the processor was read but reports {cores} logical cores, which cannot be true.");
     }
 

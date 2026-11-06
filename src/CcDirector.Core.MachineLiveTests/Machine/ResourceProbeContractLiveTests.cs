@@ -37,8 +37,10 @@ public abstract class ResourceProbeContractLiveTests
     protected abstract string ProbeName { get; }
 
     /// <summary>
-    /// Reads twice, far enough apart that the rates have an interval. The first read after start-up has
-    /// no interval by design, so a contract check against it would be judging the wrong sample.
+    /// Reads twice, far enough apart that the rates have an interval, which is the state most of these
+    /// checks are about. The first sample is a legitimate sample in its own right - see
+    /// <see cref="TheFirstSample_StillNamesEveryProcess_AndIsUnreadableOnlyForTheRates"/> - it simply has
+    /// no rates yet.
     /// </summary>
     private ResourceSample ReadWithRates(IResourceProbe probe)
     {
@@ -95,15 +97,48 @@ public abstract class ResourceProbeContractLiveTests
             + $"of {cores} flat out; one core is {expected:F1}% of this machine, so the probe did not see "
             + "the load and the figure proves nothing. READ THIS BOUND CAREFULLY BEFORE BLAMING THE PROBE: "
             + "it is the only part of this test that the MACHINE can fail rather than the code. On a "
-            + "saturated machine - this one running a full fleet - the operating system may not give one "
-            + "spinning thread anything like a whole core, and the figure falls honestly. Re-run it on a "
-            + "quiet machine before treating it as a defect; the upper bound below is the one that "
-            + "catches a real convention bug.");
+            + "saturated machine the operating system may not give one spinning thread anything like a "
+            + "whole core, and the figure falls honestly. Re-run it on a quiet machine before treating it "
+            + "as a defect; the upper bound below is the one that catches a real convention bug.");
 
         Assert.True(measured <= expected * 2.5,
             $"{ProbeName} measured this process at {measured:F1}% of the machine while it held ONE core of "
             + $"{cores}. A share of the whole machine is about {expected:F1}%. This looks like a share of "
             + "one core, which cannot be summed into a session total or compared between machines.");
+    }
+
+    [LiveMachineFact("the very first reading this probe takes of the machine")]
+    public void TheFirstSample_StillNamesEveryProcess_AndIsUnreadableOnlyForTheRates()
+    {
+        // THE ONE RULE TWO PLATFORM BRANCHES HAD ALREADY SPLIT ON: one returned an unreadable process set
+        // on the first read, the other a readable list. Nothing else checks it, and the other tests here
+        // cannot, because they deliberately read twice and throw the first sample away. So it is checked
+        // on a probe that has never been read before.
+        var probe = CreateProbe();
+
+        var first = probe.Read();
+
+        Assert.True(first.Processes.CouldRead,
+            $"{ProbeName} returned an unreadable process list on its first read. A process's SHARE is a "
+            + "rate and has no interval yet, but its name, its parent and its memory are readable now - "
+            + $"so the list is returned with CpuPercent null. Reason given: {first.Processes.UnreadableReason}");
+
+        Assert.NotEmpty(first.Processes.Processes);
+        Assert.Contains(first.Processes.Processes, one => one.Pid == Environment.ProcessId);
+
+        // Stated as a presence: every process is named, whatever is unknown about it.
+        Assert.All(first.Processes.Processes, one => Assert.False(string.IsNullOrWhiteSpace(one.Name)));
+
+        // The core count is always answerable, so it must survive even when the busy figure cannot.
+        Assert.True(first.Cpu.LogicalCoreCount is > 0,
+            $"{ProbeName} gave no logical core count on its first read. Every platform can answer it, "
+            + "and without it no process figure can be expressed as a share of the machine.");
+
+        // Whatever else the first sample says, it must not break the shared rules.
+        var broken = ResourceSampleContract.Violations(first);
+        Assert.True(broken.Count == 0,
+            $"{ProbeName}'s FIRST sample breaks the shared contract:{Environment.NewLine}"
+            + string.Join(Environment.NewLine, broken.Select(one => "  - " + one)));
     }
 
     [LiveMachineFact("the process list, looking for processes the platform refuses")]

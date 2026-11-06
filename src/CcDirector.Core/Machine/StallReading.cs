@@ -14,10 +14,17 @@ public enum StallSource
     /// <summary>Linux pressure stall information, <c>/proc/pressure/{cpu,memory,io}</c> - a direct measure.</summary>
     LinuxPressureStall = 1,
 
-    /// <summary>Windows performance counters - processor queue, disk timings, hard page faults. Proxies.</summary>
+    /// <summary>
+    /// Windows performance counters - processor queue length and hard page faults per second. Proxies.
+    /// The per-disk timings the Windows diagnosis also reads are NOT here: they live on
+    /// <see cref="DiskEvidence"/>, because they are per disk and this reading is whole-machine.
+    /// </summary>
     WindowsCounters = 2,
 
-    /// <summary>macOS kernel memory-pressure level, run-queue load and disk statistics. Proxies.</summary>
+    /// <summary>
+    /// macOS kernel memory-pressure level and run-queue load. Proxies. As with Windows, the per-disk
+    /// figures live on <see cref="DiskEvidence"/> rather than here.
+    /// </summary>
     MacOsSignals = 3,
 }
 

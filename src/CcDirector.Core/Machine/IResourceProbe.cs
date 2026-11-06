@@ -21,7 +21,11 @@ namespace CcDirector.Core.Machine;
 /// <item>A figure the platform simply does not offer is <c>null</c>, which is not a failed read.</item>
 /// <item>Percentages run from 0 to 100. Rates are per second, computed from two cumulative readings;
 /// the first read after start-up has no interval, so its rates are unreadable with
-/// <see cref="ResourceUnreadableReasons.FirstSample"/>.</item>
+/// <see cref="ResourceUnreadableReasons.FirstSample"/> - the processor and each disk included. THE ONE
+/// EXCEPTION IS A PROCESS: the first read still returns a LIST, every process named, with
+/// <see cref="ProcessReading.CpuPercent"/> null. A name, a parent and a memory figure are not rates, so
+/// an empty list would hide facts that were readable. See <see cref="ProcessSetReading"/>, which is
+/// unreadable only when the platform refused the enumeration itself.</item>
 /// <item>PER-PROCESS PROCESSOR IS A SHARE OF THE WHOLE MACHINE, 0 to 100. A process holding one core of
 /// ten reads 10, not 100. Every platform must answer the same way or no per-session total means
 /// anything: a figure that is per-core on one operating system and per-machine on another cannot be

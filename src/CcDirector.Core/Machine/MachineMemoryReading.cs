@@ -40,7 +40,11 @@ public enum MemoryPressureLevel
 /// matters - "free" alone understates every modern operating system, all of which keep memory usefully
 /// occupied by caches they will surrender on demand.
 /// </param>
-/// <param name="TakenAtUtc">When the reading was taken, so a cached one can be aged.</param>
+/// <param name="TakenAtUtc">
+/// STAMPS when the reading was taken, for a caller that wants to print it. NEVER used to age a cache or
+/// to measure an interval - <see cref="MachineMemoryProbe"/> ages its cache on a monotonic clock, and
+/// comparing two of these stamps is the exact defect that change removed.
+/// </param>
 /// <param name="CouldRead">False when the platform could not be read; the other numbers are then meaningless.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>
 public readonly record struct MachineMemoryReading(

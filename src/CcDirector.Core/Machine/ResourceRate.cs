@@ -18,6 +18,14 @@ namespace CcDirector.Core.Machine;
 /// one tick of the clock.</item>
 /// </list>
 ///
+/// PREFER A FORM THAT CANNOT OVERSHOOT AT ALL. Where a platform publishes the counters that make up the
+/// WHOLE of an interval - Linux <c>/proc/stat</c> gives idle alongside every busy column, Windows gives
+/// per-processor idle, kernel and user - work the share out as busy over (busy plus idle) from the
+/// counters themselves, not against the clock. That form is a ratio of two figures taken from the same
+/// source at the same moment, so it cannot read past 100 per cent and needs no allowance.
+/// <see cref="BusyPercent"/> against a measured interval is for a counter that offers busy time ALONE,
+/// such as a disk's input and output ticks, where there is nothing else to divide by.
+///
 /// WHAT THIS CANNOT ENFORCE, SAID OUT LOUD. These are functions a probe has to CHOOSE to call. A probe
 /// that writes its own <c>Math.Clamp(share, 0, 100)</c>, or its own "counter went backwards, call it
 /// zero", gets the made-up zero this interface exists to refuse - and no test downstream can see it,
@@ -78,8 +86,15 @@ public static class ResourceRate
 
     /// <summary>
     /// How far past 100 per cent a busy figure may read before it is treated as wrong rather than as
-    /// sampling skew. Two points: enough for a counter read microseconds out of step with the clock,
-    /// far too little for a per-core figure mistaken for a whole-machine one.
+    /// sampling skew.
+    ///
+    /// WHERE THE NUMBER COMES FROM, so nobody widens it on a hunch. The tightest real case is Windows,
+    /// which accounts processor time in 15.6-millisecond ticks: one thread flat out across a ONE-second
+    /// interval on a single-core machine can read 101.6 per cent, and across the five-second sampling
+    /// interval this mission actually uses, 0.3 per cent. Two points covers the worst of those with room
+    /// to spare, and is nowhere near enough to swallow a per-core figure, which overshoots by multiples.
+    /// If a figure needs more than this, the arithmetic is wrong - widening the allowance would only hide
+    /// it.
     /// </summary>
     public const double OvershootAllowed = 2;
 

@@ -344,6 +344,20 @@ public class ResourceSampleContractTests
     // -------------------------------------------------------------------------------------------
 
     [Fact]
+    public void AReadableProcessorWithNoCoreCount_IsRejected_BecauseItDisablesTwoOtherChecks()
+    {
+        // Every platform can answer the core count, so null on a SUCCESSFUL read is never an honest
+        // "not offered". It is also the hole that mattered most: without the count, ShareOfMachine
+        // returns null for every process and the sum-past-one-machine check cannot run, so a probe that
+        // merely forgot to pass it would report nothing per process and still pass the whole contract.
+        var noCount = CpuReading.Read(totalBusyPercent: 20, busiestCorePercent: 55, logicalCoreCount: null);
+
+        var broken = ResourceSampleContract.Violations(Healthy(cpu: noCount));
+
+        Assert.Contains(broken, one => one.Contains("gave no logical core count", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ANullBusiestCore_IsAccepted_BecauseWindowsMayNotOfferOne()
     {
         // More than 64 logical processors: the whole-machine figure is known, the per-core one is not.
