@@ -219,6 +219,10 @@ public static class ResourceSampleContract
             broken.Add(FormattableString.Invariant(
                 $"the run queue reads {stall.RunQueueLength:F1}, which cannot be negative."));
 
+        if (stall.LoadAverageOneMinute < 0)
+            broken.Add(FormattableString.Invariant(
+                $"the one-minute load average reads {stall.LoadAverageOneMinute:F2}, which cannot be negative."));
+
         if (stall.HardPageFaultsPerSecond < 0)
             broken.Add(FormattableString.Invariant(
                 $"hard page faults read {stall.HardPageFaultsPerSecond:F0} per second, which cannot be negative."));

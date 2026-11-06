@@ -202,6 +202,17 @@ internal static class LinuxProcParsing
     }
 
     /// <summary>
+    /// The one-minute load average, the first field of <c>/proc/loadavg</c> ("14.11 20.19 18.21 4/3921
+    /// 4044667" gives 14.11). Null when the field is missing or is not a number.
+    /// </summary>
+    public static double? ParseLoadAverageOneMinute(string text)
+    {
+        var fields = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length < 1) return null;
+        return double.TryParse(fields[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var load) ? load : null;
+    }
+
+    /// <summary>
     /// The running-task count from <c>/proc/loadavg</c> ("14.11 20.19 18.21 4/3921 4044667" gives 4).
     /// That count includes the task reading the file. Null when the field is missing.
     /// </summary>

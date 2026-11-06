@@ -288,6 +288,7 @@ public class ResourceReadingTests
         Assert.Equal(0.17, reading.MemoryStalledPercent);
         Assert.Equal(32, reading.IoStalledPercent);
         Assert.Null(reading.RunQueueLength);
+        Assert.Null(reading.LoadAverageOneMinute);
         Assert.Null(reading.HardPageFaultsPerSecond);
         Assert.Null(reading.MacOsMemoryPressureLevel);
         Assert.Null(reading.ProcessesWaitingOnDisk);
@@ -310,6 +311,7 @@ public class ResourceReadingTests
         Assert.Null(reading.MemoryStalledPercent);
         Assert.Null(reading.IoStalledPercent);
         Assert.Null(reading.RunQueueLength);
+        Assert.Null(reading.LoadAverageOneMinute);
         Assert.Null(reading.HardPageFaultsPerSecond);
         Assert.Null(reading.MacOsMemoryPressureLevel);
         Assert.Null(reading.ProcessesWaitingOnDisk);

@@ -311,10 +311,19 @@ public class ResourceSampleContractTests
     }
 
     [Fact]
+    public void ANegativeLoadAverage_IsRejected()
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(stall: StallReading.Read(StallSource.MacOsSignals, loadAverageOneMinute: -0.5)));
+
+        Assert.Contains(broken, one => one.Contains("one-minute load average", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void AnUnreadableStallReadingThatStillNamesASource_IsRejected()
     {
         var lying = new StallReading(CouldRead: false, UnreadableReason: "pressure is off in this kernel",
-            StallSource.LinuxPressureStall, null, null, null, null, null, null, null);
+            StallSource.LinuxPressureStall, null, null, null, null, null, null, null, null);
 
         var broken = ResourceSampleContract.Violations(Healthy(stall: lying));
 
@@ -390,7 +399,7 @@ public class ResourceSampleContractTests
     {
         var sourceless = new StallReading(CouldRead: true, UnreadableReason: null, StallSource.None,
             CpuStalledPercent: 1, MemoryStalledPercent: null, IoStalledPercent: null,
-            RunQueueLength: null, HardPageFaultsPerSecond: null,
+            RunQueueLength: null, LoadAverageOneMinute: null, HardPageFaultsPerSecond: null,
             MacOsMemoryPressureLevel: null, ProcessesWaitingOnDisk: null);
 
         var broken = ResourceSampleContract.Violations(Healthy(stall: sourceless));

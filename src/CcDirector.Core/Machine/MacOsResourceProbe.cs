@@ -519,16 +519,16 @@ public sealed class MacOsResourceProbe : IResourceProbe
     private static StallReading FoldStall()
     {
         var loadBytes = MacOsPlatformReader.ReadSysctlBytes("vm.loadavg");
-        double? runQueue = null;
+        double? loadAverage = null;
         if (loadBytes is not null &&
             MacOsResourceParsing.TryReadLoadAverage(loadBytes, out var load, out _))
         {
-            runQueue = load.OneMinute;
+            loadAverage = load.OneMinute;
         }
 
         var level = MacOsPlatformReader.ReadSysctlInt32("kern.memorystatus_vm_pressure_level");
 
-        if (runQueue is null && level is null)
+        if (loadAverage is null && level is null)
             return StallReading.Unreadable("neither vm.loadavg nor the kernel memory-pressure level could be read");
 
         // WHAT THIS PLATFORM DOES NOT OFFER IS NULL, NOT ZERO. Linux publishes, in
@@ -536,7 +536,10 @@ public sealed class MacOsResourceProbe : IResourceProbe
         // resource. macOS publishes nothing equivalent: there is no stalled-percent figure for the
         // processor, for memory or for the disk, and zero would read as "nothing was ever stalled",
         // which is the opposite of "we cannot tell". So the three percentages are null and the verdict
-        // is built from the run queue, the kernel's own pressure level and the per-disk times instead.
+        // is built from the load average, the kernel's own pressure level and the per-disk times instead.
+        //
+        // THE LOAD AVERAGE IS NOT A RUN QUEUE. vm.loadavg is a one-minute average, so it fills
+        // LoadAverageOneMinute; RunQueueLength, an instantaneous count, is not offered here and stays null.
         //
         // ProcessesWaitingOnDisk is null for the same reason: the process status this platform reports
         // distinguishes running, sleeping, stopped and zombie, with no separate state for a process
@@ -546,7 +549,8 @@ public sealed class MacOsResourceProbe : IResourceProbe
             cpuStalledPercent: null,
             memoryStalledPercent: null,
             ioStalledPercent: null,
-            runQueueLength: runQueue,
+            runQueueLength: null,
+            loadAverageOneMinute: loadAverage,
             hardPageFaultsPerSecond: null,
             macOsMemoryPressureLevel: level,
             processesWaitingOnDisk: null);
