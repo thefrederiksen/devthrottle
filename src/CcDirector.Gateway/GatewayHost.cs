@@ -5905,7 +5905,10 @@ public sealed class GatewayHost : IAsyncDisposable
             Wakes: FactoryInboxWakes,
             // Phase 2: the write is the event. Neither route waits for the wake; a look runs on the Gateway's lifetime.
             MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
-            BundleHanded: (tenant, factory) => _ = TheFactoryInboxWake().BundleHanded(tenant, factory)));
+            BundleHanded: (tenant, factory) => _ = TheFactoryInboxWake().BundleHanded(tenant, factory),
+            // The same per-account partition of the dictation staging the spoken send registers in (DictationTenantGate
+            // opens it with ForTenant), so the thread sees exactly the recordings that route holds.
+            Held: (tenant, factory) => _dictationUploads.ForTenant(tenant).PendingFor(Api.FactoryInboxVoiceEndpoints.TargetPrefix + factory)));
         // A spoken factory inbox message (Factory Inbox mission, phase 4): the same durable upload and staging a session's
         // dictation uses, opened through the dictation's own tenant gate so the chunk leg finds the same partition, and
         // transcribed with no dictionary stage - the store applies only the account's listed corrections (verbatim rule).

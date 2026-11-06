@@ -104,6 +104,20 @@ export async function deleteFactoryRecording(id: string): Promise<void> {
   await tx("readwrite", (s) => s.delete(id));
 }
 
+/**
+ * The owner discards a recording that was refused. The Gateway is told first, so it stops holding it and the factory's
+ * thread stops showing it as held; only then is the saved copy forgotten. A Gateway that cannot be told throws, and the
+ * recording is kept, so the device and the thread never disagree about it.
+ */
+export async function discardFactoryRecording(id: string): Promise<void> {
+  const res = await gatewayFetch(`/dictation/${encodeURIComponent(id)}/abandon`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+  });
+  if (!res.ok) throw await GatewayError.from(res, "discard the recording");
+  await deleteFactoryRecording(id);
+}
+
 // The refusal is kept with the recording, so it is shown again after a reload rather than sent again on its own.
 async function markRefused(rec: FactoryRecording, refusal: string): Promise<void> {
   if (!hasIndexedDb()) return;

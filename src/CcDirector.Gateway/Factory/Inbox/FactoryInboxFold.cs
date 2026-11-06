@@ -53,6 +53,20 @@ public static class FactoryInboxFold
             Tone: FactoryInboxWords.Tone(last.State, lastDecision?.Kind));
     }
 
+    /// <summary>
+    /// The spoken messages held for a factory (phase 4 review, finding 2): one entry per recording the Gateway still
+    /// holds PENDING for its inbox, oldest first, each with its words, its time and the tone it is coloured by. The
+    /// thread prints them, so a held message is never invisible and is never dropped without the thread saying so.
+    /// </summary>
+    public static IReadOnlyList<FactoryInboxHeldDto> Held(IReadOnlyList<Voice.PendingUpload> pending)
+    {
+        ArgumentNullException.ThrowIfNull(pending);
+        return pending
+            .Select(p => new FactoryInboxHeldDto(p.UploadId, FactoryInboxWords.HeldLine, FactoryInboxWords.HeldAtLabel,
+                DateTime.SpecifyKind(p.LastActivityUtc, DateTimeKind.Utc), FactoryInboxWords.Tones.Amber))
+            .ToList();
+    }
+
     /// <summary>The waiting sentence a message shows, or null when it does not wait.</summary>
     private static string? WaitingLabelOf(FactoryInboxMessageEntity m, FactoryInboxWaitingLabels? waiting) => m.State switch
     {
@@ -152,6 +166,10 @@ public sealed record FactoryInboxMessageDto(
 /// none), <see cref="WaitingLine"/> (null with no messages), and a short <see cref="Badge"/> with the <see cref="Tone"/> a
 /// screen colours it by.</summary>
 public sealed record FactoryInboxRowDto(string Line, string? WaitingLine, string Badge, string Tone);
+
+/// <summary>One held spoken message on a factory's thread: the recording's id, the <see cref="Line"/> to print, the label
+/// of its time and the time itself (UTC), and the <see cref="Tone"/> a screen colours it by.</summary>
+public sealed record FactoryInboxHeldDto(string UploadId, string Line, string AtLabel, DateTime AtUtc, string Tone);
 
 /// <summary>One decision as it is shown.</summary>
 public sealed record FactoryInboxDecisionDto(

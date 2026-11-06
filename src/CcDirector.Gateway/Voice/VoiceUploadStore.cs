@@ -627,6 +627,14 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
                         if (read is not { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending }) return;
                         var record = read.Record!;
                         if (!BelongsHere(record)) return;               // another tenant's record: never ours to resolve
+                        // A factory inbox recording holds no session's lock - its target is a factory's inbox, never a
+                        // session - so the one reason this sweep exists does not apply to it. Abandoning it anyway made the
+                        // Gateway's promise false ("it is kept, and sending it will retry by itself"): the device's next
+                        // retry was answered "already dealt with; nothing was left", the device deleted its only copy, and
+                        // the owner's spoken message was gone with nothing on the factory's thread to say so. It stays
+                        // PENDING until it is left, the transcription refuses it for good, or the owner discards it, and
+                        // the factory's thread shows it as held meanwhile (FactoryInboxEndpoints, the thread route).
+                        if (IsFactoryInboxTarget(record.SessionId)) return;
                         if (Directory.GetLastWriteTimeUtc(dir) >= cutoff) return;
 
                         // The ordinary abandon transition. Re-enters this upload's gate, which is a Monitor
@@ -654,6 +662,46 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
             FileLog.Write($"[VoiceUploadStore] ExpireStalePending failed: {ex.Message}");
         }
         return expired;
+    }
+
+    /// <summary>
+    /// What a spoken factory inbox recording's record names as its target, where a dictation names a session id
+    /// (<c>FactoryInboxVoiceEndpoints</c>). Kept here because this store's stale-pending sweep must tell the two apart.
+    /// </summary>
+    public const string FactoryInboxTargetPrefix = "factory-inbox:";
+
+    /// <summary>True when a record's target is a factory's inbox rather than a session.</summary>
+    public static bool IsFactoryInboxTarget(string? target)
+        => target is not null && target.StartsWith(FactoryInboxTargetPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The recordings still PENDING for one target, oldest activity first: registered and not yet delivered, abandoned
+    /// or refused for good. Used by the factory inbox thread to show every held spoken message, so a recording the
+    /// transcription has not managed yet is never invisible. Only canonical upload directories whose record this build
+    /// can read, belonging to this partition's tenant, are counted - anything else is not provably a held recording.
+    /// </summary>
+    public IReadOnlyList<PendingUpload> PendingFor(string target)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(target);
+        var found = new List<PendingUpload>();
+        if (!Directory.Exists(_root)) return found;
+        foreach (var dir in Directory.EnumerateDirectories(_root))
+        {
+            var name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!IsCanonicalUploadDirName(name)) continue;
+            WithRecordLock(name, () =>
+            {
+                if (!Directory.Exists(dir)) return;
+                var read = ReadRecordFile(RecordPath(dir));
+                if (read is not { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending }) return;
+                var record = read.Record!;
+                if (!BelongsHere(record)) return;
+                if (!string.Equals(record.SessionId, target, StringComparison.Ordinal)) return;
+                found.Add(new PendingUpload(name, Directory.GetLastWriteTimeUtc(dir)));
+            });
+        }
+        FileLog.Write($"[VoiceUploadStore] PendingFor target={target}: {found.Count} pending");
+        return found.OrderBy(p => p.LastActivityUtc).ThenBy(p => p.UploadId, StringComparer.Ordinal).ToList();
     }
 
     /// <summary>
@@ -2076,6 +2124,9 @@ public readonly record struct AssembleResult(string Status, byte[]? Audio, IRead
 /// it after the retention window. See <see cref="VoiceUploadStore.Acknowledge"/>.
 /// </summary>
 public enum DictationDeliveryState { Pending, Delivered, Abandoned, Failed, Acknowledged }
+
+/// <summary>One PENDING upload: its id and when anything last touched it (register, chunk, assemble).</summary>
+public sealed record PendingUpload(string UploadId, DateTime LastActivityUtc);
 
 /// <summary>
 /// A dictation delivery record (issue #1183, extended by #1185 and #1188): the durable marker for an upload

@@ -25,6 +25,7 @@ vi.mock("./factoryInboxVoice", () => ({
   listFactoryRecordings: vi.fn(async () => []),
   saveFactoryRecording: vi.fn(async () => {}),
   deleteFactoryRecording: vi.fn(async () => {}),
+  discardFactoryRecording: vi.fn(async () => {}),
   sendFactoryRecording: vi.fn(),
 }));
 // The Your inbox tab reads the unread count; its own tests are in yourinbox/yourInboxScreens.test.tsx.
@@ -136,6 +137,36 @@ describe("FactoryInboxThreadView (mockup B)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
 
     expect(await screen.findByText("Two arrived; one waved through, one turned down (gateway).")).toBeTruthy();
+  });
+
+  it("FactoryInboxThreadView_HeldSpokenMessage_PrintsTheGatewaysWordsVerbatim", async () => {
+    gw.thread = () =>
+      Promise.resolve({
+        ...oddThread(),
+        held: [
+          {
+            uploadId: "44444444444444444444444444444444",
+            line: "A recording is parked behind the quokka (gateway).",
+            atLabel: "Last poked (gateway)",
+            atUtc: "2026-11-02T09:07:00Z",
+            tone: "amber",
+          },
+        ],
+      });
+
+    render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+
+    const held = await screen.findByTestId("fi-held-message");
+    expect(within(held).getByText("A recording is parked behind the quokka (gateway).")).toBeTruthy();
+    expect(held.textContent).toContain("Last poked (gateway)");
+    expect(held.getAttribute("data-tone")).toBe("amber");
+  });
+
+  it("FactoryInboxThreadView_NothingHeld_ShowsNoHeldList", async () => {
+    render(<FactoryInboxThreadView factory="zeta-works" surface="mobile" />);
+    await screen.findAllByTestId("fi-message");
+
+    expect(screen.queryByTestId("fi-held")).toBeNull();
   });
 
   it("FactoryInboxThreadView_HasItsOwnComposerForThisFactory", async () => {

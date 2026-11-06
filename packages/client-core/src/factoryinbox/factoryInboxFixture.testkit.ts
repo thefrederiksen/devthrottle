@@ -73,6 +73,7 @@ export function oddThread(): FactoryInboxThread {
       }),
       oddMessage(),
     ],
+    held: [],
   };
 }
 

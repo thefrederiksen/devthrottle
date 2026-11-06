@@ -19,6 +19,7 @@ vi.mock("@devthrottle/client-core/factoryinbox/factoryInboxVoice", () => ({
   listFactoryRecordings: vi.fn(async () => []),
   saveFactoryRecording: vi.fn(),
   deleteFactoryRecording: vi.fn(),
+  discardFactoryRecording: vi.fn(),
   sendFactoryRecording: vi.fn(),
 }));
 

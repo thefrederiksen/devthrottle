@@ -218,6 +218,31 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- a spoken message the Gateway still holds ---- */
+.fi-held {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fi-held-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.fi-held-line {
+  margin: 0;
+  max-width: 85%;
+  padding: 8px 12px;
+  border: 1px dashed var(--warn);
+  border-radius: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 /* ---- the composer ---- */
 .fi-composer {
   display: flex;

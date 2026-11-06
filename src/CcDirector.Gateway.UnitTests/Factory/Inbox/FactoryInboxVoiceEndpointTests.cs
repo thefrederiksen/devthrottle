@@ -84,7 +84,9 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         });
         FactoryInboxEndpoints.Map(app, new FactoryInboxEndpoints.Parts(
             _store, Resolve, _ => Factories(), (_, _) => SessionFactoryLookup.NotKnown, (_, _) => null, (_, _) => false, () => _now,
-            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (_, _) => { }));
+            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (_, _) => { },
+            // The thread's held recordings come from the same staging partition the spoken send registers in.
+            (_, factory) => _uploads.PendingFor(FactoryInboxVoiceEndpoints.TargetPrefix + factory)));
         FactoryInboxVoiceEndpoints.Map(app, new FactoryInboxVoiceEndpoints.Parts(
             _store, Resolve, _ => Factories(), _ => _uploads,
             (_, audio, fileName, mime, _) =>
@@ -343,6 +345,98 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         _heard = GatewayTranscriptionResult.Ok("now it works", "test", "test-model");
         Assert.Equal(HttpStatusCode.Created, (await Complete(id, 1)).Status);
         Assert.Single(_store.Thread(A, "invoices", 10).Messages);
+    }
+
+    // ---------- a held recording and the 24-hour sweep (phase 4 review, finding 2) ----------
+
+    // A fixed moment years before any run, so the staging is past the sweep's 24-hour bound without this test reading
+    // the clock.
+    private static readonly DateTime LongAgoUtc = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>Ages a recording's staging past the stale-pending sweep's bound, as a night with the app closed does.</summary>
+    private void AgedPastTheSweep(string id)
+        => Directory.SetLastWriteTimeUtc(Path.Combine(_uploads.Root, VoiceUploadStore.NormalizeUploadId(id)!), LongAgoUtc);
+
+    [Fact]
+    public async Task Sweep_HeldRecordingOlderThanADay_IsNotDroppedAndIsLeftOnTheNextRetry()
+    {
+        // Arrange: the transcription fails for now, the Gateway promises the recording is kept, and nobody retries for
+        // three days.
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await Complete(id, 1)).Status);
+        AgedPastTheSweep(id);
+
+        // Act: the Gateway's dictation sweep runs with its production bound, then the device retries.
+        var expired = _uploads.ExpireStalePending(TimeSpan.FromHours(24));
+        _heard = GatewayTranscriptionResult.Ok("please rewrite the draft", "test", "test-model");
+        var (registered, registerBody) = await Register(id);
+        var (completed, _) = await Complete(id, 1);
+
+        // Assert: the message is in the inbox - the register reopened the recording rather than answering "already dealt
+        // with; nothing was left", which is the answer that made the device delete its only copy - and the sweep abandoned
+        // nothing.
+        Assert.Equal("please rewrite the draft", Assert.Single(_store.Thread(A, "invoices", 10).Messages).Text);
+        Assert.Equal(HttpStatusCode.OK, registered);
+        Assert.False(registerBody.TryGetProperty("terminal", out _));
+        Assert.Equal(HttpStatusCode.Created, completed);
+        Assert.Equal(0, expired);
+    }
+
+    [Fact]
+    public void Sweep_ASessionDictationOlderThanADay_IsStillAbandoned()
+    {
+        // The sweep's own job is unchanged: a session's dictation nobody came back for releases its session lock.
+        var uid = VoiceUploadStore.NormalizeUploadId(Guid.NewGuid().ToString())!;
+        _uploads.Register(uid);
+        _uploads.MarkPending(uid, "22222222-2222-4222-8222-222222222222");
+        AgedPastTheSweep(uid);
+
+        Assert.Equal(1, _uploads.ExpireStalePending(TimeSpan.FromHours(24)));
+        Assert.Equal(DictationDeliveryState.Abandoned, _uploads.Read(uid).Record!.State);
+    }
+
+    [Fact]
+    public async Task Thread_HeldRecording_IsShownInTheGatewaysWordsUntilItIsLeft()
+    {
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        await Complete(id, 1);
+        AgedPastTheSweep(id);
+        _uploads.ExpireStalePending(TimeSpan.FromHours(24));
+
+        var (status, body) = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var held = Assert.Single(body.GetProperty("held").EnumerateArray());
+        Assert.Equal(VoiceUploadStore.NormalizeUploadId(id), held.GetProperty("uploadId").GetString());
+        Assert.Equal(FactoryInboxWords.HeldLine, held.GetProperty("line").GetString());
+        Assert.Equal("Last tried", held.GetProperty("atLabel").GetString());
+        Assert.Equal("amber", held.GetProperty("tone").GetString());
+        // Another factory's thread does not show it.
+        Assert.Empty((await Call("GET", "/gateway/factory/payroll/inbox", Phone)).Body.GetProperty("held").EnumerateArray());
+
+        _heard = GatewayTranscriptionResult.Ok("now it works", "test", "test-model");
+        Assert.Equal(HttpStatusCode.Created, (await Complete(id, 1)).Status);
+        Assert.Empty((await Call("GET", "/gateway/factory/invoices/inbox", Phone)).Body.GetProperty("held").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Complete_TranscriptionRefusesForGood_IsResolvedAndNotShownAsHeld()
+    {
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.PermanentError("test", "test-model", "unsupported_audio", "the audio format is not supported");
+
+        var (status, _) = await Complete(id, 1);
+        var (again, againBody) = await Register(id);
+        var (_, thread) = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, status);
+        Assert.True(againBody.GetProperty("terminal").GetBoolean());
+        Assert.False(againBody.GetProperty("delivered").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, again);
+        Assert.Empty(thread.GetProperty("held").EnumerateArray());
+        Assert.Equal(1, _transcriptions);
     }
 
     [Fact]

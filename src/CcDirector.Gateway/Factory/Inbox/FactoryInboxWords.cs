@@ -163,6 +163,18 @@ public static class FactoryInboxWords
     /// <summary>The line a factory's row shows under its name when it has no message yet.</summary>
     public const string NoMessagesLine = "No messages yet";
 
+    /// <summary>
+    /// What a held spoken message says on its factory's thread (the phase 4 review, finding 2): the owner pressed Send,
+    /// the recording reached the Gateway or is still on its way, and nothing has been left from it yet - the
+    /// transcription failed for now, credits ran out, or the upload is not whole. It is never dropped by an age limit;
+    /// it is left when the device that recorded it sends it again, and the line goes when it is left or refused.
+    /// </summary>
+    public const string HeldLine =
+        "A spoken message is held and has not been left yet. Its recording is kept, and it is left here when the phone or Cockpit that recorded it sends it again.";
+
+    /// <summary>The label of a held message's time: when anything last reached the Gateway for it.</summary>
+    public const string HeldAtLabel = "Last tried";
+
     /// <summary>The badge a factory's row shows when it has no message yet.</summary>
     public const string NoMessagesBadge = "No messages";
 
