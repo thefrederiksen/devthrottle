@@ -31,6 +31,18 @@ public sealed class MissionDto
     /// <summary>When the WHY was last set (UTC), or null if it has never been set.</summary>
     public DateTimeOffset? WhyUpdatedAt { get; set; }
 
+    /// <summary>ADDITIVE (the Missions First-Class mission): the dev report that is this Mission's mission
+    /// document, or null when it has none yet. Set by publishing with
+    /// <c>cc-dev-reports open &lt;file&gt; --mission-document</c>; the owner opens it at <c>/r/&lt;id&gt;</c>.</summary>
+    public Guid? DocumentReportId { get; set; }
+
+    /// <summary>When the document was last linked (UTC), or null while there is no document.</summary>
+    public DateTimeOffset? DocumentLinkedAt { get; set; }
+
+    /// <summary>ADDITIVE: the Mission's goal, as plain text, read from its mission document's goal section. Empty
+    /// when there is no document or the document has no goal section.</summary>
+    public string Goal { get; set; } = "";
+
     /// <summary>"active", "complete", or "removed". Older Gateways send nothing, which reads as active.</summary>
     public string State { get; set; } = "active";
 

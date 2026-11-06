@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Fleet;
 /// stamped by the push only. It reads nothing the colour, the label or the bucket read, and they do not read it, so a
 /// trace - which records only the colour and label - has nothing to gain from reading the inbox and skips that read.
 /// The API-mode verdict (mission #4070) is the same: the push stamps it, through the roster's own stamp and facts, and a
-/// trace skips it.
+/// trace skips it. So is the Mission button (the Missions First-Class mission).
 /// </summary>
 internal sealed class DisplayFold
 {
@@ -43,6 +43,7 @@ internal sealed class DisplayFold
     private readonly Func<TenantId, IDisposable> _enterScope;
     private readonly Func<Messaging.IFleetInboxLineSource?> _inboxLines;
     private readonly Func<ApiModeDisplay.ApiModeDisplayFacts?> _apiModeFacts;
+    private readonly Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? _missionsFor;
 
     /// <param name="voice">The voice service, read at fold time because the host builds it later. Null answers "no voice
     /// state at all".</param>
@@ -53,6 +54,8 @@ internal sealed class DisplayFold
     /// builds the store later. Null (or a null answer) stamps a null row line on every row.</param>
     /// <param name="apiModeFacts">Where the API-mode verdict's facts are read - the same ones the roster route reads.
     /// Null (or a null answer) stamps no API-mode verdict on any row.</param>
+    /// <param name="missionsFor">The account's missions, for the Mission button - the same store the roster route reads.
+    /// Null stamps no Mission button on any row.</param>
     public DisplayFold(
         Func<WingmanVoiceService?> voice,
         NeedsYouClock needsYou,
@@ -63,7 +66,8 @@ internal sealed class DisplayFold
         PushedSessionStore pushed,
         Func<TenantId, IDisposable> enterScope,
         Func<Messaging.IFleetInboxLineSource?>? inboxLines = null,
-        Func<ApiModeDisplay.ApiModeDisplayFacts?>? apiModeFacts = null)
+        Func<ApiModeDisplay.ApiModeDisplayFacts?>? apiModeFacts = null,
+        Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? missionsFor = null)
     {
         _voice = voice ?? throw new ArgumentNullException(nameof(voice));
         _needsYou = needsYou ?? throw new ArgumentNullException(nameof(needsYou));
@@ -75,6 +79,7 @@ internal sealed class DisplayFold
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
         _inboxLines = inboxLines ?? (() => null);
         _apiModeFacts = apiModeFacts ?? (() => null);
+        _missionsFor = missionsFor;
     }
 
     /// <summary>The display push: the account in scope, its live verdicts, and every clock moved as it is folded.</summary>
@@ -123,6 +128,9 @@ internal sealed class DisplayFold
             writes: writes,
             // Only the push stamps the API-mode verdict, for the row line's reason: it reads nothing the colour or the
             // label read. And only for an account in scope - with none, there is no account whose facts to read.
-            apiModeFacts: writes && ambientTenant is not null ? _apiModeFacts() : null);
+            apiModeFacts: writes && ambientTenant is not null ? _apiModeFacts() : null,
+            // Only the push stamps the Mission button, for the same reason: it reads nothing the colour or the label read.
+            // And only for an account in scope - the fold reads no account's missions without one.
+            missionsFor: writes && ambientTenant is not null ? _missionsFor : null);
     }
 }

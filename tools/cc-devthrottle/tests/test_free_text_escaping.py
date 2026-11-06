@@ -204,6 +204,8 @@ MISSION = {
     "state": "active",
     "stateChangedAt": None,
     "workflowRunId": None,
+    "documentReportId": None,
+    "goal": "",
 }
 
 

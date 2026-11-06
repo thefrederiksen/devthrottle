@@ -65,11 +65,15 @@ internal static class DevReportEndpoints
 
     /// <param name="author">Who wrote a report published in a team's tenant (devthrottle_internal#2309): asked at every
     /// publish, it records nothing for a personal account and refuses a team's session whose person cannot be named.</param>
+    /// <param name="missionDocuments">Links a report published with <c>missionDocument: true</c> to the publishing
+    /// session's own Mission (the Missions First-Class mission).</param>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportDelivery delivery, HostedTenantBoundary? boundary,
         Func<TenantId, string, DevReportSessionNaming> naming,
-        Func<TenantId, string, DevReportFactorySeatIdentity?> factorySeatOf, DevReportAuthor author)
+        Func<TenantId, string, DevReportFactorySeatIdentity?> factorySeatOf, DevReportAuthor author,
+        MissionDocumentLinker missionDocuments)
     {
         ArgumentNullException.ThrowIfNull(author);
+        ArgumentNullException.ThrowIfNull(missionDocuments);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(naming);
@@ -95,6 +99,7 @@ internal static class DevReportEndpoints
             if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = PublishBodyLimitBytes;
 
             string key, html;
+            var asMissionDocument = false;
             try
             {
                 using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ct);
@@ -105,6 +110,14 @@ internal static class DevReportEndpoints
                     return Error(400, "bad_request_body", "The body must be an object with a \"key\" string and an \"html\" string.");
                 key = k.GetString()!;
                 html = h.GetString()!;
+                // Optional: publish this report as the document of the session's own Mission. Only a real boolean is
+                // read, so a value that is not one is refused rather than taken as "no".
+                if (root.TryGetProperty("missionDocument", out var md))
+                {
+                    if (md.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                        return Error(400, "bad_request_body", "\"missionDocument\" must be true or false.");
+                    asMissionDocument = md.GetBoolean();
+                }
             }
             catch (JsonException ex)
             {
@@ -152,10 +165,46 @@ internal static class DevReportEndpoints
                 }, statusCode: 422);
             }
 
+            // A mission document needs the session's own Mission, and that is settled BEFORE anything is written, so a
+            // refusal publishes nothing (never a report version that silently failed to become the document).
+            Core.Sessions.Mission? targetMission = null;
+            if (asMissionDocument)
+            {
+                var target = missionDocuments.Resolve(tenant, sessionId);
+                if (target.Refused)
+                    return Error(409, target.RefusalCode!, target.Refusal!);
+                targetMission = target.Mission;
+            }
+
             var title = DevReportTitle.Read(html, key);
+            var nowUtc = DateTime.UtcNow;
             var (report, created) = DevReportAuthor.PublishAs(store, authorAnswer, tenant, sessionId, key, html, verdict.Status!, title,
-                DateTime.UtcNow, factorySeatOf(tenant, sessionId));
-            return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
+                nowUtc, factorySeatOf(tenant, sessionId));
+            if (targetMission is null)
+                return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
+
+            var link = missionDocuments.Link(tenant, targetMission, report.Id, html, new DateTimeOffset(nowUtc, TimeSpan.Zero));
+            if (link is null)
+                return Error(409, "mission_unknown",
+                    $"The report was published as version {report.Version} of report {report.Id:D}, but its Mission " +
+                    $"{targetMission.MissionId:D} was removed from this Gateway before the report could be linked to it. " +
+                    "List the missions with: cc-devthrottle mission list");
+            return Results.Json(new
+            {
+                report = Summary(store, delivery, naming, tenant, report),
+                created,
+                missionDocument = new
+                {
+                    missionId = link.MissionId,
+                    missionName = link.MissionName,
+                    goal = link.Goal,
+                    why = link.Why,
+                    goalFound = link.GoalFound,
+                    whyFound = link.WhyFound,
+                    replacedReportId = link.ReplacedReportId,
+                    notes = link.Notes,
+                },
+            });
         });
 
         app.MapGet("/sessions/{sid}/dev-reports", (string sid, HttpContext ctx) =>

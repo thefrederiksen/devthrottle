@@ -59,4 +59,10 @@ public sealed class SetDisplayStateRequest
     /// the request and keeps every other field.
     /// </summary>
     public ApiModeSessionDisplay? ApiMode { get; set; }
+
+    /// <summary>
+    /// The Mission button's verdict (<see cref="SessionDto.MissionButton"/>, the Missions First-Class mission), the same
+    /// stamp the roster serves. ADDITIVE: a Director built before this field skips it and keeps every other field.
+    /// </summary>
+    public MissionButtonDisplay? MissionButton { get; set; }
 }

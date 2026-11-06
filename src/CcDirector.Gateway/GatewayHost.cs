@@ -2571,7 +2571,9 @@ public sealed class GatewayHost : IAsyncDisposable
             inboxLines: () => _fleetMessages,
             // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps from, so the pushed
             // wheel button is the roster's.
-            apiModeFacts: () => _apiModeDisplayFacts);
+            apiModeFacts: () => _apiModeDisplayFacts,
+            // The Missions First-Class mission: the Mission button, from the same store the roster route reads.
+            missionsFor: Api.GatewayEndpoints.MissionsForFold(Missions));
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
@@ -6752,7 +6754,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
         Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming,
-            DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership));
+            DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership),
+            new DevReports.MissionDocumentLinker(Missions, DevReportSessionMission));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
@@ -7380,7 +7383,10 @@ public sealed class GatewayHost : IAsyncDisposable
         bool writes = true,
         // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps each API-mode row's verdict
         // from, so the wheel button pushed to the desktop is the one every browser reads. Null stamps no verdict.
-        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null,
+        // The Missions First-Class mission: the account's missions, so the Mission button pushed to the desktop is the
+        // one the roster serves. Null stamps no verdict.
+        Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? missionsFor = null)
     {
         foreach (var s in sessions)
         {
@@ -7405,7 +7411,7 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
             handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
-            inboxLines: inboxLines, writes: writes, apiModeFacts: apiModeFacts);
+            inboxLines: inboxLines, writes: writes, apiModeFacts: apiModeFacts, missionsFor: missionsFor);
     }
 
     /// <summary>
@@ -8009,6 +8015,24 @@ public sealed class GatewayHost : IAsyncDisposable
         using (_tenantBoundary.EnterScope(tenant))
             history = _sessionHistory.Get(sessionId);
         return new(history?.SessionNumber, history?.SessionName);
+    }
+
+    /// <summary>
+    /// The Mission a publishing session is attached to (the Missions First-Class mission), from the Gateway's own
+    /// records and reached the way <see cref="DevReportSessionNaming"/> reaches a session: the live roster first, then
+    /// the durable session history row. Null when the session is attached to no Mission. The caller never supplies
+    /// it, which is what keeps a session to linking its OWN Mission.
+    /// </summary>
+    private Guid? DevReportSessionMission(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+            return loc.Session.MissionId;
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        return history?.MissionId;
     }
 
     /// <summary>Whether that tenant's Director has an active stream connection now.</summary>

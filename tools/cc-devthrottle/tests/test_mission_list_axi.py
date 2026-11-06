@@ -38,12 +38,15 @@ runner = CliRunner()
 
 
 def _mission(mid, name, state, why="", why_at="2026-09-16T11:21:56.6053801+00:00",
-             changed_at="2026-09-10T08:00:00+00:00", run=None):
+             changed_at="2026-09-10T08:00:00+00:00", run=None, document=None, goal=""):
     return {
         "missionId": mid,
         "missionName": name,
         "why": why,
         "whyUpdatedAt": why_at if why else None,
+        "documentReportId": document,
+        "documentLinkedAt": "2026-11-06T08:00:00+00:00" if document else None,
+        "goal": goal,
         "state": state,
         "stateChangedAt": None if state == "active" else changed_at,
         "workflowRunId": run,
@@ -55,8 +58,10 @@ def _mission(mid, name, state, why="", why_at="2026-09-16T11:21:56.6053801+00:00
 # the Gateway never stores one, and the list refuses it (see the broken-answer tests).
 MISSIONS = [
     _mission("aaaaaaaa-1111-4111-8111-000000000001", "URGENT - Recorder must capture all day, no cutoff", "active",
-             why="The owner lost a day of audio.", run="bbbbbbbb-2222-4222-8222-000000000001"),
-    _mission("aaaaaaaa-1111-4111-8111-000000000002", 'AXI - "agent-shaped" tools', "active"),
+             why="The owner lost a day of audio.", run="bbbbbbbb-2222-4222-8222-000000000001",
+             document="dddddddd-3333-4333-8333-000000000001", goal="Record a whole day, with no cutoff."),
+    _mission("aaaaaaaa-1111-4111-8111-000000000002", 'AXI - "agent-shaped" tools', "active",
+             document="dddddddd-3333-4333-8333-000000000002"),
     _mission("aaaaaaaa-1111-4111-8111-000000000003", "S\u00f8ren's caf\u00e9 \u2014 \U0001f680 launch", "complete",
              why="done", why_at="2026-09-01T07:00:00+00:00", run="bbbbbbbb-2222-4222-8222-000000000002"),
     _mission("aaaaaaaa-1111-4111-8111-000000000004",
@@ -128,7 +133,9 @@ def test_list_missions_DefaultOutput_EveryIdNameAndStateReadBackExactly(serve, c
     assert out.isascii()
     _check_recoverable(out, ACTIVE)
     fields, records = parse_list(out, "missions")
-    assert fields == ["id", "name", "state"]
+    assert fields == ["id", "name", "state", "document"]
+    # Whether each Mission has its document, shown by default: the id when it has one, "none" when not.
+    assert [r["document"] for r in records] == [m["documentReportId"] or "none" for m in ACTIVE]
     # Pinned independently: the name "null" survives as that text, not as no name.
     assert records[-1]["name"] == "null"
 
@@ -184,7 +191,8 @@ def test_list_missions_Fields_ShowsExactlyTheRequestedFieldsInOrder(serve, capsy
 
 def test_fields_fixture_EveryMappedFieldHasTwoDistinctValues():
     # A mapping replaced by a constant can only be caught if the fixtures disagree with that constant.
-    for key in ("missionId", "missionName", "state", "why", "whyUpdatedAt", "stateChangedAt", "workflowRunId"):
+    for key in ("missionId", "missionName", "state", "why", "whyUpdatedAt", "stateChangedAt", "workflowRunId",
+                "documentReportId", "goal"):
         present = {m[key] for m in MISSIONS if m[key] is not None}
         assert len(present) >= 2, key
 
@@ -201,6 +209,8 @@ def test_list_missions_EveryField_EveryMissionReadsBackExactly(serve, capsys):
             "id": m["missionId"],
             "name": m["missionName"],
             "state": m["state"],
+            "document": m["documentReportId"] or mission_ops.NO_DOCUMENT,
+            "goal": m["goal"],
             "why": m["why"],
             "why-updated": m["whyUpdatedAt"],
             "state-changed": m["stateChangedAt"],
@@ -260,7 +270,7 @@ def test_list_missions_NoMissionsAtAll_PrintsCountZero(serve, capsys):
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "count: 0"
-    assert "missions[0]{id,name,state}:" in lines
+    assert "missions[0]{id,name,state,document}:" in lines
     assert "No missions on the Gateway." in lines
     assert "  cc-devthrottle mission create <name>" in lines
 
@@ -558,7 +568,7 @@ def test_mission_list_Cli_UnknownField_ExitsTwoListingFields(serve):
 
     assert result.exit_code == 2
     assert "owner" in result.stderr
-    assert "id, name, state, why, why-updated, state-changed, run" in result.stderr
+    assert "id, name, state, document, goal, why, why-updated, state-changed, run" in result.stderr
 
 
 def test_mission_list_Cli_FieldsWithJson_ExitsTwo(serve):
@@ -625,7 +635,8 @@ def test_mission_list_Cli_InspectionReproduction_BlankNameIsNotFilteredAway(monk
     # The inspection's own case: the only mission has an empty name, and the filter used to drop it
     # silently - `[]` on --json and `count: 0 of 1 total` on the plain list.
     _serve_raw(monkeypatch, [{"missionId": "m1", "missionName": "", "state": "active", "why": "reason",
-                              "whyUpdatedAt": None, "stateChangedAt": None, "workflowRunId": None}])
+                              "whyUpdatedAt": None, "stateChangedAt": None, "workflowRunId": None,
+                              "documentReportId": None, "goal": ""}])
 
     result = runner.invoke(app, args)
 
@@ -648,6 +659,11 @@ BROKEN_FIELDS = [
     ("workflowRunId", _MISSING, "no workflowRunId"),
     ("workflowRunId", True, "workflowRunId a bool"),
     ("workflowRunId", "", "a blank workflowRunId"),
+    ("documentReportId", _MISSING, "this Gateway predates mission documents"),
+    ("documentReportId", 7, "documentReportId a int"),
+    ("documentReportId", "", "a blank documentReportId"),
+    ("goal", _MISSING, "no goal"),
+    ("goal", None, "goal null"),
     ("state", _MISSING, "state missing"),
     ("state", "paused", "state paused"),
     ("state", 1, "state 1"),
@@ -722,3 +738,42 @@ def test_mission_list_Cli_JsonUnfiltered_BrokenFieldStaysTheRawAnswer(monkeypatc
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == rows
+
+
+# ---------------------------------------------------------------------------------------------------
+# The mission document (the Missions First-Class mission)
+# ---------------------------------------------------------------------------------------------------
+
+
+def test_list_missions_DefaultOutput_CountsMissionsWithNoDocument(serve, capsys):
+    # Two of the four active missions have a document; the other two are counted, with the command that fixes it.
+    serve(MISSIONS)
+
+    mission_ops.list_missions(json_output=False)
+
+    lines = capsys.readouterr().out.splitlines()
+    assert ("2 of these missions have no mission document "
+            "(cc-dev-reports open <file> --mission-document).") in lines
+
+
+def test_list_missions_EveryMissionHasADocument_NoDocumentCountLine(serve, capsys):
+    serve([_mission("aaaaaaaa-1111-4111-8111-00000000000a", "Linked", "active",
+                    document="dddddddd-3333-4333-8333-00000000000a", goal="Ship it.")])
+
+    mission_ops.list_missions(json_output=False)
+
+    out = capsys.readouterr().out
+    assert "no mission document" not in out
+    _, records = parse_list(out, "missions")
+    assert records[0]["document"] == "dddddddd-3333-4333-8333-00000000000a"
+
+
+def test_list_missions_GoalField_ReadsBackTheGoalExactly(serve, capsys):
+    serve(MISSIONS)
+
+    mission_ops.list_missions(json_output=False, fields="id,document,goal")
+
+    _, records = parse_list(capsys.readouterr().out, "missions")
+    assert records[0] == {"id": MISSIONS[0]["missionId"], "document": MISSIONS[0]["documentReportId"],
+                          "goal": "Record a whole day, with no cutoff."}
+    assert records[1]["goal"] == ""
