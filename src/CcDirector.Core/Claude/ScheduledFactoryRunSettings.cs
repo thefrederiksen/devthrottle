@@ -17,8 +17,8 @@ namespace CcDirector.Core.Claude;
 /// that holds skills, commands or agents, each passed as <c>--plugin-dir</c>.</param>
 /// <param name="McpConfigPath">The run's own server list, passed as <c>--mcp-config</c>; null when there is no server.</param>
 /// <param name="RulesSetAside">"file: rule" for every ask and deny rule the run does not get.</param>
-/// <param name="PluginsSwitchedOff">Every installed plugin a merged settings file had on, switched off in the run's own
-/// settings file (issue #4609).</param>
+/// <param name="PluginsSwitchedOff">Every plugin a merged settings file had on in <c>enabledPlugins</c>, switched off in
+/// the run's own settings file (issue #4609).</param>
 public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyList<string> InstructionFolders,
     IReadOnlyList<string> SkillFolders, string? McpConfigPath, IReadOnlyList<string> RulesSetAside,
     IReadOnlyList<string> PluginsSwitchedOff);
@@ -44,13 +44,14 @@ public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyLis
 /// <list type="bullet">
 /// <item>its OWN settings file: the user's settings, the folder's <c>.claude/settings.json</c> and
 /// <c>.claude/settings.local.json</c> merged the way Claude Code merges them, under the Director's own settings (its
-/// hooks, and a seat's kit rules), with <c>permissions.ask</c> and <c>permissions.deny</c> removed and every installed
-/// plugin switched off - hooks, environment, model and allow rules stay. A plugin installed from a marketplace and
+/// hooks, and a seat's kit rules), with <c>permissions.ask</c> and <c>permissions.deny</c> removed and every plugin
+/// the settings files enable switched off - hooks, environment, model and allow rules stay. A plugin installed from a marketplace and
 /// enabled in the user's settings is someone else's code running in an unattended seat: on 5 November 2026 one's
 /// SessionStart hook told a factory seat "This is a greenfield project. Skip exploration", and the seat never found its
 /// brief (issue #4609). So every <c>enabledPlugins</c> entry is set to <c>false</c>, which a real launch proved stops the
 /// plugin loading under <c>--setting-sources=</c>. The folders passed as <c>--plugin-dir</c> below are not
-/// <c>enabledPlugins</c> entries, and they still load;</item>
+/// <c>enabledPlugins</c> entries, and they still load; nor are the plugins built into the agent itself, which this does
+/// not reach;</item>
 /// <item><c>--add-dir</c> for the working folder, every folder above it that holds a CLAUDE.md, a <c>.claude/CLAUDE.md</c>
 /// or a <c>.claude/rules</c> folder, and the folder holding the user's own <c>.claude</c>, with
 /// <see cref="InstructionsEnvVar"/> set, which is what makes Claude Code read the instructions of an added folder;</item>
@@ -396,7 +397,7 @@ public static class ScheduledFactoryRunSettings
     }
 
     /// <summary>Set every <c>enabledPlugins</c> entry to <c>false</c> and return, in name order, the names of those that
-    /// were not already off. An <c>enabledPlugins</c> that is not an object is not a plugin list Claude Code reads, so
+    /// were on. An <c>enabledPlugins</c> that is not an object is not a plugin list Claude Code reads, so
     /// the run is refused rather than started with plugins nobody could switch off.</summary>
     private static List<string> SwitchOffPlugins(JsonObject settings)
     {
@@ -406,9 +407,15 @@ public static class ScheduledFactoryRunSettings
             throw new InvalidOperationException("No session was started: the scheduled factory run's merged settings have an enabledPlugins that is not an object, so its plugins could not be switched off.");
         foreach (var name in plugins.Select(p => p.Key).OrderBy(n => n, StringComparer.Ordinal).ToList())
         {
-            var alreadyOff = plugins[name] is JsonValue value && value.TryGetValue<bool>(out var on) && !on;
+            // On means true, or a list of versions; anything else was not on, so it is set to false without being named.
+            var wasOn = plugins[name] switch
+            {
+                JsonValue value => value.TryGetValue<bool>(out var on) && on,
+                JsonArray versions => versions.Count > 0,
+                _ => false,
+            };
             plugins[name] = false;
-            if (!alreadyOff) off.Add(name);
+            if (wasOn) off.Add(name);
         }
         return off;
     }

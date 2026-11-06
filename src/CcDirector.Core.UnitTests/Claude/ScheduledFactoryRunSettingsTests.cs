@@ -208,6 +208,22 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
     }
 
     [Fact]
+    public void Compose_PluginValuesThatAreNotTrue_AreSetFalseButNotNamed()
+    {
+        // Arrange: a version list counts as on; a string, a null and an empty list do not.
+        UserFolder("{\"enabledPlugins\": {\"pinned@market\": [\"1.2.0\"], \"text@market\": \"false\", \"nothing@market\": null, \"empty@market\": []}}");
+        var folder = Folder();
+
+        // Act
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        // Assert
+        var plugins = ReadJson(launch.SettingsPath)["enabledPlugins"]!.AsObject();
+        Assert.All(plugins, p => Assert.False(p.Value!.GetValue<bool>()));
+        Assert.Equal(new[] { "pinned@market" }, launch.PluginsSwitchedOff);
+    }
+
+    [Fact]
     public void Compose_NoPluginsAnywhere_WritesNoPluginListAndNamesNone()
     {
         var folder = Folder();

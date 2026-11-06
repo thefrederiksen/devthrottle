@@ -123,7 +123,9 @@ public static class SessionPreambleFile
 
         // Issue #4609: a factory seat is told where its brief, grants and working folder are, BEFORE the fleet text. The
         // agent is shown only the first two kilobytes of a long start-up text, and a seat that started in its empty
-        // work/ folder with the kit named only at the end asked a person for its brief all night.
+        // work/ folder with the kit named only at the end asked a person for its brief all night. The Fleet Manager's
+        // lessons below still go in front of it, deliberately: issue #3559 put them first, and a factory seat that is
+        // also the marked Fleet Manager is a combination the fleet does not make.
         var kitLine = FactoryRunKit.StartupLine(session);
         if (!string.IsNullOrEmpty(kitLine))
             text = string.IsNullOrEmpty(text) ? kitLine : kitLine + "\n\n" + text;
