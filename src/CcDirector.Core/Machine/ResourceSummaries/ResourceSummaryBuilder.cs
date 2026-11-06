@@ -205,7 +205,9 @@ public static class ResourceSummaryBuilder
             Resource = resource,
             Level = worst == ResourceLevel.Critical ? ResourceSummaryContract.Red : ResourceSummaryContract.Amber,
             StartedUtc = DateTime.SpecifyKind(first.AtUtc, DateTimeKind.Utc),
-            Seconds = (int)Math.Round((lastEnds - first.AtUtc).TotalSeconds),
+            // At least one second: a crossing that began in the window's last half second still happened, and rounding
+            // it to zero would describe a crossing of no length.
+            Seconds = Math.Max(1, (int)Math.Round((lastEnds - first.AtUtc).TotalSeconds)),
             PeakPercent = percentOf(peakSample),
         };
         return (crossing, peakSample);

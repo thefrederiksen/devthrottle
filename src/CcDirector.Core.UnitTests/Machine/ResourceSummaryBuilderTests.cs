@@ -134,6 +134,17 @@ public class ResourceSummaryBuilderTests
     }
 
     [Fact]
+    public void Build_ACrossingBegunInTheLastHalfSecond_LastsAtLeastOneSecond()
+    {
+        var samples = QuietWindow(W0).Select(s => s with { AtUtc = s.AtUtc.AddSeconds(4.7) }).ToList();
+        samples[^1] = samples[^1] with { ProcessorPercent = 99, ProcessorLevel = ResourceLevel.Critical };
+
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", samples);
+
+        Assert.Equal(1, Assert.Single(window.Machine.Crossings).Seconds);
+    }
+
+    [Fact]
     public void Build_IgnoresSamplesOutsideTheWindow()
     {
         var samples = QuietWindow(W0);
