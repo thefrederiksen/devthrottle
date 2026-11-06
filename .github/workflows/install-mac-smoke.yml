@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   install:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       # Point the developer tools at a folder that does not exist, so every
       # Xcode stub (python3, git, xcodebuild) fails the way a broken Xcode does.
