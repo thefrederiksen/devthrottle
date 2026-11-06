@@ -178,13 +178,111 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
         Assert.Null(written["permissions"]!["ask"]);
         Assert.Null(written["permissions"]!["deny"]);
         Assert.Equal("1", written["env"]!["USER_LEVEL"]!.GetValue<string>());
-        Assert.True(written["enabledPlugins"]!["pp@market"]!.GetValue<bool>());
+        // Issue #4609: an installed plugin is switched off in a scheduled factory run, not carried in.
+        Assert.False(written["enabledPlugins"]!["pp@market"]!.GetValue<bool>());
         // The folder's value wins over the user's, as in Claude Code.
         Assert.Equal("sonnet", written["model"]!.GetValue<string>());
         Assert.Equal(new[] { "Bash(ls)", "Bash(git status)" }, written["permissions"]!["allow"]!.AsArray().Select(n => n!.GetValue<string>()));
         var userSettings = Path.Combine(user, "settings.json");
         Assert.Equal(new[] { $"{userSettings}: ask \"Bash(git push:*)\"", $"{userSettings}: deny \"WebFetch\"" }, launch.RulesSetAside.Take(2));
     }
+
+    // ---------- installed plugins are switched off (issue #4609) ----------
+
+    [Fact]
+    public void Compose_PluginsEnabledByAnySource_AreAllSwitchedOffAndNamed()
+    {
+        // Arrange: the user's settings enable the plugin that told a seat "Skip exploration", the folder enables
+        // another, and one is already off.
+        UserFolder("{\"enabledPlugins\": {\"vercel@claude-plugins-official\": true, \"off@market\": false}}");
+        var folder = Folder(local: "{\"enabledPlugins\": {\"seat-tool@market\": true}}");
+
+        // Act
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        // Assert: every entry is false in the file the run reads, and only the ones that were on are named.
+        var plugins = ReadJson(launch.SettingsPath)["enabledPlugins"]!.AsObject();
+        Assert.Equal(new[] { "off@market", "seat-tool@market", "vercel@claude-plugins-official" }, plugins.Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal));
+        Assert.All(plugins, p => Assert.False(p.Value!.GetValue<bool>()));
+        Assert.Equal(new[] { "seat-tool@market", "vercel@claude-plugins-official" }, launch.PluginsSwitchedOff);
+    }
+
+    [Fact]
+    public void Compose_PluginValuesThatAreNotTrue_AreSetFalseButNotNamed()
+    {
+        // Arrange: a version list counts as on; a string, a null and an empty list do not.
+        UserFolder("{\"enabledPlugins\": {\"pinned@market\": [\"1.2.0\"], \"text@market\": \"false\", \"nothing@market\": null, \"empty@market\": []}}");
+        var folder = Folder();
+
+        // Act
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        // Assert
+        var plugins = ReadJson(launch.SettingsPath)["enabledPlugins"]!.AsObject();
+        Assert.All(plugins, p => Assert.False(p.Value!.GetValue<bool>()));
+        Assert.Equal(new[] { "pinned@market" }, launch.PluginsSwitchedOff);
+    }
+
+    [Fact]
+    public void Compose_NoPluginsAnywhere_WritesNoPluginListAndNamesNone()
+    {
+        var folder = Folder();
+
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        Assert.Null(ReadJson(launch.SettingsPath)["enabledPlugins"]);
+        Assert.Empty(launch.PluginsSwitchedOff);
+    }
+
+    [Fact]
+    public void Compose_PluginListThatIsNotAnObject_StopsTheStart()
+    {
+        UserFolder("{\"enabledPlugins\": [\"vercel@claude-plugins-official\"]}");
+        var folder = Folder();
+        var id = Guid.NewGuid();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ScheduledFactoryRunSettings.Compose(id, folder, null, HooksDirectory, Home, NoEnvironment));
+
+        Assert.StartsWith("No session was started: the scheduled factory run's merged settings have an enabledPlugins that is not an object", ex.Message);
+        Assert.False(File.Exists(ScheduledFactoryRunSettings.SettingsPathFor(id, HooksDirectory)));
+    }
+
+    [Fact]
+    public void Compose_PluginsSwitchedOff_TheSkillFoldersStillLoadAsPluginDirectories()
+    {
+        // The Director's own --plugin-dir folders are not enabledPlugins entries, so switching plugins off leaves them.
+        var user = UserFolder("{\"enabledPlugins\": {\"vercel@claude-plugins-official\": true}}");
+        Directory.CreateDirectory(Path.Combine(user, "skills"));
+        var folder = Folder();
+
+        var launch = ScheduledFactoryRunSettings.Compose(Guid.NewGuid(), folder, null, HooksDirectory, Home, NoEnvironment);
+
+        Assert.Contains(Trimmed(user), launch.SkillFolders);
+        Assert.Contains($"--plugin-dir \"{Trimmed(user)}\"", ScheduledFactoryRunSettings.ClaudeArguments("", launch, null));
+    }
+
+    [Fact]
+    public void LogLine_PluginsSwitchedOff_NamesEachOne()
+    {
+        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null,
+            Array.Empty<string>(), new[] { "seat-tool@market", "vercel@claude-plugins-official" });
+
+        var line = ScheduledFactoryRunSettings.LogLine(launch);
+
+        Assert.Contains("plugins switched off for a scheduled factory run: seat-tool@market, vercel@claude-plugins-official", line);
+    }
+
+    [Fact]
+    public void LogLine_NoPluginsSwitchedOff_SaysSo()
+    {
+        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null,
+            Array.Empty<string>(), Array.Empty<string>());
+
+        Assert.Contains("no plugins switched off for a scheduled factory run", ScheduledFactoryRunSettings.LogLine(launch));
+    }
+
+    private static string Trimmed(string path) => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     [Fact]
     public void Compose_ConfigFolderMovedByTheEnvironment_ReadsTheUsersSettingsAndStateFromThere()
@@ -383,7 +481,7 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
     public void ClaudeArguments_LoadsNoSettingsFile_AddsEachFolderTheOneSettingsFileThePluginsAndTheServers()
     {
         var launch = new ScheduledFactoryRunLaunch(@"C:\hooks\run.json", new[] { @"D:\repo\seat", @"D:\repo", @"C:\Users\owner" },
-            new[] { @"C:\Users\owner\.claude", @"D:\repo\.claude" }, @"C:\hooks\run.mcp.json", Array.Empty<string>());
+            new[] { @"C:\Users\owner\.claude", @"D:\repo\.claude" }, @"C:\hooks\run.mcp.json", Array.Empty<string>(), Array.Empty<string>());
 
         var line = ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, @"C:\kit\claude-plugin");
 
@@ -395,7 +493,7 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
     [Fact]
     public void ClaudeArguments_NoServers_AddsNoServerList()
     {
-        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null, Array.Empty<string>());
+        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null, Array.Empty<string>(), Array.Empty<string>());
 
         var line = ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, null);
 
@@ -405,7 +503,7 @@ public sealed class ScheduledFactoryRunSettingsTests : IDisposable
     [Fact]
     public void ClaudeArguments_OnLinuxAndMacOS_TheEmptySourceListReachesClaudeCodeAsOneWord()
     {
-        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null, Array.Empty<string>());
+        var launch = new ScheduledFactoryRunLaunch("/hooks/run.json", new[] { "/repo/seat" }, Array.Empty<string>(), null, Array.Empty<string>(), Array.Empty<string>());
 
         var argv = UnixProcessHost.TokenizeArgs(ScheduledFactoryRunSettings.ClaudeArguments("--dangerously-skip-permissions", launch, null));
 

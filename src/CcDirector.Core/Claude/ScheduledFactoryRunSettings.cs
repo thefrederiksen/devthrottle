@@ -17,8 +17,11 @@ namespace CcDirector.Core.Claude;
 /// that holds skills, commands or agents, each passed as <c>--plugin-dir</c>.</param>
 /// <param name="McpConfigPath">The run's own server list, passed as <c>--mcp-config</c>; null when there is no server.</param>
 /// <param name="RulesSetAside">"file: rule" for every ask and deny rule the run does not get.</param>
+/// <param name="PluginsSwitchedOff">Every plugin a merged settings file had on in <c>enabledPlugins</c>, switched off in
+/// the run's own settings file (issue #4609).</param>
 public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyList<string> InstructionFolders,
-    IReadOnlyList<string> SkillFolders, string? McpConfigPath, IReadOnlyList<string> RulesSetAside);
+    IReadOnlyList<string> SkillFolders, string? McpConfigPath, IReadOnlyList<string> RulesSetAside,
+    IReadOnlyList<string> PluginsSwitchedOff);
 
 /// <summary>
 /// A SCHEDULED FACTORY RUN NEVER PROMPTS (the owner, 26 October 2026: "A factory run never prompts. The Director also
@@ -41,8 +44,14 @@ public sealed record ScheduledFactoryRunLaunch(string SettingsPath, IReadOnlyLis
 /// <list type="bullet">
 /// <item>its OWN settings file: the user's settings, the folder's <c>.claude/settings.json</c> and
 /// <c>.claude/settings.local.json</c> merged the way Claude Code merges them, under the Director's own settings (its
-/// hooks, and a seat's kit rules), with <c>permissions.ask</c> and <c>permissions.deny</c> removed and nothing else
-/// changed - hooks, environment, model, allow rules and enabled plugins all stay;</item>
+/// hooks, and a seat's kit rules), with <c>permissions.ask</c> and <c>permissions.deny</c> removed and every plugin
+/// the settings files enable switched off - hooks, environment, model and allow rules stay. A plugin installed from a marketplace and
+/// enabled in the user's settings is someone else's code running in an unattended seat: on 5 November 2026 one's
+/// SessionStart hook told a factory seat "This is a greenfield project. Skip exploration", and the seat never found its
+/// brief (issue #4609). So every <c>enabledPlugins</c> entry is set to <c>false</c>, which a real launch proved stops the
+/// plugin loading under <c>--setting-sources=</c>. The folders passed as <c>--plugin-dir</c> below are not
+/// <c>enabledPlugins</c> entries, and they still load; nor are the plugins built into the agent itself, which this does
+/// not reach;</item>
 /// <item><c>--add-dir</c> for the working folder, every folder above it that holds a CLAUDE.md, a <c>.claude/CLAUDE.md</c>
 /// or a <c>.claude/rules</c> folder, and the folder holding the user's own <c>.claude</c>, with
 /// <see cref="InstructionsEnvVar"/> set, which is what makes Claude Code read the instructions of an added folder;</item>
@@ -125,6 +134,8 @@ public static class ScheduledFactoryRunSettings
             MergeInto(merged, settings);
         }
 
+        var pluginsOff = SwitchOffPlugins(merged);
+
         var folders = FoldersUp(workingDirectory);
         var state = Read(stateFile);
         var servers = McpServers(folders, merged, state);
@@ -141,8 +152,8 @@ public static class ScheduledFactoryRunSettings
             SessionHookFiles.WriteAtomic(mcpConfig, new JsonObject { ["mcpServers"] = servers }.ToJsonString(Indented) + "\n");
         }
         FileLog.Write($"[ScheduledFactoryRunSettings] Compose: session={sessionId}, settings={target}, instructions={instructions.Count}, " +
-                      $"skills={skills.Count}, servers={servers.Count}, setAside={setAside.Count}");
-        return new ScheduledFactoryRunLaunch(target, instructions, skills, mcpConfig, setAside);
+                      $"skills={skills.Count}, servers={servers.Count}, setAside={setAside.Count}, pluginsOff={pluginsOff.Count}");
+        return new ScheduledFactoryRunLaunch(target, instructions, skills, mcpConfig, setAside, pluginsOff);
     }
 
     /// <summary>
@@ -177,10 +188,13 @@ public static class ScheduledFactoryRunSettings
             ? "it had no ask or deny rules to set aside"
             : $"{launch.RulesSetAside.Count} ask or deny rule(s) set aside: {string.Join("; ", launch.RulesSetAside)}";
         var skills = launch.SkillFolders.Count == 0 ? "none" : string.Join(", ", launch.SkillFolders);
+        var plugins = launch.PluginsSwitchedOff.Count == 0
+            ? "no plugins switched off for a scheduled factory run"
+            : $"plugins switched off for a scheduled factory run: {string.Join(", ", launch.PluginsSwitchedOff)}";
         return "SCHEDULED FACTORY RUN: started without any settings file's ask and deny rules, so nothing waits on a person " +
                $"(--setting-sources=, the other settings in --settings \"{launch.SettingsPath}\", " +
                $"instructions from {string.Join(", ", launch.InstructionFolders)}, skills from {skills}, " +
-               $"servers from {launch.McpConfigPath ?? "nowhere"}); {rules}.";
+               $"servers from {launch.McpConfigPath ?? "nowhere"}); {rules}; {plugins}.";
     }
 
     /// <summary>Remove a run's own files. A failure is logged and never thrown: the files are copies.</summary>
@@ -380,6 +394,30 @@ public static class ScheduledFactoryRunSettings
         {
             throw new InvalidOperationException($"No session was started: the scheduled factory run's settings file {path} is not JSON Claude Code can read ({ex.Message}).", ex);
         }
+    }
+
+    /// <summary>Set every <c>enabledPlugins</c> entry to <c>false</c> and return, in name order, the names of those that
+    /// were on. An <c>enabledPlugins</c> that is not an object is not a plugin list Claude Code reads, so
+    /// the run is refused rather than started with plugins nobody could switch off.</summary>
+    private static List<string> SwitchOffPlugins(JsonObject settings)
+    {
+        var off = new List<string>();
+        if (settings["enabledPlugins"] is null) return off;
+        if (settings["enabledPlugins"] is not JsonObject plugins)
+            throw new InvalidOperationException("No session was started: the scheduled factory run's merged settings have an enabledPlugins that is not an object, so its plugins could not be switched off.");
+        foreach (var name in plugins.Select(p => p.Key).OrderBy(n => n, StringComparer.Ordinal).ToList())
+        {
+            // On means true, or a list of versions; anything else was not on, so it is set to false without being named.
+            var wasOn = plugins[name] switch
+            {
+                JsonValue value => value.TryGetValue<bool>(out var on) && on,
+                JsonArray versions => versions.Count > 0,
+                _ => false,
+            };
+            plugins[name] = false;
+            if (wasOn) off.Add(name);
+        }
+        return off;
     }
 
     /// <summary>Remove <c>permissions.ask</c> and <c>permissions.deny</c> and return what they held; an emptied

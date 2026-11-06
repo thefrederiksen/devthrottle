@@ -100,9 +100,10 @@ public static class SessionPreambleFile
             FileLog.Write(
                 $"[SessionPreambleFile] injected text read FAILED: the user's injected text is unavailable for {session.Id}, so NOTHING " +
                 $"is injected (the DevThrottle text is deliberately not substituted): {ex.Message}");
-            // Except the owner's lessons (issue #3559): they are not our text, and a file error must not cost a
-            // Fleet Manager the corrections it was given.
-            return string.IsNullOrEmpty(session.FleetManagerLessons) ? "" : Envelope(session.FleetManagerLessons);
+            // Except the owner's lessons (issue #3559) and the factory kit line (issue #4609): neither is our text,
+            // and a file error must not cost a Fleet Manager its corrections or a factory seat the path to its brief.
+            var kept = Join(session.FleetManagerLessons, FactoryRunKit.StartupLine(session));
+            return string.IsNullOrEmpty(kept) ? "" : Envelope(kept);
         }
 
         // Workflows mission (phase 5b): a seated session's preamble carries its seat paragraph, built
@@ -120,6 +121,15 @@ public static class SessionPreambleFile
         if (!string.IsNullOrEmpty(memory))
             text = string.IsNullOrEmpty(text) ? memory : text + "\n\n" + memory;
 
+        // Issue #4609: a factory seat is told where its brief, grants and working folder are, BEFORE the fleet text. The
+        // agent is shown only the first two kilobytes of a long start-up text, and a seat that started in its empty
+        // work/ folder with the kit named only at the end asked a person for its brief all night. The Fleet Manager's
+        // lessons below still go in front of it, deliberately: issue #3559 put them first, and a factory seat that is
+        // also the marked Fleet Manager is a combination the fleet does not make.
+        var kitLine = FactoryRunKit.StartupLine(session);
+        if (!string.IsNullOrEmpty(kitLine))
+            text = string.IsNullOrEmpty(text) ? kitLine : kitLine + "\n\n" + text;
+
         // Issue #3559: the marked Fleet Manager's confirmed lessons, FIRST, exactly as the Gateway wrote them. This is
         // the path a compaction or a clear takes, which is when a Fleet Manager would otherwise lose them. Put in even
         // when the user's own text renders to nothing: an empty preamble turns OUR prose off, not the owner's lessons.
@@ -132,6 +142,14 @@ public static class SessionPreambleFile
             return "";
 
         return Envelope(text);
+    }
+
+    // The lessons first, then the kit line, each only when present.
+    private static string Join(string? lessons, string? kitLine)
+    {
+        if (string.IsNullOrEmpty(lessons)) return kitLine ?? "";
+        if (string.IsNullOrEmpty(kitLine)) return lessons;
+        return lessons + "\n" + kitLine;
     }
 
     private static string Envelope(string text) => JsonSerializer.Serialize(new
