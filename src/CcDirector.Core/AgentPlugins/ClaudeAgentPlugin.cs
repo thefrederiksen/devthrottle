@@ -74,7 +74,7 @@ public sealed class ClaudeAgentPlugin : IAgentPlugin
 
     public AgentCommandPreset DefaultCommandPreset => Presets[0];
 
-    public string DefaultModel => "";
+    public string DefaultModel => AgentToolCatalog.ClaudeDefaultModel;
 
     public IAgent CreateAgent(AgentOptions options) => new ClaudeAgent(options);
 

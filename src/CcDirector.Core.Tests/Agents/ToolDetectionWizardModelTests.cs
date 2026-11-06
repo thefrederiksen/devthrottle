@@ -128,6 +128,8 @@ public class ToolDetectionWizardModelTests
             Assert.Equal(claude.DefaultCommandPreset.Name, entry.PresetId);
             Assert.Equal(claude.DefaultCommandPreset.Arguments, entry.ToToolConfig().ResolveEffectiveArguments());
             Assert.True(entry.Enabled);
+            // A blank model here launched Claude on the account's fallback, Haiku 4.5 (6 November 2026).
+            Assert.Equal("opus", entry.DefaultModel);
         }
         finally
         {
