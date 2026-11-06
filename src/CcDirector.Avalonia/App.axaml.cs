@@ -1528,11 +1528,20 @@ public partial class App : Application
 
         try
         {
-            File.WriteAllText(configPath, defaultConfig);
+            // WRITTEN ATOMICALLY, because this file is no longer per-install. It used to be created
+            // beside the executable, where nothing else could be writing it; it is now in the root's
+            // config directory, which every Director on that root shares. Two starting together could
+            // put one WriteAllText inside the other's ReadAllText - the reader gets truncated JSON,
+            // JsonDocument.Parse throws, and the catch in LoadConfiguration only reaches
+            // Debug.WriteLine, which is compiled out of Release. So the Director would have started
+            // silently on the built-in defaults with nothing in the log to say why.
+            // AtomicFileReplace is the house answer to this exact problem (issue #3220): a reader sees
+            // the whole old file or the whole new one and never half of either.
+            AtomicFileReplace.WriteAllText(configPath, defaultConfig);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to write default config: {ex.Message}");
+            FileLog.Write($"[App] WriteDefaultConfig FAILED for {configPath}: {ex}");
         }
     }
 

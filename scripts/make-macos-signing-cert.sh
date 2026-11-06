@@ -26,6 +26,14 @@
 # the leaf hash. Measured on devthrottle-mac-mini, 5 November 2026: two deliberately different
 # builds signed with one such certificate produced byte-identical designated requirements.
 #
+#
+# --timestamp=none IS A THIRD THING THE APPLE MIGRATION MUST CHANGE. Every comment here says the
+# Developer ID switch is the two secrets plus notarize and staple. It is not: notarization refuses a
+# signature with no secure timestamp, so this flag has to go in all four places that carry it -
+# scripts/package-mac-app.sh (two) and .github/workflows/release.yml (two). It is off today because
+# an untrusted self-signed certificate has no timestamp authority to ask, and asking adds a network
+# call to every build for nothing.
+#
 # WHAT THIS DOES NOT BUY. A self-signed certificate is still an unknown developer to Gatekeeper.
 # It does nothing for the download-and-double-click install, for notarization, or for the name
 # shown in Login Items. Those need a paid Apple Developer ID certificate, and when one exists it
@@ -63,11 +71,22 @@ done
 
 # Refuse to write the key inside a git working tree, wherever --out points. This is cheap, and the
 # alternative is a private key in a commit, which cannot be undone by deleting it in a later one.
-if git -C "$OUT_DIR" rev-parse --show-toplevel >/dev/null 2>&1 \
-   || { mkdir -p "$OUT_DIR" && git -C "$OUT_DIR" rev-parse --show-toplevel >/dev/null 2>&1; }; then
-    echo "ERROR: $OUT_DIR is inside a git repository:" >&2
-    echo "       $(git -C "$OUT_DIR" rev-parse --show-toplevel)" >&2
-    echo "       This script writes a private signing key. Choose --out outside every repository." >&2
+#
+# The test is made on the nearest EXISTING ancestor, so a path that does not exist yet is judged by
+# where it would be created rather than by creating it: asking git about a missing directory answers
+# nothing, and creating it first would leave an empty directory behind inside the repository it was
+# just refused for.
+PROBE="$OUT_DIR"
+while [[ ! -d "$PROBE" && "$PROBE" != "/" && -n "$PROBE" ]]; do
+    PARENT="$(dirname "$PROBE")"
+    [[ "$PARENT" == "$PROBE" ]] && break
+    PROBE="$PARENT"
+done
+
+if TOPLEVEL="$(git -C "$PROBE" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$TOPLEVEL" ]]; then
+    echo "ERROR: $OUT_DIR is inside the git repository $TOPLEVEL" >&2
+    echo "       This script writes a PRIVATE SIGNING KEY. Choose --out outside every repository." >&2
+    echo "       The default, $HOME/.devthrottle-signing, is such a place." >&2
     exit 1
 fi
 

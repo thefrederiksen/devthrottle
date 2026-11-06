@@ -69,6 +69,11 @@ public static class Program
         // probe was widened to stop telling.
         CcDirector.Core.Tools.ToolShimPath.EnsureGuiLaunchPathDefaults(SetupLog.Write);
 
+        // And the other half of what that wrapper did, `cd "$DIR"`: launchd hands a double-clicked
+        // application "/" as its working directory, and a relative path the wizard resolves - a release
+        // directory override, a log beside the install - would resolve against the file-system root.
+        CcDirector.Core.Utilities.ProcessWorkingDirectory.LeaveTheFilesystemRoot();
+
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

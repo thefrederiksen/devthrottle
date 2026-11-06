@@ -1,5 +1,5 @@
-# Put the user's keychain search list back the way sign-macos found it, and delete the temporary
-# keychain it made. Call it with `if: always()` after the last step that signs.
+# Take sign-macos's temporary keychain back out of the user's keychain search list, and delete it.
+# Call it with `if: always()` after the last step that signs.
 #
 # WHY IT IS A SEPARATE ACTION. `security list-keychains -s` changes state that belongs to the USER,
 # not to the job: it outlives the job and every later job on the same machine reads it. On a
@@ -8,18 +8,21 @@
 # leave a dangling entry in the search list for everything that followed. A composite action cannot
 # register a `post:` step, so the cleanup is its own action and each job calls it.
 #
-# Safe to call when nothing was changed: with empty inputs it does nothing and says so.
+# WHY IT REMOVES ONE ENTRY RATHER THAN RESTORING A SAVED LIST. The three macOS jobs of a release run
+# at the same time. Two runners under one account, each saving the list on the way in and writing its
+# own copy back on the way out, race: the first to finish restores a list from before the second
+# existed, which deletes the second's keychain while it is still signing, and the second's restore
+# then puts the first's dead entry back. Adding one entry and later removing that same one entry is
+# safe however many jobs overlap.
+#
+# Safe to call when there is nothing to do: with an empty input it says so and changes nothing.
 
 name: Restore the macOS keychain search list
-description: Undo the keychain search list change made by sign-macos and delete its keychain.
+description: Remove the temporary signing keychain from the user's search list and delete it.
 
 inputs:
-  restore-list:
-    description: The restore-list output of sign-macos. Empty means there is nothing to undo.
-    required: false
-    default: ""
   keychain:
-    description: The keychain output of sign-macos. Empty means none was created.
+    description: The keychain output of sign-macos. Empty means none was created, so there is nothing to undo.
     required: false
     default: ""
 
@@ -28,31 +31,63 @@ runs:
   steps:
     - shell: bash
       env:
-        RESTORE_LIST: ${{ inputs.restore-list }}
         KEYCHAIN: ${{ inputs.keychain }}
       run: |
         set -uo pipefail
 
-        if [[ -z "${RESTORE_LIST}" || ! -f "${RESTORE_LIST}" ]]; then
-          echo "No saved keychain search list - nothing to restore."
-        else
-          EXISTING=()
-          while IFS= read -r line; do
-            [[ -n "$line" ]] && EXISTING+=("$line")
-          done < "${RESTORE_LIST}"
-
-          if [[ ${#EXISTING[@]} -eq 0 ]]; then
-            echo "The saved search list is empty; leaving the current one alone rather than emptying it."
-          else
-            security list-keychains -d user -s "${EXISTING[@]}"
-            echo "keychain search list restored to:"
-            security list-keychains -d user | sed 's/^/  /'
-          fi
+        if [[ -z "${KEYCHAIN}" ]]; then
+          echo "No temporary signing keychain was created - nothing to undo."
+          exit 0
         fi
 
-        # Deleted last, so a failure to restore the list does not also leave the keychain behind.
-        if [[ -n "${KEYCHAIN}" ]]; then
-          security delete-keychain "${KEYCHAIN}" 2>/dev/null \
-            && echo "deleted the temporary signing keychain" \
-            || echo "the temporary signing keychain was already gone"
+        # Keychain paths are compared RESOLVED. `security list-keychains` prints the real path, and on
+        # macOS /var is a symbolic link to /private/var - so RUNNER_TEMP's own
+        # /var/folders/.../x.keychain-db comes back as /private/var/folders/.../x.keychain-db and a plain
+        # string comparison misses it. Measured: the cleanup silently removed nothing at all.
+        resolve_path() {
+          local p="$1" dir base
+          dir="$(dirname "$p")"
+          base="$(basename "$p")"
+          if cd "$dir" 2>/dev/null; then
+            printf '%s/%s\n' "$(pwd -P)" "$base"
+            cd - >/dev/null 2>&1 || true
+          else
+            printf '%s\n' "$p"
+          fi
+        }
+
+        OURS="$(resolve_path "${KEYCHAIN}")"
+
+        # Everything currently on the list EXCEPT ours, each path its own array element so a path with
+        # a space in it stays one argument.
+        KEEP=()
+        REMOVED=0
+        while IFS= read -r line; do
+          [[ -z "$line" ]] && continue
+          if [[ "$(resolve_path "$line")" == "$OURS" ]]; then
+            REMOVED=1
+            continue
+          fi
+          KEEP+=("$line")
+        done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"?//; s/"?[[:space:]]*$//')
+
+        if [[ "$REMOVED" != "1" ]]; then
+          echo "Our keychain is not on the search list (already removed, or never added)."
+        fi
+
+        if [[ ${#KEEP[@]} -eq 0 ]]; then
+          # Setting an empty list would leave this user with no keychains at all, which is worse than
+          # the dangling entry this step exists to remove.
+          echo "WARNING: our keychain is the only one on the search list; leaving the list alone."
+        else
+          security list-keychains -d user -s "${KEEP[@]}"
+          echo "keychain search list is now:"
+          security list-keychains -d user | sed 's/^/  /'
+        fi
+
+        # Deleted last, so a failure above does not also leave the keychain file behind.
+        if security delete-keychain "${KEYCHAIN}" 2>/dev/null; then
+          echo "deleted the temporary signing keychain"
+        else
+          echo "the temporary signing keychain was already gone"
         fi

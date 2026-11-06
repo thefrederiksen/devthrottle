@@ -243,6 +243,10 @@ fi
 #
 # The second line is the one that decides the identifier half of the designated requirement, which is
 # why the check below asserts that identifier and not only the certificate.
+# --timestamp=none: an untrusted self-signed certificate has no timestamp authority to ask, and
+# asking would add a network call to every build for nothing. NOTARIZATION REFUSES A SIGNATURE WITH
+# NO SECURE TIMESTAMP, so this flag must go when the Apple Developer ID certificate arrives - here,
+# on the next line, and in the two codesign steps in .github/workflows/release.yml.
 codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP/Contents/MacOS/$BIN_NAME"
 codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP"
 

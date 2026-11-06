@@ -216,29 +216,59 @@ public sealed class ToolShimPathTests
         Assert.Equal(string.Join(Sep, dirs) + Sep + inherited, path);
     }
 
+    // THE DIRECTORIES ARE PASSED SEPARATELY AND JOINED WITH Path.PathSeparator, never written into the
+    // InlineData as one ":"-separated string. The separator is ";" on Windows, and continuous integration
+    // builds and tests this solution on windows-latest - so a ":"-separated literal arrives as ONE
+    // element there, matches nothing, and turns the build red on a macOS-only rule.
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("/usr/bin:/bin:/usr/sbin:/sbin")]
-    [InlineData("/sbin:/usr/sbin:/bin:/usr/bin")]          // the order does not matter
-    [InlineData("/usr/bin/:/bin/:/usr/sbin/:/sbin/")]      // nor does a trailing separator
-    [InlineData("/usr/bin:/bin")]                          // a subset is still nothing but system defaults
-    public void IsLaunchdDefaultPath_WhatLaunchdHandsADesktopLaunch_IsRecognised(string? searchPath)
+    public void IsLaunchdDefaultPath_NoPathAtAll_CountsAsADesktopLaunch(string? searchPath)
     {
-        // The only case the deleted bash wrapper ever repaired, so the only case worth repairing.
         Assert.True(ToolShimPath.IsLaunchdDefaultPath(searchPath));
     }
 
     [Theory]
-    [InlineData("/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin")]
-    [InlineData("/Users/someone/.pyenv/shims:/usr/bin:/bin:/usr/sbin:/sbin")]
-    [InlineData("/usr/local/bin:/usr/bin:/bin")]
-    public void IsLaunchdDefaultPath_AnythingAShellTouched_IsLeftAlone(string searchPath)
+    [InlineData("/usr/bin", "/bin", "/usr/sbin", "/sbin")]
+    [InlineData("/sbin", "/usr/sbin", "/bin", "/usr/bin")]          // the order does not matter
+    [InlineData("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/")]      // nor does a trailing separator
+    [InlineData("/usr/bin", "/bin")]                                // a subset is still only system defaults
+    public void IsLaunchdDefaultPath_WhatLaunchdHandsADesktopLaunch_IsRecognised(params string[] directories)
     {
-        // A terminal start, an SSH start and a launcher start all ran the binary directly and never saw
-        // the wrapper. Reaching into their PATH would change which python3 or node a session gets.
-        Assert.False(ToolShimPath.IsLaunchdDefaultPath(searchPath));
+        // The only case the deleted bash wrapper ever repaired, so the only case worth repairing.
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(string.Join(Sep, directories)));
+    }
+
+    [Fact]
+    public void IsLaunchdDefaultPath_JoinedWithTheOtherPlatformsSeparator_IsNotRecognised()
+    {
+        // The regression this pins. The first version of the tests above wrote the PATH as one
+        // ":"-separated literal, which is correct on macOS and WRONG on Windows, where the separator is
+        // ";" - so on the Windows continuous-integration machine the whole string arrived as a single
+        // element, matched nothing, and four passing tests went red on a macOS-only rule. This asserts
+        // the shape of that mistake directly, so it cannot come back disguised as a green suite here.
+        var wrongSeparator = Path.PathSeparator == ':' ? ';' : ':';
+        var path = string.Join(wrongSeparator, "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+
+        Assert.False(ToolShimPath.IsLaunchdDefaultPath(path));
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(
+            string.Join(Path.PathSeparator, "/usr/bin", "/bin", "/usr/sbin", "/sbin")));
+    }
+
+    [Theory]
+    [InlineData("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/opt/homebrew/bin")]
+    [InlineData("/Users/someone/.pyenv/shims", "/usr/bin", "/bin", "/usr/sbin", "/sbin")]
+    [InlineData("/usr/local/bin", "/usr/bin", "/bin")]
+    public void IsLaunchdDefaultPath_AnythingAShellTouched_IsLeftAlone(params string[] directories)
+    {
+        // A terminal start and an SSH start run the binary directly, with a PATH a shell profile has
+        // already built. Reaching into that would change which python3 or node every session gets.
+        //
+        // A LAUNCHER START IS NOT IN THIS LIST: DirectorSupervisor opens the bundle through
+        // /usr/bin/open, so launchd starts the Director and its PATH is launchd's - which the theory
+        // above requires to be repaired, exactly as the wrapper used to.
+        Assert.False(ToolShimPath.IsLaunchdDefaultPath(string.Join(Sep, directories)));
     }
 
     [Theory]

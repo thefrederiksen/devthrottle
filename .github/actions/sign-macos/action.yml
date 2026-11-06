@@ -21,6 +21,14 @@
 # need to be trusted on the user's machine - codesign signs with an untrusted certificate, and the
 # requirement matches on the leaf hash.
 #
+#
+# --timestamp=none IS A THIRD THING THE APPLE MIGRATION MUST CHANGE. Every comment here says the
+# Developer ID switch is the two secrets plus notarize and staple. It is not: notarization refuses a
+# signature with no secure timestamp, so this flag has to go in all four places that carry it -
+# scripts/package-mac-app.sh (two) and .github/workflows/release.yml (two). It is off today because
+# an untrusted self-signed certificate has no timestamp authority to ask, and asking adds a network
+# call to every build for nothing.
+#
 # WHAT THIS DOES NOT BUY: Gatekeeper acceptance, notarization, a double-click install, or a real
 # developer name in Login Items. Those need a paid Apple Developer ID certificate. When one
 # exists, it replaces this certificate by changing the two secrets below and adding the
@@ -63,11 +71,6 @@ outputs:
   signed:
     description: "true when a real identity is available, false when the build will be ad-hoc."
     value: ${{ steps.import.outputs.signed }}
-  restore-list:
-    description: >
-      File holding the keychain search list as it was BEFORE this action changed it, one path per
-      line. Pass it to restore-macos-keychains in an `if: always()` step. Empty when nothing changed.
-    value: ${{ steps.import.outputs.restore-list }}
   keychain:
     description: The temporary keychain this action created, for the same cleanup step. Empty when none.
     value: ${{ steps.import.outputs.keychain }}
@@ -122,27 +125,32 @@ runs:
         security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
         # codesign searches the user's keychain list, so the new keychain has to join it.
         #
-        # THE EXISTING ENTRIES ARE PRESERVED WITH THEIR SPACES. `tr -d '" '` stripped every space in
-        # the line, which removes the quotes AND mangles any keychain path that contains one
+        # ADDED TO THE FRONT OF WHATEVER IS THERE, NEVER SNAPSHOT-AND-REPLACE. The search list is USER
+        # state: it outlives the job, and the three macOS jobs of a release run at the same time. Two
+        # runners under one account on a self-hosted Mac, each saving the list and later putting its own
+        # copy back, race - job A restores the list it saw before job B existed, deleting B's keychain
+        # from the list while B is still signing, and B's restore then reinstates A's dead entry. So
+        # nothing is snapshot: this adds one entry, and restore-macos-keychains removes that one entry
+        # from whatever the list says by then. Both operations are about our own keychain alone.
+        #
+        # THE EXISTING ENTRIES KEEP THEIR SPACES. `tr -d '" '` stripped every space in the line, which
+        # removes the quotes AND mangles any keychain path that contains one
         # ("/Users/me/Library/Keychains/My Keychain.keychain-db" became a path that does not exist).
-        # Only the surrounding quotes and the indent are removed here.
-        PREVIOUS_LIST="$RUNNER_TEMP/keychain-search-list-before.txt"
-        security list-keychains -d user | sed -E 's/^[[:space:]]*"?//; s/"?[[:space:]]*$//' > "$PREVIOUS_LIST"
-        echo "keychain search list before this job:"
-        sed 's/^/  /' "$PREVIOUS_LIST"
+        # Only the surrounding quotes and the indent are removed here, and each path is read into its
+        # own array element so it stays one argument.
+        echo "keychain search list before this step:"
+        security list-keychains -d user | sed 's/^/  /'
 
-        # Read into an array so each path stays one argument however many spaces it holds.
         EXISTING=()
         while IFS= read -r line; do
           [[ -n "$line" ]] && EXISTING+=("$line")
-        done < "$PREVIOUS_LIST"
-        security list-keychains -d user -s "$KEYCHAIN" "${EXISTING[@]}"
+        done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"?//; s/"?[[:space:]]*$//')
 
-        # The search list is USER state, not job state: it outlives the job. On a GitHub-hosted runner
-        # the whole machine is thrown away, but this repository also has a self-hosted Mac, where the
-        # temporary keychain would die with RUNNER_TEMP and leave a dangling entry behind for every
-        # later job. restore-macos-keychains puts the saved list back; call it with `if: always()`.
-        echo "restore-list=$PREVIOUS_LIST" >> "$GITHUB_OUTPUT"
+        # ${EXISTING[@]+"${EXISTING[@]}"} rather than "${EXISTING[@]}": the runner images ship bash
+        # 3.2, where expanding an empty array under `set -u` aborts with "unbound variable".
+        security list-keychains -d user -s "$KEYCHAIN" ${EXISTING[@]+"${EXISTING[@]}"}
+
+        # Pass this to restore-macos-keychains from an `if: always()` step.
         echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
 
         rm -f "$P12"

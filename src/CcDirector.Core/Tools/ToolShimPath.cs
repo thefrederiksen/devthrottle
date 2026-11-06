@@ -217,12 +217,19 @@ public static class ToolShimPath
         var current = Environment.GetEnvironmentVariable("PATH");
 
         // AND ONLY WHEN THE PATH IS THE ONE launchd HANDS OUT. The wrapper was the bundle's
-        // CFBundleExecutable, so it ran when the desktop started the application and at no other time:
-        // a terminal start, an SSH start and a launcher start all ran the binary directly and never saw
-        // it. Running unconditionally would reach further than the wrapper ever did, and the case that
-        // bites is a developer whose PATH deliberately resolves python3 or node through pyenv, nvm or
-        // asdf shims and does not list /usr/local/bin - putting that directory in front would hand every
-        // session a different interpreter than the one the machine is set up to use.
+        // CFBundleExecutable, so it ran whenever the BUNDLE was opened and never when the binary inside
+        // it was run directly - a terminal start and an SSH start never saw it. Running unconditionally
+        // would reach further than the wrapper ever did, and the case that bites is a developer whose
+        // PATH deliberately resolves python3 or node through pyenv, nvm or asdf shims and does not list
+        // /usr/local/bin: putting that directory in front would hand every session a different
+        // interpreter than the one the machine is set up to use.
+        //
+        // A LAUNCHER START IS A DESKTOP START, and this guard must keep treating it as one.
+        // DirectorSupervisor hands the bundle to /usr/bin/open so the Director is parented by launchd
+        // rather than by the launcher, which means the wrapper DID run on the normal macOS autostart
+        // path and the PATH it gets is launchd's. Reading this guard as "exclude launcher starts" and
+        // narrowing it would re-break PATH for every autostarted Director and every session it opens -
+        // the original bug. The test for the launchd PATH is what keeps that case in.
         if (!IsLaunchdDefaultPath(current))
         {
             (log ?? FileLog.Write)(

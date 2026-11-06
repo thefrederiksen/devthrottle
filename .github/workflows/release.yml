@@ -188,7 +188,6 @@ jobs:
         if: always()
         uses: ./.github/actions/restore-macos-keychains
         with:
-          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
           keychain: ${{ steps.macos-sign.outputs.keychain }}
 
       - name: Upload cc-director mac artifact
@@ -305,12 +304,13 @@ jobs:
           SETUP_CLI: tools/cc-director-setup-cli/bin/Release/net10.0/osx-arm64/publish/cc-director-setup-cli
           IDENTITY: ${{ steps.macos-sign.outputs.identity }}
           SIGNED: ${{ steps.macos-sign.outputs.signed }}
+          BUNDLE_ID: com.devthrottle.setup-cli
         run: |
           set -euo pipefail
           # A bare executable has no Info.plist, so -i gives it the bundle identifier that the
           # designated requirement is built from.
           codesign --force --timestamp=none \
-                   -i com.devthrottle.setup-cli \
+                   -i "$BUNDLE_ID" \
                    --sign "${IDENTITY:--}" "$SETUP_CLI"
           REQUIREMENT="$(codesign -d -r- "$SETUP_CLI" 2>&1 | grep -E "designated" || true)"
           echo "designated requirement ->"
@@ -319,9 +319,20 @@ jobs:
           # a renamed or wrongly scoped secret makes the identity EMPTY, which would sign ad-hoc and
           # break every user's privacy grants with no signal but one line in the log (issue #4518).
           # SIGNED comes from the action, which knows whether a certificate was supplied at all.
-          if [[ "$SIGNED" == "true" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
-            echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
-            exit 1
+          #
+          # BOTH HALVES, as package-mac-app.sh checks for the bundles: a grant is keyed to
+          #     identifier "<bundle id>" and certificate leaf = H"<hash>"
+          # and dropping or mistyping the -i above would leave the requirement naming the FILE instead,
+          # which a certificate-only check would wave through.
+          if [[ "$SIGNED" == "true" ]]; then
+            if ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+              echo "::error title=macOS signing::A certificate was supplied, but the designated requirement names none. A privacy grant would not survive an update."
+              exit 1
+            fi
+            if ! echo "$REQUIREMENT" | grep -q "identifier \"$BUNDLE_ID\""; then
+              echo "::error title=macOS signing::The designated requirement does not name $BUNDLE_ID: $REQUIREMENT"
+              exit 1
+            fi
           fi
 
       # Puts the user's keychain search list back and deletes the temporary keychain. always(), so a
@@ -330,7 +341,6 @@ jobs:
         if: always()
         uses: ./.github/actions/restore-macos-keychains
         with:
-          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
           keychain: ${{ steps.macos-sign.outputs.keychain }}
 
       - name: Upload macOS setup CLI artifact
@@ -632,12 +642,13 @@ jobs:
           LAUNCHER: src/CcDirector.Launcher/bin/Release/net10.0/osx-arm64/publish/cc-launcher
           IDENTITY: ${{ steps.macos-sign.outputs.identity }}
           SIGNED: ${{ steps.macos-sign.outputs.signed }}
+          BUNDLE_ID: com.devthrottle.cc-launcher
         run: |
           set -euo pipefail
           # A bare executable has no Info.plist, so -i gives it the bundle identifier that the
           # designated requirement is built from. Without it the requirement names "cc-launcher".
           codesign --force --timestamp=none \
-                   -i com.devthrottle.cc-launcher \
+                   -i "$BUNDLE_ID" \
                    --sign "${IDENTITY:--}" "$LAUNCHER"
           REQUIREMENT="$(codesign -d -r- "$LAUNCHER" 2>&1 | grep -E "designated" || true)"
           echo "designated requirement ->"
@@ -646,9 +657,20 @@ jobs:
           # a renamed or wrongly scoped secret makes the identity EMPTY, which would sign ad-hoc and
           # break every user's privacy grants with no signal but one line in the log (issue #4518).
           # SIGNED comes from the action, which knows whether a certificate was supplied at all.
-          if [[ "$SIGNED" == "true" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
-            echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
-            exit 1
+          #
+          # BOTH HALVES, as package-mac-app.sh checks for the bundles: a grant is keyed to
+          #     identifier "<bundle id>" and certificate leaf = H"<hash>"
+          # and dropping or mistyping the -i above would leave the requirement naming the FILE instead,
+          # which a certificate-only check would wave through.
+          if [[ "$SIGNED" == "true" ]]; then
+            if ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+              echo "::error title=macOS signing::A certificate was supplied, but the designated requirement names none. A privacy grant would not survive an update."
+              exit 1
+            fi
+            if ! echo "$REQUIREMENT" | grep -q "identifier \"$BUNDLE_ID\""; then
+              echo "::error title=macOS signing::The designated requirement does not name $BUNDLE_ID: $REQUIREMENT"
+              exit 1
+            fi
           fi
 
       # Puts the user's keychain search list back and deletes the temporary keychain. always(), so a
@@ -657,7 +679,6 @@ jobs:
         if: always()
         uses: ./.github/actions/restore-macos-keychains
         with:
-          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
           keychain: ${{ steps.macos-sign.outputs.keychain }}
 
       - name: Upload launcher mac artifact

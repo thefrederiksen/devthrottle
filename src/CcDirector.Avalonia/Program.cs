@@ -74,6 +74,12 @@ internal static class Program
         // ShimDirFor exists to prevent (mission #4070).
         CcDirector.Core.Tools.ToolShimPath.EnsureGuiLaunchPathDefaults();
 
+        // The OTHER half of what that wrapper did: `cd "$DIR"`. launchd hands a desktop launch "/" as
+        // its working directory, and every caller of ProcessWorkingDirectory.CurrentOrAppDirectory
+        // reads that successfully and passes it on - so a new session's working directory defaulted to
+        // the file-system root and the skill search started there (issue #4518).
+        CcDirector.Core.Utilities.ProcessWorkingDirectory.LeaveTheFilesystemRoot();
+
         // THEN the tool shim directory (~/.local/bin for the machine's default root, the root's own bin for
         // any other), on this process's PATH on macOS and Linux when whatever started the Director left it
         // out - an SSH start does (issue devthrottle_internal#2474). Before any session starts, so every
