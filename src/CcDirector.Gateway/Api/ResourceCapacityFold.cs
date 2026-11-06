@@ -90,7 +90,14 @@ internal static class ResourceCapacityFold
                       + "Director measured, not an idle machine.",
             };
 
-        var refusedInHour = recent.Any(w => w.RefusedReason is not null);
+        // Whether the hour's peak is known is decided PER RESOURCE, and by every window in the hour - not by whether one
+        // was refused. A window can be unread for the processor and read for memory, and Max over a nullable figure skips
+        // the null without saying so: the highest READABLE peak would be printed as the hour's peak, a believable
+        // understatement (issue #4670, after review finding 13). A refused window has no figures, so it is one case of this.
+        var processorGap = HourGap(recent, w => w.ProcessorPeakPercent is not null, w => w.ProcessorUnreadableReason,
+            "the hour's peak processor use");
+        var memoryGap = HourGap(recent, w => w.MemoryPeakUsedBytes is not null, w => w.MemoryUnreadableReason,
+            "the hour's peak memory use - and with it the spare capacity -");
         var crossings = ResourceSummaryStore.CrossingsOf(newest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
@@ -98,12 +105,20 @@ internal static class ResourceCapacityFold
         // ---- the processor ----
         if (newest.ProcessorAveragePercent is { } cpuNow)
         {
-            var peak = recent.Max(w => w.ProcessorPeakPercent);
-            // A refused window in the hour has no figures, so the hour's peak is not known: the highest READABLE peak
-            // would be a believable understatement (review finding 13).
             dto.ProcessorLabel = Percent(cpuNow);
-            dto.ProcessorDetail = refusedInHour ? "peak not known" : peak is { } p ? $"peak {Percent(p)}" : null;
             dto.ProcessorTone = ToneOf(crossings, ResourceSummaryContract.Processor);
+            if (processorGap is not null)
+            {
+                dto.ProcessorDetail = "peak not known";
+                why.Add(processorGap);
+            }
+            else
+            {
+                // Every window in the hour read the processor and the newest is one of them, so there is a peak.
+                var peak = recent.Max(w => w.ProcessorPeakPercent)
+                           ?? throw new InvalidOperationException("Every window in the hour read the processor, yet none has a peak.");
+                dto.ProcessorDetail = $"peak {Percent(peak)}";
+            }
         }
         else
         {
@@ -118,28 +133,32 @@ internal static class ResourceCapacityFold
             dto.MemoryLabel = Percent(usedNow * 100.0 / total);
             dto.MemoryDetail = $"{Gigabytes(usedNow)} / {Gigabytes(total)} GB";
             dto.MemoryTone = ToneOf(crossings, ResourceSummaryContract.Memory);
-            // The newest window has its peak (the store keeps average and peak together), so the hour's peak is known.
-            var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes)!.Value;
-            // A refused window in the hour may have held the hour's peak, so Spare is not known: computed from the readable
-            // windows alone it would advertise room the machine did not have (review finding 13).
-            if (refusedInHour)
+            // A window in the hour whose memory was not read may have held the hour's peak, so Spare is not known: computed
+            // from the readable windows alone it would advertise room the machine did not have, and Spare's only reader is
+            // the decision about where the next factory goes (issue #4670).
+            if (memoryGap is not null)
             {
                 dto.SpareLabel = "cannot read";
-                why.Add("A window in the last hour had its figures refused, so the hour's peak memory - and with it the "
-                        + "spare capacity - is not known.");
-            }
-            // NEVER CLAMPED. A peak above the machine's total is a reading no machine can give; showing it as "0.0 GB"
-            // spare would turn a defect into a believable figure.
-            else if (peakUsed > total)
-            {
-                dto.SpareLabel = "cannot read";
-                why.Add($"The machine reported more memory in use than it has ({Gigabytes(peakUsed)} of {Gigabytes(total)} GB), "
-                        + "so its spare capacity is not known.");
+                why.Add(memoryGap);
             }
             else
             {
-                dto.SpareBytes = total - peakUsed;
-                dto.SpareLabel = $"{Gigabytes(total - peakUsed)} GB";
+                // Every window in the hour read memory and the newest is one of them, so there is a peak.
+                var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes)
+                               ?? throw new InvalidOperationException("Every window in the hour read memory, yet none has a peak.");
+                // NEVER CLAMPED. A peak above the machine's total is a reading no machine can give; showing it as "0.0 GB"
+                // spare would turn a defect into a believable figure.
+                if (peakUsed > total)
+                {
+                    dto.SpareLabel = "cannot read";
+                    why.Add($"The machine reported more memory in use than it has ({Gigabytes(peakUsed)} of {Gigabytes(total)} GB), "
+                            + "so its spare capacity is not known.");
+                }
+                else
+                {
+                    dto.SpareBytes = total - peakUsed;
+                    dto.SpareLabel = $"{Gigabytes(total - peakUsed)} GB";
+                }
             }
         }
         else
@@ -154,6 +173,41 @@ internal static class ResourceCapacityFold
         (dto.StatusLabel, dto.StatusTone) = StatusOf(dto);
         dto.Why = why.Count == 0 ? null : string.Join(" ", why);
         return dto;
+    }
+
+    /// <summary>
+    /// Why the hour's figure for one resource is not known, or null when every window in the hour read it. Windows are
+    /// taken by their start: two Directors on one machine both measure the whole machine, so a window one of them could
+    /// not read is covered when the other read it. The sentence says WHICH happened, because a refused window is a fault
+    /// in how a Director measured and an unread one is a counter that did not answer - different places to look.
+    /// </summary>
+    private static string? HourGap(List<ResourceWindowEntity> recent, Func<ResourceWindowEntity, bool> read,
+        Func<ResourceWindowEntity, string?> unreadReason, string what)
+    {
+        var unread = recent
+            .GroupBy(w => w.WindowStartUtc)
+            .Where(g => !g.Any(read))
+            .OrderBy(g => g.Key)
+            .ToList();
+        if (unread.Count == 0) return null;
+
+        // A window start is refused when its only rows were refused; otherwise it was simply unread.
+        var refused = unread.Where(g => g.All(w => w.RefusedReason is not null)).ToList();
+        var notRead = unread.Where(g => !g.All(w => w.RefusedReason is not null)).ToList();
+        var causes = new List<string>();
+        if (refused.Count > 0)
+            causes.Add($"{Windows(refused.Count)} had figures the Gateway refused (at {Time(refused[0].Key)}: "
+                       + $"{refused[0].First().RefusedReason})");
+        if (notRead.Count > 0)
+        {
+            var row = notRead[0].First(w => w.RefusedReason is null);
+            causes.Add($"{Windows(notRead.Count)} could not be read (at {Time(notRead[0].Key)}: "
+                       + $"{unreadReason(row) ?? "the Director gave no reason"})");
+        }
+        return $"In the last hour {string.Join(" and ", causes)}, so {what} is not known.";
+
+        static string Windows(int count) => count == 1 ? "one window" : $"{count} windows";
+        static string Time(DateTime utc) => utc.ToString("HH:mm", CultureInfo.InvariantCulture) + " UTC";
     }
 
     private static FleetMachineCapacityDto NotReporting(string? status, string why) => new()
