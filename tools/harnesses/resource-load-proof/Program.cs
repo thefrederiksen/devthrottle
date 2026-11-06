@@ -117,7 +117,7 @@ internal static class Harness
         // condition - or the poll deadline passes. The recording is written once a minute, so the newest line can be a
         // minute old: an observation counts only by the time its sample was taken, never by when the harness read it,
         // so a stopped Director whose last line happens to be red can never pass "red". The verdict is then judged on
-        // the sample's own time against the 70-second limit.
+        // the harness's own monotonic clock against the 70-second limit, with the sample's stamps cross-checked.
         // Every poll reads the whole window of recorded samples and judges on the EARLIEST one taken after the change
         // that meets the condition, because the recorder appends a minute of lines at once.
         // `eachPoll` runs once before every read, whether or not a fresh sample exists yet - it is where a load keeps
@@ -130,23 +130,40 @@ internal static class Harness
                 eachPoll?.Invoke();
                 var window = ObserveWindow();
                 var newest = window[^1];
-                var first = ProofChecks.FirstMeeting(window, sinceUtc, condition);
+                var verdict = ProofChecks.JudgeWarning(window, sinceUtc, condition);
                 Console.WriteLine($"[wait] {clock.Elapsed.TotalSeconds,5:F0} s  newest sample {newest.TakenAtUtc:HH:mm:ss}{(newest.TakenAtUtc >= sinceUtc ? "" : " (before the change)")}  CPU {Describe(newest.Cpu)}  MEM {Describe(newest.Memory)}  waiting for {what}");
-                if (first is not null)
-                    return new WaitResult(ProofChecks.WithinWarningDeadline(sinceUtc, first.TakenAtUtc), first,
-                        first.TakenAtUtc - sinceUtc, Seen: true);
+                if (verdict.Seen)
+                    return new WaitResult(verdict, verdict.Sample!);
+
+                // The Stopwatch bounds how long the harness WAITS. It never decides the verdict: the recorder
+                // writes a minute of lines at once, so the harness must outlast that to see a sample the
+                // product already recorded in time.
                 if (clock.Elapsed >= ProofChecks.PollDeadline)
-                    return new WaitResult(false, newest, newest.TakenAtUtc - sinceUtc, Seen: false);
+                    return new WaitResult(verdict, newest);
                 Thread.Sleep(Poll);
             }
         }
 
-        private static string Verdict(WaitResult result, string reached, string since) =>
-            result.Met
-                ? $"{reached} {result.Elapsed.TotalSeconds:F0} s after {since}, by the recorded sample's own time"
-                : result.Seen
-                    ? $"{reached} only {result.Elapsed.TotalSeconds:F0} s after {since} - OVER the {ProofChecks.WarningDeadline.TotalSeconds:F0} s limit"
-                    : $"NOT {reached}: no recorded sample met it within {ProofChecks.PollDeadline.TotalSeconds:F0} s of polling (newest sample {result.Last.TakenAtUtc:HH:mm:ss} UTC, CPU {Describe(result.Last.Cpu)}, MEM {Describe(result.Last.Memory)})";
+        private static string Verdict(WaitResult result, string reached, string since)
+        {
+            var v = result.Judgement;
+
+            // A note the reader needs, never a silent adjustment. The figure is monotonic either way; what
+            // changes is how much the run deserves to be trusted.
+            var caveat = v.DirectorRestarted
+                ? " - but the Director RESTARTED inside this span, where the recording bridges the gap with the"
+                  + " wall clock, so this is not a monotonic measurement and the step does not count as met"
+                : v.ClockStepped
+                    ? " (the recorder marked a wall-clock step inside this span; the figure is measured on the"
+                      + " recording's own timeline and stands, but read this run with care)"
+                    : string.Empty;
+
+            if (v.Met)
+                return $"{reached} {v.Elapsed.TotalSeconds:F0} s after {since}, on the recording's own timeline{caveat}";
+            if (v.Seen)
+                return $"{reached} only {v.Elapsed.TotalSeconds:F0} s after {since} - OVER the {ProofChecks.WarningDeadline.TotalSeconds:F0} s limit{caveat}";
+            return $"NOT {reached}: no recorded sample met it within {ProofChecks.PollDeadline.TotalSeconds:F0} s of polling (newest sample {result.Last.TakenAtUtc:HH:mm:ss} UTC, CPU {Describe(result.Last.Cpu)}, MEM {Describe(result.Last.Memory)})";
+        }
 
         public StepResult IdleAgreement()
         {
@@ -302,8 +319,15 @@ internal static class Harness
     }
 }
 
-/// <summary>The outcome of one wait: whether the limit was met, the last observation, how long after the change its sample was taken, and whether a matching sample was seen at all.</summary>
-internal sealed record WaitResult(bool Met, MeterObservation Last, TimeSpan Elapsed, bool Seen);
+/// <summary>The outcome of one wait, as the step reports it.</summary>
+/// <param name="Judgement">What the recorded window says about the wait, measured on the recording's own monotonic timeline.</param>
+/// <param name="Last">The sample to quote when nothing met the condition.</param>
+internal sealed record WaitResult(WarningVerdict Judgement, MeterObservation Last)
+{
+    public bool Met => Judgement.Met;
+    public bool Seen => Judgement.Seen;
+    public TimeSpan Elapsed => Judgement.Elapsed;
+}
 
 /// <summary>One step's outcome, as written into the report.</summary>
 internal sealed record StepResult(string Name, bool Passed, string Summary, Dictionary<string, string> Readings, List<string> Screenshots);

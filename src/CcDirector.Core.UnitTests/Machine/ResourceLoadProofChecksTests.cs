@@ -36,16 +36,164 @@ public class ResourceLoadProofChecksTests
         Assert.Contains("could not read", result.Summary);
     }
 
-    // ---- the warning limit, judged on the recorded sample's own time ----
+    // ---- the warning limit, judged on the recording's own monotonic timeline ----
 
     [Theory]
     [InlineData(0, true)]
     [InlineData(70, true)]
     [InlineData(71, false)]
-    [InlineData(-1, false)]
-    public void WithinWarningDeadline_CountsOnlySamplesTakenAfterTheChange(int sampleSecondsAfter, bool expected)
+    public void WithinWarningDeadline_IsMeasuredTimeAgainstTheLimit(int seconds, bool expected)
     {
-        Assert.Equal(expected, ProofChecks.WithinWarningDeadline(Noon, Noon.AddSeconds(sampleSecondsAfter)));
+        Assert.Equal(expected, ProofChecks.WithinWarningDeadline(TimeSpan.FromSeconds(seconds)));
+    }
+
+    [Fact]
+    public void WithinWarningDeadline_ANegativeMeasurement_IsRefusedRatherThanClampedToZero()
+    {
+        // The recording going backwards is a broken instrument. Zero would be a believable figure for it,
+        // and a believable figure for a broken instrument is this mission's whole defect class.
+        Assert.False(ProofChecks.WithinWarningDeadline(TimeSpan.FromSeconds(-1)));
+    }
+
+    /// <summary>
+    /// THE DEFECT THESE TESTS EXIST FOR, and they drive the real decision rather than arithmetic on
+    /// constants. The harness decides whether the product met its 70-second criterion. Judged by
+    /// subtracting two WALL-clock stamps, a time synchronisation step during the run changes the answer.
+    ///
+    /// Here the recording's own timeline says the warning came 65 seconds after the baseline - a pass -
+    /// while the wall stamps have been moved 20 seconds forward by a step, so they say 85, a failure. The
+    /// verdict must follow the recording.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AForwardClockStep_DoesNotTurnAPassIntoAFailure()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(5, MeterLevel.Normal, recordingSeconds: 5),
+            // The clock jumped 20 seconds here; the recorder marks the line and keeps its own count true.
+            At(45, MeterLevel.Normal, recordingSeconds: 25, clockStepSeconds: 20),
+            At(85, MeterLevel.Critical, recordingSeconds: 65),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.Equal(65, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // And the arrangement really does demonstrate the defect: on the stamps it would have failed.
+        Assert.True(window[^1].TakenAtUtc - Noon > ProofChecks.WarningDeadline);
+    }
+
+    [Fact]
+    public void JudgeWarning_ABackwardClockStep_DoesNotTurnAFailureIntoAPass()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(10, MeterLevel.Normal, recordingSeconds: 60, clockStepSeconds: -50),
+            At(25, MeterLevel.Critical, recordingSeconds: 75),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // On the stamps this would have read 25 seconds and passed.
+        Assert.True(window[^1].TakenAtUtc - Noon < ProofChecks.WarningDeadline);
+    }
+
+    /// <summary>
+    /// The harness must not judge on how long IT took to look. The recorder writes a minute of lines at
+    /// once, so a product that turned red at 65 seconds is first VISIBLE up to a minute later. Judged on
+    /// the observation, a correct product fails; judged on the recording, it passes. This is the finding
+    /// that sent the first version of this change back.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AWarningSeenLateBecauseTheRecorderFlushedLate_StillPasses()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0),
+            At(65, MeterLevel.Critical, recordingSeconds: 65),
+        };
+
+        // Whatever the harness's own stopwatch said - it may have polled at 140 seconds - the answer is 65.
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Met);
+        Assert.Equal(65, verdict.Elapsed.TotalSeconds);
+    }
+
+    [Fact]
+    public void JudgeWarning_ARestartInsideTheSpan_NeverCountsAsMet_BecauseTheGapIsWallClock()
+    {
+        var window = new List<MeterObservation>
+        {
+            At(0, MeterLevel.Normal, recordingSeconds: 0, run: "run-a"),
+            At(30, MeterLevel.Critical, recordingSeconds: 30, run: "run-b"),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.True(verdict.Seen);
+        Assert.True(verdict.DirectorRestarted);
+        Assert.False(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_TheBatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
+    {
+        // The recorder appended T+55 to T+110 at once; red was first recorded at T+65. Judging the newest
+        // line would report a 65-second warning as 110.
+        var batch = Enumerable.Range(11, 12)
+            .Select(i => At(i * 5, i * 5 >= 65 ? MeterLevel.Critical : MeterLevel.Normal))
+            .ToList();
+
+        var verdict = ProofChecks.JudgeWarning(batch, Noon, Red);
+
+        Assert.Equal(Noon.AddSeconds(65), verdict.Sample!.TakenAtUtc);
+        // Measured from the first sample at or after the change (T+55), not from the change itself: the
+        // baseline is a real sample, so this overstates by at most one interval and never understates.
+        Assert.Equal(10, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_NothingRecordedAfterTheChange_IsNotSeen_AStoppedDirectorNeverPasses()
+    {
+        var window = new List<MeterObservation> { At(-30, MeterLevel.Critical, recordingSeconds: -30) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.False(verdict.Seen);
+        Assert.False(verdict.Met);
+    }
+
+    [Fact]
+    public void JudgeWarning_SamplesButNoneMeetTheCondition_IsNotSeen()
+    {
+        var window = new List<MeterObservation> { At(0, MeterLevel.Normal), At(80, MeterLevel.Normal) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, Red);
+
+        Assert.False(verdict.Seen);
+        Assert.False(verdict.Met);
+        Assert.NotNull(verdict.Baseline);
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(70, true)]
+    [InlineData(-1, false)]
+    public void TakenAfterTheChange_SelectsBySampleStamp_WhichIsSelectionNotMeasurement(int sampleSecondsAfter, bool expected)
+    {
+        Assert.Equal(expected, ProofChecks.TakenAfterTheChange(Noon, Noon.AddSeconds(sampleSecondsAfter)));
     }
 
     [Fact]
@@ -54,8 +202,20 @@ public class ResourceLoadProofChecksTests
         Assert.True(ProofChecks.PollDeadline >= ProofChecks.WarningDeadline + CcDirector.Core.Machine.ResourceRecorder.WriteEvery);
     }
 
-    private static MeterObservation At(int secondsAfterNoon, MeterLevel cpu) =>
-        new(new MeterBar(true, 50, cpu), new MeterBar(true, 50, MeterLevel.Normal), true, false, "None", Noon.AddSeconds(secondsAfterNoon), "{}");
+    private const string OneRun = "run-a";
+
+    /// <summary>
+    /// A recorded sample. <paramref name="recordingSeconds"/> defaults to the wall offset, which is what an
+    /// undisturbed run looks like; a test that wants the two timelines to DISAGREE - which is what a clock
+    /// step does - passes it explicitly.
+    /// </summary>
+    private static MeterObservation At(
+        int secondsAfterNoon, MeterLevel cpu, double? recordingSeconds = null,
+        string run = OneRun, double? clockStepSeconds = null) =>
+        new(new MeterBar(true, 50, cpu), new MeterBar(true, 50, MeterLevel.Normal), true, false, "None",
+            Noon.AddSeconds(secondsAfterNoon), recordingSeconds ?? secondsAfterNoon, run, clockStepSeconds, "{}");
+
+    private static bool Red(MeterObservation o) => o.Cpu.Level == MeterLevel.Critical;
 
     [Fact]
     public void FirstMeeting_ABatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
@@ -66,8 +226,13 @@ public class ResourceLoadProofChecksTests
         var first = ProofChecks.FirstMeeting(batch, Noon, o => o.Cpu.Level == MeterLevel.Critical);
 
         Assert.Equal(Noon.AddSeconds(65), first!.TakenAtUtc);
-        Assert.True(ProofChecks.WithinWarningDeadline(Noon, first.TakenAtUtc));
-        Assert.False(ProofChecks.WithinWarningDeadline(Noon, batch[^1].TakenAtUtc));
+
+        // Judging the batch's NEWEST line instead would fail a run that passed: the recorder appended
+        // T+55 to T+110 in one go, so the newest is 110 seconds after the change while the warning
+        // actually arrived at 65. That is what FirstMeeting exists to prevent, and it is about WHICH
+        // sample is read, not about which clock measures the wait.
+        Assert.True(ProofChecks.TakenAfterTheChange(Noon, first.TakenAtUtc));
+        Assert.True(batch[^1].TakenAtUtc - Noon > ProofChecks.WarningDeadline);
     }
 
     [Fact]
@@ -235,7 +400,7 @@ public class ResourceLoadProofChecksTests
     // ---- the diagnosis ----
 
     private static MeterObservation Diagnosis(bool couldDiagnose, bool isSlow, string cause) =>
-        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, Noon, "{}");
+        new(new MeterBar(true, 50, MeterLevel.Normal), new MeterBar(true, 50, MeterLevel.Normal), couldDiagnose, isSlow, cause, Noon, 0, OneRun, null, "{}");
 
     [Theory]
     [InlineData("Cpu", "Cpu", true)]
@@ -312,6 +477,9 @@ public class ResourceLoadProofChecksTests
     private const string Healthy = """
         { "newest": {
             "takenAtUtc": "2026-11-06T12:00:05Z",
+            "recordingSeconds": 5.0,
+            "run": "11111111-1111-1111-1111-111111111111",
+            "clockStepSeconds": null,
             "cpu": { "couldRead": true, "unreadableReason": null, "totalBusyPercent": 28.0 },
             "memory": { "couldRead": true, "unreadableReason": null, "totalBytes": 1000, "availableBytes": 450 },
             "verdict": { "worst": "Tight", "resources": [
