@@ -153,7 +153,7 @@ export function MachinesPanel({
                         <CapacityFigure label={m.capacity.memoryLabel} detail={m.capacity.memoryDetail} tone={m.capacity.memoryTone} testId="fm-memory" />
                       </td>
                       <td>
-                        <div className="fm-figure dmono" data-testid="fm-spare">{m.capacity.spareLabel}</div>
+                        <div className="fm-figure" data-testid="fm-spare">{m.capacity.spareLabel}</div>
                       </td>
                       <td>
                         {(m.launcherVersion ?? "").length > 0 && (

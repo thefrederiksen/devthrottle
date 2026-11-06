@@ -1027,7 +1027,8 @@
   border: none;
   color: inherit;
   font: inherit;
-  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   padding: 0;
   cursor: pointer;
 }
@@ -1130,14 +1131,16 @@
   fill: currentColor;
 }
 
+/* A refused window is a fault, drawn in the danger colour; a window whose figure was not read is drawn dim. Neither is
+   ever drawn as an empty stretch of chart, which would read as an idle machine. */
 .fmr-stripe-refused {
   fill: var(--attention);
-  opacity: 0.55;
+  opacity: 0.6;
 }
 
 .fmr-stripe-unread {
   fill: var(--dot-idle);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .fmr-events {

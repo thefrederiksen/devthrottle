@@ -43,23 +43,20 @@ export function ResourceChart({ geometry }: { geometry: ChartGeometry }) {
         role="img"
         aria-label={`${title} use over the last day, average and peak for each five minutes`}
       >
-        <defs>
-          <pattern id="fmr-stripes-refused" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="3" height="6" className="fmr-stripe-refused" />
-          </pattern>
-          <pattern id="fmr-stripes-unread" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="3" height="6" className="fmr-stripe-unread" />
-          </pattern>
-        </defs>
-
         {geometry.grid.map((g) => (
           <g key={g.percent}>
             <line className="fmr-grid" x1={CHART.left} x2={CHART.right} y1={g.y} y2={g.y} />
             <text className="fmr-axis" x={CHART.left - 4} y={g.y + 3} textAnchor="end">{`${g.percent}%`}</text>
           </g>
         ))}
-        {geometry.ticks.map((t) => (
-          <text key={t.atMs} className="fmr-axis" x={t.x} y={CHART.height - 6} textAnchor="middle">
+        {geometry.ticks.map((t, i) => (
+          <text
+            key={t.atMs}
+            className="fmr-axis"
+            x={t.x}
+            y={CHART.height - 6}
+            textAnchor={i === 0 ? "start" : i === geometry.ticks.length - 1 ? "end" : "middle"}
+          >
             {clock(t.atMs)}
           </text>
         ))}
@@ -70,9 +67,9 @@ export function ResourceChart({ geometry }: { geometry: ChartGeometry }) {
             data-testid={`fmr-stripe-${s.kind}`}
             x={s.x}
             y={CHART.top}
-            width={Math.max(s.width, 1)}
+            width={Math.max(s.width, 3)}
             height={CHART.bottom - CHART.top}
-            fill={`url(#fmr-stripes-${s.kind})`}
+            className={`fmr-stripe-${s.kind}`}
           >
             <title>
               {s.kind === "refused"
@@ -117,8 +114,15 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
       </div>
     );
   }
-  const crossings = history.windows.flatMap((w) => w.crossings);
-  const refused = history.windows.filter((w) => w.refusedReason != null);
+  // The crossings and the refused windows as one list, oldest first: the order is layout, every word is the Gateway's.
+  const events = [
+    ...history.windows.flatMap((w) =>
+      w.crossings.map((c) => ({ at: c.startedUtc, tone: c.tone, text: c.label })),
+    ),
+    ...history.windows
+      .filter((w) => w.refusedReason != null)
+      .map((w) => ({ at: w.windowStartUtc, tone: "bad", text: `Figures refused: ${w.refusedReason}` })),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   return (
     <div className="fmr-body">
@@ -127,16 +131,11 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
         <ResourceChart geometry={memory} />
       </div>
 
-      {(crossings.length > 0 || refused.length > 0) && (
+      {events.length > 0 && (
         <ul className="fmr-events" data-testid="fmr-events">
-          {crossings.map((c, i) => (
-            <li key={`c-${c.startedUtc}-${i}`} className={toneClass(c.tone)}>
-              <span className="ddim">{stamp(c.startedUtc)}</span> {c.label}
-            </li>
-          ))}
-          {refused.map((w) => (
-            <li key={`r-${w.windowStartUtc}`} className="dstat-err">
-              <span className="ddim">{stamp(w.windowStartUtc)}</span> Figures refused: {w.refusedReason}
+          {events.map((e, i) => (
+            <li key={`${e.at}-${i}`} className={toneClass(e.tone)}>
+              <span className="ddim">{stamp(e.at)}</span> {e.text}
             </li>
           ))}
         </ul>
