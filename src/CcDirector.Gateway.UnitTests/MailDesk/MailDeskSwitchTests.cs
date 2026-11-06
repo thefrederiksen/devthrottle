@@ -442,6 +442,7 @@ public sealed class MailDeskSwitchTests : IDisposable
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (_, factory) => factory == MailDeskTemplate.Factory ? published : null,
             registeredFactoryOf: (_, factory) => factory == MailDeskTemplate.Factory ? CcDirector.Gateway.Tests.Factory.Triggers.RegisteredAsPublished.Of(published) : null,
+            recordCheckStartedRun: (_, _, _) => { },
             mailDeskOn: mailDesk.IsOn, mailDesk: screening);
     }
 

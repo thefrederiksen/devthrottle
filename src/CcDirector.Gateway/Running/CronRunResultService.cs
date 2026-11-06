@@ -46,6 +46,7 @@ public sealed class CronRunResultService
     private readonly Func<string, DateTime, string, bool> _settleLastStatus;
     private readonly MailDesk.MailDeskProblemSource _mailDesk;
     private readonly Func<TenantId, string, string, SessionDto?> _lastKnownSession;
+    private readonly Func<TenantId, string, bool> _controlsALiveSession;
 
     /// <summary>
     /// The least time a start whose outcome was not known is given for its session to appear, however near the end of
@@ -77,6 +78,9 @@ public sealed class CronRunResultService
     /// <param name="lastKnownSession">The session row a Director last pushed - (account, Director id, session id) - or null
     /// when it reported none: how a run whose prompt never reached the agent is found (issue #3392). REQUIRED, so a
     /// wiring line that forgot it fails to compile rather than leaving every such run reading as started.</param>
+    /// <param name="controlsALiveSession">Whether a session (account, session id) controls a live session - a worker it
+    /// is waiting on - so a run waiting on its own workers is not counted as waiting on a person
+    /// (<see cref="CronRunResultFold.IdleWithoutReportProblem"/>).</param>
     public CronRunResultService(
         CronRunHistoryStore runs,
         Func<string, CronJobDto?> jobById,
@@ -89,8 +93,10 @@ public sealed class CronRunResultService
         Func<TenantId, string, string, IReadOnlyList<string>> scheduleSessionsByName,
         Func<string, DateTime, string, bool> settleLastStatus,
         MailDesk.MailDeskProblemSource mailDesk,
-        Func<TenantId, string, string, SessionDto?> lastKnownSession)
+        Func<TenantId, string, string, SessionDto?> lastKnownSession,
+        Func<TenantId, string, bool> controlsALiveSession)
     {
+        _controlsALiveSession = controlsALiveSession ?? throw new ArgumentNullException(nameof(controlsALiveSession));
         _lastKnownSession = lastKnownSession ?? throw new ArgumentNullException(nameof(lastKnownSession));
         _mailDesk = mailDesk ?? throw new ArgumentNullException(nameof(mailDesk));
         _scheduleSessionsByName = scheduleSessionsByName ?? throw new ArgumentNullException(nameof(scheduleSessionsByName));
@@ -154,7 +160,8 @@ public sealed class CronRunResultService
         }
 
         var job = _jobById(found.JobId);
-        var name = job?.Name ?? found.JobId;
+        // A check-started run has no schedule; its run carries the trigger's name.
+        var name = job?.Name ?? found.Run.JobName ?? found.JobId;
         // THE SCHEDULE'S CLOSE-ITSELF SETTING DECIDES whether an ok run closes its session, read as the schedule has
         // it now. A schedule deleted while its run was going has no setting left to read; its run closes, as every
         // schedule does unless its owner switched that off.
@@ -381,7 +388,10 @@ public sealed class CronRunResultService
             var session = string.IsNullOrWhiteSpace(p.Run.SessionId) || string.IsNullOrWhiteSpace(p.Run.TargetDirectorId)
                 ? null
                 : _lastKnownSession(tenant, p.Run.TargetDirectorId, p.Run.SessionId);
+            // A session waiting on a person, or idle, without reporting is told next, long before its shift ends.
             var problem = CronRunResultFold.PromptNotDeliveredProblem(p.Run, session)
+                ?? CronRunResultFold.IdleWithoutReportProblem(p.Run, session, now, CronRunResultFold.IdleWithoutReportLimit,
+                    session is not null && _controlsALiveSession(tenant, session.SessionId))
                 ?? CronRunResultFold.GatewayProblemFor(p.Run, ending,
                     CronRunEndingFold.TextOf(ending, p.Run.FiredUtc, endedUtc, now), shift, now);
             if (problem is null) continue;

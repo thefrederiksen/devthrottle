@@ -6228,6 +6228,25 @@ internal static partial class GatewayEndpoints
     }
 
     /// <summary>
+    /// Whether any Director of the account reports a session that <paramref name="sessionId"/> controls and that has
+    /// not ended - a worker it started and is waiting on. How a run waiting on its own workers is told apart from one
+    /// waiting on a person (the Factory Failures mission, 6 November 2026): a Boss is told to end its turn and wait until
+    /// the sessions it started come back.
+    /// </summary>
+    internal static bool ControlsALiveSession(
+        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string sessionId)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(sessionId)) return false;
+        foreach (var d in registry.ListDirectors(tenant))
+        {
+            if (pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
+                .Any(s => Fleet.FleetManagerSessions.IsOwnedBy(s, sessionId) && !Fleet.FleetManagerSessions.IsGone(s)))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The last row any Director of the account reported for a session a factory trigger started with exactly this
     /// name, or null. How a trigger start whose outcome was not known finds the session the Director created anyway:
     /// the name carries the trigger and the minute of the start, and the origin surface narrows it to trigger starts.

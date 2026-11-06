@@ -30,6 +30,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
     private readonly List<(string machine, NewSessionRequest request)> _starts = new();
+    // Every run a check-started session was recorded as: (account, the trigger id as its job, the run).
+    private readonly List<(TenantId Tenant, string JobId, CronRunRecord Run)> _runs = new();
     private readonly Dictionary<string, SessionDto> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _now = new(2026, 10, 15, 9, 0, 0, DateTimeKind.Utc);
     private int _nextSession;
@@ -69,7 +71,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             directorRunsDefinitionChecks: (_, director) => _definitionDirectors.Contains(director),
             machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine),
             definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null,
-            registeredFactoryOf: (_, factory) => _published.TryGetValue(factory, out var r) ? RegisteredAsPublished.Of(r) : null, mailDeskOn: _ => false);
+            registeredFactoryOf: (_, factory) => _published.TryGetValue(factory, out var r) ? RegisteredAsPublished.Of(r) : null,
+            recordCheckStartedRun: (tenant, job, run) => { lock (_runs) _runs.Add((tenant, job, run)); }, mailDeskOn: _ => false);
 
     /// <summary>A definition trigger as a publish writes it: a check path and no command.</summary>
     private Guid AddDefinitionTrigger(bool paused = false, string prompt = "New mail: {count}. {context}")
@@ -179,7 +182,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DefinedStart_CheckStart_PromptCarriesBriefAndKitSentence()
+    public async Task DefinedStart_CheckStart_PromptCarriesBriefKitSentenceAndReportInstruction()
     {
         // Regression (Factory Failures, 6 November 2026): a check-started seat was given only the trigger's words, asked
         // a person to paste its brief, and waited all night. It is opened as a scheduled run is.
@@ -200,6 +203,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             "--- your brief, definition version 4 ---\n" + brief + "\n--- end of your brief, definition version 4 ---",
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.KitSentence,
             "Mail has waited 2 times. Do what your brief says, from STEP 1.",
+            CcDirector.Gateway.Running.ScheduledRunClosingInstruction.Text,
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork,
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal,
         };
@@ -210,8 +214,66 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             Assert.True(next > at, $"expected, after position {at}: {part}");
             at = next;
         }
-        // Not told to report: a check-started session has no run the report command can find yet, so it would be refused.
-        Assert.DoesNotContain(CcDirector.Gateway.Running.ScheduledRunClosingInstruction.OwnWordingMarker, prompt);
+    }
+
+    [Fact]
+    public async Task DefinedStart_StartedSession_IsAPendingRunThatOwesAReport()
+    {
+        // Regression (Factory Failures, 6 November 2026): a check-started session owed no report, so one that waited all
+        // night on a person left its factory RUNNING. It is now a run, under the trigger's id, pending its report.
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        await Send(service, t, Report("""{"count": 2}"""));
+
+        var request = Assert.Single(_starts).request;
+        var (tenant, job, run) = Assert.Single(_runs);
+        Assert.Equal((Tenant, t.ToString("D")), (tenant, job));
+        Assert.Equal(CronRunResults.Pending, run.Result);
+        Assert.Equal(("bbbbbbbb-0000-4000-8000-000000000001", Director, "SOREN_NORTH"), (run.SessionId, run.TargetDirectorId, run.Machine));
+        Assert.Equal((Factory, "frontdesk", "warmforward-frontdesk"), (run.Factory, run.Seat, run.JobName));
+        Assert.Equal((4, FactoryBriefVersionKinds.Definition), (run.BriefVersion, run.BriefVersionKind));
+        Assert.Equal((request.Name, _now, "started"), (run.SessionName, run.FiredUtc, run.InfraStatus));
+    }
+
+    [Fact]
+    public async Task DefinedStart_StartedSession_StillHoldsTheTriggersLock()
+    {
+        // The run record changes nothing about the one-at-a-time lock: the live session still skips the next check.
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        await Send(service, t, Report("""{"count": 2}"""));
+        _now = _now.AddMinutes(10);
+
+        var second = await Send(service, t, Report("""{"count": 1}"""));
+
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, second.Outcome);
+        Assert.Single(_starts);
+        Assert.Single(_runs);
+    }
+
+    [Fact]
+    public async Task DefinedStart_AStartThatFailed_RecordsNoRun()
+    {
+        _attempt = TriggerStartAttempt.Failed("the machine refused");
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        await Send(service, t, Report("""{"count": 2}"""));
+
+        Assert.Empty(_runs);
+    }
+
+    [Fact]
+    public async Task ACommandTrigger_StartedSession_RecordsNoRun()
+    {
+        var service = Service();
+        var t = AddCommandTrigger(service);
+
+        await Send(service, t, Report("""{"count": 1}"""));
+
+        Assert.Single(_starts);
+        Assert.Empty(_runs);
     }
 
     [Fact]
@@ -241,7 +303,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             nowUtc: () => _now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null,
-            registeredFactoryOf: (_, _) => null, mailDeskOn: _ => false);
+            registeredFactoryOf: (_, _) => null, recordCheckStartedRun: (_, _, _) => { }, mailDeskOn: _ => false);
         var t = AddDefinitionTrigger();
 
         var run = await Send(service, t, Report("""{"count": 2}"""));

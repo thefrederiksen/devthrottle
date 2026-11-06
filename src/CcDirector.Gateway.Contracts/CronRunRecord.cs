@@ -215,6 +215,13 @@ public static class CronRunProblems
     /// </summary>
     public const string SeatLimit = "seat-limit";
 
+    /// <summary>
+    /// The run's session is still open and has waited on a person, or sat idle, for longer than the limit without
+    /// reporting (the Factory Failures mission, 6 November 2026): a seat that asked a person for its brief and waited
+    /// all night left its factory RUNNING. The session is NOT closed; the owner opens it to see what it asked.
+    /// </summary>
+    public const string WaitedWithoutReporting = "waited-without-reporting";
+
     /// <summary>The run's check broke its contract (Factory Definition, phase 5b); the reason is the contract's, quoted.
     /// Also the kind of a definition trigger's failed check on the problems list.</summary>
     public const string CheckFailed = "check-failed";
@@ -249,6 +256,7 @@ public static class CronRunProblems
         DidNotRun => "did not run",
         PromptNotDelivered => "its prompt never reached the agent",
         SeatLimit => "its seat was at its limit",
+        WaitedWithoutReporting => "waited on a person without reporting",
         CheckFailed => "check failed",
         CheckNotRun => "check did not run",
         MailboxFailed => "mailbox could not be checked",

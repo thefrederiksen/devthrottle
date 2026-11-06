@@ -176,9 +176,8 @@ public static class FactorySeatOpening
     /// trigger's check starts used to be given only the trigger's own words, so a seat told "do what your brief says"
     /// was never given its brief, asked a person to paste it, and waited all night. It is now opened the way a scheduled
     /// run is (<see cref="Running.ScheduledRunOpening.Opening"/>): who it is, which check started it, its brief in full
-    /// with its version, where its kit is, and what the check asked for. It is not yet told to run
-    /// <c>cc-devthrottle run result</c>: a check-started session has no run that command can find, so it would be
-    /// refused; the instruction comes with the run record that lets it report. The Boss and owner
+    /// with its version, where its kit is, what the check asked for, and the instruction to report: a check-started
+    /// session is recorded as a run that owes its report, like a scheduled run's. The Boss and owner
     /// paragraphs are added by <see cref="Definition.FactorySeatStart.Build"/>, the one place every seat start passes.
     /// Pure.
     /// </summary>
@@ -201,7 +200,12 @@ public static class FactorySeatOpening
         var own = triggerText.Trim();
         // A prompt that begins with a slash is a command the agent runs only when it is the first thing it is given, so
         // the opening follows such a prompt instead of leading it, as a scheduled run's does.
-        return own.StartsWith('/') ? own + "\n\n" + opening : opening + "\n\n" + own;
+        var given = own.StartsWith('/') ? own + "\n\n" + opening : opening + "\n\n" + own;
+        // Every check-started run is recorded as a run that owes its report (TriggerService.CheckStartedRun), so it is
+        // told to report, decided on the trigger's own words alone as a schedule's is: the owner's own wording wins.
+        return Running.ScheduledRunClosingInstruction.AlreadyTellsItsRunToReport(own)
+            ? given
+            : given + "\n\n" + Running.ScheduledRunClosingInstruction.Text;
     }
 
     /// <summary>

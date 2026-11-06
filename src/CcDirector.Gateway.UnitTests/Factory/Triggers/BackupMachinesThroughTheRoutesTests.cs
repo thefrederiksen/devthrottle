@@ -68,7 +68,7 @@ public sealed class BackupMachinesThroughTheRoutesTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no session is started in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => _now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, registeredFactoryOf: (_, _) => null, mailDeskOn: _ => false);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, registeredFactoryOf: (_, _) => null, recordCheckStartedRun: (_, _, _) => { }, mailDeskOn: _ => false);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, id) => Directors.GetValueOrDefault(id),
             nowUtc: () => _now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _publish.Store.IsDefined,
             dueChecks: new DueCheckService(runs, (tenant, id) => jobs.Get(tenant, id), _triggers.CheckStates, new NoStarts(),

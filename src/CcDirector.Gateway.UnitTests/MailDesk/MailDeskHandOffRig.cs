@@ -103,6 +103,7 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (_, factory) => factory == MailDeskTemplate.Factory ? published : null,
             registeredFactoryOf: (_, factory) => factory == MailDeskTemplate.Factory ? CcDirector.Gateway.Tests.Factory.Triggers.RegisteredAsPublished.Of(published) : null,
+            recordCheckStartedRun: (_, _, _) => { },
             mailDeskOn: Switch.IsOn, mailDesk: MailDesk);
 
         var runs = new CronRunHistoryStore(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
@@ -117,7 +118,7 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
             settleLastStatus: (_, _, _) => false,
             mailDesk: new MailDeskProblemSource(Switch.IsOn, Channels, Checks, t => MailDeskSpend.Of(t, Decisions, Settings)),
-            lastKnownSession: (_, _, _) => null);
+            lastKnownSession: (_, _, _) => null, controlsALiveSession: (_, _) => false);
     }
 
     public async ValueTask DisposeAsync()
