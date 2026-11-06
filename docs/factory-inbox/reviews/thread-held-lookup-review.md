@@ -291,3 +291,209 @@ On devlinux, rebased onto `origin/main` at `42e96dabd`, with .NET 10.0.403, `DOT
   916 passed, 0 failed.
 - `CcDirector.Gateway.Tests`, filtered to `DictationTenantIsolationTests|DictationOmittedTenantBoundaryTests`, which boot
   the real host with the start-up warm-up: 14 passed, 0 failed.
+
+## Re-review after the answers (6 November 2026)
+
+Re-reviewed by a second, separate review session (fleet session 27205aa7, "Factory Inbox - Reviewer - thread held lookup
+re-review (4690)"), on machine devlinux. Worktree `devthrottle-fi-review-4690`, detached at commit `9779b9915`, three
+commits on top of `origin/main` at `42e96dabd`. I read; I changed no product code. The tree holds nothing but this section.
+
+**Verdict: CHANGES.** The fix of finding 1 closes the case it names (a read that throws) and does not bring back a walk of
+the share. It leaves open the same shape for a read that returns the wrong bytes, which this share has been seen to do
+(finding 3 below, proven by probe), and the confirming re-read of a record the index names still turns a failed read into
+"nothing held" (finding 4, proven by probe). The start-up warm-up is safe, but on the hosted Gateway it reads nothing at
+start-up and says it read every tenant (finding 5). The 503 is right. Finding 2 as documented is acceptable.
+
+### Scope
+
+Only what changed since the first review: commit `9779b9915` (seven files, 341 lines added, 28 removed) and the
+developer's answers above. I read `DictationLockIndex` in full again; in `VoiceUploadStore` the new `PendingFor`, the
+unreadable re-read loop, `EnumeratePendingEntries`, `EnumeratePendingRecordsWithId`, `ReadRecordFile`, `WriteRecordMarker`
+and the record gate's ordering; the thread route's new catch and the `Error` helper; the host's two new call sites (the
+sweep timer and the start-up task) and their placement in `StartAsync`; `TenantPass` and `PushedSessionStore.KnownTenants`;
+the four new tests. I did not review the client's handling of a 503 on the thread (the first review did not review the
+client either), and I measured nothing on the hosted share.
+
+What I ran: the brief's filter on `CcDirector.Gateway.UnitTests` with `DOTNET_USE_POLLING_FILE_WATCHER=1` and
+`-p:EnableWindowsTargeting=true`: 916 passed, 0 failed, 1 minute 9 seconds. And three throwaway probe tests, run once
+against `9779b9915` and then deleted; their text is below so anyone can re-run them. One passed and two failed, each
+exactly as predicted from reading the code.
+
+### Question 1: is finding 1 closed on every path, without a full walk per read?
+
+Closed for the case the finding named. A record whose read THROWS during the one-time partition read now lands in the
+partition's unreadable set, the partition is still marked read (so the walk happens once), and every `PendingFor` re-reads
+exactly those identifiers under their own gates. Still unreadable: the thread errors. Readable: the disk's answer goes into
+the index through `RecordWritten`, for the session lock too. Gone: removed. The committed test
+`PendingFor_OneRecordUnreadableDuringHydration_IsShownOnceItCanBeReadAgain` is the first review's probe with its empty
+answer turned into an error, as the developer says. No path re-walks the share: `Invalidate` is still only reached from the
+two wholesale sweeps and the legacy quarantine. The cost per thread read is the records named for this target plus the
+records still unreadable, never the partition.
+
+Not closed for two neighbouring paths, below.
+
+### Finding 3 (proven): a record read as the wrong bytes is cached as "not held" for the life of the process
+
+`ReadRecordFile` has four answers. The fix handles `Unreadable` (the open or the read threw). It does not handle a read that
+SUCCEEDS and returns bytes that are not the record: `Malformed`. At the partition read a malformed record is skipped and
+goes into neither set, and the partition is marked read, so it is never looked at again. In the re-read loop a malformed
+answer calls `Settled`, which forgets the identifier for good. Both rest on the assumption written in the code and in the
+answers: a malformed record is "a durable fact".
+
+On this share that assumption is not safe. The store's own read-back check (`VoiceUploadStore.cs`, the comment above
+`ReadBackVerdict`, lines 821 to 826) records that on 27 August 2026 the hosted share answered a read of a staged chunk with
+ZERO bytes twice inside five seconds, and reported a 177 megabyte file as 0 bytes while a full read returned all of it. A
+record file read as zero bytes is `Malformed` ("the file does not hold a JSON object" is not reached; `JsonDocument.Parse`
+of an empty string throws, and the catch answers `Malformed`). So one empty read of a held recording's record during the
+partition read hides that recording from every thread read until the next invalidation or restart, exactly the loss of
+finding 1, through the other read answer. On `origin/main` the thread re-read every record on every call, so an empty read
+hid the recording for one read.
+
+What my evidence does not cover: I have not seen the share return an empty read of a `record.json`. The incident is a chunk
+file and a log file. The mechanism is proven; the trigger is the share's recorded behaviour on other files of the same kind
+of read.
+
+Proof. Both probes fail on `9779b9915` at their last line with `Assert.Single() Failure: The collection was empty`:
+
+```csharp
+[Fact]
+public void RecordReadAsEmptyOnceDuringHydration_StaysHiddenForTheLifeOfTheProcess()
+{
+    var writer = NewStore();
+    var open = writer.OpenPending(null, "factory-inbox:invoices");
+    var record = Path.Combine(_root, open.UploadId, "record.json");
+    var good = File.ReadAllText(record);
+    File.WriteAllText(record, "");            // the share answers a read with no bytes, once
+    var reader = NewStore();                   // a fresh process: first read of the partition
+    var whileEmpty = reader.PendingFor("factory-inbox:invoices");
+    File.WriteAllText(record, good);           // the bytes are back
+    var afterGood = reader.PendingFor("factory-inbox:invoices");
+    var freshProcess = NewStore().PendingFor("factory-inbox:invoices");
+    Assert.Empty(whileEmpty);
+    Assert.Single(freshProcess);
+    Assert.Single(afterGood);                  // FAILS: the empty read was cached
+}
+
+[Fact]
+public void RecordUnreadableAtHydration_ThenReadAsEmptyOnReRead_IsSettledAndNeverReReadAgain()
+{
+    var writer = NewStore();
+    var open = writer.OpenPending(null, "factory-inbox:invoices");
+    var record = Path.Combine(_root, open.UploadId, "record.json");
+    var good = File.ReadAllText(record);
+    var reader = NewStore();
+    using (new FileStream(record, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        Assert.Throws<InvalidOperationException>(() => reader.PendingFor("factory-inbox:invoices"));
+    File.WriteAllText(record, "");
+    var whileEmpty = reader.PendingFor("factory-inbox:invoices");
+    File.WriteAllText(record, good);
+    var reads = new List<string>(); reader.RecordReadForTests = reads.Add;
+    var afterGood = reader.PendingFor("factory-inbox:invoices");
+    Assert.Empty(whileEmpty);
+    Assert.Empty(reads);        // settled: never re-read
+    Assert.Single(afterGood);   // FAILS
+}
+```
+
+What would close it, for the developer to decide: put a malformed record in the same re-read set as an unreadable one, and
+in the re-read loop SKIP it while it is still malformed rather than error, so a record that is corrupt for good costs one
+small read per thread read and never breaks the thread, while a record that was read wrongly once is shown the moment it
+reads right. That keeps the developer's reason for not erroring on corruption, and it keeps the walk to one: the cost is
+bounded by the number of malformed records, not by the partition. The first review's words "`Malformed` should keep being
+skipped as the old walk skipped it" were mine to inherit, and they were imprecise: the old walk skipped it on EACH read,
+which is a re-read, not a memory.
+
+### Finding 4 (proven, transient): the confirming re-read of a record the index names turns a failed read into "nothing held"
+
+The first loop of `PendingFor` re-reads each upload the index names as PENDING for this target. When that read answers
+`Unreadable`, the loop returns without adding it and without recording the failure, and the thread answers 200 with
+nothing held. The second loop, written for this commit, errors in the same situation. The commit's own rule, in its comment
+and in the thread route, is that the thread never says "nothing held" on the strength of a read that failed; the first loop
+still does. It recovers on the next read, because the index entry is kept, so this is one read, not the life of the
+process; the device that is polling every fifteen seconds sees the held recording vanish and come back. `origin/main`
+behaved the same way for one read. The fix is two lines: an `Unreadable` answer in the first loop goes into
+`stillUnreadable` as well.
+
+Proof. This probe PASSES on `9779b9915`, which is the finding:
+
+```csharp
+[Fact]
+public void RecordNamedPendingByTheIndex_WhoseConfirmingReadFails_IsAnsweredAsNothingHeld()
+{
+    var store = NewStore();
+    var open = store.OpenPending(null, "factory-inbox:invoices");
+    var record = Path.Combine(_root, open.UploadId, "record.json");
+    Assert.Single(store.PendingFor("factory-inbox:invoices")); // the index names it
+    IReadOnlyList<PendingUpload>? answer = null; Exception? error = null;
+    using (new FileStream(record, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        error = Record.Exception(() => answer = store.PendingFor("factory-inbox:invoices"));
+    Assert.Null(error);     // no 503: the thread answers normally...
+    Assert.Empty(answer!);  // ...with nothing held, on the strength of a failed read
+    Assert.Single(store.PendingFor("factory-inbox:invoices")); // and it is back on the next read
+}
+```
+
+### Question 2: the start-up warm-up and the sweep's re-read
+
+Safe, as far as the process is concerned:
+
+- **It does not block the start.** The task is started with `Task.Run` at `GatewayHost.cs` line 7366, after `_app.StartAsync()`
+  at line 7097: the host is already listening. It is not awaited.
+- **No exception can kill the process.** The whole pass is inside a `try` that logs. Inside it, `LockedSessionIds` never
+  throws (the index catches the hydration failure, logs it, leaves the partition unread and answers null, which the method
+  turns into an empty set); the only other call, `ForTenant`, can throw from `EnsureRoot`'s `CreateDirectory`, and that lands
+  in the same catch. The sweep timer's new `LockedSessionIds()` sits inside the timer's existing `try`.
+- **Tenant scoping is by `AsyncLocal`.** `TenantPass.Current` reads the ambient scope, so the warm-up running at the same time
+  as a timer pass or a request cannot see another pass's tenant. Each partition is reached through `ForTenant`, so the root
+  is the tenant's own.
+- **No race with writes.** Lock order is unchanged: a writer takes the record gate, writes the file (temp and move), then
+  takes the partition gate in `RecordWritten`; hydration takes only the partition gate and never a record gate, so there is
+  no cycle. A write that lands during the walk is seen by the walk or re-asserted after it, as the first review said. A
+  request that arrives mid-walk waits on the partition gate rather than starting a second walk, as the answer says.
+- **It logs per partition.** `DictationLockIndex` writes one line per partition with the pending count and the could-not-read
+  count, and the failure line names the root.
+
+### Finding 5 (proven by reading): on the hosted Gateway the warm-up reads no partition at start-up, and its log line says it read every tenant
+
+`TenantPass.ForEachTenant` on hosted iterates `PushedSessions.KnownTenants()`, which is the key set of the push store's
+in-memory map. That map is filled only by `DirectorsFor`, reached when a Director binds a stream connection; nothing loads it
+from the database at start. The host's own comment beside the seam (`GatewayHost.cs` lines 2437 to 2443) says exactly this:
+"KnownTenants would silently skip every tenant whose Director is offline, which is the tenant most likely to need a
+scheduled job". The warm-up task runs the moment the host starts listening, before any Director can have reconnected, so on
+the hosted Gateway the pass runs for zero tenants and then writes `dictation pending index read for every tenant at
+start-up`. A tenant with no Director bound, which is the "owner on the phone while the Director is off" case the first review
+named as the one that pays the walk on the thread read, is never in the list at any time, so it is never warmed, and the
+six-hour re-read never reaches it either (its tombstone sweep never ran before this change, so for it nothing changes).
+
+On self-host the pass is one Local pass and the warm-up does what it says.
+
+So the developer's answer to question 2, "the Gateway reads every tenant's dictation partition into the index in the
+background", is true on self-host and false on the hosted Gateway, where the seventy seconds were measured. The fix of the
+live defect is unaffected: no thread read walks the share more than once per process. What remains is what the first review
+already accepted as follow-up and not a merge condition: on hosted, the first thread read or session-lock question per tenant
+per process still pays the walk. The harm that is new is the log line, which reports work that did not happen, and the
+written answer. At least: log the number of partitions read, and correct the answer. Warming tenants that have no Director
+needs a tenant list from the database, which the host's comment calls its own increment; I do not ask for it here.
+
+### Question 3: finding 2 documented, not closed
+
+Acceptable. The paragraph beside `PendingFor` names the overlap, the observed 144 seconds, what lags, what does not, what
+repairs it and where to look. Closing it needs a cross-process signal, which the first review put above this change.
+
+### Question 4: the 503
+
+Right. The route catches `InvalidOperationException` from `parts.Held` only, logs the cause, and answers 503 through the
+same `Error` helper every other refusal on these routes uses (`{ error, code }`), with code `held_recordings_unknown` and
+words the owner can read. `parts.Held` is wired straight to `PendingFor` (`GatewayHost.cs` line 5913), whose two throws are
+both `InvalidOperationException`; `ForTenant`'s refusal of an invalid tenant is an `ArgumentException` and is not caught, so
+it cannot be dressed as a 503. `Thread_ARecordThatCannotBeRead_AnswersInWordsThatHeldIsUnknown` pins the status, the code,
+and the recovery.
+
+### Observations
+
+1. A session dictation whose record was unreadable at the partition read now gets its lock the first time ANY thread read
+   re-reads it (`PendingFor_UnreadableRecordOfASessionDictation_IsSettledByOneReadAndStopsBeingReRead`), but the session
+   lock itself never re-reads the unreadable set. That is the lock's fail-open as it was before this pull request, and an
+   improvement on it, not a regression. Noted so nobody later reads the unreadable set as a lock input.
+2. The `FileShare.None` hold in the three new tests works on Linux here (916 green) because .NET maps it to an advisory lock
+   that another `FileStream` in the same process honours. It is the right way to make a read fail on all three platforms.
