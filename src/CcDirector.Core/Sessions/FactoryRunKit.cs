@@ -151,6 +151,48 @@ public static class FactoryRunKit
     /// <summary>The <c>work/</c> folder of a kit folder.</summary>
     public static string WorkDirectoryOf(string kitDirectory) => Path.Combine(kitDirectory, WorkFolderName);
 
+    /// <summary>The seat's brief inside a seat kit, as the Gateway's kit composer names it. A rules-only kit has none.</summary>
+    public const string BriefFileName = "brief.md";
+
+    /// <summary>The full path of the brief in a kit folder.</summary>
+    public static string BriefPathOf(string kitDirectory) => Path.GetFullPath(Path.Combine(kitDirectory, BriefFileName));
+
+    /// <summary>
+    /// The lines that open a seat's first prompt: the order to read its brief first, then the brief's full path alone on
+    /// its own line (issue #4609). Alone, because the storage root can sit under a user folder with a space in its name,
+    /// and a model reading a path in the middle of a sentence may cut it at the space.
+    /// </summary>
+    public static string BriefPathLine(string kitDirectory)
+        => $"Read your brief in full before you do anything else, then do what it says. Your brief is this file:\n{BriefPathOf(kitDirectory)}";
+
+    /// <summary>
+    /// A seat's first prompt with <see cref="BriefPathLine"/> in front of it (issue #4609). A seat used to be told
+    /// "do what your brief says" with nothing saying where the brief was: it starts in the kit's empty <c>work/</c>
+    /// folder, the brief sits one level up, and the only pointer was <see cref="DirectoryEnvVar"/>. A strong model went
+    /// looking and found it; a weak one asked a person for it and did nothing all night. So whether a seat found its
+    /// brief depended on how hard its model searched. Now every first prompt of a seat names the file outright.
+    ///
+    /// Only a <see cref="FactoryKits.Seat"/> kit carries a brief; any other session's prompt is returned unchanged. A
+    /// prompt that already opens with the line is returned unchanged, so it is never named twice. A seat kit whose brief
+    /// is not on disk throws: the seat would be told to read a file that is not there, and a start that cannot work must
+    /// fail where it can be seen rather than leave the seat asking for something nobody will give it.
+    /// </summary>
+    public static string WithBriefPath(string prompt, string? kitKind, string? kitDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        if (kitKind != FactoryKits.Seat || string.IsNullOrWhiteSpace(kitDirectory))
+            return prompt;
+        var brief = BriefPathOf(kitDirectory);
+        if (!File.Exists(brief))
+            throw new InvalidOperationException(
+                $"The seat's kit at {kitDirectory} has no {BriefFileName}, so its first prompt was not sent: the seat would be told to read a brief that is not there.");
+        var line = BriefPathLine(kitDirectory);
+        if (prompt.StartsWith(line, StringComparison.Ordinal))
+            return prompt;
+        FileLog.Write($"[FactoryRunKit] WithBriefPath: first prompt names the brief {brief}");
+        return line + "\n\n" + prompt;
+    }
+
     /// <summary>
     /// Where a session's prompts sent as files are saved: the <see cref="PromptFolderName"/> folder of the kit that
     /// <paramref name="environment"/> names in <see cref="DirectoryEnvVar"/>, or an empty string for a session with no
