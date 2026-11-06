@@ -1,0 +1,76 @@
+THE CHECKS FOR THE MAC RESOURCE PROBE, RUN ON THIS MACHINE
+
+Machine        devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Software kit   dotnet 10.0.301
+Branch         resource-monitor/macos-probe, rebased onto main at 63acae657
+Run at         2026-10-15 19:08:28 utc
+
+This run is AFTER the review of pull request 4035. Six of its nine findings are fixed, one is
+fixed in the part that belonged to this probe, and two are declined with the reason - all
+answered in missions/resource-monitor/reviews/4035-macos-probe-review-answer.md.
+
+The solution contains two projects that only build for Windows, so the build carries the
+switch the error message itself names. Everything else is exactly the command the brief asks
+for. The PowerShell gate script cannot run on a Mac; it should be run on Windows before this
+lands.
+
+====================================================================================================
+1. dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+
+   Build succeeded.
+       0 Warning(s)
+       0 Error(s)
+   Time Elapsed 00:00:28.05
+
+====================================================================================================
+2. dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+
+   Passed!  - Failed:     0, Passed:   133, Skipped:     0, Total:   133, Duration: 35 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+   133 tests, up from 110 before the review. The new ones cover the kernel's process table
+   (from a capture of this machine's own bytes, with the values the operating system printed
+   for them), which network interfaces count as the network (using the flags and types this
+   machine really reported for each of its twenty-four interfaces), and a process's share of
+   the whole machine including the case that used to be reported as nought percent.
+
+====================================================================================================
+3. dotnet test src/CcDirector.Core.Tests --filter "Category=Resources"   ON THIS MACHINE
+
+   Passed!  - Failed:     0, Passed:    37, Skipped:     0, Total:    37, Duration: 489 ms - CcDirector.Core.Tests.dll (net10.0)
+
+   37 tests against the real operating system. One is new and is the one that matters most:
+   Read_Processes_IncludesTheOnesThisUserMayNotMeasure fails if a process whose figures the
+   platform refuses is ever dropped from the list again. Two others were CORRECTED rather than
+   added: they demanded every disk report a medium type, which turned them red whenever a disk
+   image was mounted, although the probe was answering correctly.
+
+====================================================================================================
+4. The architecture gate: a test failure must mean a code defect, not a slow machine
+
+   Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11, Duration: 468 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+   This gate enforces the owner's ruling of 11 October 2026. The live tests therefore do a fixed
+   amount of arithmetic rather than sleeping, and are handed the clock rather than reading it, so
+   nothing in them turns machine speed into a pass or a failure.
+
+====================================================================================================
+WHAT THE PROCESS FIX CHANGED, MEASURED
+
+   Before: 423 processes listed, from the per-process call.
+   After:  665 processes listed, from the kernel's process table - 265 of them with figures the
+           platform refuses, named and listed with those figures null rather than nought.
+
+   The two busiest processes on the machine were among the 265 when the review was written.
+
+====================================================================================================
+NOT RUN, AND WHY
+
+   scripts/test-local.ps1 is PowerShell and does not run on a Mac. The full Core.UnitTests suite
+   on this machine has five failures that are nothing to do with this work - they expect Windows
+   path separators. They were baselined against main in a clean throwaway worktree before this
+   branch existed: main gives 1658 passed and the same 5 failed. They still need owning, and are
+   named in the pull request rather than written off.
+
+   The Intel file system fix could not be tested on an Intel Mac - there is none in reach. It
+   rests on the operating system's headers and its exported symbol tables, both read here.
+

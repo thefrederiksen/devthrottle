@@ -1,0 +1,152 @@
+THE CHECKS FOR THE NARROWED MAC RESOURCE PROBE, RUN ON THIS MACHINE
+
+Machine        devthrottle-mac-mini, Apple M4, 10 cores, 16 GiB, macOS 26.5.2 (build 25F84), arm64
+Software kit   dotnet 10.0.403
+Run at         2026-11-06
+Scope          memory, the processor, swap, the stall signals, the processes, and the per-disk
+               evidence the slowness diagnosis needs. No disk meter, no disk throughput, no
+               per-volume figures, no network reading.
+
+WHAT THIS FILE IS, AND WHAT THE OTHER TWO ARE. This is the record for the probe as it ships after
+the owner narrowed the mission on 2026-11-06. The two files beside it - macos-check.txt and
+macos-live-reading.txt - are the 15 October record of the WIDER probe on the closed pull request
+4035, and they still describe readings this code no longer takes (volumes, free space per volume,
+network throughput, disk read and write speeds). They are kept because the review of 4035 cites
+them as evidence, not because they describe what ships. macos-disk-busy-risk.txt is still current:
+it is the measurement that settled what the IOKit disk-time counter means, and the narrowed disk
+type is built on its conclusion.
+
+The solution has two projects that only build for Windows, so the build carries the switch the
+error message itself names. scripts/test-local.ps1 is PowerShell and cannot run on a Mac.
+
+====================================================================================================
+1. dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+
+   Build succeeded.
+   0 Warning(s) from the C# projects.
+
+   (The run also prints two Vite chunk-size notes from the web bundle. They are not this change's
+   and they are not C# warnings.)
+
+====================================================================================================
+2. dotnet test src/CcDirector.Core.UnitTests -c Release -p:EnableWindowsTargeting=true
+                --filter "Category=Resources"
+
+   Passed!  Failed: 0, Passed: 112, Skipped: 0, Total: 112, Duration: 29 ms
+
+   PURE FUNCTIONS, AND THE DURATION IS THE PROOF OF IT. Twenty-nine milliseconds for 112 tests is
+   not a suite that touches a disk, waits on a clock or makes a system call. Every one of them runs
+   on captured output committed beside it, so the arithmetic is covered on a Windows or Linux build
+   machine as well as here.
+
+====================================================================================================
+3. dotnet test src/CcDirector.Core.Tests -c Release -p:EnableWindowsTargeting=true
+                --filter "Category=Resources"
+
+   Passed!  Failed: 0, Passed: 35, Skipped: 0, Total: 35, Duration: 572 ms
+
+   SKIPPED: 0 IS PART OF THE RESULT. These tests are gated by MacOsOnlyFact, which SKIPS with a
+   stated reason off macOS rather than returning early and reporting a pass. A skip here would mean
+   the suite had certified nothing, so zero skips on a Mac is what says all 35 really read the
+   machine.
+
+====================================================================================================
+4. THE PROBE READING THIS MACHINE, through the narrowed interface
+
+   The first sample, which is the Director's very first meter draw:
+
+     processor     processor unreadable (first sample, no interval yet)
+     memory        4.6 GB available of 16.0 GB
+     swap          swap 3.5 GB used of 5.0 GB
+     stalls        stalls (MacOsSignals): run queue 17.2, macOS memory pressure level 1
+     disk evidence disk disk0 (solid-state, in the system volume) unreadable (first sample, no interval yet)
+
+   A rate genuinely cannot be worked out from one reading, and the probe says so rather than
+   reporting nought per cent busy - which would be indistinguishable from an idle machine, on every
+   Director start-up. Memory, swap and the stall signals need no interval and are reported.
+
+   Ten seconds later:
+
+     processor     processor 52% busy, busiest core 74%, 10 cores
+     memory        4.3 GB available of 16.0 GB
+     swap          swap 3.5 GB used of 5.0 GB
+     stalls        stalls (MacOsSignals): run queue 15.4, macOS memory pressure level 1
+     disk evidence disk disk0 (solid-state, in the system volume) 1.0 operations in flight,
+                   0.41 ms per read, 0.05 ms per write
+     processes     502 listed, 181 with figures the platform refuses
+     busiest five, as a share of the whole machine:
+         10.44%  node (process 49497)
+          9.75%  esbuild (process 49505)
+          3.35%  bash (process 49513)
+          1.73%  mdworker_shared (process 49499)
+          1.40%  RustDesk (process 835)
+
+   Every figure is non-zero and real. Three things in that reading are worth naming:
+
+   - "in the system volume" is the IOKit walk working. The system volume's own device is an Apple
+     file system volume inside a container synthesized on a partition, so without walking up to the
+     hardware no disk would ever be marked as the one the machine runs from.
+   - 181 of 502 processes are listed WITH THEIR FIGURES NULL rather than left out. An ordinary user
+     is refused the processor time and memory of another user's process. The old probe took the list
+     from the same call it took the figures from and so dropped them entirely - which on 15 October
+     lost the two busiest processes on this machine, both Spotlight indexing as root, out of a set
+     reporting that it had read fine.
+   - BusyPercent is absent from the disk line because it is null on this platform, and the time per
+     operation carries the signal instead. That is the finding of macos-disk-busy-risk.txt.
+
+====================================================================================================
+5. THE PROCESSOR, AGAINST THE MACHINE'S OWN MONITOR
+
+   Four consecutive ten-second windows, with "top -l 5 -s 10 -n 0" started alongside so its interval
+   ticks line up one-for-one with the probe's windows. top reports idle, so the busy figure is
+   100 minus idle.
+
+     window   the probe      top        difference
+        1      62.05 %     62.06 %        0.01
+        2      60.67 %     60.72 %        0.05
+        3      65.83 %     65.83 %        0.00
+        4      47.95 %     47.53 %        0.42
+
+   Worst disagreement 0.42 percentage points, against a requirement of 5, over a load that moved
+   from 66 per cent down to 48. 
+
+   THE WINDOWS HAVE TO BE LINED UP OR THE COMPARISON MEANS NOTHING. A first attempt compared one
+   probe window against whatever tick top happened to print and read 32 percentage points apart on a
+   machine that was swinging between 30 and 78 per cent busy. That was the measurement being wrong,
+   not the probe: once the windows were matched the two agree to within half a point. A single
+   unaligned window on a moving machine can disagree by any amount and proves nothing in either
+   direction.
+
+====================================================================================================
+6. MEMORY, AGAINST THE MACHINE'S OWN COUNTERS
+
+   The right counterpart is vm_stat, not top. top's "used" counts the compressor and cached files,
+   which is a different quantity; the probe reports what MachineMemoryProbe has reported since the
+   issue 2818 fix - free plus inactive plus purgeable pages, in the same spirit as Linux's
+   MemAvailable. So the check is against the page counts that figure is built from.
+
+     run    probe used %    vm_stat used %    difference
+      1        53.14            53.71           0.57
+      2        53.56            54.61           1.05
+      3        53.88            54.73           0.85
+
+   Worst disagreement 1.05 percentage points, against a requirement of 5. The remaining gap is the
+   fraction of a second between the probe's read and vm_stat's, during which the machine really does
+   move.
+
+====================================================================================================
+7. WHAT THESE CHECKS DO NOT COVER
+
+   - ONE MACHINE, ONE DISK, ONE KIND OF DISK. An Apple M4 with a single internal solid-state disk.
+     No spinning hard drive has ever been measured on macOS, so the Rotational branch of the medium
+     type is covered by a committed fixture and by the code path, not by hardware.
+   - NO INTEL MAC. The entry-point binding that review finding 4 is about rests on the exported
+     symbol tables read on this machine, not on a reproduction. Measured here: libsystem_kernel
+     exports _statfs, _statfs$INODE64 and _statfs64, with the last two at the same address and the
+     plain name at a different one in the Intel slice - which is exactly the trap, and why the
+     binding names statfs64.
+   - NO EXTERNAL OR NETWORK VOLUME, so a disk appearing or disappearing mid-sample is untested.
+   - THE PowerShell GATE DID NOT RUN. It cannot run on a Mac.
+   - THE LIMITS ARE NOT TESTED HERE. What counts as amber or red for the processor, and what counts
+     as a slow millisecond-per-write on macOS, are proposals until the phase 2 load harness runs
+     them on all three platforms. This file says the figures are right, not that the thresholds are.
