@@ -94,10 +94,10 @@ internal static class ResourceCapacityFold
         // was refused. A window can be unread for the processor and read for memory, and Max over a nullable figure skips
         // the null without saying so: the highest READABLE peak would be printed as the hour's peak, a believable
         // understatement (issue #4670, after review finding 13). A refused window has no figures, so it is one case of this.
-        var processorGap = HourGap(recent, w => w.ProcessorPeakPercent is not null, w => w.ProcessorUnreadableReason,
-            "the hour's peak processor use");
-        var memoryGap = HourGap(recent, w => w.MemoryPeakUsedBytes is not null, w => w.MemoryUnreadableReason,
-            "the hour's peak memory use - and with it the spare capacity -");
+        var processorGap = HourGap(recent, w => w.ProcessorPeakPercent is not null, w => w.ProcessorUnreadableReason);
+        var memoryGap = HourGap(recent, w => w.MemoryPeakUsedBytes is not null, w => w.MemoryUnreadableReason);
+        var processorPeakUnknown = false;
+        var spareUnknownFromGap = false;
         var crossings = ResourceSummaryStore.CrossingsOf(newest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
@@ -110,7 +110,7 @@ internal static class ResourceCapacityFold
             if (processorGap is not null)
             {
                 dto.ProcessorDetail = "peak not known";
-                why.Add(processorGap);
+                processorPeakUnknown = true;
             }
             else
             {
@@ -139,7 +139,7 @@ internal static class ResourceCapacityFold
             if (memoryGap is not null)
             {
                 dto.SpareLabel = "cannot read";
-                why.Add(memoryGap);
+                spareUnknownFromGap = true;
             }
             else
             {
@@ -170,41 +170,54 @@ internal static class ResourceCapacityFold
                 : "Memory was read but the machine's total was not, so no share or spare capacity can be given.");
         }
 
+        // One sentence when one cause sank both peaks - the usual case for a refused window - so the Cockpit does not show
+        // the same time and reason twice; otherwise one per resource.
+        const string processorWhat = "the hour's peak processor use is";
+        const string memoryWhat = "the hour's peak memory use - and with it the spare capacity - is";
+        if (processorPeakUnknown && spareUnknownFromGap && processorGap == memoryGap)
+            why.Add($"{processorGap}, so the hour's peak processor and memory use - and with it the spare capacity - are not known.");
+        else
+        {
+            if (processorPeakUnknown) why.Add($"{processorGap}, so {processorWhat} not known.");
+            if (spareUnknownFromGap) why.Add($"{memoryGap}, so {memoryWhat} not known.");
+        }
+
         (dto.StatusLabel, dto.StatusTone) = StatusOf(dto);
         dto.Why = why.Count == 0 ? null : string.Join(" ", why);
         return dto;
     }
 
     /// <summary>
-    /// Why the hour's figure for one resource is not known, or null when every window in the hour read it. Windows are
-    /// taken by their start: two Directors on one machine both measure the whole machine, so a window one of them could
-    /// not read is covered when the other read it. The sentence says WHICH happened, because a refused window is a fault
-    /// in how a Director measured and an unread one is a counter that did not answer - different places to look.
+    /// What kept the hour's figure for one resource from being known - "In the last hour ..." - or null when every window
+    /// in the hour read it. Windows are taken by their start: two Directors on one machine both measure the whole machine,
+    /// so a window one of them could not read is covered when the other read it. It says WHICH happened, and both when
+    /// both did, because a refused window is a fault in how a Director measured and an unread one is a counter that did
+    /// not answer - different places to look.
     /// </summary>
     private static string? HourGap(List<ResourceWindowEntity> recent, Func<ResourceWindowEntity, bool> read,
-        Func<ResourceWindowEntity, string?> unreadReason, string what)
+        Func<ResourceWindowEntity, string?> unreadReason)
     {
-        var unread = recent
+        var gaps = recent
             .GroupBy(w => w.WindowStartUtc)
             .Where(g => !g.Any(read))
             .OrderBy(g => g.Key)
             .ToList();
-        if (unread.Count == 0) return null;
+        if (gaps.Count == 0) return null;
 
-        // A window start is refused when its only rows were refused; otherwise it was simply unread.
-        var refused = unread.Where(g => g.All(w => w.RefusedReason is not null)).ToList();
-        var notRead = unread.Where(g => !g.All(w => w.RefusedReason is not null)).ToList();
+        // A start where two Directors' rows were one refused and one unread counts under both, so neither cause is hidden.
+        var refused = gaps.Where(g => g.Any(w => w.RefusedReason is not null)).ToList();
+        var notRead = gaps.Where(g => g.Any(w => w.RefusedReason is null)).ToList();
         var causes = new List<string>();
         if (refused.Count > 0)
             causes.Add($"{Windows(refused.Count)} had figures the Gateway refused (at {Time(refused[0].Key)}: "
-                       + $"{refused[0].First().RefusedReason})");
+                       + $"{refused[0].First(w => w.RefusedReason is not null).RefusedReason})");
         if (notRead.Count > 0)
         {
             var row = notRead[0].First(w => w.RefusedReason is null);
             causes.Add($"{Windows(notRead.Count)} could not be read (at {Time(notRead[0].Key)}: "
                        + $"{unreadReason(row) ?? "the Director gave no reason"})");
         }
-        return $"In the last hour {string.Join(" and ", causes)}, so {what} is not known.";
+        return $"In the last hour {string.Join(" and ", causes)}";
 
         static string Windows(int count) => count == 1 ? "one window" : $"{count} windows";
         static string Time(DateTime utc) => utc.ToString("HH:mm", CultureInfo.InvariantCulture) + " UTC";

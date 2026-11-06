@@ -124,8 +124,8 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     }
 
     // ---- Issue #4670: the hour's peak is known only when every window in the hour read THAT resource. ----
-    // Each case keeps a 10:15 window that held the hour's real peak (97% processor, 15 of 16 GB memory) and a normal
-    // 10:25 window at 28% and 8 GB. Computed from the readable windows alone, Spare would be 8 GB on a machine that had 1.
+    // Each case has an earlier 10:15 window that is unread or refused for the resource under test, and a normal 10:25
+    // window at 28% and 8 GB of 16. Computed from the readable windows alone, the peak would be the newest window's.
 
     [Fact]
     public void Fold_AWindowUnreadForTheProcessorOnly_MakesOnlyTheProcessorPeakUnknown()
@@ -166,6 +166,9 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     [Fact]
     public void Fold_ARefusedWindowEarlierInTheHour_MakesBothPeaksUnknown_AndSaysItWasRefused()
     {
+        // 10:15 peaked at 15 of 16 GB, but its 400% processor reading is one no machine can give, so the store refuses
+        // the whole window and keeps none of its figures. Spare from the readable 10:25 alone would advertise 8 GB of room
+        // on a machine that had 1.
         var refused = Steady(W0.AddMinutes(15), 30, 15 * Gb);
         refused.Machine.ProcessorPeakPercent = 400;
 
@@ -176,9 +179,46 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Equal("50%", capacity.MemoryLabel);
         Assert.Null(capacity.SpareBytes);
         Assert.Equal("cannot read", capacity.SpareLabel);
-        Assert.Contains("had figures the Gateway refused (at 10:15 UTC:", capacity.Why);
+        // One cause sank both peaks, so it is said once, not once per resource.
+        Assert.StartsWith("In the last hour one window had figures the Gateway refused (at 10:15 UTC: ", capacity.Why);
         Assert.Contains("outside 0 to 100", capacity.Why);
+        Assert.EndsWith("), so the hour's peak processor and memory use - and with it the spare capacity - are not known.", capacity.Why);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(capacity.Why!, "In the last hour"));
         Assert.DoesNotContain("could not be read", capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_AWindowOneDirectorHadRefusedButAnotherRead_KeepsThePeakKnown()
+    {
+        var refused = Steady(W0.AddMinutes(15), 30, 15 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-2", Batch(refused));
+
+        var windows = Stored(Steady(W0.AddMinutes(15), 97, 12 * Gb), Steady(W0.AddMinutes(25), 28, 8 * Gb));
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
+
+        Assert.Equal("peak 97%", capacity.ProcessorDetail);
+        Assert.Equal(4 * Gb, capacity.SpareBytes);
+        Assert.Null(capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_AWindowOneDirectorRefusedAndAnotherCouldNotRead_IsAGap_AndNamesBothCauses()
+    {
+        var refused = Steady(W0.AddMinutes(15), 30, 15 * Gb);
+        refused.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-2", Batch(refused));
+        var unread = Steady(W0.AddMinutes(15), 0, 12 * Gb);
+        unread.Machine.ProcessorCouldRead = false;
+        unread.Machine.ProcessorUnreadableReason = "the processor counters did not answer";
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(unread, Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("peak not known", capacity.ProcessorDetail);
+        Assert.Contains("had figures the Gateway refused (at 10:15 UTC:", capacity.Why);
+        Assert.Contains("could not be read (at 10:15 UTC: the processor counters did not answer)", capacity.Why);
+        // director-1 read memory at 10:15 (12 GB), so memory's peak and Spare stay known.
+        Assert.Equal(4 * Gb, capacity.SpareBytes);
     }
 
     [Fact]
