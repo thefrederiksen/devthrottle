@@ -84,20 +84,48 @@ bracketed, to within 1.36 points with the caveat in point 2. Points 1 and 2 are 
 memory figure is **known**; points 3 and 4 are about what the shared types can **express** and what a
 verdict may **claim**.
 
-## And one the review did not raise, found while deriving the shared contract on macOS - the Tech Lead's
+## And one the review did not raise - found twice, independently, while deriving the shared contract on macOS
 
 `ResourceProbeContractLiveTests.ReadWithRates` reads the probe twice and sleeps
 `MachineMemoryProbe.CacheFor` plus 250 milliseconds in between, so that every rate has an interval. It
 does not ask the probe under test how long **that** probe caches a sample for.
 
-Today it is safe, and safe only by coincidence: `MachineMemoryProbe.CacheFor`,
-`MacOsResourceProbe.CacheFor` and `LinuxResourceProbe.CacheFor` all happen to be one second, so the
-sleep is 1.25 seconds and the second `Read` is a genuinely fresh sample. The day any one platform
-raises its own cache past 1.25 seconds, that platform's second `Read` returns the **first** sample out
-of its cache, every rate in the sample under test is the first sample's, and the contract tests go on
-passing - a green cross-platform run that read the machine once.
+It was safe, and safe only by coincidence: `MachineMemoryProbe.CacheFor`, `MacOsResourceProbe.CacheFor`
+and `LinuxResourceProbe.CacheFor` all happened to be one second, so the sleep was 1.25 seconds and the
+second `Read` was a genuinely fresh sample. Raise any one platform's own cache past that sleep and its
+second `Read` returns the **first** sample back out of the cache, every rate in the sample under test is
+the first sample's, and the contract tests go on passing.
 
-It is a check that fails open, in the one suite whose whole purpose is to catch a reading that is
-self-consistent on one platform and means something different on another. The fix belongs in the shared
-base - have the contract ask the probe for its own cache interval and sleep on that - so it is referred
-to the Tech Lead rather than worked around in the macOS derivation.
+**Two of the four contract tests would not notice, and that is the part worth keeping in mind.**
+`ASampleFromThisMachine_KeepsEveryRuleTheInterfaceStates` passes, because `ResourceSampleContract`
+deliberately accepts a rate-less first sample - `TheFirstSample_...` depends on it accepting one.
+`AProcessWhoseFiguresAreRefused_IsStillListedAndNamed` passes, because the first sample already lists
+and names every process. Only `PerProcessProcessor_...` would catch it, and only because it sleeps three
+seconds of its own. So the failure would read as a green cross-platform run - in the one suite whose
+whole purpose is to catch a reading that is self-consistent on one platform and means something
+different on another. A check that fails open.
+
+The macOS half is **fixed**: `MacOsResourceProbe.CacheFor` is now `MachineMemoryProbe.CacheFor`, as the
+Linux probe already wrote it, so the two cannot drift apart here and the reasoning is recorded on the
+field. Windows should do the same when its probe lands.
+
+**That is a local answer to a shared problem, and it does not close the finding.** Tying each probe to
+the memory probe's constant means no probe can choose its own cache interval without silently breaking a
+contract test that will still report green. The real fix belongs in the shared base - have the contract
+ask the probe under test for its own cache interval and sleep on that - and it is referred to the Tech
+Lead, who owns the base.
+
+Found independently by this seat and by the reviewer of the derivation, which is the only reason it is
+written down with any confidence: it is the kind of coupling that reads as fine to whoever wrote it.
+
+## Where the two referred points went
+
+Neither referral is a place for them to be forgotten, so each has an address:
+
+- **The skip-reason ordering** - on the wrong platform, the skip reason now names the removable obstacle
+  (the opt-in variable) before the permanent one (the platform), which is backwards. It is **issue
+  #4644**, which carries the reasoning the deleted `MacOsLiveMachineFactAttribute` used to hold in its
+  doc comment, so that reasoning did not go with the file.
+- **The contract's sleep, and `StallReading`'s single `null`** - both are changes to shared types that
+  all three probes return or run against, so both are with the Tech Lead. A macOS-only answer to either
+  would put the three platforms out of step, which is the failure the shared contract exists to prevent.
