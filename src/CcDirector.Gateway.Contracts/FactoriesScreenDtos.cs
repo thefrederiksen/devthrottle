@@ -348,6 +348,12 @@ public sealed class FactoryPageViewDto
     /// <summary>The boss's Talk button, or null when there is no boss.</summary>
     public FactoryTalkDto? Talk { get; set; }
 
+    /// <summary>
+    /// "Leave a message": the button that opens the Factory inbox composer for this factory, or null when the factory
+    /// takes no messages (archived, or no Boss seat) - the same rule the Inbox list and the send use.
+    /// </summary>
+    public string? LeaveMessageLabel { get; set; }
+
     /// <summary>Overview, Seats (n), Activity, Reports, Memory, Documents - in that order.</summary>
     public List<FactoryTabDto> Tabs { get; set; } = new();
 

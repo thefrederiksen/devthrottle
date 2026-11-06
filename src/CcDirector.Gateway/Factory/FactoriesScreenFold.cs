@@ -276,6 +276,7 @@ public static class FactoriesScreenFold
             FolderDenyTexts = FolderDenyTexts(factory, input.Sessions ?? Array.Empty<SessionDto>()),
             ComputerText = $"runs on {factory.Computer}",
             Talk = BossTalk(factory),
+            LeaveMessageLabel = Inbox.FactoryInboxReach.TakesMessages(factory) ? Inbox.FactoryInboxReach.LeaveMessageLabel : null,
             Tabs = PageTabs(factory.Seats.Count),
             Why = WhyCard(factory),
             Goal = GoalCard(factory),

@@ -131,7 +131,7 @@ internal static class FactoryInboxEndpoints
             var decisions = parts.Store.DecisionsOf(tenant, lastIds);
             var handed = parts.Store.HandedTimes(tenant, counts.Values.Where(c => c.Last.BundleId is not null).Select(c => c.Last.BundleId!.Value).ToList());
             var factories = parts.Factories(tenant)
-                .Where(f => f.ArchivedAtUtc is null && !string.IsNullOrWhiteSpace(f.BossSeat))
+                .Where(FactoryInboxReach.TakesMessages)
                 .OrderBy(f => f.Title, StringComparer.OrdinalIgnoreCase).ThenBy(f => f.Factory, StringComparer.Ordinal)
                 .Select(f =>
                 {
