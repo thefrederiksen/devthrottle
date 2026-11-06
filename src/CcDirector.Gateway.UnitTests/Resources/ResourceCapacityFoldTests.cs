@@ -32,10 +32,29 @@ public sealed class ResourceCapacityFoldTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
+    /// <summary>
+    /// Store the windows inside a WHOLE measured hour: every other five-minute slot of the last hour, for each machine named,
+    /// is filled with a quiet window (10%, 4 GB) that never sets a peak. Since issue #4679 an hour with missing slots says
+    /// how little of it was measured, so a test about anything else needs the hour whole.
+    /// </summary>
     private IReadOnlyList<ResourceWindowEntity> Stored(params ResourceSummaryWindow[] windows)
     {
+        var quiet = new List<ResourceSummaryWindow>();
+        foreach (var machine in windows.Select(w => w.MachineName).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var taken = windows.Where(w => string.Equals(w.MachineName, machine, StringComparison.OrdinalIgnoreCase))
+                .Select(w => w.WindowStartUtc).ToHashSet();
+            for (var slot = W0.AddMinutes(-30); slot.AddMinutes(5) <= Now; slot = slot.AddMinutes(5))
+                if (!taken.Contains(slot)) quiet.Add(Steady(slot, 10, 4 * Gb, machine));
+        }
+        return StoredOnly(windows.Concat(quiet).ToArray());
+    }
+
+    /// <summary>Store exactly these windows and read the last hour as the endpoint does.</summary>
+    private IReadOnlyList<ResourceWindowEntity> StoredOnly(params ResourceSummaryWindow[] windows)
+    {
         _store.Store(Tenant, "director-1", Batch(windows));
-        return _store.MachineWindows(Tenant, Now.AddHours(-1), Now.AddMinutes(1))!;
+        return _store.MachineWindows(Tenant, MachineResourceHistoryFold.ReadFromUtc(Now - ResourceCapacityFold.PeakSpan), Now.AddMinutes(1))!;
     }
 
     [Fact]
@@ -242,6 +261,97 @@ public sealed class ResourceCapacityFoldTests : IDisposable
         Assert.Null(capacity.Why);
     }
 
+    // ---- Issue #4679: an hour that was not measured whole has no peak, only a highest reading. ----
+
+    [Fact]
+    public void Fold_ADirectorDownForMostOfTheHour_SaysHowLittleWasMeasured_PeakAtLeast_SpareAtMost()
+    {
+        // Only 10:15, 10:20 and 10:25 exist: the Director was down from before 09:32 until 10:15.
+        var windows = StoredOnly(Steady(W0.AddMinutes(15), 60, 12 * Gb), Steady(W0.AddMinutes(20), 30, 8 * Gb), Steady(W0.AddMinutes(25), 28, 8 * Gb));
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("peak at least 60%", capacity.ProcessorDetail);
+        Assert.Equal("at most 4.0 GB", capacity.SpareLabel);
+        // An upper bound is not a number to place a factory by: it sorts with the unknowns.
+        Assert.Null(capacity.SpareBytes);
+        Assert.Equal("Only 15 of the last 60 minutes were measured, so the hour's peak processor use is at least what is shown "
+                     + "and the spare capacity at most what is shown.", capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_AMachineThatJoinedEightMinutesAgo_RestsOnFiveMinutes()
+    {
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, StoredOnly(Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("peak at least 28%", capacity.ProcessorDetail);
+        Assert.Equal("at most 8.0 GB", capacity.SpareLabel);
+        Assert.StartsWith("Only 5 of the last 60 minutes were measured", capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_AWindowWithFourSamples_IsTwentySecondsMeasured_NotFiveMinutes()
+    {
+        // A whole hour of windows, but 10:10 holds four samples: the sampler was stalled for most of it.
+        var thin = ResourceSummaryBuilder.Build(W0.AddMinutes(10), "devlinux",
+            Enumerable.Range(0, 4).Select(i => Sample(W0.AddMinutes(10).AddSeconds(5 * i), 30, 8 * Gb)));
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(thin, Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        // The 09:30 window's three minutes inside the hour, ten full windows and twenty seconds, rounded down.
+        Assert.StartsWith("Only 53 of the last 60 minutes were measured", capacity.Why);
+        Assert.Equal("peak at least 30%", capacity.ProcessorDetail);
+        Assert.Null(capacity.SpareBytes);
+    }
+
+    [Fact]
+    public void Fold_AWindowOneSampleShort_IsStillWhole()
+    {
+        // A five-second timer against five-minute wall-clock boundaries lands 59 as well as 60.
+        var start = W0.AddMinutes(10);
+        var short1 = ResourceSummaryBuilder.Build(start, "devlinux",
+            Enumerable.Range(0, ResourceCapacityFold.FullWindowSamples - 1).Select(i => Sample(start.AddSeconds(5 * i), 30, 8 * Gb)));
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(short1, Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("peak 30%", capacity.ProcessorDetail);
+        Assert.NotNull(capacity.SpareBytes);
+        Assert.Null(capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_TheRowAndTheChartAgree_OnAnHourWithAHole()
+    {
+        // 09:45 to 10:05 has no window. The capacity row and the expanded chart read the same rows.
+        var windows = StoredOnly(Enumerable.Range(0, 12).Select(i => W0.AddMinutes(-30 + 5 * i))
+            .Where(t => t < W0.AddMinutes(-15) || t >= W0.AddMinutes(5))
+            .Select(t => Steady(t, 30, 8 * Gb)).ToArray());
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
+        var history = MachineResourceHistoryFold.Fold("devlinux", 1, Now - ResourceCapacityFold.PeakSpan, Now, windows,
+            Array.Empty<ResourceSessionWindowEntity>());
+
+        var hole = Assert.Single(history.Gaps);
+        Assert.Equal(W0.AddMinutes(-15), hole.StartUtc);
+        Assert.Equal(W0.AddMinutes(5), hole.EndUtc);
+        Assert.Equal("peak at least 30%", capacity.ProcessorDetail);
+        // 09:32 to 09:45 (thirteen minutes, the first three in the straddling window) and 10:05 to 10:30.
+        Assert.StartsWith("Only 38 of the last 60 minutes were measured", capacity.Why);
+    }
+
+    [Fact]
+    public void Fold_AWholeHour_IsPlain_TheWindowStraddlingTheHoursStartCountsAsMeasured()
+    {
+        // The hour opens at 09:32, inside the 09:30 window: that window covers it, so there is no gap and no qualifier.
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.Equal("peak 28%", capacity.ProcessorDetail);
+        Assert.Equal("8.0 GB", capacity.SpareLabel);
+        Assert.Null(capacity.Why);
+    }
+
     [Fact]
     public void History_ARefusedWindow_MakesTheFactoryCostAtLeast()
     {
@@ -278,7 +388,7 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     public void Fold_ADirectorWhoseClockIsBehind_IsNamedAsAClockProblem_NotAConnectionProblem()
     {
         // Received a minute ago, stamped 10:00 - twenty-seven minutes before the Gateway's now of 10:32.
-        var windows = Stored(Steady(W0, 30, 8 * Gb));
+        var windows = StoredOnly(Steady(W0, 30, 8 * Gb));
 
         var capacity = ResourceCapacityFold.Fold(directorRunning: true, windows, Now);
 

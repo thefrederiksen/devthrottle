@@ -348,7 +348,9 @@ internal static class MachineEndpoints
             // Mission: Resource Monitor: each machine's processor, memory and spare capacity, folded here (rule 7).
             var now = launchers.UtcNow;
             ResourceCapacityFold.Stamp(view,
-                resourceSummaries?.MachineWindows(tenant, now - ResourceCapacityFold.PeakSpan, now.AddMinutes(1)), now);
+                // From one window before the hour, so the window straddling its start is counted, not called a gap.
+                resourceSummaries?.MachineWindows(tenant, MachineResourceHistoryFold.ReadFromUtc(now - ResourceCapacityFold.PeakSpan),
+                    now.AddMinutes(1)), now);
 
             FileLog.Write($"[MachineEndpoints] GET /machines tenant={tenant.Value}: machines={view.Machines.Count}, "
                           + $"newest={view.NewestRelease.Label}, updatable={view.Machines.Count(m => m.Update.Offered)}");
