@@ -31,6 +31,12 @@ public enum StallSource
 /// Every figure is nullable because each platform offers a different subset: Linux gives the three
 /// stalled percentages directly; Windows and macOS give the proxies. Null means "not offered on this
 /// platform", never "failed" - a failed read is <see cref="CouldRead"/> false.
+///
+/// THE DISK STALL FIGURE IS WHY THIS SURVIVED THE NARROWING, AND IT IS THE ONLY SOURCE OF A DISK
+/// VERDICT. The owner cut the disk meter on 2026-11-06 but kept the disk in the diagnosis, so
+/// <see cref="IoStalledPercent"/> is what decides "slow because of the disk". A disk's busy percentage
+/// never decides it - see <see cref="DiskEvidence.BusyPercent"/>, which is evidence printed beside the
+/// verdict and nothing more.
 /// </summary>
 /// <param name="CouldRead">False when no stall figure could be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>

@@ -66,12 +66,10 @@ public class ResourceReadingTests
     {
         Assert.Throws<ArgumentException>(() => CpuReading.Unreadable(reason));
         Assert.Throws<ArgumentException>(() => SwapReading.Unreadable(reason));
-        Assert.Throws<ArgumentException>(() => NetworkReading.Unreadable(reason));
         Assert.Throws<ArgumentException>(() => StallReading.Unreadable(reason));
-        Assert.Throws<ArgumentException>(() => DiskSetReading.Unreadable(reason));
+        Assert.Throws<ArgumentException>(() => DiskEvidenceSet.Unreadable(reason));
         Assert.Throws<ArgumentException>(() => ProcessSetReading.Unreadable(reason));
-        Assert.Throws<ArgumentException>(() => PhysicalDiskReading.Unreadable("sdc", DiskKind.Spinning, reason));
-        Assert.Throws<ArgumentException>(() => VolumeReading.Unreadable("/", reason));
+        Assert.Throws<ArgumentException>(() => DiskEvidence.Unreadable("sdc", DiskKind.Spinning, isInSystemVolume: true, reason));
         Assert.Throws<ArgumentException>(() => SlownessDiagnosis.CannotDiagnose(reason));
     }
 
@@ -112,63 +110,37 @@ public class ResourceReadingTests
     }
 
     // -------------------------------------------------------------------------------------------
-    // Network
+    // Disk evidence for the slowness diagnosis
     // -------------------------------------------------------------------------------------------
 
     [Fact]
-    public void NetworkRead_CarriesItsFigures()
+    public void DiskEvidenceRead_CarriesItsFigures_AndNullForWhatIsNotOffered()
     {
-        var reading = NetworkReading.Read(receiveBytesPerSecond: 1500, sendBytesPerSecond: 250);
-
-        Assert.True(reading.CouldRead);
-        Assert.Equal(1500, reading.ReceiveBytesPerSecond);
-        Assert.Equal(250, reading.SendBytesPerSecond);
-    }
-
-    [Fact]
-    public void NetworkUnreadable_CarriesReasonAndZeroes_AndPrintsNoFigure()
-    {
-        var reading = NetworkReading.Unreadable(ResourceUnreadableReasons.FirstSample);
-
-        Assert.False(reading.CouldRead);
-        Assert.Equal(ResourceUnreadableReasons.FirstSample, reading.UnreadableReason);
-        Assert.Equal(0, reading.ReceiveBytesPerSecond);
-        Assert.Equal(0, reading.SendBytesPerSecond);
-        AssertNoFigure(reading.ToString());
-    }
-
-    // -------------------------------------------------------------------------------------------
-    // Disks and volumes
-    // -------------------------------------------------------------------------------------------
-
-    [Fact]
-    public void PhysicalDiskRead_CarriesItsFigures_AndNullForWhatIsNotOffered()
-    {
-        var reading = PhysicalDiskReading.Read("sdc", DiskKind.Spinning, busyPercent: 75,
-            readBytesPerSecond: 1000, writeBytesPerSecond: 2000,
+        // The devlinux disk from 2026-10-15: the sentence the owner approved is built out of exactly these.
+        var reading = DiskEvidence.Read("sdc", DiskKind.Spinning, isInSystemVolume: true, busyPercent: 75,
             millisecondsPerRead: null, millisecondsPerWrite: 26, averageQueueDepth: 3.5);
 
         Assert.True(reading.CouldRead);
+        Assert.Null(reading.UnreadableReason);
         Assert.Equal("sdc", reading.Name);
         Assert.Equal(DiskKind.Spinning, reading.Kind);
+        Assert.True(reading.IsInSystemVolume);
         Assert.Equal(75, reading.BusyPercent);
-        Assert.Equal(1000, reading.ReadBytesPerSecond);
-        Assert.Equal(2000, reading.WriteBytesPerSecond);
         Assert.Null(reading.MillisecondsPerRead);
         Assert.Equal(26, reading.MillisecondsPerWrite);
         Assert.Equal(3.5, reading.AverageQueueDepth);
         Assert.Contains("spinning hard drive", reading.ToString());
+        Assert.Contains("in the system volume", reading.ToString());
         Assert.Contains("75% busy", reading.ToString());
         Assert.Contains("3.5 operations in flight", reading.ToString());
         Assert.Contains("26 ms per write", reading.ToString());
     }
 
     [Fact]
-    public void PhysicalDiskRead_NoTrueUtilisation_BusyIsNull_AndIsNotPrintedAsBusy()
+    public void DiskEvidenceRead_NoTrueUtilisation_BusyIsNull_AndIsNotPrintedAsBusy()
     {
         // macOS: the IOKit disk-time counter is a queue depth, not a utilisation, so busy is not offered.
-        var reading = PhysicalDiskReading.Read("disk0", DiskKind.SolidState, busyPercent: null,
-            readBytesPerSecond: 1000, writeBytesPerSecond: 2000,
+        var reading = DiskEvidence.Read("disk0", DiskKind.SolidState, isInSystemVolume: true, busyPercent: null,
             millisecondsPerRead: 0.4, millisecondsPerWrite: 0.6, averageQueueDepth: 2.6);
 
         Assert.True(reading.CouldRead);
@@ -178,44 +150,63 @@ public class ResourceReadingTests
         Assert.Contains("2.6 operations in flight", reading.ToString());
     }
 
+    [Fact]
+    public void DiskEvidenceRead_SystemVolumeNotKnown_SaysNothingAboutIt()
+    {
+        // Null is "this platform cannot say which disks back which volume", never "it does not".
+        var reading = DiskEvidence.Read("PhysicalDrive2", DiskKind.Unknown, isInSystemVolume: null,
+            busyPercent: 4, millisecondsPerRead: null, millisecondsPerWrite: null, averageQueueDepth: null);
+
+        Assert.Null(reading.IsInSystemVolume);
+        Assert.DoesNotContain("system volume", reading.ToString());
+    }
+
+    [Fact]
+    public void DiskEvidenceRead_NoFigureOffered_SaysSo_RatherThanPrintingNothing()
+    {
+        var reading = DiskEvidence.Read("sdc", DiskKind.Spinning, isInSystemVolume: false, busyPercent: null,
+            millisecondsPerRead: null, millisecondsPerWrite: null, averageQueueDepth: null);
+
+        Assert.True(reading.CouldRead);
+        Assert.Contains("no figures offered", reading.ToString());
+    }
+
     [Theory]
     [InlineData(0.337, "0.34 ms per write")]
     [InlineData(0.004, "0.00 ms per write")]
     [InlineData(9.5, "9.50 ms per write")]
     [InlineData(26, "26 ms per write")]
     [InlineData(26.4, "26 ms per write")]
-    public void PhysicalDiskToString_MillisecondsPerWrite_KeepsSubMillisecondFigures(double milliseconds, string expected)
+    public void DiskEvidenceToString_MillisecondsPerWrite_KeepsSubMillisecondFigures(double milliseconds, string expected)
     {
         // A solid-state drive answers in under a millisecond; whole milliseconds would print it as "0 ms".
-        var reading = PhysicalDiskReading.Read("nvme0n1", DiskKind.SolidState, busyPercent: 3,
-            readBytesPerSecond: 0, writeBytesPerSecond: 0,
+        var reading = DiskEvidence.Read("nvme0n1", DiskKind.SolidState, isInSystemVolume: true, busyPercent: 3,
             millisecondsPerRead: null, millisecondsPerWrite: milliseconds, averageQueueDepth: null);
 
         Assert.EndsWith(expected, reading.ToString());
     }
 
     [Fact]
-    public void PhysicalDiskUnreadable_KeepsNameAndKind_CarriesReasonAndZeroes()
+    public void DiskEvidenceUnreadable_KeepsNameKindAndVolume_CarriesReason_AndEveryFigureIsNull()
     {
-        var reading = PhysicalDiskReading.Unreadable("sdc", DiskKind.Spinning, "statistics locked away");
+        var reading = DiskEvidence.Unreadable("sdc", DiskKind.Spinning, isInSystemVolume: true, "statistics locked away");
 
         Assert.False(reading.CouldRead);
         Assert.Equal("sdc", reading.Name);
         Assert.Equal(DiskKind.Spinning, reading.Kind);
+        Assert.True(reading.IsInSystemVolume);
         Assert.Equal("statistics locked away", reading.UnreadableReason);
         Assert.Null(reading.BusyPercent);
-        Assert.Equal(0, reading.ReadBytesPerSecond);
-        Assert.Equal(0, reading.WriteBytesPerSecond);
         Assert.Null(reading.MillisecondsPerRead);
         Assert.Null(reading.MillisecondsPerWrite);
         Assert.Null(reading.AverageQueueDepth);
     }
 
     [Fact]
-    public void PhysicalDiskToString_Unreadable_PrintsNoFigure()
+    public void DiskEvidenceToString_Unreadable_PrintsNoFigure()
     {
         // The disk name is chosen with no digit so that a leaked figure is the only digit possible.
-        var text = PhysicalDiskReading.Unreadable("sdc", DiskKind.Unknown, "statistics locked away").ToString();
+        var text = DiskEvidence.Unreadable("sdc", DiskKind.Unknown, isInSystemVolume: null, "statistics locked away").ToString();
 
         Assert.Contains("statistics locked away", text);
         AssertNoFigure(text);
@@ -228,12 +219,12 @@ public class ResourceReadingTests
     }
 
     [Fact]
-    public void DiskSet_OneDiskCanFailWhileTheSetReads()
+    public void DiskEvidenceSet_OneDiskCanFailWhileTheSetReads()
     {
-        var set = DiskSetReading.Read(
+        var set = DiskEvidenceSet.Read(
         [
-            PhysicalDiskReading.Read("nvme0n1", DiskKind.SolidState, 2, 0, 0, null, null, null),
-            PhysicalDiskReading.Unreadable("sdc", DiskKind.Spinning, "statistics locked away"),
+            DiskEvidence.Read("nvme0n1", DiskKind.SolidState, isInSystemVolume: true, 2, null, null, null),
+            DiskEvidence.Unreadable("sdc", DiskKind.Spinning, isInSystemVolume: true, "statistics locked away"),
         ]);
 
         Assert.True(set.CouldRead);
@@ -243,40 +234,14 @@ public class ResourceReadingTests
     }
 
     [Fact]
-    public void DiskSetUnreadable_HasNoDisks_AndPrintsNoFigure()
+    public void DiskEvidenceSetUnreadable_HasNoDisks_AndPrintsNoFigure()
     {
-        var set = DiskSetReading.Unreadable("the disks could not be listed");
+        var set = DiskEvidenceSet.Unreadable("the disks could not be listed");
 
         Assert.False(set.CouldRead);
         Assert.Equal("the disks could not be listed", set.UnreadableReason);
         Assert.Empty(set.Disks);
         AssertNoFigure(set.ToString());
-    }
-
-    [Fact]
-    public void VolumeRead_CarriesItsFigures_AndItsPhysicalDisks()
-    {
-        var volume = VolumeReading.Read("/", 1000 * Gigabyte, 200 * Gigabyte, ["nvme0n1", "nvme1n1", "sdc"]);
-
-        Assert.True(volume.CouldRead);
-        Assert.Equal("/", volume.MountPoint);
-        Assert.Equal(1000 * Gigabyte, volume.TotalBytes);
-        Assert.Equal(200 * Gigabyte, volume.FreeBytes);
-        Assert.Contains("sdc", volume.PhysicalDiskNames);
-    }
-
-    [Fact]
-    public void VolumeUnreadable_KeepsMountPoint_CarriesReasonAndZeroes_AndPrintsNoFigure()
-    {
-        var volume = VolumeReading.Unreadable("/mnt/archive", "the volume did not answer");
-
-        Assert.False(volume.CouldRead);
-        Assert.Equal("/mnt/archive", volume.MountPoint);
-        Assert.Equal("the volume did not answer", volume.UnreadableReason);
-        Assert.Equal(0UL, volume.TotalBytes);
-        Assert.Equal(0UL, volume.FreeBytes);
-        Assert.Empty(volume.PhysicalDiskNames);
-        AssertNoFigure(volume.ToString());
     }
 
     // -------------------------------------------------------------------------------------------
