@@ -1,0 +1,302 @@
+using CcDirector.Core.Machine;
+using Xunit;
+
+namespace CcDirector.Core.Tests.Machine;
+
+/// <summary>
+/// What the toolbar meter and the detail screen are handed (issue #2811, mission sections 5d to 5h). The
+/// views decide nothing; every state the owner can see is pinned here, and "cannot read" is a dash and a
+/// reason - never a zero.
+/// </summary>
+[Trait("Category", "Resources")]
+public class ResourceViewFoldTests
+{
+    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
+    private const ulong Mb = ResourceSampleBuilder.Megabyte;
+    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+
+    private static ResourceSamplerState State(ResourceSample sample, ResourceLevel cpu = ResourceLevel.Normal, ResourceLevel memory = ResourceLevel.Normal) =>
+        new(sample, new ResourcePressureVerdict(
+        [
+            new ResourceVerdict(ResourceKind.Cpu, cpu, "cpu"),
+            new ResourceVerdict(ResourceKind.Memory, memory, "memory"),
+            new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Normal, "swap"),
+        ]));
+
+    private static ResourceMeterView Meter(ResourceSamplerState state, SessionUsage? own = null) =>
+        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4, own, At.AddSeconds(3));
+
+    // ---- the toolbar meter ----
+
+    [Fact]
+    public void Meter_Healthy_ShowsTheMockUpFigures()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().Memory(16 * Gb, (ulong)(7.2 * Gb)).Build()));
+
+        Assert.Equal("CPU", meter.Cpu.Label);
+        Assert.Equal("28%", meter.Cpu.PercentText);
+        Assert.Equal(0.28, meter.Cpu.Fraction!.Value, 3);
+        Assert.Equal("MEM", meter.Memory.Label);
+        Assert.Equal("55%", meter.Memory.PercentText);
+        Assert.Equal("28%/55%", meter.NarrowText);
+        Assert.Equal(ResourceLevel.Normal, meter.Cpu.Level);
+    }
+
+    [Fact]
+    public void Meter_Tooltip_MachineFiguresFirst_ThenThisDirectorsSessions()
+    {
+        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], 0);
+
+        var lines = Meter(State(new ResourceSampleBuilder().Build()), own).TooltipLines;
+
+        Assert.Equal("devthrottle-mac-mini - 4 sessions running", lines[0]);
+        Assert.Equal("CPU 28% of 8 cores - busiest core 71%", lines[1]);
+        Assert.StartsWith("Memory 8.86 GB used of 16.0 GB", lines[2]);
+        Assert.Equal("Swap 966 MB of 2.00 GB", lines[3]);
+        Assert.Equal("This Director's sessions 2.10 GB and 19% CPU", lines[4]);
+        Assert.Equal("Updated 3 seconds ago - click for detail", lines[5]);
+    }
+
+    [Fact]
+    public void Meter_SessionsWithRefusedFigures_SayAtLeast()
+    {
+        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], ProcessesWithUnknownFigures: 1);
+
+        var lines = Meter(State(new ResourceSampleBuilder().Build()), own).TooltipLines;
+
+        Assert.Equal("This Director's sessions at least 2.10 GB and at least 19% CPU", lines[4]);
+    }
+
+    [Fact]
+    public void Meter_CpuUnreadable_ShowsADashAndWhy_MemoryKeepsItsRealFigure()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().CpuUnreadable("the counters are switched off").Build(), cpu: ResourceLevel.Unknown));
+
+        Assert.False(meter.Cpu.CouldRead);
+        Assert.Null(meter.Cpu.Fraction);
+        Assert.Equal(ResourceViewText.CannotReadText, meter.Cpu.PercentText);
+        Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
+        Assert.Equal("CPU cannot read: the counters are switched off", meter.Cpu.Tooltip);
+        Assert.True(meter.Memory.CouldRead);
+        Assert.Equal("55%", meter.Memory.PercentText);
+        Assert.Equal("-/55%", meter.NarrowText);
+    }
+
+    [Fact]
+    public void Meter_CpuUnreadable_IsUnknownEvenIfTheVerdictSaysCritical_ADashIsNeverColouredRed()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().CpuUnreadable("gone").Build(), cpu: ResourceLevel.Critical));
+
+        Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
+    }
+
+    [Fact]
+    public void Meter_MemoryUnreadable_ShowsADash_NeverZero()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().MemoryUnreadable("sysctl refused").Build(), memory: ResourceLevel.Unknown));
+
+        Assert.Null(meter.Memory.Fraction);
+        Assert.Equal(ResourceViewText.CannotReadText, meter.Memory.PercentText);
+        Assert.Equal("Memory cannot read: sysctl refused", meter.Memory.Tooltip);
+        Assert.Equal("28%", meter.Cpu.PercentText);
+    }
+
+    [Fact]
+    public void Meter_MemoryMoreAvailableThanInstalled_IsUnreadable_NotAConfidentBar()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().Memory(8 * Gb, 9 * Gb).Build()));
+
+        Assert.False(meter.Memory.CouldRead);
+        Assert.Equal(ResourceLevel.Unknown, meter.Memory.Level);
+    }
+
+    [Fact]
+    public void Meter_NotYetSampled_BothBarsAreDashes()
+    {
+        var meter = Meter(ResourceSamplerState.NotYetSampled);
+
+        Assert.Equal("-/-", meter.NarrowText);
+        Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
+        Assert.Equal(ResourceLevel.Unknown, meter.Memory.Level);
+        Assert.Equal("Waiting for the first reading - click for detail", meter.TooltipLines[^1]);
+    }
+
+    [Fact]
+    public void Meter_FirstSample_CpuSaysWhyNotZero()
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().FirstSample().Build(), cpu: ResourceLevel.Unknown));
+
+        Assert.Equal($"CPU cannot read: {ResourceUnreadableReasons.FirstSample}", meter.Cpu.Tooltip);
+        Assert.Equal("55%", meter.Memory.PercentText);
+    }
+
+    [Theory]
+    [InlineData(ResourceLevel.Tight)]
+    [InlineData(ResourceLevel.Critical)]
+    public void Meter_Level_IsTheVerdictsLevel_ForEachBarOnItsOwn(ResourceLevel level)
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().Cpu(97, 100).Build(), cpu: level));
+
+        Assert.Equal(level, meter.Cpu.Level);
+        Assert.Equal(ResourceLevel.Normal, meter.Memory.Level);
+    }
+
+    [Fact]
+    public void Meter_SwapUnreadable_TooltipSaysSo()
+    {
+        var lines = Meter(State(new ResourceSampleBuilder().SwapUnreadable("no page file counter").Build())).TooltipLines;
+
+        Assert.Contains("Swap cannot read: no page file counter", lines);
+    }
+
+    // ---- the shared figures ----
+
+    [Theory]
+    [InlineData(966 * Mb, "966 MB")]
+    [InlineData(2 * Gb, "2.00 GB")]
+    [InlineData(16 * Gb, "16.0 GB")]
+    [InlineData(128 * Gb, "128 GB")]
+    public void Bytes_WritesSizesTheWayTheMockUpsDo(ulong bytes, string expected)
+    {
+        Assert.Equal(expected, ResourceViewText.Bytes(bytes));
+    }
+
+    [Fact]
+    public void Bytes_Null_IsTheDash()
+    {
+        Assert.Equal(ResourceViewText.CannotReadText, ResourceViewText.Bytes(null));
+        Assert.Equal(ResourceViewText.CannotReadText, ResourceViewText.PercentOf100(null));
+    }
+
+    // ---- the detail screen ----
+
+    private static ResourceSample Machine() => new ResourceSampleBuilder()
+        .Cpu(40, 90)
+        .Memory(16 * Gb, 6 * Gb)
+        .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+        .Process(200, ResourceSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
+        .Process(201, 200, "dotnet", 20, 1 * Gb)
+        .Process(202, 201, "mds_stores", null, null)
+        .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
+        .Build();
+
+    private static ResourceDetailView Detail(ResourceSample sample, params ResourceSessionInput[] sessions) =>
+        ResourceDetailFold.Build(State(sample), [sample], "devthrottle-mac-mini", sessions, ResourceSampleBuilder.DefaultDirectorPid);
+
+    private static readonly ResourceSessionInput Busy =
+        new(new SessionUsage("s-140", 200, 30, 2 * Gb, [200, 201, 202], ProcessesWithUnknownFigures: 1), "140 - Resource Monitor - Dev", null);
+
+    private static readonly ResourceSessionInput Quiet =
+        new(new SessionUsage("s-112", 300, 3, 500 * Mb, [300], 0), "112 - Shorts - Builder", "Marketing");
+
+    [Fact]
+    public void Detail_Tiles_CpuAndMemoryOnly()
+    {
+        var detail = Detail(Machine(), Busy, Quiet);
+
+        Assert.Equal("Resources - devthrottle-mac-mini", detail.Title);
+        Assert.Equal("40%", detail.Cpu.Headline);
+        Assert.Equal("8 cores - busiest core 90%", detail.Cpu.Detail);
+        Assert.Equal("10.0 / 16.0 GB", detail.Memory.Headline);
+        Assert.Equal("6.00 GB available - swap 966 MB", detail.Memory.Detail);
+    }
+
+    [Fact]
+    public void Detail_Sessions_MostProcessorFirst_WithFactoryOrDash()
+    {
+        var detail = Detail(Machine(), Quiet, Busy);
+
+        Assert.Equal(["s-140", "s-112"], detail.Sessions.Select(row => row.SessionId));
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Sessions[0].Factory);
+        Assert.Equal("Marketing", detail.Sessions[1].Factory);
+    }
+
+    [Fact]
+    public void Detail_SessionWithARefusedProcess_IsALowerBound_AndTheProcessIsStillNamed()
+    {
+        var row = Detail(Machine(), Busy).Sessions[0];
+
+        Assert.Equal("at least 30%", row.CpuText);
+        Assert.Equal("at least 2.00 GB", row.MemoryText);
+        Assert.Equal("3", row.ProcessCountText);
+        Assert.Equal(["claude", "dotnet", "mds_stores"], row.Processes.Select(process => process.Name));
+        Assert.Equal([0, 1, 2], row.Processes.Select(process => process.Depth));
+        Assert.Equal(ResourceViewText.CannotReadText, row.Processes[2].CpuText);
+        Assert.Equal(ResourceViewText.CannotReadText, row.Processes[2].MemoryText);
+    }
+
+    [Fact]
+    public void Detail_DirectorRow_IsTheDirectorsOwnProcess()
+    {
+        var row = Detail(Machine(), Quiet).Director;
+
+        Assert.Equal(ResourceDetailFold.DirectorLabel, row.Label);
+        Assert.Equal("2%", row.CpuText);
+        Assert.Equal("400 MB", row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_EverythingElse_IsTheMachineMinusWhatThisDirectorAccountsFor()
+    {
+        var row = Detail(Machine(), Quiet).EverythingElse;
+
+        // 40% machine - 2% Director - 3% session; 10 GB used - 400 MB - 500 MB.
+        Assert.Equal(ResourceDetailFold.EverythingElseLabel, row.Label);
+        Assert.Equal("35%", row.CpuText);
+        Assert.Equal("9.12 GB", row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_EverythingElse_IsADash_WhenASessionTotalIsOnlyAFloor()
+    {
+        var row = Detail(Machine(), Busy, Quiet).EverythingElse;
+
+        Assert.Equal(ResourceViewText.CannotReadText, row.CpuText);
+        Assert.Equal(ResourceViewText.CannotReadText, row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_ProcessesUnreadable_RowsKeepTheirTotals_ButHaveNoTree()
+    {
+        var sample = new ResourceSampleBuilder().ProcessesUnreadable("first sample, no interval yet").Build();
+
+        var detail = Detail(sample, Quiet);
+
+        Assert.Empty(detail.Sessions[0].Processes);
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Director.CpuText);
+        Assert.Equal(ResourceViewText.CannotReadText, detail.EverythingElse.CpuText);
+    }
+
+    [Fact]
+    public void Detail_CpuUnreadable_TileIsADashWithTheReason_MemoryTileStillReal()
+    {
+        var detail = Detail(new ResourceSampleBuilder().CpuUnreadable("the counters are switched off").Build());
+
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Cpu.Headline);
+        Assert.Equal("cannot read: the counters are switched off", detail.Cpu.Detail);
+        Assert.Equal(ResourceLevel.Unknown, detail.Cpu.Level);
+        Assert.Equal("8.86 / 16.0 GB", detail.Memory.Headline);
+    }
+
+    [Fact]
+    public void Detail_History_AnUnreadableSampleIsAGap_NeverAZero()
+    {
+        var good = new ResourceSampleBuilder().At(At).Cpu(50).Build();
+        var bad = new ResourceSampleBuilder().At(At.AddSeconds(5)).CpuUnreadable("gone").Build();
+
+        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+
+        Assert.Equal([0.5, null], detail.Cpu.History.Select(point => point.Fraction));
+        Assert.Equal([At, At.AddSeconds(5)], detail.Cpu.History.Select(point => point.AtUtc));
+    }
+
+    [Fact]
+    public void Detail_NotYetSampled_TilesAreDashes()
+    {
+        var detail = ResourceDetailFold.Build(ResourceSamplerState.NotYetSampled, [], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Cpu.Headline);
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Memory.Headline);
+        Assert.Equal(ResourceViewText.CannotReadText, detail.Director.CpuText);
+    }
+}
