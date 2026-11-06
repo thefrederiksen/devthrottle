@@ -146,7 +146,13 @@ public class MacOsResourceProbeSafetyTests
         // Nothing was invented behind the unreadable flags.
         Assert.Empty(sample.DiskEvidence.Disks);
         Assert.Empty(sample.Processes.Processes);
-        Assert.Equal(0, sample.Cpu.LogicalCoreCount);
+        // NULL, not zero - and the test's own name says why. A figure the platform does not offer is
+        // null; zero would be a count, and "no processors" is not a thing a machine can have. Off a
+        // Mac this probe returns CpuReading.Unreadable(reason) with no core count at all, so this
+        // asserted a value the contract forbids it to invent. It passed on a Mac, where the probe
+        // reads a real count, and failed on every Linux and Windows machine including the scheduled
+        // full run on main.
+        Assert.Null(sample.Cpu.LogicalCoreCount);
         Assert.Equal(StallSource.None, sample.Stall.Source);
     }
 }
