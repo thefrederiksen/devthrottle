@@ -12,6 +12,51 @@
         Icon="avares://cc-director/app.ico">
 
     <Window.Styles>
+        <!-- The Mission button (Missions First-Class mission), on the session tab bar and in the toolbar corner. Three
+             looks, one per Gateway colour key, chosen by MissionButtonPresenter; the colours are App.axaml's Mission
+             brushes. The window decides no state: it only sets the class the presenter names. -->
+        <Style Selector="Button.missionBtn">
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="MaxWidth" Value="280" />
+            <Setter Property="Focusable" Value="False" />
+        </Style>
+        <Style Selector="Button.missionBtn.missionFilled">
+            <Setter Property="Background" Value="{DynamicResource MissionBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MissionBrush}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.missionBtn.missionOutline">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MissionBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MissionOutlineText}" />
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+        <Style Selector="Button.missionBtn.missionWarning">
+            <Setter Property="Background" Value="{DynamicResource MissionWarningBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MissionWarningBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MissionWarningText}" />
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
+        <Style Selector="Button.missionBtn TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <!-- Styles/ButtonStyles.axaml keeps a button's own background under the pointer but not its border or its text
+             colour, which the Fluent theme repaints - so the outline look lost its indigo border on hover and the
+             yellow look would turn its dark text white. Keep the button's own border and text colour, as that policy
+             keeps the background; opacity still carries the hover feedback. -->
+        <Style Selector="Button.missionBtn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
+            <Setter Property="Foreground" Value="{Binding $parent[Button].Foreground}" />
+        </Style>
+        <Style Selector="Button.missionBtn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{Binding $parent[Button].BorderBrush}" />
+            <Setter Property="Foreground" Value="{Binding $parent[Button].Foreground}" />
+        </Style>
         <!-- The Terminal tab's wheel button (mission #4070): taking the wheel is the primary action, handing it back the
              secondary one. Colours and the readable disabled states are docs/VisualStyle.md's "Button States". -->
         <Style Selector="Button#TabBarWheelButton.take">
@@ -144,6 +189,27 @@
 
                     <!-- The in-window Fleet Map was removed: the Cockpit button beside this one is the
                          single fleet-wide door, and having two of them was confusing. -->
+
+                    <!-- The Mission button for the SELECTED session (Missions First-Class mission): the Gateway's label,
+                         tooltip and look, verbatim, from MissionButtonPresenter. Follows the selection; hidden when no
+                         session is selected or the Gateway sent no verdict. -->
+                    <!-- In place of the button when the Gateway's verdict cannot be drawn (a colour key this build does
+                         not know): the presenter's problem, verbatim, in the problem colour TabBarWheelNote uses. -->
+                    <TextBlock x:Name="BtnMissionNote"
+                               Foreground="#F48771"
+                               FontSize="11"
+                               MaxWidth="280"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Margin="0,0,6,0"
+                               IsVisible="False" />
+                    <Button x:Name="BtnMission" Classes="missionBtn"
+                            Click="MissionButton_Click"
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                            IsVisible="False">
+                        <TextBlock x:Name="BtnMissionText" VerticalAlignment="Center" />
+                    </Button>
 
                     <!-- Cockpit (asks the local gateway for the Tailscale URL, then opens it) -->
                     <Button x:Name="BtnCockpit" Classes="toolbarBtn"
@@ -1229,6 +1295,26 @@
                                  Source Control too - again, one spot.
                                  Drawn as a filled, rounded, bordered button rather than a flat square one:
                                  the tabs to its left are flat and square, and this must not read as a tab. -->
+                            <!-- The Mission button for this session (Missions First-Class mission), just before the
+                                 Cockpit button so the Cockpit button keeps its spot at the right edge. Label, tooltip
+                                 and look are the Gateway's, verbatim, from MissionButtonPresenter; hidden when the
+                                 Gateway sent no verdict. -->
+                            <!-- In place of the button when the Gateway's verdict cannot be drawn: the presenter's
+                                 problem, verbatim, the way TabBarWheelNote shows the wheel's. -->
+                            <TextBlock x:Name="TabBarMissionNote"
+                                       Foreground="#F48771"
+                                       FontSize="11"
+                                       MaxWidth="360"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Margin="6,0,0,0"
+                                       IsVisible="False" />
+                            <Button x:Name="TabBarMissionButton" Classes="missionBtn"
+                                    Click="MissionButton_Click"
+                                    Margin="6,0,0,0"
+                                    IsVisible="False">
+                                <TextBlock x:Name="TabBarMissionText" VerticalAlignment="Center" />
+                            </Button>
                             <Button x:Name="TabBarCockpitButton"
                                     Content="Cockpit &#x2197;"
                                     Click="TabBarCockpitButton_Click"

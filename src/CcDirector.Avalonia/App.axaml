@@ -35,5 +35,11 @@
         <SolidColorBrush x:Key="TextForeground" Color="#CCCCCC" />
         <SolidColorBrush x:Key="AccentBrush" Color="#007ACC" />
         <SolidColorBrush x:Key="SelectedItemBrush" Color="#094771" />
+        <!-- The Mission button (Missions First-Class mission): indigo for a Mission, yellow for none. Both the session
+             tab bar and the toolbar corner draw it, in three looks, so the colours live here once. -->
+        <SolidColorBrush x:Key="MissionBrush" Color="#4338CA" />
+        <SolidColorBrush x:Key="MissionOutlineText" Color="#A5B4FC" />
+        <SolidColorBrush x:Key="MissionWarningBrush" Color="#EAB308" />
+        <SolidColorBrush x:Key="MissionWarningText" Color="#1E1E1E" />
     </Application.Resources>
 </Application>

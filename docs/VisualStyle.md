@@ -75,6 +75,10 @@ Design reference for CC Director's dark-theme UI, inspired by VS Code. Use this 
 | Blue badge | `#3B82F6` | Message count badges, behind-main badge |
 | Warning amber | `#D97706` | Uncommitted count badge |
 | Amber badge | `#F59E0B` | Behind-remote badge text |
+| Mission indigo (`MissionBrush`) | `#4338CA` | The Mission button: filled background, and the outline look's border |
+| Mission outline text (`MissionOutlineText`) | `#A5B4FC` | The Mission button's text in the outline look (a Mission with no document yet) |
+| No-mission yellow (`MissionWarningBrush`) | `#EAB308` | The Mission button's "No mission" warning. Deliberately yellow, not the warning amber above: the owner asked for yellow |
+| No-mission text (`MissionWarningText`) | `#1E1E1E` | Dark text on the no-mission yellow |
 
 ### Text Hierarchy
 
@@ -719,6 +723,13 @@ SVG-style Path data for a branch icon:
 | Disabled (secondary) | `#2D2D2D` | `#666666` |
 | Disabled (primary) | `#004E82` | `#6699BB` |
 | Disabled (success) | `#165C30` | `#4D9960` |
+| Mission, filled (`Button.missionBtn.missionFilled`) | `#4338CA`, border `#4338CA` | White |
+| Mission, outline (`Button.missionBtn.missionOutline`) | Transparent, border `#4338CA` | `#A5B4FC` |
+| Mission, no mission (`Button.missionBtn.missionWarning`) | `#EAB308`, border `#EAB308` | `#1E1E1E` |
+
+The three Mission looks are chosen by the Gateway's colour key, never by the view. They keep their own border and
+text colour on hover and press (the shared policy keeps only the background), and they are bordered, like the tab
+bar Cockpit button they sit beside, so they do not read as tabs.
 
 ### Disabled Button Rules - MANDATORY
 

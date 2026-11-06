@@ -662,7 +662,8 @@ public sealed class Session : IDisposable
         DateTime? snoozeUntil,
         bool snoozeExpired,
         string? inboxLine = null,
-        CcDirector.Gateway.Contracts.ApiModeSessionDisplay? apiMode = null)
+        CcDirector.Gateway.Contracts.ApiModeSessionDisplay? apiMode = null,
+        CcDirector.Gateway.Contracts.MissionButtonDisplay? missionButton = null)
     {
         var color = string.IsNullOrWhiteSpace(effectiveColor) ? null : effectiveColor.Trim();
         var label = string.IsNullOrWhiteSpace(stateLabel) ? null : stateLabel.Trim();
@@ -671,6 +672,8 @@ public sealed class Session : IDisposable
         // The API-mode verdict is compared by value, as JSON, so a push that changes only the wheel button still
         // raises the change and the screen redraws it (mission #4070).
         var apiModeJson = System.Text.Json.JsonSerializer.Serialize(apiMode);
+        // The Mission button's verdict is compared the same way, so a rename or a new goal redraws the button.
+        var missionButtonJson = System.Text.Json.JsonSerializer.Serialize(missionButton);
 
         var changed =
             !string.Equals(GatewayEffectiveColor, color, StringComparison.Ordinal)
@@ -680,7 +683,8 @@ public sealed class Session : IDisposable
             || GatewaySnoozeUntil != snoozeUntil
             || GatewaySnoozeExpired != snoozeExpired
             || !string.Equals(GatewayInboxLine, inbox, StringComparison.Ordinal)
-            || !string.Equals(_gatewayApiModeJson, apiModeJson, StringComparison.Ordinal);
+            || !string.Equals(_gatewayApiModeJson, apiModeJson, StringComparison.Ordinal)
+            || !string.Equals(_gatewayMissionButtonJson, missionButtonJson, StringComparison.Ordinal);
 
         if (!changed) return;
 
@@ -694,10 +698,13 @@ public sealed class Session : IDisposable
         // Its own copy, so a later change to the caller's object cannot reach the screen unannounced.
         _gatewayApiModeJson = apiModeJson;
         GatewayApiMode = System.Text.Json.JsonSerializer.Deserialize<CcDirector.Gateway.Contracts.ApiModeSessionDisplay?>(apiModeJson);
+        _gatewayMissionButtonJson = missionButtonJson;
+        GatewayMissionButton = System.Text.Json.JsonSerializer.Deserialize<CcDirector.Gateway.Contracts.MissionButtonDisplay?>(missionButtonJson);
 
         var wheel = apiMode?.WheelAction;
         FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}, "
-            + $"apiMode={apiMode?.Kind ?? "(none)"}, wheel={wheel?.Verb ?? "(none)"}, wheelLabel={wheel?.Label ?? "(none)"}, wheelEnabled={wheel?.Enabled.ToString() ?? "(none)"}, wheelReason={wheel?.DisabledReason ?? "(none)"}");
+            + $"apiMode={apiMode?.Kind ?? "(none)"}, wheel={wheel?.Verb ?? "(none)"}, wheelLabel={wheel?.Label ?? "(none)"}, wheelEnabled={wheel?.Enabled.ToString() ?? "(none)"}, wheelReason={wheel?.DisabledReason ?? "(none)"}, "
+            + $"mission={missionButton?.Verdict ?? "(none)"}, missionColor={missionButton?.ColorKey ?? "(none)"}, missionAddress={missionButton?.DocumentAddress ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
@@ -711,6 +718,16 @@ public sealed class Session : IDisposable
 
     /// <summary>The stored verdict as JSON: the value compared for a change, and the source of the stored copy.</summary>
     private string _gatewayApiModeJson = "null";
+
+    /// <summary>The Gateway's Mission button verdict for this session (<see cref="CcDirector.Gateway.Contracts.SessionDto.MissionButton"/>,
+    /// the Missions First-Class mission): the label, the colour key, the tooltip and the document's address, folded on the
+    /// Gateway. Null when the Gateway sent none - a Gateway older than that mission, or no Gateway at all - and then the
+    /// Director shows no Mission button. Delivered with the display state by <see cref="ApplyGatewayDisplayState"/>,
+    /// stored and echoed verbatim.</summary>
+    public CcDirector.Gateway.Contracts.MissionButtonDisplay? GatewayMissionButton { get; private set; }
+
+    /// <summary>The stored Mission button verdict as JSON: the value compared for a change, and the source of the stored copy.</summary>
+    private string _gatewayMissionButtonJson = "null";
 
     /// <summary>Set (or clear, on a null/blank value) this session's sticky explicit role. The value is
     /// validated against the role set by the caller; this only stores it.</summary>
