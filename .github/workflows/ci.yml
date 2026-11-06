@@ -127,6 +127,7 @@ jobs:
   changes:
     name: What changed
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       skip: ${{ steps.classify.outputs.skip }}
       dotnet: ${{ steps.classify.outputs.dotnet }}
@@ -271,6 +272,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.dotnet == 'true'
     runs-on: windows-latest
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v5
@@ -325,6 +327,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
@@ -426,6 +429,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.tools == 'true'
     runs-on: ${{ matrix.os }}
+    # Measured at 8-14 minutes when the machine is quiet. The ceiling is 45 rather than 30 because
+    # `scripts/test-local.ps1` records Core.Tests at 11 minutes quiet and 33 with the fleet busy, so a
+    # loaded day can push a healthy leg well past 30 and a limit that cuts a healthy run is worse than
+    # no limit: a timed-out job concludes `cancelled`, and the deploy gate refuses that commit.
+    timeout-minutes: 45
     strategy:
       # Never stop the other operating systems when one fails. A failure on one of them is exactly
       # the information this matrix exists to produce, and cancelling the rest hides whether the
@@ -537,6 +545,7 @@ jobs:
     needs: [changes, build-and-test, web, tool-contracts]
     if: always() && needs.changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check that every job did what the classifier decided
@@ -607,6 +616,7 @@ jobs:
       always() && github.ref == 'refs/heads/main' &&
       (needs.changes.result == 'failure' || needs.result.result == 'failure')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       issues: write
     steps:

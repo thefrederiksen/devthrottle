@@ -20,6 +20,8 @@ jobs:
   inventory-drift:
     name: Inventory drift check
     runs-on: ubuntu-latest
+    # Measured at well under a minute. The cap is a stuck-process backstop, not a target.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 

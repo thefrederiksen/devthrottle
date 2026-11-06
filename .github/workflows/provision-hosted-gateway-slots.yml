@@ -75,6 +75,9 @@ jobs:
   provision:
     name: Ensure a slot-capable plan and a warmed staging slot
     runs-on: ubuntu-latest
+    # Measured at one to one and a half minutes across its three runs. Azure plan and slot creation is
+    # the slow part and can stall, so the cap is generous.
+    timeout-minutes: 30
     environment: hosted-gateway-production
 
     steps:

@@ -75,6 +75,11 @@ jobs:
   rollback:
     name: Put a previous commit's image back into production
     runs-on: ubuntu-latest
+    # Measured at 3 to 6 minutes. This is the emergency lever, so the cap is far above the measured
+    # range on purpose: cutting a rollback short leaves production on the bad image, which is strictly
+    # worse than letting it run long. The limit is only there so a wedged rollback cannot hold the
+    # serialisation group for six hours and block the next attempt.
+    timeout-minutes: 45
     environment: hosted-gateway-production
 
     steps:

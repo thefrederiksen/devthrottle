@@ -111,6 +111,11 @@ jobs:
   deploy:
     name: Build image and deploy in place
     runs-on: ubuntu-latest
+    # Measured at 7 to 9 minutes: it builds the container image, then takes the ~120 second in-place
+    # restart. The cap is deliberately far above that. The outage budget inside the job is what polices
+    # the restart; this limit exists only so a hung build cannot hold the serialisation group - and the
+    # rollback lever queues behind that group, so a job stuck here delays an emergency.
+    timeout-minutes: 45
     environment: hosted-gateway-production
 
     # SERIALISATION. Everything that changes the live hosted Gateway - this deploy and the rollback
@@ -895,6 +900,10 @@ jobs:
     needs: deploy
     if: always()
     runs-on: ubuntu-latest
+    # It observes production for ten minutes by design and measures about eleven. It changes nothing in
+    # Azure and sits outside the serialisation group, so 30 minutes is a loose cap on a polling loop
+    # rather than a schedule to meet.
+    timeout-minutes: 30
     environment: hosted-gateway-production
 
     # Read by the `retain` job, which decides whether this run's image has earned the last-known-good
@@ -1545,6 +1554,9 @@ jobs:
     needs: [deploy, watch]
     if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
     runs-on: ubuntu-latest
+    # Registry labelling and pruning only; measured under a minute. It runs INSIDE the serialisation
+    # group, so a hang here blocks a rollback - which is the reason it is bounded at all.
+    timeout-minutes: 15
     environment: hosted-gateway-production
 
     concurrency:
