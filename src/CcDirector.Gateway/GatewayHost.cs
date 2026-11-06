@@ -2978,17 +2978,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // G8 increment 2: wrap the cron engine in the per-tenant worker seam so the background sweep enters
         // each tenant's scope before it reads the tenant-scoped cron_jobs store. The same pass records the runs that
         // did not report or ran past their shift (Factory Control, step 1).
-        // Factory Control, step 4: the factory email reads the same problems fold, keeps each composed email, and sends
-        // it through the owner-email primitive - tenant-addressed on hosted, the account token on self-host.
+        // Factory Control, step 4: the morning report reads the same problems fold and keeps each composed report. Since
+        // the Factory Inbox mission's phase 5 ("Email off") it is no email: each factory's morning summary is written
+        // into Your inbox, and the sweep is handed no mail sender at all.
         FactoryEmailReports = new Factory.Email.FactoryEmailStore(_gatewayDb);
-        var factoryEmailSender = new Factory.Email.FactoryEmailSender(
-            Hosted,
-            isTeam: tenant => TeamRegistry.IsTeam(tenant),
-            subjectOf: TenantRegistry.SubjectForTenant,
-            serviceToken: Core.Account.AccountNotifyByTenantClient.ResolveServiceToken,
-            accountToken: () => Account?.GetAccessTokenForForwarding(),
-            byTenant: new Core.Account.AccountNotifyByTenantClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }),
-            byToken: new Core.Account.AccountNotifyClient(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }));
         _factoryEmailSweep = new Factory.Email.FactoryEmailSweep(_tenantBoundary, TenantRegistry, _tenantContext,
             enabled: _tenantSettingsResolver.FactoryEmailEnabled,
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
@@ -3000,7 +2993,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 StringComparer.OrdinalIgnoreCase),
             baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
             store: FactoryEmailReports,
-            sender: factoryEmailSender,
+            inbox: YourInbox,
+            summaryOf: (tenant, factory, since, until) => FactoryInbox.Summary(tenant, factory, since, until),
             mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf).Section,
             needsYou: tenant => Api.FactoryAgentsViewEndpoints.OpenWaitingOf(FactoryAgentsViewSources(), tenant));
 
@@ -7215,7 +7209,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // anything is composed or sent for it, and it is off unless turned on.
         _factoryEmailTimer = new System.Threading.Timer(_ => SweepFactoryEmail(), null,
             FactoryEmailSweepStartupDelay, FactoryEmailSweepInterval);
-        FileLog.Write($"[GatewayHost] factory email sweep started: tick every {FactoryEmailSweepInterval.TotalMinutes:0}m, 08:00 / 16:00 / 00:00 in each account's time zone, only for accounts that switched it on");
+        FileLog.Write($"[GatewayHost] factory morning summary sweep started: tick every {FactoryEmailSweepInterval.TotalMinutes:0}m, 08:00 in each account's time zone, written to Your inbox (no email), only for accounts that switched it on");
 
         // The Mentor's weekly run (devthrottle_internal#2305), only when it is switched on.
         if (_teamMentorSweep is not null)

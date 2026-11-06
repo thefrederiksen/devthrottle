@@ -157,6 +157,63 @@ public static class FactoryDefinitionCheck
     }
 
     /// <summary>
+    /// The notice on a seat whose brief tells it to email the owner (the owner's decision, Factory Inbox mission, phase 5
+    /// "Email off": factories stop emailing him; what a seat has to tell him goes into Your inbox). Said on the brief's
+    /// line, with the words that were found, and what to use instead. A notice and not an error, for the same reason as
+    /// <see cref="BossBriefDoesTheWork"/>: the words are matched, not understood.
+    /// </summary>
+    public static string BriefEmailsTheOwner(string phrase) =>
+        $"This brief tells the seat to email the owner (\"{phrase}\"). Factories do not email the owner: what he needs to " +
+        "know goes into Your inbox with cc-devthrottle inbox send --subject \"...\" --body \"...\". Reword the brief to " +
+        "tell him in Your inbox. A real email goes out only to someone else he names, or when he writes \"send me an email\".";
+
+    /// <summary>
+    /// The owner's own words for asking for a real email (the mission's decision). A brief that holds them asked for the
+    /// email on purpose, so <see cref="BriefEmailsTheOwnerPhrase"/> finds nothing in it.
+    /// </summary>
+    public const string SendMeAnEmail = "send me an email";
+
+    /// <summary>
+    /// The phrases that tell a seat to email the owner, for <see cref="BriefEmailsTheOwner"/>: the command that sends the
+    /// owner email, the owner-email route, and an order to email or mail the owner ("email me", "email the owner",
+    /// "send the owner an email", "send the report to him by email"). Each is an ORDER and is guarded by
+    /// <see cref="ForbiddenBefore"/>, so "never email the owner" is not matched. Email to anyone else - prospects,
+    /// customers, a named person - is not matched: the decision is about the owner only.
+    /// </summary>
+    private static readonly Regex[] EmailsTheOwnerPhrases =
+    {
+        new(@"\bcc-devthrottle\s+email\s+owner\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"/account/(?:email|notify-owner)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\be-?mail(?:s|ed|ing)?\s+(?:it\s+|them\s+|this\s+|that\s+|a\s+report\s+|the\s+report\s+|a\s+summary\s+|the\s+summary\s+)?(?:to\s+)?(?:me|the\s+owner|the\s+user|him)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\bsend(?:s|ing)?\s+(?:me|the\s+owner|the\s+user|him)\s+(?:an?\s+|the\s+)?(?:[\w'-]+\s+){0,2}?e-?mail\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+        new(@"\b(?:send|sends|sending)\s+(?:it|them|this|that|the\s+[\w'-]+|a\s+[\w'-]+)\s+to\s+(?:me|the\s+owner|the\s+user|him)\s+by\s+e-?mail\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)),
+    };
+
+    /// <summary>
+    /// The first phrase in <paramref name="brief"/> that tells a seat to email the owner, as written there with its runs
+    /// of white space made single spaces, or null when there is none - and null whenever the brief holds the owner's own
+    /// <see cref="SendMeAnEmail"/>. Read across line ends, like <see cref="BossDoesTheWorkPhrase"/>.
+    /// </summary>
+    public static string? BriefEmailsTheOwnerPhrase(string brief)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        var text = Regex.Replace(brief, @"\s+", " ");
+        if (text.Contains(SendMeAnEmail, StringComparison.OrdinalIgnoreCase)) return null;
+        Match? first = null;
+        foreach (var phrase in EmailsTheOwnerPhrases)
+        {
+            var m = phrase.Matches(text).FirstOrDefault(c => !IsForbidden(text, c.Index));
+            if (m is not null && (first is null || m.Index < first.Index)) first = m;
+        }
+        return first?.Value;
+    }
+
+    /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
@@ -711,6 +768,11 @@ public static class FactoryDefinitionCheck
             if (IsABossSeat(seatId, map) && map.Find("brief") is { } briefEntry
                 && BossDoesTheWorkPhrase(Text(briefEntry)) is { } doesTheWork)
                 Notice(_findings, path, briefEntry.KeyLine, BossBriefDoesTheWork(doesTheWork));
+
+            // FACTORIES DO NOT EMAIL THE OWNER (Factory Inbox mission, phase 5): any seat's brief that tells it to is said
+            // on the brief's key line, as a notice.
+            if (map.Find("brief") is { } anyBrief && BriefEmailsTheOwnerPhrase(Text(anyBrief)) is { } emails)
+                Notice(_findings, path, anyBrief.KeyLine, BriefEmailsTheOwner(emails));
 
             if (map.Find("starts") is { Value: DefinitionList starts })
                 foreach (var start in starts.Items)

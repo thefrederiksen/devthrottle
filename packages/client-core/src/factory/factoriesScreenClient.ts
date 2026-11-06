@@ -266,7 +266,7 @@ export interface FactoryFailureItem {
 
 /** The factory emails that covered a factory, kept for 30 days. Every word is the Gateway's. */
 export interface FactoryPageEmails {
-  /** "Reports emailed to you". */
+  /** "Morning reports". */
   heading: string;
   note: string;
   /** Newest first. */

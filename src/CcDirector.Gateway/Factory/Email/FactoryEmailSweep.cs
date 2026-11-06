@@ -1,7 +1,9 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Inbox;
 using CcDirector.Gateway.Tenancy;
+using YourInboxStore = CcDirector.Gateway.Inbox.YourInboxStore;
 
 namespace CcDirector.Gateway.Factory.Email;
 
@@ -10,24 +12,33 @@ namespace CcDirector.Gateway.Factory.Email;
 public delegate (CronRunProblemsDto Problems, IReadOnlyList<CronFactoryDayDto> Days) FactoryEmailFacts(
     TenantId tenant, DateTime dayStartUtc, DateTime dayEndUtc, DateTime asOfUtc);
 
+/// <summary>A factory's summary from since up to and including until: what came in and the decision on each - the same
+/// summary the factory thread's Summary button shows (<c>FactoryInboxStore.Summary</c>).</summary>
+public delegate FactoryInboxSummaryDto FactorySummaryOf(TenantId tenant, string factory, DateTime sinceUtc, DateTime untilUtc);
+
 /// <summary>
-/// THE GATEWAY CHECKS AND SENDS THE FACTORY EMAIL, AS PLAIN CODE - NOT AN AGENT (the owner, 10 October 2026). For each
-/// account whose factory email is switched on, once a day at 08:00 in the account's own time zone
-/// (<see cref="FactoryEmailSlots"/>): compose the slot's email from the one problems fold, keep it, and send it through
-/// the owner-email primitive (<see cref="IFactoryEmailSender"/>). A problem raised later in the day is sent nothing of
-/// its own: it is still open at the next 08:00, so that email lists it.
+/// THE GATEWAY WRITES THE 08:00 MORNING SUMMARY, AS PLAIN CODE - NOT AN AGENT (the owner, 10 October 2026), AND IT IS NO
+/// LONGER AN EMAIL (the owner's decision, Factory Inbox mission, phase 5 "Email off": "Factories stop emailing me").
+/// For each account whose morning summary is switched on, once a day at 08:00 in the account's own time zone
+/// (<see cref="FactoryEmailSlots"/>): compose the account's morning report from the one problems fold and keep it, then
+/// write ONE Your inbox message per factory with news - the factory's summary of the last 24 hours (the Summary button's), followed
+/// by that factory's part of the report (<see cref="FactoryMorningMessage"/>). Nothing is emailed: this class holds no
+/// mail sender of any kind, so it cannot send one.
 ///
-/// ONCE PER SLOT. The kept row per account and slot (<see cref="FactoryEmailStore"/>) is the record that a slot was
-/// handled, so a restart, a deploy or a second tick never sends it again. The row is written BEFORE the send and
-/// marked sent after it, so a crash in between leaves a slot that is tried again rather than one silently lost.
-/// A failed send is tried again on later ticks, with the body kept from the first composition, until the slot's late
-/// window closes. A team account is answered "not supported yet" once and not retried.
+/// ONCE PER SLOT, AND ONCE PER FACTORY. The kept row per account and slot (<see cref="FactoryEmailStore"/>) is the record
+/// that a slot was handled, written BEFORE the messages and marked delivered after them, so a crash in between leaves a
+/// slot that is tried again on the next tick rather than one silently lost. A factory's message is found again by its
+/// slot (<see cref="YourInboxStore.MorningOf"/>), so a slot tried again writes only the messages still missing.
 ///
 /// SHIPS SWITCHED OFF. <c>factory_email_enabled</c> is off unless an account turns it on; switched off, a tick does
-/// nothing at all for that account - it composes nothing, keeps nothing and sends nothing.
+/// nothing at all for that account - it composes nothing, keeps nothing and writes nothing.
 /// </summary>
 public sealed class FactoryEmailSweep : TenantScopedSweep
 {
+    /// <summary>What the kept row says once the morning summaries are written.</summary>
+    public static string DeliveredDetail(int written) =>
+        $"Written to Your inbox as {written} morning {(written == 1 ? "summary" : "summaries")}, one per factory. No email was sent.";
+
     private readonly ITenantContext _tenantContext;
     private readonly Func<TenantId, bool> _enabled;
     private readonly Func<TenantId, TimeZoneInfo> _zoneOf;
@@ -35,26 +46,29 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
     private readonly Func<TenantId, IReadOnlyDictionary<string, FactoryEmailFactory>> _factories;
     private readonly Func<string?> _baseUrl;
     private readonly FactoryEmailStore _store;
-    private readonly IFactoryEmailSender _sender;
+    private readonly YourInboxStore _inbox;
+    private readonly FactorySummaryOf _summaryOf;
     private readonly Func<TenantId, DateTime, DateTime, TimeZoneInfo, MailDesk.MailDeskEmailSection?> _mailDesk;
     private readonly Func<TenantId, FactoryEmailNeedsYou> _needsYou;
     private readonly Func<DateTime> _now;
 
-    /// <param name="enabled">Whether an account's factory email is on (the <c>factory_email_enabled</c> setting).</param>
+    /// <param name="enabled">Whether an account's morning summary is on (the <c>factory_email_enabled</c> setting).</param>
     /// <param name="zoneOf">The account's display time zone.</param>
     /// <param name="facts">The open problems and the factories' last day (<c>CronRunResultService.ProblemsAndFactoryDays</c>).</param>
     /// <param name="factories">The account's registered factories, for titles and seat names.</param>
     /// <param name="baseUrl">This Gateway's public base address, or null when it has none.</param>
-    /// <param name="mailDesk">The 08:00 email's Mail Desk section for (account, window start, window end, time zone), or
+    /// <param name="store">The kept morning reports, one row per account and slot.</param>
+    /// <param name="inbox">Your inbox, where each factory's morning summary is written.</param>
+    /// <param name="summaryOf">Each factory's summary (<c>FactoryInboxStore.Summary</c>).</param>
+    /// <param name="mailDesk">The 08:00 report's Mail Desk section for (account, window start, window end, time zone), or
     /// null when the account's Mail Desk is off or has no mailbox (<see cref="MailDesk.MailDeskEmailFold.Section"/>).
-    /// REQUIRED, so a wiring line that forgot it fails to compile rather than leaving the section out of every email.</param>
+    /// REQUIRED, so a wiring line that forgot it fails to compile rather than leaving the section out.</param>
     /// <param name="needsYou">What waits on the owner now: the open asked and escalated items of the factory activity
-    /// record (<see cref="FactoryAgentsFold.OpenWaiting"/>), for the 08:00 email's "Needs you" section. REQUIRED, for the
-    /// same reason.</param>
+    /// record (<see cref="FactoryAgentsFold.OpenWaiting"/>). REQUIRED, for the same reason.</param>
     public FactoryEmailSweep(HostedTenantBoundary boundary, TenantRegistry tenants, ITenantContext tenantContext,
         Func<TenantId, bool> enabled, Func<TenantId, TimeZoneInfo> zoneOf, FactoryEmailFacts facts,
         Func<TenantId, IReadOnlyDictionary<string, FactoryEmailFactory>> factories, Func<string?> baseUrl,
-        FactoryEmailStore store, IFactoryEmailSender sender,
+        FactoryEmailStore store, YourInboxStore inbox, FactorySummaryOf summaryOf,
         Func<TenantId, DateTime, DateTime, TimeZoneInfo, MailDesk.MailDeskEmailSection?> mailDesk,
         Func<TenantId, FactoryEmailNeedsYou> needsYou, Func<DateTime>? now = null)
         : base(boundary, tenants)
@@ -68,7 +82,8 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
         _factories = factories ?? throw new ArgumentNullException(nameof(factories));
         _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _sender = sender ?? throw new ArgumentNullException(nameof(sender));
+        _inbox = inbox ?? throw new ArgumentNullException(nameof(inbox));
+        _summaryOf = summaryOf ?? throw new ArgumentNullException(nameof(summaryOf));
         _now = now ?? (() => DateTime.UtcNow);
     }
 
@@ -79,91 +94,72 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
     /// <summary>
     /// One tick for one account, inside its scope. Returns what it did, in words, for the log and the tests.
     /// </summary>
-    public async Task<string> SweepTenantAsync(TenantId tenant, CancellationToken ct = default)
+    public Task<string> SweepTenantAsync(TenantId tenant, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (!_enabled(tenant))
-            return "off";
+            return Task.FromResult("off");
 
         var now = _now();
         var zone = _zoneOf(tenant);
         var slot = FactoryEmailSlots.DueAt(now, zone);
         if (slot is null)
-            return "no slot due";
+            return Task.FromResult("no slot due");
 
         var row = _store.Find(tenant, slot.Key);
         if (row is not null && row.State != FactoryEmailStates.Failed)
-            return $"slot {slot.Key} already {row.State}";
+            return Task.FromResult($"slot {slot.Key} already {row.State}");
 
-        string subject, text, html;
+        FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: composing slot={slot.Key}, kind={slot.Kind}, retry={row is not null}, tenant={tenant.ToLogString()}");
+        // As of the slot's own cut-off, not of this tick: a summary composed late in its window still describes its
+        // slot - a problem raised after the cut-off waits for the next morning, and one resolved after it is still
+        // listed here, as it was open then.
+        var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var input = new FactoryEmailInput(slot, zone, problems.Problems, days, _factories(tenant), _baseUrl(),
+            _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone), _needsYou(tenant));
+        var report = FactoryEmailComposer.Compose(input);
         if (row is null)
         {
-            FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: composing slot={slot.Key}, kind={slot.Kind}, tenant={tenant.ToLogString()}");
-            // As of the slot's own cut-off, not of this tick: an email composed late in its window still describes
-            // its slot - a problem raised after the cut-off waits for the next email, and one resolved after it is
-            // still listed here, as it was open then.
-            var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
-            // The Mail Desk section, over the same 24 hours.
-            var mailDesk = _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone);
-            // "Needs you": what waits on the owner as the email is composed, so an item handled before then is not listed.
-            var needsYou = _needsYou(tenant);
-            var email = FactoryEmailComposer.Compose(new FactoryEmailInput(
-                slot, zone, problems.Problems, days, _factories(tenant), _baseUrl(), mailDesk, needsYou));
-            if (!email.Send)
+            if (!report.Send)
             {
-                _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.NothingToSend, email.NotSentReason, email));
-                return $"slot {slot.Key}: nothing to send ({email.NotSentReason})";
+                _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.NothingToSend, report.NotSentReason, report));
+                return Task.FromResult($"slot {slot.Key}: nothing to send ({report.NotSentReason})");
             }
-            // Kept BEFORE the send: a crash between the two leaves a slot to retry, never one silently lost.
-            _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.Failed, "composed, not sent yet", email));
-            (subject, text, html) = (email.Subject, email.Text, email.Html);
-        }
-        else
-        {
-            FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: retrying slot={slot.Key}, attempts={row.Attempts}, tenant={tenant.ToLogString()}");
-            (subject, text, html) = (row.Subject, row.Text, row.Html);
+            // Kept BEFORE the messages: a crash between the two leaves a slot to try again, never one silently lost.
+            _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.Failed, "composed, not written to Your inbox yet", report));
         }
 
-        FactoryEmailSendResult result;
-        try
+        // One message per factory with news: a factory where nothing came in, nothing was decided, nothing ran, nothing is
+        // open and nothing waits on the owner writes none, so a quiet factory does not add an unread message every day.
+        var written = 0;
+        var all = 0;
+        foreach (var factory in FactoryMorningMessage.FactoriesOf(input))
         {
-            result = await _sender.SendAsync(tenant, subject, text, html, ct).ConfigureAwait(false);
+            if (_inbox.MorningOf(tenant, factory, slot.BoundaryUtc) is not null)
+            {
+                all++;
+                continue;
+            }
+            var summary = _summaryOf(tenant, factory, slot.DayStartUtc, slot.BoundaryUtc);
+            if (!FactoryMorningMessage.HasNews(input, factory, summary))
+                continue;
+            var message = FactoryMorningMessage.Compose(input, factory, summary);
+            _inbox.Add(tenant, YourInboxStore.ForMorningSummary(tenant, factory, message.Subject, message.Body, slot.BoundaryUtc));
+            written++;
+            all++;
         }
-        catch (HttpRequestException ex)
-        {
-            // The owner-email service could not be reached. Recorded on the slot, so the failure is visible and the
-            // send is tried again on the next tick.
-            FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: send FAILED, service unreachable: {ex.Message}");
-            result = FactoryEmailSendResult.Failed($"The owner-email service could not be reached: {ex.Message}");
-        }
-        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            // The send ran out of time: the client gave up waiting, and nobody asked this sweep to stop. It is an
-            // attempt like any other, so it is counted and its reason recorded, and the send is tried again on the next
-            // tick. A sweep that WAS asked to stop is not caught here - the Gateway is shutting down, and that is not
-            // a failed send.
-            FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: send FAILED, timed out: {ex.Message}");
-            result = FactoryEmailSendResult.Failed($"The owner-email service did not answer in time: {ex.Message}");
-        }
+
         _store.Save(tenant, slot.Key, r =>
         {
             r.Attempts++;
-            if (result.Sent)
-            {
-                r.State = FactoryEmailStates.Sent;
-                r.Detail = null;
-                r.SentAtUtc = now;
-                r.ProviderId = result.ProviderId;
-            }
-            else
-            {
-                r.State = result.Final ? FactoryEmailStates.NotSupported : FactoryEmailStates.Failed;
-                r.Detail = Cap(result.Error ?? "the send failed and gave no reason", 1024);
-            }
+            r.State = FactoryEmailStates.Sent;
+            r.Detail = DeliveredDetail(all);
+            r.SentAtUtc = now;
+            r.ProviderId = null;
         });
-
-        if (result.Sent)
-            _store.Prune(tenant, now);
-        return result.Sent ? $"slot {slot.Key}: sent" : $"slot {slot.Key}: not sent ({result.Error})";
+        _store.Prune(tenant, now);
+        FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: slot={slot.Key} wrote {written} of {all} morning summaries, tenant={tenant.ToLogString()}");
+        return Task.FromResult($"slot {slot.Key}: wrote {written} morning {(written == 1 ? "summary" : "summaries")} to Your inbox");
     }
 
     private static void Fill(Data.Entities.FactoryEmailReportEntity r, FactoryEmailSlot slot, DateTime now, string state,

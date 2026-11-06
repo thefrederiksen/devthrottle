@@ -218,9 +218,25 @@ responding, you can still close it.
 
 Every session is started for one signed-in DevThrottle user. The session-start preamble names that
 user - both their email and, when they set one, their chosen nickname. Treat that named person as the
-user of this session: unless they explicitly say otherwise, "me", "my account", and "email me" mean
-that user. Do NOT guess who the user is from usage patterns or by searching the database for a name -
-use the identity the preamble gave you. If no user is named (nobody signed in), do not invent one.
+user of this session: unless they explicitly say otherwise, "me" and "my account" mean that user. Do
+NOT guess who the user is from usage patterns or by searching the database for a name - use the identity
+the preamble gave you. If no user is named (nobody signed in), do not invent one.
+
+## Telling the user something: Your inbox, not email
+
+**"Email me" and "tell me" mean Your inbox.** The user reads Your inbox on the phone and in the
+Cockpit; it is linked back to your session, and they can reply to it. Do not email them:
+
+```bash
+cc-devthrottle inbox send --subject "<one line>" --body "<what they need to know>"
+```
+
+- A real email goes out only when the user names someone else to send it to, or says, in those words,
+  "send me an email". Only then use `cc-devthrottle email owner`.
+- A report, a write-up or findings is a dev report (the **dev-reports** skill); tell them it is ready
+  with `inbox send`, never by email.
+- Factories do not email them either: each factory's 08:00 morning summary is written into Your inbox,
+  and the factory definition check flags a seat brief that tells a seat to email them.
 
 ## When this skill is the right thing to consult
 
@@ -241,8 +257,9 @@ use the identity the preamble gave you. If no user is named (nobody signed in), 
 - It does not replace the **browsers** skill, which is the full reference for driving a signed-in browser.
 
 
-**Skill Version:** 6.1 (drivable browser profiles)
-**Last Updated:** 2026-09-06
+**Skill Version:** 6.2 (Your inbox, not email)
+**Last Updated:** 2026-11-06
+**Changes in 6.2:** "Email me" and "tell me" mean Your inbox (`cc-devthrottle inbox send`), the owner's decision on the Factory Inbox mission; a real email only when the user names someone else or says "send me an email". "Who the user is" no longer says "email me" means the user's email.
 **Changes in 6.1:** Added the drivable browser profiles. `cc-devthrottle browser` registers, starts, attaches and stops a real browser the user signed into once, and `browser-harness` drives the page. This is written down because the absence of it caused a live failure on 2026-09-06: with a signed-in `centerconsulting` profile registered and stopped, an agent that never ran `browser list` hand-launched Chrome against a retired `cc-playwright` folder and handed the user a LOGIN page for the site it was asked to work in. Hand-rolling a browser does not fail loudly, it succeeds into the wrong session - so the rule is that the Director owns the profiles and an agent never launches one. Full reference: the **browsers** skill.
 
 **Changes in 6.0:** The remove-the-network-port mission deleted the Director's listener entirely.

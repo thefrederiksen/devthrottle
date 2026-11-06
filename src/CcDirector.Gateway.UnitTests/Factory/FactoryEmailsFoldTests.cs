@@ -48,7 +48,7 @@ public sealed class FactoryEmailsFoldTests
             Email("aaaaaaaa-0000-4000-8000-000000000001", FactoryEmailKinds.Morning, Now.AddHours(-4), 3),
             Email("aaaaaaaa-0000-4000-8000-000000000002", FactoryEmailKinds.Check, Now.AddHours(-12), 1)), TimeZoneInfo.Utc, Now);
 
-        Assert.Equal("Reports emailed to you", card.Heading);
+        Assert.Equal("Morning reports", card.Heading);
         Assert.Null(card.EmptyText);
         Assert.Equal(2, card.Items.Count);
         var morning = card.Items[0];
@@ -70,7 +70,7 @@ public sealed class FactoryEmailsFoldTests
         var card = FactoryEmailsFold.Card(Factory(), Answer(), TimeZoneInfo.Utc, Now);
 
         Assert.Empty(card.Items);
-        Assert.Equal("No report has covered this factory yet. Reports are sent only when the factory email is switched on.", card.EmptyText);
+        Assert.Equal("No morning report has covered this factory yet. They are written only when the morning summary is switched on.", card.EmptyText);
     }
 
     [Fact]

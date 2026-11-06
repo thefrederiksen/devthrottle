@@ -762,7 +762,7 @@ public sealed class FactorySeatGroupDto
 /// </summary>
 public sealed class FactoryPageEmailsDto
 {
-    /// <summary>"Reports emailed to you".</summary>
+    /// <summary>"Morning reports".</summary>
     public string Heading { get; set; } = "";
 
     /// <summary>What is kept and for how long.</summary>

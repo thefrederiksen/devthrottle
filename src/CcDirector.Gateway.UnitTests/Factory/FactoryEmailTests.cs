@@ -3,6 +3,8 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Email;
+using CcDirector.Gateway.Factory.Inbox;
+using CcDirector.Gateway.Inbox;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Running;
@@ -13,10 +15,11 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Factory;
 
 /// <summary>
-/// THE FACTORY EMAIL (Factory Control, step 4; the owner's rulings and his approval of the mockups, 10 October 2026).
-/// The Gateway composes and sends it itself, ONE EMAIL A DAY (the owner, 26 October 2026): at 08:00, the problems still not
-/// fixed, what needs the owner and one line per factory. Nothing at 16:00 or midnight: a problem raised in the day shows
-/// first in the next 08:00 email. Once per day, whatever restarts.
+/// THE FACTORY MORNING REPORT (Factory Control, step 4; the owner's rulings and his approval of the mockups, 10 October
+/// 2026). The Gateway composes it itself, ONCE A DAY (the owner, 26 October 2026): at 08:00, the problems still not fixed,
+/// what needs the owner and one line per factory. Nothing at 16:00 or midnight: a problem raised in the day shows first in
+/// the next 08:00 report. Once per day, whatever restarts. Since the Factory Inbox mission's phase 5 ("Email off") it is
+/// no email: each factory's morning summary is written into Your inbox, and nothing is sent.
 /// Switched off, nothing at all. All times are Toronto time, the owner's account, both daylight-saving days included.
 /// </summary>
 public sealed class FactoryEmailTests : IDisposable
@@ -39,20 +42,7 @@ public sealed class FactoryEmailTests : IDisposable
     private static DateTime TorontoTime(int year, int month, int day, int hour, int minute = 0) =>
         TimeZoneInfo.ConvertTimeToUtc(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified), Toronto);
 
-    // ---- the rig: the real run history, the real problems fold, the real store; only the send is a fake ---------------
-
-    private sealed class FakeSender : IFactoryEmailSender
-    {
-        public List<(string Subject, string Html)> Sent { get; } = new();
-        public Func<FactoryEmailSendResult> Answer { get; set; } = () => FactoryEmailSendResult.Ok("msg-1");
-
-        public Task<FactoryEmailSendResult> SendAsync(TenantId tenant, string subject, string text, string html, CancellationToken ct)
-        {
-            var answer = Answer();
-            if (answer.Sent) Sent.Add((subject, html));
-            return Task.FromResult(answer);
-        }
-    }
+    // ---- the rig: the real run history, the real problems fold, the real stores, the real Your inbox --------------------
 
     private CronRunHistoryStore? _runs;
     private CronRunHistoryStore Runs => _runs ??= new CronRunHistoryStore(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
@@ -78,8 +68,21 @@ public sealed class FactoryEmailTests : IDisposable
     private FactoryEmailStore? _store;
     private FactoryEmailStore Store => _store ??= new FactoryEmailStore(Db);
 
-    // A new sweep over the SAME database and store - what a Gateway restart is.
-    private FactoryEmailSweep Sweep(IFactoryEmailSender sender)
+    private FactoryInboxStore? _factoryInbox;
+    private FactoryInboxStore FactoryInbox => _factoryInbox ??= new FactoryInboxStore(Db, _ => CcDirector.Core.Dictation.Models.DictationDictionary.Empty);
+
+    private YourInboxStore? _yourInbox;
+    private YourInboxStore YourInbox => _yourInbox ??= new YourInboxStore(Db);
+
+    /// <summary>Every message in Your inbox, oldest first.</summary>
+    private List<CcDirector.Gateway.Data.Entities.YourInboxMessageEntity> InboxMessages()
+    {
+        using var ctx = Db.CreateContext(TenantId.Local);
+        return ctx.YourInboxMessages.ToList().OrderBy(m => m.SentAtUtc).ThenBy(m => m.Factory, StringComparer.Ordinal).ToList();
+    }
+
+    // A new sweep over the SAME database and stores - what a Gateway restart is.
+    private FactoryEmailSweep Sweep()
     {
         var service = Service();
         return new FactoryEmailSweep(
@@ -90,7 +93,8 @@ public sealed class FactoryEmailTests : IDisposable
             factories: _ => Factories(),
             baseUrl: () => "https://gateway.example.test",
             store: Store,
-            sender: sender,
+            inbox: YourInbox,
+            summaryOf: (tenant, factory, since, until) => FactoryInbox.Summary(tenant, factory, since, until),
             mailDesk: (_, _, _, _) => null,
             needsYou: _ => _needsYou,
             now: () => _now);
@@ -531,136 +535,153 @@ public sealed class FactoryEmailTests : IDisposable
 
     // ---- once per slot, and the switch -------------------------------------------------------------------------------
 
+    /// <summary>
+    /// EMAIL OFF (Factory Inbox mission, phase 5; MISSION-FINISH section 7): a factory's morning run writes exactly one Your
+    /// inbox message, carrying the factory's summary - the same one its Summary button shows - and sends no email.
+    /// </summary>
     [Fact]
-    public async Task SweepTenantAsync_ARestartInsideTheSameSlot_DoesNotSendTwice()
+    public async Task SweepTenantAsync_TheMorningRun_WritesExactlyOneYourInboxMessagePerFactory_CarryingItsSummary()
+    {
+        // Arrange - research's night scan did not run; the owner left one message in research's Factory inbox on Saturday.
+        Job("cj_scan", "Night scan", "research", "scout");
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        await FactoryInbox.SendAsync(TenantId.Local, new FactoryInboxSendInput("research", "Look at the new competitor list.\nThe one from Friday.",
+            FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone",
+            TorontoTime(2026, 10, 10, 21, 15)));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        // Act
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
+
+        // Assert - one message, from research's morning summary, at 08:00; outreach had nothing at all and gets none.
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning summary to Your inbox", said);
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal((YourInboxWords.Senders.Factory, "research", YourInboxStore.MorningSeat, YourInboxWords.States.Unread),
+            (message.FromKind, message.Factory, message.Seat, message.State));
+        Assert.Equal(TorontoTime(2026, 10, 11, 8), message.SentAtUtc);
+        Assert.Equal("Morning summary: Research - Sunday 11 October", message.Subject);
+        var summary = FactoryInbox.Summary(TenantId.Local, "research", TorontoTime(2026, 10, 10, 8), TorontoTime(2026, 10, 11, 8));
+        Assert.StartsWith($"{FactoryMorningMessage.SummaryHeading}\n{summary.Line}\n- Sat 21:15 \"Look at the new competitor list.\" - ", message.Body.Replace("\r\n", "\n"));
+        Assert.Equal("1 message came in; 0 decisions made; 1 still waiting.", summary.Line);
+        Assert.Contains("STILL NOT FIXED", message.Body);
+        Assert.Contains("offline", message.Body);
+        Assert.EndsWith(FactoryMorningMessage.ReplyLine, message.Body);
+
+        // The kept report says where it went.
+        var kept = Store.Find(TenantId.Local, "2026-10-11T08")!;
+        Assert.Equal((FactoryEmailStates.Sent, FactoryEmailSweep.DeliveredDetail(1), (string?)null), (kept.State, kept.Detail, kept.ProviderId));
+    }
+
+    /// <summary>
+    /// NO EMAIL, BY CONSTRUCTION: the morning sweep is handed nothing that can send mail - not the factory mail sender (it
+    /// is deleted), not the owner-email clients, not an HTTP client. If a mail-sending dependency is ever added back to its
+    /// constructor, this fails.
+    /// </summary>
+    [Fact]
+    public void FactoryEmailSweep_TakesNoMailSender()
+    {
+        var parameters = typeof(FactoryEmailSweep).GetConstructors().Single().GetParameters();
+
+        var mailing = parameters.Where(p =>
+            p.ParameterType == typeof(HttpClient)
+            || p.ParameterType.Namespace == typeof(CcDirector.Core.Account.AccountNotifyClient).Namespace
+            || p.ParameterType.Name.Contains("Sender", StringComparison.Ordinal)
+            || p.ParameterType.Name.Contains("Mail", StringComparison.Ordinal) && p.Name != "mailDesk").Select(p => p.Name).ToList();
+
+        Assert.Empty(mailing);
+        Assert.Contains(parameters, p => p.ParameterType == typeof(YourInboxStore));
+        Assert.Null(typeof(FactoryEmailSweep).Assembly.GetType("CcDirector.Gateway.Factory.Email.IFactoryEmailSender"));
+        Assert.Null(typeof(FactoryEmailSweep).Assembly.GetType("CcDirector.Gateway.Factory.Email.FactoryEmailSender"));
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_ARestartInsideTheSameSlot_DoesNotWriteTwice()
     {
         Job("cj_scan", "Night scan", "research", "scout");
         AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep().SweepTenantAsync(TenantId.Local);
 
         // The Gateway restarts: a new sweep, the same database, two ticks later.
         _now = TorontoTime(2026, 10, 11, 8, 9);
-        var said = await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
 
-        Assert.Single(sender.Sent);
+        Assert.Single(InboxMessages());
         Assert.Equal("slot 2026-10-11T08 already sent", said);
     }
 
     [Fact]
-    public async Task SweepTenantAsync_SwitchedOff_ComposesKeepsAndSendsNothing()
+    public async Task SweepTenantAsync_ASlotLeftHalfWritten_IsFinishedOnTheNextTick_WithoutASecondMessage()
+    {
+        // Arrange - both factories have news; a tick kept the report and wrote research's summary, then the Gateway stopped
+        // before outreach's was written and before the slot was marked.
+        Job("cj_scan", "Night scan", "research", "scout");
+        Job("cj_send", "Morning send", "outreach", "sender");
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 11, 7), CronRunResults.Ok, reason: "sent 4 emails"));
+        Store.Save(TenantId.Local, "2026-10-11T08", r =>
+        {
+            r.Kind = FactoryEmailKinds.Morning; r.BoundaryUtc = TorontoTime(2026, 10, 11, 8); r.ComposedAtUtc = TorontoTime(2026, 10, 11, 8, 5);
+            r.State = FactoryEmailStates.Failed; r.Detail = "composed, not written to Your inbox yet"; r.Subject = "Factories";
+            r.Html = "<p>kept</p>"; r.Text = "kept"; r.ProblemCount = 1; r.FactoriesJson = "[\"outreach\",\"research\"]";
+        });
+        YourInbox.Add(TenantId.Local, YourInboxStore.ForMorningSummary(TenantId.Local, "research", "Morning summary: Research", "written before the stop", TorontoTime(2026, 10, 11, 8)));
+
+        // Act
+        _now = TorontoTime(2026, 10, 11, 8, 7);
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
+
+        // Assert - only outreach's is written; research keeps its one; the kept report is left as composed and marked.
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning summary to Your inbox", said);
+        Assert.Equal(new[] { "outreach", "research" }, InboxMessages().Select(m => m.Factory).OrderBy(f => f, StringComparer.Ordinal));
+        Assert.Equal("written before the stop", InboxMessages().Single(m => m.Factory == "research").Body);
+        var kept = Store.Find(TenantId.Local, "2026-10-11T08")!;
+        Assert.Equal((FactoryEmailStates.Sent, 1, "<p>kept</p>", FactoryEmailSweep.DeliveredDetail(2)), (kept.State, kept.Attempts, kept.Html, kept.Detail));
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_SwitchedOff_ComposesKeepsAndWritesNothing()
     {
         Job("cj_scan", "Night scan", "research", "scout");
         AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         _enabled = false;
         _now = TorontoTime(2026, 10, 11, 8, 5);
-        var sender = new FakeSender();
 
-        var said = await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
 
         Assert.Equal("off", said);
-        Assert.Empty(sender.Sent);
+        Assert.Empty(InboxMessages());
         Assert.Null(Store.Find(TenantId.Local, "2026-10-11T08"));
     }
 
     [Fact]
-    public async Task SweepTenantAsync_AFailedSend_IsTriedAgainWithTheKeptBody()
-    {
-        Job("cj_scan", "Night scan", "research", "scout");
-        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        var sender = new FakeSender { Answer = () => FactoryEmailSendResult.Failed("the service said no") };
-        _now = TorontoTime(2026, 10, 11, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-        var failed = Store.Find(TenantId.Local, "2026-10-11T08")!;
-        Assert.Equal((FactoryEmailStates.Failed, "the service said no", 1), (failed.State, failed.Detail, failed.Attempts));
-
-        sender.Answer = () => FactoryEmailSendResult.Ok("msg-2");
-        _now = TorontoTime(2026, 10, 11, 8, 7);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        var sent = Store.Find(TenantId.Local, "2026-10-11T08")!;
-        Assert.Equal((FactoryEmailStates.Sent, 2, "msg-2"), (sent.State, sent.Attempts, sent.ProviderId));
-        Assert.Equal(failed.Html, Assert.Single(sender.Sent).Html);
-    }
-
-    [Fact]
-    public async Task SweepTenantAsync_ASendThatTimesOut_IsCountedWithItsReason_AndTriedAgain()
-    {
-        Job("cj_scan", "Night scan", "research", "scout");
-        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        // What the HTTP client raises when its own timeout runs out: a cancellation nobody asked for.
-        var sender = new FakeSender { Answer = () => throw new TaskCanceledException("The request was canceled due to the configured timeout of 30 seconds elapsing.") };
-        _now = TorontoTime(2026, 10, 11, 8, 5);
-
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        var failed = Store.Find(TenantId.Local, "2026-10-11T08")!;
-        Assert.Equal((FactoryEmailStates.Failed, 1), (failed.State, failed.Attempts));
-        Assert.Equal("The owner-email service did not answer in time: The request was canceled due to the configured timeout of 30 seconds elapsing.", failed.Detail);
-
-        sender.Answer = () => FactoryEmailSendResult.Ok("msg-2");
-        _now = TorontoTime(2026, 10, 11, 8, 7);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        var sent = Store.Find(TenantId.Local, "2026-10-11T08")!;
-        Assert.Equal((FactoryEmailStates.Sent, 2, "msg-2"), (sent.State, sent.Attempts, sent.ProviderId));
-    }
-
-    [Fact]
-    public async Task SweepTenantAsync_ASweepAskedToStopMidSend_IsNotCountedAsAFailedSend()
+    public async Task SweepTenantAsync_ASweepAskedToStop_WritesNothing()
     {
         Job("cj_scan", "Night scan", "research", "scout");
         AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         using var stop = new CancellationTokenSource();
-        var sender = new FakeSender
-        {
-            Answer = () =>
-            {
-                stop.Cancel();
-                throw new TaskCanceledException("the Gateway is stopping");
-            },
-        };
+        stop.Cancel();
         _now = TorontoTime(2026, 10, 11, 8, 5);
 
-        await Assert.ThrowsAsync<TaskCanceledException>(() => Sweep(sender).SweepTenantAsync(TenantId.Local, stop.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Sweep().SweepTenantAsync(TenantId.Local, stop.Token));
 
-        Assert.Equal(0, Store.Find(TenantId.Local, "2026-10-11T08")!.Attempts);
+        Assert.Empty(InboxMessages());
+        Assert.Null(Store.Find(TenantId.Local, "2026-10-11T08"));
     }
 
     [Fact]
-    public async Task SweepTenantAsync_ATeamAccount_IsNotSupported_AndNotTriedAgain()
+    public async Task List_AFactory_IsItsKeptReportsNewestFirst_AndGetHasTheHtmlAsComposed()
     {
-        Job("cj_scan", "Night scan", "research", "scout");
-        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
-        var calls = 0;
-        var sender = new FakeSender { Answer = () => { calls++; return FactoryEmailSendResult.NotSupported(FactoryEmailSender.TeamNotSupported); } };
-        _now = TorontoTime(2026, 10, 11, 8, 5);
-
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-        _now = TorontoTime(2026, 10, 11, 8, 9);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
-
-        Assert.Equal(1, calls);
-        var row = Store.Find(TenantId.Local, "2026-10-11T08")!;
-        Assert.Equal(FactoryEmailStates.NotSupported, row.State);
-        Assert.Contains("team account", row.Detail);
-    }
-
-    [Fact]
-    public async Task List_AFactory_IsItsSentEmailsNewestFirst_AndGetHasTheHtmlAsSent()
-    {
-        var sender = new FakeSender();
         // Saturday: the account has no schedule yet, so its 08:00 has nothing to send - kept, not sent.
         _now = TorontoTime(2026, 10, 10, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep().SweepTenantAsync(TenantId.Local);
         Job("cj_scan", "Night scan", "research", "scout");
         Job("cj_send", "Morning send", "outreach", "sender");
         AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
         _now = TorontoTime(2026, 10, 11, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent, covers outreach and research
+        await Sweep().SweepTenantAsync(TenantId.Local);        // sent, covers outreach and research
         _now = TorontoTime(2026, 10, 12, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);        // sent: the problem is still open
+        await Sweep().SweepTenantAsync(TenantId.Local);        // sent: the problem is still open
 
         var research = Store.List(TenantId.Local, "research", kind: null, limit: 10, allStates: false);
         var outreach = Store.List(TenantId.Local, "Outreach", kind: null, limit: 10, allStates: false);
@@ -679,7 +700,7 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Equal(FactoryEmailStates.NothingToSend, everything.Emails[2].State);
 
         var full = Store.Get(TenantId.Local, Guid.Parse(first.Id))!;
-        Assert.Equal(sender.Sent[0].Html, full.Html);
+        Assert.Contains("Factories: 1 problem still open - Sunday 11 October", full.Html);
         Assert.Null(Store.Get(TenantId.Local, Guid.NewGuid()));
     }
 
@@ -864,31 +885,30 @@ public sealed class FactoryEmailTests : IDisposable
         // Arrange - Sunday's 08:00 email goes out with nothing open; at 15:00 the Sender's run reports a problem.
         Job("cj_send", "Morning send", "outreach", "sender");
         AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 11, 7), CronRunResults.Ok, reason: "sent 4 emails"));
-        var sender = new FakeSender();
         _now = TorontoTime(2026, 10, 11, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep().SweepTenantAsync(TenantId.Local);
         AppendRun("cj_send", Run("s9", TorontoTime(2026, 10, 11, 14, 50), CronRunResults.Problem, CronRunProblems.Reported,
             "the inbox would not load", resultUtc: TorontoTime(2026, 10, 11, 15)));
         _needsYou = new FactoryEmailNeedsYou(new[] { Waiting("outreach", "sender", "a reply asks for a price", "a draft is ready.", TorontoTime(2026, 10, 11, 15, 30)) }, false);
 
         // Act - a tick every quarter of an hour for the rest of the day, 16:05 and 00:05 among them, then Monday's 08:00.
         var said = new List<string>();
-        var sweep = Sweep(sender);
+        var sweep = Sweep();
         for (var at = TorontoTime(2026, 10, 11, 15, 5); at < TorontoTime(2026, 10, 12, 8, 5); at = at.AddMinutes(15))
         {
             _now = at;
             said.Add(await sweep.SweepTenantAsync(TenantId.Local));
         }
         _now = TorontoTime(2026, 10, 12, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep().SweepTenantAsync(TenantId.Local);
 
         // Assert - nothing between the two 08:00 emails: no email, no kept row, and the problem is first in Monday's.
         Assert.All(said, s => Assert.Equal("no slot due", s));
         Assert.Null(Store.Find(TenantId.Local, "2026-10-11T16"));
         Assert.Null(Store.Find(TenantId.Local, "2026-10-12T00"));
-        Assert.Equal(2, sender.Sent.Count);
-        Assert.Equal("Factories: all clear - Sunday 11 October", sender.Sent[0].Subject);
-        var (subject, html) = sender.Sent[1];
+        Assert.Equal("Factories: all clear - Sunday 11 October", Store.Find(TenantId.Local, "2026-10-11T08")!.Subject);
+        var monday = Store.Find(TenantId.Local, "2026-10-12T08")!;
+        var (subject, html) = (monday.Subject, monday.Html);
         Assert.Equal("Factories: 1 thing needs you - Monday 12 October", subject);
         Assert.Contains("1 problem still open, listed first.", html);
         var stillNotFixed = html.IndexOf("Still not fixed", StringComparison.Ordinal);
@@ -900,6 +920,11 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Contains("Outreach - a reply asks for a price", html);
         var kept = Store.Find(TenantId.Local, "2026-10-12T08")!;
         Assert.Equal((FactoryEmailKinds.Morning, FactoryEmailStates.Sent, 1), (kept.Kind, kept.State, kept.ProblemCount));
+        // And in Your inbox: outreach's Sunday and Monday summaries, Monday's listing the problem and the item waiting.
+        var outreach = InboxMessages().Where(m => m.Factory == "outreach").ToList();
+        Assert.Equal(new[] { "Morning summary: Outreach - Sunday 11 October", "Morning summary: Outreach - Monday 12 October" }, outreach.Select(m => m.Subject));
+        Assert.Contains("Reported a problem: the inbox would not load.", outreach[1].Body);
+        Assert.Contains("Outreach - a reply asks for a price", outreach[1].Body);
     }
 
     [Fact]
@@ -965,15 +990,13 @@ public sealed class FactoryEmailTests : IDisposable
             r.State = FactoryEmailStates.Sent; r.SentAtUtc = TorontoTime(2026, 10, 12, 0, 5); r.Subject = "Factories: 1 new problem in the evening shift - Sunday 11 October";
             r.Html = "<p>midnight</p>"; r.Text = "midnight"; r.ProblemCount = 1; r.FactoriesJson = "[\"outreach\"]"; r.Attempts = 1;
         });
-        var sender = new FakeSender();
-
         // Act - the Gateway ticks inside what was the failed check's retry window.
         _now = TorontoTime(2026, 10, 11, 16, 9);
-        var said = await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
 
         // Assert - it is not tried again, and the factory page still lists and names the sent one.
         Assert.Equal("no slot due", said);
-        Assert.Empty(sender.Sent);
+        Assert.Empty(InboxMessages());
         var failed = Store.Find(TenantId.Local, "2026-10-11T16")!;
         Assert.Equal((FactoryEmailStates.Failed, 1), (failed.State, failed.Attempts));
         var checks = Store.List(TenantId.Local, "outreach", FactoryEmailKinds.Check, limit: 10, allStates: false);
@@ -985,9 +1008,9 @@ public sealed class FactoryEmailTests : IDisposable
         Job("cj_send", "Morning send", "outreach", "sender");
         AppendRun("cj_send", Run("s1", TorontoTime(2026, 11, 12, 7), CronRunResults.Ok));
         _now = TorontoTime(2026, 11, 12, 8, 5);
-        await Sweep(sender).SweepTenantAsync(TenantId.Local);
+        await Sweep().SweepTenantAsync(TenantId.Local);
 
-        Assert.Single(sender.Sent);
+        Assert.Single(InboxMessages());
         Assert.Null(Store.Find(TenantId.Local, "2026-10-11T16"));
         Assert.Null(Store.Find(TenantId.Local, "2026-10-12T00"));
     }
