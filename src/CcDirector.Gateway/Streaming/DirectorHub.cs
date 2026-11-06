@@ -98,8 +98,10 @@ public sealed class DirectorHub : Hub
         Licenses.LicenseApproverRegistration? licenseApproverRegistration = null,
         PushedHostedDesktopStore? hostedDesktops = null,
         DesktopRelayRegistry? desktopRelay = null,
-        Api.GatewayAccountFailures? accountFailures = null)
+        Api.GatewayAccountFailures? accountFailures = null,
+        Stats.ResourceSummaryStore? resourceSummaries = null)
     {
+        _resourceSummaries = resourceSummaries;
         _accountFailures = accountFailures;
         _hostedDesktops = hostedDesktops;
         _desktopRelay = desktopRelay;
@@ -147,6 +149,11 @@ public sealed class DirectorHub : Hub
     }
 
     private readonly PushedRepositoryStore? _repositoryStore;
+
+    /// <summary>The five-minute resource summaries (Mission: Resource Monitor). Null (older callers, tests that do not
+    /// exercise them): Hello does not offer PushResourceSummaries, and a batch that arrives anyway is answered "not
+    /// stored", so the Director keeps it.</summary>
+    private readonly Stats.ResourceSummaryStore? _resourceSummaries;
 
     /// <summary>The desktops each connected Director hosts (the Factory Boxes mission, phase 1). Null (older callers,
     /// tests that do not exercise boxes) refuses nothing and stores nothing.</summary>
@@ -390,6 +397,53 @@ public sealed class DirectorHub : Hub
         }
         FileLog.Write($"[DirectorHub] PushRepoSnapshot: director={directorId} seq={sequence} repos={set.Length} "
                       + $"(measured={measured.Length}, identity-only={set.Length - measured.Length}) accepted={accepted}");
+    }
+
+    /// <summary>
+    /// Mission: Resource Monitor, section 6: a batch of the bound Director's closed five-minute windows - average, peak
+    /// and every amber or red crossing, for memory and the processor, for the machine and each session. It rides this
+    /// tunnel beside PushSnapshot: no new connection and no new authentication.
+    ///
+    /// Refused before Hello. The tenant and the Director are the connection's binding, never the payload's. Answers
+    /// which windows the Gateway now holds (the Director drops those), which it refuses for good, or why nothing was
+    /// stored (the Director keeps them all and sends again on its next reseed). A store failure is contained here and
+    /// answered, never thrown, so a database that is slow or not open yet cannot drop the tunnel.
+    /// </summary>
+    public ResourceSummaryAck PushResourceSummaries(ResourceSummaryBatch batch)
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        if (_resourceSummaries is null)
+        {
+            FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} - this Gateway keeps no resource summaries, not stored");
+            return new ResourceSummaryAck { NotStoredReason = "this Gateway keeps no resource summaries" };
+        }
+        try
+        {
+            // THE MACHINE IS THE ONE THIS DIRECTOR SAID IN ITS HELLO, not the batch's. The Machines view groups
+            // Directors by the name in their registration, so a window filed under any other spelling would sit beside
+            // its machine and never be shown on it. A batch that names another machine is filed under the
+            // registration's name, and the difference is logged.
+            var registered = _registry.Get(tenant, directorId)?.MachineName;
+            if (!string.IsNullOrWhiteSpace(registered) && batch?.Windows is { } windows)
+            {
+                var renamed = windows.Where(w => w is not null && !string.Equals(w.MachineName, registered, StringComparison.Ordinal)).ToList();
+                if (renamed.Count > 0)
+                    FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} named machine '{renamed[0].MachineName}' "
+                                  + $"in {renamed.Count} window(s); filed under its registered machine '{registered}'");
+                foreach (var window in renamed) window.MachineName = registered;
+            }
+            var ack = _resourceSummaries.Store(tenant, directorId, batch);
+            FileLog.Write($"[DirectorHub] PushResourceSummaries: director={directorId} windows={batch?.Windows.Count ?? 0} "
+                          + $"held={ack.HeldWindowStartsUtc.Count} refused={ack.RejectedWindowStartsUtc.Count}"
+                          + (ack.NotStoredReason is null ? "" : $" NOT stored ({ack.NotStoredReason})"));
+            return ack;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorHub] PushResourceSummaries: the store FAILED (contained; the Director keeps the windows): director={directorId}: {ex.GetType().Name}: {ex.Message}");
+            return new ResourceSummaryAck { NotStoredReason = $"the Gateway could not store it: {ex.Message}" };
+        }
     }
 
     /// <summary>
@@ -675,6 +729,10 @@ public sealed class DirectorHub : Hub
         // into a Gateway that has nowhere to keep them.
         if (_apiModeEvents is null)
             methods = methods.Where(m => m != nameof(PushApiModeEvents)).ToList();
+        // And for the resource summaries: a Director told it may send them drops each window the Gateway says it holds,
+        // so a Gateway with nowhere to keep them must not offer the method.
+        if (_resourceSummaries is null)
+            methods = methods.Where(m => m != nameof(PushResourceSummaries)).ToList();
         var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = methods };
         if (_sessionTurns is null) return answer;
         // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten

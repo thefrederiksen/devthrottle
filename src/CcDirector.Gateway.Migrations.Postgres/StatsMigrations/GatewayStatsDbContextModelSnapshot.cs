@@ -448,6 +448,409 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                     b.ToTable("repo_session", "gateway_stats");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceHourEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant")
+                        .UseCollation("C");
+
+                    b.Property<string>("DirectorId")
+                        .HasColumnType("text")
+                        .HasColumnName("director_id")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("HourStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hour_start_utc");
+
+                    b.Property<string>("CrossingsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("crossings_json")
+                        .UseCollation("C");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("machine_name")
+                        .UseCollation("C");
+
+                    b.Property<long?>("MemoryAverageUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_average_used_bytes");
+
+                    b.Property<long?>("MemoryPeakUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_peak_used_bytes");
+
+                    b.Property<int>("MemorySamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("memory_samples");
+
+                    b.Property<long?>("MemoryTotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_total_bytes");
+
+                    b.Property<string>("MemoryUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("memory_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<double?>("ProcessorAveragePercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_average_percent");
+
+                    b.Property<double?>("ProcessorPeakPercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_peak_percent");
+
+                    b.Property<int>("ProcessorSamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("processor_samples");
+
+                    b.Property<string>("ProcessorUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("processor_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<int>("RefusedWindows")
+                        .HasColumnType("integer")
+                        .HasColumnName("refused_windows");
+
+                    b.Property<DateTime>("RolledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rolled_at_utc");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("sample_count");
+
+                    b.Property<int>("WindowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_count");
+
+                    b.HasKey("Tenant", "DirectorId", "HourStartUtc");
+
+                    b.HasIndex("Tenant", "HourStartUtc")
+                        .HasDatabaseName("ix_resource_hour_tenant_hour");
+
+                    b.ToTable("resource_hour", "gateway_stats", t =>
+                        {
+                            t.HasCheckConstraint("ck_resource_hour_tenant_not_empty", "\"tenant\" ~ '^[a-z0-9-]+$'");
+                        });
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceSessionHourEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant")
+                        .UseCollation("C");
+
+                    b.Property<string>("DirectorId")
+                        .HasColumnType("text")
+                        .HasColumnName("director_id")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("HourStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hour_start_utc");
+
+                    b.Property<string>("SessionId")
+                        .HasColumnType("text")
+                        .HasColumnName("session_id")
+                        .UseCollation("C");
+
+                    b.Property<string>("CrossingsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("crossings_json")
+                        .UseCollation("C");
+
+                    b.Property<string>("Factory")
+                        .HasColumnType("text")
+                        .HasColumnName("factory")
+                        .UseCollation("C");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("machine_name")
+                        .UseCollation("C");
+
+                    b.Property<long?>("MemoryAverageUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_average_used_bytes");
+
+                    b.Property<long?>("MemoryPeakUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_peak_used_bytes");
+
+                    b.Property<int>("MemorySamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("memory_samples");
+
+                    b.Property<long?>("MemoryTotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_total_bytes");
+
+                    b.Property<string>("MemoryUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("memory_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("integer")
+                        .HasColumnName("processes_with_unknown_figures");
+
+                    b.Property<double?>("ProcessorAveragePercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_average_percent");
+
+                    b.Property<double?>("ProcessorPeakPercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_peak_percent");
+
+                    b.Property<int>("ProcessorSamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("processor_samples");
+
+                    b.Property<string>("ProcessorUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("processor_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("RolledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rolled_at_utc");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("sample_count");
+
+                    b.Property<int>("WindowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_count");
+
+                    b.HasKey("Tenant", "DirectorId", "HourStartUtc", "SessionId");
+
+                    b.HasIndex("Tenant", "HourStartUtc")
+                        .HasDatabaseName("ix_resource_session_hour_tenant_hour");
+
+                    b.ToTable("resource_session_hour", "gateway_stats", t =>
+                        {
+                            t.HasCheckConstraint("ck_resource_session_hour_tenant_not_empty", "\"tenant\" ~ '^[a-z0-9-]+$'");
+                        });
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceSessionWindowEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant")
+                        .UseCollation("C");
+
+                    b.Property<string>("DirectorId")
+                        .HasColumnType("text")
+                        .HasColumnName("director_id")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("WindowStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("window_start_utc");
+
+                    b.Property<string>("SessionId")
+                        .HasColumnType("text")
+                        .HasColumnName("session_id")
+                        .UseCollation("C");
+
+                    b.Property<string>("CrossingsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("crossings_json")
+                        .UseCollation("C");
+
+                    b.Property<string>("Factory")
+                        .HasColumnType("text")
+                        .HasColumnName("factory")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("HourStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hour_start_utc");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("machine_name")
+                        .UseCollation("C");
+
+                    b.Property<long?>("MemoryAverageUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_average_used_bytes");
+
+                    b.Property<long?>("MemoryPeakUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_peak_used_bytes");
+
+                    b.Property<int>("MemorySamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("memory_samples");
+
+                    b.Property<long?>("MemoryTotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_total_bytes");
+
+                    b.Property<string>("MemoryUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("memory_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("integer")
+                        .HasColumnName("processes_with_unknown_figures");
+
+                    b.Property<double?>("ProcessorAveragePercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_average_percent");
+
+                    b.Property<double?>("ProcessorPeakPercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_peak_percent");
+
+                    b.Property<int>("ProcessorSamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("processor_samples");
+
+                    b.Property<string>("ProcessorUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("processor_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_utc");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("sample_count");
+
+                    b.HasKey("Tenant", "DirectorId", "WindowStartUtc", "SessionId");
+
+                    b.HasIndex("Tenant", "WindowStartUtc")
+                        .HasDatabaseName("ix_resource_session_window_tenant_window");
+
+                    b.HasIndex("Tenant", "DirectorId", "HourStartUtc")
+                        .HasDatabaseName("ix_resource_session_window_tenant_director_hour");
+
+                    b.ToTable("resource_session_window", "gateway_stats", t =>
+                        {
+                            t.HasCheckConstraint("ck_resource_session_window_tenant_not_empty", "\"tenant\" ~ '^[a-z0-9-]+$'");
+                        });
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.ResourceWindowEntity", b =>
+                {
+                    b.Property<string>("Tenant")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant")
+                        .UseCollation("C");
+
+                    b.Property<string>("DirectorId")
+                        .HasColumnType("text")
+                        .HasColumnName("director_id")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("WindowStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("window_start_utc");
+
+                    b.Property<string>("CrossingsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("crossings_json")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("HourStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hour_start_utc");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("machine_name")
+                        .UseCollation("C");
+
+                    b.Property<long?>("MemoryAverageUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_average_used_bytes");
+
+                    b.Property<long?>("MemoryPeakUsedBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_peak_used_bytes");
+
+                    b.Property<int>("MemorySamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("memory_samples");
+
+                    b.Property<long?>("MemoryTotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_total_bytes");
+
+                    b.Property<string>("MemoryUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("memory_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<double?>("ProcessorAveragePercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_average_percent");
+
+                    b.Property<double?>("ProcessorPeakPercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("processor_peak_percent");
+
+                    b.Property<int>("ProcessorSamples")
+                        .HasColumnType("integer")
+                        .HasColumnName("processor_samples");
+
+                    b.Property<string>("ProcessorUnreadableReason")
+                        .HasColumnType("text")
+                        .HasColumnName("processor_unreadable_reason")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_utc");
+
+                    b.Property<string>("RefusedReason")
+                        .HasColumnType("text")
+                        .HasColumnName("refused_reason")
+                        .UseCollation("C");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("sample_count");
+
+                    b.Property<int>("WindowSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_seconds");
+
+                    b.HasKey("Tenant", "DirectorId", "WindowStartUtc");
+
+                    b.HasIndex("Tenant", "WindowStartUtc")
+                        .HasDatabaseName("ix_resource_window_tenant_window");
+
+                    b.HasIndex("Tenant", "DirectorId", "HourStartUtc")
+                        .HasDatabaseName("ix_resource_window_tenant_director_hour");
+
+                    b.ToTable("resource_window", "gateway_stats", t =>
+                        {
+                            t.HasCheckConstraint("ck_resource_window_tenant_not_empty", "\"tenant\" ~ '^[a-z0-9-]+$'");
+                        });
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Stats.Data.Entities.SessionHighwaterEntity", b =>
                 {
                     b.Property<string>("Tenant")

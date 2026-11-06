@@ -36,7 +36,7 @@ public sealed class GatewayStatsDatabase : IDisposable
 {
     /// <summary>The schema version this build understands. Bump it and add a migration step; never reshape
     /// an existing table in place without one.</summary>
-    public const int SchemaVersion = 7;
+    public const int SchemaVersion = 8;
 
     /// <summary>
     /// The oldest schema version this build can migrate FORWARD without losing data. Below it the store is
@@ -198,6 +198,9 @@ public sealed class GatewayStatsDatabase : IDisposable
 
         if (current < 7 && _targetVersion >= 7)
             MigrateToVersion7(tx);
+
+        if (current < 8 && _targetVersion >= 8)
+            MigrateToVersion8(tx);
 
         Execute($"PRAGMA user_version={_targetVersion}", tx);
         tx.Commit();
@@ -743,6 +746,24 @@ public sealed class GatewayStatsDatabase : IDisposable
     {
         foreach (var table in new[] { "session_highwater", "agent_driven_highwater", "token_highwater" })
             Execute($"ALTER TABLE {table} ADD COLUMN generation INTEGER NOT NULL DEFAULT 0", tx);
+    }
+
+    // Version 8: the migration chain's ResourceSummaryTables (Mission: Resource Monitor, section 6), which adds four
+    // resource summary tables and moves the chain's stamp to 8. THIS STEP CREATES NOTHING, deliberately, and only moves
+    // this file's stamp in step with the chain.
+    //
+    // WHY THE STAMP MUST MOVE. This opener refuses any file stamped above its own version. On a self-host machine the
+    // chain creates gateway-stats.db and stamps it; were this still at 7, every such file would be refused here as
+    // "written by a newer build" and self-host input statistics would switch off.
+    //
+    // WHY NO TABLES. It is the precedent version 7 set: the chain's version 7 added the concurrency tables and this
+    // file's version 7 did not, because nothing that opens a store this way ever reads them - and neither does anything
+    // read the resource tables through it. Creating them here would also change how the chain's adoption check names
+    // a hand-rolled file it cannot adopt: tables outside the baseline make it "not a statistics store" rather than "an
+    // incompatible schema version", which would send an operator looking for the wrong problem.
+    private void MigrateToVersion8(SqliteTransaction tx)
+    {
+        FileLog.Write("[GatewayStatsDatabase] MigrateToVersion8: stamp moves to 8 with the migration chain; no table changes here");
     }
 
     // Rebuild one table so the tenant can join its primary key: create the new shape, copy every existing row

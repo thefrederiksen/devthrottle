@@ -155,6 +155,9 @@ internal static class FleetMachinesFold
 
     private const string StoppedLabel = "Stopped";
 
+    /// <summary>The state label of a Director that is running and heard from; ResourceCapacityFold reads it too.</summary>
+    internal const string RunningLabel = "Running";
+
     private static string NameOf(DirectorDto d)
         => !string.IsNullOrWhiteSpace(d.DisplayName) ? d.DisplayName
             : !string.IsNullOrWhiteSpace(d.MachineName) ? d.MachineName
@@ -165,7 +168,7 @@ internal static class FleetMachinesFold
         var quiet = d.LastSeen is not { } seen || nowUtc - seen > QuietAfter;
         var (label, tone) = d.StoppedAtUtc is not null ? (StoppedLabel, FleetTone.Idle)
             : quiet ? ("Not heard from", FleetTone.Warn)
-            : ("Running", FleetTone.Ok);
+            : (RunningLabel, FleetTone.Ok);
         return new FleetDirectorDto
         {
             DirectorId = d.DirectorId,

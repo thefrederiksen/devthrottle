@@ -200,7 +200,11 @@ internal static class MachineEndpoints
         Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null,
         // Issue #4598: records a Boss started for a session in no factory. Null leaves such a Boss without the authority
         // to publish, as it was before the record existed.
-        SpawnFactory.BossStartRecorder? recordBossStart = null)
+        SpawnFactory.BossStartRecorder? recordBossStart = null,
+        // Mission: Resource Monitor: the five-minute resource summaries. GET /machines stamps each machine's capacity
+        // from them, and GET /machines/{machine}/resources reads one machine's history. Null stamps every machine as
+        // not reporting, with the reason - never a zero.
+        Stats.ResourceSummaryStore? resourceSummaries = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -209,7 +213,7 @@ internal static class MachineEndpoints
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
-            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor, recordBossStart);
+            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor, recordBossStart, resourceSummaries);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -300,7 +304,8 @@ internal static class MachineEndpoints
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
         Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor,
         Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor,
-        SpawnFactory.BossStartRecorder? recordBossStart)
+        SpawnFactory.BossStartRecorder? recordBossStart,
+        Stats.ResourceSummaryStore? resourceSummaries)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
@@ -340,8 +345,31 @@ internal static class MachineEndpoints
                 newestRelease.Current(),
                 launchers.UtcNow);
 
+            // Mission: Resource Monitor: each machine's processor, memory and spare capacity, folded here (rule 7).
+            var now = launchers.UtcNow;
+            ResourceCapacityFold.Stamp(view,
+                resourceSummaries?.MachineWindows(tenant, now - ResourceCapacityFold.PeakSpan, now.AddMinutes(1)), now);
+
             FileLog.Write($"[MachineEndpoints] GET /machines tenant={tenant.Value}: machines={view.Machines.Count}, "
                           + $"newest={view.NewestRelease.Label}, updatable={view.Machines.Count(m => m.Update.Offered)}");
+            return Results.Json(view);
+        });
+
+        // GET /machines/{machine}/resources - one machine expanded (Mission: Resource Monitor, section 5k): the last 24
+        // hours of five-minute rows with every crossing marked, and the cost per registered factory. A read from the
+        // statistics database; it sends nothing to the machine.
+        app.MapGet("/{machine}/resources", (string machine, HttpContext ctx) =>
+        {
+            FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/resources: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            const int hours = 24;
+            var now = launchers.UtcNow;
+            var from = now.AddHours(-hours);
+            var view = MachineResourceHistoryFold.Fold(machine, hours,
+                resourceSummaries?.MachineWindows(tenant, from, now.AddMinutes(1)),
+                resourceSummaries?.SessionWindows(tenant, machine, from, now.AddMinutes(1)));
+            FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/resources tenant={tenant.Value}: windows={view.Windows.Count}, "
+                          + $"factories={view.Factories.Count}{(view.EmptyMessage is null ? "" : " (empty)")}");
             return Results.Json(view);
         });
 

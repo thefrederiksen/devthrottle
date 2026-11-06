@@ -1345,8 +1345,18 @@ public sealed class ControlApiHost : IAsyncDisposable
                 return HostedDesktops.Desktops;
             },
             // The desktop relay resolves a box id to its port through this same list, and nothing else.
-            hostedDesktopRegistry: HostedDesktops);
+            hostedDesktopRegistry: HostedDesktops,
+            // Mission: Resource Monitor, section 6: the closed five-minute windows ride every reseed until the Gateway
+            // says it holds them. The sampler (phase 2) feeds this outbox through a ResourceSummaryRecorder.
+            resourceSummaries: ResourceSummaryOutbox);
     }
+
+    /// <summary>
+    /// Mission: Resource Monitor, section 6: the five-minute resource summaries waiting for the Gateway. One per
+    /// Director process; the sampler feeds it (through <see cref="CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryRecorder"/>)
+    /// and the tunnel drains it on every reseed. Holds at most 24 hours of windows.
+    /// </summary>
+    public CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryOutbox ResourceSummaryOutbox { get; } = new(TimeProvider.System);
 
     /// <summary>The Secret Handoff mission: starts the one read of this machine's public key and returns the
     /// never-blocking provider the Hello reads.</summary>

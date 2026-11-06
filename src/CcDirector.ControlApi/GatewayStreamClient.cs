@@ -50,6 +50,14 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// </summary>
     private readonly Func<IReadOnlyList<HostedDesktopDto>>? _hostedDesktops;
 
+    /// <summary>
+    /// The five-minute resource summaries waiting to go up (Mission: Resource Monitor, section 6). Null on a host that
+    /// records none (tests, older callers): nothing is sent. Drained on every reseed - the first connect, every reconnect
+    /// and the ten-second re-push - so a closed window reaches the Gateway within one re-push interval, and the windows
+    /// that closed while the tunnel was down go up as soon as it is back.
+    /// </summary>
+    private readonly CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryOutbox? _resourceSummaries;
+
     /// <summary>The hub method that carries the hosted-desktop list up.</summary>
     internal const string PushHostedDesktopsMethod = "PushHostedDesktops";
     private readonly Func<DirectorCommand, Task<DirectorCommandResult>>? _commandDispatcher;
@@ -256,8 +264,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Func<Task>? redialDelay = null,
         Func<string>? secretTransferPublicKey = null,
         Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null,
-        HostedDesktopRegistry? hostedDesktopRegistry = null)
+        HostedDesktopRegistry? hostedDesktopRegistry = null,
+        CcDirector.Core.Machine.ResourceSummaries.ResourceSummaryOutbox? resourceSummaries = null)
     {
+        _resourceSummaries = resourceSummaries;
         _hostedDesktops = hostedDesktops;
         _secretTransferPublicKey = secretTransferPublicKey;
         _redialDelay = redialDelay ?? (() => Task.Delay(RestartDelay));
@@ -1213,6 +1223,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
 
         await PushHostedDesktopsAsync(hub);
+        await PushResourceSummariesAsync(hub);
 
         return new ReseedReport(build, sendKeys, awaitGateway, completed, failure);
     }
@@ -1239,6 +1250,55 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayStreamClient] hosted-desktop push FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Send the waiting five-minute resource summaries up (Mission: Resource Monitor, section 6), oldest first, in
+    /// batches, until the outbox is empty or the Gateway stops taking them. In its OWN try/catch like the hosted-desktop
+    /// leg, so a failure here never takes the session reseed down.
+    ///
+    /// Only to a Gateway whose Hello listed the method: an older Gateway is never sent it. A window leaves the outbox
+    /// only when the Gateway's answer says it holds it, or refused it for good; a batch the Gateway could not store (its
+    /// statistics store not open yet, a failed send, a lost connection) stays and goes again on the next reseed. That is
+    /// what makes a ten-minute outage leave no gap.
+    /// </summary>
+    internal async Task PushResourceSummariesAsync(IDirectorHubCalls hub)
+    {
+        if (_resourceSummaries is null || !hub.IsConnected) return;
+        if (!GatewaySupports(ResourceSummaryContract.PushHubMethod)) return;
+        var sent = 0;
+        try
+        {
+            while (hub.IsConnected)
+            {
+                var windows = _resourceSummaries.Peek(ResourceSummaryContract.MaxWindowsPerBatch);
+                if (windows.Count == 0) break;
+                var ack = await hub.PushResourceSummariesAsync(new ResourceSummaryBatch { Windows = windows.ToList() });
+                if (ack is null)
+                {
+                    FileLog.Write($"[GatewayStreamClient] resource summary push: the Gateway gave no answer; {windows.Count} window(s) kept for the next reseed");
+                    break;
+                }
+                if (ack.RejectedWindowStartsUtc.Count > 0)
+                    FileLog.Write($"[GatewayStreamClient] resource summary push: the Gateway refused {ack.RejectedWindowStartsUtc.Count} window(s) for good "
+                                  + $"({string.Join(", ", ack.RejectedWindowStartsUtc.Select(s => s.ToString("O")))}); dropped");
+                var removed = _resourceSummaries.Acknowledge(ack.HeldWindowStartsUtc.Concat(ack.RejectedWindowStartsUtc));
+                sent += ack.HeldWindowStartsUtc.Count;
+                if (ack.NotStoredReason is not null)
+                {
+                    FileLog.Write($"[GatewayStreamClient] resource summary push: not stored ({ack.NotStoredReason}); {_resourceSummaries.Count} window(s) kept for the next reseed");
+                    break;
+                }
+                // An answer that settles nothing would send the same batch forever; stop and try at the next reseed.
+                if (removed == 0) break;
+            }
+            if (sent > 0)
+                FileLog.Write($"[GatewayStreamClient] resource summary push: the Gateway holds {sent} more window(s); {_resourceSummaries.Count} waiting");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayStreamClient] resource summary push FAILED (kept for the next reseed): {ex.GetType().Name}: {ex.Message}");
         }
     }
 
