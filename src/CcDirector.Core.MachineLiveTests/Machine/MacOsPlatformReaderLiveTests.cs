@@ -18,14 +18,19 @@ namespace CcDirector.Core.Tests.Machine;
 ///
 /// The one exception is stated where it appears: the swap file on this platform is legitimately zero
 /// on a healthy machine, so that test asserts the reading SUCCEEDED rather than that it is non-zero.
+///
+/// IT CARRIES <see cref="LiveMachinePlatformAttribute"/>, SO THE WHOLE PROJECT CAN BE RUN ON EVERY
+/// MACHINE. The calls below exist only on a Mac, so on Linux or Windows - even with the opt-in set -
+/// every test here SKIPS with that reason stated, rather than running and failing on the first one.
 /// </summary>
+[LiveMachinePlatform(LiveMachinePlatform.MacOs)]
 public class MacOsPlatformReaderLiveTests
 {
     // =============================================================================================
     // Disks
     // =============================================================================================
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadDisks_OnThisMachine_FindsADiskWithANameAndAKnownKind()
     {
@@ -69,7 +74,7 @@ public class MacOsPlatformReaderLiveTests
             "spinning or solid-state");
     }
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadDisks_OnThisMachine_StatisticsAreRealAndCumulative()
     {
@@ -88,7 +93,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(millisecondsPerRead, 0.001, 100.0);
     }
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadDisks_AfterWritingAFile_TheCountersHaveMovedForward()
     {
@@ -163,7 +168,7 @@ public class MacOsPlatformReaderLiveTests
     // Which physical disk a volume sits on
     // =============================================================================================
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_TheBootVolume_ReachesADiskWeHaveStatisticsFor()
     {
@@ -181,14 +186,14 @@ public class MacOsPlatformReaderLiveTests
         Assert.Contains(ancestors, physical.Contains);
     }
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_ADeviceThatDoesNotExist_IsEmptyRatherThanThrowing()
     {
         Assert.Empty(MacOsPlatformReader.ReadAncestorDeviceNames("disk9999"));
     }
 
-    [MacOsLiveMachineFact("IOKit exists only on macOS")]
+    [LiveMachineFact("IOKit's registry of this machine's disks")]
     [Trait("Category", "Resources")]
     public void ReadAncestorDeviceNames_NoDeviceName_IsEmpty()
     {
@@ -211,7 +216,7 @@ public class MacOsPlatformReaderLiveTests
     // Processor
     // =============================================================================================
 
-    [MacOsLiveMachineFact("host_processor_info is a Mach call")]
+    [LiveMachineFact("per-core tick counters from host_processor_info")]
     [Trait("Category", "Resources")]
     public void ReadProcessorTicks_OnThisMachine_ReturnsOneBlockForEveryCore()
     {
@@ -230,7 +235,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.All(cores, core => Assert.True(core.Idle > 0, "a core with no idle ticks at all would mean the machine had been fully busy since boot"));
     }
 
-    [MacOsLiveMachineFact("host_processor_info is a Mach call")]
+    [LiveMachineFact("per-core tick counters from host_processor_info")]
     [Trait("Category", "Resources")]
     public void ReadProcessorTicks_TwoReadingsWithWorkBetween_ShowTimePassing()
     {
@@ -289,7 +294,7 @@ public class MacOsPlatformReaderLiveTests
     // Swap, the run queue and the memory-pressure level
     // =============================================================================================
 
-    [MacOsLiveMachineFact("vm.swapusage is a macOS sysctl")]
+    [LiveMachineFact("this machine's swap file through vm.swapusage")]
     [Trait("Category", "Resources")]
     public void ReadSwapUsage_OnThisMachine_IsReadableEvenWhenThereIsNoSwapFile()
     {
@@ -305,7 +310,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(usage.UsedBytes <= usage.TotalBytes);
     }
 
-    [MacOsLiveMachineFact("vm.loadavg is a macOS sysctl")]
+    [LiveMachineFact("this machine's load average through vm.loadavg")]
     [Trait("Category", "Resources")]
     public void ReadLoadAverage_OnThisMachine_IsARealLoadAverage()
     {
@@ -322,7 +327,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(load.FifteenMinutes, 0.0, 1000.0);
     }
 
-    [MacOsLiveMachineFact("kern.memorystatus_vm_pressure_level is a macOS sysctl")]
+    [LiveMachineFact("the memory pressure level through kern.memorystatus_vm_pressure_level")]
     [Trait("Category", "Resources")]
     public void ReadMemoryPressureLevel_OnThisMachine_IsALevelWeRecognise()
     {
@@ -335,7 +340,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.NotEqual(KernelMemoryPressureLevel.Unknown, MacOsKernelPressure.Read(level.Value));
     }
 
-    [MacOsLiveMachineFact("sysctl is read through libc on macOS")]
+    [LiveMachineFact("a sysctl value through libc")]
     [Trait("Category", "Resources")]
     public void ReadSysctl_ANameThatDoesNotExist_IsNullRatherThanThrowing()
     {
@@ -347,7 +352,7 @@ public class MacOsPlatformReaderLiveTests
     // The device behind the volume the machine runs from
     // =============================================================================================
 
-    [MacOsLiveMachineFact("statfs is a BSD call")]
+    [LiveMachineFact("this machine's system volume through statfs")]
     [Trait("Category", "Resources")]
     public void ReadSystemVolumeDevice_OnThisMachine_IsABsdNameIOKitCanMatch()
     {
@@ -369,7 +374,7 @@ public class MacOsPlatformReaderLiveTests
     // Processes
     // =============================================================================================
 
-    [MacOsLiveMachineFact("the kernel process table is read through sysctl on macOS")]
+    [LiveMachineFact("the kernel process table through sysctl")]
     [Trait("Category", "Resources")]
     public void ReadKernelProcessTable_OnThisMachine_NamesEveryProcessIncludingAnotherUsers()
     {
@@ -403,7 +408,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.Contains(entries, entry => entry.UserId != ourUserId);
     }
 
-    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ThisTestProcess_ReadsItsOwnNameParentAndUsage()
     {
@@ -438,7 +443,7 @@ public class MacOsPlatformReaderLiveTests
             new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     }
 
-    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_ManyProcessesOnThisMachine_AreReadableAndTheRestAreNullNotAFailure()
     {
@@ -484,7 +489,7 @@ public class MacOsPlatformReaderLiveTests
             "every process was readable, so this run did not exercise the refusal this test is for");
     }
 
-    [MacOsLiveMachineFact("mach_timebase_info is a Mach call")]
+    [LiveMachineFact("the Mach timebase through mach_timebase_info")]
     [Trait("Category", "Resources")]
     public void ReadMachTimebase_OnThisMachine_IsUsableAndConvertsProcessorTimeSensibly()
     {
@@ -513,7 +518,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.InRange(seconds, 0.001, 86_400.0);
     }
 
-    [MacOsLiveMachineFact("proc_pidinfo is a libproc call")]
+    [LiveMachineFact("process figures through proc_pidinfo")]
     [Trait("Category", "Resources")]
     public void ReadProcess_AProcessThatDoesNotExist_IsNullRatherThanThrowing()
     {

@@ -56,8 +56,20 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// How long a sample is reused. The same reasoning as <see cref="MachineMemoryProbe.CacheFor"/>:
     /// short enough that a machine falling off a cliff is noticed within a second, long enough that a
     /// burst of callers costs one pass over the machine rather than twenty.
+    ///
+    /// IT IS THAT VALUE, NOT A SECOND LITERAL THAT HAPPENS TO MATCH IT, and the Linux probe does the
+    /// same. The shared contract's live tests read a probe twice with
+    /// <see cref="MachineMemoryProbe.CacheFor"/> plus a margin in between, to give the rates an
+    /// interval; they do not ask the probe under test what IT caches for. So a macOS cache written as
+    /// its own one second would be free to grow past that sleep, and on the day it did, the contract's
+    /// second read would come back out of this cache - leaving the sample under test the FIRST sample,
+    /// which has no rates at all - while two of the four contract tests went on passing, because both
+    /// deliberately accept a rate-less sample. That is a check that fails open in the one suite whose
+    /// job is to catch a reading that means something different on another platform. Tying the two
+    /// together makes that impossible here; a hook on the contract base would fix it for every
+    /// platform, and is issue #4649.
     /// </summary>
-    public static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(1);
+    public static readonly TimeSpan CacheFor = MachineMemoryProbe.CacheFor;
 
     private readonly object _gate = new();
     private readonly TimeProvider _time;
