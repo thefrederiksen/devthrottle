@@ -137,3 +137,24 @@ fills in this section of this file.
 
 The observations are left alone, by the Delivery Lead's ruling: the Pi line in the method's Reviewer entry and the
 fleet preamble are outside this phase.
+
+## The gate after the review
+
+Commit 6d693e73e (the review answers), tree clean. `.\scripts\test-local.ps1` ran twice, and twice ended OVER BUDGET,
+not red: no test failed. The first run stopped `CcDirector.Avalonia.Tests` at the 120-second limit, and the second
+stopped it and `CcDirector.Core.UnitTests`. Every other suite was `outcome=Completed` with every test executed, the
+same totals as the run above. The machine was loaded at the time: processor at 71 percent, 8.5 GB of 64 GB memory
+free, other Directors and agent sessions running. The same two suites finished in 66 and 84 seconds on the first
+commit an hour earlier.
+
+The two stopped suites, run alone on the same commit with the gate's own filter, without the limit:
+
+```
+dotnet test src\CcDirector.Core.UnitTests --filter "Gate!=Quarantine"
+Passed!  - Failed:     0, Passed:  3392, Skipped:     0, Total:  3392, Duration: 32 s
+dotnet test src\CcDirector.Avalonia.Tests --filter "Gate!=Quarantine"
+Passed!  - Failed:     0, Passed:  1215, Skipped:     0, Total:  1215, Duration: 51 s
+```
+
+So every default suite passed on this commit, but no single gate run on it reports GREEN. The change is two markdown
+skill files and this proof.
