@@ -1,7 +1,6 @@
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
-using CcDirector.Core.Settings;
 using Xunit;
 
 namespace CcDirector.Core.Tests.AgentPlugins;
