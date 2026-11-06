@@ -12,6 +12,10 @@
     <!-- The parallel half of the same suite: the fast Core tests, split out so they no longer
          sit behind that project's assembly-wide DisableTestParallelization. Same tests, same access. -->
     <InternalsVisibleTo Include="CcDirector.Core.UnitTests" />
+    <!-- The tests that read a real machine. They drive MacOsPlatformReader and MacOsResourceParsing
+         directly, which are internal because nothing outside the probe may make a system call or
+         read a raw structure, and that stays true: this is a test assembly, not a consumer. -->
+    <InternalsVisibleTo Include="CcDirector.Core.MachineLiveTests" />
     <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
     <InternalsVisibleTo Include="CcDirector.Terminal.Avalonia.Tests" />
     <InternalsVisibleTo Include="CcDirector.Gateway.Tests" />
