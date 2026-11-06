@@ -3169,7 +3169,7 @@ def machine_diagnose(
     instance: Optional[str] = typer.Option(
         None, "--instance", help="Another Director on this machine, by its folder under instances. Default: this session's."),
     json_output: bool = typer.Option(
-        False, "--json", "-j", help="Output JSON: every field, the window's samples verbatim. Filters still apply."),
+        False, "--json", "-j", help="Output JSON: every field. Filters still apply. Samples only with --samples."),
     samples: bool = typer.Option(
         False, "--samples", help="With --json: include every sample of the window verbatim (large)."),
     fields: Optional[str] = typer.Option(
