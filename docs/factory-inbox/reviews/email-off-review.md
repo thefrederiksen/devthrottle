@@ -171,3 +171,77 @@ land in an inbox that person is not reading.
 owner in Your inbox", matching `definition-format.md`; and the fleet preamble's "email me" has a row in the list (an
 identity rule, not an order to email, left to a change of its own because it rewrites every session's start text). The
 others are left as you recorded them.
+
+## Re-review after the answers
+
+**Verdict: APPROVE.** Both findings are fixed at the root, every guarantee the first review checked still holds, and
+nothing new was found that proves harm.
+
+Reviewed on 6 November 2026, at commit 41af68b16 ("answer the review"), the one commit on top of the review commit
+2403d1744. Only that commit and the answers above were read; the earlier commits stand as reviewed. A trial merge
+with origin/main at 9f96fb043 is clean. The worktree was left clean: `git status` shows nothing but this file.
+
+Run here, on devlinux:
+
+| What | Result |
+|---|---|
+| Gateway unit tests whose names contain Factory, Inbox or Email | 3730 passed, 0 failed |
+| The regression test alone, against the sweep as it was before this commit (the parent's `FactoryEmailSweep.cs` put in place, the test run, the file restored) | failed: "Strings differ", expected "wrote 1 morning message", actual "nothing to send (this account has no factory schedules ..." |
+
+### Finding 1 - fixed at the root, with a test that fails without it
+
+The root cause was the order of two decisions: the account report's "nothing to report" gate ran before the per-factory
+loop. The commit reverses it. The loop now runs first and collects each factory's message into a pending list; the
+message for problems in no factory is collected the same way; and only then, when the slot has no kept row and the count
+of messages this morning is zero, is the slot kept as `NothingToSend`. The report's gate is no longer consulted to stop
+the factories; its reason is kept as the row's reason when it applies, and the Gateway's own sentence
+(`FactoryEmailSweep.NoNewsReason`) when the report had something to say but no factory had news and no problem is open
+outside a factory. That second sentence is reachable only on the edges the first review already recorded as "two narrow
+losses" (a day, a waiting item or a Mail Desk section for an archived or unregistered factory), and it is true there.
+
+The regression test `SweepTenantAsync_AFactoryWithInboxNewsAndNoSchedule_GetsItsMorningMessage` is the first review's
+proof with a proper name and the expected outcome inverted. I ran it against the parent commit's sweep and it failed
+exactly as the developer says; against this commit it passes.
+
+### The other guarantees, each checked against the new code
+
+- **One message per factory with news.** The loop's body is unchanged apart from where the message goes (a pending
+  list instead of the store); `HasNews` still gates it. The first sweep test and the new test each show one message.
+- **None for a quiet factory.** `continue` when `HasNews` is false, as before; the first sweep test shows outreach gets
+  none. An account with no schedule and no inbox news is still kept as `NothingToSend` (the `List` test's Saturday).
+- **The message for problems in no factory, only when there are any.** The `orphans.Count > 0` gate is unchanged; both
+  no-factory tests pass.
+- **A retried slot writes only what is missing.** The `MorningOf` and `NoFactoryMorningOf` checks run before anything is
+  added to the pending list, and a slot that already has a kept row skips the "keep first" block, so no second `Failed`
+  row is written. The half-written-slot test still shows one new message, the old one untouched, and the kept row
+  marked delivered with the count of all messages.
+- **Kept before written, still.** The `Failed` "composed, not written to Your inbox yet" row is saved before any message
+  is added to Your inbox; the pending list lives only in memory until then. A crash during composition now keeps no row
+  at all, so the slot is tried again on the next tick, which is the same promise as before.
+- **No mail sender in the sweep.** The constructor is untouched; `FactoryEmailSweep_TakesNoMailSender` passes.
+
+### Finding 2 - the answer is sound
+
+`TeamBillEndedNotice` (read on origin/main) tells a team's Owner once per ended bill, through `ITeamBillEndedMailer`
+implemented by `TeamInvitationMailer`, and its own summary quotes the 7 October ruling "tell the Owner". The new row says
+exactly that and files it beside the licence and network alerts as "Kept, question for the owner", which is where the
+first review said it belonged. The reason given for keeping it as an email holds: the person refused is not the Owner,
+so the Owner has no prompt to open DevThrottle, and a message in an inbox nobody is reading would not tell them. A fresh
+search of the Teams folder on origin/main finds no other sender of email than those two files, so the list's claim that
+the folder was looked at again is borne out.
+
+### The two observations taken
+
+The seat schema's example branch step now matches `definition-format.md`; no test pins the description's wording, and the
+schema tests pass. The fleet preamble's row describes the line correctly as an identity rule and leaves the edit to a
+change of its own, which is the right size for a sentence that reaches every session.
+
+### Observation - no change required
+
+- **A morning with inbox news and nothing in the report keeps a delivered row with no title.** On that morning the
+  report is the composer's "not sent" report, so the kept row is `Sent` with an empty subject, an empty body and an empty
+  factory list. The factory page's "Morning reports" card lists only rows whose factory list names the factory, so the
+  card does not show that slot; before this commit the slot was `NothingToSend` and the card did not show it either. An
+  unfiltered list of kept reports (the list route with no factory) shows the row with an empty title and the correct
+  detail "Written to Your inbox as 1 morning message". Cosmetic: the message the owner reads is in Your inbox, and the
+  row's state and detail are true.
