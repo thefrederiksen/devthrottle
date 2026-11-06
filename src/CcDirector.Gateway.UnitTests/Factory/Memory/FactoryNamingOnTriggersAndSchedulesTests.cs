@@ -210,6 +210,32 @@ public sealed class FactoryNamingOnTriggersAndSchedulesTests
     }
 
     [Fact]
+    public void TryAct_SessionInNoFactory_RefusalSaysTheWayIn()
+    {
+        // 6 November 2026: a rescue session started by hand was born in no factory, and every journal write it made
+        // was refused with nothing saying how a session joins one. The refusal now says the way in.
+        Assert.False(FactoryNaming.TryAct(AsSession(CallerId), Reads(SessionFactoryLookup.InNoFactory), TheFactory, "record", "test", out var error));
+
+        var text = System.Text.Json.JsonSerializer.Serialize(Assert.IsAssignableFrom<IValueHttpResult>(error).Value!,
+            new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        Assert.Contains(
+            "A session joins a factory only when it is started as one: start the factory's Boss " +
+            "(cc-devthrottle session spawn --factory website-factory --seat <boss seat>) and have it run " +
+            "cc-devthrottle factory seat start, or use Talk on the seat.",
+            text);
+    }
+
+    [Fact]
+    public void TryAct_SessionOfAnotherFactory_IsNotToldToJoinOne()
+    {
+        // A session already in a factory cannot join a second one, so it is not told how to.
+        Assert.False(FactoryNaming.TryAct(AsSession(CallerId), Reads(SessionFactoryLookup.In(AnotherFactory)), TheFactory, "record", "test", out var error));
+
+        var text = System.Text.Json.JsonSerializer.Serialize(Assert.IsAssignableFrom<IValueHttpResult>(error).Value!);
+        Assert.DoesNotContain("A session joins a factory only when", text);
+    }
+
+    [Fact]
     public void A_SESSION_OF_THAT_FACTORY_MAY()
     {
         Assert.True(Act(AsSession(CallerId), Reads(SessionFactoryLookup.In(TheFactory)), TheFactory, out var error));

@@ -2422,6 +2422,11 @@ and nothing is recorded. After `ok` the session closes itself exactly as `sessio
 `session done --undo`); after `problem` it stays open for someone to look at. A problem needs its one line
 why.
 
+A scheduled run's own session cannot close itself with `session done` before it has reported: the Gateway
+refuses it (409), flags nothing, and says to run `run result ok` (which closes the session) or `run result
+problem "<one line why>"`. `session done` exits non-zero with that sentence. A person, or another session,
+can still flag the run's session for deletion.
+
 The Gateway records three problems by itself:
 
 - **did not report** - the run's session ended without calling `run result`;

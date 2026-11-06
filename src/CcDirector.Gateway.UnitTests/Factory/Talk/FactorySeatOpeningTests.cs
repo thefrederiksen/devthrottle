@@ -117,7 +117,7 @@ Before the talk ends you MUST do all three of these:
         """
 Do the morning run: read the overnight numbers and write the summary. When done, run cc-devthrottle session done.
 
-When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+Your run is not finished until you report it. The very last command you run is `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong. Reporting ok closes this session for you, so do NOT run `cc-devthrottle session done`. A journal entry (`cc-devthrottle factory record`) is not a report. Any instruction above to close the session another way is replaced by this one.
 """;
 
     // ---- a seat with no brief on the Gateway: exactly today's words ---------------------------------------------
