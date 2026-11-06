@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHART, NO_NOTE_LABEL, chartGeometry, chartSpan } from "./machineResourcesChart";
+import { CHART, chartGeometry, chartSpan } from "./machineResourcesChart";
 import { SPAN_FROM, SPAN_TO, history, window } from "./machineCapacityFixtures";
 
 // The 24-hour chart's geometry (Mission: Resource Monitor, section 5k). What these pin is the defect class this
@@ -68,14 +68,20 @@ describe("chartGeometry", () => {
   });
 
   it("ChartGeometry_AverageWithoutPeak_IsAStripe_NeverHalfAFigure", () => {
-    const halfRead = { ...window(T0, [40, 50], [50, 55]), processorPeakPercent: null };
+    const note = { label: "Processor not read: the peak was not kept", tone: "idle" as const };
+    const halfRead = { ...window(T0, [40, 50], [50, 55]), processorPeakPercent: null, processorNote: note };
 
     const g = chartGeometry(history([halfRead]), "CPU")!;
 
     expect(g.runs).toEqual([]);
-    expect(g.stripes.map((s) => s.kind)).toEqual(["note"]);
-    // The Gateway sent no note for a figure it did not send: the stripe says the answer was broken, never a meaning.
-    expect(g.stripes[0].label).toBe(NO_NOTE_LABEL);
+    expect(g.stripes).toEqual([expect.objectContaining({ kind: "note", label: note.label })]);
+  });
+
+  // Second review, finding 3: a window with neither a figure nor a note is never worded by the client.
+  it("ChartGeometry_AWindowWithNoFigureAndNoNote_Throws_NeverWordsItself", () => {
+    const broken = { ...window(T0, [40, 50], [50, 55]), processorPeakPercent: null };
+
+    expect(() => chartGeometry(history([broken]), "CPU")).toThrow(/no CPU figure and no note/);
   });
 
   // Finding 3: the words and the tone of a refused window are the Gateway's note, drawn as sent.

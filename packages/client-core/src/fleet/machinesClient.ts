@@ -214,6 +214,10 @@ export async function getFleetMachines(signal?: AbortSignal): Promise<FleetMachi
   return body;
 }
 
+function hasBoth(average: number | null | undefined, peak: number | null | undefined): boolean {
+  return typeof average === "number" && Number.isFinite(average) && typeof peak === "number" && Number.isFinite(peak);
+}
+
 /** GET /machines/{machine}/resources - one machine expanded: 24 hours of five-minute rows and the cost per factory. */
 export async function getMachineResources(machine: string, signal?: AbortSignal): Promise<MachineResourceHistory> {
   const res = await gatewayFetch(`${machinePath(machine)}/resources`, {
@@ -231,6 +235,16 @@ export async function getMachineResources(machine: string, signal?: AbortSignal)
   // span exists to prevent - so a history without one is refused, not drawn against the newest window.
   if (!Number.isFinite(Date.parse(body.fromUtc)) || !Number.isFinite(Date.parse(body.toUtc))) {
     throw new GatewayError(res.status, "The Gateway answered the machine's resource history without the span it covers.");
+  }
+  // A window missing a figure must carry the Gateway's note saying why. Without it the client would have to write a
+  // sentence and pick a tone itself, so such a history is refused, the same as one without its span.
+  const unexplained = body.windows.find(
+    (w) =>
+      (w.refusedReason != null || !hasBoth(w.processorAveragePercent, w.processorPeakPercent) ? w.processorNote == null : false) ||
+      (w.refusedReason != null || !hasBoth(w.memoryAveragePercent, w.memoryPeakPercent) ? w.memoryNote == null : false),
+  );
+  if (unexplained !== undefined) {
+    throw new GatewayError(res.status, `The Gateway answered the machine's resource history with a window at ${unexplained.windowStartUtc} that has no figure and no reason.`);
   }
   return body;
 }

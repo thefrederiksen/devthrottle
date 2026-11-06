@@ -37,7 +37,7 @@ public sealed class MachineResourceHistoryFoldTests : IDisposable
     {
         _store.Store(Tenant, "director-1", Batch(windows));
         return MachineResourceHistoryFold.Fold("devlinux", 24, from, to,
-            _store.MachineWindows(Tenant, from, to.AddMinutes(1)), _store.SessionWindows(Tenant, "devlinux", from, to.AddMinutes(1)));
+            _store.MachineWindows(Tenant, MachineResourceHistoryFold.ReadFromUtc(from), to.AddMinutes(1)), _store.SessionWindows(Tenant, "devlinux", from, to.AddMinutes(1)));
     }
 
     [Fact]
@@ -56,6 +56,7 @@ public sealed class MachineResourceHistoryFoldTests : IDisposable
     {
         var view = History(W0, W0.AddHours(10), Steady(W0, 30, 4 * Gb));
 
+
         var gap = Assert.Single(view.Gaps);
         Assert.Equal(W0.AddMinutes(5), gap.StartUtc);
         Assert.Equal(W0.AddHours(10), gap.EndUtc);
@@ -64,18 +65,41 @@ public sealed class MachineResourceHistoryFoldTests : IDisposable
         Assert.Contains(view.Events, e => e.Label == gap.Label && e.AtUtc == gap.StartUtc);
     }
 
+    // Second review, finding 1: the tail is a gap exactly when the capacity row calls the machine silent, never sooner,
+    // so the row cannot show live figures above a chart saying nothing has arrived.
     [Fact]
-    public void Fold_ATailOfLessThanTwoWindows_IsTheWindowInFlight_NotAGap()
+    public void Fold_ATailNoLongerThanTheRowsSilence_IsNotAGap()
     {
-        // Newest ends 10:05; at 10:14 the 10:05 window is still due. At 10:15 it is a whole window late.
-        Assert.Empty(History(W0, W0.AddMinutes(14), Steady(W0, 30, 4 * Gb)).Gaps);
+        // Newest ends 10:05; at 10:20 it ended exactly SilentAfter ago, which the row still counts as reporting.
+        Assert.Empty(History(W0, W0.AddMinutes(5) + ResourceCapacityFold.SilentAfter, Steady(W0, 30, 4 * Gb)).Gaps);
     }
 
     [Fact]
-    public void Fold_ATailOfTwoWindows_IsAGap()
+    public void Fold_ATailLongerThanTheRowsSilence_IsAGap_AndTheRowAgrees()
     {
-        var gap = Assert.Single(History(W0, W0.AddMinutes(15), Steady(W0, 30, 4 * Gb)).Gaps);
+        var to = W0.AddMinutes(5) + ResourceCapacityFold.SilentAfter + TimeSpan.FromSeconds(1);
+
+        var view = History(W0, to, Steady(W0, 30, 4 * Gb));
+        var row = ResourceCapacityFold.Fold(directorRunning: true,
+            _store.MachineWindows(Tenant, to.AddHours(-1), to.AddMinutes(1)), to);
+
+        Assert.Equal(W0.AddMinutes(5), Assert.Single(view.Gaps).StartUtc);
+        Assert.False(row.Reporting);
+    }
+
+    // Second review, finding 2: the window straddling the span's start closes the stretch it covers.
+    [Fact]
+    public void Fold_AMissingWindowJustAfterTheSpansStart_IsAGapFromTheStraddlersEnd_NotFromTheSpansStart()
+    {
+        // The span opens at 10:01:30. 10:00 straddles it, 10:05 is missing, 10:10 is present.
+        var from = W0.AddSeconds(90);
+        var view = History(from, W0.AddMinutes(16), Steady(W0, 30, 4 * Gb), Steady(W0.AddMinutes(10), 30, 4 * Gb));
+
+        var gap = Assert.Single(view.Gaps);
         Assert.Equal(W0.AddMinutes(5), gap.StartUtc);
+        Assert.Equal("No resource summary arrived for 5 minutes", gap.Label);
+        // The straddler itself is not drawn: it starts before the chart's left edge.
+        Assert.Equal(W0.AddMinutes(10), Assert.Single(view.Windows).WindowStartUtc);
     }
 
     [Fact]
@@ -83,6 +107,7 @@ public sealed class MachineResourceHistoryFoldTests : IDisposable
     {
         var view = History(W0, W0.AddMinutes(16),
             Steady(W0, 30, 4 * Gb), Steady(W0.AddMinutes(10), 30, 4 * Gb));
+
 
         var gap = Assert.Single(view.Gaps);
         Assert.Equal(W0.AddMinutes(5), gap.StartUtc);

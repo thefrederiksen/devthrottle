@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getMachineResources,
   type MachineResourceHistory,
@@ -164,30 +164,46 @@ export function MachineResourcesBody({ history }: { history: MachineResourceHist
  * Reads GET /machines/{machine}/resources when shown, and draws it. It reads again whenever {@link refreshToken} changes -
  * the Machines table passes its own view, so the expanded chart is re-read on the table's refresh and never sits stale
  * under a live row. The chart already shown stays up while the next read is in flight.
+ *
+ * A read in flight is never aborted by the next refresh - that refresh is skipped instead - so a Gateway slower than
+ * the table's poll still delivers a new chart rather than having every read cut off. Only closing the panel aborts.
  */
 export function MachineResourcesPanel({ machine, refreshToken }: { machine: string; refreshToken?: unknown }) {
   const [history, setHistory] = useState<MachineResourceHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const closed = useRef(new AbortController());
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        const view = await getMachineResources(machine, signal);
-        if (signal?.aborted) return;
-        setHistory(view);
-        setError(null);
-      } catch (err) {
-        if (signal?.aborted) return;
-        setError(describeAndReport(SURFACE, "read the machine's resource history", err));
-      }
-    },
-    [machine],
-  );
+  const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const signal = closed.current.signal;
+    try {
+      const view = await getMachineResources(machine, signal);
+      if (signal.aborted) return;
+      setHistory(view);
+      setError(null);
+    } catch (err) {
+      if (signal.aborted) return;
+      setError(describeAndReport(SURFACE, "read the machine's resource history", err));
+    } finally {
+      inFlight.current = false;
+    }
+  }, [machine]);
 
+  // Abort only when the panel closes.
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
+    closed.current = controller;
+    return () => {
+      controller.abort();
+      // The aborted read no longer counts as in flight, so a remount (React's development double-mount) reads again.
+      inFlight.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void load();
   }, [load, refreshToken]);
 
   return (

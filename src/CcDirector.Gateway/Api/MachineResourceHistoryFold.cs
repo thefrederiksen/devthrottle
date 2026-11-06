@@ -17,6 +17,9 @@ internal static class MachineResourceHistoryFold
 
     public const string NoFactoriesMessage = "No sessions were recorded on this machine in this span.";
 
+    /// <summary>Where the caller reads windows from: one window before the span, so the window straddling its start is in.</summary>
+    public static DateTime ReadFromUtc(DateTime fromUtc) => fromUtc - ResourceWindowGaps.Window;
+
     /// <param name="fromUtc">The start of the span the Gateway read.</param>
     /// <param name="toUtc">The end of the span: the Gateway's now.</param>
     public static MachineResourceHistoryDto Fold(string machine, int hours, DateTime fromUtc, DateTime toUtc,
@@ -28,7 +31,10 @@ internal static class MachineResourceHistoryFold
             dto.EmptyMessage = "The Gateway's statistics store is not open, so this machine's history cannot be shown.";
             return dto;
         }
-        var mine = windows.Where(w => string.Equals(w.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+        // The caller reads from one window before the span (see ReadFromUtc), so the window straddling the span's start
+        // can close a gap that would otherwise be reported from the span's start. Only windows inside the span are shown.
+        var straddling = windows.Where(w => string.Equals(w.MachineName, machine, StringComparison.OrdinalIgnoreCase)).ToList();
+        var mine = straddling.Where(w => w.WindowStartUtc >= fromUtc).ToList();
         if (mine.Count == 0)
         {
             dto.EmptyMessage = $"No resource summaries from {machine} in the last {hours} hours.";
@@ -62,7 +68,7 @@ internal static class MachineResourceHistoryFold
             dto.Windows.Add(window);
         }
 
-        foreach (var (start, end, isTail) in ResourceWindowGaps.Of(rows, fromUtc, toUtc))
+        foreach (var (start, end, isTail) in ResourceWindowGaps.Of(straddling, fromUtc, toUtc))
             dto.Gaps.Add(new ResourceGapDto
             {
                 StartUtc = start,
@@ -194,8 +200,10 @@ internal static class MachineResourceHistoryFold
 ///
 /// A gap is a stretch of the span covered by no window that is at least one window long - long enough to have held a
 /// summary. Before the newest window the rule is exact, because windows are five-minute slots and abut. After it, the
-/// window now being collected is not missing yet: it is due when it ends, so the tail counts as a gap only once a WHOLE
-/// window beyond the newest has had time to end and arrive.
+/// window now being collected is not missing yet, so the tail is a gap only once the machine counts as SILENT - past
+/// <see cref="ResourceCapacityFold.SilentAfter"/>, the same threshold the capacity row uses, so the row cannot show live
+/// figures while the chart under it says nothing has arrived. A window straddling the span's start (read by the caller,
+/// see <see cref="MachineResourceHistoryFold.ReadFromUtc"/>) closes the stretch it covers; a gap never starts before the span.
 /// </summary>
 internal static class ResourceWindowGaps
 {
@@ -216,8 +224,8 @@ internal static class ResourceWindowGaps
             if (start - cursor >= Window) gaps.Add((cursor, start, false));
             if (end > cursor) cursor = end;
         }
-        // The window being collected now ends one window after the newest, and is due then; only past that is it missing.
-        if (toUtc - cursor >= Window + Window) gaps.Add((cursor, toUtc, true));
+        // The same rule as the capacity row's "not reporting": the newest window ended more than SilentAfter ago.
+        if (toUtc - cursor > ResourceCapacityFold.SilentAfter) gaps.Add((cursor, toUtc, true));
         return gaps;
     }
 }

@@ -223,6 +223,48 @@ describe("MachinesPanel: one machine expanded", () => {
     expect(screen.getByTestId("fmr-factories")).toBeTruthy();
   });
 
+  // Second review, finding 4: a Gateway slower than the table's poll still delivers - the next refresh is skipped while
+  // a read is in flight, never allowed to abort it.
+  it("never aborts a slow read on the table's refresh; the chart arrives", async () => {
+    let answer: (r: Response) => void = () => undefined;
+    let aborted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const path = new URL(String(input), "http://cockpit.test").pathname;
+        calls.push(`${init?.method ?? "GET"} ${path}`);
+        if (!path.endsWith("/resources")) return Promise.resolve(json(200, {}));
+        init?.signal?.addEventListener("abort", () => (aborted = true));
+        return new Promise<Response>((resolve) => (answer = resolve));
+      }),
+    );
+    const shown = draw();
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+    await vi.waitFor(() => expect(calls.filter((c) => c.includes("/resources"))).toHaveLength(1));
+
+    shown.rerender(
+      <MemoryRouter>
+        <MachinesPanel view={{ ...view, machines: [...view.machines] }} error={null} onChanged={() => undefined} />
+      </MemoryRouter>,
+    );
+    answer(json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories)));
+
+    expect(await screen.findByTestId("fmr-factories")).toBeTruthy();
+    expect(aborted).toBe(false);
+    expect(calls.filter((c) => c.includes("/resources"))).toHaveLength(1);
+  });
+
+  it("refuses a window with no figure and no reason instead of wording it", async () => {
+    const broken = { ...window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), processorPeakPercent: null };
+    answers["GET /machines/devlinux/resources"] = () => json(200, history([broken], factories));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("could not read the machine's resource history");
+    expect(screen.queryByTestId("fmr-chart-CPU")).toBeNull();
+  });
+
   it("refuses a history without the Gateway's span instead of drawing it against an invented clock", async () => {
     answers["GET /machines/devlinux/resources"] = () =>
       json(200, { ...history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35])], factories), fromUtc: undefined, toUtc: undefined });

@@ -92,9 +92,6 @@ function figuresOf(w: MachineResourceWindow, resource: ChartResource): [number, 
 
 const round = (n: number) => Math.round(n * 10) / 10;
 
-/** Said for a window with no figure that arrived with no note - a broken answer, never guessed into a meaning. */
-export const NO_NOTE_LABEL = "The Gateway sent no figure and no reason for this window.";
-
 /** The span the chart covers: exactly the one the Gateway read. Null when there are no rows or no readable span. */
 export function chartSpan(history: MachineResourceHistory): { startMs: number; endMs: number } | null {
   const startMs = Date.parse(history.fromUtc);
@@ -162,14 +159,17 @@ export function chartGeometry(history: MachineResourceHistory, resource: ChartRe
     if (figures === null) {
       closeRun();
       const note = resource === "CPU" ? w.processorNote : w.memoryNote;
+      // getMachineResources refuses a history with a window that has neither a figure nor a note, so this is never
+      // reached from the wire; a caller that skipped that check is a programming error, not a state to word.
+      if (note == null) throw new Error(`chartGeometry: the window at ${w.windowStartUtc} has no ${resource} figure and no note`);
       stripes.push({
         x: x(at),
         width: round(x(at + WINDOW_MS) - x(at)),
         startUtc: w.windowStartUtc,
         endUtc: iso(at + WINDOW_MS),
         kind: "note",
-        label: note?.label ?? NO_NOTE_LABEL,
-        tone: note?.tone ?? "idle",
+        label: note.label,
+        tone: note.tone,
       });
       continue;
     }
