@@ -9,8 +9,9 @@ namespace CcDirector.Gateway.Data.Entities;
 /// sends on its own credential) writes one for the new session, naming the session it restored.
 ///
 /// A session with a row here, a rules-only kit and the same factory and seat on its history row was STARTED AS that
-/// seat publishes as the Boss (<see cref="History.SessionFactoryLookup.InheritedForPublishing"/>); the inbox and seat
-/// starts still treat it as rules-only, under the Tech Lead's ruling of 5 November 2026. No row means inherited,
+/// seat is the Boss (<see cref="History.SessionFactoryLookup.SeatIsInherited"/>): it publishes, decides the factory
+/// inbox's bundles, starts seats and is the Boss the inbox wake rings (the owner's ruling of 6 November 2026, which
+/// overturned the Tech Lead's ruling of 5 November 2026 for this case). No row means inherited,
 /// exactly as before this table existed - so a lost row takes authority away and never grants it. A Smart Restart
 /// reopen and an interrupted-session continuation of a recorded Boss carry the row to the session that continues it;
 /// a handover does not, so a handed-over Boss is started as the Boss again.

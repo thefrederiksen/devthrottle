@@ -200,6 +200,7 @@ public sealed class FactoryInboxUndefinedFactoryTests : IAsyncLifetime
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant) => [];
         public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId) => null;
         public bool HasEnded(TenantId tenant, string sessionId) => false;
+        public bool StartedAsTheBoss(TenantId tenant, string sessionId, string factory, string seat) => false;
         public FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat) => null;
         public string? DirectorOn(TenantId tenant, string machine, bool buildsKit) => machine == Machine ? "d-ledger" : null;
 

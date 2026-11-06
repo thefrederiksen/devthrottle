@@ -30,7 +30,7 @@ public static class FactorySeatDelegation
                    "Finish your work and hand it back; the Boss decides who does the next piece.";
         if (caller.SeatIsInherited)
             return "this session has the Boss's rules but was not started as the Boss, so it may not start a seat. " +
-                   "Only a Boss started by its schedule, its trigger or the owner's Talk button may.";
+                   "Only a Boss started by its schedule, its trigger, the owner's Talk button or a session in no factory may.";
         return null;
     }
 
