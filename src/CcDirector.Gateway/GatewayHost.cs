@@ -3023,6 +3023,8 @@ public sealed class GatewayHost : IAsyncDisposable
             machineRunsDefinitionChecks: MachineRunsDefinitionChecks,
             // Phase 5b, brief D item 8: a definition trigger's session is a seat start built from the published version.
             definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+            // A check-started seat is told who it is from the registration, as a scheduled run is (Factory Failures).
+            registeredFactoryOf: (tenant, factory) => FactoryRegistry.Find(tenant, factory),
             // Mail Desk phase 1: a Mail Desk screening check of an account Mail Desk is off for is refused, unrecorded.
             mailDeskOn: MailDeskSwitch.IsOn,
             // Mail Desk phase 3: every Mail Desk report is handed to the screening, never decided on its count.

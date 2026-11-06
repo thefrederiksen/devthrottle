@@ -73,14 +73,46 @@ public sealed class FactorySeatStartTests : IDisposable
     }
 
     [Fact]
-    public void Build_AFactoryWithNoDefaultModel_SendsNone_SoTheAgentsOwnDefaultIsUsed()
+    public void Build_NoModelAnywhere_ClaudeSeatGetsProductDefault()
     {
+        // Regression (Factory Failures, 6 November 2026): a start naming no model ran on the account's fallback, Haiku,
+        // on every machine whose saved agent entry was blank. The Gateway now names the product default itself.
         var p = Published(DefinitionFixture.PublishableEdit("factory.yaml", "  model: claude-opus-5-5\n", ""));
 
         var built = FactorySeatStart.Build(p, Seat(p, "boss"), "n", "Go.");
 
-        Assert.Null(built.Request.Model);
+        Assert.Equal("ClaudeCode", built.Request.Agent);
+        Assert.Equal(AgentToolCatalog.ClaudeDefaultModel, built.Request.Model);
         Assert.True(built.Request.CarriesSeatStartFields());
+    }
+
+    [Fact]
+    public void Build_DefinitionModel_Wins()
+    {
+        // The boss seat names no model of its own, so the definition's default is the model, not the product's.
+        var p = Published();
+
+        var built = FactorySeatStart.Build(p, Seat(p, "boss"), "n", "Go.");
+
+        Assert.Equal("claude-opus-5-5", built.Request.Model);
+        Assert.NotEqual(AgentToolCatalog.ClaudeDefaultModel, built.Request.Model);
+    }
+
+    [Theory]
+    [InlineData("person-model", "seat-model", "definition-model", "person-model", FactorySeatStart.ModelSources.ChosenByThePerson)]
+    [InlineData(null, "seat-model", "definition-model", "seat-model", FactorySeatStart.ModelSources.Seat)]
+    [InlineData(null, null, "definition-model", "definition-model", FactorySeatStart.ModelSources.DefinitionDefault)]
+    [InlineData(null, null, null, AgentToolCatalog.ClaudeDefaultModel, FactorySeatStart.ModelSources.ProductDefault)]
+    public void ModelFor_ClaudeCode_TakesTheFirstThatNamesOne(string? chosen, string? seat, string? definition,
+        string expected, string source)
+    {
+        Assert.Equal((expected, source), FactorySeatStart.ModelFor("ClaudeCode", chosen, seat, definition));
+    }
+
+    [Fact]
+    public void ModelFor_AnAgentTheCatalogGivesNoDefaultModel_IsNull()
+    {
+        Assert.Equal(((string?)null, FactorySeatStart.ModelSources.ProductDefault), FactorySeatStart.ModelFor("Codex", null, null, null));
     }
 
     [Fact]
