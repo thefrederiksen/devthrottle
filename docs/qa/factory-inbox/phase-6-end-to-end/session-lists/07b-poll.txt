@@ -1,0 +1,43 @@
+=== 22:25:55
+  factory-inbox-test,3,Received,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 1 of 58 total (ready 1)
+  ,4b0de1f1-8b26-4491-8e65-78ca5ace44a6,Factory Inbox test - Secretary - file the factory inbox,ready,no model yet
+=== 22:26:06
+  factory-inbox-test,3,Received,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 1 of 58 total (working 1)
+  146,4b0de1f1-8b26-4491-8e65-78ca5ace44a6,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+=== 22:26:29
+  factory-inbox-test,3,With the Boss,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 2 of 59 total (working 2)
+  146,4b0de1f1-8b26-4491-8e65-78ca5ace44a6,Factory Inbox test - Secretary - file the factory inbox,working,opus-5-5 (Opus 5.5)
+  148,c4bed4e2-37f6-4597-b697-af4ef627fc40,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+=== 22:26:40
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 2 of 59 total (needs-you 1, working 1)
+  146,4b0de1f1-8b26-4491-8e65-78ca5ace44a6,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+  148,c4bed4e2-37f6-4597-b697-af4ef627fc40,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+=== 22:26:52
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 2 of 59 total (needs-you 2)
+  146,4b0de1f1-8b26-4491-8e65-78ca5ace44a6,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+  148,c4bed4e2-37f6-4597-b697-af4ef627fc40,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 22:27:03
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 1 of 58 total (needs-you 1)
+  148,c4bed4e2-37f6-4597-b697-af4ef627fc40,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 22:27:26
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 0 of 57 total
+No session matches the filter.
+=== 22:30:58
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 0 of 58 total
+No session matches the filter.
+=== 22:31:09
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 0 of 59 total
+No session matches the filter.
+=== 22:31:20
+  factory-inbox-test,0,Noted,"Step 7 test, note 3 of 3: please keep future notes under two hundred words."
+count: 0 of 60 total
+No session matches the filter.

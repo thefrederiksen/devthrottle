@@ -1,0 +1,48 @@
+=== 21:49:26
+  factory-inbox-test,1,Sent,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 2 of 57 total (working 1, snoozed 1)
+  132,1a4f3dc9-8fd7-4efd-8bec-2137a207fe4c,Factory Inbox test - Writer - Factory Inbox test - Writer - twenty test message ideas note,snoozed,opus-5-5 (Opus 5.5)
+  126,ebefa456-3e3b-4d81-b243-8f9e7310ff73,Factory Inbox test - Boss - decide the factory inbox,working,opus-5-5 (Opus 5.5)
+=== 21:49:57
+  factory-inbox-test,1,Sent,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 1 of 56 total (needs-you 1)
+  126,ebefa456-3e3b-4d81-b243-8f9e7310ff73,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:50:25
+  factory-inbox-test,1,Sent,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 1 of 56 total (working 1)
+  118,379ae3f1-99df-40e3-9628-117690348b83,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+=== 21:50:40
+  factory-inbox-test,1,With the Boss,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 2 of 58 total (working 1, ready 1)
+  118,379ae3f1-99df-40e3-9628-117690348b83,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+  ,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,ready,no model yet
+=== 21:50:57
+  factory-inbox-test,1,With the Boss,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 3 of 59 total (needs-you 1, working 2)
+  118,379ae3f1-99df-40e3-9628-117690348b83,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+  134,a6ea57a1-9a4b-4782-960e-f7f9e420b17d,Factory Inbox test - Writer - Factory Inbox test - Writer - note that the test factory is alive,working,no model yet
+  132,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+=== 21:51:12
+  factory-inbox-test,0,Delegated,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 3 of 59 total (needs-you 1, working 1, ready 1)
+  118,379ae3f1-99df-40e3-9628-117690348b83,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+  134,a6ea57a1-9a4b-4782-960e-f7f9e420b17d,Factory Inbox test - Writer - Factory Inbox test - Writer - note that the test factory is alive,working,no model yet
+  132,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,ready,opus-5-5 (Opus 5.5)
+=== 21:51:26
+  factory-inbox-test,0,Delegated,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 2 of 58 total (working 1, snoozed 1)
+  134,a6ea57a1-9a4b-4782-960e-f7f9e420b17d,Factory Inbox test - Writer - Factory Inbox test - Writer - note that the test factory is alive,snoozed,opus-5-5 (Opus 5.5)
+  132,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,working,opus-5-5 (Opus 5.5)
+=== 21:51:42
+  factory-inbox-test,0,Delegated,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 2 of 56 total (needs-you 1, snoozed 1)
+  134,a6ea57a1-9a4b-4782-960e-f7f9e420b17d,Factory Inbox test - Writer - Factory Inbox test - Writer - note that the test factory is alive,snoozed,opus-5-5 (Opus 5.5)
+  132,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:51:56
+  factory-inbox-test,0,Delegated,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 1 of 55 total (needs-you 1)
+  132,85c1dcf5-9888-4d93-ab2e-5f9906754757,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:52:23
+  factory-inbox-test,0,Delegated,"Step 3 test, message B, sent while the Boss is working: please also have a on... (133 chars)"
+count: 0 of 54 total
+No session matches the filter.

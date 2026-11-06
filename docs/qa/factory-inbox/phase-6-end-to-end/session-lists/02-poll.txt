@@ -1,0 +1,55 @@
+=== 21:34:44
+  factory-inbox-test,1,Sent,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 0 of 71 total
+No session matches the filter.
+=== 21:35:25
+  factory-inbox-test,1,Sent,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 1 of 72 total (ready 1)
+  ,d1a347d7-d951-4050-878a-3da1ccf2cc48,Factory Inbox test - Secretary - file the factory inbox,ready,no model yet
+=== 21:35:37
+  factory-inbox-test,1,Sent,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 1 of 72 total (working 1)
+  156,d1a347d7-d951-4050-878a-3da1ccf2cc48,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+=== 21:35:51
+  factory-inbox-test,1,With the Boss,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 2 of 73 total (working 1, ready 1)
+  156,d1a347d7-d951-4050-878a-3da1ccf2cc48,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+  ,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,ready,no model yet
+=== 21:36:04
+  factory-inbox-test,1,With the Boss,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 2 of 73 total (needs-you 1, working 1)
+  170,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+  156,d1a347d7-d951-4050-878a-3da1ccf2cc48,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:36:17
+  factory-inbox-test,1,With the Boss,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 3 of 74 total (needs-you 1, working 1, snoozed 1)
+  171,8dc0c6c4-0af2-4986-a6a0-8f4f568b9a24,Factory Inbox test - Writer - Factory Inbox test - Writer - better folder name ideas note,snoozed,no model yet
+  170,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+  156,d1a347d7-d951-4050-878a-3da1ccf2cc48,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:36:30
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 2 of 73 total (working 1, ready 1)
+  171,8dc0c6c4-0af2-4986-a6a0-8f4f568b9a24,Factory Inbox test - Writer - Factory Inbox test - Writer - better folder name ideas note,working,no model yet
+  170,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,ready,opus-5-5 (Opus 5.5)
+=== 21:36:44
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 2 of 73 total (working 1, snoozed 1)
+  171,8dc0c6c4-0af2-4986-a6a0-8f4f568b9a24,Factory Inbox test - Writer - Factory Inbox test - Writer - better folder name ideas note,snoozed,opus-5-5 (Opus 5.5)
+  170,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,working,opus-5-5 (Opus 5.5)
+=== 21:36:58
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 2 of 73 total (needs-you 1, snoozed 1)
+  171,8dc0c6c4-0af2-4986-a6a0-8f4f568b9a24,Factory Inbox test - Writer - Factory Inbox test - Writer - better folder name ideas note,snoozed,opus-5-5 (Opus 5.5)
+  170,3dde71e8-a7e8-4572-8565-9778e05cd108,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 21:37:23
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 0 of 71 total
+No session matches the filter.
+=== 21:38:16
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 0 of 67 total
+No session matches the filter.
+=== 21:38:31
+  factory-inbox-test,0,Delegated,This is a bad note for the test factory. The note with folder name ideas was ... (197 chars)
+count: 0 of 64 total
+No session matches the filter.

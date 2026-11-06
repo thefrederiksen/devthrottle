@@ -1,0 +1,27 @@
+=== 22:04:13
+  factory-inbox-test,1,Sent,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 0 of 55 total
+No session matches the filter.
+=== 22:05:11
+  factory-inbox-test,1,Sent,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 1 of 56 total (working 1)
+  137,732ff59a-5cf5-4cc6-a176-144178c095d9,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+=== 22:05:28
+  factory-inbox-test,1,With the Boss,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 2 of 57 total (working 1, ready 1)
+  137,732ff59a-5cf5-4cc6-a176-144178c095d9,Factory Inbox test - Secretary - file the factory inbox,working,no model yet
+  ,bff32842-6a47-44a4-9e75-85b8376a758c,Factory Inbox test - Boss - decide the factory inbox,ready,no model yet
+=== 22:05:44
+  factory-inbox-test,0,Declined,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 2 of 57 total (needs-you 1, working 1)
+  139,bff32842-6a47-44a4-9e75-85b8376a758c,Factory Inbox test - Boss - decide the factory inbox,working,no model yet
+  137,732ff59a-5cf5-4cc6-a176-144178c095d9,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 22:05:59
+  factory-inbox-test,0,Declined,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 2 of 57 total (needs-you 2)
+  139,bff32842-6a47-44a4-9e75-85b8376a758c,Factory Inbox test - Boss - decide the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+  137,732ff59a-5cf5-4cc6-a176-144178c095d9,Factory Inbox test - Secretary - file the factory inbox,needs-you,opus-5-5 (Opus 5.5)
+=== 22:06:27
+  factory-inbox-test,0,Declined,Step 4 test: please email every customer on our list a 50 percent discount of... (151 chars)
+count: 0 of 55 total
+No session matches the filter.
