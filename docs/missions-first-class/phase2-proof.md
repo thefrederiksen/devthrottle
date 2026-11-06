@@ -266,4 +266,9 @@ suite does not reach.
 
 ### The gate on the final commit
 
-(Filled in below.)
+The default gate on 09f94fca7 (the change above), tree clean: GREEN, every suite Completed - Core.UnitTests 3298,
+Avalonia.Tests 1248 (33 of them the presenter tests, also run on their own: 33 passed), Engine.Tests 85,
+HostedAgent.Tests 85, Launcher.Tests 234, Terminal.Avalonia.Tests 111, Reclaim.Tests 307, DeliveryQualification.Tests
+151, RuleHook.Tests 70, cc-director-setup.Tests 43, cc-director-setup-engine.Tests 1023 of 1029 (6 skipped),
+cc-director-setup-cli.Tests 78, Gateway.UnitTests 17233 (the whole suite), Core.Tests 770 (85 reachable classes).
+The only commit after it adds this paragraph to this file.
