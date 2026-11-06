@@ -193,6 +193,50 @@ not. So for every figure in this report:
   the old code and watching it fail, or by running the checker against a deliberately wrong input.
   A test never seen to fail has not been shown to test anything.
 
+## Agreement must be BRACKETED, not compared against a single reading
+
+The five-percentage-point agreement check is the mission's headline claim, and the obvious way to
+measure it does not work. Found twice on 6 November, by the same seat, on two different resources.
+
+**Processor:** a first attempt compared one probe window against whatever tick `top` happened to
+print, and read **32 percentage points apart**. It was nearly reported as a probe defect. The machine
+was swinging between 30 and 78 per cent busy and the two windows were offset; aligned, they agree to
+within half a point.
+
+**Memory:** a first attempt compared the probe against one `vm_stat` reading and gave 0.34 points. The
+same method on a loaded machine gave **5.95 points - outside the requirement this phase has to meet**.
+Neither figure measured the probe. Available memory moves several points in seconds on that machine,
+so a reading taken at a different moment is a different quantity. Bracketed between two `vm_stat`
+reads the honest answer is 1.36 points, with the machine itself moving up to 4.75 points across a
+single read.
+
+**On a machine under load, two readings of one quantity taken at different moments are two different
+quantities.** So:
+
+- **Bracket the probe between two readings of the operating system's own tool**, or align the sampling
+  windows so their intervals tick together. Quote the system tool as a range, not a point.
+- **A single-reading comparison against the five-point threshold means nothing in either direction -
+  including when it passes.** The passing 0.34 was exactly as untrustworthy as the failing 5.95, and
+  it is the passing one that would have reached the report unchallenged.
+- **The report states the method, and how much the machine moved during the measurement.** A figure
+  without that is not evidence, because the reader cannot tell whether it measured the probe or the
+  weather.
+
+## A caveat on running the live project: the opt-in is not a platform check
+
+`LiveMachineFactAttribute` gates on `CC_DIRECTOR_LIVE_MACHINE_TESTS` only - it does not check the
+platform. Once the Linux, Windows and macOS classes all derive from the shared contract in one
+project, the command above runs **every** platform's contract class on whatever machine invokes it, so
+the Linux class on a Mac **fails** rather than skipping. A derived class cannot change the attribute
+on the tests it inherits.
+
+**The fix belongs in the base**, as a platform hook each derived class declares, so the wrong-platform
+classes skip visibly. It is deliberately *not* fixed by having this plan filter by class: a procedure
+somebody has to remember is a procedure that gets forgotten, and the symptom would be a red run that
+looks like a product defect. Until that hook exists, a cross-platform run of this project is expected
+to show failures that are not defects - which is precisely the state this plan exists to prevent, so
+do not run the quality assurance against it until it is fixed.
+
 ## Rules the report itself must obey
 
 - **One self-contained HTML file published with `cc-dev-reports open`.** A file path handed over
