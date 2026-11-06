@@ -52,6 +52,12 @@ internal sealed class DictationLockIndex
         // which is the same staleness the old disk enumeration had between its listing and its file reads.
         public readonly object Gate = new();
         public readonly ConcurrentDictionary<string, string> Pending = new(StringComparer.OrdinalIgnoreCase);
+        // Upload ids whose record could NOT be read when the partition was hydrated (a share fault, a file held by
+        // another writer, a permission error). Their state and target are unknown, so they are neither pending nor
+        // not-pending: the session lock ignores them, exactly as the disk walk always did, and the factory inbox
+        // thread re-reads each of them on every question until a read or a write settles it. Without this set a
+        // single failed read during hydration was cached as "not held" for the life of the process.
+        public readonly ConcurrentDictionary<string, byte> Unreadable = new(StringComparer.OrdinalIgnoreCase);
         public bool Hydrated;
         public bool RootEnsured;
     }
@@ -90,6 +96,8 @@ internal sealed class DictationLockIndex
         {
             if (pending && !string.IsNullOrWhiteSpace(sessionId)) p.Pending[uploadId] = sessionId!;
             else p.Pending.TryRemove(uploadId, out _);
+            // A record this process just wrote, or just read successfully, is known: it is no longer unreadable.
+            p.Unreadable.TryRemove(uploadId, out _);
         }
     }
 
@@ -97,7 +105,22 @@ internal sealed class DictationLockIndex
     public void Removed(string root, string uploadId)
     {
         var p = For(root);
-        lock (p.Gate) p.Pending.TryRemove(uploadId, out _);
+        lock (p.Gate)
+        {
+            p.Pending.TryRemove(uploadId, out _);
+            p.Unreadable.TryRemove(uploadId, out _);
+        }
+    }
+
+    /// <summary>
+    /// Forget that one upload's record could not be read, without claiming anything about it: it was re-read and
+    /// found to be a record nobody can act on (malformed - durable evidence the sweeps leave standing, skipped as
+    /// the disk walk always skipped it) or not a record of this partition.
+    /// </summary>
+    public void Settled(string root, string uploadId)
+    {
+        var p = For(root);
+        lock (p.Gate) p.Unreadable.TryRemove(uploadId, out _);
     }
 
     /// <summary>
@@ -114,6 +137,7 @@ internal sealed class DictationLockIndex
         lock (p.Gate)
         {
             p.Pending.Clear();
+            p.Unreadable.Clear();
             p.Hydrated = false;
         }
     }
@@ -127,7 +151,7 @@ internal sealed class DictationLockIndex
     /// "I could not tell", even though both currently take the same branch.
     /// </summary>
     public IReadOnlyCollection<string>? LockedSessions(
-        string root, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
+        string root, Func<IEnumerable<HydratedRecord>> hydrate)
     {
         var p = Hydrated(root, hydrate);
         return p is null ? null : new HashSet<string>(p.Pending.Values, StringComparer.OrdinalIgnoreCase);
@@ -139,11 +163,14 @@ internal sealed class DictationLockIndex
     /// messages without walking every upload of the account; the target is stored where a session id is, so the
     /// index already holds it.
     ///
+    /// <see cref="PendingLookup.Unreadable"/> names every upload whose record could not be read when the partition was
+    /// hydrated: its target is unknown, so the caller must re-read each one rather than take its absence as "not held".
+    ///
     /// Null when hydration failed. Unlike the session lock, that caller must NOT read null as "nothing" - a held
     /// message hidden by a disk error is the loss the thread exists to prevent - so it raises an error instead.
     /// </summary>
-    public IReadOnlyList<string>? PendingUploadsFor(
-        string root, string target, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
+    public PendingLookup? PendingUploadsFor(
+        string root, string target, Func<IEnumerable<HydratedRecord>> hydrate)
     {
         var p = Hydrated(root, hydrate);
         if (p is null) return null;
@@ -151,12 +178,12 @@ internal sealed class DictationLockIndex
         foreach (var entry in p.Pending)
             if (string.Equals(entry.Value, target, StringComparison.Ordinal))
                 ids.Add(entry.Key);
-        return ids;
+        return new PendingLookup(ids, p.Unreadable.Keys.ToList());
     }
 
     // The partition, hydrated from disk if this process has not read it yet; null when that read failed, in which
     // case it is left unhydrated so the next call tries again rather than caching "nothing is pending".
-    private Partition? Hydrated(string root, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
+    private Partition? Hydrated(string root, Func<IEnumerable<HydratedRecord>> hydrate)
     {
         var p = For(root);
         if (p.Hydrated) return p;
@@ -169,11 +196,14 @@ internal sealed class DictationLockIndex
                 // while this scan was running is not thrown away by the snapshot. Both paths hold
                 // the gate, so the only interleaving is scan-then-write or write-then-scan; a write
                 // seen by the scan is simply re-asserted with the same value.
-                foreach (var (uploadId, sessionId) in hydrate())
-                    if (!string.IsNullOrWhiteSpace(sessionId))
-                        p.Pending[uploadId] = sessionId;
+                foreach (var entry in hydrate())
+                {
+                    if (entry.Unreadable) p.Unreadable[entry.UploadId] = 0;
+                    else if (!string.IsNullOrWhiteSpace(entry.Target)) p.Pending[entry.UploadId] = entry.Target!;
+                }
                 p.Hydrated = true;
-                FileLog.Write($"[DictationLockIndex] hydrated {root}: {p.Pending.Count} pending");
+                FileLog.Write($"[DictationLockIndex] hydrated {root}: {p.Pending.Count} pending, " +
+                    $"{p.Unreadable.Count} could not be read");
                 return p;
             }
             catch (Exception ex)
@@ -186,3 +216,16 @@ internal sealed class DictationLockIndex
         }
     }
 }
+
+/// <summary>
+/// One upload as the one-time partition read found it: a PENDING record and its target, or a record that could not be
+/// read at all (<see cref="Unreadable"/>, target unknown).
+/// </summary>
+internal readonly record struct HydratedRecord(string UploadId, string? Target, bool Unreadable)
+{
+    public static HydratedRecord PendingFor(string uploadId, string target) => new(uploadId, target, false);
+    public static HydratedRecord CouldNotRead(string uploadId) => new(uploadId, null, true);
+}
+
+/// <summary>The uploads the index names as PENDING for one target, and the uploads whose record it could not read.</summary>
+internal sealed record PendingLookup(IReadOnlyList<string> Pending, IReadOnlyList<string> Unreadable);

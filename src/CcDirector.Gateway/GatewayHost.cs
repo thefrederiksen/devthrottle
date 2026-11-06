@@ -7338,6 +7338,10 @@ public sealed class GatewayHost : IAsyncDisposable
                         // leaving it for the next tick six hours later.
                         uploads.ExpireStalePending(StalePendingMaxAge);
                         uploads.SweepResolvedTombstones(DictationTombstoneMaxAge);
+                        // A sweep that removed something cleared the pending index; read the partition again HERE, on
+                        // the timer, so the next factory inbox thread read or session lock question does not pay for
+                        // the walk of the share on a request.
+                        uploads.LockedSessionIds();
                         // Held typed prompts (Voice Delivery phase 5) are retired by the same thirty-day rule, in the
                         // same per-tenant pass, so no account's typed prompt records are left unbounded.
                         TypedPrompts.ForTenant(tenant).SweepOlderThan(DictationTombstoneMaxAge);
@@ -7350,6 +7354,25 @@ public sealed class GatewayHost : IAsyncDisposable
             $"{dictationTombstoneSchedule.TotalHours:0.###}h, retiring unacknowledged terminal records older " +
             $"than {DictationTombstoneMaxAge.TotalDays:0.###} days, and abandoning PENDING records with no " +
             $"activity for {StalePendingMaxAge.TotalHours:0.###}h so their session lock is released");
+
+        // Read every tenant's dictation partition into the pending index once, in the background, at start-up. The
+        // factory inbox thread and the session lock both answer from that index; whoever asked first used to pay the
+        // walk of the whole partition on a request, which on the hosted share is tens of seconds for a long history.
+        // A request that arrives while this is still reading waits for that partition's read rather than starting a
+        // second one. A failure is logged and leaves the partition unread, so the first question tries again.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                _tenantPass.ForEachTenant(() =>
+                {
+                    if (_tenantPass.Current is not { } tenant) return;
+                    _dictationUploads.ForTenant(tenant).LockedSessionIds();
+                });
+                FileLog.Write("[GatewayHost] dictation pending index read for every tenant at start-up");
+            }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation pending index start-up read FAILED: {ex}"); }
+        });
 
         // Voice Delivery phase 5: pick up every held delivery from disk and drive it, then keep ticking. Not awaited: an
         // attempt can wait out a Director's answer, and the Gateway's start must never wait on one. A start that fails is

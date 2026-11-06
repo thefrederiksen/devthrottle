@@ -166,6 +166,17 @@ internal static class FactoryInboxEndpoints
                     || limit < 1 || limit > FactoryInboxStore.MaxThread))
                 return Error(400, "bad_limit", $"limit must be a whole number from 1 to {FactoryInboxStore.MaxThread}.");
             var (messages, total) = parts.Store.Thread(tenant, registered!.Factory, limit);
+            // The held recordings come from the account's dictation staging. When a record there cannot be read, whether
+            // a spoken message is held is not known, and the thread says so in words rather than showing "nothing held"
+            // or answering a bare 500 with no body (observation 1 of the 4690 review).
+            IReadOnlyList<Voice.PendingUpload> heldUploads;
+            try { heldUploads = parts.Held(tenant, registered.Factory); }
+            catch (InvalidOperationException ex)
+            {
+                FileLog.Write($"[FactoryInboxEndpoints] GET thread factory={registered.Factory}: held recordings unknown: {ex.Message}");
+                return Error(503, "held_recordings_unknown",
+                    "The Gateway could not read its stored recordings, so it cannot say whether a spoken message is held for this factory. Try again shortly.");
+            }
             return Results.Json(new
             {
                 factory = registered.Factory,
@@ -174,7 +185,7 @@ internal static class FactoryInboxEndpoints
                 messages = Fold(parts, tenant, messages),
                 // Every spoken message the Gateway still holds for this factory, in its words (finding 2): a recording
                 // whose transcription failed for now is on the thread until it is left, never only on one device.
-                held = FactoryInboxFold.Held(parts.Held(tenant, registered.Factory)),
+                held = FactoryInboxFold.Held(heldUploads),
             });
         });
 

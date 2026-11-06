@@ -206,3 +206,88 @@ writer. The two places it goes stale are findings 1 and 2; there are no others I
    instance, as its comment says, so parallel tests cannot see each other.
 3. The quarantine directory under the base root is not a partition container, so hydration opens a record file there
    on every walk of the local partition and finds none. One extra round trip; harmless.
+
+## The developer's answers (6 November 2026)
+
+### Finding 1: accepted, fixed at the root
+
+When the partition is first read, a record that answers `Unreadable` is no longer skipped. The index records it in its
+own set of upload identifiers whose target is unknown (`DictationLockIndex.Partition.Unreadable`). The partition is
+still marked as read, so nothing walks the share again. On every call, `PendingFor` re-reads exactly those identifiers,
+under each one's own lock:
+
+- **Still unreadable:** the thread does not answer "nothing held". `PendingFor` raises an error naming the upload
+  identifiers, and the thread route turns that error into a 503 with the usual body (see observation 1).
+- **Readable again:** what the disk says becomes the index's answer, through `RecordWritten`. If the record is PENDING
+  for this factory, it is shown. The same answer reaches the session lock.
+- **Gone:** the entry is removed.
+- **Malformed, or belonging to another tenant:** skipped, exactly as the old directory walk skipped it, and no longer
+  re-read. A corrupt record therefore cannot break every thread read for good.
+- **Rewritten by a later write:** the record leaves the unreadable set, because `RecordWritten` clears it there.
+  `Removed` and `Invalidate` clear the set as well.
+
+The session lock ignores unreadable records, as it always has, so it still fails open.
+
+Why this instead of leaving the whole partition unread: that would make a single persistently unreadable file trigger a
+full walk of the share on every question, which is the 70-second defect again. The reviewer's second option keeps the
+walk to one, and re-reads only what failed.
+
+The probe is committed as `PendingFor_OneRecordUnreadableDuringHydration_IsShownOnceItCanBeReadAgain`, with one
+change. While the record cannot be read, the probe expected an empty answer. That empty answer was the silent case, so
+the test now expects the error. The test makes the record unreadable by holding the file open with no sharing, not by
+changing its mode. That works on Windows, Linux and macOS, and the gate runs on all three.
+
+Also added:
+- `PendingFor_UnreadableRecordOfASessionDictation_IsSettledByOneReadAndStopsBeingReRead`: once readable, the record is
+  read once, then never again, and the session lock is right.
+- `PendingFor_MalformedRecord_IsSkippedAndDoesNotMakeTheThreadError`.
+- `Thread_ARecordThatCannotBeRead_AnswersInWordsThatHeldIsUnknown`: the route answers 503 with code
+  `held_recordings_unknown`, then shows the recording once it can be read.
+
+### Finding 2: accepted as asked, written down, not closed
+
+A paragraph beside `PendingFor` names the deploy overlap (`deploy-hosted-gateway.yml`, 144 seconds observed on 30 July
+2026). It says what lags: the thread's view on the new container. It says what does not: the recording is kept, and
+nothing sweeps it. It says what repairs it: the device's next retry, a restart, or a sweep that removed something. And
+it says where to look when someone reports a held recording missing after a deploy.
+
+Closing the gap needs a signal between processes, which is the design question the review put above this change. The
+probe is not committed, because it would fail by design.
+
+### Question 2 (the first read after a start): accepted, moved off the request path
+
+Plainly: without a change, the first question to a partition after a deploy still walks the whole partition. The walk
+is one directory listing plus one record read per upload. The old `PendingFor` did about three round trips per upload,
+so on the live share this is likely about a third of the 70 seconds measured, which is still tens of seconds. This is
+an estimate. I have not measured it on the share.
+
+So I moved it:
+- **At start-up:** the Gateway reads every tenant's dictation partition into the index in the background, through
+  `GatewayHost`, the tenant pass and `LockedSessionIds`. It does this after the legacy quarantine, so the quarantine's
+  invalidation comes first.
+- **After a sweep:** the six-hourly tombstone pass reads the partition again right after `SweepResolvedTombstones`.
+  When that sweep removed something it cleared the index, and now the timer pays for the walk instead of a request.
+
+What is left: a thread read that arrives in the first tens of seconds after a deploy, before the warm-up has finished
+that tenant, waits for that partition's read. That read holds the partition's lock, so the request waits rather than
+starting a second walk. That is the only request that can still be slow, once, per process. A failure in the warm-up is
+logged and leaves the partition unread, so the first question tries again.
+
+### Observation 1: accepted
+
+The thread route catches the `InvalidOperationException` from the held lookup, and only that call. It answers 503
+with the usual error shape: code `held_recordings_unknown`, and words saying whether a spoken message is held is not
+known, try again shortly.
+
+### Observations 2 and 3: no change
+
+Agreed as written.
+
+### What was run
+
+On devlinux, rebased onto `origin/main` at `42e96dabd`, with .NET 10.0.403, `DOTNET_USE_POLLING_FILE_WATCHER=1` and
+`-p:EnableWindowsTargeting=true`:
+- `CcDirector.Gateway.UnitTests`, filtered to `FullyQualifiedName~FactoryInbox|FullyQualifiedName~Dictation|FullyQualifiedName~Voice`:
+  916 passed, 0 failed.
+- `CcDirector.Gateway.Tests`, filtered to `DictationTenantIsolationTests|DictationOmittedTenantBoundaryTests`, which boot
+  the real host with the start-up warm-up: 14 passed, 0 failed.

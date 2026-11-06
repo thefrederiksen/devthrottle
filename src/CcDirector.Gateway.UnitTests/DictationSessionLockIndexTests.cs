@@ -207,14 +207,14 @@ public sealed class DictationSessionLockIndexTests : IDisposable
     public void PendingUploadsFor_NamesOnlyTheUploadsPendingForThatTarget()
     {
         var index = new DictationLockIndex();
-        var hydrate = () => new[] { ("u1", "factory-inbox:invoices"), ("u2", "session-a"), ("u3", "factory-inbox:invoices") };
+        var hydrate = () => new[] { HydratedRecord.PendingFor("u1", "factory-inbox:invoices"), HydratedRecord.PendingFor("u2", "session-a"), HydratedRecord.PendingFor("u3", "factory-inbox:invoices") };
 
         var found = index.PendingUploadsFor(_root, "factory-inbox:invoices", hydrate)!;
         index.RecordWritten(_root, "u1", "factory-inbox:invoices", pending: false);
 
-        Assert.Equal(new[] { "u1", "u3" }, found.OrderBy(x => x, StringComparer.Ordinal));
-        Assert.Equal(new[] { "u3" }, index.PendingUploadsFor(_root, "factory-inbox:invoices", hydrate)!);
-        Assert.Empty(index.PendingUploadsFor(_root, "factory-inbox:payroll", hydrate)!);
+        Assert.Equal(new[] { "u1", "u3" }, found.Pending.OrderBy(x => x, StringComparer.Ordinal));
+        Assert.Equal(new[] { "u3" }, index.PendingUploadsFor(_root, "factory-inbox:invoices", hydrate)!.Pending);
+        Assert.Empty(index.PendingUploadsFor(_root, "factory-inbox:payroll", hydrate)!.Pending);
     }
 
     [Fact]
@@ -223,18 +223,83 @@ public sealed class DictationSessionLockIndexTests : IDisposable
         // A failed read must never be cached as "nothing is held": the factory inbox thread turns null into an error.
         var index = new DictationLockIndex();
         var calls = 0;
-        IEnumerable<(string, string)> Hydrate()
+        IEnumerable<HydratedRecord> Hydrate()
         {
             calls++;
             if (calls == 1) throw new IOException("the share is unreachable");
-            return new[] { ("u1", "factory-inbox:invoices") };
+            return new[] { HydratedRecord.PendingFor("u1", "factory-inbox:invoices") };
         }
 
         var first = index.PendingUploadsFor(_root, "factory-inbox:invoices", Hydrate);
         var second = index.PendingUploadsFor(_root, "factory-inbox:invoices", Hydrate);
 
         Assert.Null(first);
-        Assert.Equal(new[] { "u1" }, second!);
+        Assert.Equal(new[] { "u1" }, second!.Pending);
         Assert.Equal(2, calls);
+    }
+
+    /// <summary>
+    /// Holds a record file open with no sharing, so the store's read of it fails exactly as a share fault or another
+    /// writer's hold does - on Windows, Linux and macOS alike.
+    /// </summary>
+    private static FileStream HoldUnreadable(string recordPath)
+        => new(recordPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+    [Fact]
+    public void PendingFor_OneRecordUnreadableDuringHydration_IsShownOnceItCanBeReadAgain()
+    {
+        // Finding 1 of the 4690 review, its probe made a committed test: one failed read while the partition was first
+        // read used to be cached as "not held" for the life of the process.
+        var writer = NewStore();
+        var open = writer.OpenPending(null, "factory-inbox:invoices");
+        var record = Path.Combine(_root, open.UploadId, "record.json");
+        var reader = NewStore(); // a fresh process: nothing read yet
+
+        Exception? whileUnreadable;
+        using (HoldUnreadable(record))
+            whileUnreadable = Record.Exception(() => reader.PendingFor("factory-inbox:invoices"));
+        var afterReadable = reader.PendingFor("factory-inbox:invoices");
+        var freshProcess = NewStore().PendingFor("factory-inbox:invoices");
+
+        // While it cannot be read the thread cannot say whether it is held, and says so rather than "nothing".
+        Assert.IsType<InvalidOperationException>(whileUnreadable);
+        Assert.Equal(open.UploadId, Assert.Single(freshProcess).UploadId);
+        Assert.Equal(open.UploadId, Assert.Single(afterReadable).UploadId);
+    }
+
+    [Fact]
+    public void PendingFor_UnreadableRecordOfASessionDictation_IsSettledByOneReadAndStopsBeingReRead()
+    {
+        var writer = NewStore();
+        var open = writer.OpenPending(null, "session-a");
+        var record = Path.Combine(_root, open.UploadId, "record.json");
+        var reader = NewStore();
+        using (HoldUnreadable(record))
+            Assert.Throws<InvalidOperationException>(() => reader.PendingFor("factory-inbox:invoices"));
+        var reads = new List<string>();
+        reader.RecordReadForTests = reads.Add;
+
+        var first = reader.PendingFor("factory-inbox:invoices");
+        var second = reader.PendingFor("factory-inbox:invoices");
+
+        // Read once to learn it is a session's dictation, which also gives the session lock its answer; then never again.
+        Assert.Empty(first);
+        Assert.Empty(second);
+        Assert.Equal(new[] { open.UploadId }, reads);
+        Assert.True(reader.IsSessionLocked("session-a"));
+    }
+
+    [Fact]
+    public void PendingFor_MalformedRecord_IsSkippedAndDoesNotMakeTheThreadError()
+    {
+        // A corrupt record is a durable fact the sweeps leave standing as evidence; it must not break every thread read.
+        var store = NewStore();
+        var held = store.OpenPending(null, "factory-inbox:invoices");
+        var corrupt = store.Register(null);
+        File.WriteAllText(Path.Combine(_root, corrupt, "record.json"), "{ not json");
+
+        var found = NewStore().PendingFor("factory-inbox:invoices");
+
+        Assert.Equal(held.UploadId, Assert.Single(found).UploadId);
     }
 }

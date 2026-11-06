@@ -464,6 +464,31 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Thread_ARecordThatCannotBeRead_AnswersInWordsThatHeldIsUnknown()
+    {
+        // Arrange: a held recording, and a Gateway process that has not read the partition yet, whose first read of
+        // that record fails.
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        await Complete(id, 1);
+        var record = Path.Combine(_uploads.Root, VoiceUploadStore.NormalizeUploadId(id)!, "record.json");
+        _uploads = new VoiceUploadStore(_uploadRoot, TenantId.Local).ForTenant(A);
+
+        // Act
+        (HttpStatusCode Status, JsonElement Body) answer;
+        using (new FileStream(record, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            answer = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+        var (after, afterBody) = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+
+        // Assert: never "nothing held" on the strength of a failed read; and once it reads, it is shown.
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, answer.Status);
+        Assert.Equal("held_recordings_unknown", Code(answer.Body));
+        Assert.Equal(HttpStatusCode.OK, after);
+        Assert.Equal(VoiceUploadStore.NormalizeUploadId(id),
+            Assert.Single(afterBody.GetProperty("held").EnumerateArray()).GetProperty("uploadId").GetString());
+    }
+
+    [Fact]
     public async Task Thread_AfterAGatewayRestart_StillShowsTheRecordingHeldBeforeIt()
     {
         // Arrange: a recording held, then a new Gateway process over the same staging, which has read nothing yet.

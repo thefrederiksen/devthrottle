@@ -699,6 +699,20 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
     /// each of THOSE is still re-read from disk under its own lock, so what the thread shows is the durable record,
     /// not the memory. The cost is now proportional to what is held for this factory, not to everything ever staged.
     ///
+    /// ONE WINDOW THIS DOES NOT COVER, ON PURPOSE (finding 2 of the 4690 review). The index belongs to one Gateway
+    /// process. During a deploy the platform runs the outgoing and incoming containers together over the same share
+    /// (an overlap of 144 seconds was observed on 30 July 2026; see <c>deploy-hosted-gateway.yml</c>). A recording
+    /// REGISTERED on the outgoing container after the incoming one has read the partition is on disk but not in the
+    /// incoming container's index, so if its transcription then fails for now, the new container's thread does not
+    /// show it held until the device's next retry re-registers it there (about fifteen seconds while the composer is
+    /// open) or until this process next reads the partition (after a restart, or after a sweep that removed
+    /// something). The recording itself is kept - nothing sweeps a held factory inbox recording - only the thread's
+    /// view of it lags. If a held recording is reported missing from a thread right after a deploy, this is where to look.
+    ///
+    /// A record the partition read could NOT read (a share fault, a file another writer holds) is remembered as
+    /// unreadable and re-read on every call until a read settles it; while it still cannot be read the thread errors,
+    /// because its target is unknown and "nothing held" would be a guess.
+    ///
     /// A partition the index could not read is an ERROR here, not an empty answer: the session lock reads that case
     /// as "no lock" on purpose, but the thread reading it as "nothing is held" would hide a held spoken message,
     /// which is the one thing this list exists to prevent.
@@ -706,12 +720,12 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
     public IReadOnlyList<PendingUpload> PendingFor(string target)
     {
         ArgumentException.ThrowIfNullOrEmpty(target);
-        var candidates = _lockIndex.PendingUploadsFor(_root, target, EnumeratePendingEntries)
+        var lookup = _lockIndex.PendingUploadsFor(_root, target, EnumeratePendingEntries)
             ?? throw new InvalidOperationException(
                 $"The upload partition for tenant {_tenant.ToLogString()} could not be read, so the recordings held for " +
                 $"{target} are not known; see the log line from DictationLockIndex for the cause.");
         var found = new List<PendingUpload>();
-        foreach (var name in candidates)
+        foreach (var name in lookup.Pending)
         {
             if (!IsCanonicalUploadDirName(name)) continue;
             var dir = DirFor(name);
@@ -727,8 +741,46 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
                 found.Add(new PendingUpload(name, Directory.GetLastWriteTimeUtc(dir)));
             });
         }
+        // Every record the partition read could not read is read again, here, every time, until a read settles it: its
+        // target is unknown, so leaving it out would show "nothing held" on the strength of a read that failed.
+        var stillUnreadable = new List<string>();
+        foreach (var name in lookup.Unreadable)
+        {
+            var dir = DirFor(name);
+            WithRecordLock(name, () =>
+            {
+                RecordReadForTests?.Invoke(name);
+                var read = ReadRecordFile(RecordPath(dir));
+                switch (read.Kind)
+                {
+                    case DictationRecordReadKind.Unreadable:
+                        stillUnreadable.Add(name);
+                        return;
+                    case DictationRecordReadKind.Absent:
+                        _lockIndex.Removed(_root, name);
+                        return;
+                    case DictationRecordReadKind.Present when BelongsHere(read.Record!):
+                        var record = read.Record!;
+                        var pending = record.State == DictationDeliveryState.Pending;
+                        // What the disk says now becomes the index's answer for every later question, the lock's too.
+                        _lockIndex.RecordWritten(_root, name, record.SessionId, pending);
+                        if (pending && string.Equals(record.SessionId, target, StringComparison.Ordinal))
+                            found.Add(new PendingUpload(name, Directory.GetLastWriteTimeUtc(dir)));
+                        return;
+                    default:
+                        // Malformed, or another tenant's: a durable fact nobody can act on, skipped exactly as the
+                        // directory walk always skipped it, and no longer re-read.
+                        _lockIndex.Settled(_root, name);
+                        return;
+                }
+            });
+        }
+        if (stillUnreadable.Count > 0)
+            throw new InvalidOperationException(
+                $"{stillUnreadable.Count} upload record(s) of tenant {_tenant.ToLogString()} could not be read " +
+                $"({string.Join(", ", stillUnreadable)}), so whether a recording is held for {target} is not known.");
         FileLog.Write($"[VoiceUploadStore] PendingFor target={target}: {found.Count} pending " +
-            $"({candidates.Count} named by the index)");
+            $"({lookup.Pending.Count} named by the index, {lookup.Unreadable.Count} re-read)");
         return found.OrderBy(p => p.LastActivityUtc).ThenBy(p => p.UploadId, StringComparer.Ordinal).ToList();
     }
 
@@ -1303,14 +1355,19 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
     /// upload id. Runs once per partition per process (and again after a sweep invalidates the cache), where
     /// it used to run once per session every five seconds.
     /// </summary>
-    private IEnumerable<(string UploadId, string SessionId)> EnumeratePendingEntries()
+    private IEnumerable<HydratedRecord> EnumeratePendingEntries()
     {
         foreach (var rec in EnumeratePendingRecordsWithId())
-            if (!string.IsNullOrWhiteSpace(rec.Record.SessionId))
-                yield return (rec.UploadId, rec.Record.SessionId);
+        {
+            if (rec.Record is null) yield return HydratedRecord.CouldNotRead(rec.UploadId);
+            else if (!string.IsNullOrWhiteSpace(rec.Record.SessionId)) yield return HydratedRecord.PendingFor(rec.UploadId, rec.Record.SessionId);
+        }
     }
 
-    private IEnumerable<(string UploadId, DictationDeliveryRecord Record)> EnumeratePendingRecordsWithId()
+    // Every PENDING record of this partition with its upload id, and - with a null record - every canonical upload
+    // whose record could not be READ (finding 1 of the 4690 review): its target is unknown, so the index must not
+    // treat its absence from the pending set as "not held".
+    private IEnumerable<(string UploadId, DictationDeliveryRecord? Record)> EnumeratePendingRecordsWithId()
     {
         // A root that cannot be LISTED is not an empty root, so the failure is not swallowed here: it reaches
         // DictationLockIndex, which leaves the partition unhydrated and answers "I could not tell" (null). The
@@ -1335,10 +1392,14 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
             if (IsPartitionContainer(dir)) continue;
             // A readable PENDING marker of our own, and nothing else: a marker that cannot be read holds no
             // lock, for the reason given on IsPending.
-            RecordReadForTests?.Invoke(Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
-            if (ReadRecordFile(RecordPath(dir)) is { Kind: DictationRecordReadKind.Present, Record: { State: DictationDeliveryState.Pending } rec }
+            var name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            RecordReadForTests?.Invoke(name);
+            var read = ReadRecordFile(RecordPath(dir));
+            if (read is { Kind: DictationRecordReadKind.Present, Record: { State: DictationDeliveryState.Pending } rec }
                 && BelongsHere(rec))
-                yield return (Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), rec);
+                yield return (name, rec);
+            else if (read.Kind == DictationRecordReadKind.Unreadable && IsCanonicalUploadDirName(name))
+                yield return (name, null);
         }
     }
 
