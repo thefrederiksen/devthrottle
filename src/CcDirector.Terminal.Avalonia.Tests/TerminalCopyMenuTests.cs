@@ -56,11 +56,17 @@ public sealed class TerminalCopyMenuTests
             var session = new Session(Guid.NewGuid(), "/test/repo", "/test/repo", null, backend, "agent-test",
                 ActivityState.Idle, new DateTimeOffset(2026, 10, 24, 0, 0, 0, TimeSpan.Zero), null, null);
             session.MarkRunning();
+            // The grid size comes from the window's layout, as it does in the app; it is never forced after Attach.
+            // HarnessSetGrid clears every cell, and the replay Attach starts can hand its grid over before Attach
+            // returns (when the pool thread finishes before the await is reached), so forcing the size here wiped
+            // the replayed line now and then, the menu had no Copy, and the test clicked Paste instead.
             terminal.Attach(session);
         }
-        terminal.HarnessSetGrid(Cols, Rows);
-        if (!withSession)
+        else
+        {
+            terminal.HarnessSetGrid(Cols, Rows);
             terminal.HarnessRebuild(Encoding.UTF8.GetBytes(Line + "\r\n"));
+        }
         Dispatcher.UIThread.RunJobs();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         Dispatcher.UIThread.RunJobs();
