@@ -99,14 +99,16 @@ internal static class HostedEnrollmentEndpoint
     /// team is refused - so the dark Gateway's enrollment is exactly what it was.
     /// </param>
     /// <remarks>
-    /// NO TRIAL IS GRANTED HERE ANY MORE (Pricing Change mission, B3). This route used to hand a 14-day Pro trial to
-    /// an account arriving for the first time; it no longer does, for anyone. A trial that is already running is
-    /// still honoured, because <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger itself.
+    /// NO 14-DAY TRIAL IS GRANTED HERE ANY MORE (Pricing Change mission, B3). A trial that is already running is still
+    /// honoured, because <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger itself. The ONE grant
+    /// left is the 7-day trial at an account's first Director (<see cref="Tenancy.FirstDirectorTrial"/>, Website Black
+    /// mission), made by this route only while that setting is on; it is off by default.
     /// </remarks>
     public static void Map(IEndpointRouteBuilder app, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator,
         Tenancy.EntitlementRegistry? entitlements = null,
-        TeamEnrollment? teams = null)
+        TeamEnrollment? teams = null,
+        Tenancy.TrialRegistry? trials = null, Tenancy.FirstDirectorTrial? firstDirectorTrial = null)
     {
         if (devices is null) throw new ArgumentNullException(nameof(devices));
         if (tenants is null) throw new ArgumentNullException(nameof(tenants));
@@ -127,7 +129,7 @@ internal static class HostedEnrollmentEndpoint
 
         app.MapPost(Path, (EnrollSignedInRequest req, HttpContext ctx) =>
             Answer(ctx, Enroll(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, entitlements, DateTime.UtcNow,
-                teams, EnrollDoor.Director)));
+                teams, EnrollDoor.Director, trials: trials, firstDirectorTrial: firstDirectorTrial)));
     }
 
     /// <summary>The HTTP answer for an enrollment or a move: the key on 200, otherwise <see cref="Refusal"/>.</summary>
@@ -189,12 +191,29 @@ internal static class HostedEnrollmentEndpoint
     /// door, which refuses a Cockpit's or a phone's device type - so a caller that does not say is never handed one.</param>
     /// <param name="remoteAccess">The remote access rule, asked on the Cockpit and phone door of a Gateway that has an
     /// entitlement gate. Required there.</param>
+    /// <param name="trials">The trial ledger, which the first-Director trial is written to. Required when
+    /// <paramref name="firstDirectorTrial"/> is on.</param>
+    /// <param name="firstDirectorTrial">The 7-day Pro trial at an account's first Director (Website Black mission). Null
+    /// or off: no trial is granted, exactly as before. On: granted ONLY through the Director door, to a non-paying
+    /// account this Gateway has never seen, before its tenant is minted (<see cref="Tenancy.FirstDirectorTrial"/>).</param>
     public static EnrollResult Enroll(string? bearer, EnrollSignedInRequest? req, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator,
         Tenancy.EntitlementRegistry? entitlements = null, DateTime? nowUtc = null,
         TeamEnrollment? teams = null, EnrollDoor door = EnrollDoor.Director,
-        Tenancy.RemoteAccessRule? remoteAccess = null)
+        Tenancy.RemoteAccessRule? remoteAccess = null,
+        Tenancy.TrialRegistry? trials = null, Tenancy.FirstDirectorTrial? firstDirectorTrial = null)
     {
+        // THE FIRST-DIRECTOR TRIAL IS A DIRECTOR-DOOR GRANT AND NOTHING ELSE. Worked out once, here, so the gate below
+        // is handed a ledger to write to only when this request may be granted: the setting is on and this is the
+        // Director door. A switched-on setting with no ledger is a wiring defect, not a request to serve without one.
+        Tenancy.TrialRegistry? grantFirstDirectorTrialFrom = null;
+        if (firstDirectorTrial is { Enabled: true } && door == EnrollDoor.Director)
+        {
+            grantFirstDirectorTrialFrom = trials ?? throw new InvalidOperationException(
+                "The first-Director trial is on, but enrolment was given no trial ledger to write it to. " +
+                "HostedEnrollmentEndpoint.Map passes the Gateway's TrialRegistry whenever the setting is on.");
+        }
+
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
         var badDeviceId = DeviceIdRefusal(req.DeviceId);
@@ -230,7 +249,8 @@ internal static class HostedEnrollmentEndpoint
         if (teamId is not null)
             return EnrollIntoTeam(validation.Subject, teamId, req, devices, teams);
 
-        var refusal = PersonalAccountGate(validation.Subject, tenants, entitlements, nowUtc, door, remoteAccess);
+        var refusal = PersonalAccountGate(validation.Subject, tenants, entitlements, nowUtc, door, remoteAccess,
+            grantFirstDirectorTrialFrom);
         if (refusal is not null)
             return refusal;
 
@@ -307,13 +327,15 @@ internal static class HostedEnrollmentEndpoint
     /// team: a member is never refused for the team's bill here (the team's bill is the team's, read by the
     /// request-path lease).
     ///
-    /// NO TRIAL IS GRANTED HERE (Pricing Change mission, B3). Until that mission an account arriving for the first
-    /// time was handed a 14-day Pro trial at this point. Nobody is any more. A trial already running is still
-    /// honoured, to its end: <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger and answers such an
-    /// account at the Pro tier, which is why nothing about a trial is asked here at all.
+    /// NO 14-DAY TRIAL IS GRANTED HERE (Pricing Change mission, B3). A trial already running is still honoured, to its
+    /// end: <see cref="Tenancy.EntitlementRegistry.Evaluate"/> reads the ledger and answers such an account at the Pro
+    /// tier. The one grant made here is the 7-day first-Director trial, and only when the caller passes
+    /// <paramref name="grantFirstDirectorTrialFrom"/> - which <see cref="Enroll"/> does for the Director door with
+    /// <see cref="Tenancy.FirstDirectorTrial"/> on, and nothing else does.
     /// </summary>
     private static EnrollResult? PersonalAccountGate(string subject, Tenancy.TenantRegistry tenants,
-        Tenancy.EntitlementRegistry? entitlements, DateTime? nowUtc, EnrollDoor door, Tenancy.RemoteAccessRule? remoteAccess)
+        Tenancy.EntitlementRegistry? entitlements, DateTime? nowUtc, EnrollDoor door, Tenancy.RemoteAccessRule? remoteAccess,
+        Tenancy.TrialRegistry? grantFirstDirectorTrialFrom)
     {
         // THE GATE, between subject-verification and tenant-mint. It sits here, and not later, because minting a
         // tenant is itself giving something away: an account that is refused must leave no trace and hold no key.
@@ -340,8 +362,48 @@ internal static class HostedEnrollmentEndpoint
         // (the Pro tier, to the trial's end instant) and the free plan (an account with no paid row and no running
         // trial is Entitled on the free tier), so on the hosted Gateway a successful read is always Entitled.
         var decision = entitlements.Evaluate(subject, now);
+        var outcome = decision.Outcome;
+        var tier = decision.Tier;
 
-        if (decision.Outcome == Tenancy.EntitlementOutcome.Unknown)
+        // THE FIRST-DIRECTOR TRIAL (Website Black mission, owner decisions D3, D4, D20; Tenancy.FirstDirectorTrial).
+        // Asked only when the caller handed a ledger to write to, which Enroll does only for the Director door with
+        // the setting on - so with the setting off, through the Cockpit and phone door, on a move and for a team,
+        // nothing below runs and nothing is granted.
+        //
+        // It sits AFTER the paid read and BEFORE the tenant is minted, where the 14-day grant sat until 11 October:
+        //  - after the paid read, so a paying account never reaches it and is never handed a trial it does not need;
+        //  - before the mint, because "this Gateway has never seen the account" is read from the tenant mapping, and
+        //    a tenant minted first would make every account look already known.
+        // "Not paying" is no paid row (NotEntitled, a Gateway with no free plan) or the free plan. A FAILED paid read
+        // (Unknown) is NOT asked: a trial granted on a read that failed hands a window to an account whose
+        // subscription we simply could not see. TrialRegistry re-checks its own ledger, so an account whose trial has
+        // already run is given nothing new.
+        if (grantFirstDirectorTrialFrom is not null)
+        {
+            var notPaying = outcome == Tenancy.EntitlementOutcome.NotEntitled
+                            || (outcome == Tenancy.EntitlementOutcome.Entitled && Tenancy.EntitlementRegistry.IsFree(tier));
+            if (notPaying)
+            {
+                var alreadyKnown = tenants.LookupBySubject(subject) is not null;
+                var trial = grantFirstDirectorTrialFrom.GrantIfFirstArrival(subject, alreadyKnown, now, Tenancy.FirstDirectorTrial.Length);
+                if (trial.Outcome == Tenancy.TrialOutcome.Active)
+                {
+                    FileLog.Write("[HostedEnrollment] enrolling on the 7-day Pro trial (the account's first Director; no paid entitlement)");
+                    outcome = Tenancy.EntitlementOutcome.Entitled;
+                    // The trial grants the PRO plan, the tier Evaluate answers for a running trial on every later
+                    // read, so the plan gate below rules on a fresh grant and a running one identically.
+                    tier = Tenancy.EntitlementRegistry.TierPro;
+                }
+                else if (trial.Outcome == Tenancy.TrialOutcome.Unknown)
+                {
+                    // The ledger could not be read or written: the same temporary condition as an unreadable plan.
+                    // Retry, never refuse, never grant - and nothing is minted, so the retry is a first arrival again.
+                    outcome = Tenancy.EntitlementOutcome.Unknown;
+                }
+            }
+        }
+
+        if (outcome == Tenancy.EntitlementOutcome.Unknown)
         {
             FileLog.Write("[HostedEnrollment] RETRY: the entitlement read failed, so entitlement is UNKNOWN - " +
                           "not enrolling and NOT refusing (no tenant minted, no device key issued)");
@@ -352,7 +414,7 @@ internal static class HostedEnrollmentEndpoint
         // Reachable only where the free plan is not in play - a Gateway wired with no trial ledger at all, which
         // answers an account with no paid row NotEntitled. On the hosted service a successful read yields the free
         // tier instead, and the doors below are plan questions, not a paywall.
-        if (decision.Outcome == Tenancy.EntitlementOutcome.NotEntitled)
+        if (outcome == Tenancy.EntitlementOutcome.NotEntitled)
         {
             FileLog.Write("[HostedEnrollment] REFUSED: the entitlement read succeeded and this account has no active entitlement (no tenant minted, no device key issued)");
             return new EnrollResult(StatusCodes.Status402PaymentRequired, null,
@@ -365,7 +427,7 @@ internal static class HostedEnrollmentEndpoint
         //
         // The verdict is not computed here. It is read from the ONE table that owns what a plan grants
         // (EntitlementScopes), so adding a plan is one edit there and never a new branch at a call site.
-        if (!Tenancy.EntitlementScopes.GrantsHostedGateway(decision.Tier))
+        if (!Tenancy.EntitlementScopes.GrantsHostedGateway(tier))
         {
             FileLog.Write("[HostedEnrollment] REFUSED: the account pays, but its plan does not include hosted " +
                           "gateway capacity (no tenant minted, no device key issued)");
@@ -400,7 +462,7 @@ internal static class HostedEnrollmentEndpoint
                     "the entitlement service is temporarily unavailable; please try again", EntitlementUnknownCode);
             }
 
-            var remote = remoteAccess.Decide(decision.Tier, subject, tenantCreatedAtUtc, now);
+            var remote = remoteAccess.Decide(tier, subject, tenantCreatedAtUtc, now);
             if (remote == Tenancy.RemoteAccessAnswer.Unknown)
             {
                 // What would have decided it - the person's teams, or a team's bill - could not be read. The same
@@ -750,7 +812,9 @@ internal static class HostedEnrollmentEndpoint
         }
         else
         {
-            var refusal = PersonalAccountGate(subject, tenants, entitlements, nowUtc, EnrollDoor.Director, remoteAccess: null);
+            // A move is never a first arrival and never grants the first-Director trial: no ledger is passed.
+            var refusal = PersonalAccountGate(subject, tenants, entitlements, nowUtc, EnrollDoor.Director, remoteAccess: null,
+                grantFirstDirectorTrialFrom: null);
             if (refusal is not null)
                 return refusal;
             to = tenants.MintOrLookupBySubject(subject, JwtIdentityReader.Read(bearer)?.Email);

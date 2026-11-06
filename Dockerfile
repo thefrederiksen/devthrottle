@@ -150,6 +150,13 @@ ENV CC_GATEWAY_HOSTED=1
 # A self-hosted Gateway never reads either value.
 ENV CC_GATEWAY_PRICING_LAUNCH_UTC=2026-10-13T20:32:00Z
 
+# The 7-day Pro trial at an account's FIRST Director (Website Black mission, owner decisions D3 and D4 of
+# 5 November 2026; src/CcDirector.Gateway/Tenancy/FirstDirectorTrial.cs). DELIBERATELY NOT SET, so no trial is
+# granted. It is turned on as part of the Website Black flip by a one-line pull request that adds, directly below,
+#     ENV CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=1
+# "1" is on, "0" or unset is off, and any other value stops the Gateway from starting. A self-hosted Gateway never
+# reads it.
+
 # Bake the source commit into the RUNTIME image so the Gateway process can report it at /healthz. ARG does
 # not cross stage boundaries, so the build-stage COCKPIT_COMMIT (used to stamp the cockpit assets) is not
 # visible here - it must be re-declared. The deploy pipeline reads /healthz .commit to tell the old
