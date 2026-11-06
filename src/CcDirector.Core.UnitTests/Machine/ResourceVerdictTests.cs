@@ -37,23 +37,48 @@ public class ResourceVerdictTests
         var verdict = new ResourcePressureVerdict(
         [
             Verdict(ResourceKind.Cpu, ResourceLevel.Normal),
-            Verdict(ResourceKind.DiskActivity, ResourceLevel.Unknown),
+            Verdict(ResourceKind.Swap, ResourceLevel.Unknown),
         ]);
 
         Assert.Equal(ResourceLevel.Normal, verdict.Worst);
     }
 
     [Fact]
-    public void Worst_UnknownBesideCritical_IsCritical_AnUnreadableDiskDoesNotHideARedProcessor()
+    public void Worst_UnknownBesideCritical_IsCritical_AnUnreadableSwapDoesNotHideARedProcessor()
     {
         var verdict = new ResourcePressureVerdict(
         [
-            Verdict(ResourceKind.DiskActivity, ResourceLevel.Unknown),
+            Verdict(ResourceKind.Swap, ResourceLevel.Unknown),
             Verdict(ResourceKind.Cpu, ResourceLevel.Critical),
             Verdict(ResourceKind.Memory, ResourceLevel.Normal),
         ]);
 
         Assert.Equal(ResourceLevel.Critical, verdict.Worst);
+    }
+
+    [Fact]
+    public void ResourceKind_IsExactlyTheProcessorMemoryAndSwap_SoNoDiskBarCanBeColoured()
+    {
+        // The owner narrowed the mission on 2026-11-06: there is no disk bar, so there is no disk verdict.
+        // The disk reaches him only through the slowness diagnosis, in words. Adding a kind back here is
+        // the first step of putting a disk bar on a screen, so the whole set is pinned by name and number.
+        Assert.Equal(
+            new[] { "Cpu", "Memory", "Swap" },
+            Enum.GetNames<ResourceKind>());
+        Assert.Equal(0, (int)ResourceKind.Cpu);
+        Assert.Equal(1, (int)ResourceKind.Memory);
+        Assert.Equal(2, (int)ResourceKind.Swap);
+    }
+
+    [Fact]
+    public void ResourceSample_CarriesExactlyTheNarrowedParts()
+    {
+        // The shape three platform probes are written against. The parts are pinned by name so that
+        // re-adding a disk meter, a per-volume free-space reading or a network figure - all cut on
+        // 2026-11-06 - fails here instead of reaching a screen.
+        Assert.Equal(
+            new[] { "TakenAtUtc", "Cpu", "Memory", "Swap", "Stall", "DiskEvidence", "Processes" },
+            typeof(ResourceSample).GetProperties().Select(property => property.Name).ToArray());
     }
 
     [Theory]

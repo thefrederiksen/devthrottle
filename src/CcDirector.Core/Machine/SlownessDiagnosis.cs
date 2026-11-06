@@ -89,15 +89,46 @@ public sealed record SlownessDiagnosis(
 /// <summary>
 /// What one session costs the machine: its root process and every process descended from it, summed.
 /// Filled later by a pure function over the process list; this is only its shape.
+///
+/// THE TOTALS CAN BE A LOWER BOUND, AND THE SHAPE SAYS SO. A process whose figures the platform refused
+/// is still in the process list, named, with null figures - so a tree can contain processes that cannot
+/// be added up. Summing them as zero would report a session as cheaper than it is, which is the made-up
+/// zero this mission exists to avoid. So each sum covers only the processes whose figure could be read,
+/// and a count travels beside it saying how many were left out. A screen can then say "at least 2.1 GB"
+/// rather than "2.1 GB". Zero means that total is complete.
+///
+/// THERE ARE TWO COUNTS, NOT ONE, BECAUSE THE TWO FIGURES GO UNKNOWN FOR DIFFERENT REASONS. A process
+/// that started during the interval has no earlier reading to compare against, so its processor share is
+/// null while its memory is perfectly readable. One shared count would mark the memory total as a floor
+/// when it is exact, and a screen would hedge a figure it could have stated. One count per total, each
+/// true about its own sum.
 /// </summary>
 /// <param name="SessionId">The session.</param>
 /// <param name="RootPid">The process the session started - the agent itself.</param>
-/// <param name="CpuPercent">Processor used by the whole tree, as a share of the WHOLE machine, 0 to 100.</param>
-/// <param name="MemoryBytes">Resident memory (or working set) of the whole tree.</param>
+/// <param name="CpuPercent">
+/// Processor used by the whole tree, as a share of the WHOLE machine, 0 to 100 - so a session holding
+/// one core of ten reads 10, not 100. Summed over the processes whose figures could be read.
+/// </param>
+/// <param name="MemoryBytes">
+/// Resident memory (or working set) of the whole tree, summed over the processes whose figures could be
+/// read.
+/// </param>
 /// <param name="Pids">Every process counted, the root included.</param>
+/// <param name="ProcessesWithUnknownProcessor">
+/// How many processes in the tree were running but whose processor share could not be known - refused by
+/// the platform, or started during the interval. Non-zero means <paramref name="CpuPercent"/> is a floor
+/// rather than a measurement of the whole tree.
+/// </param>
+/// <param name="ProcessesWithUnknownMemory">
+/// How many processes in the tree were running but whose memory the platform refused. Non-zero means
+/// <paramref name="MemoryBytes"/> is a floor. It is counted separately from
+/// <paramref name="ProcessesWithUnknownProcessor"/> because the two go unknown independently.
+/// </param>
 public sealed record SessionUsage(
     string SessionId,
     int RootPid,
     double CpuPercent,
     ulong MemoryBytes,
-    IReadOnlyList<int> Pids);
+    IReadOnlyList<int> Pids,
+    int ProcessesWithUnknownProcessor,
+    int ProcessesWithUnknownMemory);

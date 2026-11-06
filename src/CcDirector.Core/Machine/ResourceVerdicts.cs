@@ -1,22 +1,25 @@
 namespace CcDirector.Core.Machine;
 
-/// <summary>The resources the Resource Monitor gives a verdict on - one row each in mission section 5b.</summary>
+/// <summary>
+/// The resources the Resource Monitor gives a verdict on - one row each in mission section 5c.
+///
+/// THERE IS NO DISK VERDICT, because there is no disk bar for one to colour - see
+/// <see cref="ResourceSample"/>. The disk reaches the owner only through the slowness diagnosis, in
+/// words: <see cref="SlownessCause.Disk"/>.
+///
+/// The values are numbered explicitly, because a Gateway row will carry them and a reordering must not
+/// silently relabel stored history.
+/// </summary>
 public enum ResourceKind
 {
     /// <summary>The processor, whole machine.</summary>
-    Cpu,
+    Cpu = 0,
 
     /// <summary>Memory available, folded by the existing <see cref="MemoryPressure"/> limits.</summary>
-    Memory,
-
-    /// <summary>How busy the disks are, or how much programs wait on them.</summary>
-    DiskActivity,
+    Memory = 1,
 
     /// <summary>The swap file or page file.</summary>
-    Swap,
-
-    /// <summary>Free space on a volume.</summary>
-    DiskFree,
+    Swap = 2,
 }
 
 /// <summary>

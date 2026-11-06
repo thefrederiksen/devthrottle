@@ -14,10 +14,17 @@ public enum StallSource
     /// <summary>Linux pressure stall information, <c>/proc/pressure/{cpu,memory,io}</c> - a direct measure.</summary>
     LinuxPressureStall = 1,
 
-    /// <summary>Windows performance counters - processor queue, disk timings, hard page faults. Proxies.</summary>
+    /// <summary>
+    /// Windows performance counters - processor queue length and hard page faults per second. Proxies.
+    /// The per-disk timings the Windows diagnosis also reads are NOT here: they live on
+    /// <see cref="DiskEvidence"/>, because they are per disk and this reading is whole-machine.
+    /// </summary>
     WindowsCounters = 2,
 
-    /// <summary>macOS kernel memory-pressure level, run-queue load and disk statistics. Proxies.</summary>
+    /// <summary>
+    /// macOS kernel memory-pressure level and run-queue load. Proxies. As with Windows, the per-disk
+    /// figures live on <see cref="DiskEvidence"/> rather than here.
+    /// </summary>
     MacOsSignals = 3,
 }
 
@@ -31,6 +38,26 @@ public enum StallSource
 /// Every figure is nullable because each platform offers a different subset: Linux gives the three
 /// stalled percentages directly; Windows and macOS give the proxies. Null means "not offered on this
 /// platform", never "failed" - a failed read is <see cref="CouldRead"/> false.
+///
+/// THE DISK STALL FIGURE IS WHY THIS SURVIVED THE NARROWING. The owner cut the disk meter on 2026-11-06
+/// but kept the disk in the diagnosis, and mission section 5c-i rules what each platform may read and
+/// what it may then CLAIM:
+/// <list type="bullet">
+/// <item>ON LINUX the stall figure decides. <see cref="IoStalledPercent"/> is measured directly, so a
+/// Linux diagnosis may say "programs were stalled waiting on the disk 32 per cent of the time".</item>
+/// <item>WHERE THE PLATFORM PUBLISHES NO STALL FIGURE - macOS has none for any resource, and Windows has
+/// only performance-counter proxies - the diagnosis decides from each disk's LATENCY
+/// (<see cref="DiskEvidence.MillisecondsPerRead"/> and
+/// <see cref="DiskEvidence.MillisecondsPerWrite"/>) and says "the disk is answering slowly". It must
+/// never be worded as though a stall percentage had been measured.</item>
+/// <item>A BUSY PERCENTAGE NEVER DECIDES, on any platform. See
+/// <see cref="DiskEvidence.BusyPercent"/>: it is evidence printed beside the verdict and nothing
+/// more.</item>
+/// <item>A PLATFORM THAT CANNOT TELL says <see cref="SlownessDiagnosis.CouldDiagnose"/> false with the
+/// reason, which means NOT KNOWN and never "fine".</item>
+/// </list>
+/// Saying the stall figure were the only source would make a disk verdict impossible on macOS and
+/// Windows, which is the devlinux failure of 2026-10-15 reproduced on two more platforms.
 /// </summary>
 /// <param name="CouldRead">False when no stall figure could be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>
@@ -54,6 +81,18 @@ public readonly record struct StallReading(
     int? MacOsMemoryPressureLevel,
     int? ProcessesWaitingOnDisk)
 {
+    /// <summary>
+    /// The macOS kernel's level, read through the ONE mapping function rather than a second
+    /// <c>switch</c>. <see cref="MacOsMemoryPressureLevel"/> is the kernel's raw number, which is a bit
+    /// flag and not a ladder; this is what it means. Unknown on every other platform, because no level
+    /// was offered - and Unknown is never a synonym for Normal.
+    ///
+    /// The macOS probe, its tests and the Gateway's display fold all read this. None of them maps the
+    /// number itself: see <see cref="MacOsKernelPressure"/> for why that matters when a platform
+    /// publishes only two stall signals in total.
+    /// </summary>
+    public KernelMemoryPressureLevel MacOsMemoryPressure => MacOsKernelPressure.Read(MacOsMemoryPressureLevel);
+
     /// <summary>
     /// A reading that succeeded. Pass only the figures the platform offers; the rest stay null.
     /// </summary>

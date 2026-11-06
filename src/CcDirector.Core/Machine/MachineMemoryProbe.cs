@@ -21,6 +21,14 @@ namespace CcDirector.Core.Machine;
 ///
 /// READINGS ARE CACHED for <see cref="CacheFor"/>, because several callers ask within the same moment
 /// and the answer cannot meaningfully change between them.
+///
+/// THE CACHE IS AGED ON A MONOTONIC CLOCK, NOT ON WALL-CLOCK TIME. Time synchronisation steps the wall
+/// clock, and this cache used to compare two wall-clock stamps: a step BACKWARDS of more than a second
+/// made every reading look as though it came from the future and froze the cache until the clock caught
+/// up, so the Director would have gone on answering memory questions from one stale reading while the
+/// machine filled. "The clock jumps" is a failure case this mission has to prove, so the rule is
+/// absolute and applies to the resource probes too (see <see cref="ResourceRate"/>): wall-clock time
+/// STAMPS a reading, and only a monotonic clock MEASURES an interval.
 /// </summary>
 public sealed class MachineMemoryProbe : IMachineMemoryProbe
 {
@@ -37,21 +45,30 @@ public sealed class MachineMemoryProbe : IMachineMemoryProbe
     public static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(1);
 
     private readonly object _gate = new();
-    private readonly Func<DateTime> _now;
+    private readonly TimeProvider _time;
     private MachineMemoryReading _cached;
+    private long _cachedAtTimestamp;
     private bool _haveCached;
     private bool _loggedUnreadable;
 
-    /// <summary>Creates a probe. The clock is injectable so a test can age the cache without sleeping.</summary>
-    public MachineMemoryProbe(Func<DateTime>? now = null) => _now = now ?? (() => DateTime.UtcNow);
+    /// <summary>
+    /// Creates a probe. The clock is injectable so a test can age the cache without sleeping, and so a
+    /// test can step the WALL clock backwards and prove the cache does not care.
+    /// <see cref="TimeProvider.System"/> is the real one.
+    /// </summary>
+    public MachineMemoryProbe(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
     /// <inheritdoc />
     public MachineMemoryReading Read()
     {
-        var now = _now();
+        // Two readings of two different clocks, and they are not interchangeable. The timestamp is
+        // monotonic and ages the cache; the wall-clock stamp goes on the reading so a caller can say
+        // when it was taken. See the note on the class.
+        var timestamp = _time.GetTimestamp();
+        var now = _time.GetUtcNow().UtcDateTime;
         lock (_gate)
         {
-            if (_haveCached && now - _cached.TakenAtUtc < CacheFor) return _cached;
+            if (_haveCached && _time.GetElapsedTime(_cachedAtTimestamp, timestamp) < CacheFor) return _cached;
         }
 
         var reading = ReadUncached(now);
@@ -60,6 +77,7 @@ public sealed class MachineMemoryProbe : IMachineMemoryProbe
         lock (_gate)
         {
             _cached = reading;
+            _cachedAtTimestamp = timestamp;
             _haveCached = true;
 
             // Logged ONCE, and the decision to log is taken under the same lock that sets the flag so

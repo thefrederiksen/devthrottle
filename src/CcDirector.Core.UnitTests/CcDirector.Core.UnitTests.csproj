@@ -58,6 +58,13 @@
          assembly-level attribute is excluded for the same reason. -->
     <Compile Include="..\CcDirector.Core.Tests\ConfigEnvSerialCollection.cs" Link="ConfigEnvSerialCollection.cs" />
     <Compile Include="..\CcDirector.Core.Tests\WindowsOnlyFactAttribute.cs" Link="WindowsOnlyFactAttribute.cs" />
+    <!-- The shared resource-probe contract (issue #2811). The CHECKS are pure values, so they are tested
+         here in the parallel half. The LIVE tests that run them against a real machine are in
+         CcDirector.Core.MachineLiveTests, which no gate suite runs - NOT in CcDirector.Core.Tests, which
+         is a gate suite under -Parked and is scanned by GateTestsDoNotDependOnTheMachineTests. A derived
+         contract class belongs in the live project. One definition of the checks, linked, so the two
+         cannot drift. -->
+    <Compile Include="..\CcDirector.Core.Tests\Machine\ResourceSampleContract.cs" Link="Machine/ResourceSampleContract.cs" />
     <Compile Include="..\CcDirector.Core.Tests\TestProjectPath.cs" Link="TestProjectPath.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Storage\PinnedRoot.cs" Link="Storage/PinnedRoot.cs" />
     <Compile Include="..\CcDirector.Core.Tests\StubGitHubClient.cs" Link="StubGitHubClient.cs" />

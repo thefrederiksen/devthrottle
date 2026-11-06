@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE TESTS THAT READ A REAL MACHINE, AND THE ONLY PROJECT ALLOWED TO.
+       The Resource Monitor mission (issue #2811) needs tests that take real readings from a real
+       machine: it is the one thing a resource probe exists to do, and no fake can prove it.
+
+       IT IS DELIBERATELY NOT A GATE SUITE. scripts\test-local.ps1 names every project the gate runs -
+       default, installer and parked - and this project is in none of those lists, on purpose. That is
+       what the owner's ruling of 11 October 2026 requires: a test in a gate suite never lets a real
+       disk, a real clock, a real process or a sleep decide whether it passes, because a sensor that
+       lights at random is worse than no sensor. The source guard
+       GateTestsDoNotDependOnTheMachineTests reads its suite list out of that same script, so a project
+       the gate does not run is not scanned - and must never be added to those lists.
+
+       TWO LOCKS, NOT ONE. Being outside the gate keeps these tests from running there at all. On top of
+       that every test carries [LiveMachineFact], so even run directly they SKIP - visibly, with a
+       reason - unless CC_DIRECTOR_LIVE_MACHINE_TESTS=1 is set. A machine-reading test that runs by
+       accident is the thing being prevented, so it is prevented twice.
+
+       WHAT DOES RUN IT, said plainly so a skipped test here surprises nobody. It is in cc-director.sln,
+       so two things load this assembly: the solution build, which is the point - a signature change that
+       breaks these tests breaks the build like any other - and the scheduled full continuous integration
+       run on main, which runs "dotnet test cc-director.sln" every two hours when main has moved. That run
+       executes this project. Today that means its handful of attribute tests pass there and every live
+       test SKIPS, because the variable is absent on that runner; a derived contract class will therefore
+       show up as skipped in the full run, which is correct and is not a gap. The same is true of
+       CcDirector.Core.GitTests, which says so in its own project file. What runs the live tests for real
+       is a person or a session asking for them: the Developer proving a platform probe, and the
+       cross-platform quality assurance run.
+
+       HOW TO RUN IT, on the platform whose probe you are proving:
+         CC_DIRECTOR_LIVE_MACHINE_TESTS=1 dotnet test src/CcDirector.Core.MachineLiveTests -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Shares the namespace with the other Core test projects so a moved file needs no edit. -->
+    <RootNamespace>CcDirector.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The contract checks have ONE definition, in the parked half beside the other shared test
+         support, and are linked here and into CcDirector.Core.UnitTests. The checks are pure values, so
+         they are UNIT tested over there - a checker nobody has watched reject anything is
+         indistinguishable from one that accepts everything. Here the same checks run against a real
+         machine. Copying the file would let the two drift, which is the whole failure this guards. -->
+    <Compile Include="..\CcDirector.Core.Tests\Machine\ResourceSampleContract.cs" Link="Machine/ResourceSampleContract.cs" />
+  </ItemGroup>
+
+</Project>
