@@ -62,6 +62,28 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
             wait => { _waits.Add(wait); return heldDelay ?? Task.CompletedTask; },
             gap ?? IdleTreeInspectionWatcher.MinimumGap);
 
+    /// <summary>
+    /// Complete a held wait so the watcher's trailing inspection runs INSIDE this call, before it returns.
+    /// The test thread carries xUnit's synchronization context, and with one present .NET does not run the
+    /// watcher's continuation (a ConfigureAwait(false) await) inline: it queues it to the thread pool. A test
+    /// that then awaited Task.Yield raced that pool thread, and lost it when the machine was busy - expected
+    /// two inspections, saw one. With no context on the thread the continuation runs inline, the inspection
+    /// delegate is synchronous, and so both inspections have happened when this returns, on any machine.
+    /// </summary>
+    private static void CompleteTheHeldWait(TaskCompletionSource held)
+    {
+        var context = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(null);
+        try
+        {
+            held.SetResult();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+        }
+    }
+
     private Session WorkingSessionIn(string folder, string? primaryRepository = null)
     {
         // A fixed creation time, not the machine's clock: a gate test decides on the code alone.
@@ -138,7 +160,7 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
     /// pending - which is the only arrangement that can prove they collapse rather than queue.
     /// </summary>
     [Fact]
-    public async Task ManyParksInsideTheGap_ShareOneTrailingInspection()
+    public void ManyParksInsideTheGap_ShareOneTrailingInspection()
     {
         var held = new TaskCompletionSource();
         using var first = WorkingSessionIn(Folder);
@@ -159,8 +181,7 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
         Assert.Equal(new[] { Repository }, _inspected);
         Assert.Single(_waits);
 
-        held.SetResult();
-        await Task.Yield();
+        CompleteTheHeldWait(held);
 
         Assert.Equal(new[] { Repository, Repository }, _inspected);
         Assert.Single(_waits);
