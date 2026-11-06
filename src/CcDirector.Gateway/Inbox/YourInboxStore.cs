@@ -206,14 +206,37 @@ public sealed class YourInboxStore
         if (!YourInboxWords.Views.All.Contains(view))
             throw new ArgumentOutOfRangeException(nameof(view), view, "not a Your inbox view");
         using var ctx = _db.CreateContext(tenant);
-        var query = view == YourInboxWords.Views.Archived
-            ? ctx.YourInboxMessages.AsNoTracking().Where(m => m.State == YourInboxWords.States.Archived)
-            : ctx.YourInboxMessages.AsNoTracking().Where(m => m.State != YourInboxWords.States.Archived);
+        var query = view switch
+        {
+            YourInboxWords.Views.Unread => ctx.YourInboxMessages.AsNoTracking().Where(m => m.State == YourInboxWords.States.Unread),
+            YourInboxWords.Views.Archived => ctx.YourInboxMessages.AsNoTracking().Where(m => m.State == YourInboxWords.States.Archived),
+            _ => ctx.YourInboxMessages.AsNoTracking().Where(m => m.State != YourInboxWords.States.Archived),
+        };
         var total = query.Count();
         // Ordered and cut in the database: the inbox is never read whole.
         var rows = query.OrderByDescending(m => m.SentAtUtc).ThenByDescending(m => m.Id).Take(limit).ToList();
         FileLog.Write($"[YourInboxStore] List: view={view} total={total} returned={rows.Count}");
         return (rows, total);
+    }
+
+    /// <summary>How many messages each view holds, for the counts on the screen's filters, in the order of
+    /// <see cref="YourInboxWords.Views.All"/>.</summary>
+    public IReadOnlyList<(string View, int Count)> ViewCounts(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var byState = ctx.YourInboxMessages.AsNoTracking().GroupBy(m => m.State)
+            .Select(g => new { State = g.Key, Count = g.Count() }).ToList()
+            .ToDictionary(x => x.State, x => x.Count);
+        int Of(string state) => byState.TryGetValue(state, out var n) ? n : 0;
+        var unread = Of(YourInboxWords.States.Unread);
+        var read = Of(YourInboxWords.States.Read);
+        var archived = Of(YourInboxWords.States.Archived);
+        return YourInboxWords.Views.All.Select(v => (v, v switch
+        {
+            YourInboxWords.Views.Unread => unread,
+            YourInboxWords.Views.Archived => archived,
+            _ => unread + read,
+        })).ToList();
     }
 
     /// <summary>How many messages are unread - the number on the Inbox entry.</summary>

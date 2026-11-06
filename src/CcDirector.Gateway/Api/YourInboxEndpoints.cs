@@ -29,7 +29,8 @@ internal sealed record YourInboxSessionPlace(string? DirectorId, string? RepoPat
 ///
 /// The owner's routes - the owner's own phone or Cockpit, and nobody else:
 ///
-///   GET  /gateway/inbox?view=inbox|archived&amp;limit=   one view, newest first, with the unread count
+///   GET  /gateway/inbox?view=unread|inbox|archived&amp;limit=   one view, newest first, with the unread count, the
+///                                               filters' words and counts, and the view's empty sentence
 ///   GET  /gateway/inbox/count                       the unread count for the Inbox entry
 ///   GET  /gateway/inbox/{id}                        one message, with the replies sent from it
 ///   POST /gateway/inbox/{id}/state                  body {state: unread|read|archived} -> {message}
@@ -151,12 +152,18 @@ internal static class YourInboxEndpoints
             var (messages, total) = parts.Store.List(tenant, view, limit);
             var unread = parts.Store.UnreadCount(tenant);
             var titles = Titles(parts, tenant);
+            // The screen's filters, with their words and counts, and what this view says when it is empty: the Gateway's
+            // words, printed as they are (CLAUDE.md rule 7).
+            var filters = parts.Store.ViewCounts(tenant)
+                .Select(c => new YourInboxFilterDto(c.View, YourInboxWords.ViewLabel(c.View), c.Count)).ToList();
             return Results.Json(new
             {
                 view,
                 count = total,
                 unread,
                 unreadLabel = YourInboxWords.CountLabel(unread),
+                filters,
+                empty = YourInboxWords.EmptyLine(view),
                 messages = messages.Select(m => YourInboxFold.Message(m, titles)).ToList(),
             });
         });

@@ -27,6 +27,10 @@ vi.mock("./factoryInboxVoice", () => ({
   deleteFactoryRecording: vi.fn(async () => {}),
   sendFactoryRecording: vi.fn(),
 }));
+// The Your inbox tab reads the unread count; its own tests are in yourinbox/yourInboxScreens.test.tsx.
+vi.mock("../yourinbox/yourInboxClient", () => ({
+  getYourInboxCount: vi.fn(async () => ({ unread: 0, label: "" })),
+}));
 vi.mock("../errors/reportClientError", async (importActual) => {
   const actual = await importActual<typeof import("../errors/reportClientError")>();
   // The real sentence, watched: what is shown is what is reported.
@@ -200,10 +204,11 @@ describe("FactoryComposer", () => {
 });
 
 describe("InboxTabs", () => {
-  it("InboxTabs_OneEntry_HoldsTheFactoryInboxTabNow", () => {
+  it("InboxTabs_OneEntry_HoldsTheFactoryInboxAndYourInboxTabs", () => {
     render(<InboxTabs active="factories" onSelect={() => {}} />);
 
-    expect(INBOX_TABS.map((t) => t.id)).toEqual(["factories"]);
+    expect(INBOX_TABS.map((t) => t.id)).toEqual(["factories", "yours"]);
     expect(screen.getByRole("tab", { name: "Factory inbox" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Your inbox" }).getAttribute("aria-selected")).toBe("false");
   });
 });

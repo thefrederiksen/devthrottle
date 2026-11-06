@@ -2193,6 +2193,11 @@ export interface CreateSessionOptions {
    * modes. Omitted, or "terminal", sends nothing - terminal is the default and a plain create's body is unchanged.
    */
   connectionMode?: string;
+  /**
+   * The new session's first prompt, sent by the Director as soon as the agent is up (the Gateway's NewSessionRequest
+   * PrePrompt). Omitted or blank sends none. Your inbox uses it to carry a reply whose session has ended into a new one.
+   */
+  prePrompt?: string;
   signal?: AbortSignal;
 }
 
@@ -2211,7 +2216,7 @@ export async function createSession(
   const agent = options?.agent?.trim() || "ClaudeCode";
   // `factory` is on the Gateway's NewSessionRequest (phase 1 of the Factory Memory mission) but not yet in the
   // generated schema.ts, which is regenerated from a running Gateway; the intersection names it until then.
-  const body: NewSessionRequest & { factory?: string; connectionMode?: string } = {
+  const body: NewSessionRequest & { factory?: string; connectionMode?: string; prePrompt?: string | null } = {
     repoPath: repoPath.trim(),
     agent,
     wingmanEnabled: false,
@@ -2221,6 +2226,8 @@ export async function createSession(
   if (factory.length > 0) body.factory = factory;
   const connectionMode = options?.connectionMode ?? TERMINAL_CONNECTION;
   if (connectionMode !== TERMINAL_CONNECTION) body.connectionMode = connectionMode;
+  const prePrompt = options?.prePrompt ?? "";
+  if (prePrompt.trim().length > 0) body.prePrompt = prePrompt;
   const res = await gatewayFetch(`/directors/${id}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },

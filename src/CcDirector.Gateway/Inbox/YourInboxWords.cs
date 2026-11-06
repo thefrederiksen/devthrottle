@@ -36,13 +36,50 @@ public static class YourInboxWords
         public const string Factory = "factory";
     }
 
-    /// <summary>The two lists the owner reads: what is in the inbox, and what was archived.</summary>
+    /// <summary>
+    /// The lists the owner reads, which are the filters on the Your inbox screen, in the order they are shown: what is
+    /// unread, everything in the inbox (unread and read), and what was archived.
+    /// </summary>
     public static class Views
     {
+        public const string Unread = "unread";
         public const string Inbox = "inbox";
         public const string Archived = "archived";
-        public static readonly IReadOnlyList<string> All = [Inbox, Archived];
+        public static readonly IReadOnlyList<string> All = [Unread, Inbox, Archived];
     }
+
+    /// <summary>What a view is shown as, on its filter button.</summary>
+    public static string ViewLabel(string view) => view switch
+    {
+        Views.Unread => "Unread",
+        Views.Inbox => "All",
+        Views.Archived => "Archived",
+        _ => throw new ArgumentOutOfRangeException(nameof(view), view, "not a Your inbox view"),
+    };
+
+    /// <summary>
+    /// What a view says when it holds nothing. The inbox's sentence is the owner's: Your inbox replaces the email that
+    /// factories and sessions sent him.
+    /// </summary>
+    public static string EmptyLine(string view) => view switch
+    {
+        Views.Unread => "Nothing unread.",
+        Views.Inbox => "Nothing for you. Factories and sessions write here instead of emailing you.",
+        Views.Archived => "Nothing archived. An archived message stays here; nothing is ever deleted.",
+        _ => throw new ArgumentOutOfRangeException(nameof(view), view, "not a Your inbox view"),
+    };
+
+    /// <summary>
+    /// The colour a message's state badge is shown in, as one closed word the screens map to a colour (the same words as
+    /// the Factory inbox: ok, amber, red, grey). Unread stands out; read and archived do not.
+    /// </summary>
+    public static string Tone(string state) => state switch
+    {
+        States.Unread => "red",
+        States.Read => "grey",
+        States.Archived => "grey",
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "not a Your inbox state"),
+    };
 
     /// <summary>The things the owner can do to a message, each sent back as the state it sets.</summary>
     public static class Actions

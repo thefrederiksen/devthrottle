@@ -20,6 +20,9 @@ public sealed record YourInboxReplyToDto(string Target, string Label);
 /// <summary>One reply the owner sent, with where it went.</summary>
 public sealed record YourInboxReplyDto(string Id, string Text, string RoutedTo, string Label, DateTime SentAtUtc);
 
+/// <summary>One filter on the Your inbox screen: the view it shows, its button's words, and how many messages it holds.</summary>
+public sealed record YourInboxFilterDto(string View, string Label, int Count);
+
 /// <summary>One message in Your inbox, every word finished on the Gateway.</summary>
 public sealed record YourInboxMessageDto(
     string Id,
@@ -27,6 +30,7 @@ public sealed record YourInboxMessageDto(
     string Body,
     string State,
     string StateLabel,
+    string Tone,
     bool Unread,
     YourInboxFromDto From,
     IReadOnlyList<YourInboxLinkDto> Links,
@@ -68,6 +72,7 @@ public static class YourInboxFold
             Body: m.Body,
             State: m.State,
             StateLabel: YourInboxWords.StateLabel(m.State),
+            Tone: YourInboxWords.Tone(m.State),
             Unread: m.State == YourInboxWords.States.Unread,
             From: new YourInboxFromDto(m.FromKind, FromLabel(m, factoryTitles)),
             Links: Links(m, factoryTitles),

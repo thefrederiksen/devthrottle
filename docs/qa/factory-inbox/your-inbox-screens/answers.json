@@ -1,0 +1,939 @@
+{
+  "list-inbox": {
+    "request": "GET /gateway/inbox",
+    "status": 200,
+    "body": {
+      "view": "inbox",
+      "count": 6,
+      "unread": 5,
+      "unreadLabel": "5 unread",
+      "filters": [
+        {
+          "view": "unread",
+          "label": "Unread",
+          "count": 5
+        },
+        {
+          "view": "inbox",
+          "label": "All",
+          "count": 6
+        },
+        {
+          "view": "archived",
+          "label": "Archived",
+          "count": 1
+        }
+      ],
+      "empty": "Nothing for you. Factories and sessions write here instead of emailing you.",
+      "messages": [
+        {
+          "id": "066df65d-c2d8-4bc6-a6a8-703786522c27",
+          "subject": "Declined: Move Friday's shoot to Monday.",
+          "body": "Declined. The Boss's reason:\nThe client's contract fixes Friday; moving it breaks the contract.\n\nYour message (sent 2026-11-06 15:42 UTC):\nMove Friday's shoot to Monday.",
+          "state": "unread",
+          "stateLabel": "Unread",
+          "tone": "red",
+          "unread": true,
+          "from": {
+            "kind": "factory",
+            "label": "Booking - Boss"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open the session",
+              "target": "b0550000-0000-4000-8000-0000000000b1"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Booking",
+              "target": "booking"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Mark read"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "factory",
+            "label": "Reply into the Factory inbox of Booking"
+          },
+          "sentAtUtc": "2026-11-06T15:52:19Z",
+          "readAtUtc": null,
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "3f9dffbf-37d4-42d2-b588-f90719eca63c",
+          "subject": "v2.25 notes ready for your read",
+          "body": "The release notes for v2.25 are drafted. Read them when you can; I will wait for your word before tagging.",
+          "state": "unread",
+          "stateLabel": "Unread",
+          "tone": "red",
+          "unread": true,
+          "from": {
+            "kind": "session",
+            "label": "412 Release - Developer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 412 Release - Developer",
+              "target": "d3500000-0000-4000-8000-000000000412"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Mark read"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 412 Release - Developer"
+          },
+          "sentAtUtc": "2026-11-06T15:32:19Z",
+          "readAtUtc": null,
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "8576f288-ab2a-4b8b-85cc-419c54c5ac4b",
+          "subject": "Contact form fixed - one question",
+          "body": "The contact form sends again. Should the confirmation email come from you or from the team address?",
+          "state": "unread",
+          "stateLabel": "Unread",
+          "tone": "red",
+          "unread": true,
+          "from": {
+            "kind": "session",
+            "label": "250 Website - Writer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 250 Website - Writer",
+              "target": "e4d00000-0000-4000-8000-000000000250"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Mark read"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 250 Website - Writer"
+          },
+          "sentAtUtc": "2026-11-06T15:02:19Z",
+          "readAtUtc": null,
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "db0ca4a0-48cf-48e4-802f-8892375cc857",
+          "subject": "Pricing page copy needs your call",
+          "body": "Two versions of the pricing page headline are in the folder. Which one should go live?",
+          "state": "unread",
+          "stateLabel": "Unread",
+          "tone": "red",
+          "unread": true,
+          "from": {
+            "kind": "session",
+            "label": "302 Booking - Developer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 302 Booking - Developer",
+              "target": "5ea70000-0000-4000-8000-000000000302"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Booking",
+              "target": "booking"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Mark read"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 302 Booking - Developer"
+          },
+          "sentAtUtc": "2026-11-06T14:32:19Z",
+          "readAtUtc": null,
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "e834736f-5f2f-489d-a98b-805365d1d38e",
+          "subject": "Pushed back: reopen the shop for the holidays",
+          "body": "Pushed back. The Boss's reason:\nThe shop's supplier contract ended in October.\n\nYour message (sent 2026-11-06 12:02 UTC):\nReopen the shop for the holidays.",
+          "state": "unread",
+          "stateLabel": "Unread",
+          "tone": "red",
+          "unread": true,
+          "from": {
+            "kind": "factory",
+            "label": "Old Shop - Boss"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open the session",
+              "target": "b0550000-0000-4000-8000-0000000000b2"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Old Shop",
+              "target": "old-shop"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Mark read"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "factory",
+            "label": "Reply into the Factory inbox of Old Shop"
+          },
+          "sentAtUtc": "2026-11-06T12:42:19Z",
+          "readAtUtc": null,
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "b5cbcc62-3123-452f-9453-6cb804a55183",
+          "subject": "Backups checked",
+          "body": "Every Director's backup ran last night; nothing failed.",
+          "state": "read",
+          "stateLabel": "Read",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "250 Website - Writer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 250 Website - Writer",
+              "target": "e4d00000-0000-4000-8000-000000000250"
+            }
+          ],
+          "actions": [
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 250 Website - Writer"
+          },
+          "sentAtUtc": "2026-11-05T15:02:19Z",
+          "readAtUtc": "2026-11-05T15:07:19Z",
+          "archivedAtUtc": null,
+          "replies": null
+        }
+      ]
+    }
+  },
+  "count": {
+    "request": "GET /gateway/inbox/count",
+    "status": 200,
+    "body": {
+      "unread": 5,
+      "label": "5 unread"
+    }
+  },
+  "read-the-machine-token-refused": {
+    "request": "GET /gateway/inbox",
+    "status": 403,
+    "body": {
+      "error": "Your inbox is read only from the owner's phone or Cockpit.",
+      "code": "owner_device_required"
+    }
+  },
+  "list-after-the-run": {
+    "request": "GET /gateway/inbox",
+    "status": 200,
+    "body": {
+      "view": "inbox",
+      "count": 4,
+      "unread": 0,
+      "unreadLabel": "",
+      "filters": [
+        {
+          "view": "unread",
+          "label": "Unread",
+          "count": 0
+        },
+        {
+          "view": "inbox",
+          "label": "All",
+          "count": 4
+        },
+        {
+          "view": "archived",
+          "label": "Archived",
+          "count": 3
+        }
+      ],
+      "empty": "Nothing for you. Factories and sessions write here instead of emailing you.",
+      "messages": [
+        {
+          "id": "066df65d-c2d8-4bc6-a6a8-703786522c27",
+          "subject": "Declined: Move Friday's shoot to Monday.",
+          "body": "Declined. The Boss's reason:\nThe client's contract fixes Friday; moving it breaks the contract.\n\nYour message (sent 2026-11-06 15:42 UTC):\nMove Friday's shoot to Monday.",
+          "state": "read",
+          "stateLabel": "Read",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "factory",
+            "label": "Booking - Boss"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open the session",
+              "target": "b0550000-0000-4000-8000-0000000000b1"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Booking",
+              "target": "booking"
+            }
+          ],
+          "actions": [
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "factory",
+            "label": "Reply into the Factory inbox of Booking"
+          },
+          "sentAtUtc": "2026-11-06T15:52:19Z",
+          "readAtUtc": "2026-11-06T16:02:53.445641Z",
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "db0ca4a0-48cf-48e4-802f-8892375cc857",
+          "subject": "Pricing page copy needs your call",
+          "body": "Two versions of the pricing page headline are in the folder. Which one should go live?",
+          "state": "read",
+          "stateLabel": "Read",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "302 Booking - Developer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 302 Booking - Developer",
+              "target": "5ea70000-0000-4000-8000-000000000302"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Booking",
+              "target": "booking"
+            }
+          ],
+          "actions": [
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 302 Booking - Developer"
+          },
+          "sentAtUtc": "2026-11-06T14:32:19Z",
+          "readAtUtc": "2026-11-06T16:02:57.9457893Z",
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "e834736f-5f2f-489d-a98b-805365d1d38e",
+          "subject": "Pushed back: reopen the shop for the holidays",
+          "body": "Pushed back. The Boss's reason:\nThe shop's supplier contract ended in October.\n\nYour message (sent 2026-11-06 12:02 UTC):\nReopen the shop for the holidays.",
+          "state": "read",
+          "stateLabel": "Read",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "factory",
+            "label": "Old Shop - Boss"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open the session",
+              "target": "b0550000-0000-4000-8000-0000000000b2"
+            },
+            {
+              "kind": "factory",
+              "label": "Open Old Shop",
+              "target": "old-shop"
+            }
+          ],
+          "actions": [
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "factory",
+            "label": "Reply into the Factory inbox of Old Shop"
+          },
+          "sentAtUtc": "2026-11-06T12:42:19Z",
+          "readAtUtc": "2026-11-06T16:03:01.6934982Z",
+          "archivedAtUtc": null,
+          "replies": null
+        },
+        {
+          "id": "b5cbcc62-3123-452f-9453-6cb804a55183",
+          "subject": "Backups checked",
+          "body": "Every Director's backup ran last night; nothing failed.",
+          "state": "read",
+          "stateLabel": "Read",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "250 Website - Writer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 250 Website - Writer",
+              "target": "e4d00000-0000-4000-8000-000000000250"
+            }
+          ],
+          "actions": [
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            },
+            {
+              "state": "archived",
+              "label": "Archive"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 250 Website - Writer"
+          },
+          "sentAtUtc": "2026-11-05T15:02:19Z",
+          "readAtUtc": "2026-11-05T15:07:19Z",
+          "archivedAtUtc": null,
+          "replies": null
+        }
+      ]
+    }
+  },
+  "list-archived-after-the-run": {
+    "request": "GET /gateway/inbox?view=archived",
+    "status": 200,
+    "body": {
+      "view": "archived",
+      "count": 3,
+      "unread": 0,
+      "unreadLabel": "",
+      "filters": [
+        {
+          "view": "unread",
+          "label": "Unread",
+          "count": 0
+        },
+        {
+          "view": "inbox",
+          "label": "All",
+          "count": 4
+        },
+        {
+          "view": "archived",
+          "label": "Archived",
+          "count": 3
+        }
+      ],
+      "empty": "Nothing archived. An archived message stays here; nothing is ever deleted.",
+      "messages": [
+        {
+          "id": "3f9dffbf-37d4-42d2-b588-f90719eca63c",
+          "subject": "v2.25 notes ready for your read",
+          "body": "The release notes for v2.25 are drafted. Read them when you can; I will wait for your word before tagging.",
+          "state": "archived",
+          "stateLabel": "Archived",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "412 Release - Developer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 412 Release - Developer",
+              "target": "d3500000-0000-4000-8000-000000000412"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Move to inbox"
+            },
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 412 Release - Developer"
+          },
+          "sentAtUtc": "2026-11-06T15:32:19Z",
+          "readAtUtc": "2026-11-06T16:02:56.1441108Z",
+          "archivedAtUtc": "2026-11-06T16:03:00.0290482Z",
+          "replies": null
+        },
+        {
+          "id": "8576f288-ab2a-4b8b-85cc-419c54c5ac4b",
+          "subject": "Contact form fixed - one question",
+          "body": "The contact form sends again. Should the confirmation email come from you or from the team address?",
+          "state": "archived",
+          "stateLabel": "Archived",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "250 Website - Writer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 250 Website - Writer",
+              "target": "e4d00000-0000-4000-8000-000000000250"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Move to inbox"
+            },
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 250 Website - Writer"
+          },
+          "sentAtUtc": "2026-11-06T15:02:19Z",
+          "readAtUtc": "2026-11-06T16:02:45.1445287Z",
+          "archivedAtUtc": "2026-11-06T16:02:45.4193953Z",
+          "replies": null
+        },
+        {
+          "id": "50886c11-6dd3-4452-9053-bfd264b1fd14",
+          "subject": "Weekly cost report sent",
+          "body": "The weekly cost report for the fleet is in your reports.",
+          "state": "archived",
+          "stateLabel": "Archived",
+          "tone": "grey",
+          "unread": false,
+          "from": {
+            "kind": "session",
+            "label": "412 Release - Developer"
+          },
+          "links": [
+            {
+              "kind": "session",
+              "label": "Open 412 Release - Developer",
+              "target": "d3500000-0000-4000-8000-000000000412"
+            }
+          ],
+          "actions": [
+            {
+              "state": "read",
+              "label": "Move to inbox"
+            },
+            {
+              "state": "unread",
+              "label": "Mark unread"
+            }
+          ],
+          "replyTo": {
+            "target": "session",
+            "label": "Reply to 412 Release - Developer"
+          },
+          "sentAtUtc": "2026-11-04T14:02:19Z",
+          "readAtUtc": "2026-11-04T14:07:19Z",
+          "archivedAtUtc": "2026-11-04T14:07:19Z",
+          "replies": null
+        }
+      ]
+    }
+  },
+  "declined-message-with-its-replies": {
+    "request": "GET /gateway/inbox/066DF65D-C2D8-4BC6-A6A8-703786522C27",
+    "status": 200,
+    "body": {
+      "message": {
+        "id": "066df65d-c2d8-4bc6-a6a8-703786522c27",
+        "subject": "Declined: Move Friday's shoot to Monday.",
+        "body": "Declined. The Boss's reason:\nThe client's contract fixes Friday; moving it breaks the contract.\n\nYour message (sent 2026-11-06 15:42 UTC):\nMove Friday's shoot to Monday.",
+        "state": "read",
+        "stateLabel": "Read",
+        "tone": "grey",
+        "unread": false,
+        "from": {
+          "kind": "factory",
+          "label": "Booking - Boss"
+        },
+        "links": [
+          {
+            "kind": "session",
+            "label": "Open the session",
+            "target": "b0550000-0000-4000-8000-0000000000b1"
+          },
+          {
+            "kind": "factory",
+            "label": "Open Booking",
+            "target": "booking"
+          }
+        ],
+        "actions": [
+          {
+            "state": "unread",
+            "label": "Mark unread"
+          },
+          {
+            "state": "archived",
+            "label": "Archive"
+          }
+        ],
+        "replyTo": {
+          "target": "factory",
+          "label": "Reply into the Factory inbox of Booking"
+        },
+        "sentAtUtc": "2026-11-06T15:52:19Z",
+        "readAtUtc": "2026-11-06T16:02:53.445641Z",
+        "archivedAtUtc": null,
+        "replies": [
+          {
+            "id": "7b552d61-05f2-4c8d-b99b-e323d21de395",
+            "text": "Then keep Friday, and tell the client we confirmed.",
+            "routedTo": "factory",
+            "label": "Left in the Factory inbox of Booking",
+            "sentAtUtc": "2026-11-06T16:02:40.1059627Z"
+          },
+          {
+            "id": "3b779f19-e1a8-4d6e-b425-6286a50fc90f",
+            "text": "Agreed - keep Friday.",
+            "routedTo": "factory",
+            "label": "Left in the Factory inbox of Booking",
+            "sentAtUtc": "2026-11-06T16:02:55.1640819Z"
+          }
+        ]
+      }
+    }
+  },
+  "ended-seat-message-with-its-replies": {
+    "request": "GET /gateway/inbox/DB0CA4A0-48CF-48E4-802F-8892375CC857",
+    "status": 200,
+    "body": {
+      "message": {
+        "id": "db0ca4a0-48cf-48e4-802f-8892375cc857",
+        "subject": "Pricing page copy needs your call",
+        "body": "Two versions of the pricing page headline are in the folder. Which one should go live?",
+        "state": "read",
+        "stateLabel": "Read",
+        "tone": "grey",
+        "unread": false,
+        "from": {
+          "kind": "session",
+          "label": "302 Booking - Developer"
+        },
+        "links": [
+          {
+            "kind": "session",
+            "label": "Open 302 Booking - Developer",
+            "target": "5ea70000-0000-4000-8000-000000000302"
+          },
+          {
+            "kind": "factory",
+            "label": "Open Booking",
+            "target": "booking"
+          }
+        ],
+        "actions": [
+          {
+            "state": "unread",
+            "label": "Mark unread"
+          },
+          {
+            "state": "archived",
+            "label": "Archive"
+          }
+        ],
+        "replyTo": {
+          "target": "session",
+          "label": "Reply to 302 Booking - Developer"
+        },
+        "sentAtUtc": "2026-11-06T14:32:19Z",
+        "readAtUtc": "2026-11-06T16:02:57.9457893Z",
+        "archivedAtUtc": null,
+        "replies": [
+          {
+            "id": "bacf2166-21be-4430-adff-3e7dc659fa91",
+            "text": "Use the shorter headline.",
+            "routedTo": "factory",
+            "label": "Left in the Factory inbox of Booking",
+            "sentAtUtc": "2026-11-06T16:02:44.1873458Z"
+          }
+        ]
+      }
+    }
+  },
+  "ended-session-reply-offers": {
+    "request": "POST /gateway/inbox/DB0CA4A0-48CF-48E4-802F-8892375CC857/reply",
+    "status": 409,
+    "body": {
+      "error": "302 Booking - Developer has ended, so it cannot read a reply. Start a new session with the reply, or leave it in the Factory inbox of Booking, instead.",
+      "code": "session_ended",
+      "offers": [
+        {
+          "kind": "new-session",
+          "label": "Start a new session in /home/rig/booking with this reply",
+          "directorId": "rig-director-1",
+          "repoPath": "/home/rig/booking",
+          "prompt": "Session 302 Booking - Developer sent the owner a message in Your inbox and has since ended. Its subject was \"Pricing page copy needs your call\" and it said:\n\nTwo versions of the pricing page headline are in the folder. Which one should go live?\n\nThe owner's reply:\n\nA quoted answer.",
+          "factory": null
+        },
+        {
+          "kind": "factory",
+          "label": "Leave this reply in the Factory inbox of Booking",
+          "directorId": null,
+          "repoPath": null,
+          "prompt": null,
+          "factory": "booking"
+        }
+      ]
+    }
+  },
+  "archived-factory-reply-refused": {
+    "request": "POST /gateway/inbox/E834736F-5F2F-489D-A98B-805365D1D38E/reply",
+    "status": 409,
+    "body": {
+      "error": "'old-shop' is archived, so it takes no messages. Restore it from the Factories screen first. Nothing was sent.",
+      "code": "factory_archived"
+    }
+  },
+  "booking-factory-inbox-after-the-replies": {
+    "request": "GET /gateway/factory/booking/inbox",
+    "status": 200,
+    "body": {
+      "factory": "booking",
+      "title": "Booking",
+      "count": 4,
+      "messages": [
+        {
+          "id": "8dd402c6-8cd5-4668-950e-86811dd0ec48",
+          "factory": "booking",
+          "text": "Agreed - keep Friday.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "cockpit",
+          "sentAtUtc": "2026-11-06T16:02:55.1528576Z",
+          "state": "sent",
+          "stateLabel": "Sent",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": null,
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the Cockpit",
+              "atUtc": "2026-11-06T16:02:55.1528576Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "0bbf2eee-f5ee-40ac-9b51-3500b3e4a0aa",
+          "factory": "booking",
+          "text": "Use the shorter headline.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T16:02:44.1757379Z",
+          "state": "sent",
+          "stateLabel": "Sent",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": null,
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T16:02:44.1757379Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "d39ea140-5c0f-4918-8975-9e473de43ad7",
+          "factory": "booking",
+          "text": "Then keep Friday, and tell the client we confirmed.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T16:02:40.0939281Z",
+          "state": "sent",
+          "stateLabel": "Sent",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": null,
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T16:02:40.0939281Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        },
+        {
+          "id": "cbfefd4e-76a3-455f-9aa0-8ce7edd6b6d6",
+          "factory": "booking",
+          "text": "Move Friday's shoot to Monday.",
+          "rawText": null,
+          "note": "none",
+          "noteLabel": "",
+          "source": "typed",
+          "surface": "phone",
+          "sentAtUtc": "2026-11-06T16:02:33.1708623Z",
+          "state": "sent",
+          "stateLabel": "Sent",
+          "mergedInto": null,
+          "links": [],
+          "bundleId": null,
+          "decision": null,
+          "trail": [
+            {
+              "step": "sent",
+              "label": "Sent from the phone",
+              "atUtc": "2026-11-06T16:02:33.1708623Z"
+            }
+          ],
+          "tone": "amber",
+          "sourceLabel": "Typed"
+        }
+      ]
+    }
+  },
+  "list-empty": {
+    "request": "GET /gateway/inbox",
+    "status": 200,
+    "body": {
+      "view": "inbox",
+      "count": 0,
+      "unread": 0,
+      "unreadLabel": "",
+      "filters": [
+        {
+          "view": "unread",
+          "label": "Unread",
+          "count": 0
+        },
+        {
+          "view": "inbox",
+          "label": "All",
+          "count": 0
+        },
+        {
+          "view": "archived",
+          "label": "Archived",
+          "count": 7
+        }
+      ],
+      "empty": "Nothing for you. Factories and sessions write here instead of emailing you.",
+      "messages": []
+    }
+  },
+  "count-empty": {
+    "request": "GET /gateway/inbox/count",
+    "status": 200,
+    "body": {
+      "unread": 0,
+      "label": ""
+    }
+  }
+}

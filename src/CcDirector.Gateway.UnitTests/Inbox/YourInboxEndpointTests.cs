@@ -360,6 +360,68 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
         Assert.Equal("message_not_found", Code(missing));
     }
 
+    // ---------- the screen's filters, empty words and tones (Factory Inbox mission, step C) ----------
+
+    [Fact]
+    public async Task List_CarriesTheFiltersInOrder_WithTheirWordsAndCounts()
+    {
+        var first = await SendFrom(Developer, "first");
+        var second = await SendFrom(Boss, "second");
+        await SendFrom(Developer, "third");
+        await Post($"/gateway/inbox/{first}/state", Phone, new { state = "read" });
+        await Post($"/gateway/inbox/{second}/state", Phone, new { state = "archived" });
+
+        var (_, body) = await Get("/gateway/inbox", Phone);
+
+        var filters = body.GetProperty("filters").EnumerateArray()
+            .Select(f => (f.GetProperty("view").GetString(), f.GetProperty("label").GetString(), f.GetProperty("count").GetInt32()))
+            .ToList();
+        Assert.Equal(new List<(string?, string?, int)> { ("unread", "Unread", 1), ("inbox", "All", 2), ("archived", "Archived", 1) }, filters);
+    }
+
+    [Fact]
+    public async Task List_TheUnreadView_HoldsOnlyUnreadMessages()
+    {
+        var first = await SendFrom(Developer, "first");
+        await SendFrom(Developer, "second");
+        await Post($"/gateway/inbox/{first}/state", Phone, new { state = "read" });
+
+        var (status, body) = await Get("/gateway/inbox?view=unread", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("unread", body.GetProperty("view").GetString());
+        Assert.Equal(1, body.GetProperty("count").GetInt32());
+        var message = Assert.Single(body.GetProperty("messages").EnumerateArray());
+        Assert.Equal("second", message.GetProperty("subject").GetString());
+    }
+
+    [Theory]
+    [InlineData("inbox", "Nothing for you. Factories and sessions write here instead of emailing you.")]
+    [InlineData("unread", "Nothing unread.")]
+    [InlineData("archived", "Nothing archived. An archived message stays here; nothing is ever deleted.")]
+    public async Task List_AnEmptyView_SaysSoInTheGatewaysWords(string view, string expected)
+    {
+        var (_, body) = await Get($"/gateway/inbox?view={view}", Phone);
+
+        Assert.Equal(0, body.GetProperty("count").GetInt32());
+        Assert.Equal(expected, body.GetProperty("empty").GetString());
+    }
+
+    [Fact]
+    public async Task List_EachMessageCarriesTheToneOfItsState()
+    {
+        var first = await SendFrom(Developer, "first");
+        await SendFrom(Developer, "second");
+        await Post($"/gateway/inbox/{first}/state", Phone, new { state = "read" });
+
+        var (_, body) = await Get("/gateway/inbox", Phone);
+
+        var tones = body.GetProperty("messages").EnumerateArray()
+            .ToDictionary(m => m.GetProperty("subject").GetString()!, m => m.GetProperty("tone").GetString());
+        Assert.Equal("red", tones["second"]);
+        Assert.Equal("grey", tones["first"]);
+    }
+
     [Fact]
     public async Task List_ABadViewOrLimit_IsRefused()
     {

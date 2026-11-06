@@ -36,6 +36,12 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
   getFactoryAgentsSwitch: vi.fn(async () => ({ enabled: factory.enabled })),
 }));
 
+// The Gateway's unread count of Your inbox (Factory Inbox mission, step C): the Inbox entry prints it as it is.
+const yourInbox = vi.hoisted(() => ({ unread: 0, label: "" }));
+vi.mock("@devthrottle/client-core/yourinbox/yourInboxClient", () => ({
+  getYourInboxCount: vi.fn(async () => ({ unread: yourInbox.unread, label: yourInbox.label })),
+}));
+
 // The person's teams (devthrottle_internal#2312). The team switch in the menu behind your name follows the Gateway's
 // answer, and so does the rail's team block.
 const myTeams = vi.hoisted(() => ({
@@ -164,6 +170,7 @@ import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { resetFactoryInboxOfferCache } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
+import { resetYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
 import { getMailDeskChannels } from "@devthrottle/client-core/maildesk/mailDeskClient";
 import { resetBoxesSwitchCache } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 
@@ -187,6 +194,9 @@ describe("Cockpit left rail", () => {
     factory.enabled = false;
     resetFactorySwitchCache();
     resetFactoryInboxOfferCache();
+    resetYourInboxCount();
+    yourInbox.unread = 0;
+    yourInbox.label = "";
     myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     myTeams.held = null;
     vi.clearAllMocks();
@@ -450,6 +460,27 @@ describe("Cockpit left rail", () => {
       const work = Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
       expect(work.indexOf("Inbox")).toBe(work.indexOf("Factories") + 1);
       expect(screen.getByRole("link", { name: /Inbox/ }).getAttribute("href")).toBe("/inbox");
+    });
+
+    // Section 7 of the mission: the unread count on the Inbox entry equals the Gateway's count.
+    it("carries the Gateway's unread count of Your inbox, with the Gateway's words as its hover text", async () => {
+      factory.enabled = true;
+      yourInbox.unread = 37;
+      yourInbox.label = "thirty-seven fresh (gateway)";
+      renderShell();
+
+      const link = await screen.findByRole("link", { name: /Inbox/ });
+      await waitFor(() => expect(link.querySelector(".nav-badge")?.textContent).toBe("37"));
+      expect(link.querySelector(".nav-badge")?.getAttribute("title")).toBe("thirty-seven fresh (gateway)");
+    });
+
+    it("carries no count when the Gateway says nothing is unread", async () => {
+      factory.enabled = true;
+      renderShell();
+
+      const link = await screen.findByRole("link", { name: /Inbox/ });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(link.querySelector(".nav-badge")).toBeNull();
     });
 
     it("is not drawn when the Gateway says factories are off", async () => {

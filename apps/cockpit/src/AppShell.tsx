@@ -17,6 +17,7 @@ import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
+import { useYourInboxCount, type YourInboxCountAnswer } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
 import { useBoxesSwitch } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
 import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
@@ -453,10 +454,13 @@ function WorkSection({
   const mentorOffered = useMentorEntry();
   const mailDeskOffered = useMailDeskEntry();
   const inboxOffered = useFactoryInboxOffered().offer === "on";
+  // The Gateway's unread count of Your inbox beside the entry (Factory Inbox mission, step C), read only while the entry
+  // is shown.
+  const inboxCount = useYourInboxCount(inboxOffered);
   const boxesOffered = useBoxesSwitch().state === "on";
   const reports =
     team === null ? REPORTS_ITEM : teamPagesNav(team.app, counts).find((item) => item.to === reportsPath(team)) ?? null;
-  const withInbox = inboxOffered ? withInboxItem(NAV_WORK) : NAV_WORK;
+  const withInbox = inboxOffered ? withInboxItem(NAV_WORK, inboxCount) : NAV_WORK;
   const withDesk = mailDeskOffered ? withMailDesk(withInbox) : withInbox;
   const work = boxesOffered ? withBoxes(withDesk) : withDesk;
   const items = [...work, ...(mentorOffered ? [MENTOR_ITEM] : []), ...(reports !== null ? [reports] : [])];
@@ -467,10 +471,11 @@ function WorkSection({
   );
 }
 
-/** The Work items with the Inbox directly after Factories. */
-function withInboxItem(items: ReadonlyArray<NavItem>): NavItem[] {
+/** The Work items with the Inbox directly after Factories, carrying the Gateway's unread count and its words. */
+function withInboxItem(items: ReadonlyArray<NavItem>, count: YourInboxCountAnswer): NavItem[] {
   const at = items.findIndex((item) => item.to === "/factories") + 1;
-  return [...items.slice(0, at), INBOX_ITEM, ...items.slice(at)];
+  const inbox: NavItem = count === null ? INBOX_ITEM : { ...INBOX_ITEM, badge: count.unread, badgeTitle: count.label };
+  return [...items.slice(0, at), inbox, ...items.slice(at)];
 }
 
 /** The Work items with the Mail Desk directly after Factories (and the Inbox, when it is there). */
