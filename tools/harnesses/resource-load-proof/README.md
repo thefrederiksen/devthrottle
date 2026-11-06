@@ -28,13 +28,17 @@ The diagnosis check (mission item 6) runs inside steps 2 and 3, on the reading t
 minute, so the newest line the diagnose command can see may be up to a minute old. A step counts a sample only if
 it was TAKEN after the change (the load starting, or stopping), and the 70 seconds are measured from the change to
 that sample's `takenAtUtc` - never to the moment the harness happened to read it. The harness polls for up to 145
-seconds (the limit, plus the one-minute write interval, plus three polls) to see that sample. So a stopped Director
-whose last line was red can never pass "red", and one whose last line was normal can never pass "clear". For the
+seconds (the limit, plus the one-minute write interval, plus three polls) to see that sample. Because the recorder
+appends a whole minute of lines at once, each poll reads every sample of the last five minutes and judges on the
+EARLIEST one after the change that meets the condition, not the newest. So a stopped Director whose last line was
+red can never pass "red", one whose last line was normal can never pass "clear", and a meter that turned red at 65
+seconds is not reported as red at 110. The idle step fails outright when the newest sample is more than 70 seconds
+old: a Director that is not recording has nothing to compare. For the
 memory step the clock starts once the machine is held short of memory, not while it is being filled.
 
 ## Where each figure comes from
 
-**Ours** comes from the Director, through its own diagnose command, `cc-devthrottle machine diagnose --json`
+**Ours** comes from the Director, through its own diagnose command, `cc-devthrottle machine diagnose --json --samples --minutes 5`
 (change it with `--diagnose-command`). That command reports the newest sample the Director recorded, with the
 verdict and the diagnosis it recorded beside it, so the harness reads exactly what the meter was handed. It
 reads these fields and stops with the name of any that is missing:
@@ -78,7 +82,7 @@ The recording is written by the sampler, so the meter steps need a Director buil
 | Option | Meaning |
 |---|---|
 | `--report <folder>` | Required. Where the readings and screenshots go. |
-| `--diagnose-command "<cmd>"` | Prints the Director's diagnose JSON for steps 1 to 3. Default `cc-devthrottle machine diagnose --json`. |
+| `--diagnose-command "<cmd>"` | Prints the Director's diagnose JSON for steps 1 to 3. Default `cc-devthrottle machine diagnose --json --samples --minutes 5`. |
 | `--screenshot-command "<cmd>"` | With `{path}`. The default is the platform's own: a .NET screen copy on Windows, `screencapture -x` on macOS, `gnome-screenshot -f` on Linux. |
 | `--gateway-block`, `--gateway-unblock` | Commands that cut the Director off from its Gateway and restore it. |
 | `--gateway-rows "<cmd>"` | Prints a JSON array of the window start times stored for this machine, each with its offset ("Z"); a time with none is refused. |

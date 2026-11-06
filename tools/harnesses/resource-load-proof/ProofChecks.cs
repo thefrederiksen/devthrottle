@@ -247,6 +247,50 @@ public static class ProofChecks
         var newest = Required(document.RootElement, "newest", "the root");
         if (newest.ValueKind == JsonValueKind.Null)
             throw new FormatException("The diagnose output has no newest sample: the Director has recorded nothing yet, so there is no meter to read.");
+        return ParseLine(newest, json);
+    }
+
+    /// <summary>
+    /// Reads every sample of the window from <c>cc-devthrottle machine diagnose --json --samples</c>, oldest first.
+    /// The recorder writes a whole minute of lines in one append, so the newest line alone is the END of a batch:
+    /// judging a time limit on it would report a meter that turned red at 65 seconds as red at 110. The harness
+    /// therefore reads them all and judges on the earliest one that meets the condition - see <see cref="FirstMeeting"/>.
+    /// An empty or absent list is an error, never a clean window.
+    /// </summary>
+    public static IReadOnlyList<MeterObservation> ParseDiagnoseSamples(string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        using var document = JsonDocument.Parse(json);
+        var samples = Required(document.RootElement, "samples", "the root");
+        if (samples.ValueKind != JsonValueKind.Array)
+            throw new FormatException("The diagnose output carries no samples list; run the command with --json --samples.");
+        var observations = samples.EnumerateArray().Select(line => ParseLine(line, line.GetRawText())).ToList();
+        if (observations.Count == 0)
+            throw new FormatException("The diagnose output's window holds no samples: the Director recorded nothing in it, so there is no meter to read.");
+        return observations.OrderBy(observation => observation.TakenAtUtc).ToList();
+    }
+
+    /// <summary>
+    /// The earliest sample taken at or after <paramref name="changeUtc"/> that meets <paramref name="condition"/>, or
+    /// null when none has yet. A sample from before the change never counts, so a stopped Director's old lines
+    /// cannot pass.
+    /// </summary>
+    public static MeterObservation? FirstMeeting(IReadOnlyList<MeterObservation> samples, DateTime changeUtc, Func<MeterObservation, bool> condition)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        ArgumentNullException.ThrowIfNull(condition);
+        return samples.Where(sample => sample.TakenAtUtc >= changeUtc).OrderBy(sample => sample.TakenAtUtc).FirstOrDefault(condition);
+    }
+
+    /// <summary>
+    /// How old the newest recorded sample may be for the idle comparison to mean anything: the recorder's one-minute
+    /// write interval plus two five-second samples. An older one is a stopped or stuck Director, and comparing it with
+    /// the operating system's figure on an idle machine would agree by luck.
+    /// </summary>
+    public static readonly TimeSpan FreshSampleAge = TimeSpan.FromSeconds(60 + 10);
+
+    private static MeterObservation ParseLine(JsonElement newest, string json)
+    {
 
         var levels = new Dictionary<string, MeterLevel>(StringComparer.Ordinal);
         var verdict = Required(newest, "verdict", "newest");

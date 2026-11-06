@@ -100,10 +100,11 @@ internal static class Harness
         private readonly ScreenCapture _screen = new(options.ScreenshotCommand);
         private readonly OsMonitor _os = new(options.Interactive);
 
-        private MeterObservation Observe()
-        {
-            return ProofChecks.ParseDiagnoseJson(Shell.Run(options.DiagnoseCommand, TimeSpan.FromSeconds(60)));
-        }
+        private MeterObservation Observe() =>
+            ProofChecks.ParseDiagnoseJson(Shell.Run(options.DiagnoseCommand, TimeSpan.FromSeconds(60)));
+
+        private IReadOnlyList<MeterObservation> ObserveWindow() =>
+            ProofChecks.ParseDiagnoseSamples(Shell.Run(options.DiagnoseCommand, TimeSpan.FromSeconds(60)));
 
         private string Shot(string name)
         {
@@ -117,19 +118,22 @@ internal static class Harness
         // minute old: an observation counts only by the time its sample was taken, never by when the harness read it,
         // so a stopped Director whose last line happens to be red can never pass "red". The verdict is then judged on
         // the sample's own time against the 70-second limit.
+        // Every poll reads the whole window of recorded samples and judges on the EARLIEST one taken after the change
+        // that meets the condition, because the recorder appends a minute of lines at once.
         private WaitResult WaitFor(Func<MeterObservation, bool> condition, DateTime sinceUtc, string what)
         {
             var clock = Stopwatch.StartNew();
             while (true)
             {
-                var observation = Observe();
-                var fresh = observation.TakenAtUtc >= sinceUtc;
-                Console.WriteLine($"[wait] {clock.Elapsed.TotalSeconds,5:F0} s  sample {observation.TakenAtUtc:HH:mm:ss}{(fresh ? "" : " (before the change)")}  CPU {Describe(observation.Cpu)}  MEM {Describe(observation.Memory)}  waiting for {what}");
-                if (fresh && condition(observation))
-                    return new WaitResult(ProofChecks.WithinWarningDeadline(sinceUtc, observation.TakenAtUtc), observation,
-                        observation.TakenAtUtc - sinceUtc, Seen: true);
+                var window = ObserveWindow();
+                var newest = window[^1];
+                var first = ProofChecks.FirstMeeting(window, sinceUtc, condition);
+                Console.WriteLine($"[wait] {clock.Elapsed.TotalSeconds,5:F0} s  newest sample {newest.TakenAtUtc:HH:mm:ss}{(newest.TakenAtUtc >= sinceUtc ? "" : " (before the change)")}  CPU {Describe(newest.Cpu)}  MEM {Describe(newest.Memory)}  waiting for {what}");
+                if (first is not null)
+                    return new WaitResult(ProofChecks.WithinWarningDeadline(sinceUtc, first.TakenAtUtc), first,
+                        first.TakenAtUtc - sinceUtc, Seen: true);
                 if (clock.Elapsed >= ProofChecks.PollDeadline)
-                    return new WaitResult(false, observation, observation.TakenAtUtc - sinceUtc, Seen: false);
+                    return new WaitResult(false, newest, newest.TakenAtUtc - sinceUtc, Seen: false);
                 Thread.Sleep(Poll);
             }
         }
@@ -148,7 +152,11 @@ internal static class Harness
             var shot = Shot("1-idle-meter");
             var cpu = ProofChecks.Agreement("CPU", ours.Cpu.Percent, _os.Cpu(ours.Cpu.Percent, options.OsCpu));
             var memory = ProofChecks.Agreement("MEM", ours.Memory.Percent, _os.Memory(ours.Memory.Percent, options.OsMemory));
-            return new StepResult("", cpu.Passed && memory.Passed, $"{cpu.Summary}; {memory.Summary}",
+            var fresh = age <= ProofChecks.FreshSampleAge;
+            var freshness = fresh
+                ? $"the sample was {age.TotalSeconds:F0} s old"
+                : $"the newest sample was {age.TotalSeconds:F0} s old, past {ProofChecks.FreshSampleAge.TotalSeconds:F0} s - the Director is not recording, so nothing was compared";
+            return new StepResult("", fresh && cpu.Passed && memory.Passed, $"{cpu.Summary}; {memory.Summary}; {freshness}",
                 new()
                 {
                     ["cpu"] = cpu.Summary,
@@ -318,7 +326,7 @@ internal sealed record Options(
             --cost      5. the sampler's own processor cost over 10 minutes, under 0.5% of one core
           options:
             --diagnose-command "<cmd>"   prints the Director's diagnose JSON (steps 1-3);
-                                         default: cc-devthrottle machine diagnose --json
+                                         default: cc-devthrottle machine diagnose --json --samples --minutes 5
             --screenshot-command "<cmd>" with {path}; default is the platform's own
             --non-interactive            never prompt; pass --os-cpu and --os-mem instead
             --os-cpu <percent> --os-mem <percent>   the operating system's figures, read by hand
@@ -327,7 +335,7 @@ internal sealed record Options(
         """;
 
     /// <summary>The Director's own diagnose command, which reports the newest sample, verdict and diagnosis it recorded.</summary>
-    public const string DefaultDiagnoseCommand = "cc-devthrottle machine diagnose --json";
+    public const string DefaultDiagnoseCommand = "cc-devthrottle machine diagnose --json --samples --minutes 5";
 
     private static readonly string[] SwitchFlags = ["--idle", "--cpu", "--memory", "--gateway", "--cost", "--non-interactive"];
 
@@ -341,19 +349,23 @@ internal sealed record Options(
     {
         // An argument the harness does not know is refused, so a misspelt step ("--memroy") fails the run instead of
         // quietly being skipped while the run reports PASS (docs/axi-standard.md).
+        // One walk both validates and reads, so a value is never mistaken for a flag ("--report --idle" is refused).
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var switches = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < args.Length; i++)
         {
-            if (ValueFlags.Contains(args[i])) { i++; continue; }
+            if (ValueFlags.Contains(args[i]))
+            {
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                    throw new ArgumentException($"{args[i]} needs a value.");
+                values[args[i]] = args[++i];
+                continue;
+            }
             if (!SwitchFlags.Contains(args[i])) throw new ArgumentException($"Unknown argument \"{args[i]}\".");
+            switches.Add(args[i]);
         }
 
-        string? Value(string name)
-        {
-            var index = Array.IndexOf(args, name);
-            if (index < 0) return null;
-            if (index + 1 >= args.Length) throw new ArgumentException($"{name} needs a value.");
-            return args[index + 1];
-        }
+        string? Value(string name) => values.TryGetValue(name, out var value) ? value : null;
 
         double? Percent(string name) =>
             Value(name) is { } text
@@ -370,11 +382,11 @@ internal sealed record Options(
                 : null;
 
         var options = new Options(
-            args.Contains("--idle"), args.Contains("--cpu"), args.Contains("--memory"), args.Contains("--gateway"), args.Contains("--cost"),
+            switches.Contains("--idle"), switches.Contains("--cpu"), switches.Contains("--memory"), switches.Contains("--gateway"), switches.Contains("--cost"),
             Value("--report") ?? throw new ArgumentException("--report <folder> is required."),
             Value("--diagnose-command") ?? DefaultDiagnoseCommand,
             Value("--screenshot-command"),
-            !args.Contains("--non-interactive"),
+            !switches.Contains("--non-interactive"),
             Percent("--os-cpu"), Percent("--os-mem"),
             Value("--gateway-block"), Value("--gateway-unblock"), Value("--gateway-rows"), Whole("--gateway-minutes") ?? 10,
             Whole("--cost-pid"), Whole("--cost-minutes") ?? 10);

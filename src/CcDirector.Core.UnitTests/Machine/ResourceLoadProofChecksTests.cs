@@ -54,6 +54,63 @@ public class ResourceLoadProofChecksTests
         Assert.True(ProofChecks.PollDeadline >= ProofChecks.WarningDeadline + CcDirector.Core.Machine.ResourceRecorder.WriteEvery);
     }
 
+    private static MeterObservation At(int secondsAfterNoon, MeterLevel cpu) =>
+        new(new MeterBar(true, 50, cpu), new MeterBar(true, 50, MeterLevel.Normal), true, false, "None", Noon.AddSeconds(secondsAfterNoon), "{}");
+
+    [Fact]
+    public void FirstMeeting_ABatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
+    {
+        // The recorder appended T+55 to T+110 at once; red was first recorded at T+65.
+        var batch = Enumerable.Range(11, 12).Select(i => At(i * 5, i * 5 >= 65 ? MeterLevel.Critical : MeterLevel.Normal)).ToList();
+
+        var first = ProofChecks.FirstMeeting(batch, Noon, o => o.Cpu.Level == MeterLevel.Critical);
+
+        Assert.Equal(Noon.AddSeconds(65), first!.TakenAtUtc);
+        Assert.True(ProofChecks.WithinWarningDeadline(Noon, first.TakenAtUtc));
+        Assert.False(ProofChecks.WithinWarningDeadline(Noon, batch[^1].TakenAtUtc));
+    }
+
+    [Fact]
+    public void FirstMeeting_OnlyLinesBeforeTheChangeMatch_IsNull_AStoppedDirectorNeverPasses()
+    {
+        var old = new[] { At(-30, MeterLevel.Critical), At(-25, MeterLevel.Critical) };
+
+        Assert.Null(ProofChecks.FirstMeeting(old, Noon, o => o.Cpu.Level == MeterLevel.Critical));
+    }
+
+    [Fact]
+    public void ParseDiagnoseSamples_ReadsEveryLineOldestFirst()
+    {
+        var path = Path.Combine(CcDirector.TestInfrastructure.RepositorySourceIndex.Root,
+            "tools", "cc-devthrottle", "tests", "fixtures", "resource-recording", "samples-000000000000.jsonl");
+        var lines = File.ReadAllLines(path).Where(line => line.Length > 0).Reverse().ToList();
+
+        var samples = ProofChecks.ParseDiagnoseSamples($"{{ \"samples\": [{string.Join(",", lines)}] }}");
+
+        Assert.Equal(lines.Count, samples.Count);
+        Assert.True(samples.Zip(samples.Skip(1)).All(pair => pair.First.TakenAtUtc <= pair.Second.TakenAtUtc));
+    }
+
+    [Fact]
+    public void ParseDiagnoseSamples_EmptyWindow_Throws_NeverAClean_Window()
+    {
+        Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseSamples("""{ "samples": [] }"""));
+    }
+
+    [Fact]
+    public void ParseDiagnoseSamples_WithoutTheSamplesFlag_Throws_SayingSo()
+    {
+        var error = Assert.Throws<FormatException>(() => ProofChecks.ParseDiagnoseSamples("""{ "samples": null }"""));
+
+        Assert.Contains("--samples", error.Message);
+    }
+
+    [Fact]
+    public void FreshSampleAge_IsTheWriteIntervalPlusTwoSamples()
+    {
+        Assert.Equal(CcDirector.Core.Machine.ResourceRecorder.WriteEvery + TimeSpan.FromSeconds(10), ProofChecks.FreshSampleAge);
+    }
+
     // ---- the Gateway rows ----
 
     [Fact]
