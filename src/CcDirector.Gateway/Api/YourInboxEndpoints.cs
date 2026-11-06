@@ -67,6 +67,9 @@ internal static class YourInboxEndpoints
     /// <param name="DeliverToSession">Write a notice from the Gateway into a session's inbox; its doorbell rings it when it
     /// is free.</param>
     /// <param name="SendToFactory">Leave the owner's message in a factory's Factory inbox (<c>FactoryInboxStore.SendAsync</c>).</param>
+    /// <param name="MessageSent">Tells the factory inbox wake a message was left (<c>FactoryInboxWake.MessageSent</c>), exactly
+    /// as the owner's own send to a factory does, so a reply from Your inbox is looked at when its gather window closes and
+    /// not only at the next heartbeat.</param>
     internal sealed record Parts(
         YourInboxStore Store,
         Func<HttpContext, TenantId?> ResolveTenant,
@@ -78,6 +81,7 @@ internal static class YourInboxEndpoints
         Func<TenantId, string, YourInboxSessionPlace?> PlaceOf,
         Func<TenantId, string, string, FleetSendOutcome> DeliverToSession,
         Func<TenantId, FactoryInboxSendInput, CancellationToken, Task<FactoryInboxMessageEntity>> SendToFactory,
+        Action<TenantId, string, DateTime> MessageSent,
         Func<DateTime> NowUtc);
 
     public static void Map(IEndpointRouteBuilder app, Parts parts)
@@ -157,6 +161,8 @@ internal static class YourInboxEndpoints
             });
         });
 
+        // No entry log line, on purpose: this is the route a phone polls for the Inbox entry's count, and a line per poll
+        // would bury the log. A refusal is still answered with its reason, and every write route logs.
         app.MapGet(OwnerPrefix + "/count", (HttpContext ctx) =>
         {
             if (Owner(parts, ctx, out var tenant, out _) is { } refused) return refused;
@@ -247,6 +253,9 @@ internal static class YourInboxEndpoints
 
         // RUNNING (waiting or working): into its inbox as a notice from the Gateway, read when it is free. The doorbell rings
         // it; nothing is typed into it mid-turn.
+        // THE ORDER IS DELIBERATE, here and in the factory reply below: deliver first, then record. If the record fails, the
+        // reply has gone and the owner sees an error and no record - he is told. The other order would leave a record of a
+        // reply that never went, which tells him something false. Do not swap them.
         var outcome = parts.DeliverToSession(tenant, sessionId, YourInboxFold.ReplyForSession(message, text));
         if (outcome.Outcome is not (FleetMessageOutcome.Queued or FleetMessageOutcome.DuplicateDropped))
             throw new InvalidOperationException(
@@ -283,6 +292,8 @@ internal static class YourInboxEndpoints
             Surface: surface == SessionOriginSurfaces.Phone ? FactoryInboxWords.Surfaces.Phone : FactoryInboxWords.Surfaces.Cockpit,
             SentBy: device.DeviceId,
             NowUtc: parts.NowUtc()), ct);
+        // The same event as the owner's own send to a factory: the wake looks at the factory when the window closes.
+        parts.MessageSent(tenant, left.Factory, left.SentAtUtc);
         var reply = parts.Store.AddReply(tenant, message, text, YourInboxWords.ReplyTargets.Factory, null, registered.Factory,
             null, left.Id, device.DeviceId, parts.NowUtc());
         FileLog.Write($"[YourInboxEndpoints] reply {reply.Id} on {message.Id} left in the Factory inbox of {registered.Factory} as {left.Id}");

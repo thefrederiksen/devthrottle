@@ -6900,6 +6900,8 @@ public sealed class GatewayHost : IAsyncDisposable
                     Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System);
             },
             SendToFactory: (tenant, input, ct) => FactoryInbox.SendAsync(tenant, input, ct),
+            // The same event as the owner's own send to a factory; the reply route does not wait for the look.
+            MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
             NowUtc: () => DateTime.UtcNow));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,

@@ -62,6 +62,7 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
     private DateTime _now = new(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
     private readonly HashSet<string> _ended = new(StringComparer.Ordinal) { Ended, EndedNowhere, EndedSeat };
     private int _deliveries;
+    private readonly List<(TenantId Tenant, string Factory, DateTime SentAtUtc)> _wakes = [];
 
     private static readonly Dictionary<string, DevReportSessionNaming> Names = new(StringComparer.Ordinal)
     {
@@ -116,6 +117,7 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
                 return _fleet.Send(tenant, null, new FleetParty(sid, null, null, null), text, FleetMessageKinds.System, FleetMessageExemption.System);
             },
             SendToFactory: (tenant, input, ct) => _factoryInbox.SendAsync(tenant, input, ct),
+            MessageSent: (tenant, factory, sentAtUtc) => _wakes.Add((tenant, factory, sentAtUtc)),
             NowUtc: () => _now));
         await app.StartAsync();
         _app = app;
@@ -491,6 +493,9 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
         Assert.Equal("booking", reply.Factory);
         Assert.Null(reply.SessionId);
         Assert.Equal(0, _deliveries);
+        // The wake is told, exactly as the owner's own send to the factory tells it.
+        var wake = Assert.Single(_wakes);
+        Assert.Equal((A, "booking", left.SentAtUtc), wake);
     }
 
     [Fact]
@@ -505,6 +510,7 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
         Assert.Equal("factory_archived", Code(body));
         Assert.Equal(0, _factoryInbox.Thread(A, "booking", 10).Total);
         Assert.Empty(_store.Replies(A, id));
+        Assert.Empty(_wakes);
     }
 
     [Fact]

@@ -141,3 +141,28 @@ once each per call. The reply route reads liveness and, for an ended session, th
 
 Out of this phase and not reviewed: the morning summary as a Your inbox message (phase 5), the screens (phase 4),
 the terminology entries (phase 0).
+
+## The author's answers to the four notes (6 November 2026, on the rebase onto main)
+
+1. **A reply left in a Factory inbox does not call the wake's `MessageSent`. Accepted.** `YourInboxEndpoints.Parts`
+   gains a required `MessageSent` part, the same shape as the Factory inbox routes' own, and `ReplyIntoFactoryAsync`
+   calls it after the store write with the left message's factory and sent time. The host wires it to
+   `TheFactoryInboxWake().MessageSent` exactly as the owner's own send does, without waiting for the look. So the two
+   sends are now identical, and the heartbeat is a backstop again rather than the only path.
+   `Reply_ToAFactorysMessage_IsLeftInThatFactorysInbox_AsTheOwnersOwnTypedMessage` now asserts the wake is told once,
+   with the tenant, the factory and the stored sent time; the archived-factory refusal asserts it is not told.
+2. **A reply is delivered before it is recorded. Accepted, as a comment.** The order stays. A comment above the
+   running-session delivery in `YourInboxEndpoints` says the order is deliberate for both routes, why the other
+   order would be worse (a record of a reply that never went), and "Do not swap them."
+3. **`GET /gateway/inbox/count` writes no entry log line. Accepted, as a comment.** The route stays silent; a comment
+   above it says that is on purpose because a phone polls it, that a refusal is still answered with its reason, and
+   that every write route logs.
+4. **The command line reference names the routes. Accepted.** The paragraph in `docs/cli-reference.md` under
+   `inbox send` now says what a session may and may not do in plain words - the owner's routes take only his phone or
+   Cockpit, a session key and the machine token are refused, a session sends only as itself - with no route names, so
+   a renamed route cannot leave it stale.
+
+The rebase itself: the old `AddYourInbox` migrations (SQLite `20261106090441`, Postgres `20261106090535`) were dropped
+and regenerated with `dotnet ef migrations add AddYourInbox` after main's `AddFactoryBossStarts`: SQLite
+`20261106145000_AddYourInbox`, Postgres `20261106145006_AddYourInbox`. Both `Up` and `Down` bodies are byte-identical
+to the old ones (no table shape changed), and each new designer's model is identical to its project's snapshot.

@@ -1304,10 +1304,9 @@ The owner may reply from his inbox. While this session runs, the reply arrives i
 read it with `message inbox`; it is never typed into the session. After the session has ended, the
 reply is not sent: the owner is told so and offered a new session that starts with the reply.
 
-A session never reads, marks or replies from the owner's inbox. Those routes - `GET /gateway/inbox`,
-`GET /gateway/inbox/count`, `GET /gateway/inbox/{id}`, `POST /gateway/inbox/{id}/state` and
-`POST /gateway/inbox/{id}/reply` - take only the owner's phone or Cockpit key; a session key and the
-machine token are refused. The send is `POST /sessions/{sid}/inbox`, for the calling session only.
+A session never reads, marks or replies from the owner's inbox: the Gateway takes those only from the
+owner's phone or Cockpit, and refuses a session key and the machine token. A session sends only as
+itself.
 
 ### Session Spawn
 
