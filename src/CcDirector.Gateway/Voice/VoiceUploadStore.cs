@@ -675,23 +675,50 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
         => target is not null && target.StartsWith(FactoryInboxTargetPrefix, StringComparison.Ordinal);
 
     /// <summary>
+    /// Told the upload id of every record file read by <see cref="PendingFor"/> and by the one-time partition read
+    /// behind it, so a test can prove the thread no longer reads every upload of the account. On the instance, not
+    /// static, so tests running side by side cannot see each other's reads.
+    /// </summary>
+    internal Action<string>? RecordReadForTests { get; set; }
+
+    /// <summary>
     /// The recordings still PENDING for one target, oldest activity first: registered and not yet delivered, abandoned
     /// or refused for good. Used by the factory inbox thread to show every held spoken message, so a recording the
     /// transcription has not managed yet is never invisible. Only canonical upload directories whose record this build
     /// can read, belonging to this partition's tenant, are counted - anything else is not provably a held recording.
+    ///
+    /// WHY IT ASKS THE INDEX AND NOT THE DISK. This used to list every upload directory of the partition and take each
+    /// one's lock and read each one's record.json on every thread read. On the hosted Gateway the partition lives on an
+    /// Azure Files share where every one of those is a network round trip, and an account with years of dictation
+    /// tombstones made ONE factory's thread take about seventy seconds - even a factory with nothing held. The same
+    /// question - "which uploads are PENDING, and for what target" - is already answered from memory by
+    /// <see cref="DictationLockIndex"/>, which the single writer of these records (<see cref="WriteRecordMarker"/>)
+    /// keeps true on every write and which the sweeps invalidate when they delete wholesale; the session lock has
+    /// trusted it since issue #1188. A factory inbox recording's target is stored in the same field a session id
+    /// is, so the index already holds it. The index narrows the walk to the uploads it names for this target, and
+    /// each of THOSE is still re-read from disk under its own lock, so what the thread shows is the durable record,
+    /// not the memory. The cost is now proportional to what is held for this factory, not to everything ever staged.
+    ///
+    /// A partition the index could not read is an ERROR here, not an empty answer: the session lock reads that case
+    /// as "no lock" on purpose, but the thread reading it as "nothing is held" would hide a held spoken message,
+    /// which is the one thing this list exists to prevent.
     /// </summary>
     public IReadOnlyList<PendingUpload> PendingFor(string target)
     {
         ArgumentException.ThrowIfNullOrEmpty(target);
+        var candidates = _lockIndex.PendingUploadsFor(_root, target, EnumeratePendingEntries)
+            ?? throw new InvalidOperationException(
+                $"The upload partition for tenant {_tenant.ToLogString()} could not be read, so the recordings held for " +
+                $"{target} are not known; see the log line from DictationLockIndex for the cause.");
         var found = new List<PendingUpload>();
-        if (!Directory.Exists(_root)) return found;
-        foreach (var dir in Directory.EnumerateDirectories(_root))
+        foreach (var name in candidates)
         {
-            var name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             if (!IsCanonicalUploadDirName(name)) continue;
+            var dir = DirFor(name);
             WithRecordLock(name, () =>
             {
                 if (!Directory.Exists(dir)) return;
+                RecordReadForTests?.Invoke(name);
                 var read = ReadRecordFile(RecordPath(dir));
                 if (read is not { Kind: DictationRecordReadKind.Present, Record.State: DictationDeliveryState.Pending }) return;
                 var record = read.Record!;
@@ -700,7 +727,8 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
                 found.Add(new PendingUpload(name, Directory.GetLastWriteTimeUtc(dir)));
             });
         }
-        FileLog.Write($"[VoiceUploadStore] PendingFor target={target}: {found.Count} pending");
+        FileLog.Write($"[VoiceUploadStore] PendingFor target={target}: {found.Count} pending " +
+            $"({candidates.Count} named by the index)");
         return found.OrderBy(p => p.LastActivityUtc).ThenBy(p => p.UploadId, StringComparer.Ordinal).ToList();
     }
 
@@ -1284,13 +1312,12 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
 
     private IEnumerable<(string UploadId, DictationDeliveryRecord Record)> EnumeratePendingRecordsWithId()
     {
-        string[] dirs;
-        try { dirs = Directory.Exists(_root) ? Directory.GetDirectories(_root) : Array.Empty<string>(); }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[VoiceUploadStore] enumerate pending failed: {ex.Message}");
-            dirs = Array.Empty<string>();
-        }
+        // A root that cannot be LISTED is not an empty root, so the failure is not swallowed here: it reaches
+        // DictationLockIndex, which leaves the partition unhydrated and answers "I could not tell" (null). The
+        // session lock reads that as no lock, exactly as before; the factory inbox thread reads it as an error
+        // rather than "nothing is held". Swallowing it here used to mark the partition hydrated with NOTHING
+        // pending, an answer that then stood until the next sweep.
+        var dirs = Directory.Exists(_root) ? Directory.GetDirectories(_root) : Array.Empty<string>();
         foreach (var dir in dirs)
         {
             // The partition container is not an upload, so skip it rather than probing it for a record.
@@ -1308,6 +1335,7 @@ public sealed partial class VoiceUploadStore : IClaimDecisionLog
             if (IsPartitionContainer(dir)) continue;
             // A readable PENDING marker of our own, and nothing else: a marker that cannot be read holds no
             // lock, for the reason given on IsPending.
+            RecordReadForTests?.Invoke(Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
             if (ReadRecordFile(RecordPath(dir)) is { Kind: DictationRecordReadKind.Present, Record: { State: DictationDeliveryState.Pending } rec }
                 && BelongsHere(rec))
                 yield return (Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), rec);

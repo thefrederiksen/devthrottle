@@ -202,4 +202,39 @@ public sealed class DictationSessionLockIndexTests : IDisposable
         writer.MarkDelivered(id, submitted: true, movedOn: false, "done");
         Assert.False(reader.IsSessionLocked("session-a"));
     }
+
+    [Fact]
+    public void PendingUploadsFor_NamesOnlyTheUploadsPendingForThatTarget()
+    {
+        var index = new DictationLockIndex();
+        var hydrate = () => new[] { ("u1", "factory-inbox:invoices"), ("u2", "session-a"), ("u3", "factory-inbox:invoices") };
+
+        var found = index.PendingUploadsFor(_root, "factory-inbox:invoices", hydrate)!;
+        index.RecordWritten(_root, "u1", "factory-inbox:invoices", pending: false);
+
+        Assert.Equal(new[] { "u1", "u3" }, found.OrderBy(x => x, StringComparer.Ordinal));
+        Assert.Equal(new[] { "u3" }, index.PendingUploadsFor(_root, "factory-inbox:invoices", hydrate)!);
+        Assert.Empty(index.PendingUploadsFor(_root, "factory-inbox:payroll", hydrate)!);
+    }
+
+    [Fact]
+    public void PendingUploadsFor_PartitionCannotBeRead_AnswersUnknownAndTriesAgain()
+    {
+        // A failed read must never be cached as "nothing is held": the factory inbox thread turns null into an error.
+        var index = new DictationLockIndex();
+        var calls = 0;
+        IEnumerable<(string, string)> Hydrate()
+        {
+            calls++;
+            if (calls == 1) throw new IOException("the share is unreachable");
+            return new[] { ("u1", "factory-inbox:invoices") };
+        }
+
+        var first = index.PendingUploadsFor(_root, "factory-inbox:invoices", Hydrate);
+        var second = index.PendingUploadsFor(_root, "factory-inbox:invoices", Hydrate);
+
+        Assert.Null(first);
+        Assert.Equal(new[] { "u1" }, second!);
+        Assert.Equal(2, calls);
+    }
 }

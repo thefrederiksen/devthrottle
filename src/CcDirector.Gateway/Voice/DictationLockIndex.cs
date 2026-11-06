@@ -129,36 +129,60 @@ internal sealed class DictationLockIndex
     public IReadOnlyCollection<string>? LockedSessions(
         string root, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
     {
+        var p = Hydrated(root, hydrate);
+        return p is null ? null : new HashSet<string>(p.Pending.Values, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The upload ids whose PENDING record names exactly <paramref name="target"/> (ordinal), hydrating once the
+    /// same way as <see cref="LockedSessions"/>. The factory inbox thread asks this to find its held spoken
+    /// messages without walking every upload of the account; the target is stored where a session id is, so the
+    /// index already holds it.
+    ///
+    /// Null when hydration failed. Unlike the session lock, that caller must NOT read null as "nothing" - a held
+    /// message hidden by a disk error is the loss the thread exists to prevent - so it raises an error instead.
+    /// </summary>
+    public IReadOnlyList<string>? PendingUploadsFor(
+        string root, string target, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
+    {
+        var p = Hydrated(root, hydrate);
+        if (p is null) return null;
+        var ids = new List<string>();
+        foreach (var entry in p.Pending)
+            if (string.Equals(entry.Value, target, StringComparison.Ordinal))
+                ids.Add(entry.Key);
+        return ids;
+    }
+
+    // The partition, hydrated from disk if this process has not read it yet; null when that read failed, in which
+    // case it is left unhydrated so the next call tries again rather than caching "nothing is pending".
+    private Partition? Hydrated(string root, Func<IEnumerable<(string UploadId, string SessionId)>> hydrate)
+    {
         var p = For(root);
-        if (!p.Hydrated)
+        if (p.Hydrated) return p;
+        lock (p.Gate)
         {
-            lock (p.Gate)
+            if (p.Hydrated) return p;
+            try
             {
-                if (!p.Hydrated)
-                {
-                    try
-                    {
-                        // Build into the live map rather than replacing it, so a write-through that landed
-                        // while this scan was running is not thrown away by the snapshot. Both paths hold
-                        // the gate, so the only interleaving is scan-then-write or write-then-scan; a write
-                        // seen by the scan is simply re-asserted with the same value.
-                        foreach (var (uploadId, sessionId) in hydrate())
-                            if (!string.IsNullOrWhiteSpace(sessionId))
-                                p.Pending[uploadId] = sessionId;
-                        p.Hydrated = true;
-                        FileLog.Write($"[DictationLockIndex] hydrated {root}: {p.Pending.Count} pending");
-                    }
-                    catch (Exception ex)
-                    {
-                        // Left UNHYDRATED on purpose: marking it hydrated here would cache "nothing is
-                        // locked" from a failed read and never look again.
-                        FileLog.Write($"[DictationLockIndex] hydrate {root} FAILED: {ex.Message}");
-                        return null;
-                    }
-                }
+                // Build into the live map rather than replacing it, so a write-through that landed
+                // while this scan was running is not thrown away by the snapshot. Both paths hold
+                // the gate, so the only interleaving is scan-then-write or write-then-scan; a write
+                // seen by the scan is simply re-asserted with the same value.
+                foreach (var (uploadId, sessionId) in hydrate())
+                    if (!string.IsNullOrWhiteSpace(sessionId))
+                        p.Pending[uploadId] = sessionId;
+                p.Hydrated = true;
+                FileLog.Write($"[DictationLockIndex] hydrated {root}: {p.Pending.Count} pending");
+                return p;
+            }
+            catch (Exception ex)
+            {
+                // Left UNHYDRATED on purpose: marking it hydrated here would cache "nothing is
+                // locked" from a failed read and never look again.
+                FileLog.Write($"[DictationLockIndex] hydrate {root} FAILED: {ex.Message}");
+                return null;
             }
         }
-
-        return new HashSet<string>(p.Pending.Values, StringComparer.OrdinalIgnoreCase);
     }
 }
