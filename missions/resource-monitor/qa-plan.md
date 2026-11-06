@@ -41,9 +41,45 @@ ourselves.
 | A 10-minute disconnect leaving no gap | one machine | The harness blocks the Gateway; phase 3 owns the assertion. |
 | Cockpit fleet view | one machine | Local Gateway seeded with three machines. |
 | Sampler's own cost under 0.5 per cent of one core over 10 minutes | all three | The harness. Platforms differ in sampling cost, so one measurement does not cover the others. |
-| Diagnosis says "CPU" under a processor load, "memory" with memory tight | all three | The harness plus the diagnose command. |
+| Diagnosis says "CPU" under a processor load, and "memory" when programs are STALLING on memory | all three | The harness plus the diagnose command. **Not by allocating until the level reads Tight** - see "Tight is not a cause" below. |
 | Diagnosis names the disk | Linux, two ways (see below) | Recorded fixture **and** a live load. |
 | Buffer capping at 24 hours; a child process outliving its session; the clock jumping | anywhere | Unit and integration tests with an **injected clock**. Never a sleep, never the real clock. These are named failure cases, not edge cases. |
+
+## Tight is not a cause: the memory proof must drive a STALL, not a level
+
+**This row used to ask for something that cannot pass, and it would have recorded a failure against
+correct code.** Corrected by the Implementation Lead on 6 November 2026, after the seat that wrote the
+diagnosis pointed out that the plan contradicted the product.
+
+`ResourceLevel.Tight` and `SlownessCause.Memory` are different ideas:
+
+- **`Tight`** is a PRESSURE LEVEL - memory is nearly full. It drives the bar's colour and the banner.
+- **`SlownessCause.Memory`** means PROGRAMS ARE WAITING ON MEMORY - a stall.
+
+A machine can sit at `Tight` with nothing stalling at all, and that is not a defect: memory that is
+allocated and in use is memory doing its job. Filling memory until the level reads `Tight` therefore
+does **not** make the diagnosis name memory, and a diagnosis that stayed quiet would have been right
+while the plan called it a failure. That is the worst kind of plan defect - it pushes someone to
+"fix" correct code to satisfy a document.
+
+**So the memory row drives the platform's own stall or pressure signal, not its utilisation:**
+
+- **Linux** - the kernel's memory stall share over the last minute (`some avg60` from pressure stall
+  information), which is the figure the diagnoser reads. Allocate hard enough to make the kernel
+  report programs waiting on memory, which in practice means reclaim and swapping, not merely a high
+  used figure.
+- **macOS** - the kernel memory pressure level through `MacOsKernelPressure`, the one shared mapping.
+  A warning level is a cause; a high used figure is not.
+- **Windows** - hard page faults per second, the proposed limit being 1,000 a second.
+
+**Both rows stay, and they prove different things.** "Memory amber, then clearing" above is still
+correct and still valuable: it proves the LEVEL, the bar and the banner, and allocating until `Tight`
+and freeing is exactly the right way to drive it. This row proves the DIAGNOSIS. A run that drove
+`Tight` and then reported the diagnosis row as passed would be reporting one proof twice.
+
+**And the wording rule still binds the sentence that comes out.** Only Linux may say programs were
+stalled waiting on memory for a share of the time; macOS reports a kernel pressure level and Windows a
+fault rate, and neither may claim a measured stall percentage.
 
 ## The disk verdict has to be proved twice, and why
 
