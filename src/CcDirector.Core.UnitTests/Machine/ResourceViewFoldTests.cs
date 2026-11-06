@@ -141,6 +141,30 @@ public class ResourceViewFoldTests
         Assert.Equal(ResourceLevel.Normal, meter.Memory.Level);
     }
 
+    [Theory]
+    [InlineData(ResourceLevel.Tight)]
+    [InlineData(ResourceLevel.Critical)]
+    public void Meter_MemoryLevel_ColoursOnlyTheMemoryBar(ResourceLevel level)
+    {
+        var meter = Meter(State(new ResourceSampleBuilder().MemoryAvailable(1 * Gb).Build(), memory: level));
+
+        Assert.Equal(level, meter.Memory.Level);
+        Assert.Equal(ResourceLevel.Normal, meter.Cpu.Level);
+    }
+
+    [Theory]
+    [InlineData(0, "Updated just now - click for detail")]
+    [InlineData(-10, "Updated just now - click for detail")]
+    [InlineData(5, "Updated 5 seconds ago - click for detail")]
+    [InlineData(119, "Updated 119 seconds ago - click for detail")]
+    [InlineData(120, "Updated 2 minutes ago - click for detail")]
+    public void Meter_Updated_SaysHowOldTheReadingIs(int ageSeconds, string expected)
+    {
+        var meter = ResourceMeterFold.Build(State(new ResourceSampleBuilder().Build()), "m", 1, null, At.AddSeconds(ageSeconds));
+
+        Assert.Equal(expected, meter.TooltipLines[^1]);
+    }
+
     [Fact]
     public void Meter_SwapUnreadable_TooltipSaysSo()
     {
@@ -159,6 +183,12 @@ public class ResourceViewFoldTests
     public void Bytes_WritesSizesTheWayTheMockUpsDo(ulong bytes, string expected)
     {
         Assert.Equal(expected, ResourceViewText.Bytes(bytes));
+    }
+
+    [Fact]
+    public void Bytes_UnderAMegabyte_IsKilobytes_NeverAMadeUpZeroMegabytes()
+    {
+        Assert.Equal("512 KB", ResourceViewText.Bytes(512 * 1024));
     }
 
     [Fact]
@@ -253,6 +283,81 @@ public class ResourceViewFoldTests
 
         Assert.Equal(ResourceViewText.CannotReadText, row.CpuText);
         Assert.Equal(ResourceViewText.CannotReadText, row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_EverythingElse_IsADash_WhenTheDirectorsOwnFiguresAreRefused()
+    {
+        var sample = new ResourceSampleBuilder()
+            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", null, null)
+            .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
+            .Build();
+
+        var row = Detail(sample, Quiet).EverythingElse;
+
+        Assert.Equal(ResourceViewText.CannotReadText, row.CpuText);
+        Assert.Equal(ResourceViewText.CannotReadText, row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_EverythingElse_IsADash_WhenOurProcessesSumPastTheMachine_NeverZero()
+    {
+        // 28% machine but a session measured at 40%; 8.86 GB used but sessions holding 12 GB (shared pages).
+        var greedy = new ResourceSessionInput(new SessionUsage("s-9", 300, 40, 12 * Gb, [300], 0), "9 - Greedy", null);
+        var sample = new ResourceSampleBuilder()
+            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+            .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "dotnet", 40, 12 * Gb)
+            .Build();
+
+        var row = Detail(sample, greedy).EverythingElse;
+
+        Assert.Equal(ResourceViewText.CannotReadText, row.CpuText);
+        Assert.Equal(ResourceViewText.CannotReadText, row.MemoryText);
+    }
+
+    [Fact]
+    public void Detail_Tree_AProcessWhoseParentIsGone_IsStillListed_UnderTheRoot()
+    {
+        var sample = new ResourceSampleBuilder()
+            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+            .Process(200, ResourceSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
+            .Process(205, 999, "orphaned-build", 5, 100 * Mb)
+            .Process(206, null, "no-parent-known", 1, 10 * Mb)
+            .Build();
+        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 16, 2 * Gb, [200, 205, 206], 0), "1 - S", null);
+
+        var row = Detail(sample, session).Sessions[0];
+
+        Assert.Equal("3", row.ProcessCountText);
+        Assert.Equal(["claude", "orphaned-build", "no-parent-known"], row.Processes.Select(process => process.Name));
+        Assert.Equal([0, 1, 1], row.Processes.Select(process => process.Depth));
+    }
+
+    [Fact]
+    public void Detail_Tree_RootGone_TheRestAreStillListed()
+    {
+        var sample = new ResourceSampleBuilder()
+            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+            .Process(201, 200, "dotnet", 20, 1 * Gb)
+            .Build();
+        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 20, 1 * Gb, [200, 201], 0), "1 - S", null);
+
+        var row = Detail(sample, session).Sessions[0];
+
+        var only = Assert.Single(row.Processes);
+        Assert.Equal("dotnet", only.Name);
+        Assert.Equal(0, only.Depth);
+    }
+
+    [Fact]
+    public void Detail_MemoryHistory_AnUnreadableSampleIsAGap()
+    {
+        var good = new ResourceSampleBuilder().At(At).Memory(10 * Gb, 5 * Gb).Build();
+        var bad = new ResourceSampleBuilder().At(At.AddSeconds(5)).MemoryUnreadable("gone").Build();
+
+        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+
+        Assert.Equal([0.5, null], detail.Memory.History.Select(point => point.Fraction));
     }
 
     [Fact]

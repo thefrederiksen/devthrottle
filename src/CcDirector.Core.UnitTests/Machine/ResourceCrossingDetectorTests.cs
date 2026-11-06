@@ -149,6 +149,39 @@ public class ResourceCrossingDetectorTests
     }
 
     [Fact]
+    public void Observe_TightToNormal_IsCleared()
+    {
+        var crossings = Run(ResourceLevel.Tight, ResourceLevel.Normal);
+
+        Assert.Equal(ResourceCrossingChange.Cleared, crossings[1].Change);
+        Assert.True(crossings[1].EndsWarning);
+    }
+
+    [Fact]
+    public void Observe_CriticalUnknownTight_IsOneEased_FromTheLastKnownLevel()
+    {
+        var crossings = Run(ResourceLevel.Critical, ResourceLevel.Unknown, ResourceLevel.Tight);
+
+        Assert.Equal(2, crossings.Count);
+        Assert.Equal(ResourceCrossingChange.Eased, crossings[1].Change);
+        Assert.Equal(ResourceLevel.Critical, crossings[1].From);
+    }
+
+    [Fact]
+    public void Observe_TwoResourcesCrossingInOneVerdict_ComeBackInTheVerdictsOrder()
+    {
+        var detector = new ResourceCrossingDetector();
+
+        var crossings = detector.Observe(new ResourcePressureVerdict(
+        [
+            new ResourceVerdict(ResourceKind.Memory, ResourceLevel.Tight, "memory"),
+            new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Critical, "cpu"),
+        ]), At);
+
+        Assert.Equal([ResourceKind.Memory, ResourceKind.Cpu], crossings.Select(crossing => crossing.Kind));
+    }
+
+    [Fact]
     public void Observe_NullVerdict_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new ResourceCrossingDetector().Observe(null!, At));

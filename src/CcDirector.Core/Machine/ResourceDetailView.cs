@@ -216,9 +216,10 @@ public static class ResourceDetailFold
         if (sample.Cpu.CouldRead && director.CpuPercent is { } directorCpu)
         {
             var other = sample.Cpu.TotalBusyPercent - directorCpu - sessions.Sum(session => session.Usage.CpuPercent);
-            // Processes are not all measured in the same instant as the machine total, so the difference can
-            // dip a little below zero on a quiet machine. Below zero is shown as nothing left over, not as a debt.
-            cpuText = ResourceViewText.PercentOf100(Math.Max(other, 0));
+            // Below zero means our processes were measured as using more than the whole machine - they are not
+            // all read in the same instant as the machine total. That does not add up, so it is the dash, never
+            // a made-up zero.
+            if (other >= 0) cpuText = ResourceViewText.PercentOf100(other);
         }
 
         var memoryText = dash;
@@ -227,7 +228,9 @@ public static class ResourceDetailFold
         {
             var used = memory.TotalBytes - memory.AvailableBytes;
             var ours = directorMemory + sessions.Aggregate(0UL, (sum, session) => sum + session.Usage.MemoryBytes);
-            memoryText = ResourceViewText.Bytes(used > ours ? used - ours : 0);
+            // Our processes can sum past the machine's own used memory - shared pages are counted in every
+            // process that maps them, routinely on Windows. That does not add up, so it is the dash, never zero.
+            if (ours <= used) memoryText = ResourceViewText.Bytes(used - ours);
         }
 
         return new ResourceUsageRow(EverythingElseLabel, null, dash, cpuText, memoryText, dash, Array.Empty<ResourceProcessRow>());
@@ -246,11 +249,9 @@ public static class ResourceDetailFold
         }
 
         var rows = new List<ResourceProcessRow>();
-        if (!byPid.TryGetValue(rootPid, out var root)) return rows;
-
         var visited = new HashSet<int>();
         var stack = new Stack<(ProcessReading Process, int Depth)>();
-        stack.Push((root, 0));
+        if (byPid.TryGetValue(rootPid, out var root)) stack.Push((root, 0));
         while (stack.Count > 0)
         {
             var (process, depth) = stack.Pop();
@@ -260,6 +261,18 @@ public static class ResourceDetailFold
             if (!children.TryGetValue(process.Pid, out var kids)) continue;
             foreach (var kid in kids.OrderByDescending(kid => kid.Pid))
                 stack.Push((kid, depth + 1));
+        }
+
+        // A member whose parent is not visible in this sample - the parent has exited, or the platform did not
+        // say - is still part of the session and still counted in its row, so it is listed under the root
+        // rather than silently dropped.
+        var orphanDepth = visited.Contains(rootPid) ? 1 : 0;
+        foreach (var pid in pids.Order())
+        {
+            if (visited.Contains(pid) || !byPid.TryGetValue(pid, out var orphan)) continue;
+            visited.Add(pid);
+            rows.Add(new ResourceProcessRow(orphan.Pid, orphan.Name, orphanDepth,
+                ResourceViewText.PercentOf100(orphan.CpuPercent), ResourceViewText.Bytes(orphan.MemoryBytes)));
         }
         return rows;
     }

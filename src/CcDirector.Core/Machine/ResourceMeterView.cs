@@ -38,6 +38,9 @@ public sealed record ResourceMeterView(
 /// <summary>The figures and words every Resource Monitor view shares, so the meter and the detail screen cannot disagree.</summary>
 public static class ResourceViewText
 {
+    private const ulong Megabyte = 1024UL * 1024;
+    private const ulong Gigabyte = 1024UL * 1024 * 1024;
+
     /// <summary>
     /// What a figure that could not be read shows instead of a number. A dash, never a zero and never a
     /// made-up figure; the tooltip carries why. ASCII, because the house rule forbids special symbols.
@@ -70,15 +73,18 @@ public static class ResourceViewText
         percent is { } value ? Percent(value / 100.0) : CannotReadText;
 
     /// <summary>
-    /// A size the way the mock-ups write it: megabytes below one gigabyte ("966 MB"), then three significant
-    /// figures ("1.21 GB", "16.0 GB", "128 GB"). The dash when null.
+    /// A size the way the mock-ups write it: kilobytes below a megabyte ("512 KB"), megabytes below a gigabyte
+    /// ("966 MB"), then three significant figures ("1.21 GB", "16.0 GB", "128 GB"). The dash when null.
     /// </summary>
     public static string Bytes(ulong? bytes)
     {
         if (bytes is not { } value) return CannotReadText;
-        var gigabytes = value / (double)ResourceSampleBuilder.Gigabyte;
+        var gigabytes = value / (double)Gigabyte;
+        // Below a megabyte it is kilobytes, so a small helper process never reads as a made-up "0 MB".
+        if (value < Megabyte)
+            return string.Create(CultureInfo.InvariantCulture, $"{value / 1024.0:F0} KB");
         if (gigabytes < 1)
-            return string.Create(CultureInfo.InvariantCulture, $"{value / (double)ResourceSampleBuilder.Megabyte:F0} MB");
+            return string.Create(CultureInfo.InvariantCulture, $"{value / (double)Megabyte:F0} MB");
         return gigabytes switch
         {
             < 10 => string.Create(CultureInfo.InvariantCulture, $"{gigabytes:F2} GB"),

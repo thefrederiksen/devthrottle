@@ -1,4 +1,6 @@
-namespace CcDirector.Core.Machine;
+using CcDirector.Core.Machine;
+
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// A probe that returns exactly the sample it is told to, so everything above <see cref="IResourceProbe"/>
@@ -6,9 +8,9 @@ namespace CcDirector.Core.Machine;
 /// diagnose command - can be built and tested with no platform call and no clock (the Resource Monitor
 /// mission, issue #2811, phase 2).
 ///
-/// It lives in Core rather than in a test project because more than one consumer needs it: the Core and
-/// Director test projects, the live load harness, and a Director started to photograph a state the real
-/// machine will not produce on demand, such as "cannot read".
+/// It is a test double, so it lives beside the other test doubles in <c>CcDirector.Core.Tests</c> and is
+/// link-compiled into each test project that needs it, exactly as <c>ResourceSampleContract</c> and
+/// <c>PinnedMachineMemory</c> are. It never ships in the product.
 ///
 /// Build its samples with <see cref="ResourceSampleBuilder"/>. Two ways to drive it:
 /// <list type="bullet">
@@ -61,13 +63,12 @@ public sealed class FakeResourceProbe : IResourceProbe
     public void Enqueue(params ResourceSample[] samples)
     {
         ArgumentNullException.ThrowIfNull(samples);
+        // Every sample is checked before any is queued, so a null in the middle leaves the queue untouched.
+        if (Array.IndexOf(samples, null) >= 0)
+            throw new ArgumentException("A queued sample cannot be null.", nameof(samples));
         lock (_gate)
         {
-            foreach (var sample in samples)
-            {
-                ArgumentNullException.ThrowIfNull(sample);
-                _queued.Enqueue(sample);
-            }
+            foreach (var sample in samples) _queued.Enqueue(sample);
         }
     }
 

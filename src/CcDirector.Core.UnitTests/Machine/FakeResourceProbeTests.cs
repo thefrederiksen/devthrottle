@@ -158,6 +158,18 @@ public class FakeResourceProbeTests
     }
 
     [Fact]
+    public void Enqueue_ANullInTheMiddle_Throws_AndQueuesNothing()
+    {
+        var first = new ResourceSampleBuilder().Cpu(10).Build();
+        var initial = new ResourceSampleBuilder().Cpu(50).Build();
+        var probe = new FakeResourceProbe(initial);
+
+        Assert.Throws<ArgumentException>(() => probe.Enqueue(first, null!, first));
+
+        Assert.Same(initial, probe.Read());
+    }
+
+    [Fact]
     public void Read_BeforeAnythingIsSet_ReturnsTheHealthyDefault()
     {
         var probe = new FakeResourceProbe();
