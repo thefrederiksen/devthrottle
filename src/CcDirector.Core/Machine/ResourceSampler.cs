@@ -33,7 +33,7 @@ public sealed class ResourceSampler : IResourceSampler
     private long _latestTimestamp;
     private ITimer? _timer;
     private bool _disposed;
-    private int _reading;
+    private readonly object _tickLock = new();
 
     /// <summary>Creates the sampler. It reads nothing until <see cref="Start"/>.</summary>
     /// <param name="probe">The machine's probe.</param>
@@ -116,7 +116,7 @@ public sealed class ResourceSampler : IResourceSampler
     /// </summary>
     public void Tick()
     {
-        if (Interlocked.Exchange(ref _reading, 1) == 1)
+        if (!Monitor.TryEnter(_tickLock))
         {
             // The previous read is still running - a probe slower than five seconds on a struggling machine.
             // Skipping is honest: the next sample is simply later, and the 60-second rule measures held time.
@@ -130,12 +130,17 @@ public sealed class ResourceSampler : IResourceSampler
         }
         finally
         {
-            Volatile.Write(ref _reading, 0);
+            Monitor.Exit(_tickLock);
         }
     }
 
     private void TickOnce()
     {
+        lock (_gate)
+        {
+            if (_disposed) return;
+        }
+
         ResourceSample sample;
         try
         {
@@ -167,7 +172,12 @@ public sealed class ResourceSampler : IResourceSampler
             Raise(Crossed, new ResourceCrossingEventArgs(crossing, state), nameof(Crossed));
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Stops the timer AND WAITS FOR A READ ALREADY RUNNING TO FINISH, so when this returns no handler of
+    /// <see cref="Sampled"/> or <see cref="Crossed"/> is running or will run again. That is what lets an owner
+    /// dispose what those handlers write to - the 24-hour recording is not safe to write and dispose on two
+    /// threads, and the Director shuts down on a different thread from the timer.
+    /// </summary>
     public void Dispose()
     {
         ITimer? timer;
@@ -179,6 +189,13 @@ public sealed class ResourceSampler : IResourceSampler
             _timer = null;
         }
         timer?.Dispose();
+
+        FileLog.Write("[ResourceSampler] Dispose: timer stopped, waiting for any read in progress");
+        lock (_tickLock)
+        {
+            // Nothing to do: taking the lock is the wait. A read that starts after this sees _disposed and
+            // returns before raising anything.
+        }
         FileLog.Write("[ResourceSampler] Dispose: stopped");
     }
 

@@ -14,63 +14,57 @@ namespace CcDirector.Avalonia.Controls;
 /// </summary>
 public sealed class ResourceMonitorPresenter : IDisposable
 {
+    private readonly ResourceMonitorHost _host;
     private readonly IResourceSampler _sampler;
     private readonly ResourceMeter _meter;
     private readonly ResourceBannerStrip _banners;
     private readonly string _machineName;
     private readonly Func<int> _runningSessions;
-    private readonly Func<IReadOnlyList<ResourceSessionInput>?> _sessions;
     private readonly Action _openDetail;
     private readonly ResourceBannerBoard _board = new();
 
     /// <summary>Wires the sampler to the two controls. Call on the user-interface thread.</summary>
-    /// <param name="sampler">The Director's sampler.</param>
+    /// <param name="host">The Director's resource monitor: its sampler, and each read with its session figures.</param>
     /// <param name="meter">The toolbar meter.</param>
     /// <param name="banners">The banner strip under the toolbar.</param>
     /// <param name="machineName">The machine's name, for the tooltip and the banner headline.</param>
     /// <param name="runningSessions">How many sessions this Director runs, read at each sample.</param>
-    /// <param name="sessions">
-    /// This Director's sessions with their process-tree usage, or null while that is not known (the per-session
-    /// rollup is phase 1's). Null is never treated as "no sessions": nothing is claimed about ownership.
-    /// </param>
     /// <param name="openDetail">Opens the detail screen (phase 2b). Must show its window at once, even empty.</param>
     public ResourceMonitorPresenter(
-        IResourceSampler sampler,
+        ResourceMonitorHost host,
         ResourceMeter meter,
         ResourceBannerStrip banners,
         string machineName,
         Func<int> runningSessions,
-        Func<IReadOnlyList<ResourceSessionInput>?> sessions,
         Action openDetail)
     {
-        ArgumentNullException.ThrowIfNull(sampler);
+        ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(meter);
         ArgumentNullException.ThrowIfNull(banners);
         ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
         ArgumentNullException.ThrowIfNull(runningSessions);
-        ArgumentNullException.ThrowIfNull(sessions);
         ArgumentNullException.ThrowIfNull(openDetail);
 
-        _sampler = sampler;
+        _host = host;
+        _sampler = host.Sampler;
         _meter = meter;
         _banners = banners;
         _machineName = machineName;
         _runningSessions = runningSessions;
-        _sessions = sessions;
         _openDetail = openDetail;
 
-        _sampler.Sampled += OnSampled;
+        _host.Updated += OnUpdated;
         _sampler.Crossed += OnCrossed;
         _meter.Click += OnMeterClick;
         _banners.ShowResourcesRequested += OnShowResources;
         _banners.DismissRequested += OnDismiss;
 
-        _meter.Render(BuildMeter(_sampler.Current));
+        _meter.Render(BuildMeter(_sampler.Current, null));
         FileLog.Write($"[ResourceMonitorPresenter] wired: machine={machineName}");
     }
 
-    private ResourceMeterView BuildMeter(ResourceSamplerState state) =>
-        ResourceMeterFold.Build(state, _machineName, _runningSessions(), Combined(_sessions()), _sampler.LatestAge);
+    private ResourceMeterView BuildMeter(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput>? sessions) =>
+        ResourceMeterFold.Build(state, _machineName, _runningSessions(), Combined(sessions), _sampler.LatestAge);
 
     // What this Director's sessions cost together. Null when there are none to add up, so the tooltip leaves the
     // line out rather than claiming the sessions cost nothing.
@@ -87,16 +81,17 @@ public sealed class ResourceMonitorPresenter : IDisposable
             sessions.Sum(s => s.Usage.ProcessesWithUnknownMemory));
     }
 
-    private void OnSampled(object? sender, ResourceSamplerState state)
+    private void OnUpdated(object? sender, ResourceMonitorUpdate update)
     {
-        var view = BuildMeter(state);
+        var view = BuildMeter(update.State, update.Sessions);
         Dispatcher.UIThread.Post(() => _meter.Render(view));
     }
 
     private void OnCrossed(object? sender, ResourceCrossingEventArgs e)
     {
         var words = e.Crossing.ShowsBanner
-            ? ResourceBannerFold.Build(e.Crossing, e.State.Latest, _machineName, _sessions())
+            // Crossed follows the host's handling of the same read, so Latest carries this read's session figures.
+            ? ResourceBannerFold.Build(e.Crossing, e.State.Latest, _machineName, _host.Latest?.Sessions)
             : null;
         Dispatcher.UIThread.Post(() =>
         {
@@ -138,7 +133,7 @@ public sealed class ResourceMonitorPresenter : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        _sampler.Sampled -= OnSampled;
+        _host.Updated -= OnUpdated;
         _sampler.Crossed -= OnCrossed;
         _meter.Click -= OnMeterClick;
         _banners.ShowResourcesRequested -= OnShowResources;

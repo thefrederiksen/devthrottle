@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using CcDirector.Avalonia;
 using CcDirector.Avalonia.Controls;
 using CcDirector.Core.Machine;
+using CcDirector.Core.Machine.ResourceSummaries;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -35,22 +36,28 @@ public sealed class ResourceMeterWindowTests
             Window = new MainWindow { SkipApplicationWiringOnLoaded = true, Width = width, Height = 600 };
             Window.Show();
             Pump();
+            Directory.CreateDirectory(RecordingDirectory);
             Sampler = new ResourceSampler(Probe, _ => Verdict, Time);
-            Window.AttachResourceMonitor(Sampler, () => 4, () => Sessions, () => DetailOpened++);
+            Host = new ResourceMonitorHost(
+                Sampler, () => Sessions, new ResourceSummaryRecorder(new ResourceSummaryOutbox(Time), "soren-north"),
+                new ResourceRecorder(RecordingDirectory, Time), Time);
+            Window.AttachResourceMonitor(Host, () => 4, () => DetailOpened++);
         }
 
         public MainWindow Window { get; }
         public FakeTimeProvider Time { get; } = new(ResourceSampleBuilder.DefaultTakenAtUtc);
         public FakeResourceProbe Probe { get; } = new();
         public ResourceSampler Sampler { get; }
+        public ResourceMonitorHost Host { get; }
+        public string RecordingDirectory { get; } =
+            Path.Combine(Path.GetTempPath(), "resource-meter-window-tests", Guid.NewGuid().ToString("N"));
         public ResourcePressureVerdict Verdict { get; set; } = Levels(ResourceLevel.Normal, ResourceLevel.Normal);
         public int DetailOpened { get; set; }
 
-        // The session that owns "dotnet test" in the sample, as the per-session rollup will hand it over.
-        public IReadOnlyList<ResourceSessionInput>? Sessions { get; set; } =
+        // The session whose agent started "dotnet test" in the sample (process 150, the root; 200 is its child).
+        public IReadOnlyList<DirectorSessionInfo> Sessions { get; set; } =
         [
-            new(new SessionUsage("s-140", 200, 19, (ulong)(1.21 * Gb), [200], 0, 0),
-                "140 (Resource Monitor - Dev - Linux probe)", null),
+            new("s-140", 150, "140 (Resource Monitor - Dev - Linux probe)", null),
         ];
 
         public ResourceMeter Meter => Window.ResourceMeterControl;
@@ -66,7 +73,8 @@ public sealed class ResourceMeterWindowTests
 
         public void Dispose()
         {
-            Sampler.Dispose();
+            Host.Dispose();
+            if (Directory.Exists(RecordingDirectory)) Directory.Delete(RecordingDirectory, recursive: true);
             // Hidden, not closed: the window's own closing handler saves session history through the running
             // Director application, which a headless test does not have.
             Window.Hide();
@@ -88,7 +96,8 @@ public sealed class ResourceMeterWindowTests
             .Cpu(cpu, 71, 8)
             .Memory(16 * Gb, availableBytes)
             .Swap(2 * Gb, (ulong)(0.94 * Gb))
-            .Process(200, 1, "dotnet test", cpu * 0.7, (ulong)(1.21 * Gb))
+            .Process(150, 1, "claude", 1, 400 * ResourceSampleBuilder.Megabyte)
+            .Process(200, 150, "dotnet test", cpu * 0.7, (ulong)(1.21 * Gb))
             .Process(300, 1, "chrome", 3, (ulong)(4.4 * Gb));
 
     private static void Pump()

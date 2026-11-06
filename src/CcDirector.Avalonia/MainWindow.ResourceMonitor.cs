@@ -26,9 +26,8 @@ public partial class MainWindow
     /// platform probe and ResourcePressure exist, and by the headless tests with a fake probe.
     /// </summary>
     internal void AttachResourceMonitor(
-        IResourceSampler sampler,
+        ResourceMonitorHost host,
         Func<int> runningSessions,
-        Func<IReadOnlyList<ResourceSessionInput>?> sessions,
         Action openDetail)
     {
         FileLog.Write("[MainWindow] AttachResourceMonitor");
@@ -36,9 +35,21 @@ public partial class MainWindow
             throw new InvalidOperationException("The resource monitor is already attached to this window.");
 
         _resourceMonitor = new ResourceMonitorPresenter(
-            sampler, ResourceMeterControl, ResourceBanners, Environment.MachineName, runningSessions, sessions, openDetail);
+            host, ResourceMeterControl, ResourceBanners, Environment.MachineName, runningSessions, openDetail);
         WireResourceMeterFit();
         Closed += (_, _) => _resourceMonitor?.Dispose();
+    }
+
+    /// <summary>
+    /// What clicking the meter, or a banner's "Show resources", does. THE ONE SEAM FOR THE DETAIL SCREEN: phase 2b
+    /// replaces this body with opening its window, which must show at once even while empty (CLAUDE.md rule 1).
+    /// Until then the click opens the meter's own figures in place, so it still answers within 100 milliseconds
+    /// and never does nothing.
+    /// </summary>
+    internal void OpenResourceDetail()
+    {
+        FileLog.Write("[MainWindow] OpenResourceDetail: the detail screen is not built yet (phase 2b); showing the meter's figures");
+        global::Avalonia.Controls.ToolTip.SetIsOpen(ResourceMeterControl, true);
     }
 
     /// <summary>
