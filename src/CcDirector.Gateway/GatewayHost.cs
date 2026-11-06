@@ -5883,6 +5883,20 @@ public sealed class GatewayHost : IAsyncDisposable
             // Phase 2: the write is the event. Neither route waits for the wake; a look runs on the Gateway's lifetime.
             MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
             BundleHanded: (tenant, factory) => _ = TheFactoryInboxWake().BundleHanded(tenant, factory)));
+        // A spoken factory inbox message (Factory Inbox mission, phase 4): the same durable upload and staging a session's
+        // dictation uses, opened through the dictation's own tenant gate so the chunk leg finds the same partition, and
+        // transcribed with no dictionary stage - the store applies only the account's listed corrections (verbatim rule).
+        var factoryInboxUploads = new Api.DictationTenantGate(_dictationUploads, _tenantBoundary);
+        var factoryInboxTranscription = _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault,
+            history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, aiGate: AiGate, transcripts: _transcripts);
+        Api.FactoryInboxVoiceEndpoints.Map(factoryGate, new Api.FactoryInboxVoiceEndpoints.Parts(
+            Store: FactoryInbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            OpenUploads: ctx => factoryInboxUploads.TryOpen(ctx, out var store, out _, out _) ? store : null,
+            Transcribe: (tenant, audio, fileName, mime, ct) => factoryInboxTranscription.TranscribeAsync(
+                audio, fileName, mime, applyCorrection: false, ct, tenant: tenant, source: "factory-inbox"),
+            NowUtc: () => DateTime.UtcNow));
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));

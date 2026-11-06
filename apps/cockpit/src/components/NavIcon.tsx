@@ -18,6 +18,7 @@ export type NavIconName =
   | "fleet-map"
   | "factories"
   | "mail-desk"
+  | "inbox"
   | "boxes"
   | "sessions"
   | "history"
@@ -89,6 +90,14 @@ const PAINT: Record<NavIconName, JSX.Element> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="M3 7l9 6 9-6" />
+    </>
+  ),
+  // An inbox tray: a box open at the top with a dip in its front edge. Its tray keeps it apart from the Mail Desk's
+  // envelope, which it sits near.
+  inbox: (
+    <>
+      <path d="M3 13l3-8h12l3 8" />
+      <path d="M3 13v6h18v-6h-5l-1 3H9l-1-3z" />
     </>
   ),
   // A cube: a box, a whole desktop computer the fleet hosts. Its three faces keep it apart from the monitor of Directors.

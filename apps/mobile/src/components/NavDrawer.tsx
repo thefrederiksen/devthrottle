@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
+import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
 
 // The hamburger menu button + slide-in nav drawer for the mobile app-bar. Self-contained: it owns its
 // open/closed state and renders the drawer plus a dimming overlay as a fixed layer above the page.
@@ -13,6 +14,9 @@ export function NavDrawer() {
   const { active, many } = useAccounts();
   // Offered only while the Gateway answers the Mail Desk page's own read (rule 7); hidden when its switch is off.
   const mailDeskOffered = useMailDeskEntry();
+  // The Inbox sits behind the factory area switch until the Factory Inbox mission's screens are whole (rule 7: the
+  // Gateway answers it for this account).
+  const inboxOffered = useFactoryInboxOffered().offer === "on";
 
   return (
     <>
@@ -50,6 +54,11 @@ export function NavDrawer() {
             <Link className="drawer-item" to="/new" onClick={close}>
               New session
             </Link>
+            {inboxOffered && (
+              <Link className="drawer-item" to="/inbox" onClick={close}>
+                Inbox
+              </Link>
+            )}
             <Link className="drawer-item" to="/recorder" onClick={close}>
               Voice Recorder
             </Link>

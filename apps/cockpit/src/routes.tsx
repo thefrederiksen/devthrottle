@@ -46,6 +46,7 @@ import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
 import { MailDeskView } from "./maildesk/MailDeskView";
+import { InboxView } from "./inbox/InboxView";
 import { BoxesView } from "./boxes/BoxesView";
 import { TeamRequestsRoute } from "./team/RequestsView";
 
@@ -165,6 +166,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // client-core's; behind the Gateway's Mail Desk switch, which answers 404 while it is off, so the address is
           // then the ordinary "Page not found".
           { path: "/mail-desk", element: <MailDeskView /> },
+          // The Inbox (Factory Inbox mission, phase 4; mockup D): the Factory inbox list and the open factory's thread.
+          // Behind the factory area switch until the mission's screens are whole.
+          { path: "/inbox", element: <FactoryAreaGate><InboxView /></FactoryAreaGate> },
+          { path: "/inbox/:factory", element: <FactoryAreaGate><InboxView /></FactoryAreaGate> },
           // Boxes (Factory Boxes mission, phase 1): the desktops the account's Directors host, each opened in a new tab
           // through a one-time ticket. Behind the Gateway's Boxes switch (GET /account/status "boxes"): while it says
           // false, this address is the ordinary "Page not found".
