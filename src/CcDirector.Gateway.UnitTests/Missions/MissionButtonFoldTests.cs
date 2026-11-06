@@ -163,7 +163,7 @@ public sealed class MissionButtonFoldTests
             var store = new MissionStore(path, adoptUnattributedAs: null);
             var active = store.Create(Tenant, "Active one");
             var ended = store.Create(Tenant, "Ended one");
-            store.SetState(Tenant, ended.MissionId, MissionStates.Complete, DateTimeOffset.UtcNow);
+            store.SetState(Tenant, ended.MissionId, MissionStates.Complete, new DateTimeOffset(2026, 11, 6, 9, 0, 0, TimeSpan.Zero));
             store.Create(new TenantId("someone-else"), "Not ours");
 
             var read = GatewayEndpoints.MissionsForFold(store)!(Tenant);
