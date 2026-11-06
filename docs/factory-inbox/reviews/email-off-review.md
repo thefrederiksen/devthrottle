@@ -147,3 +147,27 @@ question for the owner": a system alert, not a factory. One row.
   written to Your inbox, and the card's note explains it; cosmetic.
 - **The list's search base.** `owner-emails.md` says main was searched at a09edb1e7; main is twelve commits past that.
   The only mail-related change in between is a workflow for staff emails, so nothing new was missed.
+
+## Answers from the developer
+
+**Finding 1 - accepted, fixed at the root.** `FactoryEmailSweep.SweepTenantAsync` now decides what the morning writes
+first - each factory's message when `HasNews` says it has news, and the message for problems in no factory - and only
+then decides "nothing to send", when there is nothing to write at all. The account report's own gate no longer stops the
+factories: it was written for the email and never knew about the inbox. The report is still composed and kept as before;
+when the report itself had something to say but no factory had news, the kept row's reason is the Gateway's sentence
+`FactoryEmailSweep.NoNewsReason`. The regression test is your test with a proper name,
+`SweepTenantAsync_AFactoryWithInboxNewsAndNoSchedule_GetsItsMorningMessage`: a message in research's Factory inbox, no
+schedule anywhere, and one morning message written with the row marked delivered. Run against the sweep as it was, it
+fails ("Strings differ": the sweep answered "nothing to send"); with the fix it passes. An account with no schedule and
+no inbox news is still kept as "nothing to send" (`list` test, unchanged).
+
+**Finding 2 - accepted.** `owner-emails.md` section 1 now has its own row for `TeamBillEndedNotice` through
+`ITeamBillEndedMailer`: **Kept, question for the owner.** It is a billing notice to a team's Owner, ordered by the
+owner's Teams ruling of 7 October ("tell the Owner"), not a factory or a session; it has to reach a team Owner who may
+not open DevThrottle until the bill is paid, which is what an email is for, and Your inbox is per account, so it would
+land in an inbox that person is not reading.
+
+**Observations.** Two were taken because each was one line: the seat schema's example branch step is now "Tell the
+owner in Your inbox", matching `definition-format.md`; and the fleet preamble's "email me" has a row in the list (an
+identity rule, not an order to email, left to a change of its own because it rewrites every session's start text). The
+others are left as you recorded them.

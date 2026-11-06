@@ -40,6 +40,9 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
     public static string DeliveredDetail(int written) =>
         $"Written to Your inbox as {written} morning {(written == 1 ? "message" : "messages")}: one per factory with news, and one for open problems in no factory when there are any. No email was sent.";
 
+    /// <summary>Why a slot wrote nothing on a morning the account report had something to say but no factory had news.</summary>
+    public const string NoNewsReason = "no factory had news this morning and no problem is open outside a factory";
+
     private readonly ITenantContext _tenantContext;
     private readonly Func<TenantId, bool> _enabled;
     private readonly Func<TenantId, TimeZoneInfo> _zoneOf;
@@ -119,20 +122,14 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
         var input = new FactoryEmailInput(slot, zone, problems.Problems, days, _factories(tenant), _baseUrl(),
             _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone), _needsYou(tenant));
         var report = FactoryEmailComposer.Compose(input);
-        if (row is null)
-        {
-            if (!report.Send)
-            {
-                _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.NothingToSend, report.NotSentReason, report));
-                return Task.FromResult($"slot {slot.Key}: nothing to send ({report.NotSentReason})");
-            }
-            // Kept BEFORE the messages: a crash between the two leaves a slot to try again, never one silently lost.
-            _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.Failed, "composed, not written to Your inbox yet", report));
-        }
 
-        // One message per factory with news: a factory where nothing came in, nothing was decided, nothing ran, nothing is
-        // open and nothing waits on the owner writes none, so a quiet factory does not add an unread message every day.
-        var written = 0;
+        // What this morning writes is decided FIRST, and "nothing to send" only after: a factory whose inbox had news writes
+        // its message even on a day the account report has nothing to say (no schedule, no open problem), because the
+        // report's own gate was written for the email and never knew about the inbox (review of pull request 4664,
+        // finding 1). One message per factory with news: a factory where nothing came in, nothing was decided, nothing
+        // ran, nothing is open and nothing waits on the owner writes none, so a quiet factory does not add an unread
+        // message every day.
+        var pending = new List<Data.Entities.YourInboxMessageEntity>();
         var all = 0;
         foreach (var factory in FactoryMorningMessage.FactoriesOf(input))
         {
@@ -145,8 +142,7 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             if (!FactoryMorningMessage.HasNews(input, factory, summary))
                 continue;
             var message = FactoryMorningMessage.Compose(input, factory, summary);
-            _inbox.Add(tenant, YourInboxStore.ForMorningSummary(tenant, factory, message.Subject, message.Body, slot.BoundaryUtc));
-            written++;
+            pending.Add(YourInboxStore.ForMorningSummary(tenant, factory, message.Subject, message.Body, slot.BoundaryUtc));
             all++;
         }
 
@@ -158,11 +154,26 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             if (_inbox.NoFactoryMorningOf(tenant, slot.BoundaryUtc) is null)
             {
                 var message = FactoryMorningMessage.ComposeNoFactory(input, orphans);
-                _inbox.Add(tenant, YourInboxStore.ForNoFactoryProblems(tenant, message.Subject, message.Body, slot.BoundaryUtc));
-                written++;
+                pending.Add(YourInboxStore.ForNoFactoryProblems(tenant, message.Subject, message.Body, slot.BoundaryUtc));
             }
             all++;
         }
+
+        if (row is null)
+        {
+            if (all == 0)
+            {
+                var reason = report.NotSentReason ?? NoNewsReason;
+                _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.NothingToSend, reason, report));
+                return Task.FromResult($"slot {slot.Key}: nothing to send ({reason})");
+            }
+            // Kept BEFORE the messages: a crash between the two leaves a slot to try again, never one silently lost.
+            _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.Failed, "composed, not written to Your inbox yet", report));
+        }
+
+        foreach (var message in pending)
+            _inbox.Add(tenant, message);
+        var written = pending.Count;
 
         _store.Save(tenant, slot.Key, r =>
         {

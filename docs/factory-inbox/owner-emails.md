@@ -1,7 +1,8 @@
 # Every place that emails the owner - and what became of each
 
 Factory Inbox mission, phase 5 "Email off" (step D of `MISSION-FINISH.md`). Searched on 6 November 2026, in this
-repository at `origin/main` a09edb1e7 plus this branch, and in `devthrottle_internal` at `main` 215ced86 (read only,
+repository at `origin/main` a09edb1e7 plus this branch (the Teams folder looked at again after the review, at
+`origin/main` ff55d00e4), and in `devthrottle_internal` at `main` 215ced86 (read only,
 never changed from here).
 
 The owner's decision (`MISSION.md`, decisions table, "Factory emails"): when Your inbox ships, the factory morning
@@ -31,7 +32,9 @@ devthrottle_internal** (a change this repository cannot make).
 | `src/CcDirector.Gateway/Api/NetDiagAlertService.cs` | "Your home network is slow" alerts, capped per day. | **Kept, question for the owner.** A system alert about the machine, not a factory and not a session. Outside this step's decision. |
 | `src/CcDirector.Gateway/Licenses/LicenseOwnerMailer.cs` | License Switching: "no account has room". | **Kept, question for the owner.** A system alert, not a factory. |
 | `src/CcDirector.Gateway/GatewayHost.cs` supervisor escalation (`sendOwnerEmail`, `GatewaySupervisorEnvironment`) | The session supervisor's escalation when a session could not be recovered. | **Kept, question for the owner.** A system alert. It could become a Your inbox message from the session; that is a product decision this step does not make. |
-| `src/CcDirector.Gateway/Teams/TeamInvitationMailer.cs` | Team invitations. | **Kept.** Goes to the person invited, not the owner. |
+| `src/CcDirector.Gateway/Teams/TeamInvitationMailer.cs` (`ITeamInvitationMailer`) | Team invitations. | **Kept.** Goes to the person invited, not the owner. |
+| `src/CcDirector.Gateway/Teams/TeamBillEndedNotice.cs`, through `ITeamBillEndedMailer` (implemented by `TeamInvitationMailer`) | Once per ended bill: the team's Owner is told the team's bill has ended, when someone else is refused an invitation or an accept because of it. | **Kept, question for the owner.** A billing notice to a team's Owner, ordered by the owner's Teams ruling of 7 October ("tell the Owner"), not a factory and not a session. It must reach a team Owner who may not open DevThrottle until the bill is paid, which is what an email is for, and Your inbox is per account, so it would land in an inbox that person is not reading. Added after the review of pull request 4664 (finding 2). |
+| `src/CcDirector.Core/Sessions/FleetPreambleTemplate.cs` | Nothing: it tells every session that "me / my account / email me" means the signed-in user. | **No change here, noted.** An identity rule, not an order to email. Rewording "email me" there changes the start text of every session, so it is left to a change of its own. |
 
 ## 2. This repository - the built-in skills
 
@@ -60,8 +63,8 @@ devthrottle_internal** (a change this repository cannot make).
 
 - No factory definition, seat brief or scheduled run definition lives in this repository; they are on the Gateway
   or in `devthrottle_internal`.
-- `docs/factories/definition-format.md` used "Email the owner" as the example branch step. **Changed** to "Tell the
-  owner in Your inbox".
+- `docs/factories/definition-format.md` and `src/CcDirector.Gateway/Factory/Definition/Schemas/seat.schema.json` used
+  "Email the owner" as the example branch step. **Changed** to "Tell the owner in Your inbox".
 - Historical mission documents (`docs/missions/...`, `docs/reviews/...`, `docs/qa/factory-control/morning-email/`)
   describe what was true then. **Left as written.**
 

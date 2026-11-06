@@ -573,6 +573,33 @@ public sealed class FactoryEmailTests : IDisposable
     }
 
     /// <summary>
+    /// A FACTORY WITH INBOX NEWS AND NO SCHEDULE STILL GETS ITS MORNING MESSAGE (review of pull request 4664, finding 1).
+    /// The account report has nothing to say - no schedule, no open problem - but a message came into research's Factory
+    /// inbox, so research has news. "Nothing to send" is decided after the factories, not before them.
+    /// </summary>
+    [Fact]
+    public async Task SweepTenantAsync_AFactoryWithInboxNewsAndNoSchedule_GetsItsMorningMessage()
+    {
+        // Arrange - no schedule anywhere; one message left in research's Factory inbox on Saturday night.
+        await FactoryInbox.SendAsync(TenantId.Local, new FactoryInboxSendInput("research", "Look at the new competitor list.",
+            FactoryInboxWords.Notes.None, FactoryInboxWords.Sources.Typed, FactoryInboxWords.Surfaces.Phone, "owner-phone",
+            TorontoTime(2026, 10, 10, 21, 15)));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        // Act
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
+
+        // Assert - research's message is written; the kept row says it was delivered, not that there was nothing to report.
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning message to Your inbox", said);
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal(("research", YourInboxStore.MorningSeat), (message.Factory, message.Seat));
+        Assert.Contains("1 message came in; 0 decisions made; 1 still waiting.", message.Body);
+        Assert.Contains("\"Look at the new competitor list.\"", message.Body);
+        var kept = Store.Find(TenantId.Local, "2026-10-11T08")!;
+        Assert.Equal((FactoryEmailStates.Sent, FactoryEmailSweep.DeliveredDetail(1)), (kept.State, kept.Detail));
+    }
+
+    /// <summary>
     /// NO EMAIL, BY CONSTRUCTION: the morning sweep is handed nothing that can send mail - not the factory mail sender (it
     /// is deleted), not the owner-email clients, not an HTTP client. If a mail-sending dependency is ever added back to its
     /// constructor, this fails.
