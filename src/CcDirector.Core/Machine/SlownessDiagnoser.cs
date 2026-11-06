@@ -13,6 +13,12 @@ namespace CcDirector.Core.Machine;
 /// waiting a full minute as <see cref="ResourcePressure"/> does, and averaging keeps one burst from being
 /// named as the cause.
 ///
+/// A STALL SHARE IS READ OVER THE WINDOW IT CLAIMS. Linux publishes each stall share twice: over the last
+/// ten seconds and over the last minute. The diagnosis judges a minute, so it reads the kernel's own
+/// one-minute figure where one is offered. Averaging a few ten-second figures is NOT a minute: the
+/// recorded devlinux minute averages 13 per cent from its two ten-second readings while the kernel's
+/// one-minute figure says 23. Where only ten-second figures exist, the sentence says so.
+///
 /// WHAT DECIDES, PER PLATFORM (mission section 5c-i). The platforms do not measure the same thing, so
 /// they may not claim the same thing:
 /// <list type="bullet">
@@ -57,12 +63,12 @@ public static class SlownessDiagnoser
     public const double MemoryStalledSlowPercent = 10.0;
 
     /// <summary>
-    /// Linux: some program waiting on the disk more than this share of the time means the disk is a cause:
-    /// 10 per cent - sustained input and output pressure. A healthy machine running builds stays in single
-    /// figures; devlinux on 2026-10-15, unusable, averaged 13 per cent across the recorded minute and
-    /// reached 32.
+    /// Linux: some program waiting on the disk more than this share of the last minute means the disk is a
+    /// cause: 20 per cent. A healthy machine running builds stays in single figures; devlinux on 2026-10-15,
+    /// unusable, read 23 per cent over the minute in the recording (the kernel's own "some avg60") and 32
+    /// earlier that morning.
     /// </summary>
-    public const double IoStalledSlowPercent = 10.0;
+    public const double IoStalledSlowPercent = 20.0;
 
     /// <summary>
     /// Without a stall figure: the whole machine's processor busy above this, averaged over the window,
@@ -144,6 +150,7 @@ public static class SlownessDiagnoser
         if (disk is { } namedDisk && !diskJudgement.Slow) evidence.Add($"the disk with the deepest queue is {DiskDescription(namedDisk.Disk)}");
 
         var unjudged = judgements.Where(judgement => !judgement.CouldJudge).Select(judgement => judgement.Name).ToList();
+        var whyUnjudged = string.Join("; ", judgements.Where(judgement => !judgement.CouldJudge).Select(judgement => judgement.UnreadableReason));
         if (cause == SlownessCause.None)
         {
             if (unjudged.Count == judgements.Length)
@@ -154,7 +161,7 @@ public static class SlownessDiagnoser
                 return new SlownessDiagnosis(
                     CouldDiagnose: false, IsSlow: false, SlownessCause.None, evidence, Culprit: null,
                     NextStep: "Check the Director log for why the machine could not be read.",
-                    Summary: $"Cannot tell whether the machine is slow: {Join(unjudged)} could not be read, and nothing else is stalled");
+                    Summary: $"Cannot tell whether the machine is slow: {Join(unjudged)} could not be read ({whyUnjudged}), and nothing else is stalled");
 
             return new SlownessDiagnosis(
                 CouldDiagnose: true, IsSlow: false, SlownessCause.None, evidence, Culprit: null,
@@ -162,7 +169,7 @@ public static class SlownessDiagnoser
                 Summary: "Not slow: programs are not waiting on the processor, memory or the disk");
         }
 
-        if (unjudged.Count > 0) evidence.Add($"{Join(unjudged)} could not be read, so it is not ruled out");
+        if (unjudged.Count > 0) evidence.Add($"{Join(unjudged)} could not be read ({whyUnjudged}), so it is not ruled out");
 
         var slowDisk = cause.HasFlag(SlownessCause.Disk) ? diskJudgement.Disk ?? disk?.Disk : null;
         var culprit = Culprit(cause, window, slowDisk, membership, sessionNameById);
@@ -186,44 +193,46 @@ public static class SlownessDiagnoser
 
     private static Judgement CpuFromStall(List<ResourceSample> window, string span)
     {
-        if (Average(window, sample => MeasuredStall(sample)?.CpuStalledPercent) is not { } stalled)
+        if (StallShare(window, stall => stall.CpuStalledPercentOneMinute, stall => stall.CpuStalledPercent, span) is not { } share)
             return Judgement.Unreadable("the processor", "no processor stall figure");
 
-        var evidence = new List<string> { $"programs were stalled waiting for a processor {Percent1(stalled)} of the time (averaged over {span})" };
+        var evidence = new List<string> { $"programs were stalled waiting for a processor {Percent1(share.Value)} {share.Of} ({share.Source})" };
         if (Average(window, sample => sample.Cpu.CouldRead ? sample.Cpu.TotalBusyPercent : null) is { } busy)
             evidence.Add($"the processor was {Percent(busy)} busy");
-        return new Judgement("the processor", true, stalled > CpuStalledSlowPercent, evidence, null,
-            $"programs were stalled waiting for a processor {Percent1(stalled)} of the time");
+        return new Judgement("the processor", true, share.Value > CpuStalledSlowPercent, evidence, null,
+            $"programs were stalled waiting for a processor {Percent1(share.Value)} {share.Of}");
     }
 
     private static Judgement MemoryFromStall(List<ResourceSample> window, string span)
     {
-        if (Average(window, sample => MeasuredStall(sample)?.MemoryStalledPercent) is not { } stalled)
+        if (StallShare(window, stall => stall.MemoryStalledPercentOneMinute, stall => stall.MemoryStalledPercent, span) is not { } share)
             return Judgement.Unreadable("memory", "no memory stall figure");
 
-        var evidence = new List<string> { $"programs were stalled waiting on memory {Percent1(stalled)} of the time (averaged over {span})" };
+        var evidence = new List<string> { $"programs were stalled waiting on memory {Percent1(share.Value)} {share.Of} ({share.Source})" };
         if (window[^1].Memory is { CouldRead: true } memory) evidence.Add(memory.ToString());
-        return new Judgement("memory", true, stalled > MemoryStalledSlowPercent, evidence, null,
-            $"programs were stalled waiting on memory {Percent1(stalled)} of the time");
+        return new Judgement("memory", true, share.Value > MemoryStalledSlowPercent, evidence, null,
+            $"programs were stalled waiting on memory {Percent1(share.Value)} {share.Of}");
     }
 
     private static Judgement DiskFromStall(List<ResourceSample> window, string span, (DiskEvidence Disk, double QueueDepth)? deepest)
     {
-        if (Average(window, sample => MeasuredStall(sample)?.IoStalledPercent) is not { } stalled)
+        if (StallShare(window, stall => stall.IoStalledPercentOneMinute, stall => stall.IoStalledPercent, span) is not { } share)
             return Judgement.Unreadable("the disk", "no disk stall figure");
 
-        var evidence = new List<string> { $"programs were stalled waiting on the disk {Percent1(stalled)} of the time (averaged over {span})" };
+        var evidence = new List<string> { $"programs were stalled waiting on the disk {Percent1(share.Value)} {share.Of} ({share.Source})" };
         if (window[^1].Stall.ProcessesWaitingOnDisk is { } waiting) evidence.Add($"{waiting} tasks were waiting on the disk");
-        var slow = stalled > IoStalledSlowPercent;
+        var slow = share.Value > IoStalledSlowPercent;
         if (slow && deepest is { } disk) evidence.Add($"the disk with the deepest queue is {DiskDescription(disk.Disk)}");
         return new Judgement("the disk", true, slow, evidence, null,
-            $"programs were stalled waiting on the disk {Percent1(stalled)} of the time", deepest?.Disk);
+            $"programs were stalled waiting on the disk {Percent1(share.Value)} {share.Of}", deepest?.Disk);
     }
 
     private static Judgement CpuFromProxies(List<ResourceSample> window, string span, int? cores)
     {
         var busy = Average(window, sample => sample.Cpu.CouldRead ? sample.Cpu.TotalBusyPercent : null);
-        var load = Average(window, sample => sample.Stall.CouldRead ? sample.Stall.LoadAverageOneMinute : null);
+        // The one-minute load average is ALREADY a minute's average, so the newest one is read as it is;
+        // averaging it again over the window would report a figure the kernel never gave, a minute late.
+        var load = window.Select(sample => sample.Stall.CouldRead ? sample.Stall.LoadAverageOneMinute : null).LastOrDefault(value => value is not null);
         var queue = Average(window, sample => sample.Stall.CouldRead ? sample.Stall.RunQueueLength : null);
 
         if (busy is null && (load is null || cores is null))
@@ -248,7 +257,7 @@ public static class SlownessDiagnoser
         {
             var perCore = loadAverage / coreCount;
             evidence.Add(string.Create(CultureInfo.InvariantCulture,
-                $"the one-minute load average was {loadAverage:F2} on {coreCount} cores ({perCore:F2} per core)"));
+                $"the one-minute load average is {loadAverage:F2} on {coreCount} cores ({perCore:F2} per core)"));
             if (perCore > LoadAveragePerCoreSlow)
             {
                 slow = true;
@@ -347,7 +356,25 @@ public static class SlownessDiagnoser
 
         if (slowest is null)
         {
-            evidence.Add($"every disk answered within its limit (averaged over {span})");
+            var answered = names.Select(name => Averaged(window, name)).OfType<DiskEvidence>()
+                .Where(disk => SlowerOperation(disk) is not null).ToList();
+            if (answered.Count > 0)
+            {
+                evidence.Add($"every disk that completed an operation answered within its limit (averaged over {span})");
+                return new Judgement("the disk", true, false, evidence, null, null);
+            }
+
+            // No disk completed an operation in the whole window. With nothing queued that is an idle
+            // machine; with operations in flight and none completing it may be a disk that has stopped
+            // answering - the slowest disk there is - so it is not called fine.
+            var queued = names.Select(name => Averaged(window, name)).OfType<DiskEvidence>()
+                .FirstOrDefault(disk => disk.AverageQueueDepth > 0);
+            if (queued.Name is { } stuck)
+                return Judgement.Unreadable("the disk",
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{stuck} had {queued.AverageQueueDepth:F1} operations in flight and completed none in {span}, so how long it takes to answer cannot be told"));
+
+            evidence.Add($"no disk completed an operation in {span}, and none had any waiting");
             return new Judgement("the disk", true, false, evidence, null, null);
         }
 
@@ -569,6 +596,24 @@ public static class SlownessDiagnoser
     // ---------------------------------------------------------------------------------------------
     // Arithmetic over the window
     // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// One stall share and the window it truly covers: the newest sample's one-minute figure where the
+    /// kernel offers one, because the diagnosis judges a minute; otherwise the ten-second figures averaged
+    /// over the samples, worded as exactly that. Null when neither was offered.
+    /// </summary>
+    private static (double Value, string Of, string Source)? StallShare(
+        List<ResourceSample> window, Func<StallReading, double?> oneMinute, Func<StallReading, double?> tenSeconds, string span)
+    {
+        if (window.Select(MeasuredStall).LastOrDefault(stall => stall is { } found && oneMinute(found) is not null) is { } newest
+            && oneMinute(newest) is { } minute)
+            return (minute, "of the last minute", "the kernel's own one-minute figure");
+
+        if (Average(window, sample => MeasuredStall(sample) is { } stall ? tenSeconds(stall) : null) is { } averaged)
+            return (averaged, "of the time", $"the kernel's ten-second figures, averaged over {span}");
+
+        return null;
+    }
 
     /// <summary>A stall reading the kernel measured directly, or null for every other kind.</summary>
     private static StallReading? MeasuredStall(ResourceSample sample) =>

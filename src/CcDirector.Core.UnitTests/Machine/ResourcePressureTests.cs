@@ -327,6 +327,14 @@ public class ResourcePressureTests
     }
 
     [Fact]
+    public void Evaluate_SwapInUseWithNoSwapConfigured_IsUnknownNotNormal()
+    {
+        var history = new[] { new ResourceSampleBuilder { Swap = SwapReading.Read(0, 500UL * 1024 * 1024) }.Build() };
+
+        Assert.Equal(ResourceLevel.Unknown, Verdict(history, ResourceKind.Swap).Level);
+    }
+
+    [Fact]
     public void Evaluate_SwapUsedAboveTotal_IsUnknown()
     {
         var history = new[] { new ResourceSampleBuilder { Swap = SwapReading.Read(1 * Gigabyte, 2 * Gigabyte) }.Build() };

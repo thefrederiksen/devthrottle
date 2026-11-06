@@ -24,6 +24,12 @@ namespace CcDirector.Core.Machine;
 /// the run, so one failed read does not reset a real warning; the readable samples must still reach
 /// back the whole window.
 ///
+/// MEMORY IS JUDGED ON THE NEWEST SAMPLE, by the existing tested <see cref="MemoryPressure"/> levels, and
+/// is not held for sixty seconds. Mission section 5c gives memory "the existing MemoryPressure Tight and
+/// Critical levels, unchanged", and those levels are already a judgement of how much is left rather than a
+/// spike: available memory does not swing in and out the way a processor's busy share does. The sixty-second
+/// rule of section 5c is applied to the processor, where a compile burst would otherwise warn.
+///
 /// THE BUSIEST SINGLE CORE NEVER RAISES A LEVEL. One stuck core of thirty-two is not a machine out of
 /// processor; it is shown in the detail screen and nowhere else.
 ///
@@ -171,11 +177,13 @@ public static class ResourcePressure
         if (!swap.CouldRead)
             return new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Unknown, $"swap cannot be read: {swap.UnreadableReason}");
 
-        if (swap.TotalBytes == 0)
-            return new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Normal, "no swap is configured on this machine");
-
+        // Checked before "none configured": swap in use beyond its own size - including in use with no
+        // swap configured at all - is a reading that cannot be true, not a machine with no swap.
         if (swap.UsedBytes > swap.TotalBytes)
             return new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Unknown, $"the swap reading is not believable ({swap})");
+
+        if (swap.TotalBytes == 0)
+            return new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Normal, "no swap is configured on this machine");
 
         var usedPercent = 100.0 * swap.UsedBytes / swap.TotalBytes;
         if (usedPercent > SwapUsedCriticalPercent)

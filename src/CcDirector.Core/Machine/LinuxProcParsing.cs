@@ -185,15 +185,23 @@ internal static class LinuxProcParsing
     /// The "some avg10" figure of a <c>/proc/pressure/*</c> file: the percentage of the last ten
     /// seconds in which at least one task was stalled on this resource. Null when the line is missing.
     /// </summary>
-    public static double? ParsePressureSomeAverage10(string text)
+    public static double? ParsePressureSomeAverage10(string text) => ParsePressureSome(text, "avg10=");
+
+    /// <summary>
+    /// The "some avg60" figure of a <c>/proc/pressure/*</c> file: the percentage of the last MINUTE in
+    /// which at least one task was stalled on this resource, as the kernel averages it. Null when missing.
+    /// </summary>
+    public static double? ParsePressureSomeAverage60(string text) => ParsePressureSome(text, "avg60=");
+
+    private static double? ParsePressureSome(string text, string key)
     {
         foreach (var line in text.Split('\n'))
         {
             if (!line.StartsWith("some ", StringComparison.Ordinal)) continue;
             foreach (var field in line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (field.StartsWith("avg10=", StringComparison.Ordinal)
-                    && double.TryParse(field.AsSpan(6), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+                if (field.StartsWith(key, StringComparison.Ordinal)
+                    && double.TryParse(field.AsSpan(key.Length), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
                     return value;
             }
         }

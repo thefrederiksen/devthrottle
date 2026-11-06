@@ -139,6 +139,12 @@ public class LinuxProcParsingTests
     }
 
     [Fact]
+    public void ParsePressure_RealIoFile_ReadsSomeAverage60()
+    {
+        Assert.Equal(23.17, LinuxProcParsing.ParsePressureSomeAverage60(Text("snapshot-2", "proc", "pressure", "io")));
+    }
+
+    [Fact]
     public void ParsePressure_NoSomeLine_ReturnsNull()
     {
         Assert.Null(LinuxProcParsing.ParsePressureSomeAverage10("full avg10=1.00 avg60=0.00 avg300=0.00 total=0\n"));

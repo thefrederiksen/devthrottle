@@ -83,8 +83,10 @@ public sealed class SlownessDiagnoserTests : IDisposable
         Assert.Contains("on the hard drive sdc, 88% busy, 92 ms per write", diagnosis.Summary, StringComparison.Ordinal);
         Assert.Contains("in the system volume", diagnosis.Summary, StringComparison.Ordinal);
         Assert.Equal(1, CountOf("mostly", diagnosis.Summary)); // one "mostly", for the process, not two
-        // Linux measures stall directly, so it may - and does - say so.
-        Assert.Contains("stalled waiting on the disk 13% of the time", diagnosis.Summary, StringComparison.Ordinal);
+        // Linux measures stall directly, so it may - and does - say so, over the window it claims: the
+        // kernel's own one-minute figure, 23%, and not 13%, the mean of two ten-second figures.
+        Assert.Contains("stalled waiting on the disk 23% of the last minute", diagnosis.Summary, StringComparison.Ordinal);
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("for a processor 4.7% of the last minute", StringComparison.Ordinal));
         Assert.Contains("hard drive sdc", diagnosis.NextStep, StringComparison.Ordinal);
     }
 
@@ -486,8 +488,75 @@ public sealed class SlownessDiagnoserTests : IDisposable
             ]),
         }));
 
-        Assert.False(diagnosis.Cause.HasFlag(SlownessCause.Disk));
+        Assert.True(diagnosis.CouldDiagnose);
+        Assert.False(diagnosis.IsSlow);
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("no disk completed an operation", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnosis.Evidence, line => line.Contains("within its limit", StringComparison.Ordinal));
         Assert.Null(diagnosis.Culprit);
+    }
+
+    [Fact]
+    public void Diagnose_DiskWithOperationsWaitingAndNoneCompleting_CannotTellRatherThanFine()
+    {
+        // Eight operations in flight for a whole minute and not one completed may be a disk that has
+        // stopped answering. With no time per operation it cannot be judged - and it is not "fine".
+        var diagnosis = Diagnose(Every5Seconds(TimeSpan.FromSeconds(60), _ => MacOs(millisecondsPerWrite: 1.1) with
+        {
+            DiskEvidence = DiskEvidenceSet.Read(
+            [
+                DiskEvidence.Read("disk0", DiskKind.SolidState, true, null, null, null, 8),
+            ]),
+        }));
+
+        Assert.False(diagnosis.CouldDiagnose);
+        Assert.False(diagnosis.IsSlow);
+        Assert.Contains("disk0 had 8.0 operations in flight and completed none", diagnosis.Summary + string.Join(" ", diagnosis.Evidence), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Diagnose_LoadAverageClimbing_IsJudgedOnTheNewestFigureNotAveragedAgain()
+    {
+        // An idle 10-core machine, then twenty runnable threads: the kernel's one-minute load average climbs
+        // to 12.6 by the newest sample (1.26 per core). Averaging it again over the window would say 7.4.
+        var history = Every5Seconds(TimeSpan.FromSeconds(55), offset => new ResourceSampleBuilder
+        {
+            Cpu = CpuReading.Read(60, busiestCorePercent: 100, logicalCoreCount: 10),
+            Stall = StallReading.Read(StallSource.MacOsSignals,
+                loadAverageOneMinute: 12.6 * offset.TotalSeconds / 55, macOsMemoryPressureLevel: 1),
+        });
+
+        var diagnosis = Diagnose(history);
+
+        Assert.True(diagnosis.Cause.HasFlag(SlownessCause.Cpu));
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("the one-minute load average is 12.60 on 10 cores", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Diagnose_LinuxWithOnlyTenSecondFigures_SaysSoRatherThanCallingItAMinute()
+    {
+        var diagnosis = Diagnose(Every5Seconds(TimeSpan.FromSeconds(60), _ => new ResourceSampleBuilder
+        {
+            Stall = StallReading.Read(StallSource.LinuxPressureStall, cpuStalledPercent: 1, memoryStalledPercent: 0,
+                ioStalledPercent: 35, runQueueLength: 3, loadAverageOneMinute: 9, processesWaitingOnDisk: 6),
+        }));
+
+        Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
+        Assert.DoesNotContain("of the last minute", diagnosis.Summary, StringComparison.Ordinal);
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("ten-second figures, averaged over 60 seconds", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Diagnose_OneMinuteFigureWinsOverTenSecondSpikes()
+    {
+        // A ten-second spike to 60% inside a minute the kernel puts at 5% is not a disk-bound minute.
+        var diagnosis = Diagnose(Every5Seconds(TimeSpan.FromSeconds(60), _ => new ResourceSampleBuilder
+        {
+            Stall = StallReading.Read(StallSource.LinuxPressureStall, cpuStalledPercent: 1, memoryStalledPercent: 0,
+                ioStalledPercent: 60, cpuStalledPercentOneMinute: 1, memoryStalledPercentOneMinute: 0,
+                ioStalledPercentOneMinute: 5, runQueueLength: 3, loadAverageOneMinute: 2, processesWaitingOnDisk: 0),
+        }));
+
+        Assert.False(diagnosis.IsSlow);
     }
 
     [Fact]
@@ -521,7 +590,7 @@ public sealed class SlownessDiagnoserTests : IDisposable
     public void Thresholds_AreTheOnesTheMissionDocumentRecords()
     {
         // Pinned so a change to a threshold is a visible decision, not a quiet edit.
-        Assert.Equal(10.0, SlownessDiagnoser.IoStalledSlowPercent);
+        Assert.Equal(20.0, SlownessDiagnoser.IoStalledSlowPercent);
         Assert.Equal(20.0, SlownessDiagnoser.CpuStalledSlowPercent);
         Assert.Equal(10.0, SlownessDiagnoser.MemoryStalledSlowPercent);
         Assert.Equal(1.0, SlownessDiagnoser.LoadAveragePerCoreSlow);
