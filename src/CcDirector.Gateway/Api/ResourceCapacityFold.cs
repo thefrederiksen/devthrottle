@@ -34,7 +34,8 @@ internal static class ResourceCapacityFold
 
     /// <summary>
     /// Stamp a capacity on every machine of a folded Machines view. <paramref name="lastHourWindows"/> is every machine
-    /// window of the tenant from the last <see cref="PeakSpan"/>, or null when the statistics store could not be read.
+    /// window of the tenant from one window before the last <see cref="PeakSpan"/> (so the window straddling the hour's
+    /// start is in), or null when the statistics store could not be read.
     /// </summary>
     public static void Stamp(FleetMachinesDto view, IReadOnlyList<ResourceWindowEntity>? lastHourWindows, DateTime nowUtc)
     {
@@ -57,8 +58,11 @@ internal static class ResourceCapacityFold
         if (!directorRunning)
             return NotReporting("No Director on this machine is running, so it is not measuring anything. Offline is not idle.");
 
+        // Every window with any part inside the hour, including the one straddling its start: the minutes it measured
+        // inside the hour are counted (MeasuredMinutes), so its readings must be too, or a spike in them is claimed as
+        // measured and left out of the peak (review of #4687, finding 3).
         var recent = windows
-            .Where(w => w.WindowStartUtc >= nowUtc - PeakSpan)
+            .Where(w => w.WindowStartUtc.AddSeconds(w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds) > nowUtc - PeakSpan)
             .ToList();
         var newest = recent
             .OrderByDescending(w => w.WindowStartUtc)
@@ -223,16 +227,21 @@ internal static class ResourceCapacityFold
 
     /// <summary>
     /// How many whole minutes of the last hour one resource was measured for, or null when the hour was measured whole
-    /// (issue #4679). Two things make an hour less than whole, and both are counted, never assumed away:
-    ///  - a stretch with NO window. That is <see cref="ResourceWindowGaps.Of"/>, the one definition the expanded chart
-    ///    draws, so this row cannot claim a whole hour above a chart showing a hole in it;
-    ///  - a window with FEWER SAMPLES than a full one. A row with four samples was measured for twenty seconds, not five
-    ///    minutes. One missed sample per window is allowed, because a five-second timer against five-minute wall-clock
-    ///    boundaries lands 59 times as well as 60, and calling every such hour partial would make the label noise.
-    /// The minutes are the samples actually taken, five seconds each, counted for the part of each window inside the hour
-    /// (the window straddling the hour's start measured its first minutes too), rounded DOWN so it never claims more.
+    /// (issue #4679). It is the hour MINUS what was not measured, so it agrees with the expanded chart by construction:
+    ///  - minus every gap <see cref="ResourceWindowGaps.Of"/> finds - the one definition the chart draws. That rule
+    ///    has two allowances of its own, which this inherits rather than redefines: a stretch shorter than one window is
+    ///    not a gap, and the stretch after the newest window is not a gap until <see cref="SilentAfter"/>, because the
+    ///    window being collected is not missing yet. So a Director that stopped twelve minutes ago still reads as whole
+    ///    here exactly as the chart draws no hole for it; past fifteen minutes the row is "not reporting" anyway;
+    ///  - minus the samples a window is short of a full one, five seconds each, for the part of the window inside the
+    ///    hour. A row of four samples was measured for twenty seconds, not five minutes.
+    /// The hour counts as whole when there is no gap and no window inside it is more than ONE sample short. That one
+    /// sample is an expectation about the sampler (phase 2, not yet built when this was written): a five-second timer
+    /// against five-minute wall-clock boundaries should land 59 as well as 60. A sampler that drifts further than that -
+    /// one that does its work and then waits five seconds will, on a loaded machine - makes every hour read as partial,
+    /// which is the honest answer for such a sampler, not a reason to widen this. The minutes are rounded DOWN.
     /// <paramref name="windows"/> must include the window straddling the hour's start (the caller reads from
-    /// <see cref="MachineResourceHistoryFold.ReadFromUtc"/>), or the hour's first stretch would count as a gap.
+    /// <see cref="MachineResourceHistoryFold.ReadFromUtc"/>), or the hour's first minutes would count as a gap.
     /// </summary>
     internal static int? MeasuredMinutes(IReadOnlyList<ResourceWindowEntity> windows, DateTime nowUtc, Func<ResourceWindowEntity, int> samples)
     {
@@ -245,17 +254,18 @@ internal static class ResourceCapacityFold
                 Samples: g.Max(samples)))
             .Where(w => w.Start.AddSeconds(w.Seconds) > hourStart && w.Start < nowUtc)
             .ToList();
-        var noGap = ResourceWindowGaps.Of(windows, hourStart, nowUtc).Count == 0;
-        if (noGap && perStart.All(w => w.Samples >= FullWindowSamples - 1)) return null;
+        var gaps = ResourceWindowGaps.Of(windows, hourStart, nowUtc);
+        if (gaps.Count == 0 && perStart.All(w => w.Samples >= FullWindowSamples - 1)) return null;
 
-        var seconds = 0.0;
+        var gapSeconds = gaps.Sum(g => (g.EndUtc - g.StartUtc).TotalSeconds);
+        var shortSeconds = 0.0;
         foreach (var w in perStart)
         {
             var end = w.Start.AddSeconds(w.Seconds);
             var inside = ((end < nowUtc ? end : nowUtc) - (w.Start > hourStart ? w.Start : hourStart)).TotalSeconds;
-            seconds += Math.Min(w.Samples, FullWindowSamples) * sampleSeconds * (inside / w.Seconds);
+            shortSeconds += (FullWindowSamples - Math.Min(w.Samples, FullWindowSamples)) * sampleSeconds * (inside / w.Seconds);
         }
-        return (int)Math.Floor(seconds / 60);
+        return (int)Math.Floor((PeakSpan.TotalSeconds - gapSeconds - shortSeconds) / 60);
     }
 
     /// <summary>
