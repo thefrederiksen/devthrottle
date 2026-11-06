@@ -368,15 +368,21 @@ public sealed class TrialRegistry
                 // non-single-writer deployment - the in-process lock above does not cover those). One trial per
                 // account is the rule, so the loser adopts the winner's row: re-read what the key enforced.
                 // This is not a fallback that hides a problem - the primary key is the source of truth and we
-                // are reading back the value it enforced. A still-absent row would be a genuine failure, so it
-                // re-throws rather than granting again.
+                // are reading back the value it enforced.
+                //
+                // A still-absent row means it was NOT a race: the database refused the insert itself (Entity
+                // Framework wraps every provider failure during SaveChanges in DbUpdateException). Nothing was
+                // granted and we do not know what covers this account, so the answer is UNKNOWN - the same
+                // retry as any other write failure below - never a throw (this type does not throw) and never a
+                // second grant. Website Black review, finding 1.
                 var winner = Evaluate(subject, nowUtc);
-                if (winner.Outcome != TrialOutcome.None)
+                if (winner.Outcome == TrialOutcome.Active)
                 {
                     FileLog.Write("[TrialRegistry] GrantIfFirstArrival: lost a grant race, adopting the trial the winner wrote");
                     return winner;
                 }
-                throw;
+                FileLog.Write($"[TrialRegistry] GrantIfFirstArrival: WRITE FAILED (insert refused, re-read answered {winner.Outcome}) - answering UNKNOWN, which must be retried");
+                return new TrialDecision(TrialOutcome.Unknown);
             }
             catch (Exception ex)
             {

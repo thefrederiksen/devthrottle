@@ -20,10 +20,14 @@ namespace CcDirector.Gateway.Tenancy;
 /// while the setting is OFF. A self-hosted Gateway never reads the setting.
 ///
 /// OFF BY DEFAULT, AND OFF UNTIL THE FLIP. The owner allowed ONE Gateway release for this, with the setting off
-/// (5 November 2026: "Yes, you can go ahead and make a gateway release."). Turning it on is part of the Website Black
-/// flip: one line in the repository's Dockerfile, <c>ENV CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=1</c>, reviewed and
-/// deployed like any other change. The deploy writes no application setting of its own, so the image is the one place
-/// a hosted setting is stated (the same reason as <see cref="PreLaunchGrace"/>).
+/// (5 November 2026: "Yes, you can go ahead and make a gateway release."). The hosted Gateway reads it as an AZURE
+/// APPLICATION SETTING, and there is exactly one way to write it: the <c>trial_at_first_director</c> input of
+/// <c>.github/workflows/deploy-hosted-gateway.yml</c> (on writes 1, off writes 0, unchanged - the default - writes
+/// nothing). The image carries no <c>ENV</c> line for it, so with the setting never written the Gateway reads it as
+/// off. Running the deploy with that input set to on is the Website Black flip, and the owner's decision. An
+/// application setting overrides anything in the image, so what the image says is never the proof of what the
+/// process read: the start-up log line <c>[FirstDirectorTrial] FromEnvironment: CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=on|off</c>
+/// is, and every hosted deploy checks it while this setting exists.
 ///
 /// A VALUE IT CANNOT READ STOPS THE GATEWAY. "1" is on; unset or blank is off; "0" is off. Anything else ("true",
 /// "yes", "on", a typo) refuses to start, because reading a mistyped "on" as off would silently withhold a trial the

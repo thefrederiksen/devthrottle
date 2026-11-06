@@ -28,7 +28,7 @@ namespace CcDirector.Gateway.Tests;
 ///   4. A SECOND DIRECTOR DOES NOT RESTART IT, and enrolling again after the 7 days grants nothing.
 ///   5. PRO UNTIL THE 7 DAYS END, FREE AFTER, exactly at the end instant.
 ///   6. NOTHING through the Cockpit and phone door, nothing to a paying account, nothing to an account the Gateway
-///      already knew, and a ledger that cannot be read is a retry that mints nothing.
+///      already knew, and a ledger that cannot be read or written is a retry that mints nothing.
 /// </summary>
 public sealed class FirstDirectorTrialTests : IDisposable
 {
@@ -262,6 +262,25 @@ public sealed class FirstDirectorTrialTests : IDisposable
 
         Assert.Equal(503, result.Status);
         Assert.Null(w.Tenants.LookupBySubject(Subject));
+    }
+
+    [Fact]
+    public void Enroll_TrialLedgerWriteFails_SettingOn_IsARetryThatMintsNothing()
+    {
+        // The READ succeeds and the INSERT is refused by the database (review finding 1). Entity Framework wraps that
+        // in the same exception a lost grant race raises; the ledger re-reads, finds no row, and must answer the
+        // retry - not throw a 500 out of the enrolment, and not grant.
+        var w = Wire(Open());
+        using (var ctx = w.Db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw(
+                "CREATE TRIGGER refuse_trial_insert BEFORE INSERT ON account_trials " +
+                "BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
+
+        var result = EnrollDirector(w, FirstConnect, On);
+
+        Assert.Equal(503, result.Status);
+        Assert.Null(w.Tenants.LookupBySubject(Subject));
+        Assert.Equal(0, TrialRows(w.Db));
     }
 
     [Fact]

@@ -5688,8 +5688,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 ? Api.HostedEnrollmentEndpoint.TeamEnrollment.Over(TeamRegistry, TeamAccess, PushedSessions, _directorConnections)
                 : null;
             // The 7-day Pro trial at an account's first Director (Website Black mission) rides on the Director door
-            // only, and only does anything while Options.FirstDirectorTrial is on - off unless the hosted image sets
-            // CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=1.
+            // only, and only does anything while Options.FirstDirectorTrial is on - off unless the deploy workflow's
+            // trial_at_first_director input has written CC_GATEWAY_TRIAL_AT_FIRST_DIRECTOR=1 (FirstDirectorTrial.cs).
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
                 teams: teamEnrollment, trials: TrialRegistry, firstDirectorTrial: Options.FirstDirectorTrial);
