@@ -305,6 +305,49 @@ public class ResourceReadingTests
     }
 
     [Fact]
+    public void ProcessRead_FiguresTheePlatformRefuses_AreNull_AndTheProcessIsStillNamed()
+    {
+        // The macOS case: an ordinary user is refused the figures for roughly three hundred of the
+        // machine's seven hundred processes, and the busiest process on the machine is routinely one of
+        // them. It belongs IN the list, named, with null figures - never dropped and never zeroed, or the
+        // probe whose job is to name the culprit cannot see the culprit.
+        var refused = new ProcessReading(501, 1, "mds_stores", null, null, null, null, null);
+
+        Assert.Equal("mds_stores", refused.Name);
+        Assert.Equal(501, refused.Pid);
+        Assert.Null(refused.CpuPercent);
+        Assert.Null(refused.MemoryBytes);
+        Assert.Contains("mds_stores", refused.ToString());
+        Assert.Contains("processor not readable", refused.ToString());
+        Assert.Contains("memory not readable", refused.ToString());
+    }
+
+    [Fact]
+    public void ProcessToString_WithFigures_PrintsThem()
+    {
+        var process = new ProcessReading(4242, 1, "dotnet", null, 12.5, 64UL * 1024 * 1024, null, null);
+
+        Assert.Contains("12.5% processor", process.ToString());
+        Assert.Contains("64 MB", process.ToString());
+    }
+
+    [Fact]
+    public void SessionUsage_SaysHowManyProcessesCouldNotBeMeasured_SoATotalIsNotMistakenForTheWholeTree()
+    {
+        // A tree can hold processes whose figures the platform refused. Summing them as zero would report
+        // the session as cheaper than it is, so the count travels and a screen can say "at least".
+        var partial = new SessionUsage("session-one", RootPid: 4242, CpuPercent: 14.0,
+            MemoryBytes: 512UL * 1024 * 1024, Pids: [4242, 4243, 4244], ProcessesWithUnknownFigures: 2);
+
+        Assert.Equal(2, partial.ProcessesWithUnknownFigures);
+
+        var complete = new SessionUsage("session-two", RootPid: 99, CpuPercent: 1.0,
+            MemoryBytes: 1024, Pids: [99], ProcessesWithUnknownFigures: 0);
+
+        Assert.Equal(0, complete.ProcessesWithUnknownFigures);
+    }
+
+    [Fact]
     public void ProcessSetUnreadable_HasNoProcesses_AndPrintsNoFigure()
     {
         var set = ProcessSetReading.Unreadable(ResourceUnreadableReasons.FirstSample);

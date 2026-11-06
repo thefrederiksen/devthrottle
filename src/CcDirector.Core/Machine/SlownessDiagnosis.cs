@@ -89,15 +89,33 @@ public sealed record SlownessDiagnosis(
 /// <summary>
 /// What one session costs the machine: its root process and every process descended from it, summed.
 /// Filled later by a pure function over the process list; this is only its shape.
+///
+/// THE TOTALS CAN BE A LOWER BOUND, AND THE SHAPE SAYS SO. A process whose figures the platform refused
+/// is still in the process list, named, with null figures - so a tree can contain processes that cannot
+/// be added up. Summing them as zero would report a session as cheaper than it is, which is the made-up
+/// zero this mission exists to avoid. So the sum covers only the processes that could be read, and
+/// <see cref="ProcessesWithUnknownFigures"/> says how many were left out, which lets a screen say "at
+/// least 2.1 GB" rather than "2.1 GB". Zero means the total is complete.
 /// </summary>
 /// <param name="SessionId">The session.</param>
 /// <param name="RootPid">The process the session started - the agent itself.</param>
-/// <param name="CpuPercent">Processor used by the whole tree, as a share of the WHOLE machine, 0 to 100.</param>
-/// <param name="MemoryBytes">Resident memory (or working set) of the whole tree.</param>
+/// <param name="CpuPercent">
+/// Processor used by the whole tree, as a share of the WHOLE machine, 0 to 100 - so a session holding
+/// one core of ten reads 10, not 100. Summed over the processes whose figures could be read.
+/// </param>
+/// <param name="MemoryBytes">
+/// Resident memory (or working set) of the whole tree, summed over the processes whose figures could be
+/// read.
+/// </param>
 /// <param name="Pids">Every process counted, the root included.</param>
+/// <param name="ProcessesWithUnknownFigures">
+/// How many processes in the tree were running but could not be measured. Non-zero means both totals
+/// are a floor, not a measurement of the whole tree.
+/// </param>
 public sealed record SessionUsage(
     string SessionId,
     int RootPid,
     double CpuPercent,
     ulong MemoryBytes,
-    IReadOnlyList<int> Pids);
+    IReadOnlyList<int> Pids,
+    int ProcessesWithUnknownFigures);

@@ -23,6 +23,25 @@ namespace CcDirector.Core.Machine;
 /// <item>Percentages run from 0 to 100. Rates are per second, computed from two cumulative readings;
 /// the first read after start-up has no interval, so its rates are unreadable with
 /// <see cref="ResourceUnreadableReasons.FirstSample"/>.</item>
+/// <item>PER-PROCESS PROCESSOR IS A SHARE OF THE WHOLE MACHINE, 0 to 100. A process holding one core of
+/// ten reads 10, not 100. Every platform must answer the same way or no per-session total means
+/// anything: a figure that is per-core on one operating system and per-machine on another cannot be
+/// summed, compared between machines, or placed against the toolbar's own processor bar. The shared
+/// probe contract test proves this against the real machine on all three platforms.</item>
+/// <item>EVERY INTERVAL AND EVERY RATE COMES OFF A MONOTONIC CLOCK, never off wall-clock time. Take a
+/// <see cref="TimeProvider"/> and use <see cref="TimeProvider.GetTimestamp"/> with
+/// <see cref="TimeProvider.GetElapsedTime(long, long)"/>; <see cref="ResourceRate"/> does the division
+/// and knows the two ways it fails. Wall-clock time STAMPS a sample
+/// (<see cref="ResourceSample.TakenAtUtc"/>) and never measures an interval, because time
+/// synchronisation steps it and a step backwards across a five-second sample would turn every rate on
+/// the machine negative or enormous.</item>
+/// <item>A COUNTER THAT STEPS BACKWARDS YIELDS NULL, never zero - a reset, a wrap, or a reused process
+/// id. <see cref="ResourceRate"/> enforces it; do not divide by hand.</item>
+/// <item>A PROCESS THAT IS STILL RUNNING BUT WHOSE FIGURES THE PLATFORM REFUSES IS LISTED AND NAMED,
+/// with those figures null. It is never dropped from the list and never written down as zero. On a Mac
+/// an ordinary user is refused the figures for roughly three hundred of seven hundred processes, and
+/// the busiest process on the machine is routinely one of them - dropping them hides the very thing the
+/// slowness diagnosis exists to name.</item>
 /// <item>No subprocess is started: this is read on a five-second timer, often on a machine that is
 /// already struggling.</item>
 /// </list>

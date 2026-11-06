@@ -61,6 +61,18 @@ public readonly record struct StallReading(
     int? ProcessesWaitingOnDisk)
 {
     /// <summary>
+    /// The macOS kernel's level, read through the ONE mapping function rather than a second
+    /// <c>switch</c>. <see cref="MacOsMemoryPressureLevel"/> is the kernel's raw number, which is a bit
+    /// flag and not a ladder; this is what it means. Unknown on every other platform, because no level
+    /// was offered - and Unknown is never a synonym for Normal.
+    ///
+    /// The macOS probe, its tests and the Gateway's display fold all read this. None of them maps the
+    /// number itself: see <see cref="MacOsKernelPressure"/> for why that matters when a platform
+    /// publishes only two stall signals in total.
+    /// </summary>
+    public KernelMemoryPressureLevel MacOsMemoryPressure => MacOsKernelPressure.Read(MacOsMemoryPressureLevel);
+
+    /// <summary>
     /// A reading that succeeded. Pass only the figures the platform offers; the rest stay null.
     /// </summary>
     public static StallReading Read(
