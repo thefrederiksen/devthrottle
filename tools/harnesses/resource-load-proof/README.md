@@ -44,6 +44,13 @@ correct product passing a few runs in a hundred. An instrument that fails a prod
 criterion is worse than one that measures with the wrong clock, because its failures look like the
 product's.
 
+*Order comes from the recording too, not from the stamps.* A sample's stamp decides whether it belongs -
+taken at or after the change - and `recordingSeconds` decides what order the members are in. Ordering by
+the stamp would hand a backward step the power to choose which two lines get subtracted, which is the same
+defect one level up: the measurement monotonic, the choice of what to measure not. For the same reason the
+scan for a clock step covers every line in the window between the two ends, including lines stamped before
+the change, because that is exactly where a backward step puts its own mark.
+
 *What the measurement costs.* It overstates by at most one five-second sample interval, because the
 baseline is the first sample at or after the change rather than the change itself. That is the safe
 direction.

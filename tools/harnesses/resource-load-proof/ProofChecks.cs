@@ -89,8 +89,9 @@ public static class ProofChecks
     /// <summary>
     /// How long the harness polls for a recorded sample before giving up: the 70-second limit, plus the recorder's
     /// one-minute write interval (the sample that proves it may be written up to a minute after it was taken), plus
-    /// three polls. The pass itself is judged on the harness's own monotonic clock against
-    /// <see cref="WarningDeadline"/>; see <see cref="WithinWarningDeadline"/> for why not on the stamps.
+    /// three polls. This budget bounds how long the harness WAITS and decides nothing: the pass is judged
+    /// on the recording's own timeline by <see cref="JudgeWarning"/>, so a sample the product recorded in
+    /// time still passes however late the harness managed to see it.
     /// </summary>
     public static readonly TimeSpan PollDeadline = TimeSpan.FromSeconds(70 + 60 + 15);
 
@@ -131,24 +132,38 @@ public static class ProofChecks
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(condition);
 
-        var after = window.Where(sample => TakenAfterTheChange(changeUtc, sample.TakenAtUtc))
-            .OrderBy(sample => sample.TakenAtUtc)
+        // THE STAMP DECIDES MEMBERSHIP; THE RECORDING'S OWN TIMELINE DECIDES ORDER. Ordering by the stamp
+        // would hand a backward clock step the power to choose which two lines get subtracted: a line
+        // stamped earlier sorts first even though the recorder wrote it later, so the baseline could be a
+        // line that is not the earliest after the change. The measurement would still be monotonic and the
+        // CHOICE of what to measure would not - which is the same defect one level up, and it produced a
+        // false pass in review.
+        var after = window
+            .Where(sample => TakenAfterTheChange(changeUtc, sample.TakenAtUtc))
+            .OrderBy(sample => sample.RecordingSeconds)
             .ToList();
         if (after.Count == 0) return WarningVerdict.NothingRecorded;
 
         var baseline = after[0];
+
+        // The condition is never reached when nothing was recorded after the change: a safety check must
+        // not live inside it and quietly stop running.
         var met = after.FirstOrDefault(condition);
         if (met is null) return WarningVerdict.NotSeen(baseline);
 
         // Across a Director restart the recorder bridges the gap with the WALL clock, so a span containing
-        // one is not a monotonic measurement at all. Say so rather than quote a figure that is part wall clock.
+        // one is not a monotonic measurement at all. A run id is a fresh value per run, so comparing the
+        // two ends is equivalent to looking for a run start inside the span.
         var restarted = !string.Equals(baseline.RunId, met.RunId, StringComparison.Ordinal);
 
-        // The recorder marks the exact line where the wall clock moved. That is a two-second detector on the
-        // right line, rather than a guess from how far two accounts of the same wait drifted apart.
-        var stepped = after
-            .TakeWhile(sample => sample.RecordingSeconds <= met.RecordingSeconds)
-            .Any(sample => sample.ClockStepSeconds is not null);
+        // SCANNED OVER THE WHOLE WINDOW, not over `after`. A line stamped BEFORE the change can still sit
+        // inside the span on the recording's timeline - that is exactly what a backward step produces - and
+        // it is the line that carries the mark. Inclusive of both ends: a step between the change and the
+        // baseline is written on the baseline's own line.
+        var stepped = window.Any(sample =>
+            sample.RecordingSeconds >= baseline.RecordingSeconds
+            && sample.RecordingSeconds <= met.RecordingSeconds
+            && sample.ClockStepSeconds is not null);
 
         var elapsed = TimeSpan.FromSeconds(met.RecordingSeconds - baseline.RecordingSeconds);
         return new WarningVerdict(
@@ -162,8 +177,9 @@ public static class ProofChecks
     }
 
     /// <summary>
-    /// Whether a measured time met the warning limit. Negative is refused rather than clamped: the recording
-    /// going backwards is a broken instrument, and zero would be a believable figure for it.
+    /// Whether a measured time met the warning limit. Negative is refused rather than clamped: once the
+    /// ordering is taken from <c>recordingSeconds</c> this can only mean the recording itself ran
+    /// backwards, which is a broken instrument - and zero would be a believable figure for it.
     /// </summary>
     public static bool WithinWarningDeadline(TimeSpan measured) =>
         measured >= TimeSpan.Zero && measured <= WarningDeadline;
@@ -371,7 +387,7 @@ public static class ProofChecks
     /// Reads every sample of the window from <c>cc-devthrottle machine diagnose --json --samples</c>, oldest first.
     /// The recorder writes a whole minute of lines in one append, so the newest line alone is the END of a batch:
     /// judging a time limit on it would report a meter that turned red at 65 seconds as red at 110. The harness
-    /// therefore reads them all and judges on the earliest one that meets the condition - see <see cref="FirstMeeting"/>.
+    /// therefore reads them all, and <see cref="JudgeWarning"/> judges on the earliest one that meets the condition.
     /// An empty or absent list is an error, never a clean window.
     /// </summary>
     public static IReadOnlyList<MeterObservation> ParseDiagnoseSamples(string json)
@@ -387,17 +403,6 @@ public static class ProofChecks
         return observations.OrderBy(observation => observation.TakenAtUtc).ToList();
     }
 
-    /// <summary>
-    /// The earliest sample taken at or after <paramref name="changeUtc"/> that meets <paramref name="condition"/>, or
-    /// null when none has yet. A sample from before the change never counts, so a stopped Director's old lines
-    /// cannot pass.
-    /// </summary>
-    public static MeterObservation? FirstMeeting(IReadOnlyList<MeterObservation> samples, DateTime changeUtc, Func<MeterObservation, bool> condition)
-    {
-        ArgumentNullException.ThrowIfNull(samples);
-        ArgumentNullException.ThrowIfNull(condition);
-        return samples.Where(sample => sample.TakenAtUtc >= changeUtc).OrderBy(sample => sample.TakenAtUtc).FirstOrDefault(condition);
-    }
 
     /// <summary>
     /// How old the newest recorded sample may be for the idle comparison to mean anything: the recorder's one-minute

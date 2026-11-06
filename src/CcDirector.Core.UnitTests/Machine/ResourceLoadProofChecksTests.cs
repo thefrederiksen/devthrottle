@@ -130,6 +130,81 @@ public class ResourceLoadProofChecksTests
         Assert.Equal(65, verdict.Elapsed.TotalSeconds);
     }
 
+    /// <summary>
+    /// REVIEW ARRANGEMENT B: a backward step must not be able to CHOOSE the baseline.
+    ///
+    /// The measurement was always monotonic; selecting and ordering the lines was not. Ordered by the
+    /// stamp, the line the recorder wrote at recordingSeconds 15 sorts BEFORE the one at 10, because the
+    /// clock went back eight seconds between them - so it became the baseline, and 85 minus 15 is 70, a
+    /// pass, where the true latency from the first sample after the change is 85 minus 10, a failure.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_ABackwardStepReorderingTheStamps_DoesNotChooseTheBaseline()
+    {
+        var change = Noon.AddSeconds(6);
+        var window = new List<MeterObservation>
+        {
+            At(10, MeterLevel.Normal, recordingSeconds: 10),
+            At(7, MeterLevel.Normal, recordingSeconds: 15, clockStepSeconds: -8),
+            At(77, MeterLevel.Critical, recordingSeconds: 85),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        // The earliest line ON THE RECORDING'S TIMELINE is the baseline, whatever the stamps say.
+        Assert.Equal(10, verdict.Baseline!.RecordingSeconds);
+        Assert.Equal(75, verdict.Elapsed.TotalSeconds);
+        Assert.False(verdict.Met);
+
+        // And the arrangement really does demonstrate it: in stamp order the step line sorts first.
+        Assert.True(window[1].TakenAtUtc < window[0].TakenAtUtc);
+    }
+
+    /// <summary>
+    /// REVIEW ARRANGEMENT A: the step mark must be found even on a line the stamp selection excludes.
+    ///
+    /// The line carrying the step is stamped BEFORE the change - that is what a backward step does - so it
+    /// is not a member, yet it sits inside the span on the recording's timeline. Scanning only the members
+    /// loses the one mark the run owes its reader.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_AStepOnALineStampedBeforeTheChange_IsStillFound()
+    {
+        var change = Noon.AddSeconds(9);
+        var window = new List<MeterObservation>
+        {
+            At(10, MeterLevel.Normal, recordingSeconds: 10),
+            At(7, MeterLevel.Normal, recordingSeconds: 15, clockStepSeconds: -8),
+            At(12, MeterLevel.Critical, recordingSeconds: 20),
+        };
+
+        var verdict = ProofChecks.JudgeWarning(window, change, Red);
+
+        Assert.Equal(10, verdict.Elapsed.TotalSeconds);
+        Assert.True(verdict.Met);
+        Assert.True(verdict.ClockStepped);
+
+        // The marked line is not a member: its stamp is before the change.
+        Assert.False(ProofChecks.TakenAfterTheChange(change, window[1].TakenAtUtc));
+    }
+
+    /// <summary>
+    /// Inherited from the deleted FirstMeeting, which pinned this and JudgeWarning did not: the condition
+    /// is a pure judgement of samples and MUST NOT be a place to hang a safety check, because it does not
+    /// run when nothing was recorded after the change.
+    /// </summary>
+    [Fact]
+    public void JudgeWarning_NothingRecordedAfterTheChange_NeverCallsTheCondition()
+    {
+        var called = false;
+        var window = new List<MeterObservation> { At(-30, MeterLevel.Critical, recordingSeconds: -30) };
+
+        var verdict = ProofChecks.JudgeWarning(window, Noon, o => { called = true; return Red(o); });
+
+        Assert.False(verdict.Seen);
+        Assert.False(called);
+    }
+
     [Fact]
     public void JudgeWarning_ARestartInsideTheSpan_NeverCountsAsMet_BecauseTheGapIsWallClock()
     {
@@ -216,42 +291,6 @@ public class ResourceLoadProofChecksTests
             Noon.AddSeconds(secondsAfterNoon), recordingSeconds ?? secondsAfterNoon, run, clockStepSeconds, "{}");
 
     private static bool Red(MeterObservation o) => o.Cpu.Level == MeterLevel.Critical;
-
-    [Fact]
-    public void FirstMeeting_ABatchWhoseNewestIsLate_IsJudgedOnItsEarliestRedLine()
-    {
-        // The recorder appended T+55 to T+110 at once; red was first recorded at T+65.
-        var batch = Enumerable.Range(11, 12).Select(i => At(i * 5, i * 5 >= 65 ? MeterLevel.Critical : MeterLevel.Normal)).ToList();
-
-        var first = ProofChecks.FirstMeeting(batch, Noon, o => o.Cpu.Level == MeterLevel.Critical);
-
-        Assert.Equal(Noon.AddSeconds(65), first!.TakenAtUtc);
-
-        // Judging the batch's NEWEST line instead would fail a run that passed: the recorder appended
-        // T+55 to T+110 in one go, so the newest is 110 seconds after the change while the warning
-        // actually arrived at 65. That is what FirstMeeting exists to prevent, and it is about WHICH
-        // sample is read, not about which clock measures the wait.
-        Assert.True(ProofChecks.TakenAfterTheChange(Noon, first.TakenAtUtc));
-        Assert.True(batch[^1].TakenAtUtc - Noon > ProofChecks.WarningDeadline);
-    }
-
-    [Fact]
-    public void FirstMeeting_OnlyLinesBeforeTheChangeMatch_IsNull_AStoppedDirectorNeverPasses()
-    {
-        var old = new[] { At(-30, MeterLevel.Critical), At(-25, MeterLevel.Critical) };
-
-        Assert.Null(ProofChecks.FirstMeeting(old, Noon, o => o.Cpu.Level == MeterLevel.Critical));
-    }
-
-    [Fact]
-    public void FirstMeeting_NoFreshSample_NeverCallsTheCondition_SoNoSafetyCheckMayLiveInIt()
-    {
-        var calls = 0;
-
-        ProofChecks.FirstMeeting([At(-10, MeterLevel.Normal)], Noon, _ => { calls++; return true; });
-
-        Assert.Equal(0, calls);
-    }
 
     [Fact]
     public void ParseDiagnoseSamples_ReadsEveryLineOldestFirst()

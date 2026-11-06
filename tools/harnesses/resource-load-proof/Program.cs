@@ -117,7 +117,7 @@ internal static class Harness
         // condition - or the poll deadline passes. The recording is written once a minute, so the newest line can be a
         // minute old: an observation counts only by the time its sample was taken, never by when the harness read it,
         // so a stopped Director whose last line happens to be red can never pass "red". The verdict is then judged on
-        // the harness's own monotonic clock against the 70-second limit, with the sample's stamps cross-checked.
+        // the recording's own monotonic timeline; the Stopwatch below bounds the waiting and decides nothing.
         // Every poll reads the whole window of recorded samples and judges on the EARLIEST one taken after the change
         // that meets the condition, because the recorder appends a minute of lines at once.
         // `eachPoll` runs once before every read, whether or not a fresh sample exists yet - it is where a load keeps
@@ -157,6 +157,14 @@ internal static class Harness
                     ? " (the recorder marked a wall-clock step inside this span; the figure is measured on the"
                       + " recording's own timeline and stands, but read this run with care)"
                     : string.Empty;
+
+            // A negative figure is not a slow product: it means the recording ran backwards, and saying "red
+            // only -5 s after the load started" would read as one.
+            if (v.Seen && v.Elapsed < TimeSpan.Zero)
+                return $"the recording RAN BACKWARDS: the sample that {reached} sits "
+                       + $"{(-v.Elapsed).TotalSeconds:F0} s EARLIER on the recording's own timeline than the first "
+                       + $"sample after {since}. That is a broken recording, not a slow product, and no verdict "
+                       + "about the meter can be read from this run.";
 
             if (v.Met)
                 return $"{reached} {v.Elapsed.TotalSeconds:F0} s after {since}, on the recording's own timeline{caveat}";
