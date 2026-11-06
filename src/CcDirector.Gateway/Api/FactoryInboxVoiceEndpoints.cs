@@ -47,7 +47,7 @@ namespace CcDirector.Gateway.Api;
 internal static class FactoryInboxVoiceEndpoints
 {
     /// <summary>What a recording's record names as its target, where a dictation names a session id.</summary>
-    internal const string TargetPrefix = "factory-inbox:";
+    internal const string TargetPrefix = VoiceUploadStore.FactoryInboxTargetPrefix;
 
     /// <summary>Turn a recording into the speech model's words, with no dictionary stage.</summary>
     internal delegate Task<GatewayTranscriptionResult> TranscribeRaw(TenantId tenant, byte[] audio, string fileName, string mime,
@@ -70,6 +70,9 @@ internal static class FactoryInboxVoiceEndpoints
         Func<DateTime> NowUtc,
         FactoryInboxWakeStore Wakes,
         Action<TenantId, string, DateTime> MessageSent);
+
+    /// <summary>The reason stamped on a recording the transcription refused for good.</summary>
+    internal const string PermanentReason = "transcription_permanent";
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
@@ -205,7 +208,11 @@ internal static class FactoryInboxVoiceEndpoints
                 return Results.Json(new { error = result.Error ?? "Transcription is not available on this account.", code = result.Code ?? "out_of_credits" },
                     statusCode: StatusCodes.Status402PaymentRequired);
             case TranscriptionOutcome.PermanentError:
-                FileLog.Write($"[FactoryInboxVoiceEndpoints] complete uploadId={uid}: permanent ({result.Code}) {result.Error}");
+                // A final answer: trying again cannot help. The record is resolved so the Gateway stops holding it - a
+                // recording left PENDING would show on the factory's thread as held and waiting to be sent again, which
+                // it never will be. A repeated complete or register then answers that nothing was left from it.
+                uploads.MarkAbandoned(uid, PermanentReason);
+                FileLog.Write($"[FactoryInboxVoiceEndpoints] complete uploadId={uid}: permanent ({result.Code}) {result.Error}; record resolved, nothing left");
                 return FactoryInboxEndpoints.Error(422, result.Code ?? "transcription_permanent",
                     $"The recording cannot be transcribed: {result.Error ?? result.Code}. Nothing was left in the factory inbox.");
             default:

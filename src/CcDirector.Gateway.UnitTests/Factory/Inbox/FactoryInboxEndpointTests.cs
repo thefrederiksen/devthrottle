@@ -96,7 +96,7 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         FactoryInboxEndpoints.Map(app, new FactoryInboxEndpoints.Parts(
             _store, Resolve, _ => Factories(), (_, sid) => _seats.TryGetValue(sid, out var l) ? l : SessionFactoryLookup.NotKnown,
             (_, sid) => _parents.TryGetValue(sid, out var p) ? new FactoryInboxRecordedParent(p) : null, (_, sid) => _ended.Contains(sid), () => _now,
-            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (t, f) => _bundlesToWake.Add((t, f))));
+            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (t, f) => _bundlesToWake.Add((t, f)), (_, _) => []));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();

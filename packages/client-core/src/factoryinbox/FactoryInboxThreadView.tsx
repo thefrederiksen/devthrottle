@@ -3,6 +3,7 @@ import { backgroundRecovered, describeAndReport } from "../errors/reportClientEr
 import {
   getFactoryInboxSummary,
   getFactoryInboxThread,
+  type FactoryInboxHeld,
   type FactoryInboxMessage,
   type FactoryInboxSummary,
   type FactoryInboxThread,
@@ -129,8 +130,27 @@ export function FactoryInboxThreadView({ factory, surface, actions, showTitle = 
           <ThreadMessage key={m.id} message={m} />
         ))}
       </ol>
+      {thread !== null && thread.held.length > 0 && (
+        <ol className="fi-held" data-testid="fi-held">
+          {thread.held.map((h) => (
+            <HeldMessage key={h.uploadId} held={h} />
+          ))}
+        </ol>
+      )}
       <FactoryComposer factory={factory} factoryTitle={thread?.title} surface={surface} onLeft={reload} />
     </section>
+  );
+}
+
+// A spoken message the Gateway still holds for this factory: its sentence and time, as the Gateway words them.
+function HeldMessage({ held }: { held: FactoryInboxHeld }) {
+  return (
+    <li className="fi-held-message" data-testid="fi-held-message" data-tone={held.tone}>
+      <p className="fi-held-line">{held.line}</p>
+      <p className="fi-trail">
+        {held.atLabel} {formatInboxTime(held.atUtc)}
+      </p>
+    </li>
   );
 }
 

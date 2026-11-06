@@ -81,6 +81,17 @@ export interface FactoryInboxThread {
   count: number;
   /** Newest first. */
   messages: FactoryInboxMessage[];
+  /** Every spoken message the Gateway still holds for this factory (recorded, not left yet), oldest first. */
+  held: FactoryInboxHeld[];
+}
+
+/** A spoken message held on the Gateway: the line, the time's label and the tone are the Gateway's, printed as they are. */
+export interface FactoryInboxHeld {
+  uploadId: string;
+  line: string;
+  atLabel: string;
+  atUtc: string;
+  tone: string;
 }
 
 export interface FactoryInboxSummary {

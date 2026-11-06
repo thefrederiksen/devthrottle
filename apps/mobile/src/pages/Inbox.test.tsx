@@ -40,6 +40,7 @@ vi.mock("@devthrottle/client-core/factoryinbox/factoryInboxVoice", () => ({
   listFactoryRecordings: vi.fn(async () => []),
   saveFactoryRecording: vi.fn(),
   deleteFactoryRecording: vi.fn(),
+  discardFactoryRecording: vi.fn(),
   sendFactoryRecording: vi.fn(),
 }));
 const yours = vi.hoisted(() => ({ unread: 3, label: "three fresh ones (gateway)" }));

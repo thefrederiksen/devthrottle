@@ -57,6 +57,8 @@ internal static class FactoryInboxEndpoints
     /// <param name="Wakes">Each factory's wake row (phase 2): why its messages wait, shown in place of their state.</param>
     /// <param name="MessageSent">Tells the wake a message was logged (<see cref="FactoryInboxWake.MessageSent"/>). It looks
     /// at the factory when the gather window closes; the route never waits for it.</param>
+    /// <param name="Held">The spoken recordings still held PENDING for a factory's inbox in the account's dictation
+    /// staging (phase 4 review, finding 2), shown on the thread so a held message is never invisible.</param>
     /// <param name="BundleHanded">Tells the wake a Secretary handed a bundle (<see cref="FactoryInboxWake.BundleHanded"/>),
     /// so the Boss is rung or started at once; the route never waits for it.</param>
     internal sealed record Parts(
@@ -69,7 +71,8 @@ internal static class FactoryInboxEndpoints
         Func<DateTime> NowUtc,
         FactoryInboxWakeStore Wakes,
         Action<TenantId, string, DateTime> MessageSent,
-        Action<TenantId, string> BundleHanded);
+        Action<TenantId, string> BundleHanded,
+        Func<TenantId, string, IReadOnlyList<Voice.PendingUpload>> Held);
 
     public static void Map(IEndpointRouteBuilder app, Parts parts)
     {
@@ -169,6 +172,9 @@ internal static class FactoryInboxEndpoints
                 title = registered.Title,
                 count = total,
                 messages = Fold(parts, tenant, messages),
+                // Every spoken message the Gateway still holds for this factory, in its words (finding 2): a recording
+                // whose transcription failed for now is on the thread until it is left, never only on one device.
+                held = FactoryInboxFold.Held(parts.Held(tenant, registered.Factory)),
             });
         });
 

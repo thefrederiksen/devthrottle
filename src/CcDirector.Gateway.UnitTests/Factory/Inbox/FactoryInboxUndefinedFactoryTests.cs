@@ -108,7 +108,8 @@ public sealed class FactoryInboxUndefinedFactoryTests : IAsyncLifetime
             wakes,
             // The routes tell the wake; this test then looks itself, at the moment it chooses, as the scheduled look would.
             (_, _, _) => { },
-            (_, _) => { }));
+            (_, _) => { },
+            (_, _) => []));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();

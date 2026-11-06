@@ -4,7 +4,7 @@ import type { CapturedUtterance } from "../dictation/backgroundSend";
 import { describeAndReport } from "../errors/reportClientError";
 import { sendFactoryInboxMessage, type FactoryInboxNote } from "./factoryInboxClient";
 import {
-  deleteFactoryRecording,
+  discardFactoryRecording,
   listFactoryRecordings,
   saveFactoryRecording,
   sendFactoryRecording,
@@ -149,9 +149,13 @@ export function FactoryComposer({ factory, factoryTitle, choices, onFactoryChang
 
   const discard = useCallback(
     async (id: string) => {
-      await deleteFactoryRecording(id);
-      if (factory !== null) setRecordings(await listFactoryRecordings(factory));
-      setError(null);
+      try {
+        await discardFactoryRecording(id);
+        if (factory !== null) setRecordings(await listFactoryRecordings(factory));
+        setError(null);
+      } catch (err: unknown) {
+        setError(describeAndReport(FACTORY_INBOX_SURFACE, "discard the recording", err));
+      }
     },
     [factory],
   );

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sendFactoryRecording, type FactoryRecording } from "./factoryInboxVoice";
+import { discardFactoryRecording, sendFactoryRecording, type FactoryRecording } from "./factoryInboxVoice";
 
 // THE DURABLE SPOKEN SEND (Factory Inbox mission, phase 4) against a stand-in Gateway: it registers the recording under
 // its own id, completes first and uploads only the chunks the Gateway names as missing, and acknowledges only a final
@@ -103,6 +103,20 @@ describe("sendFactoryRecording", () => {
     expect(calls.some((c) => c.method === "PUT" || c.url.includes("/complete"))).toBe(false);
   });
 
+  it("sendFactoryRecording_HeldPastTheGatewaysSweep_IsReopenedAndLeft", async () => {
+    // The Gateway keeps a held factory recording past its 24-hour sweep, so the retry the next day is answered with the
+    // upload id, not a final answer, and the saved copy is left.
+    mockGateway((url) => {
+      if (url.endsWith("/inbox/voice")) return json(200, { upload_id: ID });
+      if (url.includes("/complete")) return json(201, left);
+      return json(200, { ok: true });
+    });
+
+    const outcome = await sendFactoryRecording(recording());
+
+    expect(outcome.kind).toBe("left");
+  });
+
   it("sendFactoryRecording_TranscriptionFailsForNow_IsHeldAndNotAcknowledged", async () => {
     const calls = mockGateway((url) =>
       url.includes("/complete")
@@ -148,5 +162,23 @@ describe("sendFactoryRecording", () => {
 
     expect(outcome.kind).toBe("nothing");
     expect(calls.some((c) => c.url.includes("/ack"))).toBe(true);
+  });
+});
+
+describe("discardFactoryRecording", () => {
+  it("discardFactoryRecording_GatewayAgrees_TellsTheGatewayToStopHoldingIt", async () => {
+    const calls = mockGateway(() => json(200, { ok: true, upload_id: ID, abandoned: true }));
+
+    await discardFactoryRecording(ID);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url).toContain(`/dictation/${ID}/abandon`);
+  });
+
+  it("discardFactoryRecording_GatewayCannotBeTold_ThrowsSoTheRecordingIsKept", async () => {
+    mockGateway(() => json(409, { error: "The Gateway cannot read what it recorded (gateway).", code: "recording_record_unreadable" }));
+
+    await expect(discardFactoryRecording(ID)).rejects.toMatchObject({ serverReason: "The Gateway cannot read what it recorded (gateway)." });
   });
 });
