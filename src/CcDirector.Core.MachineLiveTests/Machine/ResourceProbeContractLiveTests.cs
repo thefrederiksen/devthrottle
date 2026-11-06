@@ -40,16 +40,55 @@ public abstract class ResourceProbeContractLiveTests
     protected abstract string ProbeName { get; }
 
     /// <summary>
+    /// HOW LONG THE PROBE UNDER TEST REUSES ONE SAMPLE. Override this in a derived class whose probe
+    /// caches for longer than <see cref="MachineMemoryProbe.CacheFor"/>.
+    ///
+    /// The default is the memory probe's interval because that is what the Linux probe is DEFINED as
+    /// (<c>LinuxResourceProbe.CacheFor = MachineMemoryProbe.CacheFor</c>, so it moves with it), while the
+    /// macOS probe declares its own one second independently and merely happens to agree today. A
+    /// platform whose probe is slower to read - a Windows performance counter needing a longer interval
+    /// is the obvious candidate - must say so here, or <see cref="ReadWithRates"/> would wait out the
+    /// wrong cache.
+    /// </summary>
+    protected virtual TimeSpan ProbeCacheFor => MachineMemoryProbe.CacheFor;
+
+    /// <summary>
     /// Reads twice, far enough apart that the rates have an interval, which is the state most of these
     /// checks are about. The first sample is a legitimate sample in its own right - see
     /// <see cref="TheFirstSample_StillNamesEveryProcess_AndIsUnreadableOnlyForTheRates"/> - it simply has
     /// no rates yet.
+    ///
+    /// IT PROVES IT GOT TWO READINGS AND DOES NOT TRUST THE SLEEP TO HAVE BEEN LONG ENOUGH. Every probe
+    /// reuses one sample for <see cref="ProbeCacheFor"/> and hands back the identical record while it
+    /// does, so a wait shorter than that cache makes the second <c>Read</c> return the FIRST sample.
+    /// Nothing fails when that happens: every rate is the first sample's, every contract check still
+    /// passes, and the suite reports green on a run that read the machine exactly once - in the one test
+    /// written to catch a cross-platform disagreement no other test can see. A check whose pass
+    /// condition is the ABSENCE of a stale sample certifies a run that never happened, so the condition
+    /// is restated here as a PRESENCE - a second, distinct reading - and asserted.
+    ///
+    /// The wait is the longer of the probe's own cache and the memory probe's, because a probe may read
+    /// memory through that one, and a sample is past both only once the longer has elapsed.
     /// </summary>
     private ResourceSample ReadWithRates(IResourceProbe probe)
     {
-        probe.Read();
-        Thread.Sleep(MachineMemoryProbe.CacheFor + TimeSpan.FromMilliseconds(250));
-        return probe.Read();
+        var first = probe.Read();
+
+        var cache = ProbeCacheFor > MachineMemoryProbe.CacheFor ? ProbeCacheFor : MachineMemoryProbe.CacheFor;
+        var waited = cache + TimeSpan.FromMilliseconds(250);
+        Thread.Sleep(waited);
+
+        var second = probe.Read();
+
+        Assert.True(second.TakenAtUtc > first.TakenAtUtc,
+            $"{ProbeName} returned the SAME sample twice, so every rate the checks below read came from a "
+            + "single reading of the machine and those checks would pass without measuring anything. The "
+            + "second Read came out of the probe's cache because the wait was shorter than that cache: "
+            + $"waited {waited}, first sample stamped {first.TakenAtUtc:O}, second {second.TakenAtUtc:O}. "
+            + $"Override {nameof(ProbeCacheFor)} in this derived class with the cache interval of the "
+            + "probe it tests.");
+
+        return second;
     }
 
     [LiveMachineFact("the whole machine, twice")]
