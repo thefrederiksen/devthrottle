@@ -36,7 +36,35 @@ public class MacOsResourceProbeLiveTests
     ///   * The per-process processor percentage is a rate, so it is cross-checked against the
     ///     runtime's own TotalProcessorTime over the same interval rather than against a number.
     /// </summary>
-    private static readonly DateTime Start = new(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTimeOffset Start = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
+    /// A clock the test drives, because the probe measures its intervals off a MONOTONIC clock now and a
+    /// wall-clock stamp can no longer set them. Both readings advance together here, which is what these
+    /// tests need - they are about the figures over a known interval, not about the clock itself.
+    ///
+    /// Stepping the wall clock backwards while monotonic time moves forward is the separate question,
+    /// and it is pinned once for all three probes in ResourceClockAndRateTests rather than again here.
+    /// This lives in this assembly because that one is in another.
+    /// </summary>
+    private sealed class TestClock(DateTimeOffset wall) : TimeProvider
+    {
+        private DateTimeOffset _wall = wall;
+        private long _timestamp;
+
+        public override DateTimeOffset GetUtcNow() => _wall;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <summary>Moves both readings forward by the same amount.</summary>
+        public void Advance(TimeSpan by)
+        {
+            _wall = _wall.Add(by);
+            _timestamp += by.Ticks;
+        }
+    }
 
     /// <summary>The interval handed to the probe between two samples. See <see cref="Start"/>.</summary>
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
@@ -183,8 +211,8 @@ public class MacOsResourceProbeLiveTests
     [Trait("Category", "Resources")]
     public void Read_WhileAFileIsBeingWritten_TheTimePerWriteAndQueueDepthAreReal()
     {
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
         probe.Read();
 
         // A fixed amount of real writing, flushed to the disk each time so it reaches the driver
@@ -207,7 +235,7 @@ public class MacOsResourceProbeLiveTests
             File.Delete(path);
         }
 
-        now = now.Add(Interval);
+        clock.Advance(Interval);
         var disk = probe.Read().DiskEvidence.Disks.First(entry => entry.CouldRead);
 
         // SIXTEEN MEBIBYTES WERE REALLY WRITTEN, and the narrowed probe reports no byte rate at all -
@@ -376,15 +404,15 @@ public class MacOsResourceProbeLiveTests
         //
         // A fixed amount of work costs very nearly a fixed amount of PROCESSOR time whatever else the
         // machine is doing, so neither side of this comparison moves with the load.
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
         probe.Read();
 
         var processorBefore = Process.GetCurrentProcess().TotalProcessorTime;
         Assert.True(MachineWork.BurnOnThreads(threads: 2, units: 4) > 0);
         var usedByTheRuntime = Process.GetCurrentProcess().TotalProcessorTime - processorBefore;
 
-        now = now.Add(Interval);
+        clock.Advance(Interval);
         var sample = probe.Read();
 
         // A SHARE OF THE WHOLE MACHINE, which is what the shared contract asks for - so the runtime's
@@ -427,8 +455,8 @@ public class MacOsResourceProbeLiveTests
         // Several callers ask within the same moment - the meter, the banner, the detail screen - and
         // the answer cannot meaningfully change between them. Reading the machine once for all of them
         // is the difference between one pass over 425 processes and twenty.
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
 
         var first = probe.Read();
         var second = probe.Read();
@@ -442,11 +470,11 @@ public class MacOsResourceProbeLiveTests
     {
         // The clock is moved rather than slept through, so this stays fast and still proves the cache
         // is bounded by time rather than never expiring.
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
 
         var first = probe.Read();
-        now = now.Add(MacOsResourceProbe.CacheFor).AddMilliseconds(1);
+        clock.Advance(MacOsResourceProbe.CacheFor + TimeSpan.FromMilliseconds(1));
         var second = probe.Read();
 
         Assert.NotSame(first, second);
@@ -462,8 +490,8 @@ public class MacOsResourceProbeLiveTests
         // made a full pass - and the second pass's interval was the fraction of a millisecond since
         // the first, which is the number every rate is divided by. The meter, the banner and the
         // detail screen all ask at once, so this is the ordinary case and not an unlucky one.
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
         var samples = new ResourceSample[8];
 
         Parallel.For(0, samples.Length, index => samples[index] = probe.Read());
@@ -500,12 +528,12 @@ public class MacOsResourceProbeLiveTests
     /// </summary>
     private static ResourceSample SecondSample()
     {
-        var now = Start;
-        var probe = new MacOsResourceProbe(() => now);
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
 
         probe.Read();
         Assert.True(MachineWork.Burn() > 0);
-        now = now.Add(Interval);
+        clock.Advance(Interval);
 
         return probe.Read();
     }

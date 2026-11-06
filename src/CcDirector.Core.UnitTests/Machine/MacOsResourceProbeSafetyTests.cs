@@ -55,6 +55,58 @@ public class MacOsResourceProbeSafetyTests
 
     [Fact]
     [Trait("Category", "Resources")]
+    public void Read_WhenTimeSynchronisationStepsTheWallClockBackwards_TheCacheIsUnaffected()
+    {
+        // THE CLOCK RULE, PINNED FOR THIS PROBE. Wall-clock time stamps a sample; only a monotonic clock
+        // measures an interval. This probe used to age its cache by comparing two wall-clock stamps, so
+        // a step backwards - which is what time synchronisation does, routinely - made the cached sample
+        // look as though it came from the future, and the probe went on serving that one stale reading
+        // until the wall clock caught up. On a five-second meter that is the Director showing a machine
+        // that is filling up as though nothing were happening.
+        //
+        // Runs on every platform, not just macOS: the cache is platform-independent, and the figures
+        // inside the sample do not matter here - only which object comes back.
+        var clock = new SteppingClock(new DateTimeOffset(2026, 11, 6, 12, 0, 0, TimeSpan.Zero));
+        var probe = new MacOsResourceProbe(clock);
+
+        var first = probe.Read();
+
+        // An hour backwards, with no monotonic time passed. The cache is genuinely still fresh, so the
+        // same sample must come back - and must not be treated as being from the future.
+        clock.StepWallClock(TimeSpan.FromHours(-1));
+        Assert.Same(first, probe.Read());
+
+        // Now real time passes, measured monotonically. The cache has expired and a fresh pass is owed,
+        // which against the old code would not have happened until the wall clock caught up.
+        clock.AdvanceMonotonic(MacOsResourceProbe.CacheFor + TimeSpan.FromMilliseconds(1));
+        Assert.NotSame(first, probe.Read());
+    }
+
+    /// <summary>
+    /// A clock whose two readings move INDEPENDENTLY, which is the whole point: a fake clock that
+    /// derives both from one internal time steps the monotonic reading along with the wall clock, and
+    /// then the defect being tested for cannot be reproduced at all.
+    /// </summary>
+    private sealed class SteppingClock(DateTimeOffset wall) : TimeProvider
+    {
+        private DateTimeOffset _wall = wall;
+        private long _timestamp;
+
+        public override DateTimeOffset GetUtcNow() => _wall;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <summary>What time synchronisation does. May be negative.</summary>
+        public void StepWallClock(TimeSpan by) => _wall = _wall.Add(by);
+
+        /// <summary>What a monotonic clock does. Only ever forward.</summary>
+        public void AdvanceMonotonic(TimeSpan by) => _timestamp += by.Ticks;
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
     public void Read_OnAPlatformThisProbeCannotRead_SaysSoForEveryResourceAndNeverReportsZero()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))

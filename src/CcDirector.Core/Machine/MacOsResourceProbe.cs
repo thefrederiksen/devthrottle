@@ -60,7 +60,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
     public static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(1);
 
     private readonly object _gate = new();
-    private readonly Func<DateTime> _now;
+    private readonly TimeProvider _time;
     private readonly IMachineMemoryProbe _memory;
 
     /// <summary>
@@ -77,6 +77,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
     private readonly MacOsResourceParsing.MachTimebase _timebase;
 
     private ResourceSample? _cached;
+    private long _cachedAtTimestamp;
     private Previous? _previous;
     private readonly HashSet<string> _loggedUnreadable = new(StringComparer.Ordinal);
 
@@ -84,9 +85,9 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// Creates a probe. The clock is injectable so a test can age the cache without sleeping, and the
     /// memory probe so a test can pin the memory reading; both default to the real thing.
     /// </summary>
-    public MacOsResourceProbe(Func<DateTime>? now = null, IMachineMemoryProbe? memory = null)
+    public MacOsResourceProbe(TimeProvider? time = null, IMachineMemoryProbe? memory = null)
     {
-        _now = now ?? (() => DateTime.UtcNow);
+        _time = time ?? TimeProvider.System;
         _memory = memory ?? MachineMemoryProbe.Shared;
         _timebase = ReadTimebaseSafely();
     }
@@ -141,16 +142,24 @@ public sealed class MacOsResourceProbe : IResourceProbe
         // itself costs about a millisecond and a half, so a caller that waits for it waits for that.
         lock (_gate)
         {
-            var now = _now();
+            // TWO READINGS OF TWO DIFFERENT CLOCKS, AND THEY ARE NOT INTERCHANGEABLE. The timestamp is
+            // monotonic and is what ages the cache and measures every interval; the wall-clock stamp
+            // only goes ON the sample so a caller can say when it was taken. Time synchronisation steps
+            // the wall clock, and a step backwards across a five-second sample read off wall time would
+            // turn every rate on this machine negative or enormous, and would freeze the cache until
+            // the clock caught up. The rule is on IResourceProbe and ResourceRate.
+            var timestamp = _time.GetTimestamp();
+            var now = _time.GetUtcNow().UtcDateTime;
 
-            if (_cached is { } cached && now - cached.TakenAtUtc < CacheFor)
+            if (_cached is { } cached && _time.GetElapsedTime(_cachedAtTimestamp, timestamp) < CacheFor)
             {
                 sample = cached;
             }
             else
             {
-                sample = ReadUncached(now);
+                sample = ReadUncached(now, timestamp);
                 _cached = sample;
+                _cachedAtTimestamp = timestamp;
                 fresh = true;
             }
         }
@@ -168,7 +177,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// answered something unexpected must come back as a sample of unreadable readings, never take the
     /// Director down.
     /// </summary>
-    private ResourceSample ReadUncached(DateTime now)
+    private ResourceSample ReadUncached(DateTime now, long timestamp)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -178,7 +187,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
 
         try
         {
-            return ReadEverything(now);
+            return ReadEverything(now, timestamp);
         }
         catch (Exception ex)
         {
@@ -191,10 +200,15 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// two callers from each taking a pass and giving the second one an interval of a fraction of a
     /// millisecond.
     /// </summary>
-    private ResourceSample ReadEverything(DateTime now)
+    private ResourceSample ReadEverything(DateTime now, long timestamp)
     {
         var previous = _previous;
-        var since = previous is null ? TimeSpan.Zero : now - previous.TakenAtUtc;
+
+        // THE INTERVAL IS MONOTONIC. Measured between two timestamps, never between two wall-clock
+        // stamps - see the note in Read.
+        var since = previous is null
+            ? TimeSpan.Zero
+            : _time.GetElapsedTime(previous.Timestamp, timestamp);
 
         var cores = ReadCores(out var coresReason);
 
@@ -216,7 +230,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
             DiskEvidence: FoldDiskEvidence(diskCaptures, disks, disksWhyNot, systemVolumeDisks, previous, since),
             Processes: FoldProcesses(processes, previous, since, cores.Count, now));
 
-        _previous = new Previous(now, cores, disks, processes);
+        _previous = new Previous(timestamp, cores, disks, processes);
         return sample;
     }
 
@@ -677,12 +691,16 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// A rate from two cumulative byte figures, or null when there is no interval, no previous
     /// reading, or the figure is not offered for this process at all.
     /// </summary>
-    private static double? RatePerSecond(ulong? before, ulong? after, TimeSpan since)
-    {
-        if (before is null || after is null || since <= TimeSpan.Zero) return null;
-        if (after.Value < before.Value) return null;
-        return (after.Value - before.Value) / since.TotalSeconds;
-    }
+    /// <summary>
+    /// A per-second rate for a figure the platform may refuse, through the shared
+    /// <see cref="ResourceRate"/> rather than a division written here.
+    ///
+    /// Null when either reading is missing - the platform refused this process, or it has no earlier
+    /// reading - and <see cref="ResourceRate"/> answers null again for a counter that stepped backwards
+    /// (a reused process id) or an interval that is not positive.
+    /// </summary>
+    private static double? RatePerSecond(ulong? before, ulong? after, TimeSpan since) =>
+        before is null || after is null ? null : ResourceRate.PerSecond(before.Value, after.Value, since);
 
     // =============================================================================================
     // Everything unreadable, and the logging
@@ -741,9 +759,14 @@ public sealed class MacOsResourceProbe : IResourceProbe
     /// <summary>
     /// The last pass over the machine, kept so the next one can work out rates. Holds only what the
     /// operating system reported, never a derived figure.
+    ///
+    /// IT KEEPS A MONOTONIC TIMESTAMP, NOT A WALL-CLOCK STAMP. The interval between two passes is what
+    /// every rate is divided by, and wall-clock time is stepped by time synchronisation - so a
+    /// correction backwards between two samples would make that interval negative and every rate on the
+    /// machine wrong. Wall-clock time stamps the sample for a reader; only this measures the interval.
     /// </summary>
     private sealed record Previous(
-        DateTime TakenAtUtc,
+        long Timestamp,
         IReadOnlyList<MacOsResourceParsing.CoreTicks> Cores,
         IReadOnlyDictionary<string, MacOsResourceParsing.DiskCounters> Disks,
         IReadOnlyDictionary<int, ProcessSnapshot> Processes);

@@ -32,7 +32,10 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
 2. dotnet test src/CcDirector.Core.UnitTests -c Release -p:EnableWindowsTargeting=true
                 --filter "Category=Resources"
 
-   Passed!  Failed: 0, Passed: 112, Skipped: 0, Total: 112, Duration: 29 ms
+   Passed!  Failed: 0, Passed: 165, Skipped: 0, Total: 165, Duration: 31 ms
+
+   (165 rather than 112: the shared interface change this builds on brought its own tests with it.
+   112 of them are this probe's parsing, plus the clock regression test described in section 7.)
 
    PURE FUNCTIONS, AND THE DURATION IS THE PROOF OF IT. Twenty-nine milliseconds for 112 tests is
    not a suite that touches a disk, waits on a clock or makes a system call. Every one of them runs
@@ -102,13 +105,20 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    100 minus idle.
 
      window   the probe      top        difference
-        1      62.05 %     62.06 %        0.01
-        2      60.67 %     60.72 %        0.05
-        3      65.83 %     65.83 %        0.00
-        4      47.95 %     47.53 %        0.42
+        1      61.75 %     61.83 %        0.08
+        2      69.71 %     69.73 %        0.02
+        3      94.93 %     94.30 %        0.63
+        4      89.77 %     89.54 %        0.23
 
-   Worst disagreement 0.42 percentage points, against a requirement of 5, over a load that moved
-   from 66 per cent down to 48. 
+   Worst disagreement 0.63 percentage points, against a requirement of 5, over a load that moved
+   from 62 up to 95 per cent - which is the range the amber and red limits sit in, so it is the
+   range that matters most.
+
+   MEASURED AGAIN AFTER THE CLOCK CHANGE. An earlier run of the same protocol read 0.01, 0.05, 0.00
+   and 0.42 points over a load falling from 66 to 48. That run was against the wall-clock interval,
+   and the figures above are against the monotonic one that ships, so these are the ones to quote.
+   Both pass the same way, which is the point: the clock change fixed a failure case that needs the
+   clock to step, and it did not move the ordinary reading.
 
    THE WINDOWS HAVE TO BE LINED UP OR THE COMPARISON MEANS NOTHING. A first attempt compared one
    probe window against whatever tick top happened to print and read 32 percentage points apart on a
@@ -126,16 +136,41 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    MemAvailable. So the check is against the page counts that figure is built from.
 
      run    probe used %    vm_stat used %    difference
-      1        53.14            53.71           0.57
-      2        53.56            54.61           1.05
-      3        53.88            54.73           0.85
+      1        76.33            76.11           0.22
+      2        79.65            79.80           0.15
+      3        80.88            80.54           0.34
 
-   Worst disagreement 1.05 percentage points, against a requirement of 5. The remaining gap is the
+   Worst disagreement 0.34 percentage points, against a requirement of 5. The remaining gap is the
    fraction of a second between the probe's read and vm_stat's, during which the machine really does
-   move.
+   move - which is also why the figure lands sometimes above it and sometimes below.
 
 ====================================================================================================
-7. WHAT THESE CHECKS DO NOT COVER
+7. THE CLOCK, AND A REGRESSION TEST THAT WAS CHECKED AGAINST THE DEFECT
+
+   Wall-clock time STAMPS a sample; only a monotonic clock MEASURES an interval. This probe originally
+   did both off DateTime.UtcNow, which was finding 8 of the review of pull request 4035 - declined
+   there, then fixed in the shared interface for the memory probe, with the rule written to cover the
+   resource probes too. This probe now follows it: it takes a TimeProvider, ages its cache and
+   measures every interval with GetTimestamp and GetElapsedTime, and uses the wall clock only for
+   ResourceSample.TakenAtUtc. Its per-second rates go through the shared ResourceRate rather than a
+   division written here.
+
+   Why it matters: time synchronisation steps the wall clock backwards routinely. Under the old code a
+   step back of more than a second made the cached sample look as though it came from the FUTURE, and
+   the probe went on serving that one stale reading until the wall clock caught up - a five-second
+   meter showing a machine that is filling up as though nothing were happening.
+
+   THE TEST WAS CHECKED AGAINST THE DEFECT, NOT JUST WRITTEN. I reintroduced wall-clock cache aging
+   and ran it:
+
+     with the defect present   Failed: 1   "Assert.NotSame() Failure: Values are the same instance"
+     with the defect fixed     Passed: 1
+
+   A regression test that passes either way certifies nothing, so it was worth the two minutes to
+   confirm this one actually fails on the behaviour it is named for.
+
+====================================================================================================
+8. WHAT THESE CHECKS DO NOT COVER
 
    - ONE MACHINE, ONE DISK, ONE KIND OF DISK. An Apple M4 with a single internal solid-state disk.
      No spinning hard drive has ever been measured on macOS, so the Rotational branch of the medium
@@ -147,6 +182,8 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
      binding names statfs64.
    - NO EXTERNAL OR NETWORK VOLUME, so a disk appearing or disappearing mid-sample is untested.
    - THE PowerShell GATE DID NOT RUN. It cannot run on a Mac.
+   - THE WALL CLOCK WAS ONLY STEPPED IN A TEST, never on the real machine. The clock rule is proved
+     against a driven TimeProvider, not by letting time synchronisation correct this Mac mid-sample.
    - THE LIMITS ARE NOT TESTED HERE. What counts as amber or red for the processor, and what counts
      as a slow millisecond-per-write on macOS, are proposals until the phase 2 load harness runs
      them on all three platforms. This file says the figures are right, not that the thresholds are.
