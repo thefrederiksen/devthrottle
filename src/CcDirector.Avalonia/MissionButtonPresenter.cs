@@ -120,8 +120,10 @@ public sealed class MissionButtonPresenter
         FileLog.Write($"[MissionButtonPresenter] Attach: session={session?.Id.ToString() ?? "(none)"}");
         if (_session is not null) _session.OnGatewayDisplayStateChanged -= OnDisplayStateChanged;
         _session = session;
-        _shown = session?.GatewayMissionButton;
+        // Subscribe BEFORE taking the snapshot: a stamp landing in between then posts a redraw that re-reads, where the
+        // other order would leave it in neither the snapshot nor a redraw until the verdict changed again.
         if (session is not null) session.OnGatewayDisplayStateChanged += OnDisplayStateChanged;
+        _shown = session?.GatewayMissionButton;
         LogProblem();
         RaiseChanged();
     }

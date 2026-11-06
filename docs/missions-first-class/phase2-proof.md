@@ -184,7 +184,7 @@ reviewer may ask for `-Gateway`.
    with timestamps for all five Mission button clicks of the run, including both clicks that opened nothing on the
    outline button and both on "No mission".
 2. **The gate's verdict was OVER BUDGET - SETTLED by the Delivery Lead.** The Delivery Lead ran
-   `.\scripts	est-local.ps1 -Parked` on 5fc485fc5 and it was GREEN, every suite Completed, `CcDirector.Gateway.Tests`
+   `.\scripts\test-local.ps1 -Parked` on 5fc485fc5 and it was GREEN, every suite Completed, `CcDirector.Gateway.Tests`
    included. The code changes made for findings 4 and 5 were then gated again with the default run; that result is in
    "The gate after the review" below.
 3. **The four colours are not in `docs/VisualStyle.md` - ACCEPTED.** The four brushes are rows in section 1's
@@ -214,7 +214,7 @@ suggested.
 
 ## The gate after the review
 
-`.\scripts	est-local.ps1` on commit 09f904b74 (the review changes, rebased onto origin/main), tree clean:
+`.\scripts\test-local.ps1` on commit 09f904b74 (the review changes, rebased onto origin/main), tree clean:
 
 ```
 CcDirector.Core.UnitTests                outcome=Completed    total=3298   executed=3298
@@ -242,6 +242,28 @@ The only commit after it adds this section to this file. Before the green run, o
 - On 09f904b74 the first run was OVER BUDGET on Avalonia.Tests alone while two other worktrees ran the whole Gateway
   unit suite at the same time; the second run on the same commit is the green one above.
 
+The Delivery Lead's own default run on 09f904b74 was also GREEN.
+
 `CcDirector.Gateway.Tests` is still named as a coverage gap by the default run; the Delivery Lead's `-Parked` run on
 5fc485fc5 covered it, and the review changes touch only the Director's presenter, window and style files, which that
 suite does not reach.
+
+## Answers to the re-check (`Re-check of 98fce4161` in the review)
+
+- **The snapshot was taken before the subscription in `Attach` - ACCEPTED, fixed.** `Attach` now subscribes to
+  `OnGatewayDisplayStateChanged` first and takes the snapshot second, so a stamp landing between the two posts a
+  redraw that re-reads the session; in the old order it was in neither the snapshot nor a redraw, and because the
+  Gateway's push is change-gated it could stay stale until the verdict changed again or the session was reselected.
+  No test reproduces the gap: it is two adjacent lines on one thread with no seam to stop between them, and a test
+  that hand-built the interleaving would not watch the real caller.
+- **A literal tab in the gate command, twice - ACCEPTED, fixed.** Both now read `.\scripts\test-local.ps1`.
+- **The coverage gap for `CcDirector.Gateway.Tests`** is answered by the Delivery Lead's `-Parked` GREEN on 5fc485fc5,
+  which included that suite. `git range-diff` shows the four commits it ran as identical patches after the rebase,
+  and the commits since touch only the Director's Avalonia files (the presenter, the window, its markup, the presenter
+  tests) and documents, none of which that suite reaches.
+- **The Delivery Lead's default gate on 09f904b74 was GREEN**, recorded under "The gate after the review".
+- The gate on the final commit of this pull request is below.
+
+### The gate on the final commit
+
+(Filled in below.)
