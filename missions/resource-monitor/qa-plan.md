@@ -32,7 +32,8 @@ ourselves.
 
 | Proof (section 8) | Machine | How |
 |---|---|---|
-| Memory and processor within 5 percentage points of the operating system's own monitor | all three | The load harness records ours beside theirs: `free` on Linux, Task Manager on Windows, Activity Monitor on macOS. Where a figure cannot be scripted the harness prints ours and prompts for theirs, and the report says which were read by eye. |
+| Memory and processor within 5 percentage points of the operating system's figure for THE SAME QUANTITY | all three | The load harness records ours beside theirs: `free` and `/proc/stat` on Linux, the **"% Processor Time"** counter on Windows, Activity Monitor on macOS. Where a figure cannot be scripted the harness prints ours and prompts for theirs, and the report says which were read by eye. **Not Task Manager's headline figure on Windows** - see "Task Manager measures a different quantity" below. |
+| Task Manager's "% Processor Utility" recorded BESIDE ours on a boosting Windows machine, with the gap | Windows | Not a pass-or-fail row. It exists so the owner sees the difference and rules on it. |
 | Normal, amber, red, the banner, **the warning clearing**, a narrow window, "cannot read" | one machine is enough for the screenshots; the amber and red thresholds are checked on all three | Development-slot Director plus the load harness. "Cannot read" is forced with an injected failing probe, not by breaking a machine. |
 | Red within 70 seconds of pinning the processor, and clearing when the load goes | all three | The harness. Both halves: a warning that fires and never clears is a defect, not a pass. |
 | Memory amber, then clearing | all three | The harness allocates until Tight, then frees. |
@@ -301,3 +302,32 @@ skip count does not match the platforms this machine is not.
 - **An empty result is a broken instrument, not a clean run.** No proof in this report may rest on
   the absence of something. Each one states a specific presence: this figure, on this machine, at
   this time, beside the operating system's own.
+
+## Task Manager measures a different quantity: the processor row names "% Processor Time", not Task Manager
+
+Windows 11's Task Manager shows **"% Processor Utility"**, which scales by the clock speed the processor
+is actually running at. The probe reports **busy-by-time**: the share of the interval the processor was
+not idle, which is what `/proc/stat` gives on Linux and what Activity Monitor shows on macOS.
+
+On a machine that boosts, these are not the same number. Measured on SOREN_NORTH on 6 November 2026,
+Task Manager read **100** while the processor was **67 to 89 per cent** busy by time - up to **33 points
+apart**. Against the **"% Processor Time"** counter, which is the time-based quantity, the probe agreed
+within **0.58 points** over 16 rounds at 67 to 99 per cent load, and memory within 0.08 points of
+"Available Bytes".
+
+So the original row could not pass on a boosting Windows machine no matter how correct the probe was: it
+demanded that two different quantities agree within 5 points. This is the same defect as "Tight is not a
+cause" above, in the other direction - a row that can never pass rather than one that passes without
+measuring - and both put a false result into the report.
+
+**One quantity on all three platforms is the whole point of the meter.** A Windows figure that matched
+Task Manager would look right on Windows and mean something different from the figures beside it, and
+summing or comparing across machines - which is what the Fleet columns and the factory placement
+decision do - would then be nonsense. That is this mission's signature defect class, so the meter keeps
+busy-by-time and the criterion names the counter that measures it.
+
+**The owner still sees the gap, so the report shows it.** The owner's words starting this mission were
+"so I don't have to use task manager". When the Director reads 70 and Task Manager reads 100 on the same
+machine, that needs explaining rather than hiding, and it is not a question the implementation gets to
+settle quietly: the report carries both figures side by side with the measured gap, and whether the
+Director should also offer the clock-scaled figure is the owner's decision on the evidence.
