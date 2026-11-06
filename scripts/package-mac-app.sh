@@ -9,14 +9,33 @@
 # to any machine with no .NET runtime installed.
 #
 # Distribution model (no Apple Developer account, zero cost):
-#   - Ad-hoc code signature (`codesign --sign -`) so the binary has a stable
-#     identity but is not Developer-ID / notarized.
+#   - A STABLE self-signed code signature when --identity is given, and an ad-hoc
+#     one when it is not. Neither is Developer-ID / notarized.
 #   - The auto-updater strips the Gatekeeper quarantine flag on install, so after
 #     the first launch there are no warnings. The very first download still needs
 #     a one-time right-click -> Open (documented in scripts/local-build/mac/README.md).
 #
+# WHY --identity MATTERS, AND WHY AD-HOC IS NOT GOOD ENOUGH (issue #4518).
+# macOS records a privacy permission ("DevThrottle would like to access data from other
+# apps") against the app's DESIGNATED REQUIREMENT, not against its name. Ad-hoc signing has
+# no certificate to name us by, so that requirement degenerates to a hash of the build:
+#
+#     designated => cdhash H"499b1ed8..."        <- ad-hoc: changes EVERY build
+#
+# The Director auto-updates on start-up, so every update produced a different hash, every
+# stored grant stopped matching, and the user was asked for every permission again - forever.
+# Signing with one stable certificate instead gives a requirement that survives rebuilds:
+#
+#     designated => identifier "com.devthrottle.ccdirector" and certificate leaf = H"65f4a7a8..."
+#
+# The certificate does not have to be from Apple and does not have to be trusted for this to
+# work - codesign will sign with an untrusted self-signed certificate, and the requirement
+# matches on the leaf hash. An Apple Developer ID certificate is still needed for Gatekeeper,
+# notarization and a double-click install; this buys only the permissions, but it buys them free.
+#
 # Usage:
 #   scripts/package-mac-app.sh --binary <path-to-self-contained-binary> --out <output-dir>
+#                              [--identity <codesign identity>]
 #
 # Produces:  <output-dir>/cc-director-mac-arm64.zip  (contains "Director.app")
 #
@@ -39,10 +58,14 @@ ZIP_NAME="cc-director-mac-arm64.zip"
 BINARY=""
 OUT_DIR=""
 DMG_NAME=""
+# The codesign identity. Empty means ad-hoc ("-"), which is what a local build and a fork get.
+# CI passes the stable self-signed identity so that privacy grants survive an update.
+IDENTITY="${MACOS_SIGN_IDENTITY:-}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary) BINARY="$2"; shift 2 ;;
         --out)    OUT_DIR="$2"; shift 2 ;;
+        --identity) IDENTITY="$2"; shift 2 ;;   # codesign identity; empty => ad-hoc
         --dmg-name) DMG_NAME="$2"; shift 2 ;;   # also produce a drag-to-Applications DMG
         --app-name) APP_NAME="$2"; shift 2 ;;   # e.g. "CC Director Setup"
         --display-name) DISPLAY_NAME="$2"; shift 2 ;;   # e.g. "DevThrottle" (shown; the folder keeps APP_NAME)
@@ -124,25 +147,23 @@ fi
 [[ -f "$ICNS_OUT" ]] && ICON_KEY="    <key>CFBundleIconFile</key>          <string>AppIcon</string>"
 
 # ----------------------------------------------------------------------------
-# Launcher (CFBundleExecutable). Apps launched by launchd inherit only a minimal
-# PATH, so prepend the common dirs where `claude`/homebrew tools live, then exec
-# the self-contained binary by RELATIVE path. Self-contained => no DOTNET_ROOT.
+# NO LAUNCHER SCRIPT. The self-contained binary IS the bundle's CFBundleExecutable.
+#
+# There used to be a #!/bin/bash wrapper here whose only job was to prepend the directories
+# launchd leaves out of a GUI application's PATH (~/.local/bin, ~/.claude/local, Homebrew)
+# before exec'ing the real binary. It cost us the app's code identity: with a script as the
+# main executable, codesign reports
+#
+#     host => identifier "com.apple.bash" and anchor apple
+#
+# so macOS was being asked to grant this application's privacy permissions to Apple's copy of
+# bash (issue #4518). The PATH work now happens in-process at start-up, in
+# ToolShimPath.EnsureGuiLaunchPathDefaults(), which runs before any session is started - so the
+# signed Mach-O binary is the main executable and carries its own identity.
+#
+# Self-contained => no DOTNET_ROOT, and the binary resolves its own directory, so nothing else
+# the wrapper did is still needed.
 # ----------------------------------------------------------------------------
-cat > "$APP/Contents/MacOS/launch" <<'LAUNCH'
-#!/bin/bash
-# Auto-generated launcher for CC Director. Do not edit by hand.
-DIR="$(cd "$(dirname "$0")" && pwd)"
-for d in "$HOME/.local/bin" "$HOME/.claude/local" "/opt/homebrew/bin" \
-         "/opt/homebrew/sbin" "/usr/local/bin"; do
-    [[ -d "$d" ]] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
-done
-export PATH
-cd "$DIR"
-exec "$DIR/@BIN@" "$@"
-LAUNCH
-# Substitute the real binary name (the heredoc is quoted so runtime $VARS stay literal).
-sed -i.bak "s#@BIN@#$BIN_NAME#" "$APP/Contents/MacOS/launch" && rm -f "$APP/Contents/MacOS/launch.bak"
-chmod +x "$APP/Contents/MacOS/launch"
 
 # ----------------------------------------------------------------------------
 # The name shown (--display-name). When it differs from the folder name, Info.plist
@@ -177,7 +198,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDevelopmentRegion</key><string>en</string>
 $LOCALIZED_KEYS
     <key>CFBundleIdentifier</key>      <string>$BID</string>
-    <key>CFBundleExecutable</key>      <string>launch</string>
+    <key>CFBundleExecutable</key>      <string>$BIN_NAME</string>
 $ICON_KEY
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleVersion</key>         <string>$VERSION</string>
@@ -193,11 +214,31 @@ $ICON_KEY
 PLIST
 
 # ----------------------------------------------------------------------------
-# Ad-hoc code signature (free; no Apple Developer account). Sign nested code
-# first via --deep, force to overwrite the publish-time signature on the binary.
+# Code signature. --identity (or MACOS_SIGN_IDENTITY) gives the stable self-signed certificate
+# that makes privacy grants survive an update; with neither we fall back to ad-hoc, so a local
+# build and a fork still produce a working bundle.
+#
+# Signed INSIDE-OUT rather than with --deep: Apple deprecates --deep for distribution, and it is
+# the wrong tool here anyway - nested code must be signed before the bundle that seals it.
 # ----------------------------------------------------------------------------
-codesign --force --deep --sign - "$APP"
+SIGN_WITH="${IDENTITY:--}"
+if [[ "$SIGN_WITH" == "-" ]]; then
+    echo "  codesign: AD-HOC (no --identity) - privacy grants will NOT survive an update"
+else
+    echo "  codesign: signing as '$SIGN_WITH'"
+fi
+
+# Nested Mach-O first (the real binary), then the bundle.
+codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP/Contents/MacOS/$BIN_NAME"
+codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP"
+
 codesign --verify --deep --strict "$APP" 2>&1 | sed 's/^/  codesign: /' || true
+
+# Print the designated requirement. This is the line that decides whether a privacy grant
+# survives: a bare "cdhash H..." means it will not, an "identifier ... and certificate leaf ..."
+# means it will. Printed on every build so a regression is visible in the release log.
+echo "  codesign: designated requirement ->"
+codesign -d -r- "$APP" 2>&1 | grep -E "designated|host =>" | sed 's/^/    /' || true
 
 # ----------------------------------------------------------------------------
 # Zip with ditto so the bundle's symlinks/perms/resource forks survive transit.

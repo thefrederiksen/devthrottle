@@ -144,4 +144,53 @@ public static class ToolShimPath
         FileLog.Write($"[ToolShimPath] EnsureOnProcessPath: added {dir} to this process's PATH (was: {current ?? "(unset)"})");
         return true;
     }
+
+    /// <summary>
+    /// The directories a desktop launch has to be told about, highest priority last - the agent binaries
+    /// (<c>claude</c> and friends) and Homebrew live here, and launchd hands a GUI application a minimal
+    /// PATH that holds none of them.
+    /// </summary>
+    internal static IReadOnlyList<string> GuiLaunchPathDirectories(string? home) =>
+        string.IsNullOrWhiteSpace(home)
+            ? []
+            : [
+                "/usr/local/bin",
+                "/opt/homebrew/sbin",
+                "/opt/homebrew/bin",
+                Path.Combine(home, ".claude", "local"),
+                Path.Combine(home, ".local", "bin"),
+              ];
+
+    /// <summary>
+    /// Put the desktop-launch directories on this process's PATH, in place of the bash wrapper script that
+    /// used to do it (issue #4518).
+    ///
+    /// WHY THIS IS NOT A SHELL SCRIPT ANY MORE. The macOS .app bundle used to name a <c>#!/bin/bash</c>
+    /// script as its <c>CFBundleExecutable</c>, purely to set PATH before exec'ing the real binary. That
+    /// made the bundle's hosting identity <c>identifier "com.apple.bash" and anchor apple</c> - macOS was
+    /// being asked to grant this application's privacy permissions to Apple's copy of bash. Doing the same
+    /// work here lets the signed Mach-O binary be the bundle's main executable and carry its own identity.
+    ///
+    /// Only the directories that EXIST are added, so a machine without Homebrew does not get a dead entry,
+    /// and anything already on PATH is left where it is rather than promoted.
+    /// </summary>
+    public static bool EnsureGuiLaunchPathDefaults()
+    {
+        if (OperatingSystem.IsWindows()) return false;
+
+        var current = Environment.GetEnvironmentVariable("PATH");
+        var updated = current;
+
+        foreach (var dir in GuiLaunchPathDirectories(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))
+        {
+            if (!Directory.Exists(dir)) continue;
+            updated = WithDirectory(updated, dir);
+        }
+
+        if (updated == current) return false;
+
+        Environment.SetEnvironmentVariable("PATH", updated);
+        FileLog.Write($"[ToolShimPath] EnsureGuiLaunchPathDefaults: PATH is now {updated} (was: {current ?? "(unset)"})");
+        return true;
+    }
 }

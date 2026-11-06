@@ -67,6 +67,13 @@ internal static class Program
         // session inherits it and can run cc-devthrottle, and so a Smart Restart hands it to the next build.
         CcDirector.Core.Tools.ToolShimPath.EnsureOnProcessPath();
 
+        // Then the desktop-launch directories - Homebrew, ~/.local/bin, ~/.claude/local - which launchd
+        // leaves out of a GUI application's PATH. This replaces the #!/bin/bash wrapper that used to be the
+        // macOS bundle's CFBundleExecutable purely to do this; the wrapper made the bundle's hosting identity
+        // "com.apple.bash", so the app could not carry a code identity of its own (issue
+        // #4518). Same ordering reason as above: before any session starts.
+        CcDirector.Core.Tools.ToolShimPath.EnsureGuiLaunchPathDefaults();
+
         // Raise the thread-pool floor before anything opens a session or dials the Gateway (issue
         // #2818). Every session blocks two pool workers for its whole life, so on a Director carrying
         // sessions the keep-alive ping that holds the tunnel open - a timer callback on this same pool -

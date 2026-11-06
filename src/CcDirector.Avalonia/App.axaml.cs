@@ -1270,7 +1270,7 @@ public partial class App : Application
             // shared config: an isolated test Director (issue #329) points its own appsettings
             // at a test communications DB and a mock channel tool without ever touching the
             // shared per-machine config.json other Directors on this box read.
-            var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            var configPath = ResolveAgentConfigPath();
             if (File.Exists(configPath))
             {
                 var json = File.ReadAllText(configPath);
@@ -1309,13 +1309,48 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// Where the agent configuration is read from, and where a default is written when there is none.
+    ///
+    /// A copy next to the executable WINS when one is there. That is deliberate: a per-install
+    /// appsettings.json is how an isolated test Director points itself at its own communications
+    /// database (issue #329), and it is also what a packaged build may ship with.
+    ///
+    /// What must never happen is WRITING one there. On macOS <c>AppContext.BaseDirectory</c> is
+    /// <c>Director.app/Contents/MacOS</c>, so creating a default on first run added a file inside the
+    /// signed bundle and broke its seal - codesign then reports "a sealed resource is missing or
+    /// invalid", and the bundle can never be notarized. A signed bundle is replaced whole and never
+    /// edited in place, so the default goes to the user's config directory and is read back there.
+    /// </summary>
+    private static string ResolveAgentConfigPath()
+    {
+        var besideExecutable = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        if (File.Exists(besideExecutable))
+            return besideExecutable;
+
+        var userConfig = Path.Combine(CcStorage.Config(), "appsettings.json");
+        if (!File.Exists(userConfig))
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(userConfig)!);
+            }
+            catch (Exception ex)
+            {
+                // Leave the path as-is; the caller's read is already guarded and will log the failure.
+                System.Diagnostics.Debug.WriteLine($"Failed to create config directory: {ex.Message}");
+            }
+
+            WriteDefaultConfig(userConfig);
+        }
+
+        return userConfig;
+    }
+
     private void LoadConfiguration()
     {
         Options = new AgentOptions();
-        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-
-        if (!File.Exists(configPath))
-            WriteDefaultConfig(configPath);
+        var configPath = ResolveAgentConfigPath();
 
         try
         {

@@ -162,4 +162,49 @@ public sealed class ToolShimPathTests
 
         Assert.Equal(Path.Combine(ScratchRoot, "bin"), dir);
     }
+
+    // --- The directories a desktop launch needs told about (issue #4518) --------
+    //
+    // These replace the #!/bin/bash wrapper that used to be the macOS bundle's CFBundleExecutable. The
+    // wrapper made the bundle's hosting identity "com.apple.bash", so the app could carry no code
+    // identity of its own and no privacy grant could be pinned to it.
+
+    [Fact]
+    public void GuiLaunchPathDirectories_NamesTheDirectoriesTheWrapperUsedTo()
+    {
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+
+        Assert.Equal(
+            [
+                "/usr/local/bin",
+                "/opt/homebrew/sbin",
+                "/opt/homebrew/bin",
+                Path.Combine(Home, ".claude", "local"),
+                Path.Combine(Home, ".local", "bin"),
+            ],
+            dirs);
+    }
+
+    [Fact]
+    public void GuiLaunchPathDirectories_AreOrderedSoTheUsersOwnBinWinsAfterPrepending()
+    {
+        // Each is prepended in turn, so the LAST one ends up FIRST on PATH. ~/.local/bin holds the cc-*
+        // shims and must beat a Homebrew copy of the same name.
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+
+        var path = dirs.Aggregate((string?)null, ToolShimPath.WithDirectory);
+
+        Assert.StartsWith(Path.Combine(Home, ".local", "bin") + Sep, path);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void GuiLaunchPathDirectories_WithoutAHome_NamesNothing(string? home)
+    {
+        // Every entry but the Homebrew ones is relative to the home folder. Without one we would be
+        // building paths against an empty string, so the honest answer is no directories at all.
+        Assert.Empty(ToolShimPath.GuiLaunchPathDirectories(home));
+    }
 }

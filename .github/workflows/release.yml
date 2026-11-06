@@ -162,6 +162,16 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:UpdaterEnabled=true
 
+      # One stable certificate for every macOS artifact, so that a privacy grant survives an
+      # update instead of dying with the build's hash (issue #4518).
+      # A no-op without the secrets: the packaging script then signs ad-hoc as before.
+      - name: macOS signing identity
+        id: macos-sign
+        uses: ./.github/actions/sign-macos
+        with:
+          certificate-p12-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          certificate-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
       - name: Package distributable .app bundle (zip + drag-to-Applications DMG)
         run: >
           scripts/package-mac-app.sh
@@ -169,6 +179,7 @@ jobs:
           --out artifacts-mac
           --dmg-name devthrottle-mac-arm64.dmg
           --display-name DevThrottle
+          --identity '${{ steps.macos-sign.outputs.identity }}'
 
       - name: Upload cc-director mac artifact
         uses: actions/upload-artifact@v6
@@ -237,6 +248,15 @@ jobs:
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
 
+      # The setup wizard is the first thing a new user double-clicks, so it carries the same
+      # identity as the Director and the launcher rather than an ad-hoc one.
+      - name: macOS signing identity
+        id: macos-sign
+        uses: ./.github/actions/sign-macos
+        with:
+          certificate-p12-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          certificate-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
       - name: Package distributable Setup .app bundle (zip)
         run: >
           scripts/package-mac-app.sh
@@ -246,6 +266,7 @@ jobs:
           --bin-name cc-director-setup
           --zip-name cc-director-setup-mac-arm64.zip
           --bid com.devthrottle.ccdirectorsetup
+          --identity '${{ steps.macos-sign.outputs.identity }}'
 
       - name: Upload macOS setup wizard artifact
         uses: actions/upload-artifact@v6
@@ -547,6 +568,31 @@ jobs:
           -c Release -f net10.0 -r osx-arm64 --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
+
+      # The launcher had NO codesign step at all - what shipped was whatever ad-hoc signature
+      # `dotnet publish` happened to leave behind, with the bare identifier "cc-launcher" and a
+      # designated requirement that was a per-build hash. It self-updates too, so its identity
+      # churned on the same cycle as the Director's (issue #4518).
+      - name: macOS signing identity
+        id: macos-sign
+        uses: ./.github/actions/sign-macos
+        with:
+          certificate-p12-base64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          certificate-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Sign the launcher
+        env:
+          LAUNCHER: src/CcDirector.Launcher/bin/Release/net10.0/osx-arm64/publish/cc-launcher
+          IDENTITY: ${{ steps.macos-sign.outputs.identity }}
+        run: |
+          set -euo pipefail
+          # A bare executable has no Info.plist, so -i gives it the bundle identifier that the
+          # designated requirement is built from. Without it the requirement names "cc-launcher".
+          codesign --force --timestamp=none \
+                   -i com.devthrottle.cc-launcher \
+                   --sign "${IDENTITY:--}" "$LAUNCHER"
+          echo "designated requirement ->"
+          codesign -d -r- "$LAUNCHER" 2>&1 | grep -E "designated" | sed 's/^/  /'
 
       - name: Upload launcher mac artifact
         uses: actions/upload-artifact@v6

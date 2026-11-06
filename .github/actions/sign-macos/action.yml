@@ -1,0 +1,119 @@
+# Reusable composite action: make the stable macOS code-signing identity available to the job,
+# so that every macOS artifact in a release is signed by the SAME certificate.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS (issue #4518)
+#
+# macOS records a privacy permission - "DevThrottle would like to access data from other apps",
+# Screen Recording, the microphone - against the application's DESIGNATED REQUIREMENT, which is
+# the rule deciding which code counts as this app. An ad-hoc signature has no certificate to
+# name us by, so that rule degenerates to a hash of the build:
+#
+#     designated => cdhash H"499b1ed8..."        <- ad-hoc: a DIFFERENT app every single build
+#
+# The Director auto-updates on start-up and we ship every day or two, so every update made every
+# stored grant stop matching and the user was asked for every permission again, forever. Signing
+# with one stable certificate gives a requirement that survives rebuilds:
+#
+#     designated => identifier "com.devthrottle.ccdirector" and certificate leaf = H"65f4a7a8..."
+#
+# The certificate is self-signed and free. It does NOT need to be issued by Apple and does NOT
+# need to be trusted on the user's machine - codesign signs with an untrusted certificate, and the
+# requirement matches on the leaf hash.
+#
+# WHAT THIS DOES NOT BUY: Gatekeeper acceptance, notarization, a double-click install, or a real
+# developer name in Login Items. Those need a paid Apple Developer ID certificate. When one
+# exists, it replaces this certificate by changing the two secrets below and adding the
+# notarize + staple steps; nothing else in the pipeline moves.
+# ---------------------------------------------------------------------------
+#
+# One-time setup. Run scripts/make-macos-signing-cert.sh ONCE and store what it prints:
+#
+#   Repository SECRETS (Settings -> Secrets and variables -> Actions -> Secrets):
+#     MACOS_CERT_P12_BASE64   base64 of the .p12 holding the certificate and its private key
+#     MACOS_CERT_PASSWORD     the password for that .p12
+#
+# UNTIL BOTH EXIST THIS ACTION IS A NO-OP: it reports an empty identity, the packaging script
+# falls back to ad-hoc, and releases keep building exactly as they do today. That is deliberate -
+# a fork, and this repository before the secrets are set, must still produce a working build.
+#
+# The keychain created here lives in the runner's temporary directory and dies with the runner.
+
+name: macOS signing identity
+description: Import the stable DevThrottle code-signing certificate and report its identity.
+
+inputs:
+  certificate-p12-base64:
+    description: Base64 of the .p12. Empty disables signing (ad-hoc fallback).
+    required: false
+    default: ""
+  certificate-password:
+    description: Password for the .p12.
+    required: false
+    default: ""
+
+outputs:
+  identity:
+    description: >
+      The SHA-1 of the signing certificate, to pass to codesign / package-mac-app.sh --identity.
+      EMPTY when no certificate was supplied, which means "sign ad-hoc".
+    value: ${{ steps.import.outputs.identity }}
+  signed:
+    description: "true when a real identity is available, false when the build will be ad-hoc."
+    value: ${{ steps.import.outputs.signed }}
+
+runs:
+  using: composite
+  steps:
+    - id: import
+      shell: bash
+      env:
+        CERT_B64: ${{ inputs.certificate-p12-base64 }}
+        CERT_PASSWORD: ${{ inputs.certificate-password }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${CERT_B64}" ]]; then
+          echo "::notice title=macOS signing::No MACOS_CERT_P12_BASE64 secret - building AD-HOC. Privacy grants will not survive an update."
+          echo "identity=" >> "$GITHUB_OUTPUT"
+          echo "signed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        KEYCHAIN="$RUNNER_TEMP/devthrottle-signing.keychain-db"
+        # Not a secret: this keychain exists for the length of one job on a throwaway runner.
+        KEYCHAIN_PASSWORD="$(uuidgen)"
+        P12="$RUNNER_TEMP/devthrottle-codesign.p12"
+
+        printf '%s' "${CERT_B64}" | base64 --decode > "$P12"
+
+        security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+        # Without this the keychain re-locks on a timer and a later codesign in the same job fails.
+        security set-keychain-settings -lut 21600 "$KEYCHAIN"
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+        security import "$P12" -k "$KEYCHAIN" -P "${CERT_PASSWORD}" -T /usr/bin/codesign -A
+        # Lets codesign use the key without an interactive authorisation prompt, which on a runner
+        # would simply hang until the job times out.
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+        # codesign searches the user's keychain list, so the new keychain has to join it.
+        security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '" ')
+
+        rm -f "$P12"
+
+        # Identify by SHA-1 rather than by name: it is unambiguous even if two certificates ever
+        # share a common name, and it is what the designated requirement is built from.
+        IDENTITY="$(security find-identity -v "$KEYCHAIN" | awk 'NR==1 && /\)/ {print $2}')"
+        if [[ -z "$IDENTITY" ]]; then
+          # -v lists only certificates the machine trusts, and ours is deliberately self-signed and
+          # untrusted, so fall back to the full list. Signing works either way.
+          IDENTITY="$(security find-identity "$KEYCHAIN" | awk '/[0-9A-F]{40}/ {print $2; exit}')"
+        fi
+        if [[ -z "$IDENTITY" ]]; then
+          echo "::error title=macOS signing::A certificate was supplied but no identity could be read from it."
+          exit 1
+        fi
+
+        echo "::notice title=macOS signing::Signing as $IDENTITY"
+        echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+        echo "signed=true" >> "$GITHUB_OUTPUT"
