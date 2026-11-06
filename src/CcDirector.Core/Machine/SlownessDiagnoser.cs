@@ -265,12 +265,18 @@ public static class SlownessDiagnoser
             }
         }
 
-        // The instantaneous run queue is shown but decides nothing yet: what the Windows counter counts -
-        // waiting threads only, or waiting and running - has not been measured, and a threshold written
-        // without knowing would read the wrong quantity.
+        // The instantaneous run queue is shown but decides nothing. What it counts IS now measured and
+        // the same on both platforms that offer it (running plus waiting; see StallReading.RunQueueLength),
+        // so the old reason for holding off has gone - but two better ones remain. It is one moment every
+        // five seconds of a figure measured swinging between 0 and 92 on a real machine, so a windowed
+        // average of a handful of spot readings is a weak estimate; and a saturated processor is already
+        // caught by busy-by-time, which is measured over the interval rather than sampled. Whether it
+        // should set a threshold on WINDOWS specifically - where there is no load average, so this is the
+        // only sustained-queueing signal - needs the load harness to show how the windowed average behaves
+        // under known loads first. Not guessed.
         if (queue is { } queueLength && cores is { } queueCores)
             evidence.Add(string.Create(CultureInfo.InvariantCulture,
-                $"on average {queueLength:F0} threads were ready to run on {queueCores} cores"));
+                $"on average {queueLength:F0} threads were on a processor or waiting for one, on {queueCores} cores"));
 
         return new Judgement("the processor", true, slow, evidence, null, headline);
     }

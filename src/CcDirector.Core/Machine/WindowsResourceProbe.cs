@@ -444,17 +444,29 @@ public sealed class WindowsResourceProbe : IResourceProbe
     /// The stall proxies Windows offers. NEITHER IS A MEASURE OF HOW LONG PROGRAMS WERE STALLED, which is
     /// what Linux pressure stall information gives directly:
     ///
-    /// RUN QUEUE: threads in the Ready or Deferred Ready state - runnable, waiting only for a processor -
-    /// in the latest process list. This is what the "System\Processor Queue Length" performance counter
-    /// counts, and like it, it is ONE MOMENT, not an average: on a five-second sample it is that moment's
-    /// luck, so it can only support a processor verdict alongside a busy processor, never make one alone.
+    /// RUN QUEUE: the threads ON a processor now PLUS those waiting for one - the quantity
+    /// <see cref="StallReading.RunQueueLength"/> is defined as, so that it means the same thing here as
+    /// the figure Linux reads from <c>/proc/loadavg</c>. See
+    /// <see cref="WindowsResourceParsing.WantsAProcessor"/> for the thread states and the measurement
+    /// behind them. It is NOT what the "System\Processor Queue Length" performance counter counts - that
+    /// counter is documented as ready threads only - and this probe does not read that counter at all.
+    /// It is ONE MOMENT, not an average: on a five-second sample it is that moment's luck, so it can only
+    /// support a processor verdict alongside a busy processor, never make one alone. Null when the process
+    /// list could not be read (<paramref name="processes"/> null).
+    ///
+    /// THE SYSTEM IDLE PROCESS (id 0) IS LEFT OUT, the same rule and for the same reason as
+    /// <see cref="ProcessesBetween"/>: an idle thread is "Running" on a processor exactly when nothing
+    /// else is, which is the OPPOSITE of demand for one, and Linux's runnable count never includes the
+    /// idle task. In the capture committed with this probe's tests, process id 0 held 23 Running and 25
+    /// Standby threads out of a machine total of 107 - so counting it would have reported 107 where the
+    /// real figure is 59, and would have made a completely idle 24-processor machine read one to two
+    /// threads of demand per core for ever.
     ///
     /// HARD PAGE FAULTS PER SECOND: pages the whole machine read back from disk to satisfy hard faults,
     /// over the interval - the arithmetic of "Memory\Pages Input/sec", on the same kernel counter. It
     /// also counts ordinary reads of memory-mapped files (a program starting), so it says memory is
     /// short only alongside little available memory.
     ///
-    /// The run queue is null when the process list could not be read (<paramref name="processes"/> null).
     /// The stalled percentages and the count of processes waiting on the disk are not offered by Windows
     /// and stay null. The disk side of the diagnosis reads each disk's time per transfer and queue depth
     /// from <see cref="DiskEvidenceSet"/>.
@@ -469,7 +481,9 @@ public sealed class WindowsResourceProbe : IResourceProbe
         var pagesRead = unchecked(laterPaging.PageReadCount - earlierPaging.PageReadCount);
 
         return StallReading.Read(StallSource.WindowsCounters,
-            runQueueLength: processes?.Processes.Sum(p => p.ThreadsWaitingOnCpu),
+            runQueueLength: processes?.Processes
+                .Where(p => p.ProcessId != 0)
+                .Sum(p => p.ThreadsWantingAProcessor),
             hardPageFaultsPerSecond: pagesRead / interval.Value.TotalSeconds);
     }
 

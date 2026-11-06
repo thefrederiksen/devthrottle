@@ -15,9 +15,11 @@ public enum StallSource
     LinuxPressureStall = 1,
 
     /// <summary>
-    /// Windows performance counters - processor queue length and hard page faults per second. Proxies.
-    /// The per-disk timings the Windows diagnosis also reads are NOT here: they live on
-    /// <see cref="DiskEvidence"/>, because they are per disk and this reading is whole-machine.
+    /// Windows kernel figures - the run queue summed from thread states, and hard page faults per second.
+    /// Proxies. NOT the "System\Processor Queue Length" performance counter: that counter is documented as
+    /// ready threads only, and this probe does not read it. The per-disk timings the Windows diagnosis
+    /// also reads are NOT here: they live on <see cref="DiskEvidence"/>, because they are per disk and
+    /// this reading is whole-machine.
     /// </summary>
     WindowsCounters = 2,
 
@@ -77,8 +79,13 @@ public enum StallSource
 /// The INSTANTANEOUS number of threads ready to run at the moment of reading. On Linux that is the
 /// kernel's runnable count from <c>/proc/loadavg</c>: the threads running on a processor now PLUS those
 /// waiting for one, the reader itself included - so on a 32-core machine it can read 47 with only 15
-/// actually waiting. The Windows probe will fill it from its processor queue length counter, once what
-/// that counter counts (waiting only, or waiting plus running) has been measured. macOS leaves it null: it publishes no
+/// actually waiting - "run queue" in the Linux sense, where <c>nr_running</c> includes the task running.
+/// On Windows it is the SAME QUANTITY, summed per thread from the process information block and
+/// excluding the System Idle Process; <c>WindowsResourceParsing.WantsAProcessor</c> holds the thread
+/// states, the measurement and the reasoning. It is deliberately NOT taken from the "Processor Queue
+/// Length" performance counter - the mission owed a measurement of whether that counter counts the
+/// waiting threads only or the waiting plus the running ones, and reading the thread states answers that
+/// question by construction rather than resolving it. macOS leaves it null: it publishes no
 /// instantaneous count. It is NOT interchangeable with <paramref name="LoadAverageOneMinute"/>, and
 /// nothing may use one in place of the other. Read it against the logical core count: 47 on 32 cores is
 /// not 47 on 4.
