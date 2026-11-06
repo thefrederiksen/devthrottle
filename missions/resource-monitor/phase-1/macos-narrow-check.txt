@@ -32,10 +32,10 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
 2. dotnet test src/CcDirector.Core.UnitTests -c Release -p:EnableWindowsTargeting=true
                 --filter "Category=Resources"
 
-   Passed!  Failed: 0, Passed: 165, Skipped: 0, Total: 165, Duration: 31 ms
+   Passed!  Failed: 0, Passed: 190, Skipped: 0, Total: 190, Duration: 36 ms
 
-   (165 rather than 112: the shared interface change this builds on brought its own tests with it.
-   112 of them are this probe's parsing, plus the clock regression test described in section 7.)
+   (190 rather than this probe's own 113: the narrowed shared interface, merged as #4620, brought its
+   own tests with it. This probe's are the parsing tests plus the clock regression test in section 7.)
 
    PURE FUNCTIONS, AND THE DURATION IS THE PROOF OF IT. Twenty-nine milliseconds for 112 tests is
    not a suite that touches a disk, waits on a clock or makes a system call. Every one of them runs
@@ -46,7 +46,7 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
 3. dotnet test src/CcDirector.Core.Tests -c Release -p:EnableWindowsTargeting=true
                 --filter "Category=Resources"
 
-   Passed!  Failed: 0, Passed: 35, Skipped: 0, Total: 35, Duration: 572 ms
+   Passed!  Failed: 0, Passed: 36, Skipped: 0, Total: 36, Duration: 559 ms
 
    SKIPPED: 0 IS PART OF THE RESULT. These tests are gated by MacOsOnlyFact, which SKIPS with a
    stated reason off macOS rather than returning early and reporting a pass. A skip here would mean
@@ -59,37 +59,43 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    The first sample, which is the Director's very first meter draw:
 
      processor     processor unreadable (first sample, no interval yet)
-     memory        4.6 GB available of 16.0 GB
-     swap          swap 3.5 GB used of 5.0 GB
-     stalls        stalls (MacOsSignals): run queue 17.2, macOS memory pressure level 1
+     memory        6.2 GB available of 16.0 GB
+     swap          swap 3.1 GB used of 4.0 GB
+     stalls        stalls (MacOsSignals): run queue 20.2, macOS memory pressure level 1
      disk evidence disk disk0 (solid-state, in the system volume) unreadable (first sample, no interval yet)
+     processes     404 listed, 0 claiming a processor share
 
    A rate genuinely cannot be worked out from one reading, and the probe says so rather than
    reporting nought per cent busy - which would be indistinguishable from an idle machine, on every
    Director start-up. Memory, swap and the stall signals need no interval and are reported.
 
+   NOT ONE OF THE 404 PROCESSES CLAIMS A PROCESSOR SHARE, and that line is the fix for the one
+   defect this code's review found. It used to hand every process with no earlier reading its
+   LIFETIME average - 328 of 513 on the first sample, including one that had been running two days
+   and read 5.78 per cent, in a field defined as the share of the machine over the last interval,
+   inside this very sample. It was not a zero, but it was a plausible figure for a quantity nobody
+   measured. Memory is still readable for the processes the platform allows, so the list has not
+   shrunk; only the figure that was never measured is withheld.
+
    Ten seconds later:
 
-     processor     processor 52% busy, busiest core 74%, 10 cores
-     memory        4.3 GB available of 16.0 GB
-     swap          swap 3.5 GB used of 5.0 GB
-     stalls        stalls (MacOsSignals): run queue 15.4, macOS memory pressure level 1
-     disk evidence disk disk0 (solid-state, in the system volume) 1.0 operations in flight,
-                   0.41 ms per read, 0.05 ms per write
-     processes     502 listed, 181 with figures the platform refuses
-     busiest five, as a share of the whole machine:
-         10.44%  node (process 49497)
-          9.75%  esbuild (process 49505)
-          3.35%  bash (process 49513)
-          1.73%  mdworker_shared (process 49499)
-          1.40%  RustDesk (process 835)
+     processor     processor 67% busy, busiest core 100%, 10 cores
+     memory        6.1 GB available of 16.0 GB
+     stalls        stalls (MacOsSignals): run queue 19.5, macOS memory pressure level 1
+     disk evidence disk disk0 (solid-state, in the system volume) 0.1 operations in flight,
+                   0.16 ms per read, 0.08 ms per write
+     processes     400 listed, 151 with figures the platform refuses
+     busiest three, as a share of the whole machine:
+          1.97%  cc-director (process 10502)
+          1.88%  Google Chrome Helper (process 6936)
+          1.65%  RustDesk (process 835)
 
    Every figure is non-zero and real. Three things in that reading are worth naming:
 
    - "in the system volume" is the IOKit walk working. The system volume's own device is an Apple
      file system volume inside a container synthesized on a partition, so without walking up to the
      hardware no disk would ever be marked as the one the machine runs from.
-   - 181 of 502 processes are listed WITH THEIR FIGURES NULL rather than left out. An ordinary user
+   - 151 of 400 processes are listed WITH THEIR FIGURES NULL rather than left out. An ordinary user
      is refused the processor time and memory of another user's process. The old probe took the list
      from the same call it took the figures from and so dropped them entirely - which on 15 October
      lost the two busiest processes on this machine, both Spotlight indexing as root, out of a set
@@ -105,27 +111,28 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    100 minus idle.
 
      window   the probe      top        difference
-        1      61.75 %     61.83 %        0.08
-        2      69.71 %     69.73 %        0.02
-        3      94.93 %     94.30 %        0.63
-        4      89.77 %     89.54 %        0.23
+        1      67.04 %     67.29 %        0.25
+        2      69.45 %     69.36 %        0.09
+        3      65.35 %     65.49 %        0.14
 
-   Worst disagreement 0.63 percentage points, against a requirement of 5, over a load that moved
-   from 62 up to 95 per cent - which is the range the amber and red limits sit in, so it is the
-   range that matters most.
+   Worst disagreement 0.25 percentage points, against a requirement of 5.
 
-   MEASURED AGAIN AFTER THE CLOCK CHANGE. An earlier run of the same protocol read 0.01, 0.05, 0.00
-   and 0.42 points over a load falling from 66 to 48. That run was against the wall-clock interval,
-   and the figures above are against the monotonic one that ships, so these are the ones to quote.
-   Both pass the same way, which is the point: the clock change fixed a failure case that needs the
-   clock to step, and it did not move the ordinary reading.
+   MEASURED THREE TIMES, ON THREE DIFFERENT BUILDS, and the figures are quoted from the last because
+   the arithmetic underneath them changed twice. Against the wall-clock interval: 0.01, 0.05, 0.00,
+   0.42 over a load falling from 66 to 48. Against the monotonic interval: 0.08, 0.02, 0.63, 0.23
+   over a load rising from 62 to 95 - which is the range the amber and red limits sit in. On the
+   code that ships, rebased onto the merged interface: the table above. Every run passes the same
+   way, which is the point - the clock change fixed a failure case that needs the clock to step and
+   did not move the ordinary reading.
 
    THE WINDOWS HAVE TO BE LINED UP OR THE COMPARISON MEANS NOTHING. A first attempt compared one
    probe window against whatever tick top happened to print and read 32 percentage points apart on a
    machine that was swinging between 30 and 78 per cent busy. That was the measurement being wrong,
-   not the probe: once the windows were matched the two agree to within half a point. A single
-   unaligned window on a moving machine can disagree by any amount and proves nothing in either
-   direction.
+   not the probe: once the windows were matched the two agree to within a quarter of a point. A
+   single unaligned window on a moving machine can disagree by any amount and proves nothing in
+   either direction - and the same mistake, in its own form, had to be corrected for memory in
+   section 6. Both are the same lesson: on a machine under load, two readings of one quantity taken
+   at different moments are two different quantities.
 
 ====================================================================================================
 6. MEMORY, AGAINST THE MACHINE'S OWN COUNTERS
@@ -135,14 +142,27 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    issue 2818 fix - free plus inactive plus purgeable pages, in the same spirit as Linux's
    MemAvailable. So the check is against the page counts that figure is built from.
 
-     run    probe used %    vm_stat used %    difference
-      1        76.33            76.11           0.22
-      2        79.65            79.80           0.15
-      3        80.88            80.54           0.34
+   THE FIRST PROTOCOL HERE WAS NOT GOOD ENOUGH, AND IT IS WORTH SAYING WHY. Comparing the probe
+   against ONE vm_stat reading taken just before or after it gave 0.22, 0.15 and 0.34 points on a
+   calm machine - and 5.95 points, OUTSIDE the five-point requirement, on a loaded one. Neither
+   number measured the probe. Available memory on this machine moves by several percentage points in
+   a few seconds under load, so a single reading at a different moment is a different quantity, and a
+   run that happens to agree is luck rather than evidence.
 
-   Worst disagreement 0.34 percentage points, against a requirement of 5. The remaining gap is the
-   fraction of a second between the probe's read and vm_stat's, during which the machine really does
-   move - which is also why the figure lands sometimes above it and sometimes below.
+   So the probe's read is BRACKETED: vm_stat, then the probe, then vm_stat again. A figure that lands
+   between the two is reading the same quantity the operating system is, whatever the machine is
+   doing in between.
+
+     run   vm_stat before   the probe   vm_stat after   machine moved   probe outside
+      1        60.81 %        60.21 %      60.72 %          0.09            0.51
+      2        60.70 %        63.15 %      65.45 %          4.75            0.00
+      3        65.46 %        62.93 %      64.29 %          1.17            1.36
+      4        64.28 %        60.60 %      61.33 %          2.95            0.73
+
+   Worst the probe fell outside the operating system's own range: 1.36 percentage points, against a
+   requirement of 5 - while the machine itself moved as much as 4.75 points across a single read.
+   That last column is the honest figure for this check, and the one before it is why the naive
+   version of it could not be trusted in either direction.
 
 ====================================================================================================
 7. THE CLOCK, AND A REGRESSION TEST THAT WAS CHECKED AGAINST THE DEFECT

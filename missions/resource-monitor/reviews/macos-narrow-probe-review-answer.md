@@ -121,6 +121,13 @@ Foundation requires to be zero. Declared 64-bit, with the reasoning recorded so 
   tests have been run against the behaviour they are named for.
 - No Intel Mac, no spinning disk on macOS, no external or network volume, and the PowerShell gate
   cannot run here. The processor and latency limits remain proposals.
+- **The memory agreement check had to be rebuilt after the reviewer read it.** The figures it saw
+  (worst 0.34 points) came from comparing the probe against ONE `vm_stat` reading. On a loaded machine
+  that same method read 5.95 points - outside the five-point requirement - because available memory
+  moves several points in a few seconds here, so a single reading taken at a different moment is a
+  different quantity. The check now brackets the probe's read between two `vm_stat` reads: worst 1.36
+  points outside the operating system's own range, while the machine moved as much as 4.75 points
+  across a single read. Same lesson as the processor windows, which I had already hit once.
 
 ## Addendum: the re-review, and three more answers (2026-11-06)
 
