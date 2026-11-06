@@ -22,7 +22,7 @@ public sealed class ResourceSamplerTests
         ]);
 
     private static (ResourceSampler Sampler, FakeResourceProbe Probe, FakeTimeProvider Time) Create(
-        Func<IReadOnlyList<ResourceSample>, ResourcePressureVerdict> evaluate)
+        Func<IReadOnlyList<TimelineSample>, ResourcePressureVerdict> evaluate)
     {
         var time = new FakeTimeProvider(ResourceSampleBuilder.DefaultTakenAtUtc);
         var probe = new FakeResourceProbe();
@@ -132,6 +132,32 @@ public sealed class ResourceSamplerTests
             Assert.Equal([1, 2], seen);
             Assert.Same(second, sampler.Current.Latest);
         }
+    }
+
+    [Fact]
+    public void Evaluate_IsHandedTheMonotonicTimeline_NotTheSamplesWallClockStamps()
+    {
+        IReadOnlyList<TimelineSample>? last = null;
+        var (sampler, probe, time) = Create(history =>
+        {
+            last = history;
+            return Verdict(ResourceLevel.Normal);
+        });
+        using (sampler)
+        {
+            // Stamps that jump an hour forward and then a day back; the monotonic clock moves five seconds a read.
+            DateTime[] stamps = [At(0), At(3600), At(-86400)];
+            foreach (var stamp in stamps)
+            {
+                probe.Set(new ResourceSampleBuilder().At(stamp).Build());
+                sampler.Tick();
+                time.Advance(Step);
+            }
+
+            Assert.Equal([TimeSpan.Zero, Step, Step * 2], last!.Select(s => s.Timeline));
+        }
+
+        static DateTime At(int seconds) => ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(seconds);
     }
 
     [Fact]

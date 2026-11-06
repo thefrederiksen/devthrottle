@@ -16,7 +16,48 @@ namespace CcDirector.Core.Tests.Machine;
 public class ResourcePressureTests
 {
     private static ResourceVerdict Verdict(IReadOnlyList<ResourceSample> history, ResourceKind kind) =>
-        ResourcePressure.Evaluate(history).Resources.Single(verdict => verdict.Kind == kind);
+        ResourcePressure.Evaluate(Timed(history)).Resources.Single(verdict => verdict.Kind == kind);
+
+    // Each fixture sample sits on the monotonic timeline at the offset the test built it at. Fixture
+    // construction only: the fold itself never subtracts two stamps.
+    private static TimelineSample[] Timed(IEnumerable<ResourceSample> history) =>
+        history.Select(sample => new TimelineSample(sample, sample.TakenAtUtc - Start)).ToArray();
+
+    [Fact]
+    public void Evaluate_TheWallClockStepsForward_ThreeSamplesTenSecondsApartOnTheTimeline_AreNotHeldForAMinute()
+    {
+        // The wall clock jumped an hour forward between the first and second sample - a time correction, or a
+        // machine waking from sleep. On the timeline the three readings span ten seconds, nothing like a minute.
+        var first = (CpuAt(99) with { At = TimeSpan.Zero }).Build();
+        var second = (CpuAt(99) with { At = TimeSpan.FromHours(1) }).Build();
+        var third = (CpuAt(99) with { At = TimeSpan.FromHours(1) + TimeSpan.FromSeconds(5) }).Build();
+
+        var verdict = ResourcePressure.Evaluate(
+        [
+            new TimelineSample(first, TimeSpan.Zero),
+            new TimelineSample(second, TimeSpan.FromSeconds(5)),
+            new TimelineSample(third, TimeSpan.FromSeconds(10)),
+        ]).Resources.Single(v => v.Kind == ResourceKind.Cpu);
+
+        Assert.Equal(ResourceLevel.Normal, verdict.Level);
+        Assert.Contains("10 seconds of readings so far", verdict.Evidence);
+    }
+
+    [Fact]
+    public void Evaluate_TheWallClockStepsBack_AMinuteOnTheTimelineAtFullLoad_IsStillRed()
+    {
+        // Thirteen readings five seconds apart on the timeline, all pinned; the wall clock stepped back an hour
+        // half way through, so the stamps are out of order. The timeline still says a full minute.
+        var history = Enumerable.Range(0, 13).Select(i =>
+        {
+            var stamp = TimeSpan.FromSeconds(i * 5) - (i >= 6 ? TimeSpan.FromHours(1) : TimeSpan.Zero);
+            return new TimelineSample((CpuAt(99) with { At = stamp }).Build(), TimeSpan.FromSeconds(i * 5));
+        }).ToArray();
+
+        var verdict = ResourcePressure.Evaluate(history).Resources.Single(v => v.Kind == ResourceKind.Cpu);
+
+        Assert.Equal(ResourceLevel.Critical, verdict.Level);
+    }
 
     private static ResourceSampleBuilder CpuAt(double busy) =>
         new() { Cpu = CpuReading.Read(busy, busiestCorePercent: Math.Min(100, busy + 5), logicalCoreCount: 32) };
@@ -28,7 +69,7 @@ public class ResourcePressureTests
     [Fact]
     public void Evaluate_AnyHistory_GivesOneVerdictPerResourceInOrder()
     {
-        var verdict = ResourcePressure.Evaluate(new[] { new ResourceSampleBuilder().Build() });
+        var verdict = ResourcePressure.Evaluate(Timed(new[] { new ResourceSampleBuilder().Build() }));
 
         // Three resources and no disk: the disk is not a meter (mission section 5b).
         Assert.Equal(
@@ -39,7 +80,7 @@ public class ResourcePressureTests
     [Fact]
     public void Evaluate_EmptyHistory_IsUnknownForEveryResource()
     {
-        var verdict = ResourcePressure.Evaluate(Array.Empty<ResourceSample>());
+        var verdict = ResourcePressure.Evaluate(Timed(Array.Empty<ResourceSample>()));
 
         Assert.All(verdict.Resources, resource => Assert.Equal(ResourceLevel.Unknown, resource.Level));
         Assert.Equal(ResourceLevel.Unknown, verdict.Worst);
@@ -50,7 +91,7 @@ public class ResourcePressureTests
     {
         var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => new ResourceSampleBuilder());
 
-        var verdict = ResourcePressure.Evaluate(history);
+        var verdict = ResourcePressure.Evaluate(Timed(history));
 
         Assert.All(verdict.Resources, resource => Assert.Equal(ResourceLevel.Normal, resource.Level));
         Assert.All(verdict.Resources, resource => Assert.False(string.IsNullOrWhiteSpace(resource.Evidence)));
@@ -351,7 +392,7 @@ public class ResourcePressureTests
     {
         var history = Every5Seconds(TimeSpan.FromSeconds(60), _ => CpuAt(99) with { Swap = SwapReading.Unreadable("no swap figures") });
 
-        var verdict = ResourcePressure.Evaluate(history);
+        var verdict = ResourcePressure.Evaluate(Timed(history));
 
         Assert.Equal(ResourceLevel.Critical, verdict.Worst);
         Assert.Equal(ResourceLevel.Unknown, verdict.Resources.Single(resource => resource.Kind == ResourceKind.Swap).Level);
@@ -370,7 +411,7 @@ public class ResourcePressureTests
             }.Build(),
         };
 
-        var verdict = ResourcePressure.Evaluate(history);
+        var verdict = ResourcePressure.Evaluate(Timed(history));
 
         Assert.All(verdict.Resources, resource => Assert.Equal(ResourceLevel.Unknown, resource.Level));
         Assert.Equal(ResourceLevel.Unknown, verdict.Worst);

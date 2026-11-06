@@ -10,7 +10,10 @@ namespace CcDirector.Core.Machine;
 ///
 /// Built the same way as <see cref="MemoryPressure"/>: a pure function of the samples it is handed - no
 /// clock, no platform call, no state - so every branch is tested with no machine. Time is read only from
-/// each sample's <see cref="ResourceSample.TakenAtUtc"/>.
+/// each sample's place on a MONOTONIC timeline (<see cref="TimelineSample.Timeline"/>), handed over by the
+/// sampler that owns the clock. No window is ever measured by subtracting two
+/// <see cref="ResourceSample.TakenAtUtc"/> stamps: a stepped wall clock would then pick the wrong samples and
+/// change the verdict with no change in load (the Implementation Lead's ruling of 2026-11-06).
 ///
 /// SUSTAINED MEANS EVERY SAMPLE IN THE WINDOW. The processor counts only when held over a limit for
 /// <see cref="SustainedWindow"/>: every readable sample from the newest back to, and including, the
@@ -68,10 +71,10 @@ public static class ResourcePressure
     /// <summary>
     /// Fold a history of samples into one verdict per resource: processor, memory and swap, always in
     /// that order. An empty history gives Unknown for every resource - nothing has been read. The history
-    /// is put in <see cref="ResourceSample.TakenAtUtc"/> order before it is judged, so a caller that hands
-    /// samples out of order still gets the verdict the times describe.
+    /// is put in timeline order before it is judged, so a caller that hands samples out of order still gets
+    /// the verdict the timeline describes.
     /// </summary>
-    public static ResourcePressureVerdict Evaluate(IReadOnlyList<ResourceSample> history)
+    public static ResourcePressureVerdict Evaluate(IReadOnlyList<TimelineSample> history)
     {
         ArgumentNullException.ThrowIfNull(history);
 
@@ -87,8 +90,8 @@ public static class ResourcePressure
         }
 
         // OrderBy is a stable sort, so samples sharing a time keep the order the caller gave them.
-        var ordered = history.OrderBy(sample => sample.TakenAtUtc).ToList();
-        return new ResourcePressureVerdict([Cpu(ordered), Memory(ordered[^1]), Swap(ordered)]);
+        var ordered = history.OrderBy(sample => sample.Timeline).ToList();
+        return new ResourcePressureVerdict([Cpu(ordered), Memory(ordered[^1].Sample), Swap(ordered)]);
     }
 
     /// <summary>Map the existing memory level onto the shared ladder, unchanged.</summary>
@@ -104,29 +107,31 @@ public static class ResourcePressure
     // Processor: a limit held for the whole sustained window
     // ---------------------------------------------------------------------------------------------
 
-    private static ResourceVerdict Cpu(List<ResourceSample> ordered)
+    private static ResourceVerdict Cpu(List<TimelineSample> ordered)
     {
-        var newest = ordered[^1];
+        var newestPoint = ordered[^1];
+        var newest = newestPoint.Sample;
         if (!newest.Cpu.CouldRead)
             return new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Unknown,
                 $"the processor cannot be read: {newest.Cpu.UnreadableReason}");
 
         var newestPercent = newest.Cpu.TotalBusyPercent;
-        var windowStart = newest.TakenAtUtc - SustainedWindow;
+        var windowStart = newestPoint.Timeline - SustainedWindow;
 
         // The level held through the window is set by its LOWEST readable sample: one sample under a
         // limit holds the whole window under it. This is a minimum over real readings, not a clamp.
         var lowest = newestPercent;
         var reachedBack = false;
-        var oldestCounted = newest.TakenAtUtc;
+        var oldestCounted = newestPoint.Timeline;
         for (var index = ordered.Count - 1; index >= 0; index--)
         {
-            var sample = ordered[index];
+            var point = ordered[index];
+            var sample = point.Sample;
             if (!sample.Cpu.CouldRead) continue;
 
             lowest = Math.Min(lowest, sample.Cpu.TotalBusyPercent);
-            oldestCounted = sample.TakenAtUtc;
-            if (sample.TakenAtUtc <= windowStart)
+            oldestCounted = point.Timeline;
+            if (point.Timeline <= windowStart)
             {
                 reachedBack = true;
                 break;
@@ -136,9 +141,9 @@ public static class ResourcePressure
         var now = Percent(newestPercent);
         if (!reachedBack)
             return new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Normal,
-                $"the processor is {now} busy; only {Seconds(newest.TakenAtUtc - oldestCounted)} of readings so far, a limit counts after {Seconds(SustainedWindow)}");
+                $"the processor is {now} busy; only {Seconds(newestPoint.Timeline - oldestCounted)} of readings so far, a limit counts after {Seconds(SustainedWindow)}");
 
-        var span = Seconds(newest.TakenAtUtc - oldestCounted);
+        var span = Seconds(newestPoint.Timeline - oldestCounted);
         if (lowest > CpuCriticalPercent)
             return new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Critical,
                 $"the processor is {now} busy and has been over {Percent(CpuCriticalPercent)} for {span}");
@@ -170,9 +175,10 @@ public static class ResourcePressure
     // Swap: red on the share used now, amber on fast growth
     // ---------------------------------------------------------------------------------------------
 
-    private static ResourceVerdict Swap(List<ResourceSample> ordered)
+    private static ResourceVerdict Swap(List<TimelineSample> ordered)
     {
-        var newest = ordered[^1];
+        var newestPoint = ordered[^1];
+        var newest = newestPoint.Sample;
         var swap = newest.Swap;
         if (!swap.CouldRead)
             return new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Unknown, $"swap cannot be read: {swap.UnreadableReason}");
@@ -192,11 +198,12 @@ public static class ResourcePressure
 
         // Growth is the newest figure against the lowest readable figure inside the window, so swap that
         // climbed and is still climbing is caught whichever sample it started from.
-        var windowStart = newest.TakenAtUtc - SwapGrowthWindow;
+        var windowStart = newestPoint.Timeline - SwapGrowthWindow;
         var lowestUsed = swap.UsedBytes;
-        foreach (var sample in ordered)
+        foreach (var point in ordered)
         {
-            if (sample.TakenAtUtc < windowStart) continue;
+            var sample = point.Sample;
+            if (point.Timeline < windowStart) continue;
             if (sample.Swap is { CouldRead: true } earlier && earlier.UsedBytes < lowestUsed) lowestUsed = earlier.UsedBytes;
         }
 

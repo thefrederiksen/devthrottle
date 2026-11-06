@@ -20,11 +20,12 @@ namespace CcDirector.Core.Machine;
 public sealed class ResourceSampler : IResourceSampler
 {
     private readonly IResourceProbe _probe;
-    private readonly Func<IReadOnlyList<ResourceSample>, ResourcePressureVerdict> _evaluate;
+    private readonly Func<IReadOnlyList<TimelineSample>, ResourcePressureVerdict> _evaluate;
     private readonly TimeProvider _time;
     private readonly ResourceCrossingDetector _detector = new();
     private readonly object _gate = new();
-    private readonly ResourceSample[] _ring = new ResourceSample[ResourceSampling.HistoryCapacity];
+    private readonly TimelineSample[] _ring = new TimelineSample[ResourceSampling.HistoryCapacity];
+    private readonly long _timelineOrigin;
 
     private int _ringStart;
     private int _ringCount;
@@ -36,11 +37,15 @@ public sealed class ResourceSampler : IResourceSampler
 
     /// <summary>Creates the sampler. It reads nothing until <see cref="Start"/>.</summary>
     /// <param name="probe">The machine's probe.</param>
-    /// <param name="evaluate">Folds the history, oldest first, into a verdict - <c>ResourcePressure.Evaluate</c>.</param>
+    /// <param name="evaluate">
+    /// Folds the history, oldest first, into a verdict - <see cref="ResourcePressure.Evaluate"/>. Each sample travels
+    /// with its place on this sampler's monotonic timeline, so the fold measures its windows without ever
+    /// subtracting two wall-clock stamps.
+    /// </param>
     /// <param name="time">The clock for the timer and for ageing the latest sample.</param>
     public ResourceSampler(
         IResourceProbe probe,
-        Func<IReadOnlyList<ResourceSample>, ResourcePressureVerdict> evaluate,
+        Func<IReadOnlyList<TimelineSample>, ResourcePressureVerdict> evaluate,
         TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(probe);
@@ -49,6 +54,7 @@ public sealed class ResourceSampler : IResourceSampler
         _probe = probe;
         _evaluate = evaluate;
         _time = time;
+        _timelineOrigin = time.GetTimestamp();
     }
 
     /// <inheritdoc />
@@ -60,7 +66,16 @@ public sealed class ResourceSampler : IResourceSampler
     /// <inheritdoc />
     public IReadOnlyList<ResourceSample> History
     {
-        get { lock (_gate) return CopyHistory(); }
+        get
+        {
+            lock (_gate)
+            {
+                var copy = new ResourceSample[_ringCount];
+                for (var i = 0; i < _ringCount; i++)
+                    copy[i] = _ring[(_ringStart + i) % _ring.Length].Sample;
+                return copy;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -139,8 +154,8 @@ public sealed class ResourceSampler : IResourceSampler
         lock (_gate)
         {
             if (_disposed) return;
-            Append(sample);
             _latestTimestamp = _time.GetTimestamp();
+            Append(new TimelineSample(sample, _time.GetElapsedTime(_timelineOrigin, _latestTimestamp)));
             var verdict = _evaluate(CopyHistory());
             state = new ResourceSamplerState(sample, verdict);
             _current = state;
@@ -169,7 +184,7 @@ public sealed class ResourceSampler : IResourceSampler
 
     // The buffer is bounded by COUNT, never by comparing timestamps: a wall clock that jumps cannot empty it
     // or let it grow.
-    private void Append(ResourceSample sample)
+    private void Append(TimelineSample sample)
     {
         if (_ringCount < _ring.Length)
         {
@@ -182,9 +197,9 @@ public sealed class ResourceSampler : IResourceSampler
         _ringStart = (_ringStart + 1) % _ring.Length;
     }
 
-    private ResourceSample[] CopyHistory()
+    private TimelineSample[] CopyHistory()
     {
-        var copy = new ResourceSample[_ringCount];
+        var copy = new TimelineSample[_ringCount];
         for (var i = 0; i < _ringCount; i++)
             copy[i] = _ring[(_ringStart + i) % _ring.Length];
         return copy;

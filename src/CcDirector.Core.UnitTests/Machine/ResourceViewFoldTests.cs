@@ -1,7 +1,7 @@
 using CcDirector.Core.Machine;
 using Xunit;
 
-namespace CcDirector.Core.Tests.Machine;
+namespace CcDirector.Core.UnitTests.Machine;
 
 /// <summary>
 /// What the toolbar meter and the detail screen are handed (issue #2811, mission sections 5d to 5h). The

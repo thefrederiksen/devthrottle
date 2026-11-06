@@ -1,7 +1,8 @@
 using CcDirector.Core.Machine;
 using Xunit;
+using ResourceSampleContract = CcDirector.Core.Tests.Machine.ResourceSampleContract;
 
-namespace CcDirector.Core.Tests.Machine;
+namespace CcDirector.Core.UnitTests.Machine;
 
 /// <summary>
 /// The fake probe the Director side is built against (issue #2811, phase 2). Its samples must keep the
