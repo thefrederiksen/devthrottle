@@ -73,7 +73,7 @@ public class MacOsPlatformReaderLiveTests
     [Trait("Category", "Resources")]
     public void ReadDisks_OnThisMachine_StatisticsAreRealAndCumulative()
     {
-        var first = ReadFirstDiskCounters();
+        var first = ReadSystemDiskCounters();
 
         // Any machine that has booted has read something from its boot disk, so these cannot be zero
         // on a working read. This is the assertion a fixture cannot make.
@@ -95,7 +95,7 @@ public class MacOsPlatformReaderLiveTests
         // The counters being cumulative is the whole basis of every rate the probe reports. If they
         // were a snapshot rather than a running total, every rate would be wrong and nothing else in
         // the suite would notice.
-        var before = ReadFirstDiskCounters();
+        var before = ReadSystemDiskCounters();
 
         var path = Path.Combine(Path.GetTempPath(), $"resource-probe-live-{Guid.NewGuid():N}.bin");
         try
@@ -114,7 +114,7 @@ public class MacOsPlatformReaderLiveTests
             File.Delete(path);
         }
 
-        var after = ReadFirstDiskCounters();
+        var after = ReadSystemDiskCounters();
 
         Assert.True(after.OperationsWritten > before.OperationsWritten,
             "wrote eight mebibytes but the write-operation counter did not move: " +
@@ -125,12 +125,36 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(after.OperationsRead >= before.OperationsRead, "a cumulative counter must never go backwards");
     }
 
-    private static MacOsResourceParsing.DiskCounters ReadFirstDiskCounters()
+    /// <summary>
+    /// The counters of the disk the machine RUNS FROM, found by walking up from the system volume.
+    ///
+    /// NOT simply the first disk IOKit lists. A test that writes a file and then asserts the counters
+    /// moved has to read the disk the write went to - the temporary folder is on the system volume - and
+    /// on a Mac with an external disk or a mounted disk image enumerated earlier, the first disk is not
+    /// that one and the test fails on perfectly correct code. That is the same class of failure as
+    /// finding 6 of the review of pull request 4035, which went red whenever a disk image was attached.
+    /// </summary>
+    private static MacOsResourceParsing.DiskCounters ReadSystemDiskCounters()
     {
+        var device = MacOsPlatformReader.ReadSystemVolumeDevice();
+        Assert.NotNull(device);
+
+        var ancestors = MacOsPlatformReader.ReadAncestorDeviceNames(device);
+        Assert.NotEmpty(ancestors);
+
         var disks = MacOsPlatformReader.ReadDisks();
         Assert.NotEmpty(disks);
 
-        var statistics = MacOsResourceParsing.ReadPropertyListDictionary(disks[0].StatisticsPropertyList ?? "");
+        var system = disks.SingleOrDefault(disk =>
+        {
+            // A disk IOKit gave no device name is not a candidate, and it is not an error either: the
+            // probe reports it unreadable with that reason. It simply cannot be matched to a volume.
+            var name = MacOsResourceParsing.ReadPropertyListString(disk.BsdNamePropertyList ?? "");
+            return name is not null && ancestors.Contains(name);
+        });
+        Assert.NotNull(system);
+
+        var statistics = MacOsResourceParsing.ReadPropertyListDictionary(system.StatisticsPropertyList ?? "");
         Assert.True(MacOsResourceParsing.TryReadDiskCounters(statistics, out var counters, out var why), why);
         return counters;
     }
@@ -460,9 +484,14 @@ public class MacOsPlatformReaderLiveTests
 
         Assert.True(timebase.IsUsable, "the machine reported a timebase that cannot be used as a fraction");
 
-        // This process has run for at least a few milliseconds of processor time and cannot possibly
-        // have run for a year, so the converted figure has to land inside a very wide window. Getting
-        // the conversion the wrong way round puts it outside.
+        // A SANITY WINDOW, AND IT IS WEAKER THAN IT LOOKS - said plainly rather than left to be assumed.
+        // This process has used at least a few milliseconds of processor time and cannot have used a
+        // year of it, so the converted figure must land in a very wide window. But skipping the
+        // conversion entirely does NOT necessarily fall outside that window: for a test host with two
+        // seconds of processor time it gives 0.048 seconds, which is inside it. What actually catches a
+        // wrong or missing conversion is the pure tests, which pin 125/3 and 1 to 1 against captured
+        // output, and the two-thread test that checks the probe against the runtime's own figure. This
+        // one proves the timebase can be READ from the machine and is not absurd.
         var (taskInfo, _, _) = MacOsPlatformReader.ReadProcess(Environment.ProcessId);
         Assert.NotNull(taskInfo);
         Assert.True(MacOsResourceParsing.TryReadProcessTaskInfo(taskInfo, out var task));

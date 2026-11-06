@@ -1,0 +1,118 @@
+# Answer to the review of the narrowed macOS resource probe
+
+Reviewed by a different agent family from the one that wrote the code, as the method requires. Four
+findings were raised, counting the group of smaller points as one. **All four are accepted. Three are
+fixed; one is fixed in the part that is mine and referred upward for the part that is not.**
+
+The review was worth more than the code it checked. It compiled a C program against this machine's
+headers to verify every structure size, offset and constant, cross-compiled the same program for
+x86_64, read the exported-symbol stubs of libsystem_kernel per architecture, and ran 3,300 uncached
+passes of the probe while watching the process's Mach port count and resident set size from outside.
+It also found, by running the probe rather than by reading it, the one defect in this work that
+mattered - and it found it in a place I had been told was already answered.
+
+## 1. The per-process processor figure was a lifetime average where the contract says null - ACCEPTED, fixed
+
+This was the real one, and it is the more interesting for having been *inherited as already fixed*.
+
+Review finding 3 of pull request 4035 was the made-up zero: `CpuPercent: cpuPercent ?? 0` wrote a
+process with no earlier reading down as idle. Its answer replaced the zero with the process's
+processor time over its whole life, arguing that the lifetime average "is close to the interval rate
+for a process that has only just started, **which is the only case it is used in**".
+
+That last clause is false, and the reviewer measured it false. On the FIRST sample no process has an
+earlier reading, so every one of them takes that path: **328 of 513 processes** on this machine,
+including `suggestd`, which had been running for two days and reported **5.78 per cent** - its
+two-day average, presented in a field the contract defines as the share of the machine over the last
+interval, inside the very sample whose processor line reads "first sample, no interval yet". The same
+path is taken whenever a previous reading is missing for any other reason, such as a reused process
+id.
+
+It is not a zero, which is why the earlier review and I both let it past. It is worse in one respect:
+a plausible figure for a quantity nobody measured. A process alive for thirty days that has just
+begun burning a core reads at its thirty-day average, close to nothing, and a session total built
+from those shares is wrong the same way with nothing marking it as a different quantity.
+
+The contract settles it without needing a judgement, and I had not read it closely enough:
+`ProcessReading.CpuPercent` is null "when it is not known: the platform refused this process, **or it
+started during the interval and has no earlier reading to compare against**". The one case the
+lifetime average was defended for is the case the contract names as null. So the reviewer's second
+option - restrict the average to processes that started inside the interval - is not available
+either without changing a shared type, and it is not needed.
+
+Fixed: no earlier reading means null. `ProcessLifetimeMachinePercent` had no sanctioned case left and
+is deleted with its two tests, rather than kept as a helper nothing may call. Measured on this
+machine after the fix:
+
+```
+first sample   465 processes listed, 0 with a processor share, 296 with memory readable
+               highest share reported: none - no process claims a share
+second sample  458 listed, 289 with a real interval share, 169 refused
+```
+
+The list does not shrink and no process is dropped. Only the quantity that was not measured is
+withheld, which is the whole rule.
+
+## 2. Two live tests asserted against whichever disk IOKit listed first - ACCEPTED, fixed
+
+Right, and it is the same class of defect as finding 6 of the earlier review, which went red whenever
+a disk image was attached. Both tests write a file and then assert a disk's counters moved, but took
+the first disk IOKit listed rather than the disk the write went to. On a Mac with an external disk or
+a mounted image enumerated earlier, the write lands on the boot disk and the asserted disk's counters
+do not move: **the test fails while the code is correct**, which under the owner's test standard
+makes the test the defect.
+
+Fixed by naming the disk the machine runs from - the temporary folder is on the system volume, so
+that is the disk whose counters must move. The probe-level test selects
+`IsInSystemVolume == true`; the reader-level test walks up from the system volume through IOKit,
+which also exercises that walk. The reviewer could not reproduce this (one disk on this machine), and
+neither can I; it is fixed on the reasoning, which is sound.
+
+## 3. `CFPropertyListCreateData` declared a 32-bit options argument - ACCEPTED, fixed
+
+`CFOptionFlags` is `unsigned long`, eight bytes here, and the reviewer measured it. Latent rather
+than live: the one caller passes the constant 0 and the compiler writes the whole register, so
+nothing is wrong today. A non-constant argument could carry stale upper bits into a parameter Core
+Foundation requires to be zero. Declared 64-bit, with the reasoning recorded so it is not
+"simplified" back. `IOOptionBits` and `CFStringEncoding` nearby really are 32 bits and were correct.
+
+## 4. The smaller points - ACCEPTED, fixed except one that is not mine
+
+- **The refused-process test used `CpuPercent is null` as its proxy for "refused", which over-counts.**
+  Correct, and finding 1's fix makes it worse rather than better: now every process without an earlier
+  reading is also null. Fixed properly by testing `MemoryBytes`, which is a figure for right now and is
+  therefore null if and only if the platform refused the process. That makes the test exact instead of
+  approximate - and it matters, because the loose version could have passed on a machine where the
+  refused processes were being dropped after all.
+- **The live timebase test's comment overstated what it proves.** Right: for a host with two seconds of
+  processor time, skipping the conversion gives 0.048 seconds, which is inside the test's window. The
+  comment now says so and says what does catch it - the pure tests that pin 125/3 and 1 to 1 against
+  captured output, and the two-thread agreement test.
+- **`ProcessSnapshot.FiguresRefused` was set and never read.** Removed.
+- **`FoldStall` uses the same null for "vm.loadavg failed" and "not offered on this platform".**
+  Accepted as correct and NOT fixed here: it is finding 3 of the interface review, it is a property of
+  the shared `StallReading` rather than of this probe, and inventing a macOS-only way to say it would
+  put the three platforms out of step. Referred to the interface owner. It matters more after the
+  narrowing than before, because macOS publishes only two stall figures in total.
+- **`ReadDisks` does not check `IOIteratorIsValid`.** Accepted, not fixed: a disk attached during the
+  walk can be missing from one sample and is present in the next, which is a five-second delay in
+  listing a disk that was plugged in mid-sample. Recorded rather than fixed because the cure is a
+  retry loop around a registry walk, and a probe on a five-second timer should not retry; the next
+  sample is the retry.
+
+## What I did not do, and what is still open
+
+- **Nothing here was re-reviewed.** These are the author's fixes to his own code, and the one with
+  real behaviour change is finding 1. Its evidence is the measured before and after above.
+- The reviewer did not cover the two commits after the one it reviewed in the same depth, nor the
+  monotonic-clock change, which was uncommitted while it ran. That change is covered by its own
+  regression test, checked against the defect rather than merely written: with wall-clock cache aging
+  reintroduced it failed with "Assert.NotSame() Failure: Values are the same instance", and passed
+  once the fix was back.
+- **The clock regression test covers the cache and not the interval.** I asked the reviewer this
+  directly and record it here rather than claiming coverage I do not have: a backwards wall-clock step
+  is proved not to freeze the cache, and the interval side rests on reading the code. Both now come
+  off the same monotonic timestamp, so one test exercising one of them is weaker evidence than it
+  looks.
+- No Intel Mac, no spinning disk on macOS, no external or network volume, and the PowerShell gate
+  cannot run here. The processor and latency limits remain proposals.

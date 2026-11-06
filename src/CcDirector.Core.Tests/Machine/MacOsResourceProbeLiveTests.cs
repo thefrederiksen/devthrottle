@@ -236,7 +236,14 @@ public class MacOsResourceProbeLiveTests
         }
 
         clock.Advance(Interval);
-        var disk = probe.Read().DiskEvidence.Disks.First(entry => entry.CouldRead);
+
+        // THE DISK THE WRITE ACTUALLY WENT TO, not whichever one IOKit happens to list first. The
+        // temporary folder is on the volume the machine runs from, so that is the disk whose counters
+        // must have moved. Asserting on the first readable disk fails on correct code the moment
+        // somebody attaches an external disk or mounts a disk image that IOKit enumerates earlier -
+        // the same way the medium-type check used to fail, which was finding 6 of the review of pull
+        // request 4035.
+        var disk = probe.Read().DiskEvidence.Disks.Single(entry => entry.IsInSystemVolume == true && entry.CouldRead);
 
         // SIXTEEN MEBIBYTES WERE REALLY WRITTEN, and the narrowed probe reports no byte rate at all -
         // the disk read and write speeds went out with the disk meter. So the evidence that the write
@@ -371,7 +378,12 @@ public class MacOsResourceProbeLiveTests
         // Spotlight indexer running as root, were among them. A probe whose job is to name the culprit
         // could not see the culprit. The list now comes from the kernel's process table, which names
         // every process, and only the FIGURES come from the call that can be refused.
-        var refused = sample.Processes.Processes.Where(process => process.CpuPercent is null).ToList();
+        // MEMORY IS THE PRECISE TEST FOR "REFUSED", NOT THE PROCESSOR SHARE. Resident memory is a figure
+        // for right now and needs no interval, so it is null if and only if the platform refused this
+        // process. CpuPercent is null for a second reason - a process with no earlier reading to compare
+        // against - so counting nulls there would also count processes that merely started recently, and
+        // the test would pass on a machine where the refused ones were being dropped after all.
+        var refused = sample.Processes.Processes.Where(process => process.MemoryBytes is null).ToList();
 
         Assert.True(
             refused.Count > 0,
@@ -385,9 +397,11 @@ public class MacOsResourceProbeLiveTests
             Assert.False(string.IsNullOrWhiteSpace(process.Name));
             Assert.NotNull(process.StartTimeUtc);
             Assert.Null(process.CpuPercent);
+            Assert.Null(process.MemoryBytes);
         });
 
         // And the ones we CAN measure are still measured.
+        Assert.Contains(sample.Processes.Processes, process => process.MemoryBytes is not null);
         Assert.Contains(sample.Processes.Processes, process => process.CpuPercent is not null);
         Assert.True(sample.Processes.CouldRead, sample.Processes.UnreadableReason);
     }

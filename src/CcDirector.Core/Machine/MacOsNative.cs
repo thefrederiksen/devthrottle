@@ -256,9 +256,17 @@ internal static class MacOsNative
     [DllImport(CoreFoundation)]
     internal static extern IntPtr CFStringCreateWithCString(IntPtr allocator, string cStr, uint encoding);
 
-    /// <summary>Serialises any property list value to the operating system's own text form.</summary>
+    /// <summary>
+    /// Serialises any property list value to the operating system's own text form.
+    ///
+    /// THE OPTIONS ARGUMENT IS SIXTY-FOUR BITS, because <c>CFOptionFlags</c> is an <c>unsigned long</c>
+    /// and that is eight bytes on this platform - measured, not assumed. Declared as a 32-bit value it
+    /// happens to work while the one caller passes the constant 0, because the compiler writes the whole
+    /// register; a non-constant argument could leave stale upper bits in a parameter Core Foundation
+    /// requires to be zero. <c>IOOptionBits</c> and <c>CFStringEncoding</c> nearby really are 32 bits.
+    /// </summary>
     [DllImport(CoreFoundation)]
-    internal static extern IntPtr CFPropertyListCreateData(IntPtr allocator, IntPtr propertyList, long format, uint options, IntPtr error);
+    internal static extern IntPtr CFPropertyListCreateData(IntPtr allocator, IntPtr propertyList, long format, ulong options, IntPtr error);
 
     /// <summary>The length in bytes of a CFData.</summary>
     [DllImport(CoreFoundation)]

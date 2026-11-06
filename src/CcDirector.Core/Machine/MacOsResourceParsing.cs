@@ -716,28 +716,6 @@ internal static class MacOsResourceParsing
         return ofOneCore is { } percent ? percent / logicalCoreCount : null;
     }
 
-    /// <summary>
-    /// What share of the whole machine a process has used over its WHOLE LIFE, as a percentage, or
-    /// null when that cannot be worked out.
-    ///
-    /// This is the honest answer for a process with no earlier reading to subtract - one that started
-    /// during the interval, or whose identifier was reused. The alternative that was here before was
-    /// to write such a process down as nought percent, which is a figure the rules forbid because it
-    /// is indistinguishable from a measured idle: an agent session spawned mid-interval and already
-    /// burning a core read as completely idle for a whole five second tick, which is precisely the
-    /// machine state the owner asks about. An average over a short life is not the same quantity as a
-    /// rate over the interval, and it is close to it for a process that has only just started, which
-    /// is the only case it is used in.
-    /// </summary>
-    internal static double? ProcessLifetimeMachinePercent(
-        ulong usedNanoseconds, TimeSpan age, int logicalCoreCount)
-    {
-        if (logicalCoreCount <= 0) return null;
-        if (age <= TimeSpan.Zero) return null;
-
-        return usedNanoseconds / (age.TotalSeconds * 1_000_000_000.0) * 100.0 / logicalCoreCount;
-    }
-
     // ---------------------------------------------------------------------------------------------
     // Spinning or solid state
     // ---------------------------------------------------------------------------------------------

@@ -778,30 +778,6 @@ public class MacOsResourceParsingTests
         Assert.Null(MacOsResourceParsing.ProcessMachinePercent(2_000, 1_000, TimeSpan.FromSeconds(1), 10));
     }
 
-    [Fact]
-    [Trait("Category", "Resources")]
-    public void ProcessLifetimeMachinePercent_ForABrandNewProcessBurningACore_IsNotZero()
-    {
-        // THE DEFECT THIS EXISTS FOR. A process that started during the interval has nothing to
-        // subtract from, and it used to be written down as nought percent - indistinguishable from a
-        // measured idle. Measured: a child spawned mid-interval had used sixty-five milliseconds of
-        // processor time and was reported as completely idle. Over its own life it is a real figure.
-        var percent = MacOsResourceParsing.ProcessLifetimeMachinePercent(
-            usedNanoseconds: 65_000_000,
-            age: TimeSpan.FromMilliseconds(65),
-            logicalCoreCount: 10);
-
-        Assert.NotNull(percent);
-        Assert.Equal(10.0, percent.Value, 6);
-    }
-
-    [Fact]
-    [Trait("Category", "Resources")]
-    public void ProcessLifetimeMachinePercent_ForAProcessWithNoAgeYet_IsNullRatherThanInfinite()
-    {
-        Assert.Null(MacOsResourceParsing.ProcessLifetimeMachinePercent(1_000, TimeSpan.Zero, 10));
-    }
-
     // =============================================================================================
     // The device behind the volume the machine runs from
     // =============================================================================================

@@ -566,12 +566,10 @@ public sealed class MacOsResourceProbe : IResourceProbe
 
             ulong? cpuNanoseconds = null;
             ulong? residentBytes = null;
-            var figuresRefused = true;
 
             if (taskInfoBytes is not null &&
                 MacOsResourceParsing.TryReadProcessTaskInfo(taskInfoBytes, out var task))
             {
-                figuresRefused = false;
                 residentBytes = task.ResidentBytes;
                 if (canReadProcessorTime)
                     cpuNanoseconds = MacOsResourceParsing.MachAbsoluteToNanoseconds(task.TotalMachTime, timebase);
@@ -609,8 +607,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
                 CpuNanoseconds: cpuNanoseconds,
                 ResidentBytes: residentBytes,
                 DiskBytesRead: diskRead,
-                DiskBytesWritten: diskWritten,
-                FiguresRefused: figuresRefused);
+                DiskBytesWritten: diskWritten);
         }
 
         return snapshots;
@@ -649,7 +646,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
                 ParentPid: nowProcess.ParentPid == 0 ? null : nowProcess.ParentPid,
                 Name: nowProcess.Name,
                 StartTimeUtc: nowProcess.StartedAtUtc,
-                CpuPercent: ProcessPercent(before, nowProcess, since, logicalCoreCount, now),
+                CpuPercent: ProcessPercent(before, nowProcess, since, logicalCoreCount),
                 MemoryBytes: nowProcess.ResidentBytes,
                 DiskReadBytesPerSecond: RatePerSecond(before?.DiskBytesRead, nowProcess.DiskBytesRead, since),
                 DiskWriteBytesPerSecond: RatePerSecond(before?.DiskBytesWritten, nowProcess.DiskBytesWritten, since)));
@@ -673,18 +670,30 @@ public sealed class MacOsResourceProbe : IResourceProbe
         ProcessSnapshot? before,
         ProcessSnapshot now,
         TimeSpan since,
-        int logicalCoreCount,
-        DateTime takenAtUtc)
+        int logicalCoreCount)
     {
         // The platform refused this process, or the machine gave no usable timebase.
         if (now.CpuNanoseconds is not { } used) return null;
 
-        if (before is { CpuNanoseconds: { } usedBefore })
-            return MacOsResourceParsing.ProcessMachinePercent(usedBefore, used, since, logicalCoreCount);
+        // NO EARLIER READING MEANS NULL, AND A LIFETIME AVERAGE IS NOT AN ACCEPTABLE STAND-IN. This
+        // used to return the process's processor time over its whole life, on the argument that the
+        // only process without an earlier reading is one that has just started, so its life IS the
+        // interval. That argument is wrong, and it was measured wrong: on the FIRST sample no process
+        // has an earlier reading, so 328 of 513 processes on this machine were handed a lifetime
+        // average - including suggestd, which had been running two days and read 5.78 per cent, in a
+        // field the contract defines as the share of the machine over the last interval, inside the
+        // very sample whose processor line says there is no interval yet. The same path is taken
+        // whenever a previous reading is missing for any other reason, such as a reused process id.
+        //
+        // It is not a zero, but it is a plausible figure for a quantity nobody measured, which is the
+        // thing these rules exist to forbid: a process alive for thirty days that has just started
+        // burning a core would read at its thirty-day average, close to nothing, and a session total
+        // built from those shares is wrong the same way with nothing marking it as a different
+        // quantity. ProcessReading.CpuPercent says null when it is not known - including, in as many
+        // words, for a process that started during the interval - so null is the answer.
+        if (before is not { CpuNanoseconds: { } usedBefore }) return null;
 
-        // No earlier reading for this process: its whole life IS its interval.
-        return MacOsResourceParsing.ProcessLifetimeMachinePercent(
-            used, takenAtUtc - now.StartedAtUtc, logicalCoreCount);
+        return MacOsResourceParsing.ProcessMachinePercent(usedBefore, used, since, logicalCoreCount);
     }
 
     /// <summary>
@@ -786,6 +795,5 @@ public sealed class MacOsResourceProbe : IResourceProbe
         ulong? CpuNanoseconds,
         ulong? ResidentBytes,
         ulong? DiskBytesRead,
-        ulong? DiskBytesWritten,
-        bool FiguresRefused);
+        ulong? DiskBytesWritten);
 }
