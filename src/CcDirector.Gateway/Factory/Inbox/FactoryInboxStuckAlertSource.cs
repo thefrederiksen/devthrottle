@@ -47,83 +47,139 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
         public const string BossDidNotDecide = "boss-did-not-decide";
     }
 
+    // The three kinds of overdue row the one read returns, told apart by a number because the read is one UNION ALL.
+    private const int RowUnreceived = 0;
+    private const int RowHeld = 1;
+    private const int RowBundle = 2;
+
     private readonly GatewayDatabase _db;
     private readonly Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> _factories;
-    private readonly Func<TenantId, string, bool> _isEnded;
+    private readonly Func<TenantId, IReadOnlyCollection<string>, IReadOnlySet<string>> _endedAmong;
     private readonly Func<TenantId, string, bool> _directorRunsOn;
 
     /// <param name="db">The Gateway database holding the factory inbox tables.</param>
     /// <param name="factories">The account's registered factories, for each factory's title and its Boss's computer.</param>
-    /// <param name="isEnded">Whether the Gateway has recorded a session as ended.</param>
+    /// <param name="endedAmong">Which of these sessions the Gateway has recorded as ended - asked ONCE per poll for every
+    /// Secretary at once, so the cost does not grow with the number of sessions.</param>
     /// <param name="directorRunsOn">Whether a Director of the account is running on the named computer.</param>
     public FactoryInboxStuckAlertSource(GatewayDatabase db, Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> factories,
-        Func<TenantId, string, bool> isEnded, Func<TenantId, string, bool> directorRunsOn)
+        Func<TenantId, IReadOnlyCollection<string>, IReadOnlySet<string>> endedAmong, Func<TenantId, string, bool> directorRunsOn)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _factories = factories ?? throw new ArgumentNullException(nameof(factories));
-        _isEnded = isEnded ?? throw new ArgumentNullException(nameof(isEnded));
+        _endedAmong = endedAmong ?? throw new ArgumentNullException(nameof(endedAmong));
         _directorRunsOn = directorRunsOn ?? throw new ArgumentNullException(nameof(directorRunsOn));
     }
 
+    /// <summary>The same source asked one session at a time, for a caller whose answer is already in memory.</summary>
+    public FactoryInboxStuckAlertSource(GatewayDatabase db, Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> factories,
+        Func<TenantId, string, bool> isEnded, Func<TenantId, string, bool> directorRunsOn)
+        : this(db, factories, EachOf(isEnded ?? throw new ArgumentNullException(nameof(isEnded))), directorRunsOn)
+    {
+    }
+
+    private static Func<TenantId, IReadOnlyCollection<string>, IReadOnlySet<string>> EachOf(Func<TenantId, string, bool> isEnded)
+        => (tenant, sessions) => sessions.Where(s => isEnded(tenant, s)).ToHashSet(StringComparer.Ordinal);
+
     public string Kind => AlertKinds.FactoryInboxStuck;
 
+    /// <summary>
+    /// ONE STATEMENT PER POLL (the deploy slowdown of 6 November 2026). The alerts list is polled every 5 seconds by every
+    /// open Cockpit and phone, and almost every account has no inbox work, so this source reads every overdue row - not
+    /// received, held by a Secretary, or a bundle not decided - in ONE grouped UNION ALL. An idle account costs that one
+    /// statement and nothing else: the registry and the session liveness are asked only when a row came back, and then
+    /// once each, so the cost is fixed however many factories, messages, Secretaries or Directors there are.
+    /// </summary>
     public IReadOnlyList<AlertDto> List(TenantId tenant, DateTime nowUtc)
     {
         var receiveBy = nowUtc - ReceiveWithin;
         var decideBy = nowUtc - DecideWithin;
-        var reasons = new Dictionary<string, List<FactoryInboxStuckReason>>(StringComparer.Ordinal);
-        var registered = _factories(tenant);
 
+        List<OverdueRow> rows;
         using (var ctx = _db.CreateContext(tenant))
         {
-            // Not received in time, grouped per factory in the database: how many, and the oldest.
+            // Not received in time, grouped per factory: how many, and the oldest.
             var unreceived = ctx.FactoryInboxMessages.AsNoTracking()
                 .Where(m => m.State == FactoryInboxWords.States.Sent && m.SentAtUtc <= receiveBy)
                 .GroupBy(m => m.Factory)
-                .Select(g => new { Factory = g.Key, Count = g.Count(), Oldest = g.Min(m => m.SentAtUtc) })
-                .ToList();
-            foreach (var u in unreceived)
-            {
-                var since = Utc(u.Oldest) + ReceiveWithin;
-                var computer = BossComputer(registered.FirstOrDefault(f => Same(f.Factory, u.Factory)));
-                Add(reasons, u.Factory, computer is null || !_directorRunsOn(tenant, computer)
-                    ? new FactoryInboxStuckReason(Causes.NoDirector, NoDirectorSentence(u.Count, computer), u.Count, since)
-                    : new FactoryInboxStuckReason(Causes.NoSecretary, NoSecretarySentence(u.Count), u.Count, since));
-            }
-
-            // Received, not handed on, and held by a Secretary that has ended: nobody holds them now.
-            var held = ctx.FactoryInboxMessages.AsNoTracking()
+                .Select(g => new OverdueRow
+                {
+                    Kind = RowUnreceived, Factory = g.Key, Claimant = "", Count = g.Count(), Oldest = g.Min(m => m.SentAtUtc), Unread = 0,
+                });
+            // Received and not handed on, grouped per factory AND Secretary: whether each Secretary ended is asked below.
+            var heldBySecretary = ctx.FactoryInboxMessages.AsNoTracking()
                 .Where(m => m.State == FactoryInboxWords.States.Received && m.BundleId == null && m.ClaimSessionId != null
                             && m.ReceivedAtUtc != null && m.ReceivedAtUtc <= receiveBy)
-                .Select(m => new { m.Factory, Claimant = m.ClaimSessionId!, ReceivedAtUtc = m.ReceivedAtUtc!.Value })
-                .ToList();
-            var ended = held.Select(h => h.Claimant).Distinct(StringComparer.Ordinal)
-                .Where(s => _isEnded(tenant, s)).ToHashSet(StringComparer.Ordinal);
-            foreach (var g in held.Where(h => ended.Contains(h.Claimant)).GroupBy(h => h.Factory, StringComparer.Ordinal))
-            {
-                var count = g.Count();
-                Add(reasons, g.Key, new FactoryInboxStuckReason(Causes.SecretaryEnded, SecretaryEndedSentence(count), count,
-                    Utc(g.Min(h => h.ReceivedAtUtc)) + ReceiveWithin));
-            }
-
-            // Bundles with the Boss and not decided in time.
+                .GroupBy(m => new { m.Factory, m.ClaimSessionId })
+                .Select(g => new OverdueRow
+                {
+                    Kind = RowHeld, Factory = g.Key.Factory, Claimant = g.Key.ClaimSessionId!, Count = g.Count(),
+                    Oldest = g.Min(m => m.ReceivedAtUtc!.Value), Unread = 0,
+                });
+            // Bundles with the Boss and not decided in time, grouped per factory, with how many no Boss has read.
             var open = ctx.FactoryInboxBundles.AsNoTracking()
                 .Where(b => b.ClosedAtUtc == null && b.HandedAtUtc <= decideBy)
-                .Select(b => new { b.Factory, b.HandedAtUtc, Read = b.ReadBySessionId != null })
-                .ToList();
-            foreach (var g in open.GroupBy(b => b.Factory, StringComparer.Ordinal))
+                .GroupBy(b => b.Factory)
+                .Select(g => new OverdueRow
+                {
+                    Kind = RowBundle, Factory = g.Key, Claimant = "", Count = g.Count(), Oldest = g.Min(b => b.HandedAtUtc),
+                    Unread = g.Count(b => b.ReadBySessionId == null),
+                });
+            rows = unreceived.Concat(heldBySecretary).Concat(open).ToList();
+        }
+
+        if (rows.Count == 0)
+        {
+            FileLog.Write($"[FactoryInboxStuckAlertSource] List: tenant={tenant.ToLogString()}, stuck factories=0");
+            return [];
+        }
+
+        var registered = _factories(tenant);
+        var reasons = new Dictionary<string, List<FactoryInboxStuckReason>>(StringComparer.Ordinal);
+
+        foreach (var u in rows.Where(r => r.Kind == RowUnreceived))
+        {
+            var since = Utc(u.Oldest) + ReceiveWithin;
+            var computer = BossComputer(registered.FirstOrDefault(f => Same(f.Factory, u.Factory)));
+            Add(reasons, u.Factory, computer is null || !_directorRunsOn(tenant, computer)
+                ? new FactoryInboxStuckReason(Causes.NoDirector, NoDirectorSentence(u.Count, computer), u.Count, since)
+                : new FactoryInboxStuckReason(Causes.NoSecretary, NoSecretarySentence(u.Count), u.Count, since));
+        }
+
+        // Held by a Secretary that has ended: nobody holds them now. Every Secretary is asked about in ONE question.
+        var held = rows.Where(r => r.Kind == RowHeld).ToList();
+        if (held.Count > 0)
+        {
+            var ended = _endedAmong(tenant, held.Select(h => h.Claimant).Distinct(StringComparer.Ordinal).ToList());
+            foreach (var g in held.Where(h => ended.Contains(h.Claimant)).GroupBy(h => h.Factory, StringComparer.Ordinal))
             {
-                var count = g.Count();
-                Add(reasons, g.Key, new FactoryInboxStuckReason(Causes.BossDidNotDecide,
-                    BossDidNotDecideSentence(count, g.All(b => !b.Read)), count, Utc(g.Min(b => b.HandedAtUtc)) + DecideWithin));
+                var count = g.Sum(h => h.Count);
+                Add(reasons, g.Key, new FactoryInboxStuckReason(Causes.SecretaryEnded, SecretaryEndedSentence(count), count,
+                    Utc(g.Min(h => h.Oldest)) + ReceiveWithin));
             }
         }
+
+        foreach (var b in rows.Where(r => r.Kind == RowBundle))
+            Add(reasons, b.Factory, new FactoryInboxStuckReason(Causes.BossDidNotDecide,
+                BossDidNotDecideSentence(b.Count, b.Unread == b.Count), b.Count, Utc(b.Oldest) + DecideWithin));
 
         var alerts = reasons
             .Select(pair => Fold(pair.Key, registered.FirstOrDefault(f => Same(f.Factory, pair.Key))?.Title, pair.Value))
             .ToList();
         FileLog.Write($"[FactoryInboxStuckAlertSource] List: tenant={tenant.ToLogString()}, stuck factories={alerts.Count}");
         return alerts;
+    }
+
+    /// <summary>One overdue group the read returns. A class with settable members, the same type on every side of the
+    /// UNION ALL, so the database answers it in one statement.</summary>
+    private sealed class OverdueRow
+    {
+        public int Kind { get; init; }
+        public string Factory { get; init; } = "";
+        public string Claimant { get; init; } = "";
+        public int Count { get; init; }
+        public DateTime Oldest { get; init; }
+        public int Unread { get; init; }
     }
 
     /// <summary>One stuck factory as the owner reads it. The summary is the oldest reason; the detail holds them all.</summary>

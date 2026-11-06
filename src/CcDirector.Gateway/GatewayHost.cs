@@ -6424,7 +6424,7 @@ public sealed class GatewayHost : IAsyncDisposable
                     // Boss's computer is the registry's, and a Director "runs on it" exactly as the Talk route asks.
                     new Factory.Inbox.FactoryInboxStuckAlertSource(_gatewayDb,
                         factories: tenant => FactoryRegistry.List(tenant),
-                        isEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
+                        endedAmong: EndedSessionsAmong,
                         directorRunsOn: (tenant, machine) => Registry.ListDirectors(tenant).Any(d =>
                             d.StoppedAtUtc is null && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))),
                 },
@@ -8068,6 +8068,33 @@ public sealed class GatewayHost : IAsyncDisposable
         if (!string.IsNullOrEmpty(history?.EndingKind))
             return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
         return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
+    /// <summary>
+    /// Which of <paramref name="sessionIds"/> have ENDED, by the same rule as <see cref="DevReportSessionLiveness"/> -
+    /// Exited or Failed on the fresh roster, or absent from it with an ending on its history row - but asked for every
+    /// session at once: the roster is in memory, and every absent session is read in ONE history query, so the cost does
+    /// not grow with the number of sessions (the deploy slowdown of 6 November 2026).
+    /// </summary>
+    private IReadOnlySet<string> EndedSessionsAmong(TenantId tenant, IReadOnlyCollection<string> sessionIds)
+    {
+        var ended = new HashSet<string>(StringComparer.Ordinal);
+        var absent = new List<string>();
+        foreach (var sessionId in sessionIds)
+        {
+            if (PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter) is { } loc)
+            {
+                if ((loc.Session.ActivityState ?? "") is "Exited" or "Failed") ended.Add(sessionId);
+            }
+            else
+            {
+                absent.Add(sessionId);
+            }
+        }
+        if (absent.Count > 0)
+            foreach (var (sessionId, fact) in _sessionHistory.EndingsOf(tenant, absent))
+                if (!string.IsNullOrEmpty(fact.EndingKind)) ended.Add(sessionId);
+        return ended;
     }
 
     /// <summary>
