@@ -120,11 +120,14 @@ internal static class Harness
         // the sample's own time against the 70-second limit.
         // Every poll reads the whole window of recorded samples and judges on the EARLIEST one taken after the change
         // that meets the condition, because the recorder appends a minute of lines at once.
-        private WaitResult WaitFor(Func<MeterObservation, bool> condition, DateTime sinceUtc, string what)
+        // `eachPoll` runs once before every read, whether or not a fresh sample exists yet - it is where a load keeps
+        // itself topped up and checks its own safety. The condition stays pure: it judges samples and does nothing else.
+        private WaitResult WaitFor(Func<MeterObservation, bool> condition, DateTime sinceUtc, string what, Action? eachPoll = null)
         {
             var clock = Stopwatch.StartNew();
             while (true)
             {
+                eachPoll?.Invoke();
                 var window = ObserveWindow();
                 var newest = window[^1];
                 var first = ProofChecks.FirstMeeting(window, sinceUtc, condition);
@@ -205,13 +208,13 @@ internal static class Harness
                 // machine with 20 GB free the filling alone takes most of a minute.
                 var loadStartedUtc = DateTime.UtcNow;
                 readings["held"] = $"{load.HeldBytes / (1024 * 1024)} MB; machine {load.Level()}";
-                amber = WaitFor(o =>
+                amber = WaitFor(o => o.Memory.Level == MeterLevel.Tight, loadStartedUtc, "MEM amber", eachPoll: () =>
                 {
-                    load.TopUp();
+                    // Checked every poll, before anything else: leaving the using block releases the load.
                     if (load.Level() == CcDirector.Core.Machine.MemoryPressureLevel.Critical)
                         throw new InvalidOperationException("The machine reached Critical while loaded; the load was released at once.");
-                    return o.Memory.Level == MeterLevel.Tight;
-                }, loadStartedUtc, "MEM amber");
+                    load.TopUp();
+                });
                 readings["amber"] = Verdict(amber, "amber", "the load started");
                 shots.Add(Shot("3-memory-amber"));
                 namedMemory = ProofChecks.DiagnosisNames(amber.Last, "Memory");

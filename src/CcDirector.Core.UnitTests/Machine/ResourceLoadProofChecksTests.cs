@@ -79,6 +79,16 @@ public class ResourceLoadProofChecksTests
     }
 
     [Fact]
+    public void FirstMeeting_NoFreshSample_NeverCallsTheCondition_SoNoSafetyCheckMayLiveInIt()
+    {
+        var calls = 0;
+
+        ProofChecks.FirstMeeting([At(-10, MeterLevel.Normal)], Noon, _ => { calls++; return true; });
+
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
     public void ParseDiagnoseSamples_ReadsEveryLineOldestFirst()
     {
         var path = Path.Combine(CcDirector.TestInfrastructure.RepositorySourceIndex.Root,
