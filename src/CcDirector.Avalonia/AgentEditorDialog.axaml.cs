@@ -110,7 +110,9 @@ public partial class AgentEditorDialog : Window
 
             EnabledCheck.IsChecked = existing?.Enabled ?? true;
             PathBox.Text = existing?.ExecutablePath ?? "";
-            _model = existing?.DefaultModel ?? "";
+            // A new entry starts from the agent's recommended model, exactly as a wizard-detected one
+            // does; a blank model here is how a machine came to run every Claude session on Haiku.
+            _model = existing?.DefaultModel ?? RecommendedModelFor(type);
             ArgsOverrideBox.Text = existing?.ArgsOverride ?? "";
 
             PopulatePresetCombo(type, existing?.PresetId ?? "");
@@ -261,12 +263,20 @@ public partial class AgentEditorDialog : Window
             PresetCombo.SelectedIndex = index;
     }
 
+    /// <summary>The model a new entry of this type starts with: the plugin's recommended default.</summary>
+    private static string RecommendedModelFor(AgentKind type) =>
+        AgentPluginRegistry.Contains(type) ? AgentPluginRegistry.Get(type).DefaultModel : "";
+
     private void TypeCombo_Changed(object? sender, SelectionChangedEventArgs e)
     {
         if (_loading || PresetCombo is null) return;
 
         var type = SelectedType();
         PopulatePresetCombo(type, "");
+        // The model belongs to the agent just as the preset does: carrying "opus" over to a Codex
+        // entry would launch Codex with a model it does not have. Reset it with the preset.
+        _model = RecommendedModelFor(type);
+        FileLog.Write($"[AgentEditorDialog] TypeCombo_Changed: type={type}, model reset to '{_model}'");
         ConfigurePermissionsShortcut(type);
         RefreshModelMetadata(type);
 

@@ -86,6 +86,15 @@ public static class AgentToolCatalog
     public const string ClaudeSkipPermissionsPresetName = "Skip permissions";
 
     /// <summary>
+    /// The model a freshly configured Claude Code launches with: <c>opus</c>, the alias Claude Code
+    /// resolves to the newest Opus. It must never be empty. With no <c>--model</c> flag Claude Code
+    /// picks the account's own fallback, and on 6 November 2026 that was Haiku 4.5: every session
+    /// and factory run on a machine whose entry was set up blank ran on the weakest model, and
+    /// nothing on screen said so. The owner's ruling: Opus is the default, everywhere.
+    /// </summary>
+    public const string ClaudeDefaultModel = "opus";
+
+    /// <summary>
     /// The name this same preset carried before the automatic mode existed. It ALWAYS meant
     /// <see cref="ClaudeSkipPermissionsArg"/> and it still does - only the label changed, because
     /// "Automatic (skip permissions)" now reads as the automatic mode, which it is not. Recognized
@@ -246,7 +255,7 @@ public static class AgentToolCatalog
                 new AgentCommandPreset(ClaudeSkipPermissionsPresetName, ClaudeSkipPermissionsArg),
                 new AgentCommandPreset(StandardPresetName, ""),
             },
-            "");
+            ClaudeDefaultModel);
 
         // Pi and OpenCode expose NO full-permission flag on their command lines (read from their own
         // --help), so they get the standard preset only - there is no honest default to give them.
