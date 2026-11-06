@@ -4566,7 +4566,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     }
                 },
                 ring: fleetManagerEnvironment.SendPromptAsync,
-                factoryAgents: FactoryAgentsSwitch),
+                factoryAgents: FactoryAgentsSwitch,
+                // Issue #4598: a Boss the Gateway recorded as started by a session in no factory is the Boss the wake rings.
+                bossStartOf: _sessionHistory.BossStartOf),
             _triggerStartLifetime.Token);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.

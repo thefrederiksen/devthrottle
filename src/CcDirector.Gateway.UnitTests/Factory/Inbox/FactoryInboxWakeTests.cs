@@ -239,10 +239,10 @@ public sealed class FactoryInboxWakeTests : IDisposable
     }
 
     [Fact]
-    public async Task ABossTheOwnersAgentStartedThroughTheBossStartDoor_IsNotTheInboxsBoss_SoOneSeatKitBossStartsBesideIt()
+    public async Task ABossTheOwnersAgentStartedThroughTheBossStartDoor_WithNoRecord_IsNotTheInboxsBoss_SoOneSeatKitBossStartsBesideIt()
     {
-        // The Tech Lead's ruling on the wake review (5 November 2026): the start door's Boss carries the rules-only kit
-        // and no parent; it is alive and waiting for a prompt, and it is still not the inbox's Boss.
+        // A start-door Boss the Gateway holds NO record for (started before issue #4598, or a child) carries the
+        // rules-only kit and is still not the inbox's Boss. With a record it is: see the test below.
         Send(T0);
         SecretaryHands("sec-1", T0.AddSeconds(70));
         _env.RosterRows.Add(Seat("door-boss", "boss", kit: FactoryKits.RulesOnly));
@@ -257,6 +257,40 @@ public sealed class FactoryInboxWakeTests : IDisposable
         Assert.Equal(FactoryKits.Seat, req.FactoryKit);
         // Nothing is typed into the owner's conversation with it.
         Assert.DoesNotContain(_env.Rings, r => r.SessionId == "door-boss");
+    }
+
+    [Fact]
+    public async Task ABossTheGatewayRecordedAsStartedByASessionInNoFactory_IsTheInboxsBoss_AndIsRungNotDoubled()
+    {
+        // The owner's ruling of 6 November 2026 ("Yes, I also want to allow those."), which overturned the Tech Lead's
+        // ruling of 5 November 2026 for this case: the Boss the owner talks to is the Boss the wake rings.
+        Send(T0);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+        _env.RosterRows.Add(Seat("door-boss", "boss", kit: FactoryKits.RulesOnly));
+        _env.RecordedBosses.Add("door-boss");
+        var wake = NewWake();
+
+        var look = await LookAt(wake, T0.AddSeconds(72));
+        await LookAt(wake, T0.AddSeconds(73));
+
+        Assert.NotEqual(FactoryInboxWakeAct.Started, look.Boss);
+        Assert.DoesNotContain(_env.Starts, s => s.Request.FactorySeat == "boss");
+        Assert.Contains(_env.Rings, r => r.SessionId == "door-boss");
+    }
+
+    [Fact]
+    public async Task AnUnrecordedBossChildWithTheBossesRulesOnlyKit_IsNotTheInboxsBoss()
+    {
+        // A Boss's child carries the same seat and kit and has no record: it is never rung as the Boss.
+        Send(T0);
+        SecretaryHands("sec-1", T0.AddSeconds(70));
+        _env.RosterRows.Add(Seat("boss-child", "boss", kit: FactoryKits.RulesOnly));
+        var wake = NewWake();
+
+        var look = await LookAt(wake, T0.AddSeconds(72));
+
+        Assert.Equal(FactoryInboxWakeAct.Started, look.Boss);
+        Assert.DoesNotContain(_env.Rings, r => r.SessionId == "boss-child");
     }
 
     [Fact]
@@ -731,6 +765,12 @@ public sealed class FactoryInboxWakeTests : IDisposable
         }
 
         public bool HasEnded(TenantId tenant, string sessionId) => Ended.Contains(sessionId);
+
+        /// <summary>Sessions the Gateway recorded as started as the Boss by a session in no factory (issue #4598).</summary>
+        public HashSet<string> RecordedBosses { get; } = new(StringComparer.Ordinal);
+
+        public bool StartedAsTheBoss(TenantId tenant, string sessionId, string factory, string seat)
+            => RecordedBosses.Contains(sessionId) && seat == "boss";
 
         public FactoryGivenBrief? PublishedBrief(TenantId tenant, string factory, string seat) => Brief;
 

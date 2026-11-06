@@ -271,7 +271,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
 
         var asBoss = _history.FactoryOf(bossId);
         Assert.True(asBoss.StartedAsTheBoss);
-        Assert.False(asBoss.InheritedForPublishing);
+        Assert.False(asBoss.SeatIsInherited);
 
         // The Boss's own child, through the same door on the Boss's key: it inherits the seat and no record is written.
         _directorStarted = null;
@@ -284,7 +284,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         Pushed(childId, bossId);
 
         Assert.Null(_history.BossStartOf(childId));
-        Assert.True(_history.FactoryOf(childId).InheritedForPublishing);
+        Assert.True(_history.FactoryOf(childId).SeatIsInherited);
     }
 
     // ---- triggers -------------------------------------------------------------------------------------------------

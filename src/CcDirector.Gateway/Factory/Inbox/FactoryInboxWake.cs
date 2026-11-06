@@ -49,6 +49,11 @@ public interface IFactoryInboxWakeEnvironment
     /// moment, with no draft of the owner's in it (the Fleet Manager's guarded prompt send).</summary>
     Task<FleetManagerPromptSend> RingAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct);
 
+    /// <summary>Whether the Gateway recorded this session as started as <paramref name="seat"/>, the Boss of
+    /// <paramref name="factory"/>, for a session in no factory (issue #4598): such a Boss carries the rules-only kit and is
+    /// still the Boss the wake rings (the owner's ruling of 6 November 2026).</summary>
+    bool StartedAsTheBoss(TenantId tenant, string sessionId, string factory, string seat);
+
     /// <summary>Whether the account's Factory Agents area is on. Asked by the heartbeat on every sweep, so it is asked
     /// QUIETLY (<see cref="FactoryAgentsSwitch.AnswerQuietly"/>): the same answer, with no log line every 15 seconds.</summary>
     bool FactoryAgentsOn(TenantId tenant);
@@ -531,12 +536,25 @@ public sealed class FactoryInboxWake
 
     private sealed record Sighting(SeatState State, string? DirectorId, string? SessionId, string? ActivityState);
 
+    /// <summary>A roster row in the seat IS the seat when it was started as it: the seat kit, or the rules-only kit of a
+    /// Boss the Gateway recorded as started by a session in no factory (issue #4598).</summary>
+    private bool IsTheSeat(TenantId tenant, SessionDto s, string factory, string seat)
+    {
+        var kit = s.FactoryKit?.Trim();
+        if (string.Equals(kit, FactoryKits.Seat, StringComparison.Ordinal)) return true;
+        return string.Equals(kit, FactoryKits.RulesOnly, StringComparison.Ordinal)
+               && !string.IsNullOrWhiteSpace(s.SessionId)
+               && _env.StartedAsTheBoss(tenant, s.SessionId, factory, seat);
+    }
+
     /// <summary>
     /// Is the seat alive in this factory? A session of the factory with this seat and a SEAT kit that has not exited, in
     /// the fresh roster - the one this last started first; else the one this last started, by what its Director last
     /// pushed; else a start this holds that has not been reported yet, inside the grace. A rules-only session in the seat -
-    /// a child, or a Boss started through the Boss start door - is not the seat, so it neither counts as alive nor is rung
-    /// (the Tech Lead's ruling on the wake review, 5 November 2026).
+    /// a child, or a Boss started through the Boss start door with no record - is not the seat, so it neither counts as
+    /// alive nor is rung. A Boss the Gateway RECORDED as started by a session in no factory is the seat, rules-only kit and
+    /// all, and is rung rather than a second Boss started beside it (the owner's ruling of 6 November 2026, "Yes, I also
+    /// want to allow those.", which overturned the Tech Lead's ruling of 5 November 2026 on the wake review).
     /// </summary>
     private Sighting Find(TenantId tenant, string factory, string seat, string? rememberedSessionId, DateTime? claimedAtUtc, DateTime now)
     {
@@ -544,7 +562,7 @@ public sealed class FactoryInboxWake
             .Where(r => r.Session is { } s && !FleetManagerSessions.IsGone(s)
                         && string.Equals(s.Factory?.Trim(), factory, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(s.FactorySeat?.Trim(), seat, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(s.FactoryKit?.Trim(), FactoryKits.Seat, StringComparison.Ordinal))
+                        && IsTheSeat(tenant, s, factory, seat))
             .OrderBy(r => SameId(r.Session.SessionId, rememberedSessionId) ? 0 : 1)
             .ThenBy(r => r.Session.SessionId, StringComparer.Ordinal)
             .ToList();

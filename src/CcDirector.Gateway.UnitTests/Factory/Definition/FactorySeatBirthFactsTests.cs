@@ -135,9 +135,7 @@ public sealed class FactorySeatBirthFactsTests : IDisposable
 
         Assert.Equal("boss", lookup.Seat);
         Assert.True(lookup.StartedAsTheBoss);
-        Assert.False(lookup.InheritedForPublishing);
-        // The inbox and seat starts keep the Tech Lead's ruling: the kit is still rules-only.
-        Assert.True(lookup.SeatIsInherited);
+        Assert.False(lookup.SeatIsInherited);
     }
 
     [Fact]
@@ -151,7 +149,7 @@ public sealed class FactorySeatBirthFactsTests : IDisposable
         var lookup = store.FactoryOf("restored-child");
 
         Assert.False(lookup.StartedAsTheBoss);
-        Assert.True(lookup.InheritedForPublishing);
+        Assert.True(lookup.SeatIsInherited);
     }
 
     [Fact]
@@ -163,8 +161,8 @@ public sealed class FactorySeatBirthFactsTests : IDisposable
         store.UpsertLive("director-1", Pushed("s2", "boss", 4, FactoryKits.RulesOnly), Now);
         store.RecordBossStart("s2", "invoice-factory", "boss", "owners-agent", FactoryBossStartKinds.Started, Now);
 
-        Assert.True(store.FactoryOf("s1").InheritedForPublishing);
-        Assert.True(store.FactoryOf("s2").InheritedForPublishing);
+        Assert.True(store.FactoryOf("s1").SeatIsInherited);
+        Assert.True(store.FactoryOf("s2").SeatIsInherited);
     }
 
     [Fact]
