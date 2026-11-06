@@ -39,9 +39,13 @@ public sealed record ResourceSummarySample(
 /// or null when it could not be read.</param>
 /// <param name="MemoryBytes">The session's process tree's memory, or null when it could not be read.</param>
 /// <param name="UnreadableReason">Why a figure could not be read, when one could not.</param>
+/// <param name="ProcessesWithUnknownFigures">How many processes in the session's tree had a figure that could not be
+/// read. When it is above zero the session's figures are LOWER BOUNDS - the unknown processes are left out, never counted
+/// as zero - and every row built from this sample says so.</param>
 public sealed record ResourceSummarySessionSample(
     string SessionId,
     string? Factory,
     double? ProcessorPercent,
     long? MemoryBytes,
-    string? UnreadableReason);
+    string? UnreadableReason,
+    int ProcessesWithUnknownFigures = 0);

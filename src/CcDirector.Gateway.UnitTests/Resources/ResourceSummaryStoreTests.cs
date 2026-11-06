@@ -113,6 +113,40 @@ public sealed class ResourceSummaryStoreTests : IDisposable
         Assert.Single(store.MachineWindows(Tenant, W0, W0.AddHours(3))!);
     }
 
+    /// <summary>
+    /// Figures no machine can produce are refused, not stored and not tidied into range: a probe that reports a
+    /// per-core 400% on a four-core machine is a defect to surface, and a clamp to 100 would hide it.
+    /// </summary>
+    [Theory]
+    [InlineData("processor 400")]
+    [InlineData("processor below zero")]
+    [InlineData("peak below average")]
+    [InlineData("memory above total")]
+    [InlineData("session processor 400")]
+    [InlineData("crossing of an unknown resource")]
+    public void Store_ImpossibleFigures_AreRefusedForGood(string defect)
+    {
+        var store = NewStore();
+        var window = Steady(W0, 30, 8 * Gb, "devlinux", new ResourceSummarySessionSample("s-1", null, 10, 1 * Gb, null));
+        switch (defect)
+        {
+            case "processor 400": window.Machine.ProcessorPeakPercent = 400; break;
+            case "processor below zero": window.Machine.ProcessorAveragePercent = -1; break;
+            case "peak below average": window.Machine.ProcessorPeakPercent = 10; break;
+            case "memory above total": window.Machine.MemoryPeakUsedBytes = 17 * Gb; break;
+            case "session processor 400": window.Sessions[0].Figures.ProcessorPeakPercent = 400; break;
+            case "crossing of an unknown resource":
+                window.Machine.Crossings.Add(new ResourceCrossing { Resource = "disk", Level = ResourceSummaryContract.Red, StartedUtc = W0, Seconds = 60 });
+                break;
+        }
+
+        var ack = store.Store(Tenant, Director, Batch(window));
+
+        Assert.Equal(W0, Assert.Single(ack.RejectedWindowStartsUtc));
+        Assert.Empty(ack.HeldWindowStartsUtc);
+        Assert.Empty(store.MachineWindows(Tenant, W0, W0.AddHours(1))!);
+    }
+
     [Fact]
     public void Store_StatisticsStoreNotOpen_AnswersNotStoredWithTheReason()
     {

@@ -93,9 +93,19 @@ internal static class ResourceCapacityFold
             dto.MemoryDetail = $"{Gigabytes(usedNow)} / {Gigabytes(total)} GB";
             dto.MemoryTone = ToneOf(crossings, ResourceSummaryContract.Memory);
             var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes) ?? usedNow;
-            var spare = Math.Max(0, total - peakUsed);
-            dto.SpareBytes = spare;
-            dto.SpareLabel = $"{Gigabytes(spare)} GB";
+            // NEVER CLAMPED. A peak above the machine's total is a reading no machine can give; showing it as "0.0 GB"
+            // spare would turn a defect into a believable figure.
+            if (peakUsed > total)
+            {
+                dto.SpareLabel = "cannot read";
+                why.Add($"The machine reported more memory in use than it has ({Gigabytes(peakUsed)} of {Gigabytes(total)} GB), "
+                        + "so its spare capacity is not known.");
+            }
+            else
+            {
+                dto.SpareBytes = total - peakUsed;
+                dto.SpareLabel = $"{Gigabytes(total - peakUsed)} GB";
+            }
         }
         else
         {
@@ -217,31 +227,50 @@ internal static class MachineResourceHistoryFold
     /// <summary>
     /// A factory's sessions run side by side, so within one window their figures ADD: the factory's average is the mean,
     /// over the windows it ran in, of its sessions' summed averages, and its peak is the highest summed peak.
+    ///
+    /// AN UNKNOWN IS NEVER ADDED AS ZERO. When a session's figure could not be read, or a session had processes whose
+    /// figures could not be read, the sum leaves them out and is a LOWER BOUND, and the label says "at least" - a cost
+    /// reported without that would be too cheap and still look plausible, which is the worst kind of wrong.
     /// </summary>
     private static FactoryResourceCostDto FactoryCost(IGrouping<string, ResourceSessionWindowEntity> factory)
     {
         var byWindow = factory.GroupBy(s => s.WindowStartUtc).ToList();
-        var cpuAverages = byWindow.Where(g => g.Any(s => s.ProcessorAveragePercent.HasValue))
-            .Select(g => g.Sum(s => s.ProcessorAveragePercent ?? 0)).ToList();
-        var cpuPeaks = byWindow.Where(g => g.Any(s => s.ProcessorPeakPercent.HasValue))
-            .Select(g => g.Sum(s => s.ProcessorPeakPercent ?? 0)).ToList();
-        var memAverages = byWindow.Where(g => g.Any(s => s.MemoryAverageUsedBytes.HasValue))
-            .Select(g => g.Sum(s => s.MemoryAverageUsedBytes ?? 0)).ToList();
-        var memPeaks = byWindow.Where(g => g.Any(s => s.MemoryPeakUsedBytes.HasValue))
-            .Select(g => g.Sum(s => s.MemoryPeakUsedBytes ?? 0)).ToList();
+        var partialProcesses = factory.Any(s => s.ProcessesWithUnknownFigures > 0);
 
-        double? cpuPeak = cpuPeaks.Count == 0 ? null : cpuPeaks.Max();
+        var cpuAverages = Sums(byWindow, s => s.ProcessorAveragePercent);
+        var cpuPeaks = Sums(byWindow, s => s.ProcessorPeakPercent);
+        var memAverages = Sums(byWindow, s => s.MemoryAverageUsedBytes);
+        var memPeaks = Sums(byWindow, s => s.MemoryPeakUsedBytes);
+
+        double? cpuPeak = cpuPeaks.Values.Count == 0 ? null : cpuPeaks.Values.Max();
+        var cpuAtLeast = partialProcesses || cpuAverages.LeftOut || cpuPeaks.LeftOut ? "at least " : "";
+        var memAtLeast = partialProcesses || memAverages.LeftOut || memPeaks.LeftOut ? "at least " : "";
         return new FactoryResourceCostDto
         {
             Factory = factory.Key,
             Sessions = factory.Select(s => s.SessionId).Distinct(StringComparer.Ordinal).Count(),
             ProcessorPeakPercent = cpuPeak,
-            ProcessorLabel = cpuAverages.Count == 0
+            ProcessorLabel = cpuAverages.Values.Count == 0 || cpuPeak is null
                 ? "cannot read"
-                : $"{ResourceCapacityFold.Percent(cpuAverages.Average())} / {ResourceCapacityFold.Percent(cpuPeak!.Value)}",
-            MemoryLabel = memAverages.Count == 0
+                : $"{cpuAtLeast}{ResourceCapacityFold.Percent(cpuAverages.Values.Average())} / {ResourceCapacityFold.Percent(cpuPeak.Value)}",
+            MemoryLabel = memAverages.Values.Count == 0 || memPeaks.Values.Count == 0
                 ? "cannot read"
-                : $"{ResourceCapacityFold.Gigabytes((long)memAverages.Average())} / {ResourceCapacityFold.Gigabytes(memPeaks.Max())} GB",
+                : $"{memAtLeast}{ResourceCapacityFold.Gigabytes((long)memAverages.Values.Average())} / {ResourceCapacityFold.Gigabytes((long)memPeaks.Values.Max())} GB",
         };
+    }
+
+    /// <summary>Per window, the sum of the figures that were read - and whether any session's figure had to be left out.</summary>
+    private static (List<double> Values, bool LeftOut) Sums<T>(List<IGrouping<DateTime, ResourceSessionWindowEntity>> byWindow,
+        Func<ResourceSessionWindowEntity, T?> figure) where T : struct, IConvertible
+    {
+        var values = new List<double>();
+        var leftOut = false;
+        foreach (var window in byWindow)
+        {
+            var read = window.Select(figure).Where(v => v.HasValue).Select(v => Convert.ToDouble(v!.Value)).ToList();
+            if (read.Count < window.Count()) leftOut = true;
+            if (read.Count > 0) values.Add(read.Sum());
+        }
+        return (values, leftOut);
     }
 }

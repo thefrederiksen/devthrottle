@@ -174,6 +174,60 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     }
 
     [Fact]
+    public void Fold_PeakInUseAboveTheMachinesTotal_IsSurfacedNotClampedToZeroSpare()
+    {
+        // An impossible reading: 18 GB in use on a 16 GB machine. A clamp would show a tidy "0.0 GB" spare.
+        var window = Steady(W0.AddMinutes(25), 30, 8 * Gb);
+        window.Machine.MemoryPeakUsedBytes = 18 * Gb;
+        var rows = new[] { new ResourceWindowEntity
+        {
+            Tenant = Tenant.Value, DirectorId = "director-1", WindowStartUtc = W0.AddMinutes(25), HourStartUtc = W0,
+            MachineName = "devlinux", WindowSeconds = 300, SampleCount = 60, ProcessorSamples = 60,
+            ProcessorAveragePercent = 30, ProcessorPeakPercent = 30, MemorySamples = 60,
+            MemoryAverageUsedBytes = 8 * Gb, MemoryPeakUsedBytes = 18 * Gb, MemoryTotalBytes = 16 * Gb,
+        } };
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, rows, Now);
+
+        Assert.Null(capacity.SpareBytes);
+        Assert.Equal("cannot read", capacity.SpareLabel);
+        Assert.Contains("more memory in use than it has", capacity.Why);
+    }
+
+    [Fact]
+    public void History_ASessionWhoseFigureIsUnknown_MakesTheFactoryCostAtLeast_NeverAZero()
+    {
+        // Two Marketing sessions in one window: one read at 10%, one whose processor could not be read. Summing the
+        // unknown as zero would report the factory at a plausible, too-cheap 10%.
+        var known = new ResourceSummarySessionSample("s-mkt-1", "Marketing", 10, 1 * Gb, null);
+        var unknown = new ResourceSummarySessionSample("s-mkt-2", "Marketing", null, null, "the process tree could not be read");
+        _store.Store(Tenant, "director-1", Batch(Steady(W0, 60, 8 * Gb, "devlinux", known, unknown)));
+        var from = Now.AddHours(-24);
+
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+            _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
+
+        var marketing = Assert.Single(view.Factories);
+        Assert.Equal("at least 10% / 10%", marketing.ProcessorLabel);
+        Assert.Equal("at least 1.0 / 1.0 GB", marketing.MemoryLabel);
+    }
+
+    [Fact]
+    public void History_ProcessesWithUnknownFigures_MakeTheSessionsCostAtLeast()
+    {
+        var partial = new ResourceSummarySessionSample("s-bio", "Biographies", 31, 2 * Gb, null, ProcessesWithUnknownFigures: 2);
+        _store.Store(Tenant, "director-1", Batch(Steady(W0, 60, 8 * Gb, "devlinux", partial)));
+        var from = Now.AddHours(-24);
+
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+            _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
+
+        var row = Assert.Single(_store.SessionWindows(Tenant, "devlinux", from, Now)!);
+        Assert.Equal(2, row.ProcessesWithUnknownFigures);
+        Assert.Equal("at least 31% / 31%", Assert.Single(view.Factories).ProcessorLabel);
+    }
+
+    [Fact]
     public void History_NoRows_SaysSo()
     {
         var view = MachineResourceHistoryFold.Fold("devlinux", 24, Array.Empty<ResourceWindowEntity>(), Array.Empty<ResourceSessionWindowEntity>());

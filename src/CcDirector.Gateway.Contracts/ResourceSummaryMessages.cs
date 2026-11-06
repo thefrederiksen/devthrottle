@@ -104,6 +104,11 @@ public sealed class ResourceSessionSummary
     /// <summary>How many of the window's samples saw this session.</summary>
     public int SampleCount { get; set; }
 
+    /// <summary>The most processes in the session's tree whose figure could not be read, at any sample in the window.
+    /// Above zero, the session's figures are LOWER BOUNDS: those processes are left out, never counted as zero, so a
+    /// client shows "at least".</summary>
+    public int ProcessesWithUnknownFigures { get; set; }
+
     public ResourceSummaryFigures Figures { get; set; } = new();
 }
 

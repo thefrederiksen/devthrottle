@@ -181,8 +181,61 @@ public sealed class ResourceSummaryStore
             return "it ends in the future by the Gateway's clock";
         if (start < nowUtc - WindowRetention)
             return "it is older than the 90 days five-minute rows are kept";
+        if (FiguresProblem(window.Machine, isMachine: true) is { } machineProblem)
+            return $"the machine's figures are impossible: {machineProblem}";
+        foreach (var session in window.Sessions ?? new List<ResourceSessionSummary>())
+        {
+            if (session is null) return "it holds an empty session row";
+            if (session.ProcessesWithUnknownFigures < 0) return $"session {session.SessionId} counts fewer than no unknown processes";
+            if (FiguresProblem(session.Figures, isMachine: false) is { } sessionProblem)
+                return $"session {session.SessionId}'s figures are impossible: {sessionProblem}";
+        }
         return null;
     }
+
+    /// <summary>
+    /// Why a set of figures cannot be true of any machine, or null when it can. A figure out of range is a DEFECT IN THE
+    /// DIRECTOR, surfaced by refusing the window - never clamped into range, which would turn a per-core 400% into a
+    /// believable 100% and hide the very defect the range exists to catch. The refusal is logged on both sides.
+    /// </summary>
+    internal static string? FiguresProblem(ResourceSummaryFigures? f, bool isMachine)
+    {
+        if (f is null) return "there are none";
+        if (f.ProcessorCouldRead)
+        {
+            if (f.ProcessorAveragePercent is not { } average || f.ProcessorPeakPercent is not { } peak)
+                return "the processor is marked read but has no average or peak";
+            if (f.ProcessorSamples <= 0) return "the processor is marked read from no samples";
+            if (!IsPercent(average) || !IsPercent(peak))
+                return $"processor average {average} or peak {peak} is outside 0 to 100 per cent";
+            if (peak < average) return $"processor peak {peak} is below its average {average}";
+        }
+        if (f.MemoryCouldRead)
+        {
+            if (f.MemoryAverageUsedBytes is not { } average || f.MemoryPeakUsedBytes is not { } peak)
+                return "memory is marked read but has no average or peak";
+            if (f.MemorySamples <= 0) return "memory is marked read from no samples";
+            if (average < 0 || peak < 0) return "memory in use is below zero";
+            if (peak < average) return $"memory peak {peak} is below its average {average}";
+            if (f.MemoryTotalBytes is { } total && (total <= 0 || peak > total))
+                return $"memory peak {peak} bytes is more than the machine's total {total}";
+        }
+        if (!isMachine && f.MemoryTotalBytes is not null) return "a session row carries the machine's total memory";
+        foreach (var c in f.Crossings ?? new List<ResourceCrossing>())
+        {
+            if (c is null) return "a crossing is empty";
+            if (c.Resource is not (ResourceSummaryContract.Processor or ResourceSummaryContract.Memory))
+                return $"a crossing names the resource '{c.Resource}', which is neither the processor nor memory";
+            if (c.Level is not (ResourceSummaryContract.Amber or ResourceSummaryContract.Red))
+                return $"a crossing has the level '{c.Level}', which is neither amber nor red";
+            if (c.Seconds <= 0 || c.Seconds > ResourceSummaryContract.WindowSeconds)
+                return $"a crossing lasts {c.Seconds} seconds, outside one window";
+            if (c.PeakPercent is { } p && !IsPercent(p)) return $"a crossing peaks at {p} per cent";
+        }
+        return null;
+    }
+
+    private static bool IsPercent(double value) => !double.IsNaN(value) && value >= 0 && value <= 100;
 
     private static ResourceWindowEntity MachineRow(TenantId tenant, string directorId, ResourceSummaryWindow window, DateTime now)
     {
@@ -216,6 +269,7 @@ public sealed class ResourceSummaryStore
             MachineName = window.MachineName.Trim(),
             Factory = string.IsNullOrWhiteSpace(session.Factory) ? null : session.Factory.Trim(),
             SampleCount = session.SampleCount,
+            ProcessesWithUnknownFigures = session.ProcessesWithUnknownFigures,
             ReceivedUtc = now,
         };
         CopyFigures(session.Figures ?? new ResourceSummaryFigures(), row, keepTotal: false);

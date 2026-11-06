@@ -123,6 +123,17 @@ public class ResourceSummaryBuilderTests
     }
 
     [Fact]
+    public void Build_ProcessesWithUnknownFigures_AreCarriedSoTheFiguresReadAsLowerBounds()
+    {
+        var samples = Enumerable.Range(0, 60).Select(i => Quiet(W0.AddSeconds(5 * i), 30, 8 * Gb,
+            new ResourceSummarySessionSample("s-1", null, 12, 2 * Gb, null, ProcessesWithUnknownFigures: i == 30 ? 3 : 0))).ToList();
+
+        var window = ResourceSummaryBuilder.Build(W0, "devlinux", samples);
+
+        Assert.Equal(3, Assert.Single(window.Sessions).ProcessesWithUnknownFigures);
+    }
+
+    [Fact]
     public void Build_IgnoresSamplesOutsideTheWindow()
     {
         var samples = QuietWindow(W0);

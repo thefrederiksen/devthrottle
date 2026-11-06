@@ -129,6 +129,7 @@ public sealed class ResourceSummaryRollup
                 Factory = rows.Select(r => r.Factory).LastOrDefault(f => f is not null),
                 WindowCount = rows.Count,
                 SampleCount = rows.Sum(r => r.SampleCount),
+                ProcessesWithUnknownFigures = rows.Max(r => r.ProcessesWithUnknownFigures),
                 RolledAtUtc = rolledAt,
             };
             Combine(rows, sessionHour);

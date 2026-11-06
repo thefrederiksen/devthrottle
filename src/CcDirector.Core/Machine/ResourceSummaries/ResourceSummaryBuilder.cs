@@ -87,6 +87,7 @@ public static class ResourceSummaryBuilder
                 SessionId = sessionId,
                 Factory = shares.Select(s => s.Factory).LastOrDefault(f => !string.IsNullOrWhiteSpace(f))?.Trim(),
                 SampleCount = shares.Count,
+                ProcessesWithUnknownFigures = shares.Max(s => s.ProcessesWithUnknownFigures),
                 Figures = SessionFigures(shares, attributed),
             });
         }

@@ -512,6 +512,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("memory_unreadable_reason");
 
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("processes_with_unknown_figures");
+
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("REAL")
                         .HasColumnName("processor_average_percent");
@@ -603,6 +607,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                     b.Property<string>("MemoryUnreadableReason")
                         .HasColumnType("TEXT")
                         .HasColumnName("memory_unreadable_reason");
+
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("processes_with_unknown_figures");
 
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("REAL")

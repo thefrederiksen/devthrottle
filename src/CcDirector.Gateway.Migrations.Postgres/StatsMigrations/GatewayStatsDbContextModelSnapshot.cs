@@ -596,6 +596,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                         .HasColumnName("memory_unreadable_reason")
                         .UseCollation("C");
 
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("integer")
+                        .HasColumnName("processes_with_unknown_figures");
+
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("double precision")
                         .HasColumnName("processor_average_percent");
@@ -698,6 +702,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.StatsMigrations
                         .HasColumnType("text")
                         .HasColumnName("memory_unreadable_reason")
                         .UseCollation("C");
+
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("integer")
+                        .HasColumnName("processes_with_unknown_figures");
 
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("double precision")

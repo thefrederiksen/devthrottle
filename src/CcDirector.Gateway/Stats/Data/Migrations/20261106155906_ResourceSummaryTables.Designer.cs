@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Stats.Data.Migrations
 {
     [DbContext(typeof(GatewayStatsDbContext))]
-    [Migration("20261106145131_ResourceSummaryTables")]
+    [Migration("20261106155906_ResourceSummaryTables")]
     partial class ResourceSummaryTables
     {
         /// <inheritdoc />
@@ -515,6 +515,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("memory_unreadable_reason");
 
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("processes_with_unknown_figures");
+
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("REAL")
                         .HasColumnName("processor_average_percent");
@@ -606,6 +610,10 @@ namespace CcDirector.Gateway.Stats.Data.Migrations
                     b.Property<string>("MemoryUnreadableReason")
                         .HasColumnType("TEXT")
                         .HasColumnName("memory_unreadable_reason");
+
+                    b.Property<int>("ProcessesWithUnknownFigures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("processes_with_unknown_figures");
 
                     b.Property<double?>("ProcessorAveragePercent")
                         .HasColumnType("REAL")

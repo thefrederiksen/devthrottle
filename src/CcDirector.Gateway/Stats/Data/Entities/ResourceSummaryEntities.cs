@@ -74,6 +74,10 @@ public sealed class ResourceSessionWindowEntity : IResourceFigureColumns
     public string? Factory { get; set; }
 
     public int SampleCount { get; set; }
+
+    /// <summary>The most processes whose figure could not be read; above zero the figures are lower bounds.</summary>
+    public int ProcessesWithUnknownFigures { get; set; }
+
     public DateTime ReceivedUtc { get; set; }
 
     public int ProcessorSamples { get; set; }
@@ -132,6 +136,11 @@ public sealed class ResourceSessionHourEntity : IResourceFigureColumns
     public string? Factory { get; set; }
     public int WindowCount { get; set; }
     public int SampleCount { get; set; }
+
+    /// <summary>The most processes whose figure could not be read in any of the hour's windows; above zero the
+    /// figures are lower bounds.</summary>
+    public int ProcessesWithUnknownFigures { get; set; }
+
     public DateTime RolledAtUtc { get; set; }
 
     public int ProcessorSamples { get; set; }

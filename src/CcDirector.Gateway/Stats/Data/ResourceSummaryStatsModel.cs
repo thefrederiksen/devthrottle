@@ -59,6 +59,7 @@ public static class ResourceSummaryStatsModel
             b.Property(e => e.HourStartUtc).HasColumnName("hour_start_utc").HasConversion(UtcConverter);
             b.Property(e => e.MachineName).HasColumnName("machine_name").IsRequired();
             b.Property(e => e.Factory).HasColumnName("factory");
+            b.Property(e => e.ProcessesWithUnknownFigures).HasColumnName("processes_with_unknown_figures");
             b.Property(e => e.SampleCount).HasColumnName("sample_count");
             b.Property(e => e.ReceivedUtc).HasColumnName("received_utc").HasConversion(UtcConverter);
             Figures(b);
@@ -91,6 +92,7 @@ public static class ResourceSummaryStatsModel
             b.Property(e => e.SessionId).HasColumnName("session_id").IsRequired();
             b.Property(e => e.MachineName).HasColumnName("machine_name").IsRequired();
             b.Property(e => e.Factory).HasColumnName("factory");
+            b.Property(e => e.ProcessesWithUnknownFigures).HasColumnName("processes_with_unknown_figures");
             b.Property(e => e.WindowCount).HasColumnName("window_count");
             b.Property(e => e.SampleCount).HasColumnName("sample_count");
             b.Property(e => e.RolledAtUtc).HasColumnName("rolled_at_utc").HasConversion(UtcConverter);
