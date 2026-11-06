@@ -59,6 +59,12 @@ commits and pushes first.
 - **Ask the repository for its coding style guide** (one per language) and its visual style guide
   where there is an interface, every run. Not a gate - but without one the seat that builds invents
   the style.
+- **Publish the mission document** with `cc-dev-reports open <file> --mission-document`, from a
+  session attached to the Mission: create the Mission (`cc-devthrottle mission create "<name>"`),
+  attach your own session to it (`cc-devthrottle mission attach <your session> <mission id>`), then
+  publish, with its why and goal marked (the `dev-reports` skill has the
+  markers). The Mission is linked to its document from the start, and every session's Mission button
+  opens it.
 - **When the owner says go:** write the handover, open the Delivery Lead on the mission document as a
   **top-level seat that answers to the owner**, and then **shut your own seat down**. Do not open it
   underneath yourself.

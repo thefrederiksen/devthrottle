@@ -6,6 +6,7 @@
 
 ```bash
 cc-dev-reports open <file.html>  # publish it. Prints the one address the owner clicks.
+cc-dev-reports open <file.html> --mission-document  # publish it as this session's Mission's document
 cc-dev-reports reply "<text>"    # answer the owner inside the report, later
 cc-dev-reports answers <file.html>  # read his stored answers - from any session, even a later run
 cc-dev-reports answers <file.html> --claim  # reserve unacted answers before acting on them
@@ -59,6 +60,8 @@ The structure is carried by `data-dev-report` attributes, not by class names or 
 | `data-dev-report="summary"` | Exactly one, right after the header. Must have words in it. |
 | `data-dev-report="questions"` | Exactly one, right after the summary. **Present even when you have no questions.** |
 | `data-dev-report="detail"` | At least one, all after the questions section. |
+| `data-dev-report="why"` | Optional, at most one, after the questions section. Expected in a mission document. |
+| `data-dev-report="goal"` | Optional, at most one, after the questions section. Expected in a mission document. |
 | `data-dev-report="evidence"` | Optional, at most one, and last if present. |
 
 "Right after" is about the order of the MARKERS, not the HTML in between. Sections may not contain
@@ -99,6 +102,48 @@ format.
 
 Put an evidence section at the end and say plainly what your claims rest on and what you did not
 check. A report that lists only what went right is not a report the owner can act on.
+
+## A mission document - publish it with `--mission-document`
+
+A mission document is a dev report that is linked to its Mission. Publish it from a session that is
+attached to that Mission:
+
+```bash
+cc-dev-reports open mission.html --mission-document
+```
+
+- **It links the report to the publishing session's own Mission.** The request names no Mission; the
+  Gateway uses the one this session is attached to. Every session on that Mission then gets a Mission
+  button that opens this report.
+- **One document per Mission.** Republishing the same report updates the same link. Publishing a
+  different report this way replaces the old document, and the output says which one it replaced.
+- **"The same report" means the same session and the same file.** From any other session on the
+  Mission - a Delivery Lead republishing the Architect's document, say - publish WITH the flag: that
+  makes a new report, which takes the link over. Without the flag it is an ordinary new report, and
+  the Mission button keeps opening the old one.
+- **Mark the why and the goal** with their own sections, after the questions. On every publish the
+  Gateway reads them and stamps them on the Mission, so the goal on the Mission button is the goal in
+  the document. A republish of the Mission's document from the session that published it
+  refreshes them, with or without the flag. A
+  document with no goal section leaves the Mission with no goal, and the output says so.
+
+```html
+<section data-dev-report="why">
+  <h2>The why</h2>
+  <p>Why this is worth building at all, in the owner's words.</p>
+</section>
+<section data-dev-report="goal">
+  <h2>The goal</h2>
+  <p>What must be true at the end.</p>
+</section>
+```
+
+- **"This session is attached to no Mission" means nothing was published.** If the Mission does not
+  exist yet, create it (`cc-devthrottle mission create "<name>"`, which prints its id and does not
+  attach you). Attach your own session (`cc-devthrottle mission attach <your session> <mission id>`)
+  and publish again, or publish without the flag
+  if it is not a mission document. Right after an attach, wait a few seconds: the attachment can take
+  a moment to reach the Gateway.
 
 ## Reading his answers in a LATER run - publish, close, read next time
 
