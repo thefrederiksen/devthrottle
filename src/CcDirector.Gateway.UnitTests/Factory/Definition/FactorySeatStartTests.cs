@@ -116,7 +116,7 @@ public sealed class FactorySeatStartTests : IDisposable
     }
 
     [Theory]
-    [InlineData("Custom")]
+    [InlineData("RawCli")]
     [InlineData("NoSuchAgent")]
     public void ModelFor_AnAgentTheCatalogDoesNotHold_IsNull(string agent)
     {
