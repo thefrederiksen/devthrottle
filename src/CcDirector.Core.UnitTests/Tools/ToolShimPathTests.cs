@@ -162,4 +162,123 @@ public sealed class ToolShimPathTests
 
         Assert.Equal(Path.Combine(ScratchRoot, "bin"), dir);
     }
+
+    // --- The directories a desktop launch needs told about (issue #4518) --------
+    //
+    // These replace the #!/bin/bash wrapper that used to be the macOS bundle's CFBundleExecutable. The
+    // wrapper made the bundle's hosting identity "com.apple.bash", so the app could carry no code
+    // identity of its own and no privacy grant could be pinned to it.
+
+    [Fact]
+    public void GuiLaunchPathDirectories_NamesTheDirectoriesTheWrapperUsedTo()
+    {
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+
+        Assert.Equal(
+            [
+                "/usr/local/bin",
+                "/opt/homebrew/sbin",
+                "/opt/homebrew/bin",
+                Path.Combine(Home, ".claude", "local"),
+                Path.Combine(Home, ".local", "bin"),
+            ],
+            dirs);
+    }
+
+    [Fact]
+    public void GuiLaunchPathDirectories_PrependedInReverse_ReproduceTheWrappersSearchOrder()
+    {
+        // THE ORDER IS A BEHAVIOUR, NOT A DETAIL. The bash wrapper this replaced walked
+        //     ~/.local/bin, ~/.claude/local, /opt/homebrew/bin, /opt/homebrew/sbin, /usr/local/bin
+        // and PREPENDED each one, so what ended up on PATH was that list backwards: /usr/local/bin
+        // searched first, ~/.local/bin last. It decides which copy of claude or python3 a session gets
+        // on a machine holding more than one, so the replacement has to reproduce it exactly.
+        //
+        // The list is therefore written in final PATH order, and the caller walks it in REVERSE because
+        // it prepends. Walking it forwards would reverse the search order silently.
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+
+        var path = dirs.Reverse().Aggregate((string?)null, ToolShimPath.WithDirectory);
+
+        Assert.Equal(string.Join(Sep, dirs), path);
+    }
+
+    [Fact]
+    public void GuiLaunchPathDirectories_PrependedInReverse_LeaveAnInheritedPathBehindThem()
+    {
+        // launchd hands a GUI application /usr/bin:/bin:/usr/sbin:/sbin. Whatever was there stays, in
+        // its own order, after the directories we add.
+        var dirs = ToolShimPath.GuiLaunchPathDirectories(Home);
+        var inherited = string.Join(Sep, "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+
+        var path = dirs.Reverse().Aggregate(inherited, (acc, d) => ToolShimPath.WithDirectory(acc, d));
+
+        Assert.Equal(string.Join(Sep, dirs) + Sep + inherited, path);
+    }
+
+    // THE DIRECTORIES ARE PASSED SEPARATELY AND JOINED WITH Path.PathSeparator, never written into the
+    // InlineData as one ":"-separated string. The separator is ";" on Windows, and continuous integration
+    // builds and tests this solution on windows-latest - so a ":"-separated literal arrives as ONE
+    // element there, matches nothing, and turns the build red on a macOS-only rule.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsLaunchdDefaultPath_NoPathAtAll_CountsAsADesktopLaunch(string? searchPath)
+    {
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(searchPath));
+    }
+
+    [Theory]
+    [InlineData("/usr/bin", "/bin", "/usr/sbin", "/sbin")]
+    [InlineData("/sbin", "/usr/sbin", "/bin", "/usr/bin")]          // the order does not matter
+    [InlineData("/usr/bin/", "/bin/", "/usr/sbin/", "/sbin/")]      // nor does a trailing separator
+    [InlineData("/usr/bin", "/bin")]                                // a subset is still only system defaults
+    public void IsLaunchdDefaultPath_WhatLaunchdHandsADesktopLaunch_IsRecognised(params string[] directories)
+    {
+        // The only case the deleted bash wrapper ever repaired, so the only case worth repairing.
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(string.Join(Sep, directories)));
+    }
+
+    [Fact]
+    public void IsLaunchdDefaultPath_JoinedWithTheOtherPlatformsSeparator_IsNotRecognised()
+    {
+        // The regression this pins. The first version of the tests above wrote the PATH as one
+        // ":"-separated literal, which is correct on macOS and WRONG on Windows, where the separator is
+        // ";" - so on the Windows continuous-integration machine the whole string arrived as a single
+        // element, matched nothing, and four passing tests went red on a macOS-only rule. This asserts
+        // the shape of that mistake directly, so it cannot come back disguised as a green suite here.
+        var wrongSeparator = Path.PathSeparator == ':' ? ';' : ':';
+        var path = string.Join(wrongSeparator, "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+
+        Assert.False(ToolShimPath.IsLaunchdDefaultPath(path));
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(
+            string.Join(Path.PathSeparator, "/usr/bin", "/bin", "/usr/sbin", "/sbin")));
+    }
+
+    [Theory]
+    [InlineData("/usr/bin", "/bin", "/usr/sbin", "/sbin", "/opt/homebrew/bin")]
+    [InlineData("/Users/someone/.pyenv/shims", "/usr/bin", "/bin", "/usr/sbin", "/sbin")]
+    [InlineData("/usr/local/bin", "/usr/bin", "/bin")]
+    public void IsLaunchdDefaultPath_AnythingAShellTouched_IsLeftAlone(params string[] directories)
+    {
+        // A terminal start and an SSH start run the binary directly, with a PATH a shell profile has
+        // already built. Reaching into that would change which python3 or node every session gets.
+        //
+        // A LAUNCHER START IS NOT IN THIS LIST: DirectorSupervisor opens the bundle through
+        // /usr/bin/open, so launchd starts the Director and its PATH is launchd's - which the theory
+        // above requires to be repaired, exactly as the wrapper used to.
+        Assert.False(ToolShimPath.IsLaunchdDefaultPath(string.Join(Sep, directories)));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void GuiLaunchPathDirectories_WithoutAHome_NamesNothing(string? home)
+    {
+        // Every entry but the Homebrew ones is relative to the home folder. Without one we would be
+        // building paths against an empty string, so the honest answer is no directories at all.
+        Assert.Empty(ToolShimPath.GuiLaunchPathDirectories(home));
+    }
 }

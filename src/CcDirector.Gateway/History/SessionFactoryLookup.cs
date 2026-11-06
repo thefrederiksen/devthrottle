@@ -36,14 +36,35 @@ public readonly record struct SessionFactoryLookup
     public string? Name { get; init; }
 
     /// <summary>The kind of kit the session was given with its seat: <c>seat</c> for a session started AS the seat,
-    /// <c>rules-only</c> for a child that inherited it from the session that spawned it (SpawnFactory), or null.</summary>
+    /// <c>rules-only</c> for a child that inherited it from the session that spawned it (SpawnFactory) and for a Boss the
+    /// owner's agent started through the Boss start door (<c>SpawnFactory.TryStartTheBoss</c>), or null.</summary>
     public string? Kit { get; init; }
 
-    /// <summary>True when the session's seat was INHERITED from the session that spawned it, not started as it - the
-    /// one marker of a child: every inheritance writes the rules-only kit, and nothing else does.</summary>
+    /// <summary>True when the session carries its seat with the rules-only kit, so it was not started AS the seat: a
+    /// child that inherited it from the session that spawned it, or a Boss the owner's agent started through the Boss
+    /// start door. Those two, and nothing else, write the rules-only kit. Neither is the seat for the factory inbox or for
+    /// a seat start (the Tech Lead's ruling on the wake review, 5 November 2026: the inbox's Boss is a seat-kit Boss).</summary>
     public bool SeatIsInherited => string.Equals(Kit?.Trim(), CcDirector.Gateway.Contracts.FactoryKits.RulesOnly, StringComparison.Ordinal);
 
-    /// <summary>True when the session is in a factory AND carries a seat and its version: what a child inherits.</summary>
+    /// <summary>
+    /// True when the Gateway RECORDED this session as started as its factory's Boss for a session in no factory - the
+    /// owner's own agent (issue #4351) - or as the continuation of such a Boss (issue #4598,
+    /// <see cref="Data.Entities.FactoryBossStartEntity"/>). That start writes the rules-only kit a child that inherits a
+    /// seat is also given, so the kit alone cannot tell the two apart; the Gateway's own record can. Nothing a caller,
+    /// a body or a Director push says can set it, and a missing record leaves it false.
+    /// </summary>
+    public bool StartedAsTheBoss { get; init; }
+
+    /// <summary>
+    /// True when this session may NOT publish or restore its factory's definition as the Boss seat because it inherited
+    /// that seat (issue #4598, the owner, 5 November 2026: "If I ask a boss to publish an update, it needs to be able
+    /// to."). It is <see cref="SeatIsInherited"/> except for a Boss the Gateway recorded as started by a session in no
+    /// factory (<see cref="StartedAsTheBoss"/>), who publishes as the Boss. ONLY the definition routes read this: the
+    /// inbox and seat starts keep <see cref="SeatIsInherited"/>, under the Tech Lead's ruling of 5 November 2026 that the
+    /// inbox's Boss is a seat-kit Boss.
+    /// </summary>
+    public bool InheritedForPublishing => SeatIsInherited && !StartedAsTheBoss;
+
     public bool HasASeat => IsInAFactory && !string.IsNullOrWhiteSpace(Seat) && DefinitionVersion is not null;
 
     /// <summary>True when the session is known AND in a factory.</summary>

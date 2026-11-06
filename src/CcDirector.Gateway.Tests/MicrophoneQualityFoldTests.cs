@@ -15,6 +15,11 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class MicrophoneQualityFoldTests
 {
+    /// <summary>The fixed "now" every sample is placed back from. The fold reads no clock - it groups by the calendar
+    /// day of each sample's own time - so the test must not either: built from the real clock, a sample "1 minute ago"
+    /// run just after midnight UTC falls on yesterday, and a test that counts days then counts one too many.</summary>
+    private static readonly DateTime Now = new(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
     private static MicrophoneQualityRecord Sample(
         string device = "Good Mic",
         bool narrowband = false,
@@ -26,7 +31,7 @@ public sealed class MicrophoneQualityFoldTests
         string platform = "")
         => new()
         {
-            TimestampUtc = DateTime.UtcNow.AddMinutes(-minutesAgo),
+            TimestampUtc = Now.AddMinutes(-minutesAgo),
             Device = device,
             DeviceId = deviceId,
             Platform = platform,

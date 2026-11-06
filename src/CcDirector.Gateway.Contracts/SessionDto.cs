@@ -168,6 +168,14 @@ public sealed class SessionDto
     /// </summary>
     public string? MissionName { get; set; }
 
+    /// <summary>
+    /// GATEWAY-OWNED (the Missions First-Class mission): the Mission button's finished verdict - label, colour key,
+    /// tooltip and the document's address - folded by <c>MissionButtonFold</c> from <see cref="MissionId"/> and the
+    /// Gateway's mission store. Clients render it verbatim. Assigned on every fold, so a value a Director echoes back
+    /// never survives; null when the fold read no missions (nothing is claimed then).
+    /// </summary>
+    public MissionButtonDisplay? MissionButton { get; set; }
+
     /// <summary>The workflow RUN this session is seated on (Workflows mission, phase 5b - issue
     /// #1771), or null for an unseated session. Stamped at spawn from the Gateway-validated create
     /// request; mirrors <c>Session.WorkflowRunId</c> on the owning Director.</summary>

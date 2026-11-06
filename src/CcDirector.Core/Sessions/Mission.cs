@@ -72,6 +72,28 @@ public sealed class Mission
     public DateTimeOffset? WhyUpdatedAt { get; set; }
 
     /// <summary>
+    /// The dev report that is this Mission's MISSION DOCUMENT, or null when it has none yet (the Missions
+    /// First-Class mission). Set only by a session attached to this Mission publishing a report with
+    /// <c>cc-dev-reports open &lt;file&gt; --mission-document</c>; a later publish of that kind replaces it, so a
+    /// Mission has exactly one document. The link lives on the Mission, not on the publishing session, so it
+    /// outlives the session that wrote it.
+    ///
+    /// A record written before this field existed reads as null, which is the truth: no Mission had a document.
+    /// </summary>
+    public Guid? DocumentReportId { get; set; }
+
+    /// <summary>When <see cref="DocumentReportId"/> was last set (UTC), or null while the Mission has no document.</summary>
+    public DateTimeOffset? DocumentLinkedAt { get; set; }
+
+    /// <summary>
+    /// The Mission's GOAL, as plain text, read from the section of its mission document marked
+    /// <c>data-dev-report="goal"</c> each time the document is published. Empty means the document has no goal
+    /// section (or there is no document); it is never typed in by hand, because the goal is the one the mission
+    /// document already describes.
+    /// </summary>
+    public string Goal { get; set; } = string.Empty;
+
+    /// <summary>
     /// One of <see cref="MissionStates"/>. Defaults to Active, which is also what a record written before
     /// this field existed reads as - every mission that predates it was, by definition, never ended.
     ///

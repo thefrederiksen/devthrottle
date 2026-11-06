@@ -53,6 +53,11 @@ internal static class FactoryInboxEndpoints
     /// <param name="ParentOf">The session that started a session, from its history row; null when the Gateway has no history
     /// row for the session yet (a session seconds old), which is a different answer from a row with no parent.</param>
     /// <param name="IsEnded">Whether the Gateway has recorded a session as ended.</param>
+    /// <param name="Wakes">Each factory's wake row (phase 2): why its messages wait, shown in place of their state.</param>
+    /// <param name="MessageSent">Tells the wake a message was logged (<see cref="FactoryInboxWake.MessageSent"/>). It looks
+    /// at the factory when the gather window closes; the route never waits for it.</param>
+    /// <param name="BundleHanded">Tells the wake a Secretary handed a bundle (<see cref="FactoryInboxWake.BundleHanded"/>),
+    /// so the Boss is rung or started at once; the route never waits for it.</param>
     internal sealed record Parts(
         FactoryInboxStore Store,
         Func<HttpContext, TenantId?> ResolveTenant,
@@ -60,7 +65,10 @@ internal static class FactoryInboxEndpoints
         Func<TenantId, string, SessionFactoryLookup> FactoryOf,
         Func<TenantId, string, FactoryInboxRecordedParent?> ParentOf,
         Func<TenantId, string, bool> IsEnded,
-        Func<DateTime> NowUtc);
+        Func<DateTime> NowUtc,
+        FactoryInboxWakeStore Wakes,
+        Action<TenantId, string, DateTime> MessageSent,
+        Action<TenantId, string> BundleHanded);
 
     public static void Map(IEndpointRouteBuilder app, Parts parts)
     {
@@ -116,7 +124,10 @@ internal static class FactoryInboxEndpoints
                     SentBy: device.DeviceId,
                     NowUtc: parts.NowUtc(),
                     RawText: body.RawText), ct);
-                return Results.Json(new { message = FactoryInboxFold.Message(message, null) }, statusCode: StatusCodes.Status201Created);
+                // THE WRITE IS THE EVENT (phase 2): the wake looks at this factory when the gather window closes.
+                parts.MessageSent(tenant, message.Factory, message.SentAtUtc);
+                return Results.Json(new { message = FactoryInboxFold.Message(message, null, null, WaitingOf(parts, tenant, message.Factory)) },
+                    statusCode: StatusCodes.Status201Created);
             });
         });
 
@@ -141,7 +152,7 @@ internal static class FactoryInboxEndpoints
                         title = f.Title,
                         waiting = c?.Waiting ?? 0,
                         lastMessage = c is null ? null : FactoryInboxFold.Message(c.Last,
-                            decisions.TryGetValue(c.Last.Id, out var d) ? d : null, HandedOf(handed, c.Last)),
+                            decisions.TryGetValue(c.Last.Id, out var d) ? d : null, HandedOf(handed, c.Last), WaitingOf(parts, tenant, f.Factory)),
                     };
                 })
                 .ToList();
@@ -253,6 +264,8 @@ internal static class FactoryInboxEndpoints
             return Refusals(() =>
             {
                 var (bundle, messages) = parts.Store.HandBundle(caller!.Tenant, caller.Factory, caller.SessionId, ids, parts.NowUtc());
+                // The Boss is rung, or started, now (phase 2).
+                parts.BundleHanded(caller.Tenant, caller.Factory);
                 return Results.Json(new { bundle = Bundle(bundle, messages, new Dictionary<Guid, FactoryInboxDecisionEntity>()) },
                     statusCode: StatusCodes.Status201Created);
             });
@@ -312,7 +325,7 @@ internal static class FactoryInboxEndpoints
                 var handed = parts.Store.HandedTimes(caller.Tenant, decided.Message.BundleId is { } b ? [b] : []);
                 return Results.Json(new
                 {
-                    message = FactoryInboxFold.Message(decided.Message, decided.Decision, HandedOf(handed, decided.Message)),
+                    message = FactoryInboxFold.Message(decided.Message, decided.Decision, HandedOf(handed, decided.Message), WaitingOf(parts, caller.Tenant, caller.Factory)),
                     todo = decided.Todo is null ? null : Todo(decided.Todo),
                 });
             });
@@ -353,13 +366,19 @@ internal static class FactoryInboxEndpoints
             return Error(404, "factory_not_found", $"'{lookup.Factory}' is not a factory of this account.");
 
         var seat = lookup.SeatIsInherited ? null : lookup.Seat;
-        if (kind == SeatKind.Secretary && !string.Equals(seat, FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase))
+        // THE WAKE'S RECORD (phase 2): the session the wake started as this factory's Secretary or Boss - the only way an
+        // UNDEFINED factory's seat is known, since it carries no seat - as a trigger remembers the session it started.
+        var woken = parts.Wakes.Find(tenant, registered.Factory);
+        var recordedSecretary = woken?.SecretarySessionId is { } s && string.Equals(s, sessionId, StringComparison.OrdinalIgnoreCase);
+        var recordedBoss = woken?.BossSessionId is { } b && string.Equals(b, sessionId, StringComparison.OrdinalIgnoreCase);
+        if (kind == SeatKind.Secretary && !recordedSecretary
+            && !string.Equals(seat, FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase))
         {
             FileLog.Write($"[FactoryInboxEndpoints] REFUSED {sessionId}: seat '{lookup.Seat}' (kit {lookup.Kit ?? "none"}) is not the Secretary of {registered.Factory}");
             return Error(403, "not_the_secretary",
                 $"Only the Secretary of '{registered.Factory}' files its inbox, and this session was not started as its Secretary.");
         }
-        if (kind == SeatKind.Boss
+        if (kind == SeatKind.Boss && !recordedBoss
             && (string.IsNullOrWhiteSpace(registered.BossSeat) || !string.Equals(seat, registered.BossSeat.Trim(), StringComparison.OrdinalIgnoreCase)))
         {
             FileLog.Write($"[FactoryInboxEndpoints] REFUSED {sessionId}: seat '{lookup.Seat}' (kit {lookup.Kit ?? "none"}) is not the Boss of {registered.Factory}");
@@ -404,8 +423,15 @@ internal static class FactoryInboxEndpoints
     {
         var decisions = parts.Store.DecisionsOf(tenant, messages.Select(m => m.Id).ToList());
         var handed = parts.Store.HandedTimes(tenant, messages.Where(m => m.BundleId is not null).Select(m => m.BundleId!.Value).Distinct().ToList());
-        return messages.Select(m => FactoryInboxFold.Message(m, decisions.TryGetValue(m.Id, out var d) ? d : null, HandedOf(handed, m))).ToList();
+        var waiting = messages.Select(m => m.Factory).Distinct(StringComparer.Ordinal)
+            .ToDictionary(f => f, f => WaitingOf(parts, tenant, f), StringComparer.Ordinal);
+        return messages.Select(m => FactoryInboxFold.Message(m, decisions.TryGetValue(m.Id, out var d) ? d : null, HandedOf(handed, m),
+            waiting[m.Factory])).ToList();
     }
+
+    /// <summary>Why one factory's messages wait, from its wake row, or null when nothing waits.</summary>
+    private static FactoryInboxWaitingLabels? WaitingOf(Parts parts, TenantId tenant, string factory)
+        => FactoryInboxFold.WaitingOf(parts.Wakes.Find(tenant, factory));
 
     private static DateTime? HandedOf(IReadOnlyDictionary<Guid, DateTime> handed, FactoryInboxMessageEntity m)
         => m.BundleId is { } b && handed.TryGetValue(b, out var at) ? at : null;

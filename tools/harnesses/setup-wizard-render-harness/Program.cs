@@ -161,8 +161,13 @@ internal static class Program
         }
         // The bundle stays where the install put it, so the close rule still opens it; what goes is the
         // executable LaunchServices would run, so /usr/bin/open answers with an error instead of a launch.
-        var directorPath = CcDirector.Setup.Engine.InstallLayout.Default().PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
-        var executable = IoPath.Combine(directorPath, "Contents", "MacOS", "launch");
+        // Asked of InstallLayout rather than composed here, so the name of the bundle's
+        // CFBundleExecutable lives in ONE place. It used to be a "launch" bash wrapper; that was removed
+        // so the signed binary could carry the application's own code identity (#4518), and a harness
+        // that spelled the new name out by hand would fail with a path error rather than a useful one
+        // the next time it changes.
+        var executable = CcDirector.Setup.Engine.InstallLayout.Default()
+            .DirectorExecutablePath(System.Runtime.InteropServices.OSPlatform.OSX);
         var hidden = executable + ".hidden-for-proof";
         File.Move(executable, hidden);
         try

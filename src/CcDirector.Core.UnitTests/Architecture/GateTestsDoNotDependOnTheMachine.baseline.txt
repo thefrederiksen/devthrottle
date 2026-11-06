@@ -193,7 +193,6 @@ real-clock | src/CcDirector.Gateway.Tests/HostedSessionCommandRouteTenancyTests.
 real-clock | src/CcDirector.Gateway.Tests/HostedSnoozeLifecycleTenancyTests.cs | 2
 npgsql | src/CcDirector.Gateway.Tests/HostedStatsSelfHostControlTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/LauncherRefusalNamesItsCauseTests.cs | 1
-real-clock | src/CcDirector.Gateway.Tests/MicrophoneQualityFoldTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/MissionAttachRouteTenantScopingTests.cs | 1
 fixed-port | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1
 real-clock | src/CcDirector.Gateway.Tests/NullBoundaryHostedGateFailClosedTests.cs | 1

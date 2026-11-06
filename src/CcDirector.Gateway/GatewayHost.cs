@@ -345,6 +345,26 @@ public sealed class GatewayHost : IAsyncDisposable
     /// its to-do list (Factory Inbox mission, phase 1).</summary>
     internal Factory.Inbox.FactoryInboxStore FactoryInbox { get; }
 
+    /// <summary>Each factory's wake row: the Secretary and Boss the wake started, the start claim, what each was last
+    /// told, and why the factory waits (Factory Inbox mission, phase 2).</summary>
+    internal Factory.Inbox.FactoryInboxWakeStore FactoryInboxWakes { get; }
+
+    /// <summary>The wake (Factory Inbox mission, phase 2): starts or rings a factory's Secretary when its gather window
+    /// closes, and its Boss when a bundle is handed. Set in <see cref="StartAsync"/>; exposed for the tests.</summary>
+    internal Factory.Inbox.FactoryInboxWake? FactoryInboxWake => _factoryInboxWake;
+
+    private Factory.Inbox.FactoryInboxWake? _factoryInboxWake;
+    private System.Threading.Timer? _factoryInboxWakeTimer;
+    private int _factoryInboxWakeInFlight;
+
+    /// <summary>Test seam: when false, <see cref="StartAsync"/> does not start the wake's heartbeat, so a test-spun host
+    /// never starts a Secretary on its own. A test's direct <see cref="FactoryInboxWake"/> calls are unaffected.</summary>
+    internal static bool FactoryInboxWakeHeartbeatEnabled = true;
+
+    /// <summary>How long after the Gateway starts the wake's heartbeat first looks: long enough for every connected
+    /// Director to push its sessions again, so a Secretary or Boss that is alive is seen before anything is started.</summary>
+    internal static readonly TimeSpan FactoryInboxWakeFirstLook = TimeSpan.FromSeconds(60);
+
     /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
     /// phase 1).</summary>
     internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
@@ -1045,6 +1065,40 @@ public sealed class GatewayHost : IAsyncDisposable
         }
     }
 
+    /// <summary>The wake, which <see cref="StartAsync"/> builds before it maps the routes that call it.</summary>
+    private Factory.Inbox.FactoryInboxWake TheFactoryInboxWake()
+        => _factoryInboxWake ?? throw new InvalidOperationException("the factory inbox wake is not built yet");
+
+    /// <summary>The wake's heartbeat (Factory Inbox mission, phase 2): one pass at a time, every account in its own scope.
+    /// The wake reads each account's inbox first and asks the factory agents switch only when it holds work. Never throws.</summary>
+    private void SweepFactoryInboxWake()
+    {
+        if (_factoryInboxWake is not { } wake) return;
+        if (Interlocked.CompareExchange(ref _factoryInboxWakeInFlight, 1, 0) != 0)
+            return;
+        _ = RunFactoryInboxWakeSweepAsync(wake);
+    }
+
+    private async Task RunFactoryInboxWakeSweepAsync(Factory.Inbox.FactoryInboxWake wake)
+    {
+        try
+        {
+            await _tenantPass.ForEachTenantAsync(
+                () => _tenantPass.Current is { } tenant
+                    ? wake.SweepAsync(tenant, _triggerStartLifetime.Token)
+                    : Task.CompletedTask,
+                _triggerStartLifetime.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] factory inbox wake heartbeat FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _factoryInboxWakeInFlight, 0);
+        }
+    }
+
     /// <summary>The doorbell heartbeat's timer callback: one tick at a time, never throws.</summary>
     private void SweepFleetDoorbell()
     {
@@ -1426,6 +1480,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// factory starts a factory's Boss. Handed to both spawn doors a session key reaches.</summary>
     private Factory.Definition.BossStartReader BossStartFor(TenantId tenant)
         => factory => Factory.Definition.FactoryBossStarts.Read(FactoryRegistry, FactoryDefinitions, tenant, factory);
+
+    /// <summary>Records a session a spawn door started as a factory's Boss for a session in no factory, or the verified
+    /// restore of one (issue #4598), in the account the request is scoped to. Handed to both spawn doors.</summary>
+    private void RecordBossStart(string sessionId, string factory, string seat, string startedBy, string kind)
+        => _sessionHistory.RecordBossStart(sessionId, factory, seat, startedBy, kind, DateTime.UtcNow);
 
     /// <summary>Which Directors run checks from a factory's definition (Factory Definition, phase 5b) - recorded at
     /// Hello, read when a Director asks for its triggers and when a trigger's status is decided.</summary>
@@ -2571,7 +2630,9 @@ public sealed class GatewayHost : IAsyncDisposable
             inboxLines: () => _fleetMessages,
             // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps from, so the pushed
             // wheel button is the roster's.
-            apiModeFacts: () => _apiModeDisplayFacts);
+            apiModeFacts: () => _apiModeDisplayFacts,
+            // The Missions First-Class mission: the Mission button, from the same store the roster route reads.
+            missionsFor: Api.GatewayEndpoints.MissionsForFold(Missions));
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
@@ -2631,6 +2692,7 @@ public sealed class GatewayHost : IAsyncDisposable
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // A spoken message is corrected with the account's own listed words, read exactly as the dictation path reads them.
         FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb, Transcription.TenantGlossary.Load);
+        FactoryInboxWakes = new Factory.Inbox.FactoryInboxWakeStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -4441,8 +4503,7 @@ public sealed class GatewayHost : IAsyncDisposable
             catch (Exception ex) { FileLog.Write($"[GatewayHost] repository history save FAILED: {ex.Message}"); }
         }, null, RepoHistorySaveEvery, RepoHistorySaveEvery);
 
-        _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
-            new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
+        var fleetManagerEnvironment = new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
                 route: (tenant, directorId) =>
                 {
                     var director = Registry.Get(tenant, directorId);
@@ -4461,12 +4522,48 @@ public sealed class GatewayHost : IAsyncDisposable
                 },
                 checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
                 directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
-                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),
+                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+        _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
+            fleetManagerEnvironment,
             _fleetManagerDeliveryGate,
             // A marked event carries the account's confirmed lessons as they are when it is delivered (issue #3559).
             // In a team, an event is typed only into the holder's row: the environment's IsHoldersRow, the store's one
             // answer (devthrottle_internal#2311, OR-F1).
             lessons: FleetManagerLessonsBlock);
+        // THE WAKE (Factory Inbox mission, phase 2). A Secretary or a Boss starts through the machine spawner's one
+        // resolve-then-create path, pinned to a Director found running on the seat's own computer; a ring is the Fleet
+        // Manager's guarded prompt send, typed only into a session waiting for a prompt with no draft of the owner's.
+        _factoryInboxWake = new Factory.Inbox.FactoryInboxWake(FactoryInboxWakes,
+            new Factory.Inbox.GatewayFactoryInboxWakeEnvironment(
+                factory: (tenant, factory) => FactoryRegistry.Find(tenant, factory),
+                published: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+                roster: tenant => PushedSessions.SnapshotFresh(tenant, _streamStaleAfter),
+                lastKnown: (tenant, sid) => PushedSessions.TryGetLastKnownSession(tenant, sid),
+                hasEnded: (tenant, sid) => DevReportSessionLiveness(tenant, sid).Reach == DevReports.DevReportSessionReach.Ended,
+                publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat),
+                directorOn: (tenant, machine, buildsKit) => Registry.ListDirectors(tenant)
+                    .Where(d => d.StoppedAtUtc is null
+                                && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase)
+                                && IsDirectorConnected(tenant, d.DirectorId)
+                                && (!buildsKit || _factoryKitCapabilities.BuildsFactoryKit(tenant, d.DirectorId)))
+                    .OrderBy(d => d.DirectorId, StringComparer.Ordinal)
+                    .Select(d => d.DirectorId)
+                    .FirstOrDefault(),
+                start: async (tenant, machine, request, ct) =>
+                {
+                    using (_tenantBoundary.EnterScope(tenant))
+                    {
+                        var r = await _machineSessionSpawner.SpawnOnMachineWithOutcomeAsync(machine, request, ct);
+                        if (r.Ok && r.Dto is not null) return Factory.Triggers.TriggerStartAttempt.Started(r.Dto.SessionId);
+                        var error = r.Error ?? "the machine did not return a session";
+                        return r.OutcomeUnknown
+                            ? Factory.Triggers.TriggerStartAttempt.Unknown(error)
+                            : Factory.Triggers.TriggerStartAttempt.Failed(error);
+                    }
+                },
+                ring: fleetManagerEnvironment.SendPromptAsync,
+                factoryAgents: FactoryAgentsSwitch),
+            _triggerStartLifetime.Token);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
@@ -5035,6 +5132,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     using (_tenantBoundary.EnterScope(identity.Tenant))
                         return _sessionHistory.FactoryOf(identity.SessionId.ToString("D"));
                 },
+                // An undefined factory's Secretary carries no seat; the wake's row is what records it.
+                IsTheWakesSecretary = (identity, factory) =>
+                    FactoryInboxWakes.RecordsAsSecretary(identity.Tenant, factory, identity.SessionId.ToString("D")),
             };
             _app.Use(async (ctx, next) => await AuthMiddleware.Run(ctx, requireToken, next));
         }
@@ -5277,6 +5377,9 @@ public sealed class GatewayHost : IAsyncDisposable
             seatRulesFor: SeatRulesFor,
             // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
             bossStartFor: BossStartFor,
+            // Issue #4598: a Boss started for a session in no factory is recorded, so it holds the Boss's authority.
+            recordBossStart: RecordBossStart,
+            bossStartOf: _sessionHistory.BossStartOf,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -5712,7 +5815,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 _tenantPass.Current ?? throw new InvalidOperationException("no account is bound to this request, so no dev report can pass."),
                 nowUtc),
             // In a team the workspace list is the caller's own (devthrottle_internal#2311, live proof F2).
-            teamCaller: ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant ? TeamCallerFor(ctx, tenant) : null);
+            teamCaller: ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant ? TeamCallerFor(ctx, tenant) : null,
+            // Issue #4598: a Smart Restart reopen of a Boss carries the Boss's record to the session it reopened as.
+            carryBossStart: (from, to) => Api.SpawnFactory.CarryBossStart(from, to, _sessionHistory.BossStartOf, RecordBossStart,
+                "POST /gateway/workspaces/{id}/restore/marks"));
         // The register names WHICH library it is for the caller's key - this Gateway's stable id, the tenant the
         // store just answered for, and the team when that tenant is one - so a Director stamps its skills with an
         // identity that never depends on the address it used (devthrottle_internal#2311, SK-F2/SK-F3).
@@ -5775,7 +5881,11 @@ public sealed class GatewayHost : IAsyncDisposable
                     return _sessionHistory.Get(sessionId) is { } row ? new Api.FactoryInboxRecordedParent(row.ParentSessionId) : null;
             },
             IsEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
-            NowUtc: () => DateTime.UtcNow));
+            NowUtc: () => DateTime.UtcNow,
+            Wakes: FactoryInboxWakes,
+            // Phase 2: the write is the event. Neither route waits for the wake; a look runs on the Gateway's lifetime.
+            MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
+            BundleHanded: (tenant, factory) => _ = TheFactoryInboxWake().BundleHanded(tenant, factory)));
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
@@ -6330,7 +6440,7 @@ public sealed class GatewayHost : IAsyncDisposable
                     // Boss's computer is the registry's, and a Director "runs on it" exactly as the Talk route asks.
                     new Factory.Inbox.FactoryInboxStuckAlertSource(_gatewayDb,
                         factories: tenant => FactoryRegistry.List(tenant),
-                        isEnded: (tenant, sessionId) => DevReportSessionLiveness(tenant, sessionId).Reach == DevReports.DevReportSessionReach.Ended,
+                        endedAmong: EndedSessionsAmong,
                         directorRunsOn: (tenant, machine) => Registry.ListDirectors(tenant).Any(d =>
                             d.StoppedAtUtc is null && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))),
                 },
@@ -6736,7 +6846,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // seat carries them, read from the definition version the seat was started from.
             seatRulesFor: SeatRulesFor,
             // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
-            bossStartFor: BossStartFor);
+            bossStartFor: BossStartFor,
+            // Issue #4598: a Boss started for a session in no factory is recorded, so it holds the Boss's authority.
+            recordBossStart: RecordBossStart);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,
@@ -6755,7 +6867,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
         Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming,
-            DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership));
+            DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership),
+            new DevReports.MissionDocumentLinker(Missions, DevReportSessionMission));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
@@ -6988,6 +7101,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
             TurnVerdictRetentionStartupDelay, TurnVerdictRetentionInterval);
         FileLog.Write($"[GatewayHost] turn verdict retention sweep started: every {TurnVerdictRetentionInterval.TotalHours:0}h, retention {Wingman.TurnVerdictStore.RetentionPeriod.TotalDays:0} days");
+        if (FactoryInboxWakeHeartbeatEnabled)
+        {
+            _factoryInboxWakeTimer = new System.Threading.Timer(_ => SweepFactoryInboxWake(), null,
+                FactoryInboxWakeFirstLook, Factory.Inbox.FactoryInboxWake.HeartbeatInterval);
+            FileLog.Write($"[GatewayHost] factory inbox wake heartbeat started: first look in {FactoryInboxWakeFirstLook.TotalSeconds:0}s, then every {Factory.Inbox.FactoryInboxWake.HeartbeatInterval.TotalSeconds:0}s");
+        }
         if (FleetDoorbellHeartbeatEnabled)
         {
             _fleetDoorbellTimer = new System.Threading.Timer(_ => SweepFleetDoorbell(), null,
@@ -7383,7 +7502,10 @@ public sealed class GatewayHost : IAsyncDisposable
         bool writes = true,
         // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps each API-mode row's verdict
         // from, so the wheel button pushed to the desktop is the one every browser reads. Null stamps no verdict.
-        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null,
+        // The Missions First-Class mission: the account's missions, so the Mission button pushed to the desktop is the
+        // one the roster serves. Null stamps no verdict.
+        Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? missionsFor = null)
     {
         foreach (var s in sessions)
         {
@@ -7408,7 +7530,7 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
             handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
-            inboxLines: inboxLines, writes: writes, apiModeFacts: apiModeFacts);
+            inboxLines: inboxLines, writes: writes, apiModeFacts: apiModeFacts, missionsFor: missionsFor);
     }
 
     /// <summary>
@@ -7971,6 +8093,33 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// Which of <paramref name="sessionIds"/> have ENDED, by the same rule as <see cref="DevReportSessionLiveness"/> -
+    /// Exited or Failed on the fresh roster, or absent from it with an ending on its history row - but asked for every
+    /// session at once: the roster is in memory, and every absent session is read in ONE history query, so the cost does
+    /// not grow with the number of sessions (the deploy slowdown of 6 November 2026).
+    /// </summary>
+    private IReadOnlySet<string> EndedSessionsAmong(TenantId tenant, IReadOnlyCollection<string> sessionIds)
+    {
+        var ended = new HashSet<string>(StringComparer.Ordinal);
+        var absent = new List<string>();
+        foreach (var sessionId in sessionIds)
+        {
+            if (PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter) is { } loc)
+            {
+                if ((loc.Session.ActivityState ?? "") is "Exited" or "Failed") ended.Add(sessionId);
+            }
+            else
+            {
+                absent.Add(sessionId);
+            }
+        }
+        if (absent.Count > 0)
+            foreach (var (sessionId, fact) in _sessionHistory.EndingsOf(tenant, absent))
+                if (!string.IsNullOrEmpty(fact.EndingKind)) ended.Add(sessionId);
+        return ended;
+    }
+
+    /// <summary>
     /// The identity shared by reports from one factory seat. Session history supplies it when available; the run record
     /// supplies it for scheduled sessions whose history predates the seat field.
     /// </summary>
@@ -8012,6 +8161,24 @@ public sealed class GatewayHost : IAsyncDisposable
         using (_tenantBoundary.EnterScope(tenant))
             history = _sessionHistory.Get(sessionId);
         return new(history?.SessionNumber, history?.SessionName);
+    }
+
+    /// <summary>
+    /// The Mission a publishing session is attached to (the Missions First-Class mission), from the Gateway's own
+    /// records and reached the way <see cref="DevReportSessionNaming"/> reaches a session: the live roster first, then
+    /// the durable session history row. Null when the session is attached to no Mission. The caller never supplies
+    /// it, which is what keeps a session to linking its OWN Mission.
+    /// </summary>
+    private Guid? DevReportSessionMission(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+            return loc.Session.MissionId;
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        return history?.MissionId;
     }
 
     /// <summary>Whether that tenant's Director has an active stream connection now.</summary>
@@ -8104,6 +8271,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _licenseSwitchTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch timer dispose error: {ex.Message}"); }
         _licenseSwitchTimer = null;
         try { _licenseSwitchLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license switch lifetime cancel error: {ex.Message}"); }
+        try { _factoryInboxWakeTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] factory inbox wake timer dispose error: {ex.Message}"); }
+        _factoryInboxWakeTimer = null;
         try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }

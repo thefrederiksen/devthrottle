@@ -119,6 +119,29 @@ When you must force-kill as a last resort: only kill a process whose path matche
 
 For non-session-creating tests (HTML rendering, REST endpoint smoke, build-only verification) launching from your context is still fine. Only session-creation tests need the Task Scheduler path.
 
+### 0c. A TEST GATEWAY CHANGES NOTHING ON THE MACHINE: SET `CC_GATEWAY_NO_TAILSCALE=1`
+
+**Every Gateway you start yourself on this machine - `dotnet run`, `dotnet CcDirector.Gateway.dll`, a rig script, a
+proof harness - is started with `CC_GATEWAY_NO_TAILSCALE=1` and its own `CC_DIRECTOR_ROOT` (a scratch folder).**
+Without the first, a self-host Gateway's start-up REWRITES this machine's tailnet front door (`tailscale serve`
+https 443) to point at the test port, and a timer re-asserts it every 60 seconds while it runs; the old value is
+not logged, so it cannot be put back by reading anything. Without the second, it reads and writes the real
+configuration under `%LOCALAPPDATA%\cc-director`.
+
+**Why:** on 6 November 2026 a diagnosis rig booted a self-host Gateway on port 17881 with neither, and the machine's
+front door was left proxying a dead port. The switch is read once, in `TailscaleServeProvisioner`'s constructor
+(`src/CcDirector.Gateway/Tailscale/TailscaleServeProvisioner.cs`): set, the provisioner maps nothing, starts no timer
+and never reconciles. A hosted Gateway (`CC_GATEWAY_HOSTED=1`) never starts it at all.
+
+**How to apply:** put both in the same command that starts the Gateway, so no run can forget them:
+
+```powershell
+$env:CC_GATEWAY_NO_TAILSCALE = "1"; $env:CC_DIRECTOR_ROOT = "<scratch folder>"; dotnet run --project src\CcDirector.Gateway -- --port <free port>
+```
+
+and check the Gateway's log says `CC_GATEWAY_NO_TAILSCALE=1; Tailscale Serve auto-provisioning disabled` before trusting
+the run. Never run `tailscale serve` yourself to undo a mistake: say so, and the owner restores it.
+
 ### 1. Responsive UI - MANDATORY
 
 **Every user action MUST provide immediate visual feedback (<100ms).**

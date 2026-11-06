@@ -61,8 +61,27 @@ internal static class Program
         FileLog.Write($"[Program] Instance: slug={InstanceContext.Slug}, isDefault={InstanceContext.IsDefault}, " +
                       $"explicit={InstanceContext.WasExplicitlySelected}, home={InstanceContext.InstanceHome}");
 
-        // Put the tool shim directory (~/.local/bin for the machine's default root, the root's own bin for any
-        // other) on this process's PATH on macOS and Linux when whatever started the Director left it
+        // FIRST the desktop-launch directories - Homebrew, ~/.local/bin, ~/.claude/local - which launchd
+        // leaves out of a GUI application's PATH. This replaces the #!/bin/bash wrapper that used to be the
+        // macOS bundle's CFBundleExecutable purely to do this; the wrapper made the bundle's hosting identity
+        // "com.apple.bash", so the app could not carry a code identity of its own (issue #4518).
+        //
+        // THE ORDER OF THESE TWO CALLS IS THE POINT. The wrapper ran before this process existed, so the
+        // shim directory below was always prepended in FRONT of what the wrapper had set. Calling them the
+        // other way round puts ~/.local/bin - which holds the machine default root's cc-* links - ahead of
+        // a non-default root's own bin, so a Director on a scratch root, and every session it starts, would
+        // resolve cc-devthrottle to the default install instead of its own. That is the cross-root bleed
+        // ShimDirFor exists to prevent (mission #4070).
+        CcDirector.Core.Tools.ToolShimPath.EnsureGuiLaunchPathDefaults();
+
+        // The OTHER half of what that wrapper did: `cd "$DIR"`. launchd hands a desktop launch "/" as
+        // its working directory, and every caller of ProcessWorkingDirectory.CurrentOrAppDirectory
+        // reads that successfully and passes it on - so a new session's working directory defaulted to
+        // the file-system root and the skill search started there (issue #4518).
+        CcDirector.Core.Utilities.ProcessWorkingDirectory.LeaveTheFilesystemRoot();
+
+        // THEN the tool shim directory (~/.local/bin for the machine's default root, the root's own bin for
+        // any other), on this process's PATH on macOS and Linux when whatever started the Director left it
         // out - an SSH start does (issue devthrottle_internal#2474). Before any session starts, so every
         // session inherits it and can run cc-devthrottle, and so a Smart Restart hands it to the next build.
         CcDirector.Core.Tools.ToolShimPath.EnsureOnProcessPath();

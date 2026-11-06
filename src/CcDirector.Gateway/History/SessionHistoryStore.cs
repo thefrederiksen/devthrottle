@@ -474,6 +474,7 @@ public sealed class SessionHistoryStore
                 .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion, e.FactoryKit, e.SessionName })
                 .FirstOrDefault();
             if (row is null) return SessionFactoryLookup.NotKnown;
+            var startedAsTheBoss = BossStartRecorded(ctx, sessionId, row.Factory, row.FactorySeat, row.FactoryKit);
             // The seat and its version come with the factory (Factory Definition mission, phase 5): read in the
             // same one query, from the same row, so a child's seat is settled from the same answer as its factory.
             // The name rides along (phase 6c): a publish by a session records it beside the session's id.
@@ -485,7 +486,83 @@ public sealed class SessionHistoryStore
                     // The kit says whether the seat was started or inherited: only the session started as a factory's
                     // boss seat is its Boss (the owner's ruling of 21 October 2026).
                     Kit = row.FactoryKit,
+                    StartedAsTheBoss = startedAsTheBoss,
                 };
+        }
+    }
+
+    /// <summary>
+    /// DID THE GATEWAY RECORD THIS RULES-ONLY SESSION AS STARTED AS ITS FACTORY'S BOSS (issue #4598)? Only a session in
+    /// a factory with a seat and the rules-only kit is asked, and the record must name the same factory and seat its
+    /// history row does - so a record can never lend a Boss's authority to any other seat.
+    /// </summary>
+    private static bool BossStartRecorded(GatewayDbContext ctx, string sessionId, string? factory, string? seat, string? kit)
+    {
+        if (string.IsNullOrWhiteSpace(factory) || string.IsNullOrWhiteSpace(seat)
+            || !string.Equals(kit?.Trim(), FactoryKits.RulesOnly, StringComparison.Ordinal))
+            return false;
+        var mark = ctx.FactoryBossStarts.AsNoTracking()
+            .Where(e => e.SessionId == sessionId)
+            .Select(e => new { e.Factory, e.Seat })
+            .FirstOrDefault();
+        return mark is not null
+               && string.Equals(mark.Factory, factory.Trim(), StringComparison.OrdinalIgnoreCase)
+               && string.Equals(mark.Seat, seat.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// RECORD THAT THE GATEWAY STARTED <paramref name="sessionId"/> AS THE BOSS of <paramref name="factory"/> (issue
+    /// #4598): called by a spawn door only after SpawnFactory approved a Boss start for a session in no factory and the
+    /// Director confirmed the session. Write-once: a second record for the same session is left as it was.
+    /// </summary>
+    public void RecordBossStart(string sessionId, string factory, string seat, string startedBy, string kind, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(seat);
+        ArgumentException.ThrowIfNullOrWhiteSpace(startedBy);
+        if (kind is not (FactoryBossStartKinds.Started or FactoryBossStartKinds.Restored))
+            throw new ArgumentException($"a Boss start is '{FactoryBossStartKinds.Started}' or '{FactoryBossStartKinds.Restored}', not '{kind}'", nameof(kind));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var id = sessionId.Trim();
+            if (ctx.FactoryBossStarts.Any(e => e.SessionId == id))
+            {
+                FileLog.Write($"[SessionHistoryStore] RecordBossStart: {id} is already recorded - left as it was");
+                return;
+            }
+            ctx.FactoryBossStarts.Add(new FactoryBossStartEntity
+            {
+                TenantId = ctx.ActiveTenant!,
+                SessionId = id,
+                Factory = factory.Trim(),
+                Seat = seat.Trim(),
+                StartedBy = startedBy.Trim(),
+                Kind = kind,
+                RecordedAtUtc = nowUtc,
+            });
+            ctx.SaveChanges();
+            FileLog.Write($"[SessionHistoryStore] RecordBossStart: {id} {kind} as the Boss '{seat}' of '{factory}' by {startedBy}");
+        }
+    }
+
+    /// <summary>
+    /// The Boss start recorded for <paramref name="sessionId"/>, as its factory and seat, or null when none is. What a
+    /// verified restore reads to carry the record to the session that restores it.
+    /// </summary>
+    public (string Factory, string Seat)? BossStartOf(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var id = sessionId.Trim();
+            var mark = ctx.FactoryBossStarts.AsNoTracking()
+                .Where(e => e.SessionId == id)
+                .Select(e => new { e.Factory, e.Seat })
+                .FirstOrDefault();
+            return mark is null ? null : (mark.Factory, mark.Seat);
         }
     }
 

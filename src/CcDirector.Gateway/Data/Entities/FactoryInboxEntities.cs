@@ -147,3 +147,59 @@ public sealed class FactoryTodoEntity : GatewayMintedKeyEntity
     /// <summary>When it was added (UTC).</summary>
     public DateTime AddedAtUtc { get; set; }
 }
+
+/// <summary>
+/// WHAT THE WAKE KNOWS OF ONE FACTORY, in the <c>factory_inbox_wakes</c> table (Factory Inbox mission, phase 2): one row
+/// per factory, written only by <c>Factory.Inbox.FactoryInboxWake</c>.
+///
+/// THE ONE-START-PER-FACTORY RULE IS THIS ROW. A start of the factory's Secretary, or of its Boss, is claimed by one
+/// conditional update on <see cref="Version"/> - the update that finds the version it read wins, every other writer
+/// finds none - so two Gateway processes, or a Gateway restarted in the middle of a start, never start two. The row also
+/// remembers the session each start returned (as a trigger remembers its last session), what the running Secretary and
+/// Boss were last rung for, so nobody is rung twice for the same messages, and why the factory is waiting when nothing
+/// could be started, in words the thread shows.
+/// </summary>
+public sealed class FactoryInboxWakeEntity : GatewayMintedKeyEntity
+{
+    /// <summary>The factory, in the Gateway's one spelling of a factory id. One row per factory of an account.</summary>
+    public string Factory { get; set; } = "";
+
+    /// <summary>Raised by every write. The claim of a start is a conditional update on the version that was read.</summary>
+    public int Version { get; set; }
+
+    /// <summary>The Secretary session the wake last started, or null before its start returned one.</summary>
+    public string? SecretarySessionId { get; set; }
+
+    /// <summary>When the wake claimed the Secretary's start (UTC). Set with no session id, a start is in flight, or its
+    /// outcome is unknown; either holds the claim for the start grace. Null when no start is held.</summary>
+    public DateTime? SecretaryStartedAtUtc { get; set; }
+
+    /// <summary>The newest message (by its sent time) the running Secretary has been told of, by its opening or a ring.
+    /// A ring is due only for a message sent after it.</summary>
+    public DateTime? SecretaryToldUpToUtc { get; set; }
+
+    /// <summary>The Boss session the wake last started, or null.</summary>
+    public string? BossSessionId { get; set; }
+
+    /// <summary>When the wake claimed the Boss's start (UTC), as <see cref="SecretaryStartedAtUtc"/>.</summary>
+    public DateTime? BossStartedAtUtc { get; set; }
+
+    /// <summary>The newest bundle (by its handed time) the running Boss has been told of.</summary>
+    public DateTime? BossToldUpToUtc { get; set; }
+
+    /// <summary>Why the factory's new messages wait for a Secretary, as a closed word (<c>FactoryInboxWords.Waiting</c>),
+    /// or null when they do not wait.</summary>
+    public string? SecretaryWaiting { get; set; }
+
+    /// <summary>The detail the waiting sentence names: the computer with no Director, or the start's error.</summary>
+    public string? SecretaryWaitingDetail { get; set; }
+
+    /// <summary>Why the factory's bundles wait for a Boss, as a closed word, or null.</summary>
+    public string? BossWaiting { get; set; }
+
+    /// <summary>The detail the Boss's waiting sentence names.</summary>
+    public string? BossWaitingDetail { get; set; }
+
+    /// <summary>When the row was last written (UTC).</summary>
+    public DateTime UpdatedAtUtc { get; set; }
+}

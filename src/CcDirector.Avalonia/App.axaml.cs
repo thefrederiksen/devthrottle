@@ -1266,11 +1266,13 @@ public partial class App : Application
                 }
             }
 
-            // ...then the per-install appsettings.json next to the exe, which WINS over the
-            // shared config: an isolated test Director (issue #329) points its own appsettings
-            // at a test communications DB and a mock channel tool without ever touching the
-            // shared per-machine config.json other Directors on this box read.
-            var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            // ...then appsettings.json, which WINS over the shared config: an isolated test Director
+            // (issue #329) points its own appsettings at a test communications DB and a mock channel
+            // tool without ever touching the shared per-machine config.json other Directors on this box
+            // read. That override is still the copy NEXT TO THE EXECUTABLE and is still per-install;
+            // what moved is only where a DEFAULT is written when there is no copy at all, and that
+            // default lands in the root's config directory - see ResolveAgentConfigPath.
+            var configPath = ResolveAgentConfigPath();
             if (File.Exists(configPath))
             {
                 var json = File.ReadAllText(configPath);
@@ -1309,13 +1311,62 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// Where the agent configuration is read from, and where a default is written when there is none.
+    ///
+    /// A copy next to the executable WINS when one is there. That is deliberate: a per-install
+    /// appsettings.json is how an isolated test Director points itself at its own communications
+    /// database (issue #329), and it is also what a packaged build may ship with.
+    ///
+    /// What must never happen is WRITING one there. On macOS <c>AppContext.BaseDirectory</c> is
+    /// <c>Director.app/Contents/MacOS</c>, so creating a default on first run added a file inside the
+    /// signed bundle and broke its seal - codesign then reports "a sealed resource is missing or
+    /// invalid", and the bundle can never be notarized. A signed bundle is replaced whole and never
+    /// edited in place, so the default goes to the user's config directory and is read back there.
+    ///
+    /// THAT DEFAULT IS NOT PER-INSTALL, and the difference is worth knowing. <c>CcStorage.Config()</c>
+    /// is the CURRENT ROOT's config directory: a named Director has its own root and so its own copy,
+    /// but two installs sharing one root now share one file where each used to have its own beside its
+    /// own executable. It is equivalent today because the only thing ever written there is the default,
+    /// and because a real per-install override still wins by sitting next to the executable. A reader
+    /// who later puts real settings in the written default needs to know it is shared.
+    /// </summary>
+    private static string ResolveAgentConfigPath()
+    {
+        var besideExecutable = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        if (File.Exists(besideExecutable))
+            return besideExecutable;
+
+        // THE WHOLE BODY IS GUARDED. What this replaced was Path.Combine(AppContext.BaseDirectory, ...),
+        // which cannot throw; CcStorage.Config() can - it rejects a relative CC_DIRECTOR_ROOT - and so can
+        // the directory creation. Every caller treats a missing config as "use the defaults", so a failure
+        // here must degrade to that rather than take the start-up path down (issue #4518 review).
+        try
+        {
+            var userConfig = Path.Combine(CcStorage.Config(), "appsettings.json");
+            if (!File.Exists(userConfig))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(userConfig)!);
+                WriteDefaultConfig(userConfig);
+            }
+
+            return userConfig;
+        }
+        catch (Exception ex)
+        {
+            // Returning the in-bundle path is safe: it does not exist (the check above said so), so every
+            // caller's File.Exists is false and the defaults apply. Nothing is written into the bundle.
+            FileLog.Write(
+                $"[App] ResolveAgentConfigPath FAILED: could not resolve the user config path, "
+                + $"falling back to the built-in defaults: {ex}");
+            return besideExecutable;
+        }
+    }
+
     private void LoadConfiguration()
     {
         Options = new AgentOptions();
-        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-
-        if (!File.Exists(configPath))
-            WriteDefaultConfig(configPath);
+        var configPath = ResolveAgentConfigPath();
 
         try
         {
@@ -1477,11 +1528,20 @@ public partial class App : Application
 
         try
         {
-            File.WriteAllText(configPath, defaultConfig);
+            // WRITTEN ATOMICALLY, because this file is no longer per-install. It used to be created
+            // beside the executable, where nothing else could be writing it; it is now in the root's
+            // config directory, which every Director on that root shares. Two starting together could
+            // put one WriteAllText inside the other's ReadAllText - the reader gets truncated JSON,
+            // JsonDocument.Parse throws, and the catch in LoadConfiguration only reaches
+            // Debug.WriteLine, which is compiled out of Release. So the Director would have started
+            // silently on the built-in defaults with nothing in the log to say why.
+            // AtomicFileReplace is the house answer to this exact problem (issue #3220): a reader sees
+            // the whole old file or the whole new one and never half of either.
+            AtomicFileReplace.WriteAllText(configPath, defaultConfig);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to write default config: {ex.Message}");
+            FileLog.Write($"[App] WriteDefaultConfig FAILED for {configPath}: {ex}");
         }
     }
 

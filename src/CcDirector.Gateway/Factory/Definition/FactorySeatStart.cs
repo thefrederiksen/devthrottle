@@ -159,9 +159,14 @@ public static class FactorySeatStart
         var read = FactoryDefinitionCheck.Read(version.Files);
         if (read.Definition is not { } definition)
         {
-            FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version} does not parse: {string.Join(" | ", read.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}"))}");
-            throw new InvalidOperationException($"version {published.Version} of the definition of '{id}' is published but cannot be read; publish a version that passes the check");
+            var errors = string.Join(" | ", read.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}"));
+            FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version} does not parse: {errors}");
+            throw new InvalidOperationException($"version {published.Version} of the definition of '{id}' is published but cannot be read; the definition has validation errors: {errors.TrimEnd('.')}. Publish a version that passes the check (cc-devthrottle factory definition check).");
         }
+
+        // A seat with a blank brief never gets here: the seat schema requires a brief with a character that is not white
+        // space, so the check reports it as an error and builds no definition, and the refusal above names its file,
+        // line and rule.
         FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version}");
         return new PublishedFactoryDefinition(published.Version, definition);
     }

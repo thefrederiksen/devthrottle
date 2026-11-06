@@ -76,6 +76,40 @@ public sealed class SecretaryStartLimitTests
     }
 
     [Fact]
+    public void Refuse_ASessionTheWakeRecordedAsItsFactorysSecretary_IsRefused_WithNoSeat()
+    {
+        var asked = new List<string>();
+        var refusal = SecretaryStartLimit.Refuse(SessionFactoryLookup.In("ledger"), factory => { asked.Add(factory); return true; });
+
+        Assert.NotNull(refusal);
+        Assert.Equal(403, refusal!.Status);
+        Assert.Equal("secretary_starts_nothing", refusal.Code);
+        // The wake's record is asked about the caller's own factory, never another.
+        Assert.Equal(new[] { "ledger" }, asked);
+    }
+
+    [Fact]
+    public void Refuse_ASessionTheWakeDidNotRecord_IsNot()
+    {
+        Assert.Null(SecretaryStartLimit.Refuse(SessionFactoryLookup.In("ledger"), _ => false));
+        Assert.Null(SecretaryStartLimit.Refuse(SessionFactoryLookup.In("invoices", "boss", 3) with { Kit = FactoryKits.Seat }, _ => false));
+    }
+
+    [Fact]
+    public void Refuse_TheWakesRecordIsNotAskedWhenTheRowAlreadyAnswers()
+    {
+        var asked = 0;
+        bool Record(string _) { asked++; return true; }
+
+        // In no factory, or no row yet: there is no factory to ask about.
+        Assert.Null(SecretaryStartLimit.Refuse(SessionFactoryLookup.InNoFactory, Record));
+        Assert.Equal(409, SecretaryStartLimit.Refuse(SessionFactoryLookup.NotKnown, Record)!.Status);
+        // Seated as the Secretary already: refused without the second read.
+        Assert.NotNull(SecretaryStartLimit.Refuse(SessionFactoryLookup.In("invoices", FactoryInboxSeats.Secretary), Record));
+        Assert.Equal(0, asked);
+    }
+
+    [Fact]
     public void Refuse_ASessionWithNoHistoryRow_IsARetry_NeverAPass()
     {
         var refusal = SecretaryStartLimit.Refuse(SessionFactoryLookup.NotKnown);

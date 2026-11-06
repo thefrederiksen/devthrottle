@@ -35,10 +35,14 @@ def main(
 @app.command("open")
 def open_command(
     file: str = typer.Argument(..., help="The report file (UTF-8 HTML, at most 10 megabytes)."),
+    mission_document: bool = typer.Option(
+        False, "--mission-document",
+        help="Publish FILE as the document of this session's Mission. The Gateway reads its why and goal "
+             "sections (data-dev-report=\"why\" and \"goal\") onto the Mission. Refused when the session has no Mission."),
     json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 ) -> None:
     """Publish FILE as this session's report for it; publishing again makes a new version."""
-    result = reports_ops.open_report(file)
+    result = reports_ops.open_report(file, mission_document=mission_document)
     raise typer.Exit(reports_ops.render(result, json_output, sys.stdout))
 
 

@@ -18,7 +18,10 @@ public sealed record SecretaryStartRefusal(int Status, string Code, string Sente
 ///
 /// KEYED ON THE CALLER'S HISTORY ROW, NEVER ON THE REQUEST. The caller is the session its own key proves, and whether it
 /// is a Secretary is read from that session's recorded seat (<see cref="FactoryInboxSeats.Secretary"/>, the mark the
-/// Gateway's Secretary start writes). Nothing in a body or a header is read.
+/// Gateway's Secretary start writes). Nothing in a body or a header is read. An UNDEFINED factory's Secretary carries no
+/// seat - nothing defines one for it - so the second fact is the wake's own record: the session the wake started as that
+/// factory's Secretary (<c>factory_inbox_wakes.SecretarySessionId</c>, the record the inbox routes accept it by). Either
+/// fact makes the caller a Secretary, and this one refusal is the only place that says so.
 ///
 /// THE START DOORS a session key can reach, each listed because it starts a session or launches a program:
 /// <list type="bullet">
@@ -56,16 +59,24 @@ public static class SecretaryStartLimit
         "is started until it can; try again in a moment";
 
     /// <summary>True when the caller's recorded seat is the Secretary - started as it, inherited, or moved with a
-    /// handover. A session carrying the Secretary's seat in any way starts nothing.</summary>
-    public static bool IsASecretary(SessionFactoryLookup caller)
-        => caller.IsInAFactory
-           && string.Equals(caller.Seat?.Trim(), FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase);
+    /// handover - or when the wake recorded it as its factory's Secretary. A session that is the Secretary in any of
+    /// these ways starts nothing.</summary>
+    /// <param name="recordedByTheWake">Whether the wake's row for the caller's factory records the caller as its
+    /// Secretary; asked only of a session in a factory whose seat does not already say so. Null when this host keeps no
+    /// wake record.</param>
+    public static bool IsASecretary(SessionFactoryLookup caller, Func<string, bool>? recordedByTheWake = null)
+    {
+        if (!caller.IsInAFactory) return false;
+        if (string.Equals(caller.Seat?.Trim(), FactoryInboxSeats.Secretary, StringComparison.OrdinalIgnoreCase)) return true;
+        return recordedByTheWake is not null && recordedByTheWake(caller.Factory!);
+    }
 
     /// <summary>The refusal for this caller at a start door, or null when it may go on to the route.</summary>
-    public static SecretaryStartRefusal? Refuse(SessionFactoryLookup caller)
+    /// <param name="recordedByTheWake">See <see cref="IsASecretary"/>.</param>
+    public static SecretaryStartRefusal? Refuse(SessionFactoryLookup caller, Func<string, bool>? recordedByTheWake = null)
     {
         if (!caller.IsKnown) return new SecretaryStartRefusal(409, "session_not_yet_known", NotYetKnown);
-        return IsASecretary(caller) ? new SecretaryStartRefusal(403, "secretary_starts_nothing", Refusal) : null;
+        return IsASecretary(caller, recordedByTheWake) ? new SecretaryStartRefusal(403, "secretary_starts_nothing", Refusal) : null;
     }
 
     /// <summary>

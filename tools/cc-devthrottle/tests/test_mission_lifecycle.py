@@ -49,9 +49,11 @@ DONE_ID = "cccccccc-5555-6666-7777-888888888888"
 
 # Every field the Gateway's MissionDto carries, as it sends them: `mission list` refuses a row missing one.
 ACTIVE = {"missionId": ACTIVE_ID, "missionName": "Release 2.0.0", "state": "active", "why": "ship it",
-          "whyUpdatedAt": "2026-09-01T07:00:00+00:00", "stateChangedAt": None, "workflowRunId": None}
+          "whyUpdatedAt": "2026-09-01T07:00:00+00:00", "stateChangedAt": None, "workflowRunId": None,
+          "documentReportId": None, "goal": ""}
 DONE = {"missionId": DONE_ID, "missionName": "Remove the network port", "state": "complete", "why": "",
-        "whyUpdatedAt": None, "stateChangedAt": "2026-09-02T07:00:00+00:00", "workflowRunId": None}
+        "whyUpdatedAt": None, "stateChangedAt": "2026-09-02T07:00:00+00:00", "workflowRunId": None,
+        "documentReportId": None, "goal": ""}
 
 
 @pytest.fixture

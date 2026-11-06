@@ -650,3 +650,100 @@ def test_answers_json_has_the_same_keys_as_every_other_command(wire):
     result = runner.invoke(app, ["answers", "--report", REPORT_ID, "--json"])
 
     assert tuple(json.loads(result.output).keys()) == reports_ops.RESULT_KEYS
+
+
+# ---------------------------------------------------------------------------------------------------
+# --mission-document (the Missions First-Class mission)
+# ---------------------------------------------------------------------------------------------------
+
+MISSION_ID = "aaaaaaaa-1111-4111-8111-000000000001"
+
+
+def _linked(replaced=None, notes=None, goal="Every session shows its mission."):
+    return {"missionId": MISSION_ID, "missionName": "Missions First-Class", "goal": goal, "why": "Fewer questions.",
+            "goalFound": True, "whyFound": True, "replacedReportId": replaced, "notes": notes or []}
+
+
+def test_open_mission_document_sends_the_flag_and_prints_the_link(wire, report_file):
+    calls = wire((200, {"report": _summary(), "created": True, "missionDocument": _linked()}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--mission-document"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["body"]["missionDocument"] is True
+    assert "mission document:" in result.output
+    assert f"  mission: {MISSION_ID}" in result.output
+    assert "  name: Missions First-Class" in result.output
+    assert "  goal: Every session shows its mission." in result.output
+    assert result.output.isascii()
+
+
+def test_open_without_the_flag_sends_no_mission_document_field(wire, report_file):
+    calls = wire((200, {"report": _summary(), "created": True}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "missionDocument" not in calls[0]["body"]
+    assert "mission document:" not in result.output
+
+
+def test_open_mission_document_republish_prints_the_replaced_report_and_notes(wire, report_file):
+    wire((200, {"report": _summary(version=2), "created": False,
+                "missionDocument": _linked(replaced=OLDER_ID, notes=["The report has no why section."])}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--mission-document"])
+
+    assert result.exit_code == 0, result.output
+    assert f"  replaced: {OLDER_ID}" in result.output
+    assert "notes[1]:" in result.output
+    assert "  The report has no why section." in result.output
+
+
+def test_open_mission_document_refused_with_no_mission_exits_1_with_the_gateway_sentence(wire, report_file):
+    wire((409, {"error": "This session is attached to no Mission, so its report cannot be a mission document. "
+                         "Nothing was published.", "code": "no_mission"}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--mission-document", "--json"])
+
+    assert result.exit_code == 1
+    parsed = json.loads(result.output)
+    assert parsed["ok"] is False
+    assert parsed["code"] == "no_mission"
+    assert "attached to no Mission" in parsed["error"]
+
+
+def test_open_mission_document_on_a_gateway_that_ignores_the_flag_fails_never_reports_a_link(wire, report_file):
+    # An older Gateway publishes the report and says nothing about a Mission. That is not a link.
+    wire((200, {"report": _summary(), "created": True}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--mission-document", "--json"])
+
+    assert result.exit_code == 1
+    parsed = json.loads(result.output)
+    assert parsed["code"] == "mission_document_unsupported"
+    assert REPORT_ID in parsed["error"]
+
+
+def test_open_mission_document_json_carries_the_link(wire, report_file):
+    wire((200, {"report": _summary(), "created": True, "missionDocument": _linked()}))
+
+    result = runner.invoke(app, ["open", str(report_file), "--mission-document", "--json"])
+
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert tuple(parsed.keys()) == reports_ops.RESULT_KEYS
+    assert parsed["missionDocument"]["missionId"] == MISSION_ID
+
+
+def test_open_without_the_flag_of_the_missions_document_prints_the_refreshed_link(wire, report_file):
+    # The Gateway refreshes the goal of a report that already IS the session's Mission's document, flag or no flag,
+    # and says so; the tool shows it rather than hide a change made to the Mission.
+    calls = wire((200, {"report": _summary(version=2), "created": False, "missionDocument": _linked()}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "missionDocument" not in calls[0]["body"]
+    assert "mission document:" in result.output
+    assert "  goal: Every session shows its mission." in result.output

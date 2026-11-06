@@ -1451,6 +1451,47 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("factory_attachments", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryBossStartEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Seat")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("StartedBy")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("TenantId", "SessionId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("factory_boss_starts", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryBriefVersionEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -2017,6 +2058,79 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId", "Factory", "State");
 
                     b.ToTable("factory_inbox_messages", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryInboxWakeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BossSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("BossStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("BossToldUpToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("BossWaiting")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .UseCollation("C");
+
+                    b.Property<string>("BossWaitingDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("SecretarySessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("SecretaryStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SecretaryToldUpToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecretaryWaiting")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .UseCollation("C");
+
+                    b.Property<string>("SecretaryWaitingDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory")
+                        .IsUnique();
+
+                    b.ToTable("factory_inbox_wakes", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryJournalEntryEntity", b =>

@@ -306,6 +306,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>What the owner has seen and cleared of each alert (<c>alert_marks</c>, the Alerts mission).</summary>
     public DbSet<AlertMarkEntity> AlertMarks => Set<AlertMarkEntity>();
 
+    /// <summary>Sessions the Gateway started as a factory's Boss for a session in no factory (issue #4598).</summary>
+    public DbSet<FactoryBossStartEntity> FactoryBossStarts => Set<FactoryBossStartEntity>();
+
     /// <summary>Named work lists (<c>worklists</c>).</summary>
     public DbSet<WorkListEntity> WorkLists => Set<WorkListEntity>();
 
@@ -491,6 +494,10 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>Each factory's to-do list, added to by a Boss's "to do" decision (Factory Inbox mission, phase 1).</summary>
     public DbSet<FactoryTodoEntity> FactoryTodos => Set<FactoryTodoEntity>();
+
+    /// <summary>What the wake knows of each factory: the Secretary and Boss it started, the start claim, what each was
+    /// last told, and why the factory waits (Factory Inbox mission, phase 2).</summary>
+    public DbSet<FactoryInboxWakeEntity> FactoryInboxWakes => Set<FactoryInboxWakeEntity>();
 
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
@@ -778,6 +785,17 @@ public sealed class GatewayDbContext : DbContext
             b.ToTable("alert_marks");
             b.HasKey(e => new { e.TenantId, e.AlertId });
             b.Property(e => e.AlertId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<FactoryBossStartEntity>(b =>
+        {
+            b.ToTable("factory_boss_starts");
+            b.HasKey(e => new { e.TenantId, e.SessionId });
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Factory).HasMaxLength(128);
+            b.Property(e => e.Seat).HasMaxLength(128);
+            b.Property(e => e.StartedBy).HasMaxLength(64);
+            b.Property(e => e.Kind).HasMaxLength(16);
         });
 
         modelBuilder.Entity<CronFailureNoticeEntity>(b =>
@@ -1350,6 +1368,23 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Text).HasMaxLength(CcDirector.Gateway.Factory.Inbox.FactoryInboxStore.MaxTextLength);
             b.Property(e => e.AddedBySessionId).HasMaxLength(64);
             b.HasIndex(e => new { e.TenantId, e.Factory, e.AddedAtUtc });
+        });
+
+        modelBuilder.Entity<FactoryInboxWakeEntity>(b =>
+        {
+            b.ToTable("factory_inbox_wakes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.SecretarySessionId).HasMaxLength(64);
+            b.Property(e => e.BossSessionId).HasMaxLength(64);
+            b.Property(e => e.SecretaryWaiting).HasMaxLength(32);
+            b.Property(e => e.SecretaryWaitingDetail).HasMaxLength(1000);
+            b.Property(e => e.BossWaiting).HasMaxLength(32);
+            b.Property(e => e.BossWaitingDetail).HasMaxLength(1000);
+            // THE CLAIM: every write is conditional on the version it read (FactoryInboxWakeStore.TryUpdate).
+            b.Property(e => e.Version).IsConcurrencyToken();
+            // ONE ROW PER FACTORY, in the database: two writers creating it at once cannot both keep theirs.
+            b.HasIndex(e => new { e.TenantId, e.Factory }).IsUnique();
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
@@ -2677,6 +2712,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<CronRunEntity>(modelBuilder);
         ApplyTenantScope<CronFailureNoticeEntity>(modelBuilder);
         ApplyTenantScope<AlertMarkEntity>(modelBuilder);
+        ApplyTenantScope<FactoryBossStartEntity>(modelBuilder);
         ApplyTenantScope<WorkListEntity>(modelBuilder);
         ApplyTenantScope<WorkListItemEntity>(modelBuilder);
         ApplyTenantScope<WorkflowEntity>(modelBuilder);
@@ -2734,6 +2770,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FactoryInboxBundleEntity>(modelBuilder);
         ApplyTenantScope<FactoryInboxDecisionEntity>(modelBuilder);
         ApplyTenantScope<FactoryTodoEntity>(modelBuilder);
+        ApplyTenantScope<FactoryInboxWakeEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
@@ -2805,6 +2842,8 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
             // alert_marks: the alert id is an exact key, compared byte-ordinally (the Alerts mission).
             modelBuilder.Entity<AlertMarkEntity>().Property(e => e.AlertId).UseCollation("C");
+            // factory_boss_starts: the session id is an exact key, compared byte-ordinally (issue #4598).
+            modelBuilder.Entity<FactoryBossStartEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");
@@ -2970,6 +3009,12 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FactoryInboxDecisionEntity>().Property(e => e.DecidedBySessionId).UseCollation("C");
             modelBuilder.Entity<FactoryTodoEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryTodoEntity>().Property(e => e.AddedBySessionId).UseCollation("C");
+            // The wake (phase 2): the factory is the row's key, the session ids are exact, the waiting words are closed.
+            modelBuilder.Entity<FactoryInboxWakeEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxWakeEntity>().Property(e => e.SecretarySessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxWakeEntity>().Property(e => e.BossSessionId).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxWakeEntity>().Property(e => e.SecretaryWaiting).UseCollation("C");
+            modelBuilder.Entity<FactoryInboxWakeEntity>().Property(e => e.BossWaiting).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.Seat).UseCollation("C");
             modelBuilder.Entity<FactoryBriefVersionEntity>().Property(e => e.State).UseCollation("C");

@@ -144,4 +144,116 @@ public static class ToolShimPath
         FileLog.Write($"[ToolShimPath] EnsureOnProcessPath: added {dir} to this process's PATH (was: {current ?? "(unset)"})");
         return true;
     }
+
+    /// <summary>
+    /// Is this the PATH launchd gives a process it starts with no shell involved - the four system
+    /// directories and nothing else (or nothing at all)? That is the one case the deleted bash wrapper
+    /// used to repair, and so the only case worth repairing here.
+    ///
+    /// Written as an exact set rather than a prefix test on purpose. Anything a shell profile touched
+    /// has more in it, and a machine where the administrator has set a richer PATH with
+    /// <c>launchctl config user path</c> has made its own decision; both are left alone.
+    /// </summary>
+    internal static bool IsLaunchdDefaultPath(string? searchPath)
+    {
+        if (string.IsNullOrWhiteSpace(searchPath)) return true;
+
+        string[] launchdDefaults = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+        return searchPath
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .Where(p => p.Length > 0)
+            .All(p => launchdDefaults.Contains(p, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The directories a desktop launch has to be told about - the agent binaries (<c>claude</c> and
+    /// friends) and Homebrew live here, and launchd hands a GUI application a minimal PATH that holds
+    /// none of them.
+    ///
+    /// LISTED IN THE ORDER THEY MUST END UP ON PATH, first entry searched first. That is the order the
+    /// bash wrapper this replaces produced: it walked its own list the other way round and prepended
+    /// each one, so <c>/usr/local/bin</c> came out in front and <c>~/.local/bin</c> last. Preserving it
+    /// matters because it decides which copy of <c>claude</c> or <c>python3</c> a session gets on a
+    /// machine that has more than one, and this change is meant to alter the signature of the bundle,
+    /// not the behaviour of the agents inside it.
+    /// </summary>
+    internal static IReadOnlyList<string> GuiLaunchPathDirectories(string? home) =>
+        string.IsNullOrWhiteSpace(home)
+            ? []
+            : [
+                "/usr/local/bin",
+                "/opt/homebrew/sbin",
+                "/opt/homebrew/bin",
+                Path.Combine(home, ".claude", "local"),
+                Path.Combine(home, ".local", "bin"),
+              ];
+
+    /// <summary>
+    /// Put the desktop-launch directories on this process's PATH, in place of the bash wrapper script that
+    /// used to do it (issue #4518).
+    ///
+    /// WHY THIS IS NOT A SHELL SCRIPT ANY MORE. The macOS .app bundle used to name a <c>#!/bin/bash</c>
+    /// script as its <c>CFBundleExecutable</c>, purely to set PATH before exec'ing the real binary. That
+    /// made the bundle's hosting identity <c>identifier "com.apple.bash" and anchor apple</c> - macOS was
+    /// being asked to grant this application's privacy permissions to Apple's copy of bash. Doing the same
+    /// work here lets the signed Mach-O binary be the bundle's main executable and carry its own identity.
+    ///
+    /// Only the directories that EXIST are added, so a machine without Homebrew does not get a dead entry,
+    /// and anything already on PATH is left where it is rather than promoted.
+    /// </summary>
+    /// <param name="log">
+    /// Where to write the one line saying what changed. The setup wizard passes its own setup log; the
+    /// Director leaves it out and gets <c>FileLog</c>.
+    /// </param>
+    public static bool EnsureGuiLaunchPathDefaults(Action<string>? log = null)
+    {
+        // macOS ONLY, because the bash wrapper this replaces existed only in the macOS .app bundle. A
+        // Linux Director never had it, so adding these directories there would be a new behaviour
+        // smuggled in by a signing change rather than the same behaviour kept.
+        if (!OperatingSystem.IsMacOS()) return false;
+
+        var current = Environment.GetEnvironmentVariable("PATH");
+
+        // AND ONLY WHEN THE PATH IS THE ONE launchd HANDS OUT. The wrapper was the bundle's
+        // CFBundleExecutable, so it ran whenever the BUNDLE was opened and never when the binary inside
+        // it was run directly - a terminal start and an SSH start never saw it. Running unconditionally
+        // would reach further than the wrapper ever did, and the case that bites is a developer whose
+        // PATH deliberately resolves python3 or node through pyenv, nvm or asdf shims and does not list
+        // /usr/local/bin: putting that directory in front would hand every session a different
+        // interpreter than the one the machine is set up to use.
+        //
+        // A LAUNCHER START IS A DESKTOP START, and this guard must keep treating it as one.
+        // DirectorSupervisor hands the bundle to /usr/bin/open so the Director is parented by launchd
+        // rather than by the launcher, which means the wrapper DID run on the normal macOS autostart
+        // path and the PATH it gets is launchd's. Reading this guard as "exclude launcher starts" and
+        // narrowing it would re-break PATH for every autostarted Director and every session it opens -
+        // the original bug. The test for the launchd PATH is what keeps that case in.
+        if (!IsLaunchdDefaultPath(current))
+        {
+            (log ?? FileLog.Write)(
+                "[ToolShimPath] EnsureGuiLaunchPathDefaults: not a desktop launch (PATH was inherited "
+                + "from a shell or a parent), leaving it alone");
+            return false;
+        }
+
+        var updated = current;
+
+        // Walked BACKWARDS because each one is prepended: the last directory prepended ends up first,
+        // so iterating the list in reverse leaves it on PATH in the order the list is written, which is
+        // the order the wrapper produced. Forwards here would silently reverse the search order.
+        foreach (var dir in GuiLaunchPathDirectories(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).Reverse())
+        {
+            if (!Directory.Exists(dir)) continue;
+            updated = WithDirectory(updated, dir);
+        }
+
+        if (updated == current) return false;
+
+        Environment.SetEnvironmentVariable("PATH", updated);
+        (log ?? FileLog.Write)(
+            $"[ToolShimPath] EnsureGuiLaunchPathDefaults: PATH is now {updated} (was: {current ?? "(unset)"})");
+        return true;
+    }
 }

@@ -59,6 +59,30 @@ internal static class WorkspaceEndpoints
 {
     /// <summary>The team caller for a list request, or null for a personal account. A request the team gate allowed in a
     /// team, with no way given to cut the list, fails loud rather than reading every member's workspaces.</summary>
+    /// <summary>
+    /// A SMART RESTART REOPEN OF A BOSS IS STILL THE BOSS (issue #4598, review round 2, finding 2). Once the store has
+    /// recorded the reopen - the stored seat now names the reopened session, written by the Director that holds the claim
+    /// - the Boss's record, if the seat had one, is carried to that session. Never turned into a failure of the mark.
+    /// </summary>
+    internal static void CarryBossStartOnReopen(WorkspaceDocument saved, WorkspaceRestoreMark mark, Func<string, string, bool>? carryBossStart)
+    {
+        if (carryBossStart is null || mark.Kind != WorkspaceRestoreMarkKinds.Reopened
+            || string.IsNullOrWhiteSpace(mark.SeatSessionId) || string.IsNullOrWhiteSpace(mark.ReopenedSessionId))
+            return;
+        var seat = saved.Seats.FirstOrDefault(s => string.Equals(s.SessionId, mark.SeatSessionId, StringComparison.OrdinalIgnoreCase));
+        if (seat?.Restore is not { } restore
+            || !string.Equals(restore.ReopenedSessionId, mark.ReopenedSessionId, StringComparison.OrdinalIgnoreCase))
+            return;
+        try
+        {
+            carryBossStart(mark.SeatSessionId, mark.ReopenedSessionId);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WorkspaceEndpoints] reopen of {mark.SeatSessionId} as {mark.ReopenedSessionId}: carrying the Boss record FAILED - it has no authority to publish: {ex.Message}");
+        }
+    }
+
     private static Teams.TeamCaller? TeamCallerOf(HttpContext ctx, Func<HttpContext, Teams.TeamCaller?>? teamCaller)
     {
         if (teamCaller is not null)
@@ -98,7 +122,10 @@ internal static class WorkspaceEndpoints
         Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore,
         Func<HttpContext, string, bool> callerIsDirector,
         Func<WorkspaceDocument, WorkspaceDevReportPassRequest, DateTime, WorkspaceDevReportPassResult> passDevReports,
-        Func<HttpContext, Teams.TeamCaller?>? teamCaller = null)
+        Func<HttpContext, Teams.TeamCaller?>? teamCaller = null,
+        // Issue #4598: carries a Boss's record from a seat to the session a Smart Restart reopened it as, once the store
+        // accepted that reopen. Null leaves a reopened Boss without the authority to publish, as before the record existed.
+        Func<string, string, bool>? carryBossStart = null)
     {
         // RESTORE (the Message Load mission, slice 6; owner decision 2, 17 September 2026). A drained fleet is
         // brought back by the DIRECTOR, not by a session running spawn lines: a session key may name only itself
@@ -261,6 +288,7 @@ internal static class WorkspaceEndpoints
             try
             {
                 var saved = store.RecordRestoreMark(id, mark, DateTime.UtcNow);
+                CarryBossStartOnReopen(saved, mark, carryBossStart);
                 return Results.Json(saved, WorkspaceStore.DocumentJsonOptions);
             }
             catch (WorkspaceValidationException ex)

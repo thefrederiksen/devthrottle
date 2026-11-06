@@ -373,7 +373,11 @@ internal static partial class GatewayEndpoints
         TimeProvider? spawnDoorClock = null,
         // Issue #4351: a factory's Boss seat and published version, for one account - read when a session in no factory
         // starts a factory's Boss. Null (tests, older callers) refuses that start; it never lets one by.
-        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null)
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null,
+        // Issue #4598: records a Boss started for a session in no factory, and reads the record a restore carries.
+        // Null leaves such a Boss without the authority to publish, as it was before the record existed.
+        SpawnFactory.BossStartRecorder? recordBossStart = null,
+        Func<string, (string Factory, string Seat)?>? bossStartOf = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -381,6 +385,9 @@ internal static partial class GatewayEndpoints
                 "The list of raised sessions and its record are given together: a raised session whose actions cannot be "
                 + "recorded must not exist.", nameof(raisedRecord));
         Func<TenantId, IReadOnlySet<string>>? raisedIdsFor = raisedSessions is null ? null : raisedSessions.RaisedIds;
+        // The Mission button's input (the Missions First-Class mission): every one of the account's missions, ended ones
+        // included, because a session can still be attached to a mission that has ended.
+        Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? missionsFor = MissionsForFold(missions);
 
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1797,7 +1804,8 @@ internal static partial class GatewayEndpoints
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
                 raisedSessions: raisedIdsFor,
                 factoryStarts: factoryStarts,
-                apiModeFacts: apiModeFacts);
+                apiModeFacts: apiModeFacts,
+                missionsFor: missionsFor);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -2118,6 +2126,16 @@ internal static partial class GatewayEndpoints
             created.DirectorId = target.DirectorId;
             FileLog.Write($"[GatewayEndpoints] restore: created continuation {created.SessionId} on {target.DirectorId} for dead {row.SessionId}");
 
+            // A continued Boss is still the Boss (issue #4598): its record, if the dead session had one, is carried.
+            try
+            {
+                SpawnFactory.CarryBossStart(row.SessionId, created.SessionId, bossStartOf, recordBossStart, "restore");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayEndpoints] restore: carrying the Boss record of {row.SessionId} to {created.SessionId} FAILED: {ex.Message}");
+            }
+
             // Which session took it, on the crash record, so its history says so. The claim above is what stops a second
             // start; this write failing costs the record that one session id and nothing else.
             if (crashRecordClaimed)
@@ -2226,7 +2244,8 @@ internal static partial class GatewayEndpoints
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
                 raisedSessions: raisedIdsFor,
                 factoryStarts: factoryStarts,
-                apiModeFacts: apiModeFacts);
+                apiModeFacts: apiModeFacts,
+                missionsFor: missionsFor);
             return Results.Json(session);
         });
 
@@ -4916,7 +4935,8 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor);
+            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor,
+            recordBossStart, bossStartOf);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);
@@ -5999,6 +6019,11 @@ internal static partial class GatewayEndpoints
     // (EffectiveColor/StateLabel/TriageBucket) then reads SessionRole to suppress a live Worker's red, so it
     // must run AFTER the role is known. NeedsYouSince keys off the final EffectiveColor, so it is stamped
     // here too (a suppressed Worker is not "red", so it never enters the needs-you clock).
+    /// <summary>The Mission button fold's input from a mission store: all of an account's missions, every state, read
+    /// once per fold from the store's held copy. Null when there is no store, which stamps no verdict.</summary>
+    internal static Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? MissionsForFold(Core.Sessions.MissionStore? missions)
+        => missions is null ? null : tenant => missions.List(tenant, includeEnded: true);
+
     // Gateway Cleanup mission (Wave 4b): map a stored Mission to the wire MissionDto - the SAME contract the
     // Director's /missions routes return, so a client cannot tell a Gateway-native mission from a Director one.
     private static MissionDto ToMissionDto(Core.Sessions.Mission m) => new()
@@ -6007,6 +6032,9 @@ internal static partial class GatewayEndpoints
         MissionName = m.MissionName,
         Why = m.Why,
         WhyUpdatedAt = m.WhyUpdatedAt,
+        DocumentReportId = m.DocumentReportId,
+        DocumentLinkedAt = m.DocumentLinkedAt,
+        Goal = m.Goal ?? "",
         State = Core.Sessions.MissionStates.Normalize(m.State) ?? Core.Sessions.MissionStates.Active,
         StateChangedAt = m.StateChangedAt,
     };
@@ -6563,7 +6591,11 @@ internal static partial class GatewayEndpoints
         Factory.FactorySessionStarts.Reader? factoryStarts = null,
         // API mode (mission #4070, phase 2): where each API-mode row's receipts and held events are read, to fold its
         // verdict. Null (or no tenant) stamps a null verdict on every row: nothing was read, so nothing is claimed.
-        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null,
+        // The Missions First-Class mission: the account's missions, every state, read ONCE for the whole fold, for the
+        // Mission button's verdict. Null (or no tenant) stamps a null verdict on every row: nothing was read, so nothing
+        // is claimed.
+        Func<TenantId, IReadOnlyList<Core.Sessions.Mission>>? missionsFor = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -6671,6 +6703,11 @@ internal static partial class GatewayEndpoints
         // stays null, so it is unchanged on the wire. It reads nothing the colour, the label or the bucket read, and they
         // do not read it.
         ApiModeDisplay.ApiModeRowStamp.Stamp(all, apiModeFacts, tenant);
+        // THE MISSION BUTTON (the Missions First-Class mission): the Mission's name, colour key, tooltip and document
+        // address, or the yellow "No mission". It reads nothing the colour, the label or the bucket read, and they do
+        // not read it. Assigned on every row either way.
+        Missions.MissionButtonFold.Stamp(all,
+            tenant is { IsValid: true } missionTenant && missionsFor is not null ? missionsFor(missionTenant) : null);
 
         // VOICE: A SESSION A LIVE SESSION OWNS IS NOT THE USER'S TO BE READ ALOUD, and now the screen says so.
         //
