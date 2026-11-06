@@ -96,6 +96,28 @@ public sealed class LiveMachineFactTests
         Assert.Contains("macOS", skip, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Platform_AClassForAnotherPlatform_Skips_WhetherOrNotItRunsTheSharedContract(bool isContractClass)
+    {
+        // THE BRANCH THAT PROTECTS THE 36 macOS TESTS THAT ARE *NOT* CONTRACT CLASSES.
+        // MacOsPlatformReaderLiveTests and MacOsResourceProbeLiveTests declare a platform and derive
+        // nothing; today Decide consults isContractClass only when no platform is declared, so both
+        // shapes share this branch. Nothing said so. A plausible future simplification - "only the
+        // shared contract classes need a platform check", which the error branch above already keys on
+        // - would pass every other test in this file, and on a Linux machine with the opt-in set those
+        // 36 tests would run and fail rather than skip. So the ordinary shape is pinned here beside the
+        // contract one, and the two are asserted to decide alike.
+        var (error, skip) = LiveMachinePlatformAttribute.Decide(
+            LiveMachinePlatform.MacOs, isContractClass, thisMachine: LiveMachinePlatform.Linux);
+
+        Assert.Null(error);
+        Assert.NotNull(skip);
+        Assert.Contains("macOS", skip, StringComparison.Ordinal);
+        Assert.Contains("Linux", skip, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Platform_ContractClassThatDeclaresNone_IsAnErrorNotARunEverywhere()
     {

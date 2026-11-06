@@ -16,8 +16,11 @@ namespace CcDirector.Core.Tests.Machine;
 /// Every assertion is for a value that can only be there if the read actually worked.
 ///
 /// IT CARRIES <see cref="LiveMachinePlatformAttribute"/>, SO THE WHOLE PROJECT CAN BE RUN ON EVERY
-/// MACHINE. The calls below exist only on a Mac, so on Linux or Windows - even with the opt-in set -
-/// every test here SKIPS with that reason stated, rather than running and failing on the first one.
+/// MACHINE. What these tests read exists only on a Mac, so on Linux or Windows - even with the opt-in
+/// set - every test here SKIPS with that reason stated. Without the attribute they would not fail on a
+/// system call: the probe checks the platform before it reads anything and returns an unreadable
+/// sample, so they would fail on an assertion that the machine could be read - a red test stating
+/// something true about a Linux machine, which is worse than a skip, not better.
 /// </summary>
 [LiveMachinePlatform(LiveMachinePlatform.MacOs)]
 public class MacOsResourceProbeLiveTests
