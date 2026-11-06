@@ -123,6 +123,42 @@ always passes, and it reads like coverage while providing none. So:
   question the same way - particularly that per-process processor is a share of the whole machine.
   If it runs on only one platform it proves nothing about agreement, which is its entire purpose.
 
+## A named check every platform must pass: the first sample withholds every rate
+
+Found on macOS on 6 November, by a reviewer **running** the probe rather than reading it. The
+per-process processor figure was a **lifetime average** for any process with no earlier reading,
+where the contract says null. On the first sample no process has an earlier reading, so every one
+took that path - 328 of 513 processes, including one running for two days that duly reported its
+two-day average of 5.78 per cent, inside the very sample whose processor line read "first sample, no
+interval yet".
+
+**This is worse than the made-up zero it had replaced**, and it is worth understanding why, because
+the rest of this mission is full of the same opportunity. A zero looks wrong and gets noticed. A
+lifetime average is a *plausible figure for a quantity nobody measured*: a process alive for thirty
+days that has just started burning a core reads as near nothing, and a session total built from those
+numbers is wrong with nothing marking it as a different quantity. **A rate measured over a different
+window than the contract specifies is a wrong quantity wearing the right name.**
+
+It also slipped past two people because it arrived as a *fix*. An earlier review had found the zero;
+the answer replaced it with the lifetime average and justified it with "which is the only case it is
+used in" - a clause that was false, and that nobody checked by running the code. **An answered
+finding is not a fixed finding.**
+
+So the report carries this check, for each of the three platforms:
+
+- **Take the first sample after start-up and count the processes reporting a processor share. The
+  answer must be zero.** Any other number is this defect. On macOS it was 328 before the fix and 0
+  after.
+- **The process list must not shrink to achieve that.** Only the unmeasured quantity is withheld, not
+  the process: after the fix, 465 processes were still listed and 296 still had readable memory. A
+  probe that drops what it cannot measure fails this check in the other direction, and would look
+  identical in a test that only counted shares.
+- **The second sample must then report real interval shares** - 289 of 458 on macOS - or the figure
+  is never produced at all and the check has proved nothing.
+
+The third bullet is the one that keeps the first two honest: a probe that always returned null would
+pass both of the first two and be useless.
+
 ## Rules the report itself must obey
 
 - **One self-contained HTML file published with `cc-dev-reports open`.** A file path handed over
