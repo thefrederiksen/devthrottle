@@ -225,6 +225,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
 /// machine. Every test is inherited from <see cref="ResourceProbeContractLiveTests"/>.
 /// </summary>
 [Trait("Category", "Resources")]
+[LiveMachinePlatform(LiveMachinePlatform.Windows)]
 public class WindowsResourceProbeContractLiveTests : ResourceProbeContractLiveTests
 {
     protected override string ProbeName => "the Windows probe";
