@@ -40,3 +40,26 @@ export function outcomeStillShown(outcome: ActionOutcome | null | undefined, mac
   if (outcome === null || outcome === undefined) return false;
   return !(outcome.kind === "update" && machine?.upToDate === true);
 }
+
+/** How the Machines table is ordered: as the Gateway sent it, or by Spare. */
+export type SpareOrder = "none" | "most" | "least";
+
+/** The next order when the Spare header is pressed: most room first, then least, then the Gateway's own order. */
+export function nextSpareOrder(order: SpareOrder): SpareOrder {
+  return order === "none" ? "most" : order === "most" ? "least" : "none";
+}
+
+/** The machines ordered by the Gateway's Spare figure. A machine whose spare capacity is not known (no `spareBytes`)
+ *  goes LAST in both directions - it is never ranked as if it had no room, nor as if it had the most. Ties keep the
+ *  Gateway's order. This orders rows; it decides nothing about them. */
+export function sortBySpare(machines: FleetMachine[], order: SpareOrder): FleetMachine[] {
+  if (order === "none") return machines;
+  const known = machines.filter((m) => typeof m.capacity.spareBytes === "number");
+  const unknown = machines.filter((m) => typeof m.capacity.spareBytes !== "number");
+  const sign = order === "most" ? -1 : 1;
+  const ranked = known
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => sign * ((a.m.capacity.spareBytes as number) - (b.m.capacity.spareBytes as number)) || a.i - b.i)
+    .map((e) => e.m);
+  return [...ranked, ...unknown];
+}

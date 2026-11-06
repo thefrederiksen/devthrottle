@@ -1009,3 +1009,168 @@
 .fm-card .fm-actions {
   margin-top: 12px;
 }
+
+/* ---- Resource Monitor, section 5j: the capacity columns on Fleet -> Machines ---- */
+
+.fm-figure {
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.fm-capacity-status {
+  margin-left: 0;
+  margin-top: 4px;
+}
+
+.fm-sort {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.fm-sort:hover {
+  color: var(--accent-text);
+}
+
+.fm-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fm-expand .nav-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.fm-expand:hover .nav-icon {
+  color: var(--accent-text);
+}
+
+.fm-resources-row td {
+  background: var(--surface);
+  padding: 12px 16px 16px 28px;
+}
+
+/* ---- Resource Monitor, section 5k: one machine expanded ---- */
+
+.fmr-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.fmr-chart {
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px 4px;
+}
+
+.fmr-chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.fmr-chart-title .ddim {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.fmr-svg {
+  display: block;
+}
+
+.fmr-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.fmr-axis {
+  fill: var(--text-dim);
+  font-size: 10px;
+}
+
+.fmr-band {
+  fill: var(--accent);
+  fill-opacity: 0.28;
+  stroke: none;
+}
+
+.fmr-average {
+  fill: none;
+  stroke: var(--accent-text);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.fmr-mark-line {
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.8;
+}
+
+.fmr-mark-head {
+  fill: currentColor;
+}
+
+/* A stripe stands in for a figure that is not there. Its colour is the Gateway's tone (the dstat-* class sets
+   currentColor); its kind only sets how strongly it is drawn. A gap - no summary at all - is fainter and outlined, so
+   it never reads as either a reading or a quiet machine. */
+.fmr-stripe {
+  fill: currentColor;
+  opacity: 0.55;
+}
+
+.fmr-stripe-gap {
+  opacity: 0.22;
+  stroke: currentColor;
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+
+.fmr-events {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.fmr-events .ddim {
+  font-weight: 400;
+  margin-right: 6px;
+}
+
+.fmr-factories-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
+
+.fmr-factories {
+  max-width: 720px;
+}
+
+.fmr-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 6px 0;
+}

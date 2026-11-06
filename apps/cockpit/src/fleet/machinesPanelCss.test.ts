@@ -31,7 +31,7 @@ describe("Directors page stylesheet", () => {
   it("MachinesPanel_MachineRow_DoesNotUseTheSettingsCardClass", () => {
     const panel = read("./MachinesPanel.tsx");
 
-    expect(panel).toContain('<tr className="fm-machine-row">');
+    expect(panel).toContain('<tr className="fm-machine-row"');
     expect(panel).not.toMatch(/className="fm-machine"/);
   });
 });
