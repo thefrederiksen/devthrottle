@@ -80,6 +80,41 @@ public static class FactoryMorningMessage
         return new FactoryMorningMessageText(subject, body.ToString());
     }
 
+    /// <summary>
+    /// The open problems no factory's morning summary carries: those whose schedule is in no factory, or in a factory that
+    /// writes no morning summary (one not registered, or archived). The factory email listed them; with the email off they
+    /// get a message of their own (<see cref="ComposeNoFactory"/>), so no open problem goes untold.
+    /// </summary>
+    public static IReadOnlyList<CronRunProblemDto> NoFactoryProblems(FactoryEmailInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var carried = new HashSet<string>(FactoriesOf(input), StringComparer.OrdinalIgnoreCase);
+        return input.Problems
+            .Where(p => p.State == CronRunProblemStates.Open && (string.IsNullOrWhiteSpace(p.Factory) || !carried.Contains(p.Factory)))
+            .ToList();
+    }
+
+    /// <summary>The sentence the message about problems in no factory opens with.</summary>
+    public const string NoFactoryOpening =
+        "These open problems belong to schedules in no factory, or in an archived one, so no factory's morning summary "
+        + "lists them. Each is handled on the Schedule page.";
+
+    /// <summary>The 08:00 message about <paramref name="problems"/> (from <see cref="NoFactoryProblems"/>, not empty).</summary>
+    public static FactoryMorningMessageText ComposeNoFactory(FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(problems);
+        if (problems.Count == 0)
+            throw new ArgumentException("There is no problem to tell the owner about, so there is no message.", nameof(problems));
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(input.Slot.BoundaryUtc, DateTimeKind.Utc), input.Zone);
+        var count = problems.Count == 1 ? "1 problem" : $"{problems.Count} problems";
+        var subject = $"Schedules in no factory: {count} still open - {local.ToString("dddd d MMMM", CultureInfo.InvariantCulture)}";
+        var body = new StringBuilder();
+        body.AppendLine(NoFactoryOpening).AppendLine();
+        body.Append(FactoryEmailComposer.ProblemsText(input, problems));
+        return new FactoryMorningMessageText(subject, body.ToString());
+    }
+
     /// <summary>One message of the summary: when it was sent, its first line, and what became of it.</summary>
     public static string ItemLine(FactoryInboxMessageDto item, TimeZoneInfo zone)
     {

@@ -10,7 +10,7 @@ import { authHeaders, GatewayError, gatewayFetch } from "../api/client";
 import type { FactoryInboxTone } from "../factoryinbox/factoryInboxClient";
 
 export interface YourInboxFrom {
-  /** "session" or "factory". */
+  /** "session", "factory" or "gateway" (the Gateway's own morning report). */
   kind: string;
   /** Who it is from, for example "#412 Release - Developer" or "Booking - Boss". */
   label: string;
@@ -57,7 +57,8 @@ export interface YourInboxMessage {
   from: YourInboxFrom;
   links: YourInboxLink[];
   actions: YourInboxAction[];
-  replyTo: YourInboxReplyTo;
+  /** Where a reply goes; null when nobody reads a reply (a message from the Gateway itself), and then no Reply is offered. */
+  replyTo: YourInboxReplyTo | null;
   sentAtUtc: string;
   readAtUtc: string | null;
   archivedAtUtc: string | null;

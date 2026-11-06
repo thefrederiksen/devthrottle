@@ -241,6 +241,30 @@ public sealed class YourInboxStore
         return row;
     }
 
+    /// <summary>
+    /// THE 08:00 MESSAGE ABOUT PROBLEMS NO FACTORY'S SUMMARY CARRIES (the Delivery Lead's ruling, Factory Inbox mission,
+    /// phase 5): a problem whose schedule is in no factory - or in one that writes no morning summary, an archived one -
+    /// was told to the owner by the factory email, and email off must not make it silent. From the Gateway, seat
+    /// <see cref="YourInboxWords.MorningReportSeat"/>, at the slot's boundary, so <see cref="NoFactoryMorningOf"/> finds it.
+    /// </summary>
+    public static YourInboxMessageEntity ForNoFactoryProblems(TenantId tenant, string subject, string body, DateTime boundaryUtc)
+    {
+        var row = ForMorningSummary(tenant, "-", subject, body, boundaryUtc);
+        row.FromKind = YourInboxWords.Senders.Gateway;
+        row.Factory = null;
+        row.Seat = YourInboxWords.MorningReportSeat;
+        return row;
+    }
+
+    /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>
+    public YourInboxMessageEntity? NoFactoryMorningOf(TenantId tenant, DateTime boundaryUtc)
+    {
+        var at = DateTime.SpecifyKind(boundaryUtc, DateTimeKind.Utc);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.YourInboxMessages.AsNoTracking()
+            .FirstOrDefault(m => m.FromKind == YourInboxWords.Senders.Gateway && m.Seat == YourInboxWords.MorningReportSeat && m.SentAtUtc == at);
+    }
+
     /// <summary>The morning summary a factory was already sent for the 08:00 boundary, or null.</summary>
     public YourInboxMessageEntity? MorningOf(TenantId tenant, string factory, DateTime boundaryUtc)
     {

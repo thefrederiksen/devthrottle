@@ -280,6 +280,21 @@ public static class FactoryEmailComposer
         return text.ToString().TrimEnd();
     }
 
+    /// <summary>
+    /// The plain-text "still not fixed" section for just <paramref name="problems"/>, in the same words as the report: the
+    /// 08:00 message about problems no factory's morning summary carries (<see cref="FactoryMorningMessage.ComposeNoFactory"/>).
+    /// Pure.
+    /// </summary>
+    public static string ProblemsText(FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(problems);
+        var text = new StringBuilder();
+        TextSections(text, input with { MailDesk = null }, problems, Array.Empty<FactoryActivityDto>(), false,
+            Array.Empty<CronFactoryDayDto>());
+        return text.ToString().TrimEnd();
+    }
+
     // ------------------------------------------------------------------------------------------------------------
     // 08:00: what needs the owner, and what each factory did
 

@@ -554,7 +554,7 @@ public sealed class FactoryEmailTests : IDisposable
         var said = await Sweep().SweepTenantAsync(TenantId.Local);
 
         // Assert - one message, from research's morning summary, at 08:00; outreach had nothing at all and gets none.
-        Assert.Equal("slot 2026-10-11T08: wrote 1 morning summary to Your inbox", said);
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning message to Your inbox", said);
         var message = Assert.Single(InboxMessages());
         Assert.Equal((YourInboxWords.Senders.Factory, "research", YourInboxStore.MorningSeat, YourInboxWords.States.Unread),
             (message.FromKind, message.Factory, message.Seat, message.State));
@@ -592,6 +592,54 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Contains(parameters, p => p.ParameterType == typeof(YourInboxStore));
         Assert.Null(typeof(FactoryEmailSweep).Assembly.GetType("CcDirector.Gateway.Factory.Email.IFactoryEmailSender"));
         Assert.Null(typeof(FactoryEmailSweep).Assembly.GetType("CcDirector.Gateway.Factory.Email.FactoryEmailSender"));
+    }
+
+    /// <summary>
+    /// NO OPEN PROBLEM GOES UNTOLD (the Delivery Lead's ruling): a problem whose schedule is in no factory - or in an
+    /// archived one - is in no factory's summary, so the morning report writes ONE message of its own, from the Gateway,
+    /// listing them. It is written once, however many ticks the slot gets.
+    /// </summary>
+    [Fact]
+    public async Task SweepTenantAsync_ProblemsInNoFactory_GetOneMessageOfTheirOwn_FromTheMorningReport()
+    {
+        // Arrange - a schedule in no factory, and one in a factory that is not registered, both did not run.
+        _jobs["cj_backup"] = new CronJobDto { Id = "cj_backup", Name = "Nightly backup" };
+        AppendRun("cj_backup", Run(null, TorontoTime(2026, 10, 11, 1), CronRunResults.Problem, CronRunProblems.DidNotRun, "machine asleep"));
+        Job("cj_old", "Old scan", "retired", "scout");
+        AppendRun("cj_old", Run(null, TorontoTime(2026, 10, 11, 3), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        // Act - the slot's first tick, and a second inside the window after a restart.
+        var said = await Sweep().SweepTenantAsync(TenantId.Local);
+        _now = TorontoTime(2026, 10, 11, 8, 9);
+        await Sweep().SweepTenantAsync(TenantId.Local);
+
+        // Assert - one message, from the Gateway's morning report, listing both; no factory message (none has news).
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning message to Your inbox", said);
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal((YourInboxWords.Senders.Gateway, (string?)null, YourInboxWords.MorningReportSeat),
+            (message.FromKind, message.Factory, message.Seat));
+        Assert.Equal("Schedules in no factory: 2 problems still open - Sunday 11 October", message.Subject);
+        Assert.StartsWith(FactoryMorningMessage.NoFactoryOpening, message.Body);
+        Assert.Contains("machine asleep", message.Body);
+        Assert.Contains("Old scan", message.Body);
+        Assert.Equal("Morning report - schedules in no factory",
+            YourInboxFold.FromLabel(message, new Dictionary<string, string>()));
+        Assert.Null(YourInboxFold.ReplyTo(message, new Dictionary<string, string>()));
+    }
+
+    [Fact]
+    public async Task SweepTenantAsync_NoProblemInNoFactory_WritesNoMessageFromTheMorningReport()
+    {
+        // Every open problem is in a registered factory, so that factory's summary carries it.
+        Job("cj_scan", "Night scan", "research", "scout");
+        AppendRun("cj_scan", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.DidNotRun, "offline"));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        await Sweep().SweepTenantAsync(TenantId.Local);
+
+        Assert.DoesNotContain(InboxMessages(), m => m.FromKind == YourInboxWords.Senders.Gateway);
+        Assert.Equal(new[] { "research" }, InboxMessages().Select(m => m.Factory));
     }
 
     [Fact]
@@ -632,7 +680,7 @@ public sealed class FactoryEmailTests : IDisposable
         var said = await Sweep().SweepTenantAsync(TenantId.Local);
 
         // Assert - only outreach's is written; research keeps its one; the kept report is left as composed and marked.
-        Assert.Equal("slot 2026-10-11T08: wrote 1 morning summary to Your inbox", said);
+        Assert.Equal("slot 2026-10-11T08: wrote 1 morning message to Your inbox", said);
         Assert.Equal(new[] { "outreach", "research" }, InboxMessages().Select(m => m.Factory).OrderBy(f => f, StringComparer.Ordinal));
         Assert.Equal("written before the stop", InboxMessages().Single(m => m.Factory == "research").Body);
         var kept = Store.Find(TenantId.Local, "2026-10-11T08")!;

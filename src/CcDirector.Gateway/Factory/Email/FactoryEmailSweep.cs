@@ -21,7 +21,8 @@ public delegate FactoryInboxSummaryDto FactorySummaryOf(TenantId tenant, string 
 /// LONGER AN EMAIL (the owner's decision, Factory Inbox mission, phase 5 "Email off": "Factories stop emailing me").
 /// For each account whose morning summary is switched on, once a day at 08:00 in the account's own time zone
 /// (<see cref="FactoryEmailSlots"/>): compose the account's morning report from the one problems fold and keep it, then
-/// write ONE Your inbox message per factory with news - the factory's summary of the last 24 hours (the Summary button's), followed
+/// write ONE Your inbox message per factory with news (and one more for open problems no factory's summary carries) -
+/// the factory's summary of the last 24 hours (the Summary button's), followed
 /// by that factory's part of the report (<see cref="FactoryMorningMessage"/>). Nothing is emailed: this class holds no
 /// mail sender of any kind, so it cannot send one.
 ///
@@ -35,9 +36,9 @@ public delegate FactoryInboxSummaryDto FactorySummaryOf(TenantId tenant, string 
 /// </summary>
 public sealed class FactoryEmailSweep : TenantScopedSweep
 {
-    /// <summary>What the kept row says once the morning summaries are written.</summary>
+    /// <summary>What the kept row says once the morning messages are written.</summary>
     public static string DeliveredDetail(int written) =>
-        $"Written to Your inbox as {written} morning {(written == 1 ? "summary" : "summaries")}, one per factory. No email was sent.";
+        $"Written to Your inbox as {written} morning {(written == 1 ? "message" : "messages")}: one per factory with news, and one for open problems in no factory when there are any. No email was sent.";
 
     private readonly ITenantContext _tenantContext;
     private readonly Func<TenantId, bool> _enabled;
@@ -149,6 +150,20 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             all++;
         }
 
+        // NO OPEN PROBLEM GOES UNTOLD (the Delivery Lead's ruling): the problems no factory's summary carries get ONE
+        // message of their own, from the morning report - and none when there are none.
+        var orphans = FactoryMorningMessage.NoFactoryProblems(input);
+        if (orphans.Count > 0)
+        {
+            if (_inbox.NoFactoryMorningOf(tenant, slot.BoundaryUtc) is null)
+            {
+                var message = FactoryMorningMessage.ComposeNoFactory(input, orphans);
+                _inbox.Add(tenant, YourInboxStore.ForNoFactoryProblems(tenant, message.Subject, message.Body, slot.BoundaryUtc));
+                written++;
+            }
+            all++;
+        }
+
         _store.Save(tenant, slot.Key, r =>
         {
             r.Attempts++;
@@ -159,7 +174,7 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
         });
         _store.Prune(tenant, now);
         FileLog.Write($"[FactoryEmailSweep] SweepTenantAsync: slot={slot.Key} wrote {written} of {all} morning summaries, tenant={tenant.ToLogString()}");
-        return Task.FromResult($"slot {slot.Key}: wrote {written} morning {(written == 1 ? "summary" : "summaries")} to Your inbox");
+        return Task.FromResult($"slot {slot.Key}: wrote {written} morning {(written == 1 ? "message" : "messages")} to Your inbox");
     }
 
     private static void Fill(Data.Entities.FactoryEmailReportEntity r, FactoryEmailSlot slot, DateTime now, string state,

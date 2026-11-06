@@ -222,6 +222,8 @@ internal static class YourInboxEndpoints
         string text, string? to, CancellationToken ct)
     {
         var titles = Titles(parts, tenant);
+        if (message.FromKind == YourInboxWords.Senders.Gateway)
+            return Error(409, "no_reply_to_gateway", YourInboxWords.NoReplyToGateway);
         if (message.FromKind == YourInboxWords.Senders.Factory || to == YourInboxWords.ReplyTargets.Factory)
         {
             if (message.Factory is null)
