@@ -162,3 +162,11 @@ codex-rereview-*.md
 # Review and mutation scratch. Never committed: a reviewer MUTATES the working tree while it reads,
 # so anything swept up from here can be a live mutant rather than a change somebody made.
 .review/
+
+# Code-signing keys and certificates. NEVER in the repository: scripts/make-macos-signing-cert.sh
+# writes one, and the key it writes is the permanent identity of every macOS build (issue #4518).
+# Losing it, or leaking it, costs every user a fresh round of permission prompts.
+*.p12
+*.pfx
+*.pem
+*.key

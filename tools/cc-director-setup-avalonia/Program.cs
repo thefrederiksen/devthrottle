@@ -58,6 +58,22 @@ public static class Program
             e.SetObserved();
         };
 
+        // The wizard is double-clicked in Finder, so launchd hands it a PATH of /usr/bin:/bin:/usr/sbin:/sbin
+        // and nothing else. Its own .app bundle used to carry a #!/bin/bash wrapper that fixed that before
+        // the process started; the wrapper is gone because it made the bundle's code identity Apple's bash
+        // (issue #4518), so the same work is done here instead.
+        //
+        // IT IS NOT COSMETIC. AgentPresence probes PATH (plus ~/.npm-global/bin and ~/.local/bin) to decide
+        // whether a coding agent is installed, so without this a user whose claude lives in ~/.claude/local
+        // or in Homebrew is told on the Complete screen that no coding agent is set up - the exact lie that
+        // probe was widened to stop telling.
+        CcDirector.Core.Tools.ToolShimPath.EnsureGuiLaunchPathDefaults(SetupLog.Write);
+
+        // And the other half of what that wrapper did, `cd "$DIR"`: launchd hands a double-clicked
+        // application "/" as its working directory, and a relative path the wizard resolves - a release
+        // directory override, a log beside the install - would resolve against the file-system root.
+        CcDirector.Core.Utilities.ProcessWorkingDirectory.LeaveTheFilesystemRoot();
+
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
