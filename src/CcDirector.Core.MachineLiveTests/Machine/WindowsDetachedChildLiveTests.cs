@@ -23,13 +23,15 @@ namespace CcDirector.Core.Tests.Machine;
 /// deleted, the day sessions run inside their own Job Object.
 /// </summary>
 [Trait("Category", "Resources")]
+[LiveMachinePlatform(LiveMachinePlatform.Windows)]
+[Collection(WindowsMachineLoad.Name)]
 public class WindowsDetachedChildLiveTests
 {
     private readonly ITestOutputHelper _output;
 
     public WindowsDetachedChildLiveTests(ITestOutputHelper output) => _output = output;
 
-    [WindowsLiveMachineFact("the process list, after starting a child that outlives its parent")]
+    [LiveMachineFact("the process list, after starting a child that outlives its parent")]
     public void DetachedChild_ParentExited_IsNotReachedByWalkingParentIds()
     {
         // Arrange: cmd starts ping without waiting for it, then exits.
