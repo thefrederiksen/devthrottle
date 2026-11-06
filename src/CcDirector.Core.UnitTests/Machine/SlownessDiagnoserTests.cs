@@ -201,6 +201,7 @@ public sealed class SlownessDiagnoserTests : IDisposable
         var words = AllWords(diagnosis);
         Assert.DoesNotContain("stalled waiting", words, StringComparison.Ordinal);
         Assert.DoesNotContain("of the time", words, StringComparison.Ordinal);
+        Assert.DoesNotContain("of the last minute", words, StringComparison.Ordinal);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -289,7 +290,7 @@ public sealed class SlownessDiagnoserTests : IDisposable
         }));
 
         Assert.False(diagnosis.Cause.HasFlag(SlownessCause.Cpu));
-        Assert.Contains("200 threads were ready to run on 8 cores", AllWords(diagnosis), StringComparison.Ordinal);
+        Assert.Contains("on average 200 threads were ready to run on 8 cores", AllWords(diagnosis), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -511,6 +512,24 @@ public sealed class SlownessDiagnoserTests : IDisposable
         Assert.False(diagnosis.CouldDiagnose);
         Assert.False(diagnosis.IsSlow);
         Assert.Contains("disk0 had 8.0 operations in flight and completed none", diagnosis.Summary + string.Join(" ", diagnosis.Evidence), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Diagnose_HungExternalDiskBesideAHealthySystemDisk_CannotTellRatherThanFine()
+    {
+        // The system disk answers in a millisecond; the external hard drive has four operations in flight
+        // and completed none all minute. A healthy disk must not hide a hung one.
+        var diagnosis = Diagnose(Every5Seconds(TimeSpan.FromSeconds(60), _ => MacOs(millisecondsPerWrite: 1.1) with
+        {
+            DiskEvidence = DiskEvidenceSet.Read(
+            [
+                DiskEvidence.Read("disk0", DiskKind.SolidState, true, null, 0.4, 1.1, 0.2),
+                DiskEvidence.Read("disk2", DiskKind.Spinning, false, null, null, null, 4),
+            ]),
+        }));
+
+        Assert.False(diagnosis.CouldDiagnose);
+        Assert.Contains("disk2 had 4.0 operations in flight and completed none", diagnosis.Summary, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -65,8 +65,8 @@ public static class SlownessDiagnoser
     /// <summary>
     /// Linux: some program waiting on the disk more than this share of the last minute means the disk is a
     /// cause: 20 per cent. A healthy machine running builds stays in single figures; devlinux on 2026-10-15,
-    /// unusable, read 23 per cent over the minute in the recording (the kernel's own "some avg60") and 32
-    /// earlier that morning.
+    /// unusable, read 23 per cent over the minute in the recording (the kernel's own "some avg60"), and 32
+    /// per cent at another moment that day (mission section 2).
     /// </summary>
     public const double IoStalledSlowPercent = 20.0;
 
@@ -270,7 +270,7 @@ public static class SlownessDiagnoser
         // without knowing would read the wrong quantity.
         if (queue is { } queueLength && cores is { } queueCores)
             evidence.Add(string.Create(CultureInfo.InvariantCulture,
-                $"{queueLength:F0} threads were ready to run on {queueCores} cores"));
+                $"on average {queueLength:F0} threads were ready to run on {queueCores} cores"));
 
         return new Judgement("the processor", true, slow, evidence, null, headline);
     }
@@ -327,6 +327,13 @@ public static class SlownessDiagnoser
     /// Without a stall figure, the disk is judged by how long it takes to answer: the slowest disk's
     /// milliseconds per operation, averaged over the window, against a limit for its kind. A disk that
     /// did no work has no time per operation (null) and is not judged - never read as a fast disk.
+    ///
+    /// A KNOWN LIMITATION, RECORDED BESIDE THE PROPOSED LIMITS: the figure is a mean of each sample's own
+    /// mean, every five-second sample counted equally however many operations it completed, because
+    /// <see cref="DiskEvidence"/> carries no operation counts. One very slow operation in an otherwise
+    /// quiet sample - a spinning drive waking from sleep - weighs as much as a busy sample of hundreds,
+    /// and can push the minute over the limit while the disk is healthy. Weighting by operations needs
+    /// the counts on the shared shape; that is the Implementation Lead's decision (pull request 4653).
     /// </summary>
     private static Judgement DiskFromLatency(List<ResourceSample> window, string span)
     {
@@ -356,24 +363,24 @@ public static class SlownessDiagnoser
 
         if (slowest is null)
         {
-            var answered = names.Select(name => Averaged(window, name)).OfType<DiskEvidence>()
-                .Where(disk => SlowerOperation(disk) is not null).ToList();
-            if (answered.Count > 0)
+            var disks = names.Select(name => Averaged(window, name)).OfType<DiskEvidence>().ToList();
+
+            // A disk with operations in flight that completed none in the whole window may have stopped
+            // answering - the slowest disk there is. Checked PER DISK and first, so a healthy system disk
+            // cannot hide an external drive that has hung: the verdict is "cannot tell", never "fine".
+            var stuck = disks.FirstOrDefault(disk => SlowerOperation(disk) is null && disk.AverageQueueDepth > 0);
+            if (stuck.Name is { } stuckName)
+                return Judgement.Unreadable("the disk",
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{stuckName} had {stuck.AverageQueueDepth:F1} operations in flight and completed none in {span}, so how long it takes to answer cannot be told"));
+
+            if (disks.Any(disk => SlowerOperation(disk) is not null))
             {
                 evidence.Add($"every disk that completed an operation answered within its limit (averaged over {span})");
                 return new Judgement("the disk", true, false, evidence, null, null);
             }
 
-            // No disk completed an operation in the whole window. With nothing queued that is an idle
-            // machine; with operations in flight and none completing it may be a disk that has stopped
-            // answering - the slowest disk there is - so it is not called fine.
-            var queued = names.Select(name => Averaged(window, name)).OfType<DiskEvidence>()
-                .FirstOrDefault(disk => disk.AverageQueueDepth > 0);
-            if (queued.Name is { } stuck)
-                return Judgement.Unreadable("the disk",
-                    string.Create(CultureInfo.InvariantCulture,
-                        $"{stuck} had {queued.AverageQueueDepth:F1} operations in flight and completed none in {span}, so how long it takes to answer cannot be told"));
-
+            // No disk completed an operation, and none had any waiting: an idle machine.
             evidence.Add($"no disk completed an operation in {span}, and none had any waiting");
             return new Judgement("the disk", true, false, evidence, null, null);
         }
