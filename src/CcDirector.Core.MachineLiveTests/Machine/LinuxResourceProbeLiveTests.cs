@@ -11,6 +11,7 @@ namespace CcDirector.Core.Tests.Machine;
 /// probe. Run on Linux with CC_DIRECTOR_LIVE_MACHINE_TESTS=1.
 /// </summary>
 [Trait("Category", "Resources")]
+[LiveMachinePlatform(LiveMachinePlatform.Linux)]
 public sealed class LinuxResourceProbeContractLiveTests : ResourceProbeContractLiveTests
 {
     protected override IResourceProbe CreateProbe() => new LinuxResourceProbe();
@@ -25,6 +26,7 @@ public sealed class LinuxResourceProbeContractLiveTests : ResourceProbeContractL
 /// CC_DIRECTOR_LIVE_MACHINE_TESTS=1 is set.
 /// </summary>
 [Trait("Category", "Resources")]
+[LiveMachinePlatform(LiveMachinePlatform.Linux)]
 public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
 {
     private const string Reads = "the real /proc and /sys of this Linux machine";
@@ -38,7 +40,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
         return probe.Read();
     }
 
-    [LinuxLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_ThisMachine_ProcessorMemoryAndSwapAreRealFigures()
     {
         var sample = ReadWithInterval();
@@ -55,7 +57,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
         Assert.True(sample.Swap.UsedBytes <= sample.Swap.TotalBytes);
     }
 
-    [LinuxLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_ThisMachine_StallsAreReadFromPressureStallInformation()
     {
         var sample = ReadWithInterval();
@@ -69,7 +71,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
         Assert.NotNull(sample.Stall.ProcessesWaitingOnDisk);
     }
 
-    [LinuxLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_ThisMachine_EveryPhysicalDiskIsNamedAndSomeDiskBacksTheRootVolume()
     {
         var sample = ReadWithInterval();
@@ -82,7 +84,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
         Assert.Contains(sample.DiskEvidence.Disks, d => d.IsInSystemVolume == true);
     }
 
-    [LinuxLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_ThisMachine_ThisProcessIsListedWithItsParentAndItsFigures()
     {
         var sample = ReadWithInterval();
@@ -101,7 +103,7 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
     /// Prints one full sample of this machine, for the proof beside the operating system's own tools.
     /// Set RESOURCE_PROBE_LIVE_READING to a file path to have it written there too.
     /// </summary>
-    [LinuxLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_ThisMachine_PrintsOneFullSample()
     {
         var sample = ReadWithInterval();
@@ -124,19 +126,5 @@ public sealed class LinuxResourceProbeLiveTests(ITestOutputHelper output)
             File.WriteAllText(path, text.ToString());
 
         Assert.True(sample.Cpu.CouldRead && sample.Memory.CouldRead && sample.DiskEvidence.CouldRead && sample.Processes.CouldRead);
-    }
-}
-
-/// <summary>
-/// <see cref="LiveMachineFactAttribute"/> for a test that reads what only Linux has: it also skips,
-/// with its reason, on any other operating system.
-/// </summary>
-public sealed class LinuxLiveMachineFactAttribute : FactAttribute
-{
-    public LinuxLiveMachineFactAttribute(string reads)
-    {
-        Skip = !OperatingSystem.IsLinux()
-            ? $"Linux-only: reads {reads}."
-            : LiveMachineFactAttribute.SkipReason(reads, minimumLogicalCores: 0, LiveMachineFactAttribute.Enabled, Environment.ProcessorCount);
     }
 }
