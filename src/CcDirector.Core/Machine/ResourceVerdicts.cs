@@ -3,10 +3,9 @@ namespace CcDirector.Core.Machine;
 /// <summary>
 /// The resources the Resource Monitor gives a verdict on - one row each in mission section 5c.
 ///
-/// THERE IS NO DISK VERDICT. The owner narrowed the mission on 2026-11-06 to memory and the processor,
-/// so v3's DiskActivity and DiskFree are gone along with their limits: there is no disk bar for a verdict
-/// to colour. The disk reaches the owner only through the slowness diagnosis, in words - see
-/// <see cref="SlownessCause.Disk"/>.
+/// THERE IS NO DISK VERDICT, because there is no disk bar for one to colour - see
+/// <see cref="ResourceSample"/>. The disk reaches the owner only through the slowness diagnosis, in
+/// words: <see cref="SlownessCause.Disk"/>.
 ///
 /// The values are numbered explicitly, because a Gateway row will carry them and a reordering must not
 /// silently relabel stored history.

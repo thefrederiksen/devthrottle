@@ -26,13 +26,11 @@ public enum DiskKind
 /// <summary>
 /// What one physical disk contributes to the SLOWNESS DIAGNOSIS - the device, not a volume on it.
 ///
-/// THIS IS EVIDENCE FOR A SENTENCE, NOT A METER. The owner narrowed the Resource Monitor on 2026-11-06
-/// to memory and the processor: there is no disk bar in the toolbar, none in the detail tiles, no disk
-/// figure in a Gateway row and none in the Cockpit. The disk survives only because the diagnosis is the
-/// reason the mission is worth having - on devlinux both bars were green while programs were stalled on
-/// a spinning <c>sdc</c> 32% of the time. So these figures exist to fill in the approved sentence "the
-/// hard drive sdc is 75% busy at 26 milliseconds per write, and programs are stalled waiting on it 32%
-/// of the time", and nothing else may read them.
+/// THIS IS EVIDENCE FOR A SENTENCE, NOT A METER. There is no disk bar in the toolbar, none in the detail
+/// tiles, no disk figure in a Gateway row and none in the Cockpit - see <see cref="ResourceSample"/> for
+/// why. These figures exist only to fill in the approved sentence "the hard drive sdc is 75% busy at 26
+/// milliseconds per write, and programs are stalled waiting on it 32% of the time", and nothing else may
+/// read them.
 ///
 /// <see cref="Name"/>, <see cref="Kind"/> and <see cref="IsInSystemVolume"/> are known even when the
 /// statistics are not, which is why they survive <see cref="Unreadable"/>: the diagnosis can still say
@@ -47,18 +45,28 @@ public enum DiskKind
 /// counter is concurrency-weighted service time: the average number of operations in flight, not a share
 /// of time the disk was working. Read as a busy figure it said 260% for one healthy reader and 25% for a
 /// contended one. So <see cref="BusyPercent"/> is null on macOS, and that counter is reported as
-/// <see cref="AverageQueueDepth"/>, which is what it measures. The VERDICT "slow because of the disk"
-/// is never taken from a busy figure in any case - it comes from
-/// <see cref="StallReading.IoStalledPercent"/>. Busy and the timings are the evidence printed beside it.
+/// <see cref="AverageQueueDepth"/>, which is what it measures.
+///
+/// A BUSY FIGURE NEVER DECIDES THE VERDICT, on any platform. What decides it depends on what the platform
+/// can measure, and mission section 5c-i rules both the reading and the wording: on Linux the stall
+/// figure (<see cref="StallReading.IoStalledPercent"/>) decides; on macOS and Windows, which publish no
+/// stall figure, the LATENCY here decides and the diagnosis says "the disk is answering slowly" rather
+/// than claiming a stall percentage it never measured. See <see cref="StallReading"/> for the whole rule.
 /// </summary>
 /// <param name="Name">The operating system's own name for the disk: <c>sdc</c>, <c>PhysicalDrive2</c>, <c>disk0</c>.</param>
 /// <param name="Kind">Spinning or solid-state, or Unknown when it could not be told.</param>
 /// <param name="IsInSystemVolume">
-/// True when this disk backs the volume the machine runs from - <c>/</c>, <c>C:\</c>. It is the fact that
-/// turns a slow disk into an explanation: on devlinux the root volume spanned two solid-state drives AND
-/// the spinning <c>sdc</c>, which is why everything the machine did waited on it. Null when the platform
-/// cannot say which disks back which volume. It replaces v3's per-volume reading, which also carried
-/// free space per volume and went out with the disk meter.
+/// True when this disk backs THE VOLUME THE OPERATING SYSTEM RUNS FROM: <c>/</c> on Linux and macOS, and
+/// on Windows the volume holding the Windows directory - which Windows itself calls the BOOT volume,
+/// usually <c>C:\</c>. Windows uses "system volume" for the small boot-loader partition instead, so the
+/// Windows reading must follow the meaning here and not that name.
+///
+/// It is the fact that turns a slow disk into an explanation: on devlinux the root volume spanned two
+/// solid-state drives AND the spinning <c>sdc</c>, which is why everything the machine did waited on it.
+/// Null when the platform cannot say which disks back which volume - which is not the same as false.
+///
+/// It replaces v3's per-volume reading, which also carried free space per volume and went out with the
+/// disk meter.
 /// </param>
 /// <param name="CouldRead">False when this disk's statistics could not be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>

@@ -39,15 +39,42 @@ public class ResourceReadingTests
     }
 
     [Fact]
-    public void CpuUnreadable_CarriesReasonAndZeroes()
+    public void CpuUnreadable_CarriesItsReason_AndNoFigureAtAllWhenNothingIsKnown()
     {
         var reading = CpuReading.Unreadable(ResourceUnreadableReasons.FirstSample);
 
         Assert.False(reading.CouldRead);
         Assert.Equal("first sample, no interval yet", reading.UnreadableReason);
         Assert.Equal(0, reading.TotalBusyPercent);
-        Assert.Equal(0, reading.BusiestCorePercent);
-        Assert.Equal(0, reading.LogicalCoreCount);
+        Assert.Null(reading.BusiestCorePercent);
+        Assert.Null(reading.LogicalCoreCount);
+    }
+
+    [Fact]
+    public void CpuUnreadable_KeepsTheCoreCountWhenItIsKnown_BecauseItIsNotPartOfWhatFailed()
+    {
+        // The core count is a static fact about the machine, not a rate, so a failed busy read does not
+        // make it unknown - the same reasoning that keeps a disk's name and kind through Unreadable.
+        // Reporting zero cores would be a made-up figure for something that was never in doubt.
+        var reading = CpuReading.Unreadable("the processor counter was refused", logicalCoreCount: 10);
+
+        Assert.False(reading.CouldRead);
+        Assert.Equal(10, reading.LogicalCoreCount);
+        Assert.Null(reading.BusiestCorePercent);
+        Assert.Contains("10 cores", reading.ToString());
+    }
+
+    [Fact]
+    public void CpuRead_WithNoPerCoreFigureOffered_IsReadableAndSaysSo()
+    {
+        // Windows past 64 logical processors: the whole-machine figure is known, the per-core one needs
+        // processor-group-aware calls. Null is "not offered", which is not a failed read.
+        var reading = CpuReading.Read(totalBusyPercent: 41, busiestCorePercent: null, logicalCoreCount: 128);
+
+        Assert.True(reading.CouldRead);
+        Assert.Equal(41, reading.TotalBusyPercent);
+        Assert.Null(reading.BusiestCorePercent);
+        Assert.Contains("busiest core not offered", reading.ToString());
     }
 
     [Fact]
@@ -305,7 +332,7 @@ public class ResourceReadingTests
     }
 
     [Fact]
-    public void ProcessRead_FiguresTheePlatformRefuses_AreNull_AndTheProcessIsStillNamed()
+    public void ProcessRead_FiguresThePlatformRefuses_AreNull_AndTheProcessIsStillNamed()
     {
         // The macOS case: an ordinary user is refused the figures for roughly three hundred of the
         // machine's seven hundred processes, and the busiest process on the machine is routinely one of
@@ -332,19 +359,28 @@ public class ResourceReadingTests
     }
 
     [Fact]
-    public void SessionUsage_SaysHowManyProcessesCouldNotBeMeasured_SoATotalIsNotMistakenForTheWholeTree()
+    public void SessionUsage_CountsTheUnmeasurableProcessesSeparatelyPerTotal()
     {
         // A tree can hold processes whose figures the platform refused. Summing them as zero would report
-        // the session as cheaper than it is, so the count travels and a screen can say "at least".
-        var partial = new SessionUsage("session-one", RootPid: 4242, CpuPercent: 14.0,
-            MemoryBytes: 512UL * 1024 * 1024, Pids: [4242, 4243, 4244], ProcessesWithUnknownFigures: 2);
+        // the session as cheaper than it is, so a count travels and a screen can say "at least".
+        //
+        // THE TWO COUNTS ARE SEPARATE BECAUSE THE TWO FIGURES GO UNKNOWN SEPARATELY. A process that
+        // started during the interval has no earlier reading, so its processor share is null while its
+        // memory is exact. One shared count would mark the memory total as a floor when it is not, and
+        // the screen would hedge a figure it could have stated outright.
+        var startedMidInterval = new SessionUsage("session-one", RootPid: 4242, CpuPercent: 14.0,
+            MemoryBytes: 512UL * 1024 * 1024, Pids: [4242, 4243, 4244],
+            ProcessesWithUnknownProcessor: 2, ProcessesWithUnknownMemory: 0);
 
-        Assert.Equal(2, partial.ProcessesWithUnknownFigures);
+        Assert.Equal(2, startedMidInterval.ProcessesWithUnknownProcessor);
+        Assert.Equal(0, startedMidInterval.ProcessesWithUnknownMemory);
 
         var complete = new SessionUsage("session-two", RootPid: 99, CpuPercent: 1.0,
-            MemoryBytes: 1024, Pids: [99], ProcessesWithUnknownFigures: 0);
+            MemoryBytes: 1024, Pids: [99],
+            ProcessesWithUnknownProcessor: 0, ProcessesWithUnknownMemory: 0);
 
-        Assert.Equal(0, complete.ProcessesWithUnknownFigures);
+        Assert.Equal(0, complete.ProcessesWithUnknownProcessor);
+        Assert.Equal(0, complete.ProcessesWithUnknownMemory);
     }
 
     [Fact]

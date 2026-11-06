@@ -30,8 +30,22 @@ namespace CcDirector.Core.Machine;
 /// <param name="MemoryBytes">
 /// Resident memory (Linux, macOS) or working set (Windows). Null when the platform refused this process.
 /// </param>
-/// <param name="DiskReadBytesPerSecond">Bytes this process read per second. Null when not offered on this platform.</param>
-/// <param name="DiskWriteBytesPerSecond">Bytes this process wrote per second. Null when not offered on this platform.</param>
+/// <param name="DiskReadBytesPerSecond">
+/// Bytes this process read per second - FOR THE SLOWNESS DIAGNOSIS ONLY, like
+/// <see cref="DiskEvidence"/>, and never a meter. Null when not offered on this platform.
+///
+/// KEPT DELIBERATELY, and this is the reasoning because mission section 5c-i requires such a decision to
+/// be written down. That section drops "disk byte rates" along with volumes, free space and the network,
+/// and that list is about the PER-DISK reading: its throughput figures are gone, and so is the disk
+/// meter they fed. These are PER-PROCESS, and they are the only way to finish the approved sentence in
+/// section 5i - "The hard drive sdc is 75% busy at 26 milliseconds per write ... Mostly dotnet test in
+/// session 140". A diagnosis that can name the disk but not the process thrashing it names half the
+/// cause, and the owner's whole complaint was having to find that out by hand.
+/// </param>
+/// <param name="DiskWriteBytesPerSecond">
+/// Bytes this process wrote per second. Diagnosis only, on the same terms as
+/// <paramref name="DiskReadBytesPerSecond"/>. Null when not offered on this platform.
+/// </param>
 public sealed record ProcessReading(
     int Pid,
     int? ParentPid,
@@ -56,8 +70,20 @@ public sealed record ProcessReading(
 }
 
 /// <summary>
-/// Every process on the machine. Processor shares are rates, so on the first read after start-up the
-/// whole set is unreadable with <see cref="ResourceUnreadableReasons.FirstSample"/>.
+/// Every process on the machine.
+///
+/// THE FIRST READ AFTER START-UP STILL RETURNS A LIST. Every process is named, with
+/// <see cref="ProcessReading.CpuPercent"/> null, because a processor share is a rate and the first read
+/// has no interval to divide by - but a name, a parent and a memory figure are not rates and are
+/// readable on the first sample. Nullable figures exist exactly so this case needs no empty list.
+///
+/// THIS IS ONE RULE AND THERE IS ONLY ONE. An earlier wording had the whole set unreadable with
+/// <see cref="ResourceUnreadableReasons.FirstSample"/> on the first read, and the two platform branches
+/// written against it had already split: one returned an unreadable set, the other a readable list. The
+/// result would have been a detail screen whose process list is empty for one sample on Linux and
+/// populated on macOS, which no test downstream could see. <see cref="Unreadable"/> is for a list that
+/// genuinely could not be read at all - the platform refused the enumeration - and never for the first
+/// sample.
 /// </summary>
 /// <param name="CouldRead">False when the process list could not be read.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>

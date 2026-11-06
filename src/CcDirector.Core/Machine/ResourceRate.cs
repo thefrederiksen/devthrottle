@@ -18,6 +18,13 @@ namespace CcDirector.Core.Machine;
 /// one tick of the clock.</item>
 /// </list>
 ///
+/// WHAT THIS CANNOT ENFORCE, SAID OUT LOUD. These are functions a probe has to CHOOSE to call. A probe
+/// that writes its own <c>Math.Clamp(share, 0, 100)</c>, or its own "counter went backwards, call it
+/// zero", gets the made-up zero this interface exists to refuse - and no test downstream can see it,
+/// because <c>ResourceSampleContract</c> judges the finished sample and a clamped-to-zero figure is
+/// indistinguishable from a real zero. So this rule rests on REVIEW, not on the contract: a reviewer
+/// reading a probe looks for a hand-rolled clamp or a hand-rolled division and sends it back here.
+///
 /// THE INTERVAL MUST COME OFF A MONOTONIC CLOCK, never off wall-clock time. Use
 /// <see cref="System.TimeProvider.GetTimestamp"/> and
 /// <see cref="System.TimeProvider.GetElapsedTime(long, long)"/>, as
@@ -42,14 +49,19 @@ public static class ResourceRate
     }
 
     /// <summary>
-    /// The share of the interval that a busy-time counter accounted for, 0 to 100, or null when it
-    /// cannot be known. Both arguments are cumulative busy time in the same unit as
+    /// How much of one resource's capacity a busy-time counter accounted for, 0 to 100, or null when it
+    /// cannot be known. Both busy arguments are cumulative busy time in the same unit as
     /// <paramref name="interval"/>.
     ///
-    /// THE RESULT IS CLAMPED AT 100 AND THAT IS NOT A GUESS. A counter sampled a few microseconds out of
-    /// step with the clock can show marginally more busy time than elapsed time; the honest reading of
-    /// "busier than the whole interval" is "flat out". It is never clamped UP from a negative, because a
-    /// backwards counter yields null above.
+    /// A SMALL OVERSHOOT IS ROUNDED DOWN; A LARGE ONE IS NULL, AND THE DIFFERENCE MATTERS. A counter
+    /// sampled a few microseconds out of step with the clock can show marginally more busy time than
+    /// elapsed time, and the honest reading of "busier than the whole interval" is "flat out" - so up to
+    /// <see cref="OvershootAllowed"/> per cent is taken as 100. Beyond that the figure is not a rounding
+    /// artefact but a sign the arithmetic is wrong: the usual cause is a per-core counter divided by a
+    /// whole-machine interval, which reads as several hundred per cent. Clamping THAT to 100 would hide
+    /// the one defect the whole shared contract exists to catch, and would hide it everywhere at once,
+    /// because a clamped figure passes every range check there is. It is null instead, on the same
+    /// reasoning as a backwards counter: a figure that cannot be true is not reported as a figure.
     /// </summary>
     /// <param name="earlierBusy">Cumulative busy time at the start of the interval.</param>
     /// <param name="laterBusy">Cumulative busy time at the end of the interval.</param>
@@ -58,7 +70,48 @@ public static class ResourceRate
     {
         if (laterBusy < earlierBusy) return null;
         if (interval <= TimeSpan.Zero) return null;
+
         var share = (laterBusy - earlierBusy).TotalSeconds / interval.TotalSeconds * 100;
+        if (share > 100 + OvershootAllowed) return null;
+        return Math.Min(share, 100);
+    }
+
+    /// <summary>
+    /// How far past 100 per cent a busy figure may read before it is treated as wrong rather than as
+    /// sampling skew. Two points: enough for a counter read microseconds out of step with the clock,
+    /// far too little for a per-core figure mistaken for a whole-machine one.
+    /// </summary>
+    public const double OvershootAllowed = 2;
+
+    /// <summary>
+    /// A process's or a resource's share OF THE WHOLE MACHINE, 0 to 100, or null when it cannot be known.
+    ///
+    /// THIS IS THE ONE PLACE THE DIVISION BY CORE COUNT HAPPENS, and that is the point. A process holding
+    /// one core of ten must read 10, not 100 - the single rule the shared contract exists to enforce, and
+    /// the one three platforms are most likely to answer differently. Written by hand in three probes it
+    /// would be got wrong in at least one of them, and a per-core figure cannot be detected downstream
+    /// once it is in the sample. So a probe divides nothing itself: it hands over the busy time it read,
+    /// the interval it measured and the core count, and gets back a figure that means the same thing on
+    /// every operating system.
+    /// </summary>
+    /// <param name="earlierBusy">The process's cumulative processor time at the start of the interval.</param>
+    /// <param name="laterBusy">The process's cumulative processor time at the end of the interval.</param>
+    /// <param name="interval">The monotonic time between the two readings.</param>
+    /// <param name="logicalCoreCount">
+    /// How many logical cores the machine has. Null, zero or negative yields null: without it the figure
+    /// cannot be expressed as a share of the machine at all, and the per-core figure it would otherwise
+    /// return is exactly the wrong answer.
+    /// </param>
+    public static double? ShareOfMachine(
+        TimeSpan earlierBusy, TimeSpan laterBusy, TimeSpan interval, int? logicalCoreCount)
+    {
+        if (logicalCoreCount is null or <= 0) return null;
+        if (laterBusy < earlierBusy) return null;
+        if (interval <= TimeSpan.Zero) return null;
+
+        var machineCapacity = interval.TotalSeconds * logicalCoreCount.Value;
+        var share = (laterBusy - earlierBusy).TotalSeconds / machineCapacity * 100;
+        if (share > 100 + OvershootAllowed) return null;
         return Math.Min(share, 100);
     }
 }

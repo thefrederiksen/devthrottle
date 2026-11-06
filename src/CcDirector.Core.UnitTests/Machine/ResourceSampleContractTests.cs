@@ -166,7 +166,8 @@ public class ResourceSampleContractTests
 
         var broken = ResourceSampleContract.Violations(Healthy(cpu: lying));
 
-        Assert.Contains(broken, one => one.Contains("carries figures", StringComparison.Ordinal));
+        // The core count is allowed to survive; the busy figures are not.
+        Assert.Contains(broken, one => one.Contains("carries a busy figure", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -258,6 +259,116 @@ public class ResourceSampleContractTests
         var broken = ResourceSampleContract.Violations(Healthy(disks: lying));
 
         Assert.Contains(broken, one => one.Contains("not empty", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnUnreadableProcessList_WithProcessesInIt_IsRejected()
+    {
+        var lying = new ProcessSetReading(CouldRead: false, UnreadableReason: "the enumeration was refused",
+            Processes: [Process(1, null, "systemd", 0.1)]);
+
+        var broken = ResourceSampleContract.Violations(Healthy(processes: lying));
+
+        Assert.Contains(broken, one => one.Contains("not empty", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(-5.0)]
+    [InlineData(250.0)]
+    [InlineData(double.NaN)]
+    public void APerProcessPercentageOutsideNoughtToOneHundred_IsRejected(double percent)
+    {
+        var broken = ResourceSampleContract.Violations(
+            Healthy(processes: ProcessSetReading.Read([Process(4242, 1, "dotnet", percent)])));
+
+        Assert.Contains(broken, one => one.Contains("dotnet", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ANamelessDisk_IsRejected_BecauseADiagnosisCouldNotNameIt()
+    {
+        var broken = ResourceSampleContract.Violations(Healthy(disks: DiskEvidenceSet.Read(
+        [
+            DiskEvidence.Read("  ", DiskKind.Spinning, isInSystemVolume: true, busyPercent: 10,
+                millisecondsPerRead: null, millisecondsPerWrite: null, averageQueueDepth: null),
+        ])));
+
+        Assert.Contains(broken, one => one.Contains("a disk has no name", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(-1.0)]
+    [InlineData(130.0)]
+    public void ADiskBusyPercentageOutsideNoughtToOneHundred_IsRejected(double percent)
+    {
+        var broken = ResourceSampleContract.Violations(Healthy(disks: DiskEvidenceSet.Read(
+        [
+            DiskEvidence.Read("sdc", DiskKind.Spinning, isInSystemVolume: true, busyPercent: percent,
+                millisecondsPerRead: null, millisecondsPerWrite: null, averageQueueDepth: null),
+        ])));
+
+        Assert.Contains(broken, one => one.Contains("disk sdc", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnUnreadableStallReadingThatStillNamesASource_IsRejected()
+    {
+        var lying = new StallReading(CouldRead: false, UnreadableReason: "pressure is off in this kernel",
+            StallSource.LinuxPressureStall, null, null, null, null, null, null, null);
+
+        var broken = ResourceSampleContract.Violations(Healthy(stall: lying));
+
+        Assert.Contains(broken, one => one.Contains("name LinuxPressureStall", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NegativeHardPageFaults_AreRejected()
+    {
+        var broken = ResourceSampleContract.Violations(Healthy(
+            stall: StallReading.Read(StallSource.WindowsCounters, hardPageFaultsPerSecond: -3)));
+
+        Assert.Contains(broken, one => one.Contains("hard page faults", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ANegativeCountOfProcessesWaitingOnDisk_IsRejected()
+    {
+        var broken = ResourceSampleContract.Violations(Healthy(
+            stall: StallReading.Read(StallSource.LinuxPressureStall, processesWaitingOnDisk: -1)));
+
+        Assert.Contains(broken, one => one.Contains("waiting on the disk", StringComparison.Ordinal));
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // The processor figures a platform may not offer
+    // -------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void ANullBusiestCore_IsAccepted_BecauseWindowsMayNotOfferOne()
+    {
+        // More than 64 logical processors: the whole-machine figure is known, the per-core one is not.
+        var noPerCore = CpuReading.Read(totalBusyPercent: 20, busiestCorePercent: null, logicalCoreCount: 128);
+
+        Assert.Empty(ResourceSampleContract.Violations(Healthy(cpu: noPerCore)));
+    }
+
+    [Fact]
+    public void ACoreCountThatSurvivedAFailedBusyRead_IsAccepted()
+    {
+        // A static fact about the machine is not part of what failed, exactly as a disk keeps its name.
+        var unreadableButCounted = CpuReading.Unreadable("the counter was refused", logicalCoreCount: 10);
+
+        Assert.Empty(ResourceSampleContract.Violations(Healthy(cpu: unreadableButCounted)));
+    }
+
+    [Fact]
+    public void AZeroCoreCountOnAnUnreadableProcessor_IsRejected_BecauseUnknownIsNull()
+    {
+        var zeroed = new CpuReading(CouldRead: false, UnreadableReason: "refused", 0, null, 0);
+
+        var broken = ResourceSampleContract.Violations(Healthy(cpu: zeroed));
+
+        Assert.Contains(broken, one => one.Contains("never zero", StringComparison.Ordinal));
     }
 
     [Fact]

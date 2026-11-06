@@ -66,20 +66,35 @@ public static class ResourceSampleContract
     {
         if (!cpu.CouldRead)
         {
-            if (cpu.TotalBusyPercent != 0 || cpu.BusiestCorePercent != 0 || cpu.LogicalCoreCount != 0)
-                broken.Add("the processor could not be read but carries figures, which a screen would show as real.");
+            // The core count MAY survive: it is a static fact about the machine, not part of what failed,
+            // in the same way a disk keeps its name and kind. The busy figures may not.
+            if (cpu.TotalBusyPercent != 0 || cpu.BusiestCorePercent is not null)
+                broken.Add("the processor could not be read but carries a busy figure, which a screen would show as real.");
+
+            if (cpu.LogicalCoreCount is { } unreadableCores && unreadableCores <= 0)
+                broken.Add($"the processor could not be read and reports {unreadableCores} logical cores; "
+                           + "a count that is not known is null, never zero.");
             return;
         }
 
         Percentage("the processor's whole-machine busy figure", cpu.TotalBusyPercent, broken);
-        Percentage("the busiest core's figure", cpu.BusiestCorePercent, broken);
 
-        if (cpu.LogicalCoreCount <= 0)
-            broken.Add($"the processor was read but reports {cpu.LogicalCoreCount} logical cores, which cannot be true.");
+        if (cpu.BusiestCorePercent is { } busiestCore)
+        {
+            Percentage("the busiest core's figure", busiestCore, broken);
 
-        if (cpu.BusiestCorePercent + 0.5 < cpu.TotalBusyPercent)
-            broken.Add(FormattableString.Invariant(
-                $"the busiest core ({cpu.BusiestCorePercent:F1}%) reads lower than the whole machine ({cpu.TotalBusyPercent:F1}%), so one of the two is measured against the wrong base."));
+            // A busiest core below the whole machine is arithmetically impossible: the machine figure is
+            // the mean over the cores, so the highest core cannot sit under it. Half a point of slack
+            // for the two being sampled a moment apart.
+            if (busiestCore + 0.5 < cpu.TotalBusyPercent)
+                broken.Add(FormattableString.Invariant(
+                    $"the busiest core ({busiestCore:F1}%) reads lower than the whole machine ({cpu.TotalBusyPercent:F1}%), so one of the two is measured against the wrong base."));
+        }
+
+        // Null is allowed - the platform may not offer a per-core figure - but a number that cannot be
+        // true is not. Zero cores is the made-up zero, not a reading.
+        if (cpu.LogicalCoreCount is { } cores && cores <= 0)
+            broken.Add($"the processor was read but reports {cores} logical cores, which cannot be true.");
     }
 
     /// <summary>
@@ -132,9 +147,9 @@ public static class ResourceSampleContract
         // A share of the whole machine cannot sum past one machine. The allowance is generous because the
         // processes are not all sampled in the same instant; a per-core convention on any multi-core
         // machine under load overshoots this by multiples, not by a margin.
-        if (sample.Cpu.CouldRead && sample.Cpu.LogicalCoreCount > 1 && knownTotal > 150)
+        if (sample.Cpu.LogicalCoreCount is { } coreCount && coreCount > 1 && knownTotal > 150)
             broken.Add(FormattableString.Invariant(
-                $"the processes' processor figures sum to {knownTotal:F0}%, past one whole machine - they look measured per core rather than as a share of all {sample.Cpu.LogicalCoreCount} cores."));
+                $"the processes' processor figures sum to {knownTotal:F0}%, past one whole machine - they look measured per core rather than as a share of all {coreCount} cores."));
     }
 
     private static void CheckDiskEvidence(DiskEvidenceSet disks, List<string> broken)
@@ -204,13 +219,12 @@ public static class ResourceSampleContract
         if (stall.ProcessesWaitingOnDisk < 0)
             broken.Add($"{stall.ProcessesWaitingOnDisk} processes are waiting on the disk, which cannot be negative.");
 
-        // The kernel's number is a bit flag, so only the mapping may be read as a ladder. A level the
-        // mapping does not know must not be reported as Normal.
-        if (stall.MacOsMemoryPressureLevel is { } level
-            && MacOsKernelPressure.Read(level) == KernelMemoryPressureLevel.Unknown
-            && stall.MacOsMemoryPressure != KernelMemoryPressureLevel.Unknown)
-            broken.Add($"the kernel memory-pressure number {level} is not one this version knows, "
-                       + "but it is being reported as a known level.");
+        // NO CHECK HERE ON THE macOS KERNEL LEVEL, deliberately. An earlier version compared
+        // MacOsKernelPressure.Read(level) against StallReading.MacOsMemoryPressure, which is computed by
+        // that very call - a tautology that could never fire while reading like a safeguard, which is
+        // worse than no safeguard at all. The mapping is pinned where it can actually be judged: by
+        // unit tests over MacOsKernelPressure.Read itself. There is nothing about the level a finished
+        // sample can contradict.
     }
 
     private static void Percentage(string what, double value, List<string> broken)

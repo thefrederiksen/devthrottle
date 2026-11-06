@@ -17,11 +17,19 @@
        reason - unless CC_DIRECTOR_LIVE_MACHINE_TESTS=1 is set. A machine-reading test that runs by
        accident is the thing being prevented, so it is prevented twice.
 
-       HOW TO RUN IT, on the platform whose probe you are proving:
-         CC_DIRECTOR_LIVE_MACHINE_TESTS=1 dotnet test src/CcDirector.Core.MachineLiveTests
+       WHAT DOES RUN IT, said plainly so a skipped test here surprises nobody. It is in cc-director.sln,
+       so two things load this assembly: the solution build, which is the point - a signature change that
+       breaks these tests breaks the build like any other - and the scheduled full continuous integration
+       run on main, which runs "dotnet test cc-director.sln" every two hours when main has moved. That run
+       executes this project. Today that means its handful of attribute tests pass there and every live
+       test SKIPS, because the variable is absent on that runner; a derived contract class will therefore
+       show up as skipped in the full run, which is correct and is not a gap. The same is true of
+       CcDirector.Core.GitTests, which says so in its own project file. What runs the live tests for real
+       is a person or a session asking for them: the Developer proving a platform probe, and the
+       cross-platform quality assurance run.
 
-       It IS part of the solution, so the solution build compiles it and a signature change that breaks
-       it fails the build like any other. Built always; run only when asked. -->
+       HOW TO RUN IT, on the platform whose probe you are proving:
+         CC_DIRECTOR_LIVE_MACHINE_TESTS=1 dotnet test src/CcDirector.Core.MachineLiveTests -->
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>

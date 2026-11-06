@@ -144,13 +144,101 @@ public class ResourceClockAndRateTests
     }
 
     [Fact]
-    public void BusyPercent_SlightlyPastTheWholeInterval_IsClampedToOneHundred()
+    public void BusyPercent_SlightlyPastTheWholeInterval_IsRoundedDownToOneHundred()
     {
         // A counter sampled microseconds out of step with the clock can show marginally more busy time
         // than elapsed time. The honest reading of "busier than the whole interval" is "flat out".
         var busy = ResourceRate.BusyPercent(TimeSpan.Zero, TimeSpan.FromSeconds(5.001), TimeSpan.FromSeconds(5));
 
         Assert.Equal(100, busy);
+    }
+
+    [Fact]
+    public void BusyPercent_FarPastTheWholeInterval_IsNull_BecauseClampingWouldHideTheDefect()
+    {
+        // Four cores' worth of busy time over a one-core interval reads 400%. That is not sampling skew,
+        // it is the arithmetic being wrong - usually a per-core counter over a whole-machine interval.
+        // Clamping it to 100 would make it pass every range check there is, which is exactly how a
+        // per-core convention bug would reach a session total undetected.
+        Assert.Null(ResourceRate.BusyPercent(TimeSpan.Zero, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public void BusyPercent_TheOvershootAllowanceIsSmall_NotEnoughToSwallowAPerCoreFigure()
+    {
+        // Pinned so the allowance cannot quietly grow into a clamp again. Two points absorbs skew; a
+        // per-core figure on any multi-core machine is a multiple, not a margin.
+        Assert.True(ResourceRate.OvershootAllowed > 0);
+        Assert.True(ResourceRate.OvershootAllowed < 50);
+    }
+
+    // -------------------------------------------------------------------------------------------
+    // The one division by core count - the rule the whole shared contract exists for
+    // -------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void ShareOfMachine_OneCoreOfTen_ReadsTen_NotOneHundred()
+    {
+        // THE rule. A process holding one core flat out for the whole interval on a ten-core machine is
+        // using a tenth of the machine. Three probes writing this division by hand is how one of them
+        // ends up answering 100, and nothing downstream could then tell.
+        var share = ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), logicalCoreCount: 10);
+
+        Assert.Equal(10, share);
+    }
+
+    [Fact]
+    public void ShareOfMachine_EveryCoreFlatOut_ReadsOneHundred()
+    {
+        var share = ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(50), TimeSpan.FromSeconds(5), logicalCoreCount: 10);
+
+        Assert.Equal(100, share);
+    }
+
+    [Fact]
+    public void ShareOfMachine_OnASingleCoreMachine_OneCoreIsTheWholeMachine()
+    {
+        var share = ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), logicalCoreCount: 1);
+
+        Assert.Equal(100, share);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(-4)]
+    public void ShareOfMachine_WithNoUsableCoreCount_IsNull_NotAPerCoreFigure(int? cores)
+    {
+        // Without the core count the figure cannot be expressed as a share of the machine at all, and
+        // the per-core figure it would otherwise return is precisely the wrong answer. So it says nothing.
+        Assert.Null(ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), cores));
+    }
+
+    [Fact]
+    public void ShareOfMachine_AProcessorTimeCounterThatSteppedBackwards_IsNull()
+    {
+        // A reused process id is the usual cause: the counter belongs to a different process now.
+        Assert.Null(ResourceRate.ShareOfMachine(
+            TimeSpan.FromSeconds(9), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), logicalCoreCount: 10));
+    }
+
+    [Fact]
+    public void ShareOfMachine_WithNoInterval_IsNull()
+    {
+        Assert.Null(ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.Zero, logicalCoreCount: 10));
+    }
+
+    [Fact]
+    public void ShareOfMachine_FarPastTheWholeMachine_IsNull()
+    {
+        // Twice the machine's whole capacity. Impossible, so it is not reported as a figure.
+        Assert.Null(ResourceRate.ShareOfMachine(
+            TimeSpan.Zero, TimeSpan.FromSeconds(100), TimeSpan.FromSeconds(5), logicalCoreCount: 10));
     }
 
     [Fact]

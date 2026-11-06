@@ -93,7 +93,12 @@ public abstract class ResourceProbeContractLiveTests
         Assert.True(measured >= expected * 0.4,
             $"{ProbeName} measured this process at {measured:F1}% of the machine while it held one core "
             + $"of {cores} flat out; one core is {expected:F1}% of this machine, so the probe did not see "
-            + "the load and the figure proves nothing.");
+            + "the load and the figure proves nothing. READ THIS BOUND CAREFULLY BEFORE BLAMING THE PROBE: "
+            + "it is the only part of this test that the MACHINE can fail rather than the code. On a "
+            + "saturated machine - this one running a full fleet - the operating system may not give one "
+            + "spinning thread anything like a whole core, and the figure falls honestly. Re-run it on a "
+            + "quiet machine before treating it as a defect; the upper bound below is the one that "
+            + "catches a real convention bug.");
 
         Assert.True(measured <= expected * 2.5,
             $"{ProbeName} measured this process at {measured:F1}% of the machine while it held ONE core of "

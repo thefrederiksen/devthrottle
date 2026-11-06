@@ -32,11 +32,25 @@ public enum StallSource
 /// stalled percentages directly; Windows and macOS give the proxies. Null means "not offered on this
 /// platform", never "failed" - a failed read is <see cref="CouldRead"/> false.
 ///
-/// THE DISK STALL FIGURE IS WHY THIS SURVIVED THE NARROWING, AND IT IS THE ONLY SOURCE OF A DISK
-/// VERDICT. The owner cut the disk meter on 2026-11-06 but kept the disk in the diagnosis, so
-/// <see cref="IoStalledPercent"/> is what decides "slow because of the disk". A disk's busy percentage
-/// never decides it - see <see cref="DiskEvidence.BusyPercent"/>, which is evidence printed beside the
-/// verdict and nothing more.
+/// THE DISK STALL FIGURE IS WHY THIS SURVIVED THE NARROWING. The owner cut the disk meter on 2026-11-06
+/// but kept the disk in the diagnosis, and mission section 5c-i rules what each platform may read and
+/// what it may then CLAIM:
+/// <list type="bullet">
+/// <item>ON LINUX the stall figure decides. <see cref="IoStalledPercent"/> is measured directly, so a
+/// Linux diagnosis may say "programs were stalled waiting on the disk 32 per cent of the time".</item>
+/// <item>WHERE THE PLATFORM PUBLISHES NO STALL FIGURE - macOS has none for any resource, and Windows has
+/// only performance-counter proxies - the diagnosis decides from each disk's LATENCY
+/// (<see cref="DiskEvidence.MillisecondsPerRead"/> and
+/// <see cref="DiskEvidence.MillisecondsPerWrite"/>) and says "the disk is answering slowly". It must
+/// never be worded as though a stall percentage had been measured.</item>
+/// <item>A BUSY PERCENTAGE NEVER DECIDES, on any platform. See
+/// <see cref="DiskEvidence.BusyPercent"/>: it is evidence printed beside the verdict and nothing
+/// more.</item>
+/// <item>A PLATFORM THAT CANNOT TELL says <see cref="SlownessDiagnosis.CouldDiagnose"/> false with the
+/// reason, which means NOT KNOWN and never "fine".</item>
+/// </list>
+/// Saying the stall figure were the only source would make a disk verdict impossible on macOS and
+/// Windows, which is the devlinux failure of 2026-10-15 reproduced on two more platforms.
 /// </summary>
 /// <param name="CouldRead">False when no stall figure could be read; every figure is then null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>
