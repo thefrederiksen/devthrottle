@@ -324,22 +324,17 @@ internal static class MacOsPlatformReader
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Every process identifier on the machine, or null when the list could not be taken.
-    ///
-    /// <c>proc_listallpids</c> RETURNS A COUNT OF PROCESSES, NOT A COUNT OF BYTES, and it is widely
-    /// documented the other way round. Reading its answer as bytes and dividing by four is the
-    /// difference between 726 processes and 181: measured on the M4 Mac mini on 2026-10-15, where
-    /// <c>ps</c> listed 725. A quarter of the machine's processes is not an obviously broken reading -
-    /// it is a plausible one, and it would have quietly left the busiest process out of the list the
-    /// detail screen names the culprit from.
-    /// </summary>
-    /// <summary>
     /// The kernel's whole process table as raw bytes, or null when it could not be read.
     ///
     /// Asked twice on purpose: once for the size, then again for the contents, with room to spare
     /// because processes start and stop between the two calls. The kernel can also answer the second
     /// call with less than it promised, which is normal and not a failure, so the caller is handed
     /// only the bytes actually written.
+    ///
+    /// THIS IS WHERE THE PROCESS LIST COMES FROM, and the reason is that an ordinary user may read it
+    /// for EVERY process. The per-process calls below are refused for a process belonging to another
+    /// user, so a list built from them silently omits a good share of the machine - including, measured
+    /// here, the two busiest processes on it.
     /// </summary>
     internal static byte[]? ReadKernelProcessTable()
     {
@@ -367,30 +362,6 @@ internal static class MacOsPlatformReader
             var bytes = new byte[written];
             Marshal.Copy(buffer, bytes, 0, written);
             return bytes;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
-    }
-
-    internal static int[]? ReadProcessIds()
-    {
-        var count = MacOsNative.proc_listallpids(IntPtr.Zero, 0);
-        if (count <= 0) return null;
-
-        // Room to spare, because processes start between the two calls.
-        var room = count + 64;
-        var size = room * sizeof(int);
-        var buffer = Marshal.AllocHGlobal(size);
-        try
-        {
-            var written = MacOsNative.proc_listallpids(buffer, size);
-            if (written <= 0) return null;
-
-            var pids = new int[Math.Min(written, room)];
-            Marshal.Copy(buffer, pids, 0, pids.Length);
-            return pids;
         }
         finally
         {

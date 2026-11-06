@@ -158,15 +158,17 @@ internal static class MacOsNative
     /// <summary>RUSAGE_INFO_V2 - the first version that carries the bytes read and written to disk.</summary>
     internal const int RusageInfoV2 = 2;
 
-    /// <summary>
-    /// Every process identifier on the machine. Called once with a null buffer, then again with a
-    /// buffer. RETURNS A COUNT OF PROCESSES, NOT A COUNT OF BYTES, whatever the usual documentation
-    /// says - measured on this machine, and the reader relies on it. Kept only as a cross-check on the
-    /// count; the list itself now comes from the kernel's process table, which also names the
-    /// processes this user may not read.
-    /// </summary>
-    [DllImport(LibC, SetLastError = true)]
-    internal static extern int proc_listallpids(IntPtr buffer, int buffersize);
+    // proc_listallpids IS DELIBERATELY NOT DECLARED HERE. It lists process identifiers, and this probe
+    // used to build its process list from it - which is how it came to drop every process belonging to
+    // another user, because the per-process calls it then made are refused for those. The list now comes
+    // from the kernel's process table, which names them all, so nothing production calls
+    // proc_listallpids and a binding only the tests reached is dead code that looks like capability.
+    //
+    // The measured fact it taught is worth keeping even though the call is gone: it returns a COUNT OF
+    // PROCESSES, not a count of bytes, whatever the usual documentation says. Reading its answer as
+    // bytes and dividing by four was the difference between 726 processes and 181, measured on this
+    // machine on 2026-10-15 where ps listed 725. A quarter of a machine's processes is not an obviously
+    // broken reading - it is a plausible one, with launchd cut off the end.
 
     /// <summary>
     /// One process's information, by flavour. Returns the number of bytes written, or 0 when the

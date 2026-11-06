@@ -326,20 +326,38 @@ public class MacOsPlatformReaderLiveTests
     // Processes
     // =============================================================================================
 
-    [MacOsOnlyFact("proc_listallpids is a libproc call")]
+    [MacOsOnlyFact("the kernel process table is read through sysctl on macOS")]
     [Trait("Category", "Resources")]
-    public void ReadProcessIds_OnThisMachine_IncludesThisTestProcess()
+    public void ReadKernelProcessTable_OnThisMachine_NamesEveryProcessIncludingAnotherUsers()
     {
-        var pids = MacOsPlatformReader.ReadProcessIds();
+        // THIS IS THE PRODUCTION PATH, and it is here because of the defect it fixed. The probe used to
+        // build its list from proc_listallpids and then read each process with a per-process call - but
+        // that call is REFUSED for a process belonging to another user, so roughly three hundred of this
+        // machine's seven hundred processes were absent entirely, name and all, from a set reporting that
+        // it had read fine. Among them were the two busiest processes on the machine. The kernel's own
+        // table has no such restriction.
+        var bytes = MacOsPlatformReader.ReadKernelProcessTable();
+        Assert.NotNull(bytes);
 
-        Assert.NotNull(pids);
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(bytes);
 
-        // THE REGRESSION TEST FOR READING THE COUNT AS BYTES. That mistake returned a quarter of the
-        // machine's processes - a list that looks perfectly ordinary. A machine running a test suite
-        // has well over a hundred processes, and launchd is always process 1.
-        Assert.True(pids.Length > 50, $"only {pids.Length} processes were listed, which no running Mac has");
-        Assert.Contains(Environment.ProcessId, pids);
-        Assert.Contains(1, pids);
+        // A machine running a test suite has well over a hundred processes, and launchd is always
+        // process 1. Reading the table's length wrongly would cut the list short while leaving it
+        // looking perfectly ordinary.
+        Assert.True(entries.Count > 50, $"only {entries.Count} processes were listed, which no running Mac has");
+        Assert.Contains(entries, entry => entry.Pid == Environment.ProcessId);
+        Assert.Contains(entries, entry => entry.Pid == 1);
+
+        // EVERY PROCESS IS NAMED. A blank name here would mean the diagnosis could name a culprit it
+        // could not describe.
+        Assert.All(entries, entry => Assert.False(string.IsNullOrWhiteSpace(entry.Name)));
+
+        // AND PROCESSES THIS USER DOES NOT OWN ARE IN THE LIST. That is the whole point: this test fails
+        // if the table is ever filtered to what the per-process calls happen to allow. Checked as a
+        // specific presence rather than as "nothing is missing", because an empty or filtered list would
+        // satisfy any assertion phrased the other way round.
+        var ourUserId = entries.Single(entry => entry.Pid == Environment.ProcessId).UserId;
+        Assert.Contains(entries, entry => entry.UserId != ourUserId);
     }
 
     [MacOsOnlyFact("proc_pidinfo is a libproc call")]
@@ -385,19 +403,29 @@ public class MacOsPlatformReaderLiveTests
         // that it never fails the whole set: the Director runs as an ordinary user and a good share of
         // a Mac's processes belong to root, so a reader that gave up on the first refusal would report
         // no processes at all on every machine.
-        var pids = MacOsPlatformReader.ReadProcessIds();
-        Assert.NotNull(pids);
+        // The identifiers come from the kernel's table, which is where production gets them, so this
+        // walks exactly the list the probe walks.
+        var bytes = MacOsPlatformReader.ReadKernelProcessTable();
+        Assert.NotNull(bytes);
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(bytes);
+        Assert.NotEmpty(entries);
 
         var readable = 0;
         var refused = 0;
-        foreach (var pid in pids)
+        foreach (var entry in entries)
         {
-            var (taskInfo, bsdInfo, _) = MacOsPlatformReader.ReadProcess(pid);
+            var (taskInfo, bsdInfo, _) = MacOsPlatformReader.ReadProcess(entry.Pid);
             if (taskInfo is null || bsdInfo is null) refused++; else readable++;
         }
 
-        Assert.True(readable > 10, $"only {readable} of {pids.Length} processes could be read");
-        Assert.Equal(pids.Length, readable + refused);
+        Assert.True(readable > 10, $"only {readable} of {entries.Count} processes could be read");
+        Assert.Equal(entries.Count, readable + refused);
+
+        // AND SOME REALLY ARE REFUSED on an ordinary user's Mac. If every process were readable this
+        // test would be proving nothing about the case it exists for, and the null-figure path through
+        // the probe would be uncovered.
+        Assert.True(refused > 0,
+            "every process was readable, so this run did not exercise the refusal this test is for");
     }
 
     [MacOsOnlyFact("mach_timebase_info is a Mach call")]
