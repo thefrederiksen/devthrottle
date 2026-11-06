@@ -1,0 +1,162 @@
+/* YOUR INBOX (Factory Inbox mission, step C). Builds on the Factory inbox's classes (factoryInbox.css) and its colour
+   tokens, so the two tabs read as one page. Layout only: every word and every tone is the Gateway's. */
+
+.fi-tab-count {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--attention);
+}
+
+/* ---- the filters ---- */
+.yi-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.yi-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.yi-filter[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.yi-filter-count {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- a row ---- */
+.yi-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.yi-row-from {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yi-row-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.yi-row-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yi-row .fi-row-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yi-row .fi-row-title,
+.yi-row .yi-row-subject {
+  font-weight: 400;
+}
+.yi-row[data-unread="true"] .fi-row-title,
+.yi-row[data-unread="true"] .yi-row-subject {
+  font-weight: 700;
+}
+
+/* ---- reading one message ---- */
+.yi-message {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.yi-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.yi-from {
+  font-weight: 600;
+}
+.yi-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.yi-links,
+.yi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yi-link,
+.yi-action,
+.yi-offer {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.yi-link {
+  color: var(--accent);
+}
+.yi-action:disabled,
+.yi-offer:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.yi-action-reply[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+/* ---- the replies sent, and the reply box ---- */
+.yi-replies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.yi-sent-reply {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.yi-reply-to {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.yi-offers {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.yi-offers-sentence {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

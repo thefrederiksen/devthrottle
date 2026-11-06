@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { useFactoryInboxOffered } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
+import { useYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
 
 // The hamburger menu button + slide-in nav drawer for the mobile app-bar. Self-contained: it owns its
 // open/closed state and renders the drawer plus a dimming overlay as a fixed layer above the page.
@@ -17,6 +18,8 @@ export function NavDrawer() {
   // The Inbox sits behind the factory area switch until the Factory Inbox mission's screens are whole (rule 7: the
   // Gateway answers it for this account).
   const inboxOffered = useFactoryInboxOffered().offer === "on";
+  // The Gateway's unread count of Your inbox, in its words ("3 unread"), beside the entry (Factory Inbox mission, step C).
+  const inboxCount = useYourInboxCount(inboxOffered);
 
   return (
     <>
@@ -57,6 +60,11 @@ export function NavDrawer() {
             {inboxOffered && (
               <Link className="drawer-item" to="/inbox" onClick={close}>
                 Inbox
+                {inboxCount !== null && inboxCount.label !== "" && (
+                  <span className="drawer-count" data-testid="inbox-count">
+                    {inboxCount.label}
+                  </span>
+                )}
               </Link>
             )}
             <Link className="drawer-item" to="/recorder" onClick={close}>

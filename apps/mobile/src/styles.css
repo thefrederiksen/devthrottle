@@ -3484,6 +3484,12 @@ a.banner-btn {
 .drawer-item:active {
   background: var(--surface-2);
 }
+/* The Gateway's unread count of Your inbox beside the Inbox entry (Factory Inbox mission, step C). */
+.drawer-count {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--attention);
+}
 .drawer-sep {
   height: 1px;
   background: var(--border);

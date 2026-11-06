@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { oddList, oddThread } from "@devthrottle/client-core/factoryinbox/factoryInboxFixture.testkit";
+import { oddYourCount, oddYourList, oddYourMessage } from "@devthrottle/client-core/yourinbox/yourInboxFixture.testkit";
 
 // The phone's Inbox addresses (Factory Inbox mission, phase 4) driven through the REAL route table the app mounts, at
 // the REAL basename, with the real shared screens inside the phone's own frame. Only the Gateway's answers are staged.
@@ -41,13 +42,23 @@ vi.mock("@devthrottle/client-core/factoryinbox/factoryInboxVoice", () => ({
   deleteFactoryRecording: vi.fn(),
   sendFactoryRecording: vi.fn(),
 }));
+const yours = vi.hoisted(() => ({ unread: 3, label: "three fresh ones (gateway)" }));
+vi.mock("@devthrottle/client-core/yourinbox/yourInboxClient", () => ({
+  getYourInbox: vi.fn(async () => oddYourList()),
+  getYourInboxMessage: vi.fn(async () => oddYourMessage({ unread: false, state: "read" })),
+  setYourInboxState: vi.fn(),
+  replyYourInbox: vi.fn(),
+  getYourInboxCount: vi.fn(async () => oddYourCount({ unread: yours.unread, label: yours.label })),
+}));
 vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual) => ({
   ...(await importActual<typeof import("@devthrottle/client-core/errors/reportClientError")>()),
   reportClientError: vi.fn(),
 }));
 
 import { resetFactoryInboxOfferCache } from "@devthrottle/client-core/factoryinbox/useFactoryInboxOffered";
+import { resetYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
 import { NavDrawer } from "../components/NavDrawer";
+import { phoneInboxHref } from "./Inbox";
 import { MOBILE_BASENAME, MOBILE_ROUTES } from "../routes";
 
 function mountAt(entry: string) {
@@ -58,6 +69,9 @@ function mountAt(entry: string) {
 beforeEach(() => {
   gw.factoriesOn = true;
   resetFactoryInboxOfferCache();
+  resetYourInboxCount();
+  yours.unread = 3;
+  yours.label = "three fresh ones (gateway)";
   window.sessionStorage.clear();
 });
 
@@ -117,5 +131,56 @@ describe("the phone's Inbox", () => {
     await screen.findByRole("link", { name: "Sessions" });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole("link", { name: "Inbox" })).toBeNull();
+  });
+
+  // Your inbox (Factory Inbox mission, step C; mockup C): the list, tap to read, back to the list.
+  it("Inbox_YourInboxTab_ShowsTheListInThePhonesFrameWithTheGatewaysCountOnTheTab", async () => {
+    const { container } = mountAt("/mobile/inbox?tab=yours");
+
+    expect(await screen.findAllByTestId("yi-row")).toHaveLength(2);
+    expect(container.querySelector(".screen > .app-bar > h1")?.textContent).toBe("Inbox");
+    expect(screen.getByRole("tab", { name: /Your inbox/ }).getAttribute("aria-selected")).toBe("true");
+    expect((await screen.findByTestId("yi-tab-count")).textContent).toBe("three fresh ones (gateway)");
+  });
+
+  it("Inbox_YourInboxRowPressed_OpensTheMessageWithItsSubjectInTheAppBarAndBackToTheList", async () => {
+    const { router, container } = mountAt("/mobile/inbox?tab=yours");
+
+    fireEvent.click((await screen.findAllByTestId("yi-row"))[0]);
+
+    expect(router.state.location.pathname + router.state.location.search).toBe("/mobile/inbox?tab=yours&message=y-1");
+    expect((await screen.findByTestId("yi-body")).textContent).toContain("The quokka notes are filed.");
+    expect(container.querySelector(".screen > .app-bar > h1")?.textContent).toBe("Wombat ledger is ready (gateway)");
+    expect(container.querySelector(".yi-subject")).toBeNull(); // the app bar holds it; it is not printed twice
+    expect(container.querySelector(".screen > .app-bar > .back-link")?.getAttribute("href")).toBe("/mobile/inbox?tab=yours");
+    expect(screen.getAllByTestId("yi-link")[0].getAttribute("href")).toBe("/mobile/session/11111111-1111-4111-8111-111111111111");
+  });
+
+  // Section 7 of the mission: the unread count on the Inbox entry equals the Gateway's count.
+  it("NavDrawer_Inbox_CarriesTheGatewaysUnreadCountInItsWords", async () => {
+    const router = createMemoryRouter([{ path: "/", element: <NavDrawer /> }]);
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    expect((await screen.findByTestId("inbox-count")).textContent).toBe("three fresh ones (gateway)");
+  });
+
+  it("NavDrawer_NothingUnread_CarriesNoCount", async () => {
+    yours.unread = 0;
+    yours.label = "";
+    const router = createMemoryRouter([{ path: "/", element: <NavDrawer /> }]);
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    await screen.findByRole("link", { name: "Inbox" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("inbox-count")).toBeNull();
+  });
+
+  it("phoneInboxHref_EachKind_IsThePhonesOwnAddress", () => {
+    expect(phoneInboxHref({ kind: "session", label: "", target: "s1" })).toBe("/session/s1");
+    expect(phoneInboxHref({ kind: "report", label: "", target: "r1" })).toBe("/report/r1");
+    expect(phoneInboxHref({ kind: "factory", label: "", target: "zeta-works" })).toBe("/inbox/zeta-works");
+    expect(phoneInboxHref({ kind: "unknown-kind", label: "", target: "x" })).toBeNull();
   });
 });

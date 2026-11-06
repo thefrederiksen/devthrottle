@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { oddList, oddThread } from "@devthrottle/client-core/factoryinbox/factoryInboxFixture.testkit";
+import { oddYourCount, oddYourList, oddYourMessage } from "@devthrottle/client-core/yourinbox/yourInboxFixture.testkit";
 
 // The Cockpit's Inbox (Factory Inbox mission, phase 4; mockup D): the shared list on the left and the open factory's
 // thread as the reading pane. The screens themselves are tested in client-core; here it is the Cockpit's half - the two
@@ -21,10 +22,20 @@ vi.mock("@devthrottle/client-core/factoryinbox/factoryInboxVoice", () => ({
   sendFactoryRecording: vi.fn(),
 }));
 
-import { InboxView } from "./InboxView";
+vi.mock("@devthrottle/client-core/yourinbox/yourInboxClient", () => ({
+  getYourInbox: vi.fn(async () => oddYourList()),
+  getYourInboxMessage: vi.fn(async () => oddYourMessage({ unread: false, state: "read" })),
+  setYourInboxState: vi.fn(),
+  replyYourInbox: vi.fn(),
+  getYourInboxCount: vi.fn(async () => oddYourCount()),
+}));
+
+import { resetYourInboxCount } from "@devthrottle/client-core/yourinbox/useYourInboxCount";
+import { cockpitInboxHref, InboxView } from "./InboxView";
 
 function Where() {
-  return <span data-testid="where">{useLocation().pathname}</span>;
+  const at = useLocation();
+  return <span data-testid="where">{at.pathname + at.search}</span>;
 }
 
 function mountAt(path: string) {
@@ -38,7 +49,10 @@ function mountAt(path: string) {
   );
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  resetYourInboxCount();
+});
 
 describe("InboxView", () => {
   it("InboxView_NoFactoryOpen_ShowsTheListWithItsComposerAndAnEmptyReadingPane", async () => {
@@ -68,5 +82,44 @@ describe("InboxView", () => {
     expect(rows[1].getAttribute("aria-current")).toBeNull();
     expect(within(screen.getByTestId("fi-list")).queryByTestId("fi-composer")).toBeNull();
     expect(within(screen.getByTestId("inbox-reading-pane")).getByTestId("fi-composer")).toBeTruthy();
+  });
+
+  // Your inbox (Factory Inbox mission, step C): the same list-and-pane frame on its own tab.
+  it("InboxView_YourInboxTab_ShowsItsListWithTheGatewaysCountOnTheTabAndAnEmptyPane", async () => {
+    mountAt("/inbox?tab=yours");
+
+    expect(await screen.findAllByTestId("yi-row")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: /Your inbox/ }).getAttribute("aria-selected")).toBe("true");
+    expect((await screen.findByTestId("yi-tab-count")).textContent).toBe("three fresh ones (gateway)");
+    expect(screen.queryByTestId("yi-message")).toBeNull();
+    expect(screen.queryByTestId("fi-list")).toBeNull();
+  });
+
+  it("InboxView_YourInboxRowPressed_OpensTheMessageInTheReadingPaneAtItsOwnAddress", async () => {
+    mountAt("/inbox?tab=yours");
+
+    fireEvent.click((await screen.findAllByTestId("yi-row"))[0]);
+
+    expect(screen.getByTestId("where").textContent).toBe("/inbox?tab=yours&message=y-1");
+    const pane = screen.getByTestId("inbox-reading-pane");
+    expect((await within(pane).findByTestId("yi-body")).textContent).toContain("The quokka notes are filed.");
+    expect((await screen.findAllByTestId("yi-row"))[0].getAttribute("aria-current")).toBe("true");
+  });
+
+  it("InboxView_TabPressed_MovesBetweenTheTwoInboxes", async () => {
+    mountAt("/inbox");
+    await screen.findAllByTestId("fi-row");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Your inbox/ }));
+    expect(screen.getByTestId("where").textContent).toBe("/inbox?tab=yours");
+    fireEvent.click(screen.getByRole("tab", { name: "Factory inbox" }));
+    expect(screen.getByTestId("where").textContent).toBe("/inbox");
+  });
+
+  it("cockpitInboxHref_EachKind_IsTheCockpitsOwnAddress", () => {
+    expect(cockpitInboxHref({ kind: "session", label: "", target: "s 1" })).toBe("/sessions/s%201");
+    expect(cockpitInboxHref({ kind: "report", label: "", target: "r1" })).toBe("/report/r1");
+    expect(cockpitInboxHref({ kind: "factory", label: "", target: "zeta-works" })).toBe("/inbox/zeta-works");
+    expect(cockpitInboxHref({ kind: "unknown-kind", label: "", target: "x" })).toBeNull();
   });
 });
