@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FleetMachine, FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
-import { machineOf, outcomeStillShown, toneClass, versionStateByDirector } from "./machinesFormat";
+import { machineOf, nextSpareOrder, outcomeStillShown, sortBySpare, toneClass, versionStateByDirector } from "./machinesFormat";
+import { HOT, OFFLINE, ONLINE, machineWith } from "./machineCapacityFixtures";
 
 const action = { offered: false, label: "", reason: null };
 const version = { label: "", tone: "idle" as const, behind: false };
@@ -17,6 +18,7 @@ function machine(name: string, directorIds: string[]): FleetMachine {
     update: action,
     restart: action,
     start: action,
+    capacity: OFFLINE,
     directors: directorIds.map((id) => ({
       directorId: id,
       name: id,
@@ -71,5 +73,37 @@ describe("machinesFormat", () => {
     expect(outcomeStillShown({ text: "The Director restarted.", tone: "ok", kind: "restart" }, current)).toBe(true);
     expect(outcomeStillShown({ text: "asked to start", tone: "ok", kind: "start" }, current)).toBe(true);
     expect(outcomeStillShown(null, current)).toBe(false);
+  });
+
+  // Mission: Resource Monitor, section 5j - the Spare column sorts. A machine whose spare capacity is not known goes
+  // last either way: ranking an offline machine as having no room, or the most, would be a figure nobody measured.
+  it("SortBySpare_MostRoomFirst_UnknownLast", () => {
+    const machines = [machineWith("offline", OFFLINE), machineWith("mac", ONLINE), machineWith("linux", HOT)];
+
+    expect(sortBySpare(machines, "most").map((m) => m.machine)).toEqual(["linux", "mac", "offline"]);
+  });
+
+  it("SortBySpare_LeastRoomFirst_UnknownStillLast", () => {
+    const machines = [machineWith("offline", OFFLINE), machineWith("linux", HOT), machineWith("mac", ONLINE)];
+
+    expect(sortBySpare(machines, "least").map((m) => m.machine)).toEqual(["mac", "linux", "offline"]);
+  });
+
+  it("SortBySpare_None_KeepsTheGatewaysOrder", () => {
+    const machines = [machineWith("offline", OFFLINE), machineWith("linux", HOT), machineWith("mac", ONLINE)];
+
+    expect(sortBySpare(machines, "none")).toBe(machines);
+  });
+
+  it("SortBySpare_Ties_KeepTheGatewaysOrder", () => {
+    const machines = [machineWith("b", ONLINE), machineWith("a", ONLINE)];
+
+    expect(sortBySpare(machines, "most").map((m) => m.machine)).toEqual(["b", "a"]);
+  });
+
+  it("NextSpareOrder_CyclesMostLeastNone", () => {
+    expect(nextSpareOrder("none")).toBe("most");
+    expect(nextSpareOrder("most")).toBe("least");
+    expect(nextSpareOrder("least")).toBe("none");
   });
 });

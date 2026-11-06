@@ -50,6 +50,85 @@ export interface FleetMachine {
   /** True when the launcher and every running Director are on the newest release - what an update is for. */
   upToDate: boolean;
   directors: FleetMachineDirector[];
+  /** Processor, memory and spare capacity (Mission: Resource Monitor, section 5j), folded by the Gateway's
+   *  ResourceCapacityFold. ALWAYS present: the Cockpit ships in the Gateway's own image, so there is no older Gateway
+   *  to allow for, and an offline machine is sent with dashes rather than left out. */
+  capacity: FleetMachineCapacity;
+}
+
+/**
+ * One machine's processor, memory and spare capacity (C# FleetMachineCapacityDto). Every label and tone is folded on
+ * the Gateway and drawn as sent. AN OFFLINE MACHINE ARRIVES WITH DASHES, NEVER ZEROS: the dash is the Gateway's
+ * {@link CAPACITY_DASH}, not one a client invents.
+ */
+export interface FleetMachineCapacity {
+  reporting: boolean;
+  /** For example "28%", "cannot read", or the dash. */
+  processorLabel: string;
+  /** For example "peak 71%" or "peak not known". Null when there is nothing to say. */
+  processorDetail?: string | null;
+  processorTone: FleetTone;
+  memoryLabel: string;
+  /** For example "8.9 / 16 GB". */
+  memoryDetail?: string | null;
+  memoryTone: FleetTone;
+  /** Free memory at the last hour's PEAK, for example "7.1 GB" - not free memory now. */
+  spareLabel: string;
+  /** The same figure in bytes, for sorting only. Null when not known, which sorts last. */
+  spareBytes?: number | null;
+  /** "CPU hot", "Memory critical", "Offline", "Figures refused"... Null when the machine is not over a limit. */
+  statusLabel?: string | null;
+  statusTone: FleetTone;
+  /** Why the figures are dashes or "cannot read", in a sentence. Null for a normal reading. */
+  why?: string | null;
+  readingWindowStartUtc?: string | null;
+}
+
+/** The Gateway's dash for a figure that is not known (C# FleetMachineCapacityDto.Dash). Kept here only so tests and
+ *  fixtures can name it; the view never substitutes it - it draws whatever label the Gateway sent. */
+export const CAPACITY_DASH = "\u2014";
+
+/** One amber or red crossing as the chart marks it (C# ResourceCrossingMarkDto). */
+export interface ResourceCrossingMark {
+  startedUtc: string;
+  /** "CPU" or "Memory". */
+  resource: string;
+  /** For example "CPU red for 90 seconds, peak 99%". */
+  label: string;
+  tone: FleetTone;
+}
+
+/** One five-minute row (C# MachineResourceWindowDto). A null figure was not read; it is never zero. */
+export interface MachineResourceWindow {
+  windowStartUtc: string;
+  processorAveragePercent?: number | null;
+  processorPeakPercent?: number | null;
+  memoryAveragePercent?: number | null;
+  memoryPeakPercent?: number | null;
+  crossings: ResourceCrossingMark[];
+  /** Why the Gateway refused this window's figures. A refused window is a fault to show, not an idle stretch. */
+  refusedReason?: string | null;
+}
+
+/** One factory's cost on the machine over the span (C# FactoryResourceCostDto) - grouped by Factory, never Mission. */
+export interface FactoryResourceCost {
+  factory: string;
+  sessions: number;
+  /** For example "22% / 61%" or "at least 22% / 61%" - average AND peak, always together. */
+  processorLabel: string;
+  /** For example "3.1 / 5.8 GB". */
+  memoryLabel: string;
+  processorPeakPercent?: number | null;
+}
+
+/** GET /machines/{machine}/resources (C# MachineResourceHistoryDto). */
+export interface MachineResourceHistory {
+  machine: string;
+  hours: number;
+  /** What to show instead of the chart and the table. Null when there are rows. */
+  emptyMessage?: string | null;
+  windows: MachineResourceWindow[];
+  factories: FactoryResourceCost[];
 }
 
 export interface NewestRelease {
@@ -96,6 +175,22 @@ export async function getFleetMachines(signal?: AbortSignal): Promise<FleetMachi
   // A successful body without the list is not an empty fleet - showing "no machines" would be a lie.
   if (!Array.isArray(body?.machines)) {
     throw new GatewayError(res.status, "The Gateway answered the machine list without a 'machines' array.");
+  }
+  return body;
+}
+
+/** GET /machines/{machine}/resources - one machine expanded: 24 hours of five-minute rows and the cost per factory. */
+export async function getMachineResources(machine: string, signal?: AbortSignal): Promise<MachineResourceHistory> {
+  const res = await gatewayFetch(`${machinePath(machine)}/resources`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  }, { timeoutMs: POLL_TIMEOUT_MS });
+  if (!res.ok) throw await GatewayError.from(res, "read the machine's resource history");
+  const body = (await res.json()) as MachineResourceHistory;
+  // A body without the lists is not an idle machine - drawing an empty chart would read as one.
+  if (!Array.isArray(body?.windows) || !Array.isArray(body?.factories)) {
+    throw new GatewayError(res.status, "The Gateway answered the machine's resource history without its 'windows' and 'factories' lists.");
   }
   return body;
 }
