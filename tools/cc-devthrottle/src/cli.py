@@ -32,6 +32,7 @@ from . import license_ops
 from . import license_signin_ops
 from . import license_usage_ops
 from . import license_fleet_ops
+from . import inbox_ops
 from . import link_ops
 from . import maildesk_ops
 from . import mission_ops
@@ -132,6 +133,16 @@ link_app = typer.Typer(
     no_args_is_help=True,
 )
 message_app.add_typer(link_app, name="link")
+inbox_app = typer.Typer(
+    cls=AxiGroup,
+    help=(
+        "Tell the owner something in Your inbox, instead of emailing him.\n\n"
+        "It reaches his DevThrottle inbox on his phone and in the Cockpit. He may reply; a reply reaches "
+        "this session's inbox while it runs."
+    ),
+    add_completion=False,
+    no_args_is_help=True,
+)
 fleet_manager_app = typer.Typer(
     cls=AxiGroup,
     help="Show, set, or clear which session is this account's one Fleet Manager.",
@@ -375,6 +386,7 @@ app.add_typer(machine_app, name="machine")
 app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
+app.add_typer(inbox_app, name="inbox")
 app.add_typer(fleet_manager_app, name="fleet-manager")
 factory_app.add_typer(factory_manager_app, name="manager")
 app.add_typer(settings_app, name="settings")
@@ -4097,6 +4109,22 @@ def message_request(
     it, and do not ask twice: asking again for the same session changes nothing.
     """
     link_ops.request(target, reason, amount, json_output)
+
+
+@inbox_app.command("send")
+def inbox_send(
+    subject: str = typer.Option(..., "--subject", help="One line saying what the message is about."),
+    body: str = typer.Option(..., "--body", help="What the owner needs to know. It may span lines."),
+    report: str = typer.Option("", "--report", help="A dev report the message is about, by its id; the message links to it."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Send the owner a message in Your inbox, as this session.
+
+    It replaces emailing him: it arrives unread on his phone and in the Cockpit, says which session
+    sent it, and links back to this session, its factory, and the report named with --report. The
+    Gateway records who sent it; nothing here can change that. No email is sent.
+    """
+    inbox_ops.send(subject, body, report or None, json_output)
 
 
 @link_app.command("add")

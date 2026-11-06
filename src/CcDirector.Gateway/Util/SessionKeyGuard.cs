@@ -590,6 +590,11 @@ public static class SessionKeyGuard
                     // any other id - and the owner's send, list and read under /dev-reports stay refused to every
                     // session key, because a session key is never the owner.
                     case "dev-reports":
+                    // SEND the owner a message in Your inbox (Factory Inbox mission, phase 3): `cc-devthrottle inbox send`.
+                    // Its own session only - the route refuses any other id and records who sent it from the Gateway's own
+                    // records. The owner's routes under /gateway/inbox - the list, one message, the marks, the reply and
+                    // the unread count - are deliberately NOT here: a session key is never the owner, and never reads his mail.
+                    case "inbox":
                         return true;
                 }
                 return false;

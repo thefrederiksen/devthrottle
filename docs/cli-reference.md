@@ -692,6 +692,7 @@ COMMANDS:
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
   message reply    Answer a message that asked for a reply; the answer goes to whoever asked.
   message inbox    Read your unread messages in full, which marks them read.
+  inbox send       Tell the owner something in Your inbox, on his phone and in the Cockpit - not by email.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
@@ -1274,6 +1275,38 @@ sender is waiting for. Each row is headed `message`, `reply` or `no-reply notice
 own labels. A message that asked for a reply shows its deadline, its correlation id and the exact
 `message reply` command that answers it; a reply or notice shows the question it is about. Because a read marks messages read before their text reaches you, a read that
 failed part way is recovered with `--all`, and only for 24 hours after that read.
+
+### Inbox Send
+
+```
+USAGE: cc-devthrottle inbox send [OPTIONS]
+
+OPTIONS:
+  --subject TEXT  One line saying what the message is about [required]
+  --body TEXT     What the owner needs to know; it may span lines [required]
+  --report TEXT   A dev report the message is about, by its id; the message links to it
+  --json, -j      Output the Gateway's answer as JSON
+```
+
+Tells the owner something in his DevThrottle inbox ("Your inbox"), on his phone and in the Cockpit.
+Use it instead of emailing him: no email is sent. The message arrives unread and shows who sent it -
+this session's number and name - with links back to this session, to its factory when it was started
+as a factory seat, and to the report named with `--report`. The Gateway reads who sent it from its own
+record of the calling session; nothing on the command line can change that. Prints `sent: Your inbox`
+with the message id, the subject, who it is from, its state and its links (exit 0).
+
+Run it only from inside a session: without `CC_SESSION_ID` it fails before calling the Gateway (exit
+1). An empty subject or body, or a subject of more than one line, is a usage error (exit 2). A subject
+over 200 characters, a body over 20,000, or a report the account does not have is refused with the
+Gateway's sentence on standard error (exit 1).
+
+The owner may reply from his inbox. While this session runs, the reply arrives in its fleet inbox -
+read it with `message inbox`; it is never typed into the session. After the session has ended, the
+reply is not sent: the owner is told so and offered a new session that starts with the reply.
+
+A session never reads, marks or replies from the owner's inbox: the Gateway takes those only from the
+owner's phone or Cockpit, and refuses a session key and the machine token. A session sends only as
+itself.
 
 ### Session Spawn
 

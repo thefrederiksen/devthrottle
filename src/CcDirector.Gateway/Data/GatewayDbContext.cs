@@ -499,6 +499,12 @@ public sealed class GatewayDbContext : DbContext
     /// last told, and why the factory waits (Factory Inbox mission, phase 2).</summary>
     public DbSet<FactoryInboxWakeEntity> FactoryInboxWakes => Set<FactoryInboxWakeEntity>();
 
+    /// <summary>The owner's own inbox: messages to him from sessions and factories (Factory Inbox mission, phase 3).</summary>
+    public DbSet<YourInboxMessageEntity> YourInboxMessages => Set<YourInboxMessageEntity>();
+
+    /// <summary>The owner's replies from his inbox, each with where it went (Factory Inbox mission, phase 3).</summary>
+    public DbSet<YourInboxReplyEntity> YourInboxReplies => Set<YourInboxReplyEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -1385,6 +1391,39 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Version).IsConcurrencyToken();
             // ONE ROW PER FACTORY, in the database: two writers creating it at once cannot both keep theirs.
             b.HasIndex(e => new { e.TenantId, e.Factory }).IsUnique();
+        });
+
+        // ---- Your inbox (Factory Inbox mission, phase 3) -----
+
+        modelBuilder.Entity<YourInboxMessageEntity>(b =>
+        {
+            b.ToTable("your_inbox_messages");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Subject).HasMaxLength(CcDirector.Gateway.Inbox.YourInboxStore.MaxSubjectLength);
+            b.Property(e => e.Body).HasMaxLength(CcDirector.Gateway.Inbox.YourInboxStore.MaxStoredBodyLength);
+            b.Property(e => e.FromKind).HasMaxLength(16);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.SessionName).HasMaxLength(200);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.ReportTitle).HasMaxLength(300);
+            b.Property(e => e.State).HasMaxLength(16);
+            // The list reads one view (inbox or archived) newest first, and the Inbox entry counts the unread.
+            b.HasIndex(e => new { e.TenantId, e.State, e.SentAtUtc });
+        });
+
+        modelBuilder.Entity<YourInboxReplyEntity>(b =>
+        {
+            b.ToTable("your_inbox_replies");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Text).HasMaxLength(CcDirector.Gateway.Inbox.YourInboxStore.MaxReplyLength);
+            b.Property(e => e.RoutedTo).HasMaxLength(16);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.FleetMessageId).HasMaxLength(64);
+            b.Property(e => e.SentBy).HasMaxLength(200);
+            // A message's replies are read beside it, in the order they were sent.
+            b.HasIndex(e => new { e.TenantId, e.MessageId, e.SentAtUtc });
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
@@ -2771,6 +2810,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FactoryInboxDecisionEntity>(modelBuilder);
         ApplyTenantScope<FactoryTodoEntity>(modelBuilder);
         ApplyTenantScope<FactoryInboxWakeEntity>(modelBuilder);
+        ApplyTenantScope<YourInboxMessageEntity>(modelBuilder);
+        ApplyTenantScope<YourInboxReplyEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
@@ -2840,6 +2881,15 @@ public sealed class GatewayDbContext : DbContext
             // cron_failure_notices: the schedule id and the cause are exact keys, compared byte-ordinally (issue #4436).
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.JobId).UseCollation("C");
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
+            // Your inbox (Factory Inbox mission, phase 3): the state, the sender kind and where a reply went are closed words
+            // compared exactly, and the session ids and the factory are exact keys.
+            modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.State).UseCollation("C");
+            modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.FromKind).UseCollation("C");
+            modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<YourInboxMessageEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.RoutedTo).UseCollation("C");
+            modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<YourInboxReplyEntity>().Property(e => e.Factory).UseCollation("C");
             // alert_marks: the alert id is an exact key, compared byte-ordinally (the Alerts mission).
             modelBuilder.Entity<AlertMarkEntity>().Property(e => e.AlertId).UseCollation("C");
             // factory_boss_starts: the session id is an exact key, compared byte-ordinally (issue #4598).

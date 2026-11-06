@@ -6827,6 +6827,138 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("workspaces", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxMessageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ArchivedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(24400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("FactoryMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReportTitle")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SessionNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "State", "SentAtUtc");
+
+                    b.ToTable("your_inbox_messages", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxReplyEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("FactoryMessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FleetMessageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoutedTo")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "MessageId", "SentAtUtc");
+
+                    b.ToTable("your_inbox_replies", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.OwnsOne("CcDirector.Gateway.Contracts.CronJobAction", "Action", b1 =>

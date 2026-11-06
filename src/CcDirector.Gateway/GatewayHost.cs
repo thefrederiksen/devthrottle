@@ -365,6 +365,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director to push its sessions again, so a Secretary or Boss that is alive is seen before anything is started.</summary>
     internal static readonly TimeSpan FactoryInboxWakeFirstLook = TimeSpan.FromSeconds(60);
 
+    /// <summary>Your inbox: the owner's own mailbox, written by sessions and factories (Factory Inbox mission, phase 3).</summary>
+    internal Inbox.YourInboxStore YourInbox { get; }
+
     /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
     /// phase 1).</summary>
     internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
@@ -2693,6 +2696,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // A spoken message is corrected with the account's own listed words, read exactly as the dictation path reads them.
         FactoryInbox = new Factory.Inbox.FactoryInboxStore(_gatewayDb, Transcription.TenantGlossary.Load);
         FactoryInboxWakes = new Factory.Inbox.FactoryInboxWakeStore(_gatewayDb);
+        YourInbox = new Inbox.YourInboxStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -6866,6 +6870,39 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming,
             DevReportFactorySeatOf, new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership),
             new DevReports.MissionDocumentLinker(Missions, DevReportSessionMission));
+
+        // Your inbox (Factory Inbox mission, phase 3): any session writes to the owner with `cc-devthrottle inbox send`; the
+        // owner reads, marks and replies from his phone or Cockpit. Who sent a message is read from the Gateway's own record
+        // of the calling session. A reply to a running session goes into its inbox as a notice from the Gateway - read when
+        // it is free, never typed mid-turn; a reply to an ended one is not sent, and the owner is offered a new session.
+        Api.YourInboxEndpoints.Map(_app, new Api.YourInboxEndpoints.Parts(
+            Store: YourInbox,
+            ResolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            Factories: tenant => FactoryRegistry.List(tenant),
+            Naming: DevReportSessionNaming,
+            FactorySeatOf: (tenant, sessionId) =>
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                    return DevReportFactorySeatOf(tenant, sessionId);
+            },
+            ReportTitle: (tenant, reportId) => _devReports.Get(tenant, reportId)?.Title,
+            Liveness: DevReportSessionLiveness,
+            PlaceOf: (tenant, sessionId) =>
+            {
+                using (_tenantBoundary.EnterScope(tenant))
+                    return _sessionHistory.Get(sessionId) is { } row ? new Api.YourInboxSessionPlace(row.DirectorId, row.RepoPath) : null;
+            },
+            DeliverToSession: (tenant, sessionId, text) =>
+            {
+                var naming = DevReportSessionNaming(tenant, sessionId);
+                return _fleetMessageService.Send(tenant, sender: null,
+                    new Messaging.FleetParty(sessionId, null, naming.Name, null), text,
+                    Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System);
+            },
+            SendToFactory: (tenant, input, ct) => FactoryInbox.SendAsync(tenant, input, ct),
+            // The same event as the owner's own send to a factory; the reply route does not wait for the look.
+            MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc),
+            NowUtc: () => DateTime.UtcNow));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),

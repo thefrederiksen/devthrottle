@@ -56,9 +56,9 @@ public static class FactoryInboxWords
         public static bool NeedsWhy(string kind) => kind is Declined or Cannot or Pushback;
 
         /// <summary>
-        /// THE SEAM FOR YOUR INBOX (phase 3). Only these three decisions tell the owner: each will write exactly one
-        /// Your inbox message, and delegated, to do and noted write none. Phase 1 writes nothing for them; the decide
-        /// call returns the decision, and phase 3 adds its write where <see cref="FactoryInboxStore.Decide"/> names this.
+        /// THE SEAM FOR YOUR INBOX (phase 3). Only these three decisions tell the owner: each writes exactly one Your
+        /// inbox message, in the same transaction as the decision (<see cref="FactoryInboxStore.Decide"/>), and delegated,
+        /// to do and noted write none.
         /// </summary>
         public static bool TellsTheOwner(string kind) => kind is Declined or Cannot or Pushback;
     }

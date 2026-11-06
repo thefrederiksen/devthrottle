@@ -6985,6 +6985,145 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("workspaces", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxMessageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ArchivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(24400)
+                        .HasColumnType("character varying(24400)");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<Guid?>("FactoryMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FromKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportTitle")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("SessionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "State", "SentAtUtc");
+
+                    b.ToTable("your_inbox_messages", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.YourInboxReplyEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<Guid?>("FactoryMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FleetMessageId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RoutedTo")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SentBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "MessageId", "SentAtUtc");
+
+                    b.ToTable("your_inbox_replies", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.OwnsOne("CcDirector.Gateway.Contracts.CronJobAction", "Action", b1 =>
