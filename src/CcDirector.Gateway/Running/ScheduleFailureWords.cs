@@ -113,7 +113,7 @@ public static class ScheduleFailureWords
                 CronRunProblems.PromptNotDelivered => (ScheduleFailureCauses.PromptNotDelivered,
                     $"The run's session on {machine} started, but its prompt never reached the agent, so no work was done. Open the session to see where it stopped; the details say why the prompt was not typed."),
                 CronRunProblems.WaitedWithoutReporting => (ScheduleFailureCauses.WaitedWithoutReporting,
-                    $"The run's session on {machine} is waiting on a person and has not reported. Open the session to see what it asked."),
+                    $"The run's session on {machine} waited on a person, or sat idle, without reporting. Open the session to see what it asked."),
                 _ => (ScheduleFailureCauses.Other, $"This run on {machine} went wrong. The details below say what happened."),
             };
         return new ScheduleFailure(cause, headline, detail);

@@ -253,6 +253,30 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DefinedStart_ASessionAdoptedAfterAnUnknownStart_IsAPendingRunToo()
+    {
+        // The Director created the session though the Gateway stopped waiting: no run then, and one when it is adopted.
+        _attempt = TriggerStartAttempt.Unknown("the Director did not answer within 30 seconds");
+        var service = Service();
+        var t = AddDefinitionTrigger();
+        await Send(service, t, Report("""{"count": 2}"""));
+        Assert.Empty(_runs);
+        var name = Assert.Single(_starts).request.Name;
+        _sessions["bbbbbbbb-0000-4000-8000-000000000777"] = new SessionDto
+        {
+            SessionId = "bbbbbbbb-0000-4000-8000-000000000777", DirectorId = Director, ActivityState = "Working", Name = name,
+        };
+        _now = _now.AddMinutes(2);
+
+        await Send(service, t, Report("""{"count": 2}"""));
+
+        var (_, job, run) = Assert.Single(_runs);
+        Assert.Equal(t.ToString("D"), job);
+        Assert.Equal(("bbbbbbbb-0000-4000-8000-000000000777", Director, CronRunResults.Pending), (run.SessionId, run.TargetDirectorId, run.Result));
+        Assert.Equal((Factory, "frontdesk", 4), (run.Factory, run.Seat, run.BriefVersion));
+    }
+
+    [Fact]
     public async Task DefinedStart_AStartThatFailed_RecordsNoRun()
     {
         _attempt = TriggerStartAttempt.Failed("the machine refused");

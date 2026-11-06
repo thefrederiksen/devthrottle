@@ -588,6 +588,55 @@ public sealed class CronRunResultTests : IDisposable
     }
 
     [Fact]
+    public void IdleWithoutReportProblem_AMenuOpenForTwentyMinutes_IsAProblem()
+    {
+        // An update offer or a folder-trust menu the agent put up is the same stall: the Director's waiting clock covers it.
+        Assert.NotNull(CronRunResultFold.IdleWithoutReportProblem(Started("s1", Fired), Waiting(Fired, "MenuOpen"),
+            Fired.AddMinutes(20), CronRunResultFold.IdleWithoutReportLimit));
+    }
+
+    [Fact]
+    public void Report_ARunThatWaitedThenReportsOk_KeepsTheProblemWithTheReport_AndClosesItsSession()
+    {
+        // The owner answered the seat, it finished and reported ok: the problem stays on the record, its report is added,
+        // and its session closes - a check-started session that stayed open would hold its trigger's lock for good.
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "forward-engineer");
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(21);
+        Assert.Equal(1, service.Sweep(TenantId.Local));
+        _now = fired.AddMinutes(40);
+
+        var answer = service.Report(TenantId.Local, "s1", "ok", "the owner answered; mail sent");
+
+        var response = answer.Answer!;
+        Assert.True(response.CloseSession);
+        Assert.Contains("it waited on a person without reporting - but its work is done", response.Text);
+        var run = runs.List("cj_a").Single();
+        Assert.Equal((CronRunResults.Problem, CronRunProblems.WaitedWithoutReporting), (run.Result, run.Problem));
+        Assert.EndsWith("ok: the owner answered; mail sent", run.ResultReason);
+    }
+
+    [Fact]
+    public void Report_ARunThatWaitedThenReportsAProblem_StaysOpen()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_a", "cpmc", "forward-engineer");
+        var fired = TorontoTime(2026, 11, 5, 22, 31);
+        runs.Append("cj_a", Linked("cj_a", Started("s1", fired)));
+        _sessions[("dir-1", "s1")] = Waiting(fired.AddSeconds(4));
+        _now = fired.AddMinutes(21);
+        service.Sweep(TenantId.Local);
+
+        var response = service.Report(TenantId.Local, "s1", "problem", "no brief").Answer!;
+
+        Assert.False(response.CloseSession);
+        Assert.Equal(CronRunProblems.WaitedWithoutReporting, runs.List("cj_a").Single().Problem);
+    }
+
+    [Fact]
     public void Sweep_ABossWaitingOnItsWorkers_IsLeftPending()
     {
         var (service, runs, _) = Build();

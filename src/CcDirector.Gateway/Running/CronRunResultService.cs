@@ -189,7 +189,7 @@ public sealed class CronRunResultService
             if (written.Applied)
             {
                 TryWriteOwedActivity(tenant, runId);
-                return Answer(found.JobId, name, written.Run, alreadyRecorded: false, closesItself);
+                return Answer(found.JobId, name, written.Run, alreadyRecorded: false, closesItself, reportedOk: wanted == CronRunResults.Ok);
             }
             run = written.Run;
         }
@@ -226,13 +226,15 @@ public sealed class CronRunResultService
                 ? new ResultChange(CronRunResults.Ok, null, line, null)
                 : new ResultChange(CronRunResults.Problem, CronRunProblems.Reported, line, null), null);
 
-        if (run.Result == CronRunResults.Problem && run.Problem == CronRunProblems.RanPastShift
+        if (run.Result == CronRunResults.Problem && run.Problem is CronRunProblems.RanPastShift or CronRunProblems.WaitedWithoutReporting
             && !(run.ResultReason ?? "").Contains(SessionReportMarker, StringComparison.Ordinal))
         {
-            // The Gateway already recorded that this run went past its shift. That stays true whatever the run says now,
-            // so the report is added to the problem, once, rather than replacing it.
+            // The Gateway already recorded that this run went past its shift, or waited on a person without reporting.
+            // That stays true whatever the run says now, so the report is added to the problem, once, rather than
+            // replacing it. A run that waited is usually answered by the owner and then finishes: its late ok still
+            // closes its session (Answer), so a check-started run's session does not hold its trigger's lock for good.
             var combined = Truncate($"{run.ResultReason}{SessionReportMarker}{ReportWords(wanted, line)}");
-            return new Decision(new ResultChange(CronRunResults.Problem, CronRunProblems.RanPastShift, combined, run.ResultReason ?? ""), null);
+            return new Decision(new ResultChange(CronRunResults.Problem, run.Problem, combined, run.ResultReason ?? ""), null);
         }
 
         var same = wanted == CronRunResults.Ok
@@ -252,9 +254,13 @@ public sealed class CronRunResultService
     /// <summary>What an ok run's session is told when its schedule is set not to close itself.</summary>
     public const string StaysOpenBySetting = "This session stays open, because its schedule is set not to close itself.";
 
-    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded, bool closesItself)
+    private static CronRunResultOutcome<CronRunResultResponse> Answer(string jobId, string name, CronRunRecord stored, bool alreadyRecorded,
+        bool closesItself, bool reportedOk = false)
     {
         var ok = stored.Result == CronRunResults.Ok;
+        // A run that waited on a person and then reported ok has done its work: the problem stays on the record, and its
+        // session closes as an ok run's does (Factory Failures).
+        var waitedThenOk = !alreadyRecorded && reportedOk && stored.Problem == CronRunProblems.WaitedWithoutReporting;
         var afterOk = closesItself ? "This session now closes itself." : StaysOpenBySetting;
         var text = (ok, alreadyRecorded) switch
         {
@@ -263,6 +269,10 @@ public sealed class CronRunResultService
             (false, true) => $"The problem on the run of {name} is already recorded. This session stays open for someone to look at.",
             _ when stored.Problem == CronRunProblems.RanPastShift =>
                 $"Recorded your report on the run of {name}. It stays a problem - it ran past its shift - so this session stays open for someone to look at.",
+            _ when waitedThenOk =>
+                $"Recorded your report on the run of {name}. It stays a problem - it waited on a person without reporting - but its work is done. {afterOk}",
+            _ when stored.Problem == CronRunProblems.WaitedWithoutReporting =>
+                $"Recorded your report on the run of {name}. It stays a problem - it waited on a person without reporting - so this session stays open for someone to look at.",
             _ => $"Recorded the problem on the run of {name}. This session stays open for someone to look at.",
         };
         return CronRunResultOutcome<CronRunResultResponse>.Ok(new CronRunResultResponse
@@ -272,7 +282,7 @@ public sealed class CronRunResultService
             JobName = name,
             // Read off what is STORED, never the word asked for: only a run whose result is ok closes - and only when
             // its schedule is set to close itself. A problem stays open whatever the setting.
-            CloseSession = ok && closesItself,
+            CloseSession = (ok || waitedThenOk) && closesItself,
             Text = text,
         });
     }
