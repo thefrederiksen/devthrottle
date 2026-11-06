@@ -65,26 +65,32 @@ public sealed class MachineResourceHistoryFoldTests : IDisposable
         Assert.Contains(view.Events, e => e.Label == gap.Label && e.AtUtc == gap.StartUtc);
     }
 
-    // Second review, finding 1: the tail is a gap exactly when the capacity row calls the machine silent, never sooner,
-    // so the row cannot show live figures above a chart saying nothing has arrived.
+    // Lead's ruling on #4687: the tail is a gap once the window after the newest is overdue - one window plus delivery -
+    // not once the machine counts as offline. SilentAfter answers reachability; this answers measurement.
     [Fact]
-    public void Fold_ATailNoLongerThanTheRowsSilence_IsNotAGap()
+    public void Fold_ATailWithinOneWindowPlusDelivery_IsTheWindowInFlight_NotAGap()
     {
-        // Newest ends 10:05; at 10:20 it ended exactly SilentAfter ago, which the row still counts as reporting.
-        Assert.Empty(History(W0, W0.AddMinutes(5) + ResourceCapacityFold.SilentAfter, Steady(W0, 30, 4 * Gb)).Gaps);
+        Assert.Empty(History(W0, W0.AddMinutes(5) + ResourceWindowGaps.TailAllowance, Steady(W0, 30, 4 * Gb)).Gaps);
     }
 
     [Fact]
-    public void Fold_ATailLongerThanTheRowsSilence_IsAGap_AndTheRowAgrees()
+    public void Fold_ATailPastOneWindowPlusDelivery_IsAGap_AndTheRowSaysTheHourWasNotWhole_LongBeforeItGoesToDashes()
     {
-        var to = W0.AddMinutes(5) + ResourceCapacityFold.SilentAfter + TimeSpan.FromSeconds(1);
+        // A whole hour of windows up to 10:00 to 10:05, then nothing; the Gateway's now is one second past the allowance.
+        var to = W0.AddMinutes(5) + ResourceWindowGaps.TailAllowance + TimeSpan.FromSeconds(1);
+        var hour = Enumerable.Range(0, 12).Select(i => Steady(W0.AddMinutes(-55 + 5 * i), 30, 4 * Gb)).ToArray();
 
-        var view = History(W0, to, Steady(W0, 30, 4 * Gb));
+        var view = History(W0.AddMinutes(-55), to, hour);
         var row = ResourceCapacityFold.Fold(directorRunning: true,
-            _store.MachineWindows(Tenant, to.AddHours(-1), to.AddMinutes(1)), to);
+            _store.MachineWindows(Tenant, MachineResourceHistoryFold.ReadFromUtc(to - ResourceCapacityFold.PeakSpan), to.AddMinutes(1)), to);
 
-        Assert.Equal(W0.AddMinutes(5), Assert.Single(view.Gaps).StartUtc);
-        Assert.False(row.Reporting);
+        var tail = Assert.Single(view.Gaps);
+        Assert.Equal(W0.AddMinutes(5), tail.StartUtc);
+        // Still reporting - SilentAfter is fifteen minutes and unchanged - but the hour is no longer claimed whole.
+        Assert.True(row.Reporting);
+        Assert.StartsWith("peak at least", row.ProcessorDetail);
+        Assert.Null(row.SpareBytes);
+        Assert.StartsWith("Only 53 of the last 60 minutes were measured", row.Why);
     }
 
     // Second review, finding 2: the window straddling the span's start closes the stretch it covers.

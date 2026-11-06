@@ -230,9 +230,9 @@ internal static class ResourceCapacityFold
     /// (issue #4679). It is the hour MINUS what was not measured, so it agrees with the expanded chart by construction:
     ///  - minus every gap <see cref="ResourceWindowGaps.Of"/> finds - the one definition the chart draws. That rule
     ///    has two allowances of its own, which this inherits rather than redefines: a stretch shorter than one window is
-    ///    not a gap, and the stretch after the newest window is not a gap until <see cref="SilentAfter"/>, because the
-    ///    window being collected is not missing yet. So a Director that stopped twelve minutes ago still reads as whole
-    ///    here exactly as the chart draws no hole for it; past fifteen minutes the row is "not reporting" anyway;
+    ///    an hour boundary, not a gap, and the stretch after the newest window is not a gap until
+    ///    <see cref="ResourceWindowGaps.TailAllowance"/> (one window plus delivery), because the window being collected
+    ///    is not missing yet. Not <see cref="SilentAfter"/>: that is when the row goes to dashes, a different question;
     ///  - minus the samples a window is short of a full one, five seconds each, for the part of the window inside the
     ///    hour. A row of four samples was measured for twenty seconds, not five minutes.
     /// The hour counts as whole when there is no gap and no window inside it is more than ONE sample short. That one

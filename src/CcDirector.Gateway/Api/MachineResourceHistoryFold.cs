@@ -199,16 +199,30 @@ internal static class MachineResourceHistoryFold
 /// second one, so the columns and the chart under them cannot contradict each other on one screen.
 ///
 /// A gap is a stretch of the span covered by no window that is at least one window long - long enough to have held a
-/// summary. Before the newest window the rule is exact, because windows are five-minute slots and abut. After it, the
-/// window now being collected is not missing yet, so the tail is a gap only once the machine counts as SILENT - past
-/// <see cref="ResourceCapacityFold.SilentAfter"/>, the same threshold the capacity row uses, so the row cannot show live
-/// figures while the chart under it says nothing has arrived. A window straddling the span's start (read by the caller,
+/// summary. Before the newest window the rule is exact, because windows are five-minute slots and abut. After it, a
+/// window can only arrive once it has ENDED, so at any instant the newest complete window may legitimately be up to one
+/// window old, plus <see cref="DeliveryMargin"/> to build and deliver it: the tail is a gap past
+/// <see cref="TailAllowance"/>. This is a question about MEASUREMENT, and deliberately not
+/// <see cref="ResourceCapacityFold.SilentAfter"/>, which answers REACHABILITY (when the row shows dashes); borrowing it let
+/// a Director that stopped twelve minutes ago claim a whole hour (lead's ruling on #4687). The capacity row's hour reads
+/// this same function, so the row and the chart under it still cannot disagree. A window straddling the span's start (read by the caller,
 /// see <see cref="MachineResourceHistoryFold.ReadFromUtc"/>) closes the stretch it covers; a gap never starts before the span.
 /// </summary>
 internal static class ResourceWindowGaps
 {
     /// <summary>One window, the five-minute logging contract.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(ResourceSummaryContract.WindowSeconds);
+
+    /// <summary>
+    /// How long a finished window may take to be built and to reach the Gateway: the Director summarises the window when
+    /// it ends and sends it over the stream it already holds open, which takes seconds. One minute is that with room to
+    /// spare. It is a GUESS made before any Director reported; once real fleets do, it moves on what their delivery times
+    /// show - never bigger "to be safe", because every minute here is a minute an hour can claim it measured and did not.
+    /// </summary>
+    public static readonly TimeSpan DeliveryMargin = TimeSpan.FromMinutes(1);
+
+    /// <summary>How long after the newest window ends before the stretch after it is a gap: one window, plus delivery.</summary>
+    public static readonly TimeSpan TailAllowance = Window + DeliveryMargin;
 
     /// <summary>The gaps in [<paramref name="fromUtc"/>, <paramref name="toUtc"/>], oldest first. IsTail marks the stretch
     /// running up to <paramref name="toUtc"/> - "has not arrived since", rather than "did not arrive".</summary>
@@ -224,8 +238,8 @@ internal static class ResourceWindowGaps
             if (start - cursor >= Window) gaps.Add((cursor, start, false));
             if (end > cursor) cursor = end;
         }
-        // The same rule as the capacity row's "not reporting": the newest window ended more than SilentAfter ago.
-        if (toUtc - cursor > ResourceCapacityFold.SilentAfter) gaps.Add((cursor, toUtc, true));
+        // The window after the newest is due one window after the newest ended, plus delivery; past that it is missing.
+        if (toUtc - cursor > TailAllowance) gaps.Add((cursor, toUtc, true));
         return gaps;
     }
 }
