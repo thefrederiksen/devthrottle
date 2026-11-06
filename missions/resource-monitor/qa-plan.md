@@ -159,6 +159,40 @@ So the report carries this check, for each of the three platforms:
 The third bullet is the one that keeps the first two honest: a probe that always returned null would
 pass both of the first two and be useless.
 
+## The defect class this mission keeps producing: a plausible number that passes every range check
+
+Three separate findings on 6 November were the same defect wearing different clothes, and all three
+would have survived a green test run. They are recorded here because the remaining phases have the
+same opportunity, and because every one of them was found by **running** the code rather than reading
+it.
+
+- **A lifetime average where the contract says null.** The per-process processor figure reported a
+  process's whole-life average whenever there was no earlier reading - which on the first sample is
+  every process. It arrived as the *fix* for a made-up zero.
+- **A clamp that hid the one defect the contract exists to catch.** A busy-share calculation clamped
+  its output, so a probe reporting per-core figures - 400 per cent on a four-core machine - was
+  tidied into exactly 100 per cent and passed every range check. The clamp converted a loud,
+  obvious error into a plausible reading.
+- **A check that silently disabled itself.** A readable processor reading with no core count turned
+  two contract checks into no-ops, so a probe that merely forgot to report the core count passed
+  everything. A fourth check turned out to be a tautology that could never fire at all.
+
+The pattern: **the dangerous value is not the obviously wrong one, it is the believable one.** A zero
+or a 400 gets noticed. A tidy 100, a lifetime average, or a check that quietly stops checking does
+not. So for every figure in this report:
+
+- **Prefer a form that cannot overshoot** over one that is corrected afterwards. Where a platform
+  publishes idle alongside busy, compute the share from the counters' own totals - that form cannot
+  exceed 100 and needs no clamp. Never clamp a figure into range; a figure out of range is a defect
+  to surface, not a presentation problem to fix.
+- **Null is a correct answer**, and a made-up plausible number never is.
+- **Every check gets an input it must reject**, proved to reject it. A contract checker that returns
+  "no problems" on correct input is indistinguishable from one that always returns that, so a green
+  run proves nothing on its own.
+- **Falsify, do not just run.** Each of the three above was caught by running the new test against
+  the old code and watching it fail, or by running the checker against a deliberately wrong input.
+  A test never seen to fail has not been shown to test anything.
+
 ## Rules the report itself must obey
 
 - **One self-contained HTML file published with `cc-dev-reports open`.** A file path handed over

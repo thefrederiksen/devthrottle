@@ -220,6 +220,22 @@
   which is not a diagnosis. A written phase-1 ruling of 2026-10-15 already rested the macOS disk
   verdict on milliseconds per read and write; the 6 November narrowing was not written against it, and
   this keeps both intact.</p>
+  <p><b>Per-process disk read and write rates stay, as diagnosis evidence.</b> This paragraph exists
+  because the sentence above - "disk byte rates are dropped" - was written about the <i>per-disk</i>
+  reading, whose throughput did go out with the meter, and read on its face as dropping the
+  <i>per-process</i> figures too. It does not. <code>ProcessReading.DiskReadBytesPerSecond</code> and
+  <code>DiskWriteBytesPerSecond</code> are kept on the same terms as everything else here:
+  diagnosis-only, nullable, never a bar, never a tile, never a Gateway column, never in the Cockpit.
+  Without them the approved sentence in 5i cannot be finished: "the hard drive <code>sdc</code> is 75
+  per cent busy &hellip; <b>mostly <code>dotnet test</code> in session 140</b>". A diagnosis that names
+  the disk but not the process thrashing it names half the cause, and the half it drops is the half
+  somebody can act on.</p>
+  <p><b>But bytes per second is weak evidence, and the diagnoser must treat it as such.</b> Many small
+  random writes will stall a spinning disk at a very low byte rate, so a high rate is not required for
+  a process to be the culprit and a low one does not clear it. It supports "mostly X" and must never
+  become a threshold. The disk <i>verdict</i> still comes from the stall figure where the platform
+  publishes one, and from latency where it does not.</p>
+
   <p><b>The wording rule, which is part of the ruling.</b> The platforms do not measure the same thing,
   so they may not claim the same thing. <b>Linux</b> measures stall directly and may say "programs were
   stalled waiting on the disk 32 per cent of the time". <b>macOS and Windows may not</b> - macOS
