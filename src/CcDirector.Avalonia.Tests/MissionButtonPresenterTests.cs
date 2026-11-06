@@ -261,7 +261,7 @@ public sealed class MissionButtonPresenterTests
     [Theory]
     [InlineData("https://gateway.example.com", "https://gateway.example.com/r/abc")]
     [InlineData("https://gateway.example.com/", "https://gateway.example.com/r/abc")]
-    [InlineData("http://127.0.0.1:7878", "http://127.0.0.1:7878/r/abc")]
+    [InlineData("https://gateway.example.com//", "https://gateway.example.com/r/abc")]
     public void BuildOpenUrl_WithAddress_JoinsTheGatewayBaseAndTheAddress(string gatewayBase, string expected)
     {
         // Act
