@@ -33,6 +33,7 @@ jobs:
   verify-tested:
     name: The tagged commit is a tested commit plus its notes
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # The workflow's own permissions (contents: read) leave every other scope at none; reading the
     # commit's check runs needs checks: read, or the call answers 403.
     permissions:
@@ -88,6 +89,7 @@ jobs:
   build-director-win:
     name: Build CC Director (Windows)
     runs-on: windows-latest
+    timeout-minutes: 30
     needs: verify-tested
 
     steps:
@@ -152,6 +154,7 @@ jobs:
   build-director-mac:
     name: Build CC Director (macOS arm64)
     runs-on: macos-15
+    timeout-minutes: 30
     needs: verify-tested
 
     steps:
@@ -219,6 +222,7 @@ jobs:
   build-python-bundle-mac:
     name: Build Python Tools Bundle (macOS arm64)
     runs-on: macos-15
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -250,6 +254,7 @@ jobs:
   build-setup-mac:
     name: Build Setup Wizard (macOS arm64)
     runs-on: macos-15
+    timeout-minutes: 35
     needs: verify-tested
 
     steps:
@@ -374,6 +379,7 @@ jobs:
   build-gateway-win:
     name: Build CC Gateway (Windows)
     runs-on: windows-latest
+    timeout-minutes: 35
     needs: verify-tested
 
     steps:
@@ -568,6 +574,7 @@ jobs:
   build-launcher-win:
     name: Build CC Launcher (Windows)
     runs-on: windows-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -619,6 +626,7 @@ jobs:
   build-launcher-mac:
     name: Build CC Launcher (macOS arm64)
     runs-on: macos-15
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -716,6 +724,7 @@ jobs:
   build-director-linux:
     name: Build CC Director (Linux x64)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -759,6 +768,7 @@ jobs:
   build-python-bundle-linux:
     name: Build Python Tools Bundle (Linux x64)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -793,6 +803,7 @@ jobs:
   build-setup-linux:
     name: Build Setup Wizard (Linux x64)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -844,6 +855,7 @@ jobs:
   build-launcher-linux:
     name: Build CC Launcher (Linux x64)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -888,6 +900,7 @@ jobs:
   build-python-bundle-win:
     name: Build Python Tools Bundle (Windows)
     runs-on: windows-latest
+    timeout-minutes: 25
     needs: verify-tested
 
     steps:
@@ -918,6 +931,7 @@ jobs:
   build-setup-wizard-win:
     name: Build Setup Wizard (Windows)
     runs-on: windows-latest
+    timeout-minutes: 30
     needs: verify-tested
 
     steps:
@@ -988,6 +1002,7 @@ jobs:
   create-release:
     name: Publish Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs:
       - build-director-win
       - build-director-mac
