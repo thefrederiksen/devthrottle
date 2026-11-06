@@ -103,3 +103,37 @@ fills in this section of this file.
   window.
 - Stale text noticed but not changed, as the brief asks: none in the two skills that touches this mission.
 - I did not publish a mission document with the flag; the real republish is the Delivery Lead's.
+
+## Answers to the review (`_briefs/missions-first-class/phase3-review.md`)
+
+1. **The refresh without the flag holds only for the session that published the document - ACCEPTED.** A report is
+   keyed on the session and the file, so another session's publish is a new report and `RefreshIfDocument` does not
+   match it. `dev-reports.skill.md` now says, in the mission document section:
+
+   ```
+   - **"The same report" means the same session and the same file.** From any other session on the
+     Mission - a Delivery Lead republishing the Architect's document, say - publish WITH the flag: that
+     makes a new report, which takes the link over. Without the flag it is an ordinary new report, and
+     the Mission button keeps opening the old one.
+   ```
+
+   and the refresh sentence now reads "A republish of the Mission's document from the session that published it
+   refreshes them, with or without the flag."
+
+2. **No step makes "a session attached to the Mission" true for an Architect - ACCEPTED.** The method's Architect
+   bullet now carries the commands in order:
+
+   ```
+   - **Publish the mission document** with `cc-dev-reports open <file> --mission-document`, from a
+     session attached to the Mission: create the Mission (`cc-devthrottle mission create "<name>"`),
+     attach your own session to it (`cc-devthrottle mission attach <your session> <mission id>`), then
+     publish, with its why and goal marked (the `dev-reports` skill has the markers). ...
+   ```
+
+   and the refusal bullet in `dev-reports.skill.md` says: "If the Mission does not exist yet, create it
+   (`cc-devthrottle mission create "<name>"`, which prints its id and does not attach you). Attach your own session
+   (`cc-devthrottle mission attach <your session> <mission id>`) and publish again". The `mission create` syntax was
+   checked with `cc-devthrottle mission create --help` (one argument, the name; it prints the id).
+
+The observations are left alone, by the Delivery Lead's ruling: the Pi line in the method's Reviewer entry and the
+fleet preamble are outside this phase.

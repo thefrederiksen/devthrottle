@@ -117,9 +117,14 @@ cc-dev-reports open mission.html --mission-document
   button that opens this report.
 - **One document per Mission.** Republishing the same report updates the same link. Publishing a
   different report this way replaces the old document, and the output says which one it replaced.
+- **"The same report" means the same session and the same file.** From any other session on the
+  Mission - a Delivery Lead republishing the Architect's document, say - publish WITH the flag: that
+  makes a new report, which takes the link over. Without the flag it is an ordinary new report, and
+  the Mission button keeps opening the old one.
 - **Mark the why and the goal** with their own sections, after the questions. On every publish the
   Gateway reads them and stamps them on the Mission, so the goal on the Mission button is the goal in
-  the document. A republish of the Mission's document refreshes them, with or without the flag. A
+  the document. A republish of the Mission's document from the session that published it
+  refreshes them, with or without the flag. A
   document with no goal section leaves the Mission with no goal, and the output says so.
 
 ```html
@@ -133,8 +138,10 @@ cc-dev-reports open mission.html --mission-document
 </section>
 ```
 
-- **"This session is attached to no Mission" means nothing was published.** Attach the session first
-  (`cc-devthrottle mission attach <session> <mission>`) and publish again, or publish without the flag
+- **"This session is attached to no Mission" means nothing was published.** If the Mission does not
+  exist yet, create it (`cc-devthrottle mission create "<name>"`, which prints its id and does not
+  attach you). Attach your own session (`cc-devthrottle mission attach <your session> <mission id>`)
+  and publish again, or publish without the flag
   if it is not a mission document. Right after an attach, wait a few seconds: the attachment can take
   a moment to reach the Gateway.
 
