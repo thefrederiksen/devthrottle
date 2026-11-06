@@ -158,10 +158,12 @@ public static class FactoryRunKit
     public static string BriefPathOf(string kitDirectory) => Path.GetFullPath(Path.Combine(kitDirectory, BriefFileName));
 
     /// <summary>
-    /// The line that opens a seat's first prompt: the full path of its brief, and the order to read it first (issue #4609).
+    /// The lines that open a seat's first prompt: the order to read its brief first, then the brief's full path alone on
+    /// its own line (issue #4609). Alone, because the storage root can sit under a user folder with a space in its name,
+    /// and a model reading a path in the middle of a sentence may cut it at the space.
     /// </summary>
     public static string BriefPathLine(string kitDirectory)
-        => $"Your brief is the file {BriefPathOf(kitDirectory)} - read it in full before you do anything else, then do what it says.";
+        => $"Read your brief in full before you do anything else, then do what it says. Your brief is this file:\n{BriefPathOf(kitDirectory)}";
 
     /// <summary>
     /// A seat's first prompt with <see cref="BriefPathLine"/> in front of it (issue #4609). A seat used to be told

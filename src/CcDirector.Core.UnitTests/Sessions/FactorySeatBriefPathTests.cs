@@ -67,7 +67,7 @@ public sealed class FactorySeatBriefPathTests : IDisposable
         // Assert
         var sent = Assert.Single(backend.Sent);
         Assert.Equal(
-            $"Your brief is the file {brief} - read it in full before you do anything else, then do what it says.\n\n" + StartPrompt,
+            $"Read your brief in full before you do anything else, then do what it says. Your brief is this file:\n{brief}\n\n" + StartPrompt,
             sent);
         Assert.True(Path.IsPathFullyQualified(brief));
         Assert.True(File.Exists(brief));
@@ -119,6 +119,22 @@ public sealed class FactorySeatBriefPathTests : IDisposable
             $"The seat's kit at {kitDirectory} has no brief.md, so its first prompt was not sent: the seat would be told to read a brief that is not there.",
             ex.Message);
         Assert.NotNull(session.FirstPromptFailedAtUtc);
+    }
+
+    [Fact]
+    public void WithBriefPath_KitUnderAFolderWithASpace_PutsTheWholePathAloneOnItsOwnLine()
+    {
+        // Arrange - the storage root sits under the user's folder, and an account name can have a space in it.
+        var kitDirectory = FactoryRunKit.Write(Guid.NewGuid(), Kit(FactoryKits.Seat, withBrief: true),
+            root: Path.Combine(_root, "Soren Frederiksen", "factory-run"));
+
+        // Act
+        var lines = FactoryRunKit.WithBriefPath(StartPrompt, FactoryKits.Seat, kitDirectory).Split('\n');
+
+        // Assert
+        Assert.Equal(Path.GetFullPath(Path.Combine(kitDirectory, "brief.md")), lines[1]);
+        Assert.Contains(' ', lines[1]);
+        Assert.True(File.Exists(lines[1]));
     }
 
     [Fact]
