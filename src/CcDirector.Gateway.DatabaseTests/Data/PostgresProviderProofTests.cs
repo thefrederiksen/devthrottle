@@ -443,6 +443,15 @@ public sealed class PostgresProviderProofTests
             // so the two providers have to agree on equality or one of them would admit a second
             // workspace under an id the other calls a duplicate.
             ("workspaces", "Id"),
+            // Your inbox (Factory Inbox mission, phase 3): the state, the sender kind and where a reply went are closed
+            // words compared exactly; the session ids and the factory are exact keys.
+            ("your_inbox_messages", "Factory"),
+            ("your_inbox_messages", "FromKind"),
+            ("your_inbox_messages", "SessionId"),
+            ("your_inbox_messages", "State"),
+            ("your_inbox_replies", "Factory"),
+            ("your_inbox_replies", "RoutedTo"),
+            ("your_inbox_replies", "SessionId"),
         };
         Assert.Equal(expected, withExplicitC.ToArray());
 

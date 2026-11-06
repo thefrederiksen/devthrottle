@@ -527,6 +527,12 @@ public sealed class FactoryInboxStore
                 ctx.FactoryInboxDecisions.Add(decision);
                 target.State = FactoryInboxWords.States.Decided;
             }
+            // YOUR INBOX (phase 3, mission section 7): Declined, Cannot be done and Pushed back tell the owner with exactly
+            // one message - one for the decision, not one per repeat decided with it - written in this transaction, so the
+            // decision and its message stand or fall together. Delegated, To do and Noted write none.
+            if (FactoryInboxWords.Decisions.TellsTheOwner(kind))
+                ctx.YourInboxMessages.Add(CcDirector.Gateway.Inbox.YourInboxStore.ForBossDecision(
+                    tenant, factory, bossSessionId, message.Id, message.Text, message.SentAtUtc, kind, reason!, nowUtc));
             try
             {
                 ctx.SaveChanges();
@@ -549,8 +555,6 @@ public sealed class FactoryInboxStore
                     .ExecuteUpdate(set => set.SetProperty(b => b.ClosedAtUtc, nowUtc));
             tx.Commit();
 
-            // YOUR INBOX (phase 3) writes here, exactly once for this decision, when
-            // FactoryInboxWords.Decisions.TellsTheOwner(kind) - and never for delegated, to do or noted.
             FileLog.Write($"[FactoryInboxStore] Decide: {messageId} -> {kind} (repeats {repeats.Count}, bundle {bundleId} {(open == 0 ? "closed" : $"{open} open")})");
             return new FactoryInboxDecided(message, decisions[0], todo, repeats.Count);
         }
