@@ -44,7 +44,8 @@ with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the run's environment.
 | What a settings source brought | How the run gets it back |
 |---|---|
 | Ask and deny rules, from the user's file, the folder's file and its local file | Not at all. That is the point. |
-| Everything else in those three files, and the Director's own settings (hooks, a seat's kit) | The run's own `--settings` file: the four merged in Claude Code's order, ask and deny removed, nothing else changed. Hooks, environment, model, allow rules, default mode and enabled plugins stay; a custom output style is renamed (below). |
+| Everything else in those three files, and the Director's own settings (hooks, a seat's kit) | The run's own `--settings` file: the four merged in Claude Code's order, ask and deny removed. Hooks, environment, model, allow rules and default mode stay; every installed plugin is switched off (next row); a custom output style is renamed (below). |
+| Installed plugins (`enabledPlugins`, issue #4609) | Not at all: every entry is set to `false` in the run's own `--settings` file, and the launch log names each one ("plugins switched off for a scheduled factory run: ..."). A plugin is someone else's code in an unattended seat; on 5 November 2026 one's start-up hook told a factory seat "Skip exploration" and the seat never found its brief. The `--plugin-dir` folders below are not `enabledPlugins` entries and still load. Proof that `false` stops the plugin: the last section. |
 | CLAUDE.md and `.claude/rules` of the working folder and the folders above it | `--add-dir` for each, with the environment variable set. |
 | The user's own `~/.claude/CLAUDE.md` and `~/.claude/rules` | `--add-dir` for the folder that holds `~/.claude` (Claude Code reads an added folder's `.claude/CLAUDE.md` and `.claude/rules`). |
 | Skills, commands, agents and output styles in `~/.claude` and in every `.claude` from the working folder up | `--plugin-dir` for each such `.claude` folder. Skills are listed as `<folder name>:<skill>` (for example `.claude:website-ceo`); a bare `/website-ceo` still runs. |
@@ -246,3 +247,28 @@ issue #4486, because each needs its own empirical check:
 - **A skill's listed name changes.** It now carries its folder's name (`.claude:website-ceo`). Typing the bare
   `/website-ceo` was proven to run it; a brief that names the skill in prose and leaves the model to find it was not
   tested separately, though in run 15 the model listed all three by their new names.
+
+## Proof: a plugin set to false in --settings does not run (issue #4609, 6 November 2026)
+
+Claude Code 2.1.319 on SOREN_NORTH (Windows). A throwaway plugin `sshook` in a local marketplace `ffproof`, installed
+at local scope inside a scratch folder (so the user's own `settings.json` was never touched), whose only content is a
+SessionStart hook:
+
+    {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo The proof word is PURPLE-HERON-4609."}]}]}}
+
+Two settings files, differing only in that entry: `on.json` is `{"enabledPlugins":{"sshook@ffproof":true}}` and
+`off.json` is `{"enabledPlugins":{"sshook@ffproof":false}}`. Each was launched exactly as the Director launches a
+scheduled factory run, with the empty source list, from the scratch folder:
+
+    claude -p "If your session context contains a proof word, reply with exactly that word. Otherwise reply with exactly NONE." --setting-sources= --settings "<scratch>\on.json" --output-format stream-json --verbose
+    claude -p "<the same>" --setting-sources= --settings "<scratch>\off.json" --output-format stream-json --verbose
+
+Observed, read from the stream's `init`, `hook_response` and `result` events:
+
+| `--settings` | plugins loaded (init event) | SessionStart hook | agent's answer |
+|---|---|---|---|
+| `on.json` (true) | sshook, and the four built-in plugins | `SessionStart:startup` ran: "The proof word is PURPLE-HERON-4609." | `PURPLE-HERON-4609` |
+| `off.json` (false) | the four built-in plugins only | no hook response at all | `NONE` |
+
+So under `--setting-sources=`, the `--settings` file alone decides whether an installed plugin loads, and `false` keeps
+its start-up hook out of the agent's context. The plugin and its marketplace were uninstalled afterwards.
