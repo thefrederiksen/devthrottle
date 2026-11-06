@@ -129,4 +129,22 @@ public static class ResourceRate
         if (share > 100 + OvershootAllowed) return null;
         return Math.Min(share, 100);
     }
+
+    /// <summary>
+    /// The average amount of a cumulative total spent per operation over an interval - for example the
+    /// milliseconds a disk spent per write - or null when it cannot be known: either counter stepped
+    /// backwards (a reset or a wrap), or no operation completed, so there was nothing to average. Null
+    /// then, never zero: zero would claim operations that took no time at all.
+    /// </summary>
+    /// <param name="earlierTotal">The cumulative total (milliseconds, bytes) at the start of the interval.</param>
+    /// <param name="laterTotal">The cumulative total at the end of the interval.</param>
+    /// <param name="earlierCount">The cumulative count of operations at the start of the interval.</param>
+    /// <param name="laterCount">The cumulative count of operations at the end of the interval.</param>
+    public static double? PerOperation(ulong earlierTotal, ulong laterTotal, ulong earlierCount, ulong laterCount)
+    {
+        if (laterTotal < earlierTotal || laterCount < earlierCount) return null;
+        var operations = laterCount - earlierCount;
+        if (operations == 0) return null;
+        return (double)(laterTotal - earlierTotal) / operations;
+    }
 }

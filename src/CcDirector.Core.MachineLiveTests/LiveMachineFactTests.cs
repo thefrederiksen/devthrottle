@@ -134,4 +134,26 @@ public sealed class LiveMachineFactTests
         Assert.NotEmpty(contractClasses);
         Assert.All(contractClasses, t => Assert.Null(LiveMachinePlatformAttribute.Decide(t).Error));
     }
+
+    [Fact]
+    public void TheDiscovererNamedOnTheAttribute_IsTheOneThatExists()
+    {
+        // The discoverer is named by STRINGS. Were either to drift from the real type, xunit would
+        // discover no live machine test at all, and an empty run reads as a green one. This turns that
+        // silent absence into a failure.
+        var named = typeof(LiveMachineFactAttribute).GetCustomAttributesData()
+            .Single(a => a.AttributeType == typeof(Xunit.Sdk.XunitTestCaseDiscovererAttribute));
+        var typeName = named.ConstructorArguments[0].Value as string;
+        var assemblyName = named.ConstructorArguments[1].Value as string;
+
+        Assert.NotNull(typeName);
+        Assert.NotNull(assemblyName);
+        Assert.Equal(typeof(LiveMachineFactDiscoverer), Type.GetType($"{typeName}, {assemblyName}"));
+    }
+
+    [Fact]
+    public void Platform_AValueThatIsNotANamedPlatform_IsRefused()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveMachinePlatformAttribute(default));
+    }
 }

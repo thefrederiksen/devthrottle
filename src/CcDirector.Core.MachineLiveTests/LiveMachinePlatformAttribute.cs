@@ -5,7 +5,11 @@ using Xunit.Sdk;
 
 namespace CcDirector.Core.Tests;
 
-/// <summary>The operating systems a live machine test can be written for.</summary>
+/// <summary>
+/// The operating systems a live machine test can be written for. There is no zero member on purpose:
+/// "no platform" is a null in <see cref="LiveMachinePlatformAttribute.Decide(LiveMachinePlatform?, bool, LiveMachinePlatform?)"/>,
+/// never a default value that could be mistaken for one.
+/// </summary>
 public enum LiveMachinePlatform
 {
     Linux = 1,
@@ -22,9 +26,18 @@ public enum LiveMachinePlatform
 /// <see cref="LiveMachineFactDiscoverer"/>, not run everywhere.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
-public sealed class LiveMachinePlatformAttribute(LiveMachinePlatform platform) : Attribute
+public sealed class LiveMachinePlatformAttribute : Attribute
 {
-    public LiveMachinePlatform Platform { get; } = platform;
+    /// <param name="platform">The one operating system the class is written for. It must be a named member.</param>
+    public LiveMachinePlatformAttribute(LiveMachinePlatform platform)
+    {
+        // The enum deliberately has no zero member, so an undeclared value cannot pass as a platform.
+        if (!Enum.IsDefined(platform))
+            throw new ArgumentOutOfRangeException(nameof(platform), platform, "Name Linux, Windows or MacOs.");
+        Platform = platform;
+    }
+
+    public LiveMachinePlatform Platform { get; }
 
     /// <summary>The operating system this process is running on, or null when it is none of the three.</summary>
     public static LiveMachinePlatform? ThisMachine =>
@@ -68,7 +81,7 @@ public sealed class LiveMachinePlatformAttribute(LiveMachinePlatform platform) :
         LiveMachinePlatform.Linux => "Linux",
         LiveMachinePlatform.Windows => "Windows",
         LiveMachinePlatform.MacOs => "macOS",
-        _ => platform.ToString(),
+        _ => $"an unknown platform ({(int)platform})",
     };
 }
 

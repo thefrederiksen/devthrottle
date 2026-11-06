@@ -3,14 +3,19 @@ using System.Text;
 
 namespace CcDirector.Core.Machine;
 
-/// <summary>Cumulative clock ticks for one CPU line of <c>/proc/stat</c>: time spent working, and all time.</summary>
+/// <summary>Cumulative clock ticks for one processor line of <c>/proc/stat</c>: time spent working, and all time.</summary>
 internal readonly record struct LinuxCpuTicks(ulong Busy, ulong Total);
 
 /// <summary>
 /// The parts of <c>/proc/stat</c> the probe needs: the whole machine's ticks, each logical core's
-/// ticks, and the boot time every process start time is measured from.
+/// ticks, the boot time every process start time is measured from, and the kernel's own count of
+/// tasks blocked waiting for input and output to complete (<c>procs_blocked</c>).
 /// </summary>
-internal sealed record LinuxCpuTimes(LinuxCpuTicks Machine, IReadOnlyList<LinuxCpuTicks> Cores, long? BootTimeUnixSeconds);
+/// <param name="ProcessesBlocked">
+/// <c>procs_blocked</c>: every task - every THREAD, not only each process's main thread - blocked
+/// waiting for input or output right now. Null when the line is missing.
+/// </param>
+internal sealed record LinuxCpuTimes(LinuxCpuTicks Machine, IReadOnlyList<LinuxCpuTicks> Cores, long? BootTimeUnixSeconds, int? ProcessesBlocked = null);
 
 /// <summary>
 /// One line of <c>/proc/diskstats</c>, cumulative since boot: the counts and timings the slowness
@@ -70,8 +75,8 @@ internal sealed record LinuxRootMount(LinuxDeviceNumber DeviceNumber, string Sou
 internal static class LinuxProcParsing
 {
     /// <summary>
-    /// Parse <c>/proc/stat</c>. Busy time is everything except idle and iowait - iowait is a CPU with
-    /// nothing to run, waiting on a disk, which is not the CPU being busy. Guest time is already counted
+    /// Parse <c>/proc/stat</c>. Busy time is everything except idle and iowait - iowait is a processor
+    /// with nothing to run, waiting on a disk, which is not the processor being busy. Guest time is already counted
     /// inside user and nice, so it is left out of the total to avoid counting it twice.
     /// Returns null when the file carries no aggregate "cpu" line.
     /// </summary>
@@ -80,9 +85,17 @@ internal static class LinuxProcParsing
         LinuxCpuTicks? machine = null;
         var cores = new List<LinuxCpuTicks>();
         long? bootTime = null;
+        int? blocked = null;
 
         foreach (var line in lines)
         {
+            if (line.StartsWith("procs_blocked ", StringComparison.Ordinal)
+                && int.TryParse(line.AsSpan(14).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var count))
+            {
+                blocked = count;
+                continue;
+            }
+
             if (line.StartsWith("cpu ", StringComparison.Ordinal))
             {
                 machine = ParseCpuLine(line);
@@ -99,7 +112,7 @@ internal static class LinuxProcParsing
             }
         }
 
-        return machine is { } total ? new LinuxCpuTimes(total, cores, bootTime) : null;
+        return machine is { } total ? new LinuxCpuTimes(total, cores, bootTime, blocked) : null;
     }
 
     private static LinuxCpuTicks? ParseCpuLine(string line)
@@ -133,8 +146,9 @@ internal static class LinuxProcParsing
             else if (MachineMemoryProbe.TryReadKilobytes(line, "SwapFree:", out var f)) free = f;
         }
 
-        if (total is not { } totalBytes || free is not { } freeBytes) return null;
-        return (totalBytes, freeBytes >= totalBytes ? 0 : totalBytes - freeBytes);
+        // More swap free than there is swap is a garbled file, not a fact: null, never a made-up zero.
+        if (total is not { } totalBytes || free is not { } freeBytes || freeBytes > totalBytes) return null;
+        return (totalBytes, totalBytes - freeBytes);
     }
 
     /// <summary>Parse <c>/proc/diskstats</c>. Lines with fewer than the fourteen classic fields are skipped.</summary>
@@ -154,8 +168,10 @@ internal static class LinuxProcParsing
                 ok = ulong.TryParse(f[i + 3], NumberStyles.None, CultureInfo.InvariantCulture, out n[i]);
             if (!ok) continue;
 
-            // Fields after the name: reads, reads merged, sectors read, ms reading, writes, writes merged,
-            // sectors written, ms writing, in flight, ms doing input and output, weighted ms.
+            // Fields after the name: reads, reads merged, sectors read, milliseconds reading, writes,
+            // writes merged, sectors written, milliseconds writing, in flight, milliseconds doing input and
+            // output, weighted milliseconds. The kernel keeps the millisecond fields as 32-bit counters,
+            // so each one wraps at 4,294,967,295 milliseconds - every few days on a busy disk.
             result.Add(new LinuxDiskCounters(major, minor, f[2],
                 ReadsCompleted: n[0], MillisecondsReading: n[3],
                 WritesCompleted: n[4], MillisecondsWriting: n[7],
@@ -256,19 +272,34 @@ internal static class LinuxProcParsing
     }
 
     /// <summary>
-    /// Whether a whole block device is a physical disk: not a loop device, a RAM disk or zram, an optical drive (sr) or a floppy (fd), and
-    /// not built on other devices (device-mapper and md have slaves). Partitions never reach here -
-    /// they are not entries of <c>/sys/block</c>.
+    /// Whether a whole block device is a physical disk: not built on other devices (device-mapper and md
+    /// have slaves), and not one of the kernel's virtual or non-disk devices listed in
+    /// <see cref="NotPhysicalDiskPrefixes"/>. Partitions never reach here - they are not entries of
+    /// <c>/sys/block</c>.
     /// </summary>
     public static bool IsPhysicalDisk(LinuxBlockDevice device) =>
         device.Slaves.Count == 0
-        && !device.Name.StartsWith("loop", StringComparison.Ordinal)
-        && !device.Name.StartsWith("ram", StringComparison.Ordinal)
-        && !device.Name.StartsWith("zram", StringComparison.Ordinal)
-        && !device.Name.StartsWith("dm-", StringComparison.Ordinal)
-        && !device.Name.StartsWith("md", StringComparison.Ordinal)
-        && !device.Name.StartsWith("sr", StringComparison.Ordinal)
-        && !device.Name.StartsWith("fd", StringComparison.Ordinal);
+        && !NotPhysicalDiskPrefixes.Any(prefix => device.Name.StartsWith(prefix, StringComparison.Ordinal))
+        && !IsMemoryCardSpecialArea(device.Name);
+
+    /// <summary>
+    /// Block devices that are not a physical disk, by name: loop devices (snap packages), RAM disks and
+    /// zram (memory), device-mapper and md (built on other disks), optical drives (sr) and floppies (fd),
+    /// ZFS volumes (zd, carved out of a pool whose real disks are listed in their own right), and
+    /// network block devices (nbd, rbd, drbd), whose slowness is the network's, not a disk in this
+    /// machine.
+    /// </summary>
+    internal static readonly string[] NotPhysicalDiskPrefixes =
+        ["loop", "ram", "zram", "dm-", "md", "sr", "fd", "zd", "nbd", "rbd", "drbd"];
+
+    /// <summary>
+    /// The boot and replay-protected areas of a memory card or embedded flash chip (<c>mmcblk0boot0</c>,
+    /// <c>mmcblk0rpmb</c>): the kernel lists them as block devices, but they are parts of the one chip
+    /// <c>mmcblk0</c>, which is listed itself.
+    /// </summary>
+    private static bool IsMemoryCardSpecialArea(string name) =>
+        name.StartsWith("mmcblk", StringComparison.Ordinal)
+        && (name.Contains("boot", StringComparison.Ordinal) || name.EndsWith("rpmb", StringComparison.Ordinal));
 
     /// <summary>
     /// The mount at <c>/</c> in <c>/proc/self/mountinfo</c> - the volume the operating system runs from.

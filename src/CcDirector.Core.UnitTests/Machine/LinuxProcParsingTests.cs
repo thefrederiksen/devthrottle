@@ -71,6 +71,25 @@ public class LinuxProcParsingTests
     }
 
     [Fact]
+    public void ParseSwap_MoreFreeThanTotal_IsNullNotAMadeUpZero()
+    {
+        Assert.Null(LinuxProcParsing.ParseSwap(["SwapTotal:  1000 kB", "SwapFree:   2000 kB"]));
+    }
+
+    [Fact]
+    public void ParseCpuTimes_RealFile_ReadsTheKernelsBlockedTaskCount()
+    {
+        Assert.Equal(3, LinuxProcParsing.ParseCpuTimes(Lines("snapshot-1", "proc", "stat"))?.ProcessesBlocked);
+        Assert.Equal(7, LinuxProcParsing.ParseCpuTimes(Lines("snapshot-2", "proc", "stat"))?.ProcessesBlocked);
+    }
+
+    [Fact]
+    public void ParseCpuTimes_NoBlockedLine_IsNullNotZero()
+    {
+        Assert.Null(LinuxProcParsing.ParseCpuTimes(["cpu  1 2 3 4 5 6 7 8 0 0"])?.ProcessesBlocked);
+    }
+
+    [Fact]
     public void ParseSwap_NoSwapConfigured_IsZeroNotMissing()
     {
         Assert.Equal((0UL, 0UL), LinuxProcParsing.ParseSwap(["SwapTotal:             0 kB", "SwapFree:              0 kB"]));
@@ -231,6 +250,13 @@ public class LinuxProcParsingTests
     [InlineData("dm-0", false)]
     [InlineData("md127", false)]
     [InlineData("sr0", false)]
+    [InlineData("zd0", false)]
+    [InlineData("nbd0", false)]
+    [InlineData("rbd0", false)]
+    [InlineData("drbd0", false)]
+    [InlineData("mmcblk0", true)]
+    [InlineData("mmcblk0boot0", false)]
+    [InlineData("mmcblk0rpmb", false)]
     public void IsPhysicalDisk_ByName(string name, bool expected)
     {
         Assert.Equal(expected, LinuxProcParsing.IsPhysicalDisk(new LinuxBlockDevice(name, 0, [], null, [])));
@@ -285,8 +311,9 @@ public class LinuxProcParsingTests
     public void ResolveRootDisks_Devlinux_GivesAllThreeDisksThroughTheLogicalVolume()
     {
         var devices = LinuxProcParsing.ReadBlockDevices(Fixture("sys", "block"));
-        var root = LinuxProcParsing.ParseRootMount(Lines("snapshot-1", "proc", "self", "mountinfo"))!;
+        var root = LinuxProcParsing.ParseRootMount(Lines("snapshot-1", "proc", "self", "mountinfo"));
 
+        Assert.NotNull(root);
         Assert.Equal(["sda", "sdb", "sdc"], LinuxProcParsing.ResolveRootDisks(root, devices));
     }
 
@@ -339,6 +366,9 @@ public class LinuxProcParsingTests
         var a = new LinuxBlockDevice("dm-0", null, ["dm-1"], new(252, 0), []);
         var b = new LinuxBlockDevice("dm-1", null, ["dm-0"], new(252, 1), []);
 
-        Assert.Empty(LinuxProcParsing.ResolveRootDisks(new LinuxRootMount(new(252, 0), "/dev/dm-0"), Devices(a, b))!);
+        var disks = LinuxProcParsing.ResolveRootDisks(new LinuxRootMount(new(252, 0), "/dev/dm-0"), Devices(a, b));
+
+        Assert.NotNull(disks);
+        Assert.Empty(disks);
     }
 }

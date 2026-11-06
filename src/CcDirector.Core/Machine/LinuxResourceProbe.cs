@@ -56,6 +56,7 @@ public sealed class LinuxResourceProbe : IResourceProbe
     private readonly TimeProvider _time;
     private readonly Func<long> _clockTicksPerSecond;
     private readonly long _pageSize;
+    private readonly Func<string, string> _readProcessFile;
 
     // One read at a time: each read moves the previous counters on, so two reads interleaving would
     // compute rates against each other's halves. A second caller waits and then gets the cached sample.
@@ -72,27 +73,31 @@ public sealed class LinuxResourceProbe : IResourceProbe
 
     /// <summary>Creates a probe of this machine.</summary>
     public LinuxResourceProbe()
-        : this("/proc", "/sys/block", time: null, clockTicksPerSecond: null, pageSize: null)
+        : this("/proc", "/sys/block", time: null, clockTicksPerSecond: null, pageSize: null, readProcessFile: null)
     {
     }
 
     /// <summary>
     /// Creates a probe over any copy of <c>/proc</c> and <c>/sys/block</c>, so the whole probe - rates,
     /// first sample, unreadable parts - is tested against files captured on a real machine. The clock,
-    /// the clock tick rate and the page size are injectable for the same reason.
+    /// the clock tick rate and the page size are injectable for the same reason, and so is the read of
+    /// one process's files, so a process the kernel REFUSES (a /proc mounted with hidepid) can be tested
+    /// without a real permission.
     /// </summary>
     internal LinuxResourceProbe(
         string procRoot,
         string sysBlockRoot,
         TimeProvider? time,
         Func<long>? clockTicksPerSecond,
-        long? pageSize)
+        long? pageSize,
+        Func<string, string>? readProcessFile = null)
     {
         _procRoot = procRoot;
         _sysBlockRoot = sysBlockRoot;
         _time = time ?? TimeProvider.System;
         _clockTicksPerSecond = clockTicksPerSecond ?? ReadClockTicksPerSecond;
         _pageSize = pageSize ?? Environment.SystemPageSize;
+        _readProcessFile = readProcessFile ?? File.ReadAllText;
     }
 
     /// <inheritdoc />
@@ -127,10 +132,12 @@ public sealed class LinuxResourceProbe : IResourceProbe
             ? SwapReading.Unreadable(swapError)
             : Guard("swap", () => ReadSwap(memInfo.Lines), SwapReading.Unreadable);
 
-        var disks = Guard("disks", () => ReadDisks(timestamp), DiskEvidenceSet.Unreadable);
-        var (processes, waitingOnDisk) = Guard("processes", () => ReadProcesses(cpuTimes, coreCount, timestamp),
-            r => (ProcessSetReading.Unreadable(r), (int?)null));
-        var stall = Guard("stalls", () => ReadStall(waitingOnDisk), StallReading.Unreadable);
+        var disks = Guard("disks", ReadDisks, DiskEvidenceSet.Unreadable);
+        var processes = Guard("processes", () => ReadProcesses(cpuTimes, coreCount), ProcessSetReading.Unreadable);
+        // The kernel's own count of every task - every thread - blocked on input and output, from
+        // /proc/stat. Counting processes whose main thread is in state D would miss the worker threads
+        // of exactly the multi-threaded programs the diagnosis exists to name.
+        var stall = Guard("stalls", () => ReadStall(cpuTimes?.ProcessesBlocked), StallReading.Unreadable);
 
         return new ResourceSample(now, cpu, memory, swap, stall, disks, processes);
     }
@@ -165,11 +172,13 @@ public sealed class LinuxResourceProbe : IResourceProbe
         if (times is null) return (CpuReading.Unreadable($"{path} carried no aggregate cpu line"), null);
 
         var cores = times.Cores.Count > 0 ? times.Cores.Count : (int?)null;
+        var ticksPerSecond = _clockTicksPerSecond();
+        if (ticksPerSecond <= 0) return (CpuReading.Unreadable($"the clock tick rate read as {ticksPerSecond}", cores), times);
         var previous = _previousCpu;
         _previousCpu = times;
         if (previous is null) return (CpuReading.Unreadable(ResourceUnreadableReasons.FirstSample, cores), times);
 
-        if (BusyPercent(previous.Machine, times.Machine) is not { } total)
+        if (BusyPercent(previous.Machine, times.Machine, ticksPerSecond) is not { } total)
             return (CpuReading.Unreadable(
                 "the processor's tick counters did not move forward since the previous sample", cores), times);
 
@@ -180,7 +189,7 @@ public sealed class LinuxResourceProbe : IResourceProbe
         {
             for (var i = 0; i < times.Cores.Count; i++)
             {
-                if (BusyPercent(previous.Cores[i], times.Cores[i]) is { } core && (busiest is null || core > busiest)) busiest = core;
+                if (BusyPercent(previous.Cores[i], times.Cores[i], ticksPerSecond) is { } core && (busiest is null || core > busiest)) busiest = core;
             }
         }
 
@@ -190,16 +199,21 @@ public sealed class LinuxResourceProbe : IResourceProbe
     /// <summary>
     /// The busy share of the ticks that passed between two readings, 0 to 100, through
     /// <see cref="ResourceRate.BusyPercent"/>: ticks spent working over all ticks that passed. Null when
-    /// the busy counter stepped backwards or no ticks passed. The tick rate cancels out, so ticks are
-    /// handed over as if they were seconds.
+    /// the busy counter stepped backwards or no ticks passed. Only the DIFFERENCE in ticks is turned into
+    /// time, divided by the tick rate: the whole machine's total grows by the tick rate for every logical
+    /// core every second, and on a large machine up for months the raw count, handed over as seconds,
+    /// would overflow a TimeSpan.
     /// </summary>
-    private static double? BusyPercent(LinuxCpuTicks before, LinuxCpuTicks now)
+    private static double? BusyPercent(LinuxCpuTicks before, LinuxCpuTicks now, long ticksPerSecond)
     {
         // The kernel's per-core iowait counter is documented to step backwards now and then, which can
         // pull the total below the previous one: there is then no interval to divide by.
         if (now.Total <= before.Total) return null;
+        if (now.Busy < before.Busy) return null; // a counter that steps backwards: null, never zero
+        // Subtract the whole tick counts first and convert only the difference: the totals are large
+        // enough that converting each to seconds and then subtracting would lose precision.
         return ResourceRate.BusyPercent(
-            TimeSpan.FromSeconds(before.Busy), TimeSpan.FromSeconds(now.Busy), TimeSpan.FromSeconds(now.Total - before.Total));
+            TimeSpan.Zero, TicksToTime(now.Busy - before.Busy, ticksPerSecond), TicksToTime(now.Total - before.Total, ticksPerSecond));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -218,10 +232,13 @@ public sealed class LinuxResourceProbe : IResourceProbe
     // Disk evidence, for the slowness diagnosis only
     // ---------------------------------------------------------------------------------------------
 
-    private DiskEvidenceSet ReadDisks(long timestamp)
+    private DiskEvidenceSet ReadDisks()
     {
         var devices = LinuxProcParsing.ReadBlockDevices(_sysBlockRoot);
         var counters = LinuxProcParsing.ParseDiskStats(File.ReadAllLines(ProcPath("diskstats")));
+        // Stamped beside the read of the counters it measures, not at the start of the sample: the
+        // processor and the /sys walk before it take a varying time on a loaded machine.
+        var timestamp = _time.GetTimestamp();
         var byName = new Dictionary<string, LinuxDiskCounters>(StringComparer.Ordinal);
         foreach (var counter in counters) byName.TryAdd(counter.Name, counter);
 
@@ -293,10 +310,8 @@ public sealed class LinuxResourceProbe : IResourceProbe
             || now.WritesCompleted < then.WritesCompleted || now.MillisecondsReading < then.MillisecondsReading
             || now.MillisecondsWriting < then.MillisecondsWriting || now.WeightedMillisecondsBusy < then.WeightedMillisecondsBusy)
             return DiskEvidence.Unreadable(device.Name, kind, inSystemVolume,
-                "its counters went backwards since the previous sample (the disk was removed and added again)");
-
-        var reads = now.ReadsCompleted - then.ReadsCompleted;
-        var writes = now.WritesCompleted - then.WritesCompleted;
+                "its counters went backwards since the previous sample: a counter wrapped (the kernel keeps the " +
+                "millisecond counters in 32 bits, so they wrap every few days on a busy disk) or the disk was replaced");
 
         // A disk that completed no reads in the interval has no time per read - there was nothing to
         // average. That is null, not zero: zero would claim reads that took no time at all.
@@ -306,8 +321,8 @@ public sealed class LinuxResourceProbe : IResourceProbe
             inSystemVolume,
             busyPercent: ResourceRate.BusyPercent(
                 TimeSpan.FromMilliseconds(then.MillisecondsBusy), TimeSpan.FromMilliseconds(now.MillisecondsBusy), interval),
-            millisecondsPerRead: reads > 0 ? (double)(now.MillisecondsReading - then.MillisecondsReading) / reads : null,
-            millisecondsPerWrite: writes > 0 ? (double)(now.MillisecondsWriting - then.MillisecondsWriting) / writes : null,
+            millisecondsPerRead: ResourceRate.PerOperation(then.MillisecondsReading, now.MillisecondsReading, then.ReadsCompleted, now.ReadsCompleted),
+            millisecondsPerWrite: ResourceRate.PerOperation(then.MillisecondsWriting, now.MillisecondsWriting, then.WritesCompleted, now.WritesCompleted),
             // The average number of requests in the disk's queue over the interval - the figure iostat
             // prints as aqu-sz - from the weighted milliseconds spent doing input and output.
             averageQueueDepth: ResourceRate.PerSecond(then.WeightedMillisecondsBusy, now.WeightedMillisecondsBusy, interval) / 1000);
@@ -368,31 +383,43 @@ public sealed class LinuxResourceProbe : IResourceProbe
     // Processes
     // ---------------------------------------------------------------------------------------------
 
-    private (ProcessSetReading, int?) ReadProcesses(LinuxCpuTimes? cpuTimes, int? coreCount, long timestamp)
+    private ProcessSetReading ReadProcesses(LinuxCpuTimes? cpuTimes, int? coreCount)
     {
         var ticksPerSecond = _clockTicksPerSecond();
-        if (ticksPerSecond <= 0)
-            return (ProcessSetReading.Unreadable($"the clock tick rate read as {ticksPerSecond}"), null);
+        if (ticksPerSecond <= 0) return ProcessSetReading.Unreadable($"the clock tick rate read as {ticksPerSecond}");
 
         var bootTime = cpuTimes?.BootTimeUnixSeconds is { } boot ? DateTime.UnixEpoch.AddSeconds(boot) : (DateTime?)null;
+        var directories = Directory.EnumerateDirectories(_procRoot);
+        // Stamped where the enumeration starts, beside the counters it measures rather than at the start
+        // of the sample, so the time spent on the processor, memory and disks first is not in the interval.
+        var timestamp = _time.GetTimestamp();
         var previous = _previousProcesses;
         var interval = previous is { } p ? _time.GetElapsedTime(p.AtTimestamp, timestamp) : TimeSpan.Zero;
         var counters = new Dictionary<(int, ulong), ProcessCounters>();
         var readings = new List<ProcessReading>();
-        var waitingOnDisk = 0;
+        var refused = 0;
 
-        foreach (var directory in Directory.EnumerateDirectories(_procRoot))
+        foreach (var directory in directories)
         {
-            if (!int.TryParse(Path.GetFileName(directory), NumberStyles.None, CultureInfo.InvariantCulture, out _)) continue;
-            if (ReadOneProcess(directory) is not { } process) continue;
+            if (!int.TryParse(Path.GetFileName(directory), NumberStyles.None, CultureInfo.InvariantCulture, out var pid)) continue;
+            var process = ReadOneProcess(directory);
+            if (process.Exited) continue;
 
-            var (stat, residentPages, io) = process;
-            if (stat.State == 'D') waitingOnDisk++;
+            if (process.Stat is not { } stat)
+            {
+                // RUNNING, BUT THE KERNEL REFUSED ITS STAT - /proc mounted with hidepid=1, as on hardened
+                // servers and some container runtimes, hides other users' processes this way. It is
+                // listed by its id with every figure null - never dropped, never given a guess - and the
+                // count is logged, so the diagnosis can at least say the machine holds processes it cannot see.
+                refused++;
+                readings.Add(new ProcessReading(pid, null, $"process {pid} (refused by the system)", null, null, null, null, null));
+                continue;
+            }
 
             // A process is its id AND its start time: ids are reused, and without the start time a new
             // process would inherit a dead one's counters.
             var key = (stat.ProcessId, stat.StartTimeTicks);
-            counters[key] = new ProcessCounters(stat.CpuTicks, io);
+            counters[key] = new ProcessCounters(stat.CpuTicks, process.Io);
 
             // Rates need this same process in the previous sample. One that is new since then - started
             // during the interval, or not readable last time - is still listed and named, with its rates
@@ -400,9 +427,11 @@ public sealed class LinuxResourceProbe : IResourceProbe
             double? cpuPercent = null, readRate = null, writeRate = null;
             if (previous is { } before && before.Processes.TryGetValue(key, out var then))
             {
-                cpuPercent = ResourceRate.ShareOfMachine(
-                    TicksToTime(then.CpuTicks, ticksPerSecond), TicksToTime(stat.CpuTicks, ticksPerSecond), interval, coreCount);
-                if (io is { } nowIo && then.Io is { } thenIo)
+                // The difference in whole ticks, converted alone; a counter that stepped backwards is null.
+                cpuPercent = stat.CpuTicks < then.CpuTicks
+                    ? null
+                    : ResourceRate.ShareOfMachine(TimeSpan.Zero, TicksToTime(stat.CpuTicks - then.CpuTicks, ticksPerSecond), interval, coreCount);
+                if (process.Io is { } nowIo && then.Io is { } thenIo)
                 {
                     readRate = ResourceRate.PerSecond(thenIo.ReadBytes, nowIo.ReadBytes, interval);
                     writeRate = ResourceRate.PerSecond(thenIo.WriteBytes, nowIo.WriteBytes, interval);
@@ -415,42 +444,58 @@ public sealed class LinuxResourceProbe : IResourceProbe
                 stat.Name,
                 bootTime?.AddSeconds((double)stat.StartTimeTicks / ticksPerSecond),
                 cpuPercent,
-                residentPages is { } pages ? pages * (ulong)_pageSize : null,
+                process.ResidentPages is { } pages ? pages * (ulong)_pageSize : null,
                 readRate,
                 writeRate));
         }
 
         _previousProcesses = (counters, timestamp);
-        return (ProcessSetReading.Read(readings), waitingOnDisk);
+        if (refused > 0)
+            LogOnce("processes refused", couldRead: false,
+                $"the system refused to show {refused} running processes (is /proc mounted with hidepid?); they are listed by id with no figures");
+        return ProcessSetReading.Read(readings);
     }
 
     private static TimeSpan TicksToTime(ulong ticks, long ticksPerSecond) => TimeSpan.FromSeconds((double)ticks / ticksPerSecond);
 
+    /// <summary>What could be read of one process directory.</summary>
+    /// <param name="Exited">The process exited between listing and reading - normal on a busy machine. Nothing to list.</param>
+    /// <param name="Stat">Its stat, or null when the kernel refused it (the process is running but hidden from us).</param>
+    /// <param name="ResidentPages">Its resident pages, or null when statm could not be read.</param>
+    /// <param name="Io">Its disk counters, or null when the io file is closed to us (another user's process).</param>
+    private readonly record struct OneProcess(bool Exited, LinuxProcessStat? Stat, ulong? ResidentPages, (ulong ReadBytes, ulong WriteBytes)? Io);
+
     /// <summary>
-    /// One process's stat, resident pages and disk counters. A process whose stat cannot be read has
-    /// exited between listing and reading - normal on a busy machine - so it is left out (null): there is
-    /// nothing left to name. Linux lets every user read every process's stat and statm, so a running
-    /// process is never refused here. A statm that cannot be read gives null memory, and an io file that
-    /// is closed to us (another user's process) gives null disk counters; the process is still listed.
+    /// One process's stat, resident pages and disk counters. The two failures of the stat read mean
+    /// different things and are kept apart: a file or directory that is gone, or a read the kernel
+    /// ends with "no such process", means the process EXITED, and it is left out; a refused read
+    /// means it is RUNNING but hidden from us, and it is listed. A statm that cannot be read gives null
+    /// memory, and an io file closed to us gives null disk counters; the process is still listed.
     /// </summary>
-    private static (LinuxProcessStat Stat, ulong? ResidentPages, (ulong ReadBytes, ulong WriteBytes)? Io)? ReadOneProcess(string directory)
+    private OneProcess ReadOneProcess(string directory)
     {
         LinuxProcessStat? stat;
         try
         {
-            stat = LinuxProcParsing.ParseProcessStat(File.ReadAllText(Path.Combine(directory, "stat")));
+            stat = LinuxProcParsing.ParseProcessStat(_readProcessFile(Path.Combine(directory, "stat")));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (UnauthorizedAccessException)
         {
-            return null;
+            return new OneProcess(Exited: false, Stat: null, ResidentPages: null, Io: null);
+        }
+        catch (IOException)
+        {
+            return new OneProcess(Exited: true, null, null, null);
         }
 
-        if (stat is null) return null;
+        // A stat that cannot be parsed is not a process we can name; it is treated as gone rather than
+        // listed with a made-up name.
+        if (stat is null) return new OneProcess(Exited: true, null, null, null);
 
         ulong? residentPages;
         try
         {
-            residentPages = LinuxProcParsing.ParseStatmResidentPages(File.ReadAllText(Path.Combine(directory, "statm")));
+            residentPages = LinuxProcParsing.ParseStatmResidentPages(_readProcessFile(Path.Combine(directory, "statm")));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -460,14 +505,14 @@ public sealed class LinuxResourceProbe : IResourceProbe
         (ulong, ulong)? io;
         try
         {
-            io = LinuxProcParsing.ParseProcessIo(File.ReadAllLines(Path.Combine(directory, "io")));
+            io = LinuxProcParsing.ParseProcessIo(_readProcessFile(Path.Combine(directory, "io")).Split('\n'));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             io = null;
         }
 
-        return (stat, residentPages, io);
+        return new OneProcess(Exited: false, stat, residentPages, io);
     }
 
     /// <summary>

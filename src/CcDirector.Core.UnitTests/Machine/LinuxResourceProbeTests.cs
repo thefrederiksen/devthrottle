@@ -47,8 +47,8 @@ public sealed class LinuxResourceProbeTests : IDisposable
         public void StepWallClock(TimeSpan by) => _wall = _wall.Add(by);
     }
 
-    private LinuxResourceProbe Probe(string procRoot, string sysBlockRoot) =>
-        new(procRoot, sysBlockRoot, _clock, clockTicksPerSecond: () => 100, pageSize: 4096);
+    private LinuxResourceProbe Probe(string procRoot, string sysBlockRoot, Func<string, string>? readProcessFile = null) =>
+        new(procRoot, sysBlockRoot, _clock, clockTicksPerSecond: () => 100, pageSize: 4096, readProcessFile);
 
     private (LinuxResourceProbe Probe, string Root) DevlinuxProbe()
     {
@@ -243,7 +243,10 @@ public sealed class LinuxResourceProbeTests : IDisposable
         Assert.Equal(1.99, stall.MemoryStalledPercent);
         Assert.Equal(16.41, stall.IoStalledPercent);
         Assert.Equal(47, stall.RunQueueLength);
-        Assert.Equal(1, stall.ProcessesWaitingOnDisk); // jbd2/dm-0-8, the journal thread of the root volume
+        // The kernel's own procs_blocked from /proc/stat: every THREAD blocked on input and output. Only
+        // one process's main thread (jbd2/dm-0-8, the root volume's journal) was in state D, so counting
+        // main threads would have said 1.
+        Assert.Equal(7, stall.ProcessesWaitingOnDisk);
         Assert.Null(stall.HardPageFaultsPerSecond);
         Assert.Null(stall.MacOsMemoryPressureLevel);
     }
@@ -426,6 +429,7 @@ public sealed class LinuxResourceProbeTests : IDisposable
 
         Assert.False(sdc.CouldRead);
         Assert.Contains("went backwards", sdc.UnreadableReason);
+        Assert.Contains("wrapped", sdc.UnreadableReason);
         Assert.Null(sdc.BusyPercent);
         Assert.Null(sdc.MillisecondsPerWrite);
     }
@@ -511,6 +515,60 @@ public sealed class LinuxResourceProbeTests : IDisposable
         Assert.Null(rewound.DiskWriteBytesPerSecond); // no honest difference, so not known - never zero
         Assert.Equal(0.0, rewound.DiskReadBytesPerSecond); // read_bytes stayed at 0: a real zero
         Assert.Equal(10.0 / 100 / 5 / 32 * 100, rewound.CpuPercent ?? -1, 6);
+    }
+
+    [Fact]
+    public void Read_ProcessWhoseStatTheSystemRefuses_IsListedByIdWithNoFiguresNotDropped()
+    {
+        // /proc mounted with hidepid=1: the directory is listed, but reading another user's stat is refused.
+        var (_, root) = DevlinuxProbe();
+        var refusedStat = Path.Combine(root, "3766989", "stat");
+        var probe = Probe(root, LinuxProcParsingTests.Fixture("sys", "block"), path =>
+            path == refusedStat ? throw new UnauthorizedAccessException("Access to the path is denied.") : File.ReadAllText(path));
+
+        var processes = probe.Read().Processes;
+
+        Assert.True(processes.CouldRead);
+        Assert.Equal(6, processes.Processes.Count); // nothing dropped
+        var refused = Assert.Single(processes.Processes, p => p.Pid == 3766989);
+        Assert.Contains("refused", refused.Name);
+        Assert.Null(refused.ParentPid);
+        Assert.Null(refused.CpuPercent);
+        Assert.Null(refused.MemoryBytes);
+    }
+
+    [Fact]
+    public void Read_ProcessThatExitedBetweenListingAndReading_IsLeftOut()
+    {
+        var (_, root) = DevlinuxProbe();
+        var goneStat = Path.Combine(root, "3766989", "stat");
+        var probe = Probe(root, LinuxProcParsingTests.Fixture("sys", "block"), path =>
+            path == goneStat ? throw new FileNotFoundException("gone", path) : File.ReadAllText(path));
+
+        var processes = probe.Read().Processes;
+
+        Assert.Equal(5, processes.Processes.Count);
+        Assert.DoesNotContain(processes.Processes, p => p.Pid == 3766989);
+    }
+
+    [Fact]
+    public void Read_LargeMachineUpForYears_ProcessorTicksDoNotOverflow()
+    {
+        // 384 logical cores up for ten years: the whole machine's total is about 1.2e13 ticks, which as
+        // seconds would overflow a TimeSpan. Busy 30 of every 100 ticks in the interval.
+        var root = NewDirectory();
+        CopySnapshot("snapshot-1", root);
+        const ulong Base = 12_000_000_000_000UL;
+        File.WriteAllText(Path.Combine(root, "stat"), $"cpu  {Base} 0 0 {Base * 2} 0 0 0 0 0 0\ncpu0 {Base} 0 0 {Base * 2} 0 0 0 0 0 0\nbtime 1791851717\n");
+        var probe = Probe(root, LinuxProcParsingTests.Fixture("sys", "block"));
+        probe.Read();
+        File.WriteAllText(Path.Combine(root, "stat"), $"cpu  {Base + 30} 0 0 {Base * 2 + 70} 0 0 0 0 0 0\ncpu0 {Base + 30} 0 0 {Base * 2 + 70} 0 0 0 0 0 0\nbtime 1791851717\n");
+        _clock.Advance(TimeSpan.FromSeconds(5));
+
+        var cpu = probe.Read().Cpu;
+
+        Assert.True(cpu.CouldRead, cpu.UnreadableReason);
+        Assert.Equal(30.0, cpu.TotalBusyPercent, 6);
     }
 
     private static void WriteProcess(string root, int pid, string name, ulong startTicksAfterBoot, ulong cpuTicks, ulong writeBytes = 60)
