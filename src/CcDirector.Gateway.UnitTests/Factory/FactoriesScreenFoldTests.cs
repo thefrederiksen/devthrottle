@@ -522,6 +522,23 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void Page_LeaveAMessage_IsOfferedExactlyWhereTheInboxTakesMessages()
+    {
+        // Shaped like the live account on 6 November 2026: a factory archived by the owner that still names a Boss seat
+        // (warmforward, devthrottle, tallyhand and eight more), and one with no Boss seat at all (house, money-saver). The
+        // send refuses both in words, so the page must not offer a message the Gateway will not take.
+        var live = WarmForward();
+        var archived = WarmForward();
+        archived.ArchivedAtUtc = Now.AddDays(-21);
+        var bossless = WarmForward();
+        bossless.BossSeat = null;
+
+        Assert.Equal("Leave a message", FactoriesScreenFold.Page(live, Inputs(new[] { live })).LeaveMessageLabel);
+        Assert.Null(FactoriesScreenFold.Page(archived, Inputs(new[] { archived })).LeaveMessageLabel);
+        Assert.Null(FactoriesScreenFold.Page(bossless, Inputs(new[] { bossless })).LeaveMessageLabel);
+    }
+
+    [Fact]
     public void Page_Why_WithAPurpose_IsThePurposeTrimmed_UnderTheHeadingWhy()
     {
         var f = WarmForward();

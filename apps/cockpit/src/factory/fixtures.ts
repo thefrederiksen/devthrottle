@@ -357,6 +357,7 @@ export const FACTORY_PAGE: FactoryPageView = {
   folderDenyTexts: [],
   computerText: "runs on SOREN_NORTH",
   talk: { label: "Talk to the boss", busyLabel: "Starting the talk with the boss (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
+  leaveMessageLabel: "Leave a message (fixture)",
   tabs: [
     { key: "overview", label: "Overview" },
     { key: "floor", label: "Floor" },

@@ -307,6 +307,28 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_AndSend_AgreeOnEveryFactory()
+    {
+        // Every factory the list shows takes a message; every registered factory it leaves out (archived with a Boss
+        // seat, as warmforward and ten more were on the live account, or Boss-less) is refused in words at the send.
+        var (_, body) = await Get("/gateway/factory/inbox", Browser);
+        var listed = body.GetProperty("factories").EnumerateArray().Select(f => f.GetProperty("factory").GetString()!).ToHashSet();
+
+        foreach (var f in Factories())
+        {
+            var (status, sent) = await Post($"/gateway/factory/{f.Factory}/inbox", Phone, new { text = "hi" });
+            if (listed.Contains(f.Factory))
+                Assert.Equal(HttpStatusCode.Created, status);
+            else
+            {
+                Assert.Equal(HttpStatusCode.Conflict, status);
+                Assert.False(string.IsNullOrWhiteSpace(sent.GetProperty("error").GetString()));
+            }
+        }
+        Assert.Equal(["invoices", "payroll"], listed.Order());
+    }
+
+    [Fact]
     public async Task OwnerReads_ASessionMayReadThem_TheMachineTokenMayNot()
     {
         await Leave("One");

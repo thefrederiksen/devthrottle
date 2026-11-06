@@ -268,7 +268,7 @@ public sealed class FactoryInboxWake
         try
         {
             var registered = _env.Factory(tenant, factory);
-            if (registered is null || registered.ArchivedAtUtc is not null || string.IsNullOrWhiteSpace(registered.BossSeat))
+            if (registered is null || !FactoryInboxReach.TakesMessages(registered))
             {
                 FileLog.Write($"[FactoryInboxWake] LookAsync: {factory} is {(registered is null ? "not registered" : registered.ArchivedAtUtc is not null ? "archived" : "Boss-less")} - nothing is woken");
                 return FactoryInboxWakeLook.None(factory);

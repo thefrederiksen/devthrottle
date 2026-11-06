@@ -1039,6 +1039,18 @@ describe("The owner's actions (round 2)", () => {
     expect(screen.queryByRole("button", { name: "Archive factory (fixture)" })).toBeNull();
   });
 
+  it("offers Leave a message in the Gateway's words, and not at all when the Gateway gives no label", async () => {
+    screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
+    const first = renderAt("/factories/warmforward");
+    expect((await screen.findByTestId("fa-leave-message")).textContent).toBe("Leave a message (fixture)");
+    first.unmount();
+
+    screenClient.getFactoryPage.mockResolvedValue({ ...FACTORY_PAGE, leaveMessageLabel: null });
+    renderAt("/factories/warmforward");
+    await screen.findByTestId("factory-page");
+    expect(screen.queryByTestId("fa-leave-message")).toBeNull();
+  });
+
   it("an archived factory's page offers Delete beside Restore, and a delete opens the list with the Gateway's sentence", async () => {
     const del = {
       ...FACTORY_LIST.archivedRows[0].restore,

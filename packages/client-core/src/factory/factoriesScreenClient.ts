@@ -437,6 +437,8 @@ export interface FactoryPageView {
   /** "runs on SOREN_NORTH". */
   computerText: string;
   talk: FactoryTalkTarget | null;
+  /** "Leave a message", or null when the factory takes no messages (archived, or no Boss seat). */
+  leaveMessageLabel: string | null;
   /** Overview, Floor, Seats (n), Activity, Reports, Memory, Definition. */
   tabs: FactoryTab[];
   /** Why the factory exists, under its name and above the goal. */

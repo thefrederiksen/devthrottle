@@ -119,15 +119,17 @@ export function FactoryView() {
           </div>
         </div>
         <div className="fa-head-actions">
-          <Button aria-expanded={leaving} onClick={() => setLeaving((v) => !v)} data-testid="fa-leave-message">
-            Leave a message
-          </Button>
+          {page.leaveMessageLabel !== null && (
+            <Button aria-expanded={leaving} onClick={() => setLeaving((v) => !v)} data-testid="fa-leave-message">
+              {page.leaveMessageLabel}
+            </Button>
+          )}
           {page.talk !== null && <TalkButton talk={page.talk} />}
           {page.archive !== null && <OwnerActionButton action={page.archive} onDone={done} />}
         </div>
       </header>
 
-      {leaving && (
+      {leaving && page.leaveMessageLabel !== null && (
         <section className="fa-panel" data-testid="fa-leave-message-panel">
           <h2 className="fa-section-title">Leave a message for {page.title}</h2>
           <FactoryComposer factory={page.id} factoryTitle={page.title} surface="cockpit" onLeft={() => setLeft(true)} />
