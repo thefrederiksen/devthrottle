@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE LIVE LOAD HARNESS for the Resource Monitor (issue #2811, mission section 8). It puts a real load on
+       the real machine and checks that the Director's meter agrees with the operating system's own monitor,
+       goes red and amber when it should, clears when the load goes, keeps its Gateway rows unbroken through a
+       disconnect, costs under half a per cent of one core, and names the right cause. Never shipped; run by
+       hand on each platform. It is the only thing that turns "the tests pass" into "the meter agrees with the
+       machine". -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ResourceLoadProof</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real memory probe and the real pressure levels, so the harness stops a memory load at the same
+         Tight and Critical lines the meter is judged on rather than at a copy of them. -->
+    <ProjectReference Include="..\..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+    <!-- The processor load the text-delivery rig already uses, linked rather than copied so the two rigs load
+         a machine the same way. Linked, not referenced: that project is an executable with a headless
+         desktop stack this harness has no use for. -->
+    <Compile Include="..\..\..\src\CcDirector.DeliveryQualification\CpuLoad.cs" Link="CpuLoad.cs" />
+  </ItemGroup>
+
+</Project>

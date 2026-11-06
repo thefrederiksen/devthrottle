@@ -1,4 +1,7 @@
 using CcDirector.Gateway.Contracts;
+// Two types share the name ResourceCrossing: the Gateway row type used here, and the level-change edge in
+// CcDirector.Core.Machine. The nearer namespace would otherwise win, so this file names the one it means.
+using GatewayResourceCrossing = CcDirector.Gateway.Contracts.ResourceCrossing;
 
 namespace CcDirector.Core.Machine.ResourceSummaries;
 
@@ -10,7 +13,7 @@ namespace CcDirector.Core.Machine.ResourceSummaries;
 /// Pure: no clock, no input or output, no state. Every case is a unit test over hand-made samples.
 ///
 /// THE CROSSING NOTE IS THE POINT. A run of consecutive samples whose verdict is Tight (amber) or Critical (red)
-/// becomes one <see cref="ResourceCrossing"/>, carrying its worst level, when it started, how long it lasted inside the
+/// becomes one <see cref="GatewayResourceCrossing"/>, carrying its worst level, when it started, how long it lasted inside the
 /// window and how high the machine went. So a 90-second red spike in an otherwise quiet window survives the summary:
 /// its average may be unremarkable, but its peak and its crossing are not.
 ///
@@ -43,7 +46,7 @@ public static class ResourceSummaryBuilder
             .OrderBy(s => s.AtUtc)
             .ToList();
 
-        var machineCrossings = new List<(ResourceCrossing Crossing, ResourceSummarySample PeakSample)>();
+        var machineCrossings = new List<(GatewayResourceCrossing Crossing, ResourceSummarySample PeakSample)>();
         machineCrossings.AddRange(Crossings(inWindow, ResourceSummaryContract.Processor, s => s.ProcessorLevel, ProcessorPercentOf, end));
         machineCrossings.AddRange(Crossings(inWindow, ResourceSummaryContract.Memory, s => s.MemoryLevel, MemoryPercentOf, end));
         machineCrossings.Sort((a, b) => a.Crossing.StartedUtc.CompareTo(b.Crossing.StartedUtc));
@@ -95,7 +98,7 @@ public static class ResourceSummaryBuilder
         return window;
     }
 
-    private static ResourceSummaryFigures MachineFigures(List<ResourceSummarySample> samples, List<ResourceCrossing> crossings)
+    private static ResourceSummaryFigures MachineFigures(List<ResourceSummarySample> samples, List<GatewayResourceCrossing> crossings)
     {
         var figures = new ResourceSummaryFigures { Crossings = crossings };
 
@@ -128,7 +131,7 @@ public static class ResourceSummaryBuilder
         return figures;
     }
 
-    private static ResourceSummaryFigures SessionFigures(List<ResourceSummarySessionSample> shares, List<ResourceCrossing> crossings)
+    private static ResourceSummaryFigures SessionFigures(List<ResourceSummarySessionSample> shares, List<GatewayResourceCrossing> crossings)
     {
         var figures = new ResourceSummaryFigures { Crossings = crossings };
 
@@ -170,7 +173,7 @@ public static class ResourceSummaryBuilder
             : $"None of the {sampleCount} samples in this window read {what}, and the sampler gave no reason.";
     }
 
-    private static IEnumerable<(ResourceCrossing Crossing, ResourceSummarySample PeakSample)> Crossings(
+    private static IEnumerable<(GatewayResourceCrossing Crossing, ResourceSummarySample PeakSample)> Crossings(
         List<ResourceSummarySample> samples, string resource, Func<ResourceSummarySample, ResourceLevel> levelOf,
         Func<ResourceSummarySample, double?> percentOf, DateTime windowEnd)
     {
@@ -190,7 +193,7 @@ public static class ResourceSummaryBuilder
 
     private static bool IsOver(ResourceLevel level) => level is ResourceLevel.Tight or ResourceLevel.Critical;
 
-    private static (ResourceCrossing, ResourceSummarySample) CrossingOf(List<ResourceSummarySample> run, string resource,
+    private static (GatewayResourceCrossing, ResourceSummarySample) CrossingOf(List<ResourceSummarySample> run, string resource,
         Func<ResourceSummarySample, ResourceLevel> levelOf, Func<ResourceSummarySample, double?> percentOf, DateTime windowEnd)
     {
         var first = run[0];
@@ -200,7 +203,7 @@ public static class ResourceSummaryBuilder
         if (lastEnds > windowEnd) lastEnds = windowEnd;
 
         var peakSample = run.Where(s => percentOf(s).HasValue).OrderByDescending(s => percentOf(s)!.Value).FirstOrDefault() ?? first;
-        var crossing = new ResourceCrossing
+        var crossing = new GatewayResourceCrossing
         {
             Resource = resource,
             Level = worst == ResourceLevel.Critical ? ResourceSummaryContract.Red : ResourceSummaryContract.Amber,
@@ -235,7 +238,7 @@ public static class ResourceSummaryBuilder
         return biggest?.SessionId;
     }
 
-    private static ResourceCrossing Copy(ResourceCrossing c) => new()
+    private static GatewayResourceCrossing Copy(GatewayResourceCrossing c) => new()
     {
         Resource = c.Resource,
         Level = c.Level,

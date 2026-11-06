@@ -65,6 +65,7 @@
          contract class belongs in the live project. One definition of the checks, linked, so the two
          cannot drift. -->
     <Compile Include="..\CcDirector.Core.Tests\Machine\ResourceSampleContract.cs" Link="Machine/ResourceSampleContract.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\Machine\FakeResourceProbe.cs" Link="Machine/FakeResourceProbe.cs" />
     <Compile Include="..\CcDirector.Core.Tests\TestProjectPath.cs" Link="TestProjectPath.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Storage\PinnedRoot.cs" Link="Storage/PinnedRoot.cs" />
     <Compile Include="..\CcDirector.Core.Tests\StubGitHubClient.cs" Link="StubGitHubClient.cs" />
@@ -86,5 +87,8 @@
   <ItemGroup>
     <Compile Include="..\TestInfrastructure\VirtualTime.cs" Link="TestInfrastructure\VirtualTime.cs" />
     <Compile Include="..\TestInfrastructure\VirtualClock.cs" Link="TestInfrastructure\VirtualClock.cs" />
+    <!-- The live load harness's judgements (issue #2811), linked so the gate checks them: a harness that judged
+         wrongly would turn a broken meter into a passing quality assurance report. -->
+    <Compile Include="..\..\tools\harnesses\resource-load-proof\ProofChecks.cs" Link="Machine\ResourceLoadProof\ProofChecks.cs" />
   </ItemGroup>
 </Project>
