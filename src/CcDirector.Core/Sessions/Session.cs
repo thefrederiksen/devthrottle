@@ -2697,6 +2697,9 @@ public sealed class Session : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         try
         {
+            // A SEAT IS TOLD WHERE ITS BRIEF IS (issue #4609): every first prompt - a schedule's seed, a check's start, a
+            // talk, a restore - passes here, and only the Director knows the kit folder's real path.
+            text = FactoryRunKit.WithBriefPath(text, FactoryKit, FactoryKitDirectory);
             await DeliverPrePromptCoreAsync(text, wait);
         }
         catch (Exception ex)
