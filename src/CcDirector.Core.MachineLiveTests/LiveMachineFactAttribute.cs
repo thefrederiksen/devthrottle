@@ -1,4 +1,5 @@
 using Xunit;
+using Xunit.Sdk;
 
 namespace CcDirector.Core.Tests;
 
@@ -24,8 +25,18 @@ namespace CcDirector.Core.Tests;
 /// happened to be set: the lock that protects every other test here could not itself be tested in an
 /// ordinary run. Taking both facts as arguments makes every branch testable always.
 ///
+/// ONE PROJECT HOLDS ALL THREE PLATFORMS, SO A CLASS SAYS WHICH ONE IT IS FOR. A test class that reads
+/// what only one operating system has carries <see cref="LiveMachinePlatformAttribute"/>, and on any
+/// other operating system its tests SKIP, visibly, with the reason - even with the opt-in set. The check
+/// is made per CLASS when the test is discovered (see <see cref="LiveMachineTestCase"/>), because the
+/// shared contract's tests are written once in an abstract base and inherited: an attribute on the base
+/// cannot know which platform each derived class is for, and without this the documented command - the
+/// whole project, run on each machine with the opt-in set - would run the Linux contract class on a Mac
+/// and FAIL it, a red run that looks like a product defect.
+///
 /// HOW TO RUN THEM: set <c>CC_DIRECTOR_LIVE_MACHINE_TESTS=1</c>.
 /// </summary>
+[XunitTestCaseDiscoverer("CcDirector.Core.Tests.LiveMachineFactDiscoverer", "CcDirector.Core.MachineLiveTests")]
 public sealed class LiveMachineFactAttribute : FactAttribute
 {
     /// <summary>The one variable that turns every machine-reading test on.</summary>

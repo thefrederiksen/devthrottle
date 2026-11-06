@@ -1,0 +1,37 @@
+## lsblk
+NAME                      MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
+loop0                       7:0    0 261.4M  1 loop /snap/firefox/8969
+loop1                       7:1    0  66.8M  1 loop /snap/core24/2124
+loop2                       7:2    0     4K  1 loop /snap/bare/5
+loop4                       7:4    0 614.5M  1 loop /snap/gnome-46-2404/164
+loop5                       7:5    0 615.3M  1 loop /snap/gnome-46-2404/168
+loop6                       7:6    0  91.7M  1 loop /snap/gtk-common-themes/1535
+loop7                       7:7    0   402M  1 loop /snap/mesa-2404/1839
+loop8                       7:8    0  50.3M  1 loop /snap/snapd/27738
+loop9                       7:9    0  44.7M  1 loop /snap/snapd/28254
+loop10                      7:10   0 222.1M  1 loop /snap/thunderbird/1259
+loop11                      7:11   0 222.3M  1 loop /snap/thunderbird/1279
+loop12                      7:12   0 283.8M  1 loop /snap/firefox/9057
+sda                         8:0    0 465.8G  0 disk 
+└─sda1                      8:1    0 465.8G  0 part 
+  └─ubuntu--vg-ubuntu--lv 252:0    0   3.2T  0 lvm  /
+sdb                         8:16   0 931.5G  0 disk 
+└─sdb1                      8:17   0 931.5G  0 part 
+  └─ubuntu--vg-ubuntu--lv 252:0    0   3.2T  0 lvm  /
+sdc                         8:32   0   1.8T  0 disk 
+├─sdc1                      8:33   0     1G  0 part /boot/efi
+├─sdc2                      8:34   0     2G  0 part /boot
+└─sdc3                      8:35   0   1.8T  0 part 
+  └─ubuntu--vg-ubuntu--lv 252:0    0   3.2T  0 lvm  /
+## df
+Filesystem                            1B-blocks         Used     Available Use% Mounted on
+tmpfs                                4202127360      3350528    4198776832   1% /run
+efivarfs                                 131072        11964        113988  10% /sys/firmware/efi/efivars
+/dev/mapper/ubuntu--vg-ubuntu--lv 3441928929280 138398658560 3162524823552   5% /
+tmpfs                               21010632704       544768   21010087936   1% /dev/shm
+tmpfs                                   5242880        20480       5222400   1% /run/lock
+/dev/sdc2                            2040373248    224477184    1691746304  12% /boot
+/dev/sdc1                            1124995072      6438912    1118556160   1% /boot/efi
+tmpfs                                4202123264       446464    4201676800   1% /run/user/1000
+## pids
+1 647 2339886 3911504 3766989 4047117

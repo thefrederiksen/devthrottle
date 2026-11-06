@@ -24,7 +24,10 @@ namespace CcDirector.Core.Tests.Machine;
 /// the platform whose probe is being proved, and by the cross-platform quality assurance run.
 ///
 /// WHERE A DERIVED CLASS GOES: in THIS project, beside this file - never in a gate suite. A real wait on
-/// a real machine is exactly what a gate test may not contain.
+/// a real machine is exactly what a gate test may not contain. It MUST carry
+/// <see cref="LiveMachinePlatformAttribute"/> naming its platform, so the whole project can be run on
+/// every machine: on the other platforms its tests skip with the reason, and a class that declares no
+/// platform is reported as an error rather than run - and failed - everywhere.
 /// </summary>
 public abstract class ResourceProbeContractLiveTests
 {

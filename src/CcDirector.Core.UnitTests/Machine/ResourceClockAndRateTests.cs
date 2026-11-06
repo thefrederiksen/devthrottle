@@ -316,4 +316,23 @@ public class ResourceClockAndRateTests
 
         Assert.Equal(KernelMemoryPressureLevel.Unknown, unreadable.MacOsMemoryPressure);
     }
+
+    [Fact]
+    public void PerOperation_TimeSpentOverOperationsCompleted()
+    {
+        Assert.Equal(92.25, ResourceRate.PerOperation(1000, 1369, 10, 14));
+    }
+
+    [Fact]
+    public void PerOperation_NoOperationCompleted_IsNullNotZero()
+    {
+        Assert.Null(ResourceRate.PerOperation(1000, 1000, 10, 10));
+    }
+
+    [Fact]
+    public void PerOperation_ACounterThatSteppedBackwards_IsNull()
+    {
+        Assert.Null(ResourceRate.PerOperation(1000, 5, 10, 14)); // the time counter wrapped
+        Assert.Null(ResourceRate.PerOperation(1000, 2000, 10, 3)); // the operation counter reset
+    }
 }

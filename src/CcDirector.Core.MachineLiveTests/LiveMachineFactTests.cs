@@ -75,4 +75,85 @@ public sealed class LiveMachineFactTests
 
         Assert.Equal(expected, fact.Skip);
     }
+    // ----- the platform a class is written for -------------------------------------------------------
+
+    [Fact]
+    public void Platform_ContractClassForThisMachine_Runs()
+    {
+        Assert.Equal((null, null), LiveMachinePlatformAttribute.Decide(
+            LiveMachinePlatform.Linux, isContractClass: true, thisMachine: LiveMachinePlatform.Linux));
+    }
+
+    [Fact]
+    public void Platform_ContractClassForAnotherPlatform_SkipsAndNamesBoth()
+    {
+        var (error, skip) = LiveMachinePlatformAttribute.Decide(
+            LiveMachinePlatform.Linux, isContractClass: true, thisMachine: LiveMachinePlatform.MacOs);
+
+        Assert.Null(error);
+        Assert.NotNull(skip);
+        Assert.Contains("Linux", skip, StringComparison.Ordinal);
+        Assert.Contains("macOS", skip, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Platform_ContractClassThatDeclaresNone_IsAnErrorNotARunEverywhere()
+    {
+        var (error, skip) = LiveMachinePlatformAttribute.Decide(
+            declaredFor: null, isContractClass: true, thisMachine: LiveMachinePlatform.Windows);
+
+        Assert.NotNull(error);
+        Assert.Contains("[LiveMachinePlatform", error, StringComparison.Ordinal);
+        Assert.Null(skip);
+    }
+
+    [Fact]
+    public void Platform_AnOrdinaryLiveTestThatDeclaresNone_RunsAnywhere()
+    {
+        Assert.Equal((null, null), LiveMachinePlatformAttribute.Decide(
+            declaredFor: null, isContractClass: false, thisMachine: LiveMachinePlatform.Windows));
+    }
+
+    [Fact]
+    public void Platform_OnAnUnknownOperatingSystem_APlatformClassSkips()
+    {
+        var (_, skip) = LiveMachinePlatformAttribute.Decide(
+            LiveMachinePlatform.Windows, isContractClass: true, thisMachine: null);
+
+        Assert.NotNull(skip);
+    }
+
+    [Fact]
+    public void Platform_EveryConcreteContractClassInThisProject_DeclaresItsPlatform()
+    {
+        // Stated as a presence: there is at least one contract class, and each one declares a platform.
+        var contractClasses = typeof(LiveMachineFactTests).Assembly.GetTypes()
+            .Where(t => !t.IsAbstract && typeof(Machine.ResourceProbeContractLiveTests).IsAssignableFrom(t))
+            .ToList();
+
+        Assert.NotEmpty(contractClasses);
+        Assert.All(contractClasses, t => Assert.Null(LiveMachinePlatformAttribute.Decide(t).Error));
+    }
+
+    [Fact]
+    public void TheDiscovererNamedOnTheAttribute_IsTheOneThatExists()
+    {
+        // The discoverer is named by STRINGS. Were either to drift from the real type, xunit would
+        // discover no live machine test at all, and an empty run reads as a green one. This turns that
+        // silent absence into a failure.
+        var named = typeof(LiveMachineFactAttribute).GetCustomAttributesData()
+            .Single(a => a.AttributeType == typeof(Xunit.Sdk.XunitTestCaseDiscovererAttribute));
+        var typeName = named.ConstructorArguments[0].Value as string;
+        var assemblyName = named.ConstructorArguments[1].Value as string;
+
+        Assert.NotNull(typeName);
+        Assert.NotNull(assemblyName);
+        Assert.Equal(typeof(LiveMachineFactDiscoverer), Type.GetType($"{typeName}, {assemblyName}"));
+    }
+
+    [Fact]
+    public void Platform_AValueThatIsNotANamedPlatform_IsRefused()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveMachinePlatformAttribute(default));
+    }
 }
