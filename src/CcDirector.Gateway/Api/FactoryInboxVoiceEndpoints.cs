@@ -120,6 +120,11 @@ internal static class FactoryInboxVoiceEndpoints
             }
             if (body is null || body.TotalChunks <= 0)
                 return FactoryInboxEndpoints.Error(400, "bad_request_body", "The body must say how many chunks the recording has: {\"totalChunks\": 3}.");
+            // The time the owner pressed Send, as the session dictation route requires it: a held recording that goes
+            // through the next day is still dated by the press, so its trail, the summary's window and the stuck rule
+            // all measure from the moment the owner spoke, never from when transcription finally worked.
+            if (body.SentAtUtc is not { Kind: DateTimeKind.Utc } sentAtUtc)
+                return FactoryInboxEndpoints.Error(400, "sent_at_required", GatewayDictationEndpoint.SentAtUtcRequired);
             var note = string.IsNullOrWhiteSpace(body.Note) ? FactoryInboxWords.Notes.None : body.Note.Trim().ToLowerInvariant();
             if (!FactoryInboxWords.Notes.All.Contains(note))
                 return FactoryInboxEndpoints.Error(400, "bad_note", $"The note must be one of {string.Join(", ", FactoryInboxWords.Notes.All)}, not '{body.Note}'.");
@@ -128,7 +133,7 @@ internal static class FactoryInboxVoiceEndpoints
             await gate.WaitAsync(ct);
             try
             {
-                return await CompleteAsync(parts, tenant, owner, uploads, uid, body, note, ct);
+                return await CompleteAsync(parts, tenant, owner, uploads, uid, body, note, sentAtUtc, ct);
             }
             finally
             {
@@ -138,7 +143,7 @@ internal static class FactoryInboxVoiceEndpoints
     }
 
     private static async Task<IResult> CompleteAsync(Parts parts, TenantId tenant, FactoryInboxEndpoints.OwnerSend owner,
-        VoiceUploadStore uploads, string uid, CompleteBody body, string note, CancellationToken ct)
+        VoiceUploadStore uploads, string uid, CompleteBody body, string note, DateTime sentAtUtc, CancellationToken ct)
     {
         var read = uploads.Read(uid);
         if (read.Refuses)
@@ -218,7 +223,7 @@ internal static class FactoryInboxVoiceEndpoints
         {
             message = await parts.Store.SendAsync(tenant, new FactoryInboxSendInput(
                 owner.Factory.Factory, Text: null, Note: note, Source: FactoryInboxWords.Sources.Spoken, Surface: owner.Surface,
-                SentBy: owner.Device.DeviceId, NowUtc: parts.NowUtc(), RawText: raw), ct);
+                SentBy: owner.Device.DeviceId, NowUtc: sentAtUtc, RawText: raw), ct);
         }
         catch (FactoryInboxRefusedException ex)
         {
@@ -227,7 +232,7 @@ internal static class FactoryInboxVoiceEndpoints
         }
         // The tombstone carries the words left, so a repeated complete answers them and sends nothing.
         uploads.MarkDelivered(uid, submitted: true, movedOn: false, transcript: message.Text);
-        FileLog.Write($"[FactoryInboxVoiceEndpoints] complete uploadId={uid}: left message {message.Id:D} in {message.Factory}, chars={message.Text.Length}");
+        FileLog.Write($"[FactoryInboxVoiceEndpoints] complete uploadId={uid}: left message {message.Id:D} in {message.Factory}, chars={message.Text.Length}, sentAt={sentAtUtc:O}, completedAt={parts.NowUtc():O}");
         return Results.Json(new { message = FactoryInboxFold.Message(message, null) }, statusCode: StatusCodes.Status201Created);
     }
 

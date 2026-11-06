@@ -139,6 +139,13 @@ async function classify(rec: FactoryRecording, res: Response, what: string): Pro
   return { kind: "refused", error };
 }
 
+/** A final answer from the Gateway about a recording it already dealt with: left only when it says delivered. */
+function finishTerminal(rec: FactoryRecording, answer: { delivered?: boolean; line?: string }): Promise<FactoryVoiceOutcome> {
+  if (answer.delivered === true) return finish(rec, { kind: "left", message: null });
+  const line = answer.line ?? "This recording was already dealt with; nothing was left from it.";
+  return finish(rec, { kind: "nothing", error: new GatewayError(200, line, { reason: line, retryable: false }) });
+}
+
 /**
  * One attempt to leave a saved recording in its factory's inbox. Safe to repeat with the same recording: the Gateway
  * knows it by its id.
@@ -156,8 +163,11 @@ export async function sendFactoryRecording(rec: FactoryRecording, signal?: Abort
     return { kind: "held", error: err };
   }
   if (!reg.ok) return classify(rec, reg, "send the recording");
-  const registered = (await reg.json()) as { upload_id?: string; terminal?: boolean; delivered?: boolean };
-  if (registered.terminal === true) return finish(rec, { kind: "left", message: null });
+  const registered = (await reg.json()) as { upload_id?: string; terminal?: boolean; delivered?: boolean; line?: string };
+  // A final answer on the register leg is read exactly as on the complete leg: only a recording the Gateway says was
+  // delivered was left. One it abandoned (the stale sweep after a long hold) left nothing, and saying "left" would
+  // delete the owner's only copy while telling them it arrived.
+  if (registered.terminal === true) return finishTerminal(rec, registered);
   const uploadId = registered.upload_id ?? rec.id;
 
   let bytes: Uint8Array;
@@ -201,10 +211,7 @@ export async function sendFactoryRecording(rec: FactoryRecording, signal?: Abort
       return finish(rec, { kind: "left", message: body.message });
     }
     if (comp.status === 200) {
-      const body = (await comp.json()) as { terminal?: boolean; delivered?: boolean; line?: string };
-      if (body.delivered === true) return finish(rec, { kind: "left", message: null });
-      const line = body.line ?? "This recording was already dealt with; nothing was left from it.";
-      return finish(rec, { kind: "nothing", error: new GatewayError(200, line, { reason: line, retryable: false }) });
+      return finishTerminal(rec, (await comp.json()) as { delivered?: boolean; line?: string });
     }
     if (comp.status === 409) {
       const text = await comp.clone().text();

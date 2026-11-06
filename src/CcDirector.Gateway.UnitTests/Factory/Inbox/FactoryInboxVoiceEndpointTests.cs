@@ -144,9 +144,9 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         => Call("POST", $"/gateway/factory/{factory}/inbox/voice", caller, new { }, uploadId);
 
     private Task<(HttpStatusCode Status, JsonElement Body)> Complete(string uploadId, int chunks, string factory = "invoices",
-        string caller = Phone, string note = "bad")
+        string caller = Phone, string note = "bad", DateTime? sentAtUtc = null)
         => Call("POST", $"/gateway/factory/{factory}/inbox/voice/{uploadId}/complete", caller,
-            new { totalChunks = chunks, mime = "audio/webm", ext = "webm", note, sentAtUtc = _now });
+            new { totalChunks = chunks, mime = "audio/webm", ext = "webm", note, sentAtUtc = sentAtUtc ?? _now });
 
     /// <summary>Registers a recording and stages its chunks, as the client does through the unchanged chunk leg.</summary>
     private async Task<string> Recorded(params string[] chunks)
@@ -196,6 +196,33 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         Assert.Equal("please ask dev throttle to rewrite the draft", row.RawText);
         Assert.Equal("please ask DevThrottle to rewrite the draft", row.Text);
         Assert.Contains("DevThrottle", row.CorrectionsJson);
+    }
+
+    [Fact]
+    public async Task Complete_SentAnHourBeforeItCompletes_IsDatedByTheSendPress()
+    {
+        var pressed = _now.AddHours(-1);
+        var id = await Recorded("audio");
+
+        var (status, _) = await Complete(id, 1, sentAtUtc: pressed);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        var row = Assert.Single(_store.Thread(A, "invoices", 10).Messages);
+        Assert.Equal(pressed, row.SentAtUtc);
+    }
+
+    [Fact]
+    public async Task Complete_WithoutASendTime_IsRefusedAndNothingIsTranscribed()
+    {
+        var id = await Recorded("audio");
+
+        var (status, body) = await Call("POST", $"/gateway/factory/invoices/inbox/voice/{id}/complete", Phone,
+            new { totalChunks = 1, mime = "audio/webm", ext = "webm", note = "bad" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("sent_at_required", Code(body));
+        Assert.Equal(0, _transcriptions);
+        Assert.Empty(_store.Thread(A, "invoices", 10).Messages);
     }
 
     [Fact]

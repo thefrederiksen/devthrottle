@@ -90,6 +90,19 @@ describe("sendFactoryRecording", () => {
     expect(calls.some((c) => c.method === "PUT" || c.url.includes("/complete"))).toBe(false);
   });
 
+  it("sendFactoryRecording_AbandonedByTheGateway_IsNothingInTheGatewaysWordsNotLeft", async () => {
+    const line = "zz-the-gateway-dropped-it-zz";
+    const calls = mockGateway((url) =>
+      url.includes("/ack") ? json(200, { ok: true }) : json(200, { upload_id: ID, terminal: true, delivered: false, line }),
+    );
+
+    const outcome = await sendFactoryRecording(recording());
+
+    expect(outcome.kind).toBe("nothing");
+    expect(outcome.kind === "nothing" && outcome.error.serverReason).toBe(line);
+    expect(calls.some((c) => c.method === "PUT" || c.url.includes("/complete"))).toBe(false);
+  });
+
   it("sendFactoryRecording_TranscriptionFailsForNow_IsHeldAndNotAcknowledged", async () => {
     const calls = mockGateway((url) =>
       url.includes("/complete")
