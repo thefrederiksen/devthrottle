@@ -89,6 +89,16 @@ describe("machinesFormat", () => {
     expect(sortBySpare(machines, "least").map((m) => m.machine)).toEqual(["mac", "linux", "offline"]);
   });
 
+  // Review of pull request 4646: a machine with NO room is a known figure, not an unknown one. A truthiness check on
+  // spareBytes would send it to the unknown group, last, exactly where "least room first" must put it first.
+  it("SortBySpare_ZeroBytes_IsTheLeastRoom_NeverTheUnknown", () => {
+    const full = machineWith("full", { ...ONLINE, spareLabel: "0 GB", spareBytes: 0 });
+    const machines = [machineWith("offline", OFFLINE), machineWith("mac", ONLINE), full];
+
+    expect(sortBySpare(machines, "least").map((m) => m.machine)).toEqual(["full", "mac", "offline"]);
+    expect(sortBySpare(machines, "most").map((m) => m.machine)).toEqual(["mac", "full", "offline"]);
+  });
+
   it("SortBySpare_None_KeepsTheGatewaysOrder", () => {
     const machines = [machineWith("offline", OFFLINE), machineWith("linux", HOT), machineWith("mac", ONLINE)];
 

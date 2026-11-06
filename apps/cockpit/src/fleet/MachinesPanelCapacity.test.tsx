@@ -148,6 +148,25 @@ describe("MachinesPanel: one machine expanded", () => {
     expect(calls.filter((c) => c.includes("/resources"))).toEqual(["GET /machines/devlinux/resources"]);
   });
 
+  // Review of pull request 4646: a refused window was covered only by the geometry test. On screen it must be a stripe
+  // carrying the Gateway's reason, and the reason must appear in the events list - never a zero on the line.
+  it("draws a refused window as a stripe with the Gateway's reason, and lists the reason", async () => {
+    const reason = "its processor peak was 412%, above the 100% a whole machine can reach";
+    const refused = { ...window("2026-11-06T11:50:00Z", null, null), refusedReason: reason };
+    answers["GET /machines/devlinux/resources"] = () =>
+      json(200, history([window("2026-11-06T11:45:00Z", [40, 70], [33, 35]), refused, window("2026-11-06T11:55:00Z", [41, 72], [33, 35])], factories));
+    draw();
+
+    fireEvent.click(within(row("devlinux")).getByRole("button", { name: "Show devlinux's last 24 hours" }));
+
+    await screen.findByTestId("fmr-factories");
+    const cpu = within(screen.getByTestId("fmr-chart-CPU"));
+    expect(cpu.getAllByTestId("fmr-stripe-refused")).toHaveLength(1);
+    expect(cpu.getByTestId("fmr-stripe-refused").textContent).toContain(reason);
+    expect(cpu.getAllByTestId("fmr-run")).toHaveLength(2);
+    expect(screen.getByTestId("fmr-events").textContent).toContain(reason);
+  });
+
   it("shows the Gateway's empty message instead of an empty chart", async () => {
     answers["GET /machines/demo-win11/resources"] = () =>
       json(200, { machine: "demo-win11", hours: 24, emptyMessage: "No resource summaries from demo-win11 in the last 24 hours.", windows: [], factories: [] });
