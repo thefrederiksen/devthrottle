@@ -48,8 +48,28 @@ public static class ResourceViewText
     public const string CannotReadText = "-";
 
     /// <summary>The whole-machine processor busy figure as a 0-to-1 fraction, or null when unreadable.</summary>
-    public static double? CpuFraction(CpuReading cpu) =>
-        cpu.CouldRead ? Math.Clamp(cpu.TotalBusyPercent / 100.0, 0, 1) : null;
+    ///
+    /// NEVER CLAMPED. A busy figure outside 0 to 100 cannot be true - <see cref="ResourceRate"/> already turns
+    /// an overshoot into null - so one that arrives here is a defect upstream. Clamping it would draw a tidy
+    /// full bar and hide the very per-core-against-machine mistake the probe contract exists to catch. It is
+    /// null instead, and <see cref="CpuOutOfRangeReason"/> says why.
+    public static double? CpuFraction(CpuReading cpu)
+    {
+        if (!cpu.CouldRead) return null;
+        var percent = cpu.TotalBusyPercent;
+        if (double.IsNaN(percent) || percent < 0 || percent > 100) return null;
+        return percent / 100.0;
+    }
+
+    /// <summary>
+    /// Why a processor reading that the probe called readable still shows a dash: its figure was outside 0 to
+    /// 100. Null when the figure is in range or the reading failed for its own stated reason.
+    /// </summary>
+    public static string? CpuOutOfRangeReason(CpuReading cpu) =>
+        cpu.CouldRead && CpuFraction(cpu) is null
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"the processor figure was {cpu.TotalBusyPercent:F1}%, which cannot be true")
+            : null;
 
     /// <summary>
     /// The share of memory in USE, 0 to 1: one minus the available fraction, the figure the operating
@@ -115,13 +135,17 @@ public static class ResourceMeterFold
     /// What this Director's own sessions cost together, summed over their process trees; null when not
     /// known yet. Its <see cref="SessionUsage.SessionId"/> is ignored.
     /// </param>
-    /// <param name="nowUtc">Now, for "updated 3 seconds ago". Passed in so the fold reads no clock.</param>
+    /// <param name="latestAge">
+    /// How long ago the latest sample was taken, measured by the sampler on the monotonic clock
+    /// (<see cref="ResourceSampler.LatestAge"/>). Never worked out from the sample's wall-clock stamp, which a
+    /// stepped clock would make read as "just now" or "40 minutes ago". Null before the first read.
+    /// </param>
     public static ResourceMeterView Build(
         ResourceSamplerState state,
         string machineName,
         int runningSessions,
         SessionUsage? directorSessions,
-        DateTime nowUtc)
+        TimeSpan? latestAge)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
@@ -149,7 +173,9 @@ public static class ResourceMeterFold
                 lines.Add($"This Director's sessions {memoryPrefix}{ResourceViewText.Bytes(own.MemoryBytes)} and {cpuPrefix}{ResourceViewText.PercentOf100(own.CpuPercent)} CPU");
             }
 
-            lines.Add($"Updated {Age(nowUtc - sample.TakenAtUtc)} - click for detail");
+            lines.Add(latestAge is { } age
+                ? $"Updated {Age(age)} - click for detail"
+                : "Updated - click for detail");
         }
         else
         {
@@ -170,9 +196,18 @@ public static class ResourceMeterFold
             return Unreadable(ResourceKind.Cpu, "CPU", cpu.UnreadableReason);
 
         var fraction = ResourceViewText.CpuFraction(cpu);
+        if (fraction is null)
+        {
+            var reason = ResourceViewText.CpuOutOfRangeReason(cpu);
+            CcDirector.Core.Utilities.FileLog.Write($"[ResourceMeterFold] CpuBar: shown as cannot read - {reason}");
+            return Unreadable(ResourceKind.Cpu, "CPU", reason);
+        }
+
         var text = ResourceViewText.Percent(fraction);
-        var tooltip = string.Create(CultureInfo.InvariantCulture,
-            $"CPU {text} of {cpu.LogicalCoreCount} cores - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}");
+        var cores = cpu.LogicalCoreCount is { } count
+            ? string.Create(CultureInfo.InvariantCulture, $" of {count} cores")
+            : string.Empty;
+        var tooltip = $"CPU {text}{cores} - busiest core {ResourceViewText.PercentOf100(cpu.BusiestCorePercent)}";
         return new ResourceBarView(ResourceKind.Cpu, "CPU", CouldRead: true, fraction, text, level, tooltip);
     }
 
