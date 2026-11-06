@@ -113,7 +113,7 @@
     <li>Every machine's five-minute summaries appear in the Gateway's database, each carrying <b>average, peak and any amber or red crossing</b>. A Director cut off from the Gateway for 10 minutes sends the missing windows when it reconnects, <b>leaving no gap</b>.</li>
     <li>The Cockpit fleet view lists every machine with its spare capacity, and an expanded machine shows each registered factory's average and peak cost, grouped by the session's <code>Factory</code> value (a factory is not a Mission).</li>
     <li>The sampler itself costs <b>under 0.5 per cent of one core</b>, as measured over 10 minutes.</li>
-    <li><b>The slowness diagnosis names the right cause.</b> On devlinux, with its hard drive in the root volume, it says "disk", names <code>sdc</code> as the spinning hard drive, and names the busiest process and session. Under a processor load it says "CPU". With memory tight it says "memory". The same command gives the same verdict to an agent.</li>
+    <li><b>The slowness diagnosis names the right cause.</b> Under a processor load it says "CPU". With memory tight it says "memory". And it names a disk-bound machine as disk-bound, proved two ways because <b>devlinux has changed underneath this mission</b>: the recorded readings of 2026-10-15 must still produce exactly "disk, <code>sdc</code> spinning hard drive", <i>and</i> a live verdict under a deliberate disk load must name whichever disk is actually busy at the time. The same command gives the same verdict to an agent.</li>
     <li>When a platform cannot be read, the meter says <b>"cannot read"</b> and logs why. <b>It never shows a made-up or zero value.</b> This is a named failure case in section 8, not an edge case.</li>
   </ol>
 </section>
@@ -178,7 +178,7 @@
     <tr><td>Five-minute summary to the Gateway, with offline catch-up</td><td class="in">In</td><td>Buffers up to 24 hours and fills the gap on reconnect</td></tr>
     <tr><td>Cockpit: machines by spare capacity, factories by cost</td><td class="in">In</td><td>Grouped by each session's <code>Factory</code> value, not its Mission</td></tr>
     <tr><td><code>cc-devthrottle</code> diagnose command</td><td class="in">In</td><td>One command instead of improvised shell commands</td></tr>
-    <tr><td><b>Disk stall reading, for the diagnosis only</b></td><td class="in">In</td><td>Owner's answer, 2026-11-06. From the kernel's pressure figures, <i>not</i> the macOS IOKit disk-busy reading. It never appears as a bar</td></tr>
+    <tr><td><b>Disk readings, for the diagnosis only</b></td><td class="in">In</td><td>Owner's answer, 2026-11-06. The stall figure from the kernel's own pressure readings, <i>not</i> the macOS IOKit disk-busy reading. Plus, per disk, name, kind, busy percentage where the platform offers it honestly, milliseconds per read and write, and average queue depth - <b>diagnosis-only inputs, never a bar, never a Gateway column, never in the Cockpit</b>. See the ruling in 5c</td></tr>
     <tr><td>Disk as a meter: busy, waiting, read and write speed, free space</td><td class="out">Out</td><td>No disk bar in the toolbar, the detail tiles, the Gateway rows or the Cockpit</td></tr>
     <tr><td>Network throughput</td><td class="out">Out</td><td>Was in v3's probe work. Not asked for, drops</td></tr>
     <tr><td>Graphics processor</td><td class="out">Out</td><td>Already out in v3</td></tr>
@@ -195,6 +195,42 @@
     <tr><td>Swap / page file</td><td>grows more than 1 GB in 5 minutes</td><td>above 75% used</td></tr>
   </table></div>
   <p class="cap">A resource must stay over its limit for 60 seconds to count, so a build that spikes the processor for ten seconds raises no banner. <b>The processor limits are proposals until the live load check has run them on all three platforms.</b> Memory's are the existing tested ones and are not proposals. The disk-activity and disk-free limits that v3 carried are gone with the disk meter.</p>
+
+  <h3>5c-i. The ruling on what the diagnosis may read, and what it may claim</h3>
+  <p><b>Decided by the Implementation Lead on 2026-11-06, inside the owner's instruction, not referred
+  back to him.</b> Two Developers reached the same conclusion independently from measurement, on
+  different platforms, which is why it is settled here rather than reopened with him.</p>
+  <p><b>What the narrowed per-disk reading keeps, for the diagnosis only:</b> name, kind, busy
+  percentage (nullable), milliseconds per read, milliseconds per write, and average queue depth.
+  <b>It is never rendered as a bar, never stored as a Gateway column and never shown in the
+  Cockpit.</b> It reaches the owner only as words inside a diagnosis. Volumes, free space, disk byte
+  rates and the network reading are dropped as planned.</p>
+  <p><b>Why this is inside the instruction rather than around it.</b> The owner banned the disk as a
+  <i>meter</i> and banned one specific reading - "not the IOKit disk-busy reading that was never
+  proved on macOS". Milliseconds per operation is not that reading. It is a different quantity, and it
+  was measured on this Mac mini against <code>iostat</code> in the same windows: 0.000 ms idle, 0.052
+  with one flushing writer, 1.099 with one writer flat out, 15.785 with four contended. Main had
+  already made the busy percentage nullable for exactly that reason, so on macOS the busy figure stays
+  null and the latency figure carries the signal. Without these figures a disk-bound Mac could never
+  be called disk-bound - two green bars on a dead machine, which is the devlinux failure of
+  2026-10-15 reproduced on a Mac, and the one thing the diagnosis exists to prevent. On Linux,
+  <code>/proc/pressure/io</code> is a whole-machine figure: it can say the machine is stalled on the
+  disk but not <i>which</i> disk, so without the per-disk figures the verdict degrades from
+  "<code>sdc</code> is 75 per cent busy at 26 milliseconds per write" to "the only spinning disk",
+  which is not a diagnosis. A written phase-1 ruling of 2026-10-15 already rested the macOS disk
+  verdict on milliseconds per read and write; the 6 November narrowing was not written against it, and
+  this keeps both intact.</p>
+  <p><b>The wording rule, which is part of the ruling.</b> The platforms do not measure the same thing,
+  so they may not claim the same thing. <b>Linux</b> measures stall directly and may say "programs were
+  stalled waiting on the disk 32 per cent of the time". <b>macOS and Windows may not</b> - macOS
+  publishes no stall figure for any resource and its process states carry no uninterruptible-disk-wait,
+  and Windows has only performance-counter proxies. They say "the disk is answering slowly", from
+  latency, and must never be written as though a stall percentage had been measured. A platform that
+  cannot tell says <code>CouldDiagnose</code> false with the reason, which means <b>not known</b> and
+  never "fine". <b>The macOS and Windows latency thresholds are unproved</b> - one machine, one
+  internal solid-state disk, and no spinning disk has ever been measured on a Mac - so they are
+  proposals, recorded as proposals in the quality assurance report, and never hard-coded as though
+  established.</p>
 
   <h3>5d. The toolbar, normal</h3>
   <div class="app"><div class="bar">
@@ -396,7 +432,8 @@ dotnet run --project tools/harnesses/resource-load-proof -- --cpu --memory --rep
     <li>Five-minute rows in the Gateway's database, and a <b>10-minute disconnect that leaves no gap</b> after reconnect.</li>
     <li>The Cockpit fleet view against a <b>local</b> Gateway seeded with three machines.</li>
     <li>The sampler's own cost <b>under 0.5 per cent of one core</b>, measured over 10 minutes.</li>
-    <li>The diagnosis naming the right cause: "disk" on devlinux with its spinning root volume, "CPU" under a processor load, "memory" with memory tight.</li>
+    <li>The diagnosis naming the right cause: "CPU" under a processor load, "memory" with memory tight, and <b>the disk named two ways</b> - the recorded 2026-10-15 devlinux readings still producing "disk, <code>sdc</code> spinning hard drive" as a regression test, plus a <b>live</b> verdict under a deliberate disk load naming whichever disk is busy. <b>Why two:</b> devlinux's root volume now sits on <code>sda</code> and <code>sdb</code> only, <code>sdc</code> is out of it and reads 0 per cent busy, so the 2026-10-15 accident can no longer be reproduced live. A live proof under a load we created is better evidence than a lucky reproduction of an old accident.</li>
+    <li>Each platform's disk wording matching what it actually measured - see the wording rule in 5c.</li>
     <li><b>A probe that cannot read shows "cannot read" and logs why &mdash; never 0, never a made-up number.</b></li>
     <li>The buffer capping at 24 hours; a session's child process outliving the session; the clock jumping.</li>
   </ul>
@@ -447,7 +484,7 @@ dotnet run --project tools/harnesses/resource-load-proof -- --cpu --memory --rep
     <li>Only two commits on main touch this mission: #4013 (the v3 document) and #4016 (the shared types). <b>No probe has ever merged.</b></li>
     <li>The toolbar's right-hand group in <code>src/CcDirector.Avalonia/MainWindow.axaml</code> &mdash; <code>DirectorInfoPanel</code> (the Director's name, its team chip and Copy), a separator, then <code>BtnCockpit</code> and Settings. <b>There is no meter in it.</b> The insertion point is that separator.</li>
     <li><code>apps/cockpit/src/fleet/MachinesPanel.tsx</code> &mdash; the Machines table has exactly Machine / Director, Status, Sessions, Version and Actions, with <code>machinesFormat.ts</code> and its tests beside it. The mock-up adds to that table rather than inventing a page.</li>
-    <li><b>The three pull requests, measured today.</b> All three are OPEN, created 2026-10-15, with <b>no review decision and no continuous integration result at all</b> (zero checks on each). They were all cut from a merge-base of 2026-10-15 that predates #4016, so each one re-adds the shared interface files. Those copies are <b>byte-identical to main</b> except where main is now newer, so a rebase onto <code>origin/main</code> collapses them to nothing:
+    <li><b>The three pull requests, measured today.</b> All three are OPEN, created 2026-10-15, with <b>no review decision and no continuous integration result at all</b> (zero checks on each). The <b>Linux and Windows</b> branches were cut from a merge-base that predates #4016, so each re-adds the shared interface files; those copies are <b>byte-identical to main</b> except where main is now newer, so a rebase onto <code>origin/main</code> collapses them to nothing. <b>The macOS branch is different and an earlier version of this document got it wrong:</b> its merge-base postdates that merge, so it re-adds nothing and has no <code>DiskReadings</code> or <code>NetworkReading</code> conflict at all. Two branches were checked, a pattern was found, and it was written about three - corrected here on 6 November by the macOS Developer, who read it rather than working around it:
       <div class="scroll"><table>
         <tr><th>Pull request</th><th>Branch</th><th class="n">Commits</th><th>The code that is genuinely new</th></tr>
         <tr><td>#4019 Linux</td><td><code>resource-monitor/linux-probe</code></td><td class="n">7</td><td><code>LinuxResourceProbe.cs</code> (539 lines), <code>LinuxProcParsing.cs</code> (445), unit tests (801), a live test (138), and a recorded <code>/proc</code> and <code>/sys</code> corpus from devlinux on 2026-10-15 (about 100 fixture files)</td></tr>
