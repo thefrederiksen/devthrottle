@@ -214,4 +214,34 @@ suggested.
 
 ## The gate after the review
 
-(Filled in below.)
+`.\scripts	est-local.ps1` on commit 09f904b74 (the review changes, rebased onto origin/main), tree clean:
+
+```
+CcDirector.Core.UnitTests                outcome=Completed    total=3298   executed=3298
+CcDirector.Avalonia.Tests                outcome=Completed    total=1248   executed=1248
+CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
+CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
+CcDirector.Launcher.Tests                outcome=Completed    total=234    executed=234
+CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=111    executed=111
+CcDirector.Reclaim.Tests                 outcome=Completed    total=307    executed=307
+CcDirector.DeliveryQualification.Tests   outcome=Completed    total=151    executed=151
+CcDirector.RuleHook.Tests                outcome=Completed    total=70     executed=70
+cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
+cc-director-setup-engine.Tests           outcome=Completed    total=1029   executed=1023
+cc-director-setup-cli.Tests              outcome=Completed    total=78     executed=78
+CcDirector.Gateway.UnitTests             outcome=Completed    total=17233  executed=17233
+CcDirector.Core.Tests                    outcome=Completed    total=770    executed=770
+RESULT: GREEN at commit 09f904b742aaa2389e92252c88547f8592e444ab, tree clean.
+```
+
+The only commit after it adds this section to this file. Before the green run, on the same code:
+- On 2ce0dd13b the run was OVER BUDGET (Core.UnitTests and Launcher.Tests stopped at the ceiling, none failed) and
+  then, re-run, failed one test, `MacOsResourceProbeSafetyTests.Read_OnAPlatformThisProbeCannotRead_SaysSoForEveryResourceAndNeverReportsZero`,
+  which failed again alone under `-RerunFailed`. It came from main (c102fa2e4, the Resource Monitor) and main had
+  since changed that code; after rebasing onto origin/main it passes (5 of 5 in its class).
+- On 09f904b74 the first run was OVER BUDGET on Avalonia.Tests alone while two other worktrees ran the whole Gateway
+  unit suite at the same time; the second run on the same commit is the green one above.
+
+`CcDirector.Gateway.Tests` is still named as a coverage gap by the default run; the Delivery Lead's `-Parked` run on
+5fc485fc5 covered it, and the review changes touch only the Director's presenter, window and style files, which that
+suite does not reach.
