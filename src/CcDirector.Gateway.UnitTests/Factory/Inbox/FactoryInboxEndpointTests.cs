@@ -51,6 +51,10 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     private HttpClient _client = null!;
     private DateTime _now = new(2026, 11, 4, 9, 0, 0, DateTimeKind.Utc);
     private readonly HashSet<string> _ended = new(StringComparer.Ordinal);
+    // What the routes told the wake (phase 2): each logged message, and each handed bundle.
+    private readonly List<(TenantId Tenant, string Factory, DateTime SentAtUtc)> _sentToWake = new();
+    private readonly List<(TenantId Tenant, string Factory)> _bundlesToWake = new();
+    private FactoryInboxWakeStore _wakes = null!;
 
     private readonly Dictionary<string, SessionFactoryLookup> _seats = new(StringComparer.Ordinal)
     {
@@ -75,6 +79,7 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     {
         _db = _h.Open();
         _store = new FactoryInboxStore(_db, FactoryInboxStoreTests.DictionaryOf);
+        _wakes = new FactoryInboxWakeStore(_db);
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
         builder.Services.AddRouting();
         builder.Services.AddLogging();
@@ -87,7 +92,8 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         });
         FactoryInboxEndpoints.Map(app, new FactoryInboxEndpoints.Parts(
             _store, Resolve, _ => Factories(), (_, sid) => _seats.TryGetValue(sid, out var l) ? l : SessionFactoryLookup.NotKnown,
-            (_, sid) => _parents.TryGetValue(sid, out var p) ? new FactoryInboxRecordedParent(p) : null, (_, sid) => _ended.Contains(sid), () => _now));
+            (_, sid) => _parents.TryGetValue(sid, out var p) ? new FactoryInboxRecordedParent(p) : null, (_, sid) => _ended.Contains(sid), () => _now,
+            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (t, f) => _bundlesToWake.Add((t, f))));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();
@@ -532,5 +538,50 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.Equal("bad_decision", Code(body));
+    }
+
+    // ---------- the wake (phase 2) ----------
+
+    [Fact]
+    public async Task Send_TellsTheWake_TheFactoryAndTheSentTime_AndARefusedSendTellsItNothing()
+    {
+        await Leave("Check the totals");
+        await Post("/gateway/factory/invoices/inbox", Boss, new { text = "as the owner" });
+
+        var told = Assert.Single(_sentToWake);
+        Assert.Equal(A, told.Tenant);
+        Assert.Equal("invoices", told.Factory);
+        Assert.Equal(_now, told.SentAtUtc);
+        Assert.Empty(_bundlesToWake);
+    }
+
+    [Fact]
+    public async Task HandingABundle_TellsTheWake_SoTheBossIsRungOrStarted()
+    {
+        await LeaveFiledAndHanded("Build the export");
+
+        var told = Assert.Single(_bundlesToWake);
+        Assert.Equal(A, told.Tenant);
+        Assert.Equal("invoices", told.Factory);
+    }
+
+    [Fact]
+    public async Task TheThread_ShowsWhyAMessageWaits_InTheWordsTheGatewayDecided()
+    {
+        await Leave("Check the totals");
+        var row = _wakes.Row(A, "invoices", _now);
+        Assert.True(_wakes.TryUpdate(A, "invoices", row.Version, w =>
+        {
+            w.SecretaryWaiting = FactoryInboxWords.Waiting.NoDirector;
+            w.SecretaryWaitingDetail = "SOREN_NORTH";
+        }, _now));
+
+        var (status, body) = await Get("/gateway/factory/invoices/inbox", Phone);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var message = Assert.Single(body.GetProperty("messages").EnumerateArray());
+        Assert.Equal("sent", message.GetProperty("state").GetString());
+        Assert.Equal("Waiting - no Director is running on the Boss's computer, SOREN_NORTH; it goes on when one connects there",
+            message.GetProperty("stateLabel").GetString());
     }
 }

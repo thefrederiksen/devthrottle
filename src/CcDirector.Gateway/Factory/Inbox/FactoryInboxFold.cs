@@ -9,9 +9,11 @@ namespace CcDirector.Gateway.Factory.Inbox;
 /// </summary>
 public static class FactoryInboxFold
 {
-    /// <summary>One message, folded with its decision (null when it has none).</summary>
+    /// <summary>One message, folded with its decision (null when it has none). <paramref name="waiting"/> is the factory's
+    /// waiting sentences (phase 2, the wake): a sent message shows why it waits for a Secretary, and a message with the Boss
+    /// why it waits for a Boss, in place of its plain state label.</summary>
     public static FactoryInboxMessageDto Message(FactoryInboxMessageEntity m, FactoryInboxDecisionEntity? decision,
-        DateTime? handedAtUtc = null)
+        DateTime? handedAtUtc = null, FactoryInboxWaitingLabels? waiting = null)
     {
         ArgumentNullException.ThrowIfNull(m);
         return new FactoryInboxMessageDto(
@@ -25,12 +27,34 @@ public static class FactoryInboxFold
             Surface: m.Surface,
             SentAtUtc: m.SentAtUtc,
             State: m.State,
-            StateLabel: FactoryInboxWords.StateLabel(m.State, decision?.Kind),
+            StateLabel: WaitingLabelOf(m, waiting) ?? FactoryInboxWords.StateLabel(m.State, decision?.Kind),
             MergedInto: m.MergedIntoId?.ToString("D"),
             Links: FactoryInboxStore.ReadLinks(m.LinksJson),
             BundleId: m.BundleId?.ToString("D"),
             Decision: decision is null ? null : Decision(decision),
             Trail: Trail(m, decision, handedAtUtc));
+    }
+
+    /// <summary>The waiting sentence a message shows, or null when it does not wait.</summary>
+    private static string? WaitingLabelOf(FactoryInboxMessageEntity m, FactoryInboxWaitingLabels? waiting) => m.State switch
+    {
+        FactoryInboxWords.States.Sent => waiting?.Secretary,
+        FactoryInboxWords.States.WithBoss => waiting?.Boss,
+        _ => null,
+    };
+
+    /// <summary>A factory's waiting sentences, from its wake row (<see cref="FactoryInboxWakeStore"/>): each null when
+    /// nothing waits for that seat.</summary>
+    public static FactoryInboxWaitingLabels? WaitingOf(Data.Entities.FactoryInboxWakeEntity? row)
+    {
+        if (row is null) return null;
+        var secretary = row.SecretaryWaiting is { } s
+            ? FactoryInboxWords.WaitingLabel(FactoryInboxWords.WaitingFor.Secretary, s, row.SecretaryWaitingDetail)
+            : null;
+        var boss = row.BossWaiting is { } b
+            ? FactoryInboxWords.WaitingLabel(FactoryInboxWords.WaitingFor.Boss, b, row.BossWaitingDetail)
+            : null;
+        return secretary is null && boss is null ? null : new FactoryInboxWaitingLabels(secretary, boss);
     }
 
     /// <summary>One decision, folded.</summary>
@@ -94,6 +118,10 @@ public static class FactoryInboxFold
 
     private static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 }
+
+/// <summary>What a factory's messages wait for, in words: <see cref="Secretary"/> for a sent message, <see cref="Boss"/>
+/// for one with the Boss. Null when nothing waits for that seat.</summary>
+public sealed record FactoryInboxWaitingLabels(string? Secretary, string? Boss);
 
 /// <summary>One message as every client shows it.</summary>
 public sealed record FactoryInboxMessageDto(

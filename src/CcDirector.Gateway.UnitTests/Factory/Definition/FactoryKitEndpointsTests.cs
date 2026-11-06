@@ -146,6 +146,31 @@ public sealed class FactoryKitEndpointsTests : IDisposable
         Assert.False(SessionKeyGuard.Check("GET", $"/factory-definitions/{TheFactory}/versions/1/kit").Allowed);
     }
 
+    // ---------- the Secretary (Factory Inbox mission, phase 2) ----------
+
+    [Fact]
+    public void Kit_TheSecretary_IsMadeUpFromTheBossSeat_TheFactorysRulesAndItsBriefAndNothingElse()
+    {
+        var version = Published();
+
+        var kit = KitOf(Kit(Director(seat: CcDirector.Gateway.Factory.Inbox.FactoryInboxSeats.Secretary, kind: FactoryKits.Seat), version.ToString()));
+
+        Assert.Equal(CcDirector.Gateway.Factory.Inbox.FactoryInboxSeats.Secretary, kit.Seat);
+        var files = kit.Files.ToDictionary(f => f.Path, f => f.Text, StringComparer.Ordinal);
+        // The factory's rules: the Boss seat's rule sets, exactly as the Boss's own kit carries them.
+        var bossKit = KitOf(Kit(Director(seat: "boss", kind: FactoryKits.Seat), version.ToString()));
+        Assert.Equal(bossKit.Files.Single(f => f.Path == FactoryKitComposer.RulesFile).Text, files[FactoryKitComposer.RulesFile]);
+        // Its brief is the Secretary's job and the inbox commands, never the Boss's brief.
+        Assert.Contains("cc-devthrottle factory inbox new", files[FactoryKitComposer.BriefFile]);
+        Assert.Contains("cc-devthrottle factory inbox bundle --hand", files[FactoryKitComposer.BriefFile]);
+        Assert.DoesNotContain("Run the factory.", files[FactoryKitComposer.BriefFile]);
+        Assert.DoesNotContain(CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork, files[FactoryKitComposer.BriefFile]);
+        // Nothing else: no definition files, no factory skills.
+        Assert.DoesNotContain(files.Keys, k => k.StartsWith(FactoryKitComposer.PluginFolder + "/", StringComparison.Ordinal));
+        Assert.DoesNotContain(files.Keys, k => k.StartsWith("files/", StringComparison.Ordinal));
+        Assert.Contains("\"secrets\": []", files[FactoryKitComposer.KitFile]);
+    }
+
     // ---------- what is refused ----------
 
     [Fact]

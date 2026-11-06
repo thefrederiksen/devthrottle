@@ -283,6 +283,12 @@ public sealed class PostgresProviderProofTests
             ("factory_inbox_messages", "Source"),
             ("factory_inbox_messages", "State"),
             ("factory_inbox_messages", "Surface"),
+            // The wake (phase 2): the factory is the row's key, the session ids are exact, the waiting words are closed.
+            ("factory_inbox_wakes", "BossSessionId"),
+            ("factory_inbox_wakes", "BossWaiting"),
+            ("factory_inbox_wakes", "Factory"),
+            ("factory_inbox_wakes", "SecretarySessionId"),
+            ("factory_inbox_wakes", "SecretaryWaiting"),
             ("factory_journal_entries", "EntryDate"),
             ("factory_journal_entries", "Factory"),
             ("factory_journal_entries", "ImportKey"),
