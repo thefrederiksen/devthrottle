@@ -159,9 +159,21 @@ public static class FactorySeatStart
         var read = FactoryDefinitionCheck.Read(version.Files);
         if (read.Definition is not { } definition)
         {
-            FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version} does not parse: {string.Join(" | ", read.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}"))}");
-            throw new InvalidOperationException($"version {published.Version} of the definition of '{id}' is published but cannot be read; publish a version that passes the check");
+            var errors = string.Join(" | ", read.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}"));
+            FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version} does not parse: {errors}");
+            throw new InvalidOperationException($"version {published.Version} of the definition of '{id}' is published but cannot be read; the definition has validation errors: {errors}. Publish a version that passes the check (cc-devthrottle factory definition check).");
         }
+
+        // Explicit validation for empty briefs to provide better error messaging (Factory Definition phase 5)
+        foreach (var seat in definition.Seats)
+        {
+            if (string.IsNullOrWhiteSpace(seat.Brief))
+            {
+                FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version} seat '{seat.Seat}' has empty brief");
+                throw new InvalidOperationException($"version {published.Version} of the definition of '{id}' has seat '{seat.Seat}' with no brief. The seat must have a brief: value in seats/{seat.Seat}.yaml that is not blank. Add the brief and publish again.");
+            }
+        }
+
         FileLog.Write($"[FactorySeatStart] ReadPublished: {id} v{published.Version}");
         return new PublishedFactoryDefinition(published.Version, definition);
     }
