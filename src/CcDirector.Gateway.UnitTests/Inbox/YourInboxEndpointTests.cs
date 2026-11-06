@@ -446,6 +446,27 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
     // ---------- reply routing ----------
 
     [Fact]
+    public async Task Reply_ToTheMorningReportsMessage_IsRefusedInWords_AndItListsWithNoReplyTarget()
+    {
+        var row = _store.Add(A, YourInboxStore.ForNoFactoryProblems(A, "Schedules in no factory: 1 problem still open - Sunday 11 October",
+            "One problem.", new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc)));
+
+        var (listed, list) = await Call("GET", "/gateway/inbox", Phone);
+        var (status, body) = await Post($"/gateway/inbox/{row.Id:D}/reply", Phone, new { text = "Thanks." });
+
+        Assert.Equal(HttpStatusCode.OK, listed);
+        var m = list.GetProperty("messages").EnumerateArray().Single();
+        Assert.Equal(("gateway", "Morning report - schedules in no factory"),
+            (m.GetProperty("from").GetProperty("kind").GetString(), m.GetProperty("from").GetProperty("label").GetString()));
+        Assert.Equal(JsonValueKind.Null, m.GetProperty("replyTo").ValueKind);
+        Assert.Equal(0, m.GetProperty("links").GetArrayLength());
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("no_reply_to_gateway", Code(body));
+        Assert.Equal(YourInboxWords.NoReplyToGateway, body.GetProperty("error").GetString());
+        Assert.Empty(_store.Replies(A, row.Id));
+    }
+
+    [Fact]
     public async Task Reply_ToARunningSession_GoesIntoItsOwnFleetInbox_AndIsKeptOnTheMessage()
     {
         var id = await SendFrom(Developer, "Shall I tag v2.25?");

@@ -175,7 +175,7 @@
                 "maxLength": 40
               },
               "name": {
-                "description": "The branch's step in a few words, such as \"Email the owner\". Must not be blank.",
+                "description": "The branch's step in a few words, such as \"Tell the owner in Your inbox\". Must not be blank.",
                 "type": "string",
                 "pattern": "\\S",
                 "maxLength": 40

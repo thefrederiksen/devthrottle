@@ -98,7 +98,7 @@ export function YourInboxReplyComposer({ message, surface, onSent, hrefFor }: Yo
 
   return (
     <div className="fi-composer yi-reply" data-testid="yi-reply">
-      <p className="yi-reply-to">{message.replyTo.label}</p>
+      <p className="yi-reply-to">{message.replyTo?.label}</p>
       <textarea
         className="fi-composer-text"
         value={text}

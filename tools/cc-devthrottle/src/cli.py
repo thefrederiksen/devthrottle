@@ -247,7 +247,7 @@ factory_goal_number_app = typer.Typer(
 factory_app.add_typer(factory_goal_number_app, name="goal-number")
 factory_email_app = typer.Typer(
     cls=AxiGroup,
-    help="The factory email: one report a day, at 08:00.",
+    help="The 08:00 factory morning summary, into Your inbox.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -326,7 +326,7 @@ setup_app = typer.Typer(
 )
 email_app = typer.Typer(
     cls=AxiGroup,
-    help="Send email to the account owner.", add_completion=False, no_args_is_help=True
+    help="Email the owner, only when asked. Otherwise: inbox send.", add_completion=False, no_args_is_help=True
 )
 diag_app = typer.Typer(
     cls=AxiGroup,
@@ -1279,21 +1279,21 @@ _ACTIONS = [
     },
     {
         "id": "factory-email-status",
-        "description": "Show whether this account is sent the factory email (one report a day, at 08:00).",
+        "description": "Show whether this account gets the factory morning summary in Your inbox (once a day, at 08:00; no email is sent).",
         "command": "cc-devthrottle factory email status",
         "mutatesState": False,
         "args": [],
     },
     {
         "id": "factory-email-on",
-        "description": "Switch the factory email on for this account. It ships off.",
+        "description": "Switch the factory morning summary on for this account. It ships off.",
         "command": "cc-devthrottle factory email on",
         "mutatesState": True,
         "args": [],
     },
     {
         "id": "factory-email-off",
-        "description": "Switch the factory email off for this account.",
+        "description": "Switch the factory morning summary off for this account.",
         "command": "cc-devthrottle factory email off",
         "mutatesState": True,
         "args": [],
@@ -5050,7 +5050,7 @@ def factory_goal_number_show(
 def factory_email_status(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Show whether this account is sent the factory email. It ships off."""
+    """Show whether the 08:00 morning summary is on. It ships off."""
     factory_email_ops.switch(None, json_output)
 
 
@@ -5058,9 +5058,10 @@ def factory_email_status(
 def factory_email_on(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Switch the factory email on for this account.
+    """Switch the factory morning summary on for this account.
 
-    It is sent once a day, at 08:00. A problem raised later in the day is in the next 08:00 email.
+    Once a day, at 08:00, each factory with news writes one message into Your inbox. No email is sent.
+    A problem raised later in the day is in the next 08:00 summary.
     """
     factory_email_ops.switch("on", json_output)
 
@@ -5069,9 +5070,9 @@ def factory_email_on(
 def factory_email_off(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Switch the factory email off for this account.
+    """Switch the factory morning summary off for this account.
 
-    Nothing is composed, kept or sent for this account while it is off.
+    Nothing is composed, kept or written for this account while it is off.
     """
     factory_email_ops.switch("off", json_output)
 

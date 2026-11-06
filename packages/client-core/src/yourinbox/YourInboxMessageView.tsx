@@ -126,14 +126,16 @@ export function YourInboxMessageView({ id, surface, hrefFor, showSubject = true,
         </div>
       )}
       <div className="yi-actions">
-        <button
-          type="button"
-          className="yi-action yi-action-reply"
-          aria-expanded={replying}
-          onClick={() => setReplying((r) => !r)}
-        >
-          Reply
-        </button>
+        {message.replyTo !== null && (
+          <button
+            type="button"
+            className="yi-action yi-action-reply"
+            aria-expanded={replying}
+            onClick={() => setReplying((r) => !r)}
+          >
+            Reply
+          </button>
+        )}
         {message.actions.map((a) => (
           <button
             key={a.state}
@@ -164,7 +166,7 @@ export function YourInboxMessageView({ id, surface, hrefFor, showSubject = true,
           ))}
         </ol>
       )}
-      {replying && (
+      {replying && message.replyTo !== null && (
         <YourInboxReplyComposer
           message={message}
           surface={surface}

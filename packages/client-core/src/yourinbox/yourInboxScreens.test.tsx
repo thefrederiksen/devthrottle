@@ -150,6 +150,28 @@ describe("YourInboxMessageView (reading a message)", () => {
     expect(setYourInboxState).not.toHaveBeenCalled();
   });
 
+  it("YourInboxMessageView_AMessageTheGatewayGivesNoReplyTo_OffersNoReply_AndPrintsItsSender", async () => {
+    renderMessage(
+      oddYourMessage({
+        unread: false,
+        state: "read",
+        from: { kind: "gateway", label: "Dawn tally - orphan timers (gateway)" },
+        links: [],
+        replyTo: null,
+      }),
+    );
+
+    expect((await screen.findByTestId("yi-from")).textContent).toBe("Dawn tally - orphan timers (gateway)");
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.getAllByTestId("yi-action").map((b) => b.textContent)).toEqual(["Tick it off (gateway)", "Shelve it (gateway)"]);
+  });
+
+  it("YourInboxMessageView_AMessageWithAReplyTarget_OffersReply", async () => {
+    renderMessage(oddYourMessage({ unread: false, state: "read" }));
+
+    expect(await screen.findByRole("button", { name: "Reply" })).toBeTruthy();
+  });
+
   it("YourInboxMessageView_LinkTheShellHasNoAddressFor_IsNotShown", async () => {
     renderMessage(oddYourMessage({ unread: false }), (l) => (l.kind === "session" ? "/s" : null));
 

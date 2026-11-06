@@ -225,6 +225,20 @@ public sealed class FactoryInboxStore
         return (sent, decided);
     }
 
+    /// <summary>
+    /// THE FACTORY SUMMARY, read and folded in one place: what came in from since up to and including until, and the
+    /// decision on each (<see cref="FactoryInboxFold.Summary"/>). The Summary button's route and the 08:00 morning message
+    /// in Your inbox both call this, so the two can never show different summaries of the same hours.
+    /// </summary>
+    public FactoryInboxSummaryDto Summary(TenantId tenant, string factory, DateTime sinceUtc, DateTime untilUtc)
+    {
+        FileLog.Write($"[FactoryInboxStore] Summary: tenant={tenant.ToLogString()} factory={factory} since={sinceUtc:o} until={untilUtc:o}");
+        var (sent, decided) = Since(tenant, factory, sinceUtc, untilUtc);
+        var decisionOfSent = DecisionsOf(tenant, sent.Select(m => m.Id).ToList());
+        var handed = HandedTimes(tenant, sent.Where(m => m.BundleId is not null).Select(m => m.BundleId!.Value).Distinct().ToList());
+        return FactoryInboxFold.Summary(factory, sinceUtc, untilUtc, sent, decided, decisionOfSent, handed);
+    }
+
     /// <summary>One factory's to-do list, newest first.</summary>
     public IReadOnlyList<FactoryTodoEntity> Todos(TenantId tenant, string factory)
     {

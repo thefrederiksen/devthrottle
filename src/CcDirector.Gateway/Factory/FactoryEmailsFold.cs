@@ -11,6 +11,18 @@ namespace CcDirector.Gateway.Factory;
 /// </summary>
 public static class FactoryEmailsFold
 {
+    /// <summary>The card's heading. Since the Factory Inbox mission's phase 5 ("Email off") the morning report is no longer
+    /// emailed: each factory's morning summary is written into Your inbox, and the report is kept here.</summary>
+    public const string MorningReportsHeading = "Morning reports";
+
+    /// <summary>What the card says under its heading.</summary>
+    public const string MorningReportsNote =
+        "The 08:00 reports that covered this factory, kept for 30 days. Each morning's summary goes to Your inbox; no email is sent. Read opens one as it was written.";
+
+    /// <summary>What the card says when no report covered the factory.</summary>
+    public const string MorningReportsEmpty =
+        "No morning report has covered this factory yet. They are written only when the morning summary is switched on.";
+
     /// <summary>How many kept emails the factory page shows; the store keeps 30 days.</summary>
     public const int Shown = 10;
 
@@ -27,11 +39,11 @@ public static class FactoryEmailsFold
         var items = emails.Emails.Take(Shown).Select(e => Item(factory, e, zone, nowUtc)).ToList();
         return new FactoryPageEmailsDto
         {
-            Heading = "Reports emailed to you",
-            Note = "The morning reports that covered this factory, kept for 30 days. Read opens one as it was sent.",
+            Heading = MorningReportsHeading,
+            Note = MorningReportsNote,
             Items = items,
             EmptyText = items.Count == 0
-                ? "No report has covered this factory yet. Reports are sent only when the factory email is switched on."
+                ? MorningReportsEmpty
                 : null,
         };
     }

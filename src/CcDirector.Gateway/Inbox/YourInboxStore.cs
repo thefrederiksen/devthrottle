@@ -70,6 +70,9 @@ public sealed class YourInboxStore
     /// <summary>The seat a Boss's decision is shown from.</summary>
     public const string BossSeat = "boss";
 
+    /// <summary>The seat a factory's 08:00 morning summary is shown from ("Booking - Morning summary").</summary>
+    public const string MorningSeat = "morning summary";
+
     /// <summary>The longest reply, in characters. Well under the fleet message limit, so the reply and the line that
     /// says what it answers always fit in one fleet message.</summary>
     public const int MaxReplyLength = 8000;
@@ -186,6 +189,90 @@ public sealed class YourInboxStore
             State = YourInboxWords.States.Unread,
             SentAtUtc = nowUtc,
         };
+    }
+
+    // ---------------------------------------------------------------- a factory's morning summary
+
+    /// <summary>
+    /// THE MESSAGE A FACTORY'S 08:00 MORNING RUN WRITES (Factory Inbox mission, phase 5 "Email off"): it replaces the
+    /// factory email, and no email is sent. Sent from the factory, seat <see cref="MorningSeat"/>, at the slot's 08:00
+    /// boundary - the time it describes, and the key <see cref="MorningOf"/> finds it by, so a slot tried again never
+    /// writes a second one. A body longer than <see cref="MaxBodyLength"/> is cut at a line end and says so.
+    /// </summary>
+    public static YourInboxMessageEntity ForMorningSummary(TenantId tenant, string factory, string subject, string body, DateTime boundaryUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        if (subject.Length > MaxSubjectLength) subject = subject[..(MaxSubjectLength - 3)].TrimEnd() + "...";
+        if (body.Length > MaxBodyLength)
+        {
+            const string Cut = "\n\nThis summary was longer than one message holds; the rest is on the factory's page.";
+            var keep = body[..(MaxBodyLength - Cut.Length)];
+            var lineEnd = keep.LastIndexOf('\n');
+            body = (lineEnd > 0 ? keep[..lineEnd] : keep).TrimEnd() + Cut;
+        }
+        FileLog.Write($"[YourInboxStore] ForMorningSummary: factory={factory} boundary={boundaryUtc:o} bodyLength={body.Length}");
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = YourInboxWords.Senders.Factory,
+            Factory = factory,
+            Seat = MorningSeat,
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(boundaryUtc, DateTimeKind.Utc),
+        };
+    }
+
+    /// <summary>Write a morning summary built by <see cref="ForMorningSummary"/>, unread.</summary>
+    public YourInboxMessageEntity Add(TenantId tenant, YourInboxMessageEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (row.TenantId != tenant.Value)
+            throw new ArgumentException($"The message belongs to another account than {tenant.ToLogString()}.", nameof(row));
+        using (var ctx = _db.CreateContext(tenant))
+        {
+            ctx.YourInboxMessages.Add(row);
+            ctx.SaveChanges();
+        }
+        FileLog.Write($"[YourInboxStore] Add: wrote {row.Id} factory={row.Factory ?? "(none)"} seat={row.Seat ?? "(none)"}");
+        return row;
+    }
+
+    /// <summary>
+    /// THE 08:00 MESSAGE ABOUT PROBLEMS NO FACTORY'S SUMMARY CARRIES (the Delivery Lead's ruling, Factory Inbox mission,
+    /// phase 5): a problem whose schedule is in no factory - or in one that writes no morning summary, an archived one -
+    /// was told to the owner by the factory email, and email off must not make it silent. From the Gateway, seat
+    /// <see cref="YourInboxWords.MorningReportSeat"/>, at the slot's boundary, so <see cref="NoFactoryMorningOf"/> finds it.
+    /// </summary>
+    public static YourInboxMessageEntity ForNoFactoryProblems(TenantId tenant, string subject, string body, DateTime boundaryUtc)
+    {
+        var row = ForMorningSummary(tenant, "-", subject, body, boundaryUtc);
+        row.FromKind = YourInboxWords.Senders.Gateway;
+        row.Factory = null;
+        row.Seat = YourInboxWords.MorningReportSeat;
+        return row;
+    }
+
+    /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>
+    public YourInboxMessageEntity? NoFactoryMorningOf(TenantId tenant, DateTime boundaryUtc)
+    {
+        var at = DateTime.SpecifyKind(boundaryUtc, DateTimeKind.Utc);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.YourInboxMessages.AsNoTracking()
+            .FirstOrDefault(m => m.FromKind == YourInboxWords.Senders.Gateway && m.Seat == YourInboxWords.MorningReportSeat && m.SentAtUtc == at);
+    }
+
+    /// <summary>The morning summary a factory was already sent for the 08:00 boundary, or null.</summary>
+    public YourInboxMessageEntity? MorningOf(TenantId tenant, string factory, DateTime boundaryUtc)
+    {
+        var at = DateTime.SpecifyKind(boundaryUtc, DateTimeKind.Utc);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.YourInboxMessages.AsNoTracking()
+            .FirstOrDefault(m => m.FromKind == YourInboxWords.Senders.Factory && m.Factory == factory
+                                 && m.Seat == MorningSeat && m.SentAtUtc == at);
     }
 
     // ---------------------------------------------------------------- reads

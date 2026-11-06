@@ -157,7 +157,7 @@ steps:                            # optional; at least one when present
     continueWhen: "no"            # the answer that stays on the main line
     branch:                       # the one step off the main line
       when: "yes"                 # required: the answer that takes it
-      name: Email the owner       # required
+      name: Tell the owner in Your inbox   # required
       detail: what failed         # optional
       ends: stop                  # required: done or stop
 ```

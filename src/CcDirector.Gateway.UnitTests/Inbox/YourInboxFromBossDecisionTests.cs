@@ -97,7 +97,7 @@ public sealed class YourInboxFromBossDecisionTests : IDisposable
         // Shown as from the factory's Boss, with a reply that goes back into that factory's Factory inbox.
         var titles = new Dictionary<string, string> { [Factory] = "Invoices" };
         Assert.Equal("Invoices - Boss", YourInboxFold.FromLabel(message, titles));
-        Assert.Equal("Reply into the Factory inbox of Invoices", YourInboxFold.ReplyTo(message, titles).Label);
+        Assert.Equal("Reply into the Factory inbox of Invoices", YourInboxFold.ReplyTo(message, titles)!.Label);
     }
 
     [Theory]

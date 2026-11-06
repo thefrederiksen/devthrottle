@@ -16,6 +16,7 @@ public sealed record YourInboxActionDto(string State, string Label);
 
 /// <summary>Where a reply to this message goes, in words, before the owner writes it.</summary>
 public sealed record YourInboxReplyToDto(string Target, string Label);
+// A message nobody can be replied to (from the Gateway itself) carries no ReplyTo: the client then offers no Reply.
 
 /// <summary>One reply the owner sent, with where it went.</summary>
 public sealed record YourInboxReplyDto(string Id, string Text, string RoutedTo, string Label, DateTime SentAtUtc);
@@ -35,7 +36,7 @@ public sealed record YourInboxMessageDto(
     YourInboxFromDto From,
     IReadOnlyList<YourInboxLinkDto> Links,
     IReadOnlyList<YourInboxActionDto> Actions,
-    YourInboxReplyToDto ReplyTo,
+    YourInboxReplyToDto? ReplyTo,
     DateTime SentAtUtc,
     DateTime? ReadAtUtc,
     DateTime? ArchivedAtUtc,
@@ -90,6 +91,8 @@ public static class YourInboxFold
     /// </summary>
     public static string FromLabel(YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles)
     {
+        if (m.FromKind == YourInboxWords.Senders.Gateway)
+            return YourInboxWords.GatewayFromLabel(m.Seat);
         if (m.FromKind == YourInboxWords.Senders.Factory)
         {
             var title = FactoryTitle(m.Factory!, factoryTitles);
@@ -117,8 +120,10 @@ public static class YourInboxFold
     /// Factory inbox; a session's message goes to that session if it is still running - and if it has ended, the reply
     /// route says so and offers the factory or a new session instead.
     /// </summary>
-    public static YourInboxReplyToDto ReplyTo(YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles)
-        => m.FromKind == YourInboxWords.Senders.Factory
+    public static YourInboxReplyToDto? ReplyTo(YourInboxMessageEntity m, IReadOnlyDictionary<string, string> factoryTitles)
+        => m.FromKind == YourInboxWords.Senders.Gateway
+            ? null
+            : m.FromKind == YourInboxWords.Senders.Factory
             ? new(YourInboxWords.ReplyTargets.Factory, $"Reply into the Factory inbox of {FactoryTitle(m.Factory!, factoryTitles)}")
             : new(YourInboxWords.ReplyTargets.Session, "Reply to " + DevReportSessionLabel.Session(m.SessionNumber, m.SessionName));
 

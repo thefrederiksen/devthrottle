@@ -206,10 +206,7 @@ internal static class FactoryInboxEndpoints
                 since = DateTime.SpecifyKind(since, DateTimeKind.Utc);
                 if (since > now) return Error(400, "bad_since", "since is in the future, so there is nothing to summarise.");
             }
-            var (sent, decided) = parts.Store.Since(tenant, registered!.Factory, since, now);
-            var decisionOfSent = parts.Store.DecisionsOf(tenant, sent.Select(m => m.Id).ToList());
-            var handed = parts.Store.HandedTimes(tenant, sent.Where(m => m.BundleId is not null).Select(m => m.BundleId!.Value).Distinct().ToList());
-            return Results.Json(FactoryInboxFold.Summary(registered.Factory, since, now, sent, decided, decisionOfSent, handed));
+            return Results.Json(parts.Store.Summary(tenant, registered!.Factory, since, now));
         });
 
         app.MapGet(OwnerPrefix + "/{factory}/todo", (string factory, HttpContext ctx) =>

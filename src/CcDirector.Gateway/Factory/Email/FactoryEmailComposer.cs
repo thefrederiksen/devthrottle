@@ -202,6 +202,26 @@ public static class FactoryEmailComposer
         var text = new StringBuilder();
         text.AppendLine(subject).AppendLine();
         text.AppendLine(headline).AppendLine(summary).AppendLine();
+        TextSections(text, input, problems, waiting, needsYou.Truncated, days);
+        text.AppendLine(footer.ToString());
+
+        var covered = Covered(problems, days).Concat(waiting.Select(w => w.Factory))
+            .Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (input.MailDesk is { } named && !covered.Contains(named.Factory, StringComparer.OrdinalIgnoreCase))
+            covered.Add(named.Factory);
+        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count,
+            covered.OrderBy(f => f, StringComparer.Ordinal).ToList());
+    }
+
+    /// <summary>
+    /// The plain-text sections of the 08:00 report - still not fixed, needs you, what each factory did, and the Mail Desk -
+    /// with no subject, headline or footer. The account's report and each factory's morning message in Your inbox
+    /// (<see cref="ForFactory"/>) are written by this one method, so the two can never word a section differently.
+    /// </summary>
+    private static void TextSections(StringBuilder text, FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems,
+        IReadOnlyList<FactoryActivityDto> waiting, bool truncated, IReadOnlyList<CronFactoryDayDto> days)
+    {
         if (problems.Count > 0)
         {
             text.AppendLine("STILL NOT FIXED");
@@ -218,7 +238,7 @@ public static class FactoryEmailComposer
                 text.AppendLine($"  {NeedsYouWhen(item, input.Zone)}");
                 if (NeedsYouHref(input, item) is { } href) text.AppendLine($"  {href}");
             }
-            if (needsYou.Truncated) text.AppendLine(TruncatedSentence);
+            if (truncated) text.AppendLine(TruncatedSentence);
             text.AppendLine();
         }
         if (days.Count > 0)
@@ -234,15 +254,45 @@ public static class FactoryEmailComposer
         }
         if (input.MailDesk is { } mailDeskText)
             TextMailDesk(text, mailDeskText);
-        text.AppendLine(footer.ToString());
+    }
 
-        var covered = Covered(problems, days).Concat(waiting.Select(w => w.Factory))
-            .Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (input.MailDesk is { } named && !covered.Contains(named.Factory, StringComparer.OrdinalIgnoreCase))
-            covered.Add(named.Factory);
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count,
-            covered.OrderBy(f => f, StringComparer.Ordinal).ToList());
+    /// <summary>
+    /// ONE FACTORY'S PART OF THE 08:00 REPORT, as plain text, for its morning message in Your inbox (Factory Inbox mission,
+    /// phase 5 "Email off"): the open problems whose schedule is in this factory, what waits on the owner from it, its line
+    /// for the last 24 hours, and the Mail Desk section when the Mail Desk is this factory's. The same sections, in the same
+    /// words, as the account's report - this only keeps what belongs to <paramref name="factory"/>. Every registered
+    /// factory that is not archived gets its line even with nothing done, as in the report. Pure.
+    /// </summary>
+    public static string ForFactory(FactoryEmailInput input, string factory)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        bool Mine(string? f) => string.Equals(f, factory, StringComparison.OrdinalIgnoreCase);
+        var problems = input.Problems.Where(p => p.State == CronRunProblemStates.Open && Mine(p.Factory)).ToList();
+        var needsYou = input.NeedsYou ?? FactoryEmailNeedsYou.None;
+        var waiting = FactoryOwnerActions.WaitingOrder(needsYou.Items.Where(i => Mine(i.Factory)).ToList());
+        var days = input.Days.Where(d => Mine(d.Factory)).ToList();
+        if (days.Count == 0 && input.Factories.TryGetValue(factory, out var registered) && !registered.Archived)
+            days.Add(new CronFactoryDayDto { Factory = factory });
+        var mine = input with { MailDesk = input.MailDesk is { } md && Mine(md.Factory) ? md : null };
+        var text = new StringBuilder();
+        TextSections(text, mine, problems, waiting, needsYou.Truncated && waiting.Count > 0, days);
+        return text.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// The plain-text "still not fixed" section for just <paramref name="problems"/>, in the same words as the report: the
+    /// 08:00 message about problems no factory's morning summary carries (<see cref="FactoryMorningMessage.ComposeNoFactory"/>).
+    /// Pure.
+    /// </summary>
+    public static string ProblemsText(FactoryEmailInput input, IReadOnlyList<CronRunProblemDto> problems)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(problems);
+        var text = new StringBuilder();
+        TextSections(text, input with { MailDesk = null }, problems, Array.Empty<FactoryActivityDto>(), false,
+            Array.Empty<CronFactoryDayDto>());
+        return text.ToString().TrimEnd();
     }
 
     // ------------------------------------------------------------------------------------------------------------
