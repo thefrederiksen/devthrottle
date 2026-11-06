@@ -421,6 +421,90 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         Assert.Empty((await Call("GET", "/gateway/factory/invoices/inbox", Phone)).Body.GetProperty("held").EnumerateArray());
     }
 
+    /// <summary>
+    /// Stages <paramref name="count"/> uploads that have nothing to do with any factory's inbox, the way an account
+    /// with a long dictation history looks: half are session dictations still PENDING, half are delivered tombstones.
+    /// </summary>
+    private void UnrelatedUploads(int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var uid = _uploads.Register(null);
+            _uploads.MarkPending(uid, "22222222-2222-4222-8222-222222222222");
+            if (i % 2 == 0) _uploads.MarkDelivered(uid, submitted: true, movedOn: false, transcript: "typed elsewhere");
+        }
+    }
+
+    [Fact]
+    public async Task Thread_ManyUnrelatedUploads_ReadsOnlyTheRecordsHeldForThatFactory()
+    {
+        // The live defect: every thread read listed every upload directory of the account and read each record, which on
+        // the hosted file share made one factory's thread take about seventy seconds, even an empty one.
+        // Arrange: a long history of unrelated uploads, and one recording held for the invoices factory.
+        UnrelatedUploads(1000);
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        await Complete(id, 1);
+        var held = VoiceUploadStore.NormalizeUploadId(id)!;
+        // The first read of the partition in this process may read it once; that is what the session lock already pays.
+        await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+        var reads = new List<string>();
+        _uploads.RecordReadForTests = reads.Add;
+
+        // Act: the thread is read again, for the factory with the held recording and for one with nothing held.
+        var (status, body) = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+        var (emptyStatus, emptyBody) = await Call("GET", "/gateway/factory/payroll/inbox", Phone);
+
+        // Assert: the held recording is still shown, and the only record read was its own.
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(held, Assert.Single(body.GetProperty("held").EnumerateArray()).GetProperty("uploadId").GetString());
+        Assert.Equal(HttpStatusCode.OK, emptyStatus);
+        Assert.Empty(emptyBody.GetProperty("held").EnumerateArray());
+        Assert.Equal(new[] { held }, reads);
+    }
+
+    [Fact]
+    public async Task Thread_ARecordThatCannotBeRead_AnswersInWordsThatHeldIsUnknown()
+    {
+        // Arrange: a held recording, and a Gateway process that has not read the partition yet, whose first read of
+        // that record fails.
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        await Complete(id, 1);
+        var record = Path.Combine(_uploads.Root, VoiceUploadStore.NormalizeUploadId(id)!, "record.json");
+        _uploads = new VoiceUploadStore(_uploadRoot, TenantId.Local).ForTenant(A);
+
+        // Act
+        (HttpStatusCode Status, JsonElement Body) answer;
+        using (new FileStream(record, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            answer = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+        var (after, afterBody) = await Call("GET", "/gateway/factory/invoices/inbox", Phone);
+
+        // Assert: never "nothing held" on the strength of a failed read; and once it reads, it is shown.
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, answer.Status);
+        Assert.Equal("held_recordings_unknown", Code(answer.Body));
+        Assert.Equal(HttpStatusCode.OK, after);
+        Assert.Equal(VoiceUploadStore.NormalizeUploadId(id),
+            Assert.Single(afterBody.GetProperty("held").EnumerateArray()).GetProperty("uploadId").GetString());
+    }
+
+    [Fact]
+    public async Task Thread_AfterAGatewayRestart_StillShowsTheRecordingHeldBeforeIt()
+    {
+        // Arrange: a recording held, then a new Gateway process over the same staging, which has read nothing yet.
+        var id = await Recorded("audio");
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        await Complete(id, 1);
+        var restarted = new VoiceUploadStore(_uploadRoot, TenantId.Local).ForTenant(A);
+
+        // Act
+        var held = restarted.PendingFor(FactoryInboxVoiceEndpoints.TargetPrefix + "invoices");
+
+        // Assert: it is found from the durable record, not from anything the first process remembered.
+        Assert.Equal(VoiceUploadStore.NormalizeUploadId(id), Assert.Single(held).UploadId);
+        Assert.Empty(restarted.PendingFor(FactoryInboxVoiceEndpoints.TargetPrefix + "payroll"));
+    }
+
     [Fact]
     public async Task Complete_TranscriptionRefusesForGood_IsResolvedAndNotShownAsHeld()
     {

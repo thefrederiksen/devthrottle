@@ -7342,6 +7342,10 @@ public sealed class GatewayHost : IAsyncDisposable
                         // leaving it for the next tick six hours later.
                         uploads.ExpireStalePending(StalePendingMaxAge);
                         uploads.SweepResolvedTombstones(DictationTombstoneMaxAge);
+                        // A sweep that removed something cleared the pending index; read the partition again HERE, on
+                        // the timer, so the next factory inbox thread read or session lock question does not pay for
+                        // the walk of the share on a request.
+                        uploads.LockedSessionIds();
                         // Held typed prompts (Voice Delivery phase 5) are retired by the same thirty-day rule, in the
                         // same per-tenant pass, so no account's typed prompt records are left unbounded.
                         TypedPrompts.ForTenant(tenant).SweepOlderThan(DictationTombstoneMaxAge);
@@ -7354,6 +7358,23 @@ public sealed class GatewayHost : IAsyncDisposable
             $"{dictationTombstoneSchedule.TotalHours:0.###}h, retiring unacknowledged terminal records older " +
             $"than {DictationTombstoneMaxAge.TotalDays:0.###} days, and abandoning PENDING records with no " +
             $"activity for {StalePendingMaxAge.TotalHours:0.###}h so their session lock is released");
+
+        // Read every dictation partition into the pending index once, in the background, at start-up. The factory inbox
+        // thread and the session lock both answer from that index; whoever asked first used to pay the walk of the whole
+        // partition on a request, which on the hosted share is tens of seconds for a long history. The partitions are
+        // found on DISK, not through the tenant pass: on hosted that pass only knows tenants whose Director is connected,
+        // which at start-up is none (finding 5 of the 4690 re-review). A request that arrives while a partition is still
+        // being read waits for that read rather than starting a second one. A partition that fails is left unread, so its
+        // first question tries again; the log line says how many were read and how many failed.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var (read, failed) = _dictationUploads.WarmEveryPartition(Hosted);
+                FileLog.Write($"[GatewayHost] dictation pending index at start-up: {read} partition(s) read, {failed} could not be read");
+            }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation pending index start-up read FAILED: {ex}"); }
+        });
 
         // Voice Delivery phase 5: pick up every held delivery from disk and drive it, then keep ticking. Not awaited: an
         // attempt can wait out a Director's answer, and the Gateway's start must never wait on one. A start that fails is
