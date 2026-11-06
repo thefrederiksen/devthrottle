@@ -114,6 +114,21 @@ public sealed class MacOsResourceProbe : IResourceProbe
     }
 
     /// <inheritdoc />
+    ///
+    /// <remarks>
+    /// WHY THIS DOES NOT LOG ITS OWN ENTRY AND EXIT, which the coding standards otherwise ask of every
+    /// public method. It is called every five seconds for as long as the Director runs, so an entry and
+    /// an exit line would be about thirty-five thousand lines a day that say nothing happened, and they
+    /// would bury the lines that matter - including this probe's own report that a resource has become
+    /// unreadable. <see cref="MachineMemoryProbe"/> is on the same timer and settled this the same way:
+    /// it logs a failure, once, and nothing else. Deviating from the standard here is deliberate and
+    /// consistent with that precedent rather than an omission, and it is written down so the next
+    /// reader does not add the lines back.
+    ///
+    /// What IS logged is each resource the FIRST time it becomes unreadable, with the reason - see
+    /// <see cref="LogAnythingNewlyUnreadable"/>. A failure is reported once per resource rather than
+    /// once per sample for the same arithmetic.
+    /// </remarks>
     public ResourceSample Read()
     {
         ResourceSample sample;

@@ -232,6 +232,25 @@ public class MacOsPlatformReaderLiveTests
         var busyBefore = before.Sum(core => (double)core.Busy);
         var busyAfter = after.Sum(core => (double)core.Busy);
         Assert.True(busyAfter > busyBefore, "a unit of real arithmetic was done and no core recorded any of it");
+
+        // EVERY CORE'S COUNTERS MUST ADVANCE, NOT JUST THE MACHINE'S TOTAL, and this is a platform fact
+        // the whole-machine percentage depends on. That figure is the summed busy ticks over the summed
+        // total ticks across all cores. If an idle or power-gated core stopped accumulating ticks
+        // altogether - which is a real possibility on Apple Silicon, where cores are parked
+        // aggressively and this machine has four performance and six efficiency cores - then the
+        // denominator would cover only the cores that happened to be awake, and the machine would read
+        // far busier than it is. A mostly idle Mac would show a high percentage, which is exactly the
+        // wrong direction for a meter whose job is to say when the machine is in trouble.
+        //
+        // Measured on this machine: all ten cores advance. Asserted rather than assumed, because if it
+        // ever stops being true the arithmetic in FoldCpu needs to change and nothing else would notice.
+        for (var core = 0; core < before.Count; core++)
+        {
+            Assert.True(
+                after[core].Total > before[core].Total,
+                $"core {core} of {before.Count} recorded no ticks at all across the interval, so the " +
+                "whole-machine percentage would be divided by only the cores that were awake");
+        }
     }
 
     private static IReadOnlyList<MacOsResourceParsing.CoreTicks> ReadCores()
