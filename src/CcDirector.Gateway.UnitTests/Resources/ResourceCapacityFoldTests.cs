@@ -124,6 +124,41 @@ public sealed class ResourceCapacityFoldTests : IDisposable
     }
 
     [Fact]
+    public void Fold_ARefusedWindowEarlierInTheHour_MakesSpareAndThePeakUnknown_NeverRoomier()
+    {
+        // 10:15 peaked at 15 of 16 GB but was refused for a 400% processor reading; 10:25 is a normal 8 GB reading.
+        // Spare from the readable windows alone would advertise 8 GB of room on a machine that had 1.
+        var refused = Steady(W0.AddMinutes(15), 30, 8 * Gb);
+        refused.Machine.MemoryPeakUsedBytes = 15 * Gb;
+        refused.Machine.ProcessorPeakPercent = 400;
+
+        var capacity = ResourceCapacityFold.Fold(directorRunning: true, Stored(refused, Steady(W0.AddMinutes(25), 28, 8 * Gb)), Now);
+
+        Assert.True(capacity.Reporting);
+        Assert.Equal("28%", capacity.ProcessorLabel);
+        Assert.Equal("peak not known", capacity.ProcessorDetail);
+        Assert.Equal("50%", capacity.MemoryLabel);
+        Assert.Null(capacity.SpareBytes);
+        Assert.Equal("cannot read", capacity.SpareLabel);
+        Assert.Contains("had its figures refused", capacity.Why);
+    }
+
+    [Fact]
+    public void History_ARefusedWindow_MakesTheFactoryCostAtLeast()
+    {
+        var share = new ResourceSummarySessionSample("s-bio", "Biographies", 31, 2 * Gb, null);
+        var refused = Steady(W0.AddMinutes(5), 30, 8 * Gb, "devlinux", share);
+        refused.Machine.ProcessorPeakPercent = 400;
+        _store.Store(Tenant, "director-1", Batch(Steady(W0, 30, 8 * Gb, "devlinux", share), refused));
+        var from = Now.AddHours(-24);
+
+        var view = MachineResourceHistoryFold.Fold("devlinux", 24,
+            _store.MachineWindows(Tenant, from, Now), _store.SessionWindows(Tenant, "devlinux", from, Now));
+
+        Assert.Equal("at least 31% / 31%", Assert.Single(view.Factories).ProcessorLabel);
+    }
+
+    [Fact]
     public void History_ARefusedWindow_IsMarkedWithItsReason()
     {
         var refused = Steady(W0.AddMinutes(5), 30, 8 * Gb);

@@ -21,3 +21,12 @@ previous code and seen to fail first unless said otherwise.
 | 10. Pieces phase 2 must wire | **Handed to phase 2** in the handback: call `ResourceSummaryRecorder.CloseIfDue` on the sampler's tick, use `Environment.MachineName` (the Hello's name) for the recorder, and note that the outbox is in memory. |
 | 11. First roll-up only an hour after start | **Fixed.** The first run is one minute after start. |
 | 12. Coding-standard points | **Fixed:** the three reads log, the impossible fallback in the spare figure is gone, "ctor" is gone from the new log lines. |
+
+## The reviewer's addendum (after the refused-window change)
+
+| Finding | Answer |
+|---|---|
+| 13. A refused window drops its memory peak, so Spare over the hour can advertise room the machine did not have | **Fixed, keeping refusal per window** (the lead's ruling). Whenever any window in the last hour was refused, Spare is "cannot read" with the reason and the processor's hour peak reads "peak not known", so no believable understatement is shown. Test: `Fold_ARefusedWindowEarlierInTheHour_MakesSpareAndThePeakUnknown_NeverRoomier`, seen failing first. |
+| Note: factory cost silently omits refused windows | **Fixed.** A span holding a refused window makes every factory's cost "at least". Test: `History_ARefusedWindow_MakesTheFactoryCostAtLeast`, seen failing first. |
+| Note: the migration ids were regenerated | **No store holds an old id.** The ids changed only while the change was unmerged; the one statistics file a test Gateway wrote (the local outage proof, in a throwaway folder) is not reused. Every test store is built fresh from the chain. |
+| Findings 1 to 4 "stand unchanged" | The addendum reviewed the third commit, before the fix commit; all four are fixed there, as answered above. |

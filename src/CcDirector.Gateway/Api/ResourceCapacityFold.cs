@@ -90,6 +90,7 @@ internal static class ResourceCapacityFold
                       + "Director measured, not an idle machine.",
             };
 
+        var refusedInHour = recent.Any(w => w.RefusedReason is not null);
         var crossings = ResourceSummaryStore.CrossingsOf(newest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
@@ -98,8 +99,10 @@ internal static class ResourceCapacityFold
         if (newest.ProcessorAveragePercent is { } cpuNow)
         {
             var peak = recent.Max(w => w.ProcessorPeakPercent);
+            // A refused window in the hour has no figures, so the hour's peak is not known: the highest READABLE peak
+            // would be a believable understatement (review finding 13).
             dto.ProcessorLabel = Percent(cpuNow);
-            dto.ProcessorDetail = peak is { } p ? $"peak {Percent(p)}" : null;
+            dto.ProcessorDetail = refusedInHour ? "peak not known" : peak is { } p ? $"peak {Percent(p)}" : null;
             dto.ProcessorTone = ToneOf(crossings, ResourceSummaryContract.Processor);
         }
         else
@@ -117,9 +120,17 @@ internal static class ResourceCapacityFold
             dto.MemoryTone = ToneOf(crossings, ResourceSummaryContract.Memory);
             // The newest window has its peak (the store keeps average and peak together), so the hour's peak is known.
             var peakUsed = recent.Max(w => w.MemoryPeakUsedBytes)!.Value;
+            // A refused window in the hour may have held the hour's peak, so Spare is not known: computed from the readable
+            // windows alone it would advertise room the machine did not have (review finding 13).
+            if (refusedInHour)
+            {
+                dto.SpareLabel = "cannot read";
+                why.Add("A window in the last hour had its figures refused, so the hour's peak memory - and with it the "
+                        + "spare capacity - is not known.");
+            }
             // NEVER CLAMPED. A peak above the machine's total is a reading no machine can give; showing it as "0.0 GB"
             // spare would turn a defect into a believable figure.
-            if (peakUsed > total)
+            else if (peakUsed > total)
             {
                 dto.SpareLabel = "cannot read";
                 why.Add($"The machine reported more memory in use than it has ({Gigabytes(peakUsed)} of {Gigabytes(total)} GB), "
@@ -229,10 +240,12 @@ internal static class MachineResourceHistoryFold
             });
         }
 
+        // A refused window keeps no session rows, so every factory's cost over a span that holds one is a lower bound.
+        var anyRefused = mine.Any(w => w.RefusedReason is not null);
         dto.Factories = sessionWindows
             .Where(s => string.Equals(s.MachineName, machine, StringComparison.OrdinalIgnoreCase))
             .GroupBy(s => string.IsNullOrWhiteSpace(s.Factory) ? NoFactory : s.Factory!, StringComparer.OrdinalIgnoreCase)
-            .Select(FactoryCost)
+            .Select(g => FactoryCost(g, anyRefused))
             .OrderBy(f => f.Factory == NoFactory ? 1 : 0)
             .ThenByDescending(f => f.ProcessorPeakPercent ?? -1)
             .ThenBy(f => f.Factory, StringComparer.OrdinalIgnoreCase)
@@ -261,10 +274,10 @@ internal static class MachineResourceHistoryFold
     /// figures could not be read, the sum leaves them out and is a LOWER BOUND, and the label says "at least" - a cost
     /// reported without that would be too cheap and still look plausible, which is the worst kind of wrong.
     /// </summary>
-    private static FactoryResourceCostDto FactoryCost(IGrouping<string, ResourceSessionWindowEntity> factory)
+    private static FactoryResourceCostDto FactoryCost(IGrouping<string, ResourceSessionWindowEntity> factory, bool spanHasRefusedWindow)
     {
         var byWindow = factory.GroupBy(s => s.WindowStartUtc).ToList();
-        var partialProcesses = factory.Any(s => s.ProcessesWithUnknownFigures > 0);
+        var partialProcesses = spanHasRefusedWindow || factory.Any(s => s.ProcessesWithUnknownFigures > 0);
 
         var cpuAverages = Sums(byWindow, s => s.ProcessorAveragePercent);
         var cpuPeaks = Sums(byWindow, s => s.ProcessorPeakPercent);
