@@ -28,7 +28,12 @@ internal sealed record DirectorSpawnDoor(
     TimeProvider? Clock = null,
     // Issue #4351: a factory's Boss seat and published version, for the account the request is bound to - read when a
     // session in no factory starts a factory's Boss. A door without it refuses that start; it never lets one by.
-    Func<Core.Tenancy.TenantId, Factory.Definition.BossStartReader>? BossStartFor = null);
+    Func<Core.Tenancy.TenantId, Factory.Definition.BossStartReader>? BossStartFor = null,
+    // Issue #4598: records a session this door started as a factory's Boss for a session in no factory, and carries the
+    // record to the session a verified restore starts in its place; and reads whether a session has one. Without them a
+    // Boss started here has no authority to publish - exactly what it had before the record existed.
+    SpawnFactory.BossStartRecorder? RecordBossStart = null,
+    Func<string, (string Factory, string Seat)?>? BossStartOf = null);
 
 /// <summary>The answer of one create: the session the Director started, or the refusal to hand the caller.</summary>
 internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusal)
@@ -63,6 +68,42 @@ internal static partial class GatewayEndpoints
         {
             FileLog.Write($"[GatewayEndpoints] {spawnRoute}: API mode refused; giving back the reopen claim FAILED: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// The restore's record of this create, and THEN the Boss's record (issue #4598, review round 2, finding 1): the
+    /// Boss's record travels with a restore only once the workspace store has accepted THIS claim - its token and its
+    /// Director - as the restore of that seat. Returns whether the store recorded the restore.
+    /// </summary>
+    internal static bool RecordRestoreThenCarryBoss(WorkspaceRestoreClaim claim, string directorId, NewSessionRequest req,
+        SessionDto body, DirectorSpawnDoor door, string spawnRoute)
+    {
+        if (door.Workspaces is null) return false;
+        if (!door.Workspaces.RecordRestoredByClaim(claim, directorId, body.SessionId, DateTime.UtcNow)) return false;
+        CarryBossStartOnRestore(claim, req, body, door, spawnRoute);
+        return true;
+    }
+
+    /// <summary>
+    /// A VERIFIED RESTORE OF A BOSS IS STILL THE BOSS (issue #4598). Called only once the workspace store accepted the
+    /// restore claim - its sender, its token and its Director - as the restore of the captured session. When THAT
+    /// session was recorded as started as the Boss, and the restored session is the same factory and seat with the
+    /// rules-only kit, the record is carried to the new session. A restored child of a Boss has no record to carry, so
+    /// it stays inherited whoever ordered the restore.
+    /// </summary>
+    internal static void CarryBossStartOnRestore(WorkspaceRestoreClaim claim, NewSessionRequest req, SessionDto body,
+        DirectorSpawnDoor door, string spawnRoute)
+    {
+        if (door.BossStartOf is null || string.IsNullOrWhiteSpace(claim.SeatSessionId)) return;
+        if (door.BossStartOf(claim.SeatSessionId) is not { } was) return;
+        if (!string.Equals(req.FactoryKit?.Trim(), FactoryKits.RulesOnly, StringComparison.Ordinal)
+            || !string.Equals(req.Factory?.Trim(), was.Factory, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(req.FactorySeat?.Trim(), was.Seat, StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[GatewayEndpoints] {spawnRoute}: restore of {claim.SeatSessionId} (the Boss of '{was.Factory}') started {body.SessionId} as {req.Factory}/{req.FactorySeat} ({req.FactoryKit}) - the Boss record is NOT carried");
+            return;
+        }
+        SpawnFactory.CarryBossStart(claim.SeatSessionId, body.SessionId, door.BossStartOf, door.RecordBossStart, spawnRoute);
     }
 
     /// <summary>
@@ -203,6 +244,17 @@ internal static partial class GatewayEndpoints
         // caller would retry into a second session.
         SpawnMissionAndSeat.RecordParticipant(seatRun, door.WorkflowRuns, req, body, d.MachineName ?? "", spawnRoute);
 
+        // THE BOSS'S AUTHORITY (issue #4598): a Boss this request started for a session in no factory is recorded as
+        // started as the Boss. Never turned into an HTTP failure: the session exists.
+        try
+        {
+            SpawnFactory.RecordApprovedBossStart(ctx, body.SessionId, door.RecordBossStart, spawnRoute);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayEndpoints] {spawnRoute}: recording the Boss start of {body.SessionId} FAILED - it has no authority to publish: {ex.Message}");
+        }
+
         // The restore's record of this create, written HERE - in the process that performed it, after the
         // Director confirmed it - so it does not depend on the answer reaching the restoring Director. Never
         // turned into an HTTP failure: the session exists, and a failure would be retried into a second one.
@@ -210,7 +262,7 @@ internal static partial class GatewayEndpoints
         {
             try
             {
-                door.Workspaces.RecordRestoredByClaim(restoreClaim, id, body.SessionId, DateTime.UtcNow);
+                RecordRestoreThenCarryBoss(restoreClaim, id, req, body, door, spawnRoute);
             }
             catch (Exception ex)
             {

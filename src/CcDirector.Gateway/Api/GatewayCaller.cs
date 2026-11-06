@@ -65,7 +65,8 @@ internal static class GatewayCaller
                 caller = new Identity(FactoryMemoryAuthorKinds.Session, session, lookup.Name,
                     lookup.IsInAFactory ? lookup.Factory!.Trim() : null,
                     lookup.IsInAFactory ? lookup.Seat?.Trim() : null,
-                    lookup.IsInAFactory && lookup.SeatIsInherited);
+                    // The definition routes are the only reader of this flag (issue #4598): a recorded Boss start publishes.
+                    lookup.IsInAFactory && lookup.InheritedForPublishing);
                 return true;
             default:
                 caller = new Identity(NeitherPersonNorSession, null);

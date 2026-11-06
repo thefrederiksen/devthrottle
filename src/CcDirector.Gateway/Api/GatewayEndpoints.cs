@@ -373,7 +373,11 @@ internal static partial class GatewayEndpoints
         TimeProvider? spawnDoorClock = null,
         // Issue #4351: a factory's Boss seat and published version, for one account - read when a session in no factory
         // starts a factory's Boss. Null (tests, older callers) refuses that start; it never lets one by.
-        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null)
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null,
+        // Issue #4598: records a Boss started for a session in no factory, and reads the record a restore carries.
+        // Null leaves such a Boss without the authority to publish, as it was before the record existed.
+        SpawnFactory.BossStartRecorder? recordBossStart = null,
+        Func<string, (string Factory, string Seat)?>? bossStartOf = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -2121,6 +2125,16 @@ internal static partial class GatewayEndpoints
                 return Results.Problem("target director returned an empty session body", statusCode: StatusCodes.Status502BadGateway);
             created.DirectorId = target.DirectorId;
             FileLog.Write($"[GatewayEndpoints] restore: created continuation {created.SessionId} on {target.DirectorId} for dead {row.SessionId}");
+
+            // A continued Boss is still the Boss (issue #4598): its record, if the dead session had one, is carried.
+            try
+            {
+                SpawnFactory.CarryBossStart(row.SessionId, created.SessionId, bossStartOf, recordBossStart, "restore");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayEndpoints] restore: carrying the Boss record of {row.SessionId} to {created.SessionId} FAILED: {ex.Message}");
+            }
 
             // Which session took it, on the crash record, so its history says so. The claim above is what stops a second
             // start; this write failing costs the record that one session id and nothing else.
@@ -4921,7 +4935,8 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor);
+            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock, bossStartFor,
+            recordBossStart, bossStartOf);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);

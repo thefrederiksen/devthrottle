@@ -197,7 +197,10 @@ internal static class MachineEndpoints
         Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null,
         // Issue #4351: a factory's Boss seat and published version, for one account - read when a session in no factory
         // starts a factory's Boss. Null refuses that start; it never lets one by.
-        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null)
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor = null,
+        // Issue #4598: records a Boss started for a session in no factory. Null leaves such a Boss without the authority
+        // to publish, as it was before the record existed.
+        SpawnFactory.BossStartRecorder? recordBossStart = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -206,7 +209,7 @@ internal static class MachineEndpoints
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
-            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor);
+            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor, bossStartFor, recordBossStart);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -296,7 +299,8 @@ internal static class MachineEndpoints
         NewestReleaseWatch? newestRelease,
         Func<string, History.SessionFactoryLookup> sessionFactoryOf,
         Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor,
-        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor)
+        Func<TenantId, Factory.Definition.BossStartReader>? bossStartFor,
+        SpawnFactory.BossStartRecorder? recordBossStart)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
@@ -537,6 +541,17 @@ internal static class MachineEndpoints
 
             // The run-participant record, in the same shared place the resolution lives.
             SpawnMissionAndSeat.RecordParticipant(seatRun, workflowRuns, req, dto, machine, route);
+
+            // THE BOSS'S AUTHORITY (issue #4598): a Boss this request started for a session in no factory is recorded as
+            // started as the Boss. Never turned into an HTTP failure: the session exists.
+            try
+            {
+                SpawnFactory.RecordApprovedBossStart(ctx, dto.SessionId, recordBossStart, route);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MachineEndpoints] {route}: recording the Boss start of {dto.SessionId} FAILED - it has no authority to publish: {ex.Message}");
+            }
 
             FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/sessions: started sid={dto.SessionId}" +
                           (seatRun is null ? "" : $", seated on run {seatRun.Id} ({seatRun.WorkflowId} v{seatRun.WorkflowVersion})"));

@@ -42,6 +42,8 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
     private const string BossChild = "44444444-4444-4444-8444-444444444444";
     private const string Stranger = "55555555-5555-4555-8555-555555555555";
     private const string OtherFactorySession = "66666666-6666-4666-8666-666666666666";
+    /// <summary>The Boss a session in no factory started (issue #4598): rules-only kit, recorded as started as the Boss.</summary>
+    private const string OwnersBoss = "77777777-7777-4777-8777-777777777777";
     private static readonly TenantId A = new("acct-a");
 
     private readonly GatewayDbTestHarness _h = new();
@@ -65,6 +67,7 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         [BossChild] = SessionFactoryLookup.In("invoices", "boss", 3) with { Kit = FactoryKits.RulesOnly },
         [Stranger] = SessionFactoryLookup.InNoFactory,
         [OtherFactorySession] = SessionFactoryLookup.In("payroll", "boss", 1) with { Kit = FactoryKits.Seat },
+        [OwnersBoss] = SessionFactoryLookup.In("invoices", "boss", 3) with { Kit = FactoryKits.RulesOnly, StartedAsTheBoss = true },
     };
 
     // The sessions the Gateway has a history row for, and who started each; a session missing here has no row yet.
@@ -466,6 +469,20 @@ public sealed class FactoryInboxEndpointTests : IAsyncLifetime
         var id = await LeaveFiledAndHanded("One");
 
         var (status, body) = await Post($"/sessions/{caller}/factory-inbox/{id}/decide", caller, new { kind = "noted" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("not_the_boss", Code(body));
+        Assert.Empty(_store.DecisionsOf(A, [Guid.Parse(id)]));
+    }
+
+    [Fact]
+    public async Task Decide_ByTheBossASessionInNoFactoryStarted_IsStillRefused_the_inboxs_Boss_is_a_seat_kit_Boss()
+    {
+        // Issue #4598's record lets that Boss publish its definition; the inbox keeps the Tech Lead's ruling of
+        // 5 November 2026 that its Boss is a seat-kit Boss.
+        var id = await LeaveFiledAndHanded("One");
+
+        var (status, body) = await Post($"/sessions/{OwnersBoss}/factory-inbox/{id}/decide", OwnersBoss, new { kind = "noted" });
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal("not_the_boss", Code(body));

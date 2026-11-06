@@ -197,7 +197,14 @@ internal static class SpawnFactory
             // routes already let publish any factory - and it may start exactly one seat: the factory's Boss, named
             // with both the factory and the Boss seat. Every other seat stays the definition's and its schedules'.
             if (req.Factory is not null && req.FactorySeat is not null)
-                return TryStartTheBoss(req, route, caller.SessionId, bossStart, seatRules, out error);
+            {
+                if (!TryStartTheBoss(req, route, caller.SessionId, bossStart, seatRules, out error)) return false;
+                // A Boss with a seat recorded (a published definition) is noted on THIS request, so the door records it
+                // as started as the Boss once the Director confirms the session (issue #4598). A body cannot set this.
+                if (req.FactorySeat is not null && req.Factory is not null)
+                    ctx.Items[BossStartItemKey] = new ApprovedBossStart(req.Factory, req.FactorySeat, caller.SessionId.ToString());
+                return true;
+            }
 
             // A settled answer: the caller belongs to no factory, so it has none to give.
             if (req.Factory is not null || namesASeat)
@@ -490,6 +497,59 @@ internal static class SpawnFactory
 
     /// <summary>The <see cref="HttpContext.Items"/> key that marks a request the GATEWAY built as a seat start and sent
     /// through a person's door (the talk). Only Gateway code can set it; a body cannot.</summary>
+    /// <summary>The request item an approved Boss start for a session in no factory is noted under (issue #4598).</summary>
+    internal const string BossStartItemKey = "cc.factory.boss-start";
+
+    /// <summary>A Boss start <see cref="TryStartTheBoss"/> approved on this request: the factory, the Boss seat, and the
+    /// session in no factory that asked.</summary>
+    internal sealed record ApprovedBossStart(string Factory, string Seat, string StartedBy);
+
+    /// <summary>Records a Boss start for a session the Director confirmed: its id, the factory, the seat, who asked
+    /// (the session in no factory, or the session restored) and how (<c>FactoryBossStartKinds</c>).</summary>
+    internal delegate void BossStartRecorder(string sessionId, string factory, string seat, string startedBy, string kind);
+
+    /// <summary>
+    /// RECORD THE BOSS START THIS REQUEST APPROVED (issue #4598), for the session the Director confirmed it started. The
+    /// Boss a session in no factory starts carries the rules-only kit a child carries, and only this record tells the
+    /// two apart, so it is written here - by the door, from the request's own approval, after the Director confirmed the
+    /// session - and never from anything a caller sends. A door with no recorder logs that the Boss starts without its
+    /// authority to publish rather than failing the start: the session is exactly what it was before the record existed.
+    /// </summary>
+    internal static void RecordApprovedBossStart(HttpContext ctx, string? sessionId, BossStartRecorder? record, string route)
+    {
+        if (ctx is null || !ctx.Items.TryGetValue(BossStartItemKey, out var v) || v is not ApprovedBossStart approved) return;
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            FileLog.Write($"[SpawnFactory] {route}: the Boss of '{approved.Factory}' was approved but the Director named no session - NOT recorded");
+            return;
+        }
+        if (record is null)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: this door has no Boss-start recorder - {sessionId} starts as the Boss of '{approved.Factory}' WITHOUT the Boss's authority to publish");
+            return;
+        }
+        record(sessionId, approved.Factory, approved.Seat, approved.StartedBy, Data.Entities.FactoryBossStartKinds.Started);
+        FileLog.Write($"[SpawnFactory] {route}: recorded {sessionId} as started as the Boss '{approved.Seat}' of '{approved.Factory}' by {approved.StartedBy}");
+    }
+
+    /// <summary>
+    /// CARRY A BOSS'S RECORD TO THE SESSION THAT CONTINUES IT (issue #4598): a verified restore, a Smart Restart reopen
+    /// or an interrupted-session continuation. Carried only when <paramref name="fromSessionId"/> itself was recorded as
+    /// started as the Boss, so a continued child of a Boss stays inherited whoever asked. The record names the factory
+    /// and seat it was made for, and is read back only against a history row with that same factory, seat and the
+    /// rules-only kit - so a continuation started as anything else gains nothing from it. Returns whether it was carried.
+    /// </summary>
+    internal static bool CarryBossStart(string? fromSessionId, string? toSessionId,
+        Func<string, (string Factory, string Seat)?>? bossStartOf, BossStartRecorder? record, string route)
+    {
+        if (record is null || bossStartOf is null || string.IsNullOrWhiteSpace(fromSessionId) || string.IsNullOrWhiteSpace(toSessionId))
+            return false;
+        if (bossStartOf(fromSessionId) is not { } was) return false;
+        record(toSessionId, was.Factory, was.Seat, fromSessionId, Data.Entities.FactoryBossStartKinds.Restored);
+        FileLog.Write($"[SpawnFactory] {route}: {toSessionId} continues the Boss {fromSessionId} of '{was.Factory}' - its record is carried");
+        return true;
+    }
+
     internal const string GatewaySeatStartItemKey = "cc.factory.gateway-seat-start";
 
     /// <summary>Mark this request as a seat start the Gateway built itself, so the seat fields it set pass the door.

@@ -40,6 +40,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     private const string WriterSession = "74000000-0000-4000-8000-000000000008";
     /// <summary>A session the Boss spawned: it inherits the boss seat with a rules-only kit, and is not the Boss.</summary>
     private const string BossChildSession = "74000000-0000-4000-8000-000000000009";
+    /// <summary>The Boss the owner talks to (issue #4598): started as the boss seat by a session in no factory, so it
+    /// carries the rules-only kit a child also carries - and it IS the Boss.</summary>
+    private const string OwnersBossSession = "74000000-0000-4000-8000-000000000010";
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
     private static readonly TenantId B = new("acct-b");
@@ -101,6 +104,10 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         NamedNoFactorySession => SessionFactoryLookup.InNoFactory with { Name = NamedNoFactorySessionName },
         BossSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Name = BossSessionName, Kit = FactoryKits.Seat },
         BossChildSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with { Kit = FactoryKits.RulesOnly },
+        OwnersBossSession => SessionFactoryLookup.In(TheFactory, "boss", 1) with
+        {
+            Kit = FactoryKits.RulesOnly, StartedAsTheBoss = true,
+        },
         WriterSession => SessionFactoryLookup.In(TheFactory, "writer", 1),
         _ => SessionFactoryLookup.NotKnown,
     };
@@ -383,8 +390,10 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory, "writer", "boss"), ErrorOf(writer));
         Assert.Equal(
             $"A session of factory '{TheFactory}' may not publish its definition: only its Boss publishes, and this session is " +
-            "the seat 'writer', not the boss seat 'boss'. Save a draft; the factory's Boss publishes it, and a change to the " +
-            "Boss's own seat needs the owner's approval.",
+            "the seat 'writer', not the boss seat 'boss'. Who can publish: the owner (in the Cockpit), a session in no " +
+            "factory, or a session STARTED AS the seat 'boss' - by its schedule, its trigger, the owner's Talk button, or by " +
+            $"a session in no factory with 'cc-devthrottle session spawn <repo> --factory {TheFactory} --seat boss'. Save a " +
+            "draft; the factory's Boss publishes it, and a change to the Boss's own seat needs the owner's approval.",
             ErrorOf(writer));
         Assert.Equal("FactorySessionMayNotPublish", Field(writer, "outcome"));
 
@@ -505,6 +514,65 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Contains("inherited the seat 'boss' from the session that started it", ErrorOf(refused));
         Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
         Assert.Equal(403, Status(Restore(Session(BossChildSession), 1, expect: 2)));
+        Assert.Equal(1, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void A_SESSION_THE_BOSS_SPAWNED_IS_TOLD_WHO_CAN_PUBLISH_and_how_to_start_a_Boss()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var refused = Publish(Session(BossChildSession), 2, "Yes.");
+
+        Assert.Contains("Who can publish: the owner", ErrorOf(refused));
+        Assert.Contains($"'cc-devthrottle session spawn <repo> --factory {TheFactory} --seat boss'", ErrorOf(refused));
+        Assert.DoesNotContain("Ask the Boss session", ErrorOf(refused));
+    }
+
+    [Fact]
+    public void THE_BOSS_STARTED_BY_A_SESSION_IN_NO_FACTORY_PUBLISHES_ITS_OWN_SEAT_WITH_THE_OWNERS_WORDS_and_records_them()
+    {
+        const string words = "Can you not publish it for me?";
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(OwnersBossSession), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+
+        var published = Publish(Session(OwnersBossSession), 2, words, replaces: 1);
+
+        Assert.Equal(200, Status(published));
+        var version = Version(published);
+        Assert.Equal(2, version.PublishedVersion);
+        Assert.Equal(OwnersBossSession, version.PublishedBy);
+        Assert.Equal(words, version.OwnerApproval);
+    }
+
+    [Fact]
+    public void THE_BOSS_STARTED_BY_A_SESSION_IN_NO_FACTORY_PUBLISHES_ANOTHER_SEATS_CHANGE_WITH_NO_OWNERS_WORDS()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(OwnersBossSession), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+
+        var published = Publish(Session(OwnersBossSession), 2);
+
+        Assert.Equal(200, Status(published));
+        Assert.Equal(OwnersBossSession, Version(published).PublishedBy);
+        Assert.Null(Version(published).OwnerApproval);
+    }
+
+    [Fact]
+    public void THE_BOSS_STARTED_BY_A_SESSION_IN_NO_FACTORY_STILL_NEEDS_THE_OWNERS_WORDS_FOR_ITS_OWN_SEAT()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Publish(Person(), 1);
+        Save(Session(OwnersBossSession), DefinitionFixture.PublishableEdit("seats/boss.yaml", "Run the factory.", "Run the factory well."), expect: 1);
+
+        var refused = Publish(Session(OwnersBossSession), 2);
+
+        Assert.Equal(403, Status(refused));
+        Assert.Equal("BossSeatNeedsOwnerApproval", Field(refused, "outcome"));
         Assert.Equal(1, Version(Published(Person())).Version);
     }
 

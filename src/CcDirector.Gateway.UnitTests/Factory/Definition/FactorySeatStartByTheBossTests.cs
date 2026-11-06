@@ -199,6 +199,19 @@ public sealed class FactorySeatStartByTheBossTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Start_ByTheBossASessionInNoFactoryStarted_IsStillRefused_its_record_lets_it_publish_and_nothing_more()
+    {
+        // Issue #4598 lets the recorded Boss publish its definition. Seat starts keep the Tech Lead's ruling of
+        // 5 November 2026: a Boss with the rules-only kit was not started as the Boss for them.
+        await StartAsync(SessionFactoryLookup.In("warmforward", "boss", 1) with { Kit = FactoryKits.RulesOnly, StartedAsTheBoss = true });
+
+        var response = await Start("scout");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
     public async Task Start_TheFirstPrompt_CarriesTheBriefTheWayBackAndTheJob_AndNotTheBossConduct()
     {
         await StartAsync();

@@ -306,6 +306,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>What the owner has seen and cleared of each alert (<c>alert_marks</c>, the Alerts mission).</summary>
     public DbSet<AlertMarkEntity> AlertMarks => Set<AlertMarkEntity>();
 
+    /// <summary>Sessions the Gateway started as a factory's Boss for a session in no factory (issue #4598).</summary>
+    public DbSet<FactoryBossStartEntity> FactoryBossStarts => Set<FactoryBossStartEntity>();
+
     /// <summary>Named work lists (<c>worklists</c>).</summary>
     public DbSet<WorkListEntity> WorkLists => Set<WorkListEntity>();
 
@@ -782,6 +785,17 @@ public sealed class GatewayDbContext : DbContext
             b.ToTable("alert_marks");
             b.HasKey(e => new { e.TenantId, e.AlertId });
             b.Property(e => e.AlertId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<FactoryBossStartEntity>(b =>
+        {
+            b.ToTable("factory_boss_starts");
+            b.HasKey(e => new { e.TenantId, e.SessionId });
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Factory).HasMaxLength(128);
+            b.Property(e => e.Seat).HasMaxLength(128);
+            b.Property(e => e.StartedBy).HasMaxLength(64);
+            b.Property(e => e.Kind).HasMaxLength(16);
         });
 
         modelBuilder.Entity<CronFailureNoticeEntity>(b =>
@@ -2698,6 +2712,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<CronRunEntity>(modelBuilder);
         ApplyTenantScope<CronFailureNoticeEntity>(modelBuilder);
         ApplyTenantScope<AlertMarkEntity>(modelBuilder);
+        ApplyTenantScope<FactoryBossStartEntity>(modelBuilder);
         ApplyTenantScope<WorkListEntity>(modelBuilder);
         ApplyTenantScope<WorkListItemEntity>(modelBuilder);
         ApplyTenantScope<WorkflowEntity>(modelBuilder);
@@ -2827,6 +2842,8 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<CronFailureNoticeEntity>().Property(e => e.Cause).UseCollation("C");
             // alert_marks: the alert id is an exact key, compared byte-ordinally (the Alerts mission).
             modelBuilder.Entity<AlertMarkEntity>().Property(e => e.AlertId).UseCollation("C");
+            // factory_boss_starts: the session id is an exact key, compared byte-ordinally (issue #4598).
+            modelBuilder.Entity<FactoryBossStartEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<PushSubscriptionEntity>().Property(e => e.Endpoint).UseCollation("C");
             modelBuilder.Entity<SessionSpendEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<MissionNoteEntity>().Property(e => e.Key).UseCollation("C");
