@@ -200,6 +200,9 @@ public sealed class SessionPreambleFileTests : IDisposable
 
     // ---------- the factory kit line (issue #4609) ----------
 
+    // The injected-text store never reads the age of its cache, so a fixed time keeps these tests off the real clock.
+    private static readonly DateTime FixedTime = new(2026, 11, 6, 7, 0, 0, DateTimeKind.Utc);
+
     /// <summary>A home seat of a factory whose kit is written to disk, with a brief and grants.</summary>
     private Session MakeFactorySeat(bool brief = true, bool grants = true, bool home = true)
     {
@@ -221,7 +224,7 @@ public sealed class SessionPreambleFileTests : IDisposable
     {
         var store = new InjectedTextStore(Path.Combine(_dir, "long-cache.json"));
         store.WriteCache(new InjectedTextCacheEntry(
-            UseYours: true, Yours: string.Join("\n", Enumerable.Repeat("A fleet rule the agent should know about.", 250)), CachedAtUtc: DateTime.UtcNow));
+            UseYours: true, Yours: string.Join("\n", Enumerable.Repeat("A fleet rule the agent should know about.", 250)), CachedAtUtc: FixedTime));
         return store;
     }
 
@@ -270,7 +273,7 @@ public sealed class SessionPreambleFileTests : IDisposable
     {
         var session = MakeFactorySeat();
         var store = new InjectedTextStore(Path.Combine(_dir, "broken-cache.json"));
-        store.WriteCache(new InjectedTextCacheEntry(UseYours: true, Yours: null, CachedAtUtc: DateTime.UtcNow));
+        store.WriteCache(new InjectedTextCacheEntry(UseYours: true, Yours: null, CachedAtUtc: FixedTime));
 
         var text = AdditionalContext(SessionPreambleFile.Render(session, "TEST-MACHINE", user: null, store));
 
