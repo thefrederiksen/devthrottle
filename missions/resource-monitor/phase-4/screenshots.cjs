@@ -34,7 +34,7 @@ const BASE = process.argv[2] || "http://127.0.0.1:7955";
   await expand("devlinux");
 
   await expand("demo-win11");
-  await page.waitForSelector('[data-testid="fmr-empty"]', { timeout: 20000 });
+  await page.waitForSelector('[data-testid="fmr-chart-CPU"]', { timeout: 20000 });
   await table.screenshot({ path: `${OUT}/04-demo-win11-offline-expanded.png` });
   await expand("demo-win11");
 
