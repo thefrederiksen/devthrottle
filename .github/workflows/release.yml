@@ -134,13 +134,24 @@ jobs:
   # ---------------------------------------------------------------
   # Job 1b: Build the main CC Director Avalonia app (macOS arm64)
   # ---------------------------------------------------------------
-  # Runs on the Apple-Silicon runner (macos-14) for a native osx-arm64 build --
-  # no cross-compile. Produces a self-contained, ad-hoc-signed .app bundle zipped
-  # for distribution. Unsigned/non-notarized by design (no Apple Developer
-  # account): the auto-updater strips the Gatekeeper quarantine flag on install.
+  # Runs on the Apple-Silicon runner for a native osx-arm64 build -- no cross-compile. Produces a
+  # self-contained .app bundle, zipped for distribution, signed with our own certificate (issue
+  # #4518): NOT notarized, because that needs a paid Apple Developer account, so the auto-updater
+  # still strips the Gatekeeper quarantine flag on install. The signature is there for the PRIVACY
+  # PERMISSIONS, not for Gatekeeper - macOS keys a permission to the signing identity, and an ad-hoc
+  # signature gave every build a different one, so every update threw away every permission the user
+  # had granted.
+  #
+  # WHY macos-15 AND NOT macos-latest. macos-14 was retired by GitHub on 2 November 2026 and every
+  # macOS job in this workflow was CANCELLED WITH NO RUNNER on 6 November, which killed the v2.36.0
+  # release outright - v2.35.1 had built on it the day before. Nothing here pins
+  # MACOSX_DEPLOYMENT_TARGET, so the build machine's software development kit decides the oldest
+  # macOS these binaries will run on: moving to macos-latest would silently raise that floor for
+  # every user on an older Mac. macos-15 is the smallest step that has a runner. Raising it again is
+  # a decision about which macOS versions we still support, not a tidy-up.
   build-director-mac:
     name: Build CC Director (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify-tested
 
     steps:
@@ -207,7 +218,7 @@ jobs:
   # core tools only - a tool ships when it has "ship": true in tools/registry.json.
   build-python-bundle-mac:
     name: Build Python Tools Bundle (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify-tested
 
     steps:
@@ -238,7 +249,7 @@ jobs:
   # as an ad-hoc-signed "DevThrottle Setup.app" (same model as the Director app).
   build-setup-mac:
     name: Build Setup Wizard (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify-tested
 
     steps:
@@ -607,7 +618,7 @@ jobs:
   # Ad-hoc signed like the other macOS binaries; the installer strips the Gatekeeper quarantine.
   build-launcher-mac:
     name: Build CC Launcher (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify-tested
 
     steps:
