@@ -12,7 +12,7 @@ namespace CcDirector.Core.Tests.Machine;
 /// link-compiled into each test project that needs it, exactly as <c>ResourceSampleContract</c> and
 /// <c>PinnedMachineMemory</c> are. It never ships in the product.
 ///
-/// Build its samples with <see cref="ResourceSampleBuilder"/>. Two ways to drive it:
+/// Build its samples with <see cref="FakeSampleBuilder"/>. Two ways to drive it:
 /// <list type="bullet">
 /// <item><see cref="Set"/> - every read returns this sample until it is changed.</item>
 /// <item><see cref="Enqueue"/> - reads return these in order; once they run out, the last one repeats,
@@ -34,8 +34,8 @@ public sealed class FakeResourceProbe : IResourceProbe
         _current = initial;
     }
 
-    /// <summary>Creates the probe returning a healthy machine: <see cref="ResourceSampleBuilder"/>'s defaults.</summary>
-    public FakeResourceProbe() : this(new ResourceSampleBuilder().Build())
+    /// <summary>Creates the probe returning a healthy machine: <see cref="FakeSampleBuilder"/>'s defaults.</summary>
+    public FakeResourceProbe() : this(new FakeSampleBuilder().Build())
     {
     }
 
@@ -95,7 +95,7 @@ public sealed class FakeResourceProbe : IResourceProbe
 /// per-process processor is a share of the whole machine, and an unreadable part carries its reason and no
 /// figures.
 /// </summary>
-public sealed class ResourceSampleBuilder
+public sealed class FakeSampleBuilder
 {
     /// <summary>One gibibyte, for writing sizes in a test.</summary>
     public const ulong Gigabyte = 1024UL * 1024 * 1024;
@@ -126,7 +126,7 @@ public sealed class ResourceSampleBuilder
     private string? _processesUnreadableReason;
 
     /// <summary>When the sample is taken. Converted to UTC kind; pass a UTC time.</summary>
-    public ResourceSampleBuilder At(DateTime takenAtUtc)
+    public FakeSampleBuilder At(DateTime takenAtUtc)
     {
         if (takenAtUtc.Kind != DateTimeKind.Utc)
             throw new ArgumentException("A sample is stamped in UTC.", nameof(takenAtUtc));
@@ -138,21 +138,21 @@ public sealed class ResourceSampleBuilder
     /// The processor. <paramref name="busiestCorePercent"/> defaults to the whole-machine figure, the lowest
     /// the busiest core can honestly read.
     /// </summary>
-    public ResourceSampleBuilder Cpu(double totalBusyPercent, double? busiestCorePercent = null, int logicalCoreCount = 8)
+    public FakeSampleBuilder Cpu(double totalBusyPercent, double? busiestCorePercent = null, int logicalCoreCount = 8)
     {
         _cpu = CpuReading.Read(totalBusyPercent, busiestCorePercent ?? totalBusyPercent, logicalCoreCount);
         return this;
     }
 
     /// <summary>The processor could not be read, for this reason.</summary>
-    public ResourceSampleBuilder CpuUnreadable(string reason)
+    public FakeSampleBuilder CpuUnreadable(string reason)
     {
         _cpu = CpuReading.Unreadable(reason);
         return this;
     }
 
     /// <summary>The machine's memory: how much is installed and how much can be handed out without paging.</summary>
-    public ResourceSampleBuilder Memory(ulong totalBytes, ulong availableBytes)
+    public FakeSampleBuilder Memory(ulong totalBytes, ulong availableBytes)
     {
         _memoryTotal = totalBytes;
         _memoryAvailable = availableBytes;
@@ -161,7 +161,7 @@ public sealed class ResourceSampleBuilder
     }
 
     /// <summary>Only the available memory changes; the installed total stays.</summary>
-    public ResourceSampleBuilder MemoryAvailable(ulong availableBytes)
+    public FakeSampleBuilder MemoryAvailable(ulong availableBytes)
     {
         _memoryAvailable = availableBytes;
         _memoryUnreadableReason = null;
@@ -169,7 +169,7 @@ public sealed class ResourceSampleBuilder
     }
 
     /// <summary>Memory could not be read, for this reason.</summary>
-    public ResourceSampleBuilder MemoryUnreadable(string reason)
+    public FakeSampleBuilder MemoryUnreadable(string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("An unreadable reading must say why, in plain English.", nameof(reason));
@@ -178,28 +178,28 @@ public sealed class ResourceSampleBuilder
     }
 
     /// <summary>The swap or page file.</summary>
-    public ResourceSampleBuilder Swap(ulong totalBytes, ulong usedBytes)
+    public FakeSampleBuilder Swap(ulong totalBytes, ulong usedBytes)
     {
         _swap = SwapReading.Read(totalBytes, usedBytes);
         return this;
     }
 
     /// <summary>Swap could not be read, for this reason.</summary>
-    public ResourceSampleBuilder SwapUnreadable(string reason)
+    public FakeSampleBuilder SwapUnreadable(string reason)
     {
         _swap = SwapReading.Unreadable(reason);
         return this;
     }
 
     /// <summary>The stall readings, built with <see cref="StallReading.Read"/> or <see cref="StallReading.Unreadable"/>.</summary>
-    public ResourceSampleBuilder Stall(StallReading stall)
+    public FakeSampleBuilder Stall(StallReading stall)
     {
         _stall = stall;
         return this;
     }
 
     /// <summary>The disks, for the slowness diagnosis only. Replaces the default single idle solid-state disk.</summary>
-    public ResourceSampleBuilder Disks(params DiskEvidence[] disks)
+    public FakeSampleBuilder Disks(params DiskEvidence[] disks)
     {
         ArgumentNullException.ThrowIfNull(disks);
         _disks = DiskEvidenceSet.Read(disks);
@@ -207,7 +207,7 @@ public sealed class ResourceSampleBuilder
     }
 
     /// <summary>The disks could not be listed, for this reason.</summary>
-    public ResourceSampleBuilder DisksUnreadable(string reason)
+    public FakeSampleBuilder DisksUnreadable(string reason)
     {
         _disks = DiskEvidenceSet.Unreadable(reason);
         return this;
@@ -223,7 +223,7 @@ public sealed class ResourceSampleBuilder
     /// <param name="name">The process name.</param>
     /// <param name="cpuPercent">Processor as a share of the WHOLE machine, 0 to 100; null when refused.</param>
     /// <param name="memoryBytes">Resident memory; null when refused.</param>
-    public ResourceSampleBuilder Process(int pid, int? parentPid, string name, double? cpuPercent, ulong? memoryBytes)
+    public FakeSampleBuilder Process(int pid, int? parentPid, string name, double? cpuPercent, ulong? memoryBytes)
     {
         _processes ??= new List<ProcessReading>();
         _processes.Add(new ProcessReading(pid, parentPid, name, StartTimeUtc: null, cpuPercent, memoryBytes,
@@ -233,7 +233,7 @@ public sealed class ResourceSampleBuilder
     }
 
     /// <summary>The process list could not be read, for this reason.</summary>
-    public ResourceSampleBuilder ProcessesUnreadable(string reason)
+    public FakeSampleBuilder ProcessesUnreadable(string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("An unreadable reading must say why, in plain English.", nameof(reason));
@@ -246,7 +246,7 @@ public sealed class ResourceSampleBuilder
     /// with <see cref="ResourceUnreadableReasons.FirstSample"/>, while memory and swap, which are levels and
     /// not rates, still read.
     /// </summary>
-    public ResourceSampleBuilder FirstSample()
+    public FakeSampleBuilder FirstSample()
     {
         _cpu = CpuReading.Unreadable(ResourceUnreadableReasons.FirstSample);
         _processesUnreadableReason = ResourceUnreadableReasons.FirstSample;

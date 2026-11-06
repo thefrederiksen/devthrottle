@@ -144,8 +144,9 @@ public static class ResourceMeterFold
 
             if (directorSessions is { } own)
             {
-                var prefix = ResourceViewText.LowerBoundPrefix(own.ProcessesWithUnknownFigures);
-                lines.Add($"This Director's sessions {prefix}{ResourceViewText.Bytes(own.MemoryBytes)} and {prefix}{ResourceViewText.PercentOf100(own.CpuPercent)} CPU");
+                var memoryPrefix = ResourceViewText.LowerBoundPrefix(own.ProcessesWithUnknownMemory);
+                var cpuPrefix = ResourceViewText.LowerBoundPrefix(own.ProcessesWithUnknownProcessor);
+                lines.Add($"This Director's sessions {memoryPrefix}{ResourceViewText.Bytes(own.MemoryBytes)} and {cpuPrefix}{ResourceViewText.PercentOf100(own.CpuPercent)} CPU");
             }
 
             lines.Add($"Updated {Age(nowUtc - sample.TakenAtUtc)} - click for detail");

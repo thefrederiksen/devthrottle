@@ -21,7 +21,7 @@ public class FakeResourceProbeTests
 
     private static ResourceSample Variant(string name)
     {
-        var builder = new ResourceSampleBuilder();
+        var builder = new FakeSampleBuilder();
         _ = name switch
         {
             "default" => builder,
@@ -50,23 +50,23 @@ public class FakeResourceProbeTests
     [Fact]
     public void Build_Default_IsTheMacMiniFromTheMockUps()
     {
-        var sample = new ResourceSampleBuilder().Build();
+        var sample = new FakeSampleBuilder().Build();
 
         Assert.True(sample.Cpu.CouldRead);
         Assert.Equal(28, sample.Cpu.TotalBusyPercent);
         Assert.Equal(71, sample.Cpu.BusiestCorePercent);
         Assert.Equal(8, sample.Cpu.LogicalCoreCount);
-        Assert.Equal(16 * ResourceSampleBuilder.Gigabyte, sample.Memory.TotalBytes);
+        Assert.Equal(16 * FakeSampleBuilder.Gigabyte, sample.Memory.TotalBytes);
         Assert.True(sample.Memory.CouldRead);
-        Assert.Equal(ResourceSampleBuilder.DefaultTakenAtUtc, sample.TakenAtUtc);
-        Assert.Equal(ResourceSampleBuilder.DefaultTakenAtUtc, sample.Memory.TakenAtUtc);
-        Assert.Single(sample.Processes.Processes, process => process.Pid == ResourceSampleBuilder.DefaultDirectorPid);
+        Assert.Equal(FakeSampleBuilder.DefaultTakenAtUtc, sample.TakenAtUtc);
+        Assert.Equal(FakeSampleBuilder.DefaultTakenAtUtc, sample.Memory.TakenAtUtc);
+        Assert.Single(sample.Processes.Processes, process => process.Pid == FakeSampleBuilder.DefaultDirectorPid);
     }
 
     [Fact]
     public void Build_CpuUnreadable_LeavesMemoryReadable_BecauseThePartsFailIndependently()
     {
-        var sample = new ResourceSampleBuilder().CpuUnreadable(Reason).Build();
+        var sample = new FakeSampleBuilder().CpuUnreadable(Reason).Build();
 
         Assert.False(sample.Cpu.CouldRead);
         Assert.Equal(Reason, sample.Cpu.UnreadableReason);
@@ -77,7 +77,7 @@ public class FakeResourceProbeTests
     [Fact]
     public void Build_FirstSample_RatesUnreadable_LevelsStillRead()
     {
-        var sample = new ResourceSampleBuilder().FirstSample().Build();
+        var sample = new FakeSampleBuilder().FirstSample().Build();
 
         Assert.Equal(ResourceUnreadableReasons.FirstSample, sample.Cpu.UnreadableReason);
         Assert.Equal(ResourceUnreadableReasons.FirstSample, sample.Processes.UnreadableReason);
@@ -88,7 +88,7 @@ public class FakeResourceProbeTests
     [Fact]
     public void Process_FirstCall_ReplacesTheDefaultDirectorProcess()
     {
-        var sample = new ResourceSampleBuilder().Process(42, 1, "dotnet", 12, 100 * ResourceSampleBuilder.Megabyte).Build();
+        var sample = new FakeSampleBuilder().Process(42, 1, "dotnet", 12, 100 * FakeSampleBuilder.Megabyte).Build();
 
         var process = Assert.Single(sample.Processes.Processes);
         Assert.Equal(42, process.Pid);
@@ -97,7 +97,7 @@ public class FakeResourceProbeTests
     [Fact]
     public void Process_RefusedFigures_IsListedAndNamedWithNullFigures()
     {
-        var sample = new ResourceSampleBuilder().Process(10, 1, "mds_stores", null, null).Build();
+        var sample = new FakeSampleBuilder().Process(10, 1, "mds_stores", null, null).Build();
 
         var process = Assert.Single(sample.Processes.Processes);
         Assert.Equal("mds_stores", process.Name);
@@ -108,19 +108,19 @@ public class FakeResourceProbeTests
     [Fact]
     public void At_NotUtc_Throws()
     {
-        Assert.Throws<ArgumentException>(() => new ResourceSampleBuilder().At(new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Local)));
+        Assert.Throws<ArgumentException>(() => new FakeSampleBuilder().At(new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Local)));
     }
 
     [Fact]
     public void MemoryUnreadable_NoReason_Throws()
     {
-        Assert.Throws<ArgumentException>(() => new ResourceSampleBuilder().MemoryUnreadable(" "));
+        Assert.Throws<ArgumentException>(() => new FakeSampleBuilder().MemoryUnreadable(" "));
     }
 
     [Fact]
     public void Read_AfterSet_ReturnsTheSameSampleEveryTime()
     {
-        var hot = new ResourceSampleBuilder().Cpu(99).Build();
+        var hot = new FakeSampleBuilder().Cpu(99).Build();
         var probe = new FakeResourceProbe();
 
         probe.Set(hot);
@@ -133,8 +133,8 @@ public class FakeResourceProbeTests
     [Fact]
     public void Read_AfterEnqueue_ReturnsThemInOrder_ThenRepeatsTheLast()
     {
-        var first = new ResourceSampleBuilder().Cpu(10).Build();
-        var second = new ResourceSampleBuilder().Cpu(20).Build();
+        var first = new FakeSampleBuilder().Cpu(10).Build();
+        var second = new FakeSampleBuilder().Cpu(20).Build();
         var probe = new FakeResourceProbe();
 
         probe.Enqueue(first, second);
@@ -147,8 +147,8 @@ public class FakeResourceProbeTests
     [Fact]
     public void Set_DiscardsWhatWasQueued()
     {
-        var queued = new ResourceSampleBuilder().Cpu(10).Build();
-        var set = new ResourceSampleBuilder().Cpu(90).Build();
+        var queued = new FakeSampleBuilder().Cpu(10).Build();
+        var set = new FakeSampleBuilder().Cpu(90).Build();
         var probe = new FakeResourceProbe();
         probe.Enqueue(queued);
 
@@ -160,8 +160,8 @@ public class FakeResourceProbeTests
     [Fact]
     public void Enqueue_ANullInTheMiddle_Throws_AndQueuesNothing()
     {
-        var first = new ResourceSampleBuilder().Cpu(10).Build();
-        var initial = new ResourceSampleBuilder().Cpu(50).Build();
+        var first = new FakeSampleBuilder().Cpu(10).Build();
+        var initial = new FakeSampleBuilder().Cpu(50).Build();
         var probe = new FakeResourceProbe(initial);
 
         Assert.Throws<ArgumentException>(() => probe.Enqueue(first, null!, first));

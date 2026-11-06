@@ -44,7 +44,7 @@ public sealed record ResourceProcessRow(int Pid, string Name, int Depth, string 
 /// <param name="Label">What the row is called, for example "140 - Resource Monitor - Dev - Linux probe".</param>
 /// <param name="SessionId">The session's id, or null for the two rows that are not sessions.</param>
 /// <param name="Factory">The session's Factory value, or the dash when it has none.</param>
-/// <param name="CpuText">"62%", "at least 62%" when some processes could not be measured, or the dash.</param>
+/// <param name="CpuText">"62%", "at least 62%" when some processes' processor could not be measured, or the dash.</param>
 /// <param name="MemoryText">"1.21 GB", "at least 1.21 GB", or the dash.</param>
 /// <param name="ProcessCountText">How many processes, or the dash for "Everything else", which is not counted.</param>
 /// <param name="Processes">The process tree, root first, in tree order. Empty for the rows that do not expand.</param>
@@ -175,13 +175,12 @@ public static class ResourceDetailFold
     private static ResourceUsageRow SessionRow(ResourceSessionInput session, Dictionary<int, ProcessReading>? byPid)
     {
         var usage = session.Usage;
-        var prefix = ResourceViewText.LowerBoundPrefix(usage.ProcessesWithUnknownFigures);
         return new ResourceUsageRow(
             session.Label,
             usage.SessionId,
             session.Factory ?? ResourceViewText.CannotReadText,
-            prefix + ResourceViewText.PercentOf100(usage.CpuPercent),
-            prefix + ResourceViewText.Bytes(usage.MemoryBytes),
+            ResourceViewText.LowerBoundPrefix(usage.ProcessesWithUnknownProcessor) + ResourceViewText.PercentOf100(usage.CpuPercent),
+            ResourceViewText.LowerBoundPrefix(usage.ProcessesWithUnknownMemory) + ResourceViewText.Bytes(usage.MemoryBytes),
             usage.Pids.Count.ToString(CultureInfo.InvariantCulture),
             byPid is null ? Array.Empty<ResourceProcessRow>() : Tree(usage.RootPid, usage.Pids, byPid));
     }
@@ -208,12 +207,12 @@ public static class ResourceDetailFold
         Dictionary<int, ProcessReading>? byPid)
     {
         var dash = ResourceViewText.CannotReadText;
-        if (sample is null || byPid is null || !byPid.TryGetValue(directorPid, out var director)
-            || sessions.Any(session => session.Usage.ProcessesWithUnknownFigures > 0))
+        if (sample is null || byPid is null || !byPid.TryGetValue(directorPid, out var director))
             return new ResourceUsageRow(EverythingElseLabel, null, dash, dash, dash, dash, Array.Empty<ResourceProcessRow>());
 
         var cpuText = dash;
-        if (sample.Cpu.CouldRead && director.CpuPercent is { } directorCpu)
+        if (sample.Cpu.CouldRead && director.CpuPercent is { } directorCpu
+            && sessions.All(session => session.Usage.ProcessesWithUnknownProcessor == 0))
         {
             var other = sample.Cpu.TotalBusyPercent - directorCpu - sessions.Sum(session => session.Usage.CpuPercent);
             // Below zero means our processes were measured as using more than the whole machine - they are not
@@ -224,7 +223,8 @@ public static class ResourceDetailFold
 
         var memoryText = dash;
         var memory = sample.Memory;
-        if (ResourceViewText.MemoryUsedFraction(memory) is not null && director.MemoryBytes is { } directorMemory)
+        if (ResourceViewText.MemoryUsedFraction(memory) is not null && director.MemoryBytes is { } directorMemory
+            && sessions.All(session => session.Usage.ProcessesWithUnknownMemory == 0))
         {
             var used = memory.TotalBytes - memory.AvailableBytes;
             var ours = directorMemory + sessions.Aggregate(0UL, (sum, session) => sum + session.Usage.MemoryBytes);

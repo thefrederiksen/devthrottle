@@ -11,9 +11,9 @@ namespace CcDirector.Core.Tests.Machine;
 [Trait("Category", "Resources")]
 public class ResourceViewFoldTests
 {
-    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
-    private const ulong Mb = ResourceSampleBuilder.Megabyte;
-    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
+    private const ulong Mb = FakeSampleBuilder.Megabyte;
+    private static readonly DateTime At = FakeSampleBuilder.DefaultTakenAtUtc;
 
     private static ResourceSamplerState State(ResourceSample sample, ResourceLevel cpu = ResourceLevel.Normal, ResourceLevel memory = ResourceLevel.Normal) =>
         new(sample, new ResourcePressureVerdict(
@@ -31,7 +31,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_Healthy_ShowsTheMockUpFigures()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().Memory(16 * Gb, (ulong)(7.2 * Gb)).Build()));
+        var meter = Meter(State(new FakeSampleBuilder().Memory(16 * Gb, (ulong)(7.2 * Gb)).Build()));
 
         Assert.Equal("CPU", meter.Cpu.Label);
         Assert.Equal("28%", meter.Cpu.PercentText);
@@ -45,9 +45,9 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_Tooltip_MachineFiguresFirst_ThenThisDirectorsSessions()
     {
-        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], 0);
+        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], 0, 0);
 
-        var lines = Meter(State(new ResourceSampleBuilder().Build()), own).TooltipLines;
+        var lines = Meter(State(new FakeSampleBuilder().Build()), own).TooltipLines;
 
         Assert.Equal("devthrottle-mac-mini - 4 sessions running", lines[0]);
         Assert.Equal("CPU 28% of 8 cores - busiest core 71%", lines[1]);
@@ -60,9 +60,9 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_SessionsWithRefusedFigures_SayAtLeast()
     {
-        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], ProcessesWithUnknownFigures: 1);
+        var own = new SessionUsage("all", 0, 19, (ulong)(2.1 * Gb), [1, 2], ProcessesWithUnknownProcessor: 1, ProcessesWithUnknownMemory: 1);
 
-        var lines = Meter(State(new ResourceSampleBuilder().Build()), own).TooltipLines;
+        var lines = Meter(State(new FakeSampleBuilder().Build()), own).TooltipLines;
 
         Assert.Equal("This Director's sessions at least 2.10 GB and at least 19% CPU", lines[4]);
     }
@@ -70,7 +70,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_CpuUnreadable_ShowsADashAndWhy_MemoryKeepsItsRealFigure()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().CpuUnreadable("the counters are switched off").Build(), cpu: ResourceLevel.Unknown));
+        var meter = Meter(State(new FakeSampleBuilder().CpuUnreadable("the counters are switched off").Build(), cpu: ResourceLevel.Unknown));
 
         Assert.False(meter.Cpu.CouldRead);
         Assert.Null(meter.Cpu.Fraction);
@@ -85,7 +85,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_CpuUnreadable_IsUnknownEvenIfTheVerdictSaysCritical_ADashIsNeverColouredRed()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().CpuUnreadable("gone").Build(), cpu: ResourceLevel.Critical));
+        var meter = Meter(State(new FakeSampleBuilder().CpuUnreadable("gone").Build(), cpu: ResourceLevel.Critical));
 
         Assert.Equal(ResourceLevel.Unknown, meter.Cpu.Level);
     }
@@ -93,7 +93,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_MemoryUnreadable_ShowsADash_NeverZero()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().MemoryUnreadable("sysctl refused").Build(), memory: ResourceLevel.Unknown));
+        var meter = Meter(State(new FakeSampleBuilder().MemoryUnreadable("sysctl refused").Build(), memory: ResourceLevel.Unknown));
 
         Assert.Null(meter.Memory.Fraction);
         Assert.Equal(ResourceViewText.CannotReadText, meter.Memory.PercentText);
@@ -104,7 +104,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_MemoryMoreAvailableThanInstalled_IsUnreadable_NotAConfidentBar()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().Memory(8 * Gb, 9 * Gb).Build()));
+        var meter = Meter(State(new FakeSampleBuilder().Memory(8 * Gb, 9 * Gb).Build()));
 
         Assert.False(meter.Memory.CouldRead);
         Assert.Equal(ResourceLevel.Unknown, meter.Memory.Level);
@@ -124,7 +124,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_FirstSample_CpuSaysWhyNotZero()
     {
-        var meter = Meter(State(new ResourceSampleBuilder().FirstSample().Build(), cpu: ResourceLevel.Unknown));
+        var meter = Meter(State(new FakeSampleBuilder().FirstSample().Build(), cpu: ResourceLevel.Unknown));
 
         Assert.Equal($"CPU cannot read: {ResourceUnreadableReasons.FirstSample}", meter.Cpu.Tooltip);
         Assert.Equal("55%", meter.Memory.PercentText);
@@ -135,7 +135,7 @@ public class ResourceViewFoldTests
     [InlineData(ResourceLevel.Critical)]
     public void Meter_Level_IsTheVerdictsLevel_ForEachBarOnItsOwn(ResourceLevel level)
     {
-        var meter = Meter(State(new ResourceSampleBuilder().Cpu(97, 100).Build(), cpu: level));
+        var meter = Meter(State(new FakeSampleBuilder().Cpu(97, 100).Build(), cpu: level));
 
         Assert.Equal(level, meter.Cpu.Level);
         Assert.Equal(ResourceLevel.Normal, meter.Memory.Level);
@@ -146,7 +146,7 @@ public class ResourceViewFoldTests
     [InlineData(ResourceLevel.Critical)]
     public void Meter_MemoryLevel_ColoursOnlyTheMemoryBar(ResourceLevel level)
     {
-        var meter = Meter(State(new ResourceSampleBuilder().MemoryAvailable(1 * Gb).Build(), memory: level));
+        var meter = Meter(State(new FakeSampleBuilder().MemoryAvailable(1 * Gb).Build(), memory: level));
 
         Assert.Equal(level, meter.Memory.Level);
         Assert.Equal(ResourceLevel.Normal, meter.Cpu.Level);
@@ -160,7 +160,7 @@ public class ResourceViewFoldTests
     [InlineData(120, "Updated 2 minutes ago - click for detail")]
     public void Meter_Updated_SaysHowOldTheReadingIs(int ageSeconds, string expected)
     {
-        var meter = ResourceMeterFold.Build(State(new ResourceSampleBuilder().Build()), "m", 1, null, At.AddSeconds(ageSeconds));
+        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, At.AddSeconds(ageSeconds));
 
         Assert.Equal(expected, meter.TooltipLines[^1]);
     }
@@ -168,7 +168,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Meter_SwapUnreadable_TooltipSaysSo()
     {
-        var lines = Meter(State(new ResourceSampleBuilder().SwapUnreadable("no page file counter").Build())).TooltipLines;
+        var lines = Meter(State(new FakeSampleBuilder().SwapUnreadable("no page file counter").Build())).TooltipLines;
 
         Assert.Contains("Swap cannot read: no page file counter", lines);
     }
@@ -200,24 +200,24 @@ public class ResourceViewFoldTests
 
     // ---- the detail screen ----
 
-    private static ResourceSample Machine() => new ResourceSampleBuilder()
+    private static ResourceSample Machine() => new FakeSampleBuilder()
         .Cpu(40, 90)
         .Memory(16 * Gb, 6 * Gb)
-        .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
-        .Process(200, ResourceSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
+        .Process(FakeSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+        .Process(200, FakeSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
         .Process(201, 200, "dotnet", 20, 1 * Gb)
         .Process(202, 201, "mds_stores", null, null)
-        .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
+        .Process(300, FakeSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
         .Build();
 
     private static ResourceDetailView Detail(ResourceSample sample, params ResourceSessionInput[] sessions) =>
-        ResourceDetailFold.Build(State(sample), [sample], "devthrottle-mac-mini", sessions, ResourceSampleBuilder.DefaultDirectorPid);
+        ResourceDetailFold.Build(State(sample), [sample], "devthrottle-mac-mini", sessions, FakeSampleBuilder.DefaultDirectorPid);
 
     private static readonly ResourceSessionInput Busy =
-        new(new SessionUsage("s-140", 200, 30, 2 * Gb, [200, 201, 202], ProcessesWithUnknownFigures: 1), "140 - Resource Monitor - Dev", null);
+        new(new SessionUsage("s-140", 200, 30, 2 * Gb, [200, 201, 202], ProcessesWithUnknownProcessor: 1, ProcessesWithUnknownMemory: 1), "140 - Resource Monitor - Dev", null);
 
     private static readonly ResourceSessionInput Quiet =
-        new(new SessionUsage("s-112", 300, 3, 500 * Mb, [300], 0), "112 - Shorts - Builder", "Marketing");
+        new(new SessionUsage("s-112", 300, 3, 500 * Mb, [300], 0, 0), "112 - Shorts - Builder", "Marketing");
 
     [Fact]
     public void Detail_Tiles_CpuAndMemoryOnly()
@@ -286,11 +286,25 @@ public class ResourceViewFoldTests
     }
 
     [Fact]
+    public void Detail_OnlyTheProcessorIsAFloor_MemoryStaysExact_AndEverythingElseKeepsItsMemory()
+    {
+        var partial = new ResourceSessionInput(
+            new SessionUsage("s-7", 300, 3, 500 * Mb, [300], ProcessesWithUnknownProcessor: 1, ProcessesWithUnknownMemory: 0), "7 - P", null);
+
+        var detail = Detail(Machine(), partial);
+
+        Assert.Equal("at least 3%", detail.Sessions[0].CpuText);
+        Assert.Equal("500 MB", detail.Sessions[0].MemoryText);
+        Assert.Equal(ResourceViewText.CannotReadText, detail.EverythingElse.CpuText);
+        Assert.Equal("9.12 GB", detail.EverythingElse.MemoryText);
+    }
+
+    [Fact]
     public void Detail_EverythingElse_IsADash_WhenTheDirectorsOwnFiguresAreRefused()
     {
-        var sample = new ResourceSampleBuilder()
-            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", null, null)
-            .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
+        var sample = new FakeSampleBuilder()
+            .Process(FakeSampleBuilder.DefaultDirectorPid, 1, "cc-director", null, null)
+            .Process(300, FakeSampleBuilder.DefaultDirectorPid, "codex", 3, 500 * Mb)
             .Build();
 
         var row = Detail(sample, Quiet).EverythingElse;
@@ -303,10 +317,10 @@ public class ResourceViewFoldTests
     public void Detail_EverythingElse_IsADash_WhenOurProcessesSumPastTheMachine_NeverZero()
     {
         // 28% machine but a session measured at 40%; 8.86 GB used but sessions holding 12 GB (shared pages).
-        var greedy = new ResourceSessionInput(new SessionUsage("s-9", 300, 40, 12 * Gb, [300], 0), "9 - Greedy", null);
-        var sample = new ResourceSampleBuilder()
-            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
-            .Process(300, ResourceSampleBuilder.DefaultDirectorPid, "dotnet", 40, 12 * Gb)
+        var greedy = new ResourceSessionInput(new SessionUsage("s-9", 300, 40, 12 * Gb, [300], 0, 0), "9 - Greedy", null);
+        var sample = new FakeSampleBuilder()
+            .Process(FakeSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+            .Process(300, FakeSampleBuilder.DefaultDirectorPid, "dotnet", 40, 12 * Gb)
             .Build();
 
         var row = Detail(sample, greedy).EverythingElse;
@@ -318,13 +332,13 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_Tree_AProcessWhoseParentIsGone_IsStillListed_UnderTheRoot()
     {
-        var sample = new ResourceSampleBuilder()
-            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
-            .Process(200, ResourceSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
+        var sample = new FakeSampleBuilder()
+            .Process(FakeSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+            .Process(200, FakeSampleBuilder.DefaultDirectorPid, "claude", 10, 1 * Gb)
             .Process(205, 999, "orphaned-build", 5, 100 * Mb)
             .Process(206, null, "no-parent-known", 1, 10 * Mb)
             .Build();
-        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 16, 2 * Gb, [200, 205, 206], 0), "1 - S", null);
+        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 16, 2 * Gb, [200, 205, 206], 0, 0), "1 - S", null);
 
         var row = Detail(sample, session).Sessions[0];
 
@@ -336,11 +350,11 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_Tree_RootGone_TheRestAreStillListed()
     {
-        var sample = new ResourceSampleBuilder()
-            .Process(ResourceSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
+        var sample = new FakeSampleBuilder()
+            .Process(FakeSampleBuilder.DefaultDirectorPid, 1, "cc-director", 2, 400 * Mb)
             .Process(201, 200, "dotnet", 20, 1 * Gb)
             .Build();
-        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 20, 1 * Gb, [200, 201], 0), "1 - S", null);
+        var session = new ResourceSessionInput(new SessionUsage("s-1", 200, 20, 1 * Gb, [200, 201], 0, 0), "1 - S", null);
 
         var row = Detail(sample, session).Sessions[0];
 
@@ -352,10 +366,10 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_MemoryHistory_AnUnreadableSampleIsAGap()
     {
-        var good = new ResourceSampleBuilder().At(At).Memory(10 * Gb, 5 * Gb).Build();
-        var bad = new ResourceSampleBuilder().At(At.AddSeconds(5)).MemoryUnreadable("gone").Build();
+        var good = new FakeSampleBuilder().At(At).Memory(10 * Gb, 5 * Gb).Build();
+        var bad = new FakeSampleBuilder().At(At.AddSeconds(5)).MemoryUnreadable("gone").Build();
 
-        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], FakeSampleBuilder.DefaultDirectorPid);
 
         Assert.Equal([0.5, null], detail.Memory.History.Select(point => point.Fraction));
     }
@@ -363,7 +377,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_ProcessesUnreadable_RowsKeepTheirTotals_ButHaveNoTree()
     {
-        var sample = new ResourceSampleBuilder().ProcessesUnreadable("first sample, no interval yet").Build();
+        var sample = new FakeSampleBuilder().ProcessesUnreadable("first sample, no interval yet").Build();
 
         var detail = Detail(sample, Quiet);
 
@@ -375,7 +389,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_CpuUnreadable_TileIsADashWithTheReason_MemoryTileStillReal()
     {
-        var detail = Detail(new ResourceSampleBuilder().CpuUnreadable("the counters are switched off").Build());
+        var detail = Detail(new FakeSampleBuilder().CpuUnreadable("the counters are switched off").Build());
 
         Assert.Equal(ResourceViewText.CannotReadText, detail.Cpu.Headline);
         Assert.Equal("cannot read: the counters are switched off", detail.Cpu.Detail);
@@ -386,10 +400,10 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_History_AnUnreadableSampleIsAGap_NeverAZero()
     {
-        var good = new ResourceSampleBuilder().At(At).Cpu(50).Build();
-        var bad = new ResourceSampleBuilder().At(At.AddSeconds(5)).CpuUnreadable("gone").Build();
+        var good = new FakeSampleBuilder().At(At).Cpu(50).Build();
+        var bad = new FakeSampleBuilder().At(At.AddSeconds(5)).CpuUnreadable("gone").Build();
 
-        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+        var detail = ResourceDetailFold.Build(State(bad), [good, bad], "m", [], FakeSampleBuilder.DefaultDirectorPid);
 
         Assert.Equal([0.5, null], detail.Cpu.History.Select(point => point.Fraction));
         Assert.Equal([At, At.AddSeconds(5)], detail.Cpu.History.Select(point => point.AtUtc));
@@ -398,7 +412,7 @@ public class ResourceViewFoldTests
     [Fact]
     public void Detail_NotYetSampled_TilesAreDashes()
     {
-        var detail = ResourceDetailFold.Build(ResourceSamplerState.NotYetSampled, [], "m", [], ResourceSampleBuilder.DefaultDirectorPid);
+        var detail = ResourceDetailFold.Build(ResourceSamplerState.NotYetSampled, [], "m", [], FakeSampleBuilder.DefaultDirectorPid);
 
         Assert.Equal(ResourceViewText.CannotReadText, detail.Cpu.Headline);
         Assert.Equal(ResourceViewText.CannotReadText, detail.Memory.Headline);

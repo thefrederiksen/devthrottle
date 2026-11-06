@@ -11,7 +11,7 @@ namespace CcDirector.Core.Tests.Machine;
 [Trait("Category", "Resources")]
 public class ResourceCrossingDetectorTests
 {
-    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+    private static readonly DateTime At = FakeSampleBuilder.DefaultTakenAtUtc;
 
     private static ResourcePressureVerdict Cpu(ResourceLevel level) =>
         new([new ResourceVerdict(ResourceKind.Cpu, level, $"processor {level}")]);
