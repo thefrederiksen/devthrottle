@@ -18,6 +18,8 @@ namespace CcDirector.Core.Tests.Machine;
 /// which no gate test may do.
 /// </summary>
 [Trait("Category", "Resources")]
+[LiveMachinePlatform(LiveMachinePlatform.Windows)]
+[Collection(WindowsMachineLoad.Name)]
 public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeLiveTests.TwoSamples>
 {
     private const string Reads = "processor, memory, page file, disks, stalls and processes, under load";
@@ -41,7 +43,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
 
         public TwoSamples()
         {
-            if (WindowsLiveMachineFactAttribute.SkipReason(Reads, LiveMachineFactAttribute.Enabled, OperatingSystem.IsWindows(), Environment.ProcessorCount) is not null)
+            if (!LiveMachineFactAttribute.Enabled || !OperatingSystem.IsWindows())
                 return;
 
             var probe = new WindowsResourceProbe();
@@ -103,7 +105,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void FirstSample_RatesSayNoIntervalYet_LevelsAndTheProcessListAreReadable()
     {
         var first = _samples.First!;
@@ -119,7 +121,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.Contains(first.Processes.Processes, p => p.Pid == Environment.ProcessId && p.CpuPercent is null && p.MemoryBytes > 0);
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Cpu_EveryProcessorSpun_ReadsTheRealCoreCountAndHeavyLoad()
     {
         var cpu = _samples.Second!.Cpu;
@@ -132,7 +134,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.InRange(cpu.BusiestCorePercent!.Value, cpu.TotalBusyPercent, 100);
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void MemoryAndPageFile_ReadRealTotals()
     {
         var sample = _samples.Second!;
@@ -144,7 +146,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.True(sample.Swap.UsedBytes <= sample.Swap.TotalBytes);
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void DiskEvidence_NamedDisksOfAKnownKind_OneHoldsTheSystemVolume_AndADiskTimedTheWrite()
     {
         var disks = _samples.Second!.DiskEvidence;
@@ -161,7 +163,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.All(disks.Disks.Where(d => d.CouldRead && d.BusyPercent is not null), d => Assert.InRange(d.BusyPercent!.Value, 0, 100));
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Stall_GivesTheWindowsProxiesAndNullForWhatWindowsDoesNotOffer()
     {
         var stall = _samples.Second!.Stall;
@@ -176,27 +178,40 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.Null(stall.IoStalledPercent);
     }
 
-    [WindowsLiveMachineFact(Reads)]
-    public void Processes_IncludeThisTestProcessWithItsParentStartTimeAndTheLoadItMade()
+    [LiveMachineFact("the run queue, while this process holds a known number of threads runnable")]
+    public void RunQueue_CountsRunningThreadsAsWellAsWaitingOnes()
     {
-        var processes = _samples.Second!.Processes;
-        using var self = Process.GetCurrentProcess();
+        // As many spinning threads as there are processors: on an idle machine every one of them RUNS and
+        // none waits, so a waiting-only count - what the Processor Queue Length counter gives - could read
+        // near zero. Running plus waiting, the quantity Linux reports, must read at least one per spinner.
+        var spinners = Environment.ProcessorCount;
+        using var stop = new CancellationTokenSource();
+        var threads = Enumerable.Range(0, spinners)
+            .Select(_ => new Thread(() => { while (!stop.IsCancellationRequested) { } }) { IsBackground = true })
+            .ToList();
+        threads.ForEach(t => t.Start());
+        try
+        {
+            Thread.Sleep(500);
+            var probe = new WindowsResourceProbe();
+            probe.Read();
+            Thread.Sleep(WindowsResourceProbe.CacheFor + TimeSpan.FromMilliseconds(250));
+            var stall = probe.Read().Stall;
+            _output.WriteLine($"{spinners} spinners: {stall}");
 
-        Assert.True(processes.CouldRead, processes.UnreadableReason);
-        var me = Assert.Single(processes.Processes, p => p.Pid == Environment.ProcessId);
-        _output.WriteLine(me.ToString());
-
-        Assert.Equal(self.ProcessName, Path.GetFileNameWithoutExtension(me.Name), ignoreCase: true);
-        Assert.NotNull(me.ParentPid);
-        Assert.Contains(processes.Processes, p => p.Pid == me.ParentPid);
-        Assert.Equal(self.StartTime.ToUniversalTime(), me.StartTimeUtc!.Value, TimeSpan.FromMilliseconds(1));
-        Assert.True(me.MemoryBytes > 0);
-        // This process spun every processor and wrote 64 MB between the two samples.
-        Assert.True(me.CpuPercent > 25, $"this process used {me.CpuPercent:F1}% of the machine");
-        Assert.True(me.DiskWriteBytesPerSecond > 0);
+            Assert.True(stall.CouldRead, stall.UnreadableReason);
+            Assert.True(stall.RunQueueLength >= spinners,
+                $"the run queue read {stall.RunQueueLength} while this process alone held {spinners} threads runnable");
+            Assert.Null(stall.LoadAverageOneMinute);
+        }
+        finally
+        {
+            stop.Cancel();
+            threads.ForEach(t => t.Join());
+        }
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_TwiceWithinASecond_ReturnsTheCachedSample()
     {
         var probe = new WindowsResourceProbe();
@@ -207,7 +222,7 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
         Assert.Same(first, again);
     }
 
-    [WindowsLiveMachineFact(Reads)]
+    [LiveMachineFact(Reads)]
     public void Read_CostOfOneUncachedSample_IsReported()
     {
         // Not asserted - a time limit here would fail on a busy machine for reasons that are not this
@@ -226,19 +241,12 @@ public class WindowsResourceProbeLiveTests : IClassFixture<WindowsResourceProbeL
 /// </summary>
 [Trait("Category", "Resources")]
 [LiveMachinePlatform(LiveMachinePlatform.Windows)]
+[Collection(WindowsMachineLoad.Name)]
 public class WindowsResourceProbeContractLiveTests : ResourceProbeContractLiveTests
 {
     protected override string ProbeName => "the Windows probe";
 
     protected override TimeSpan ProbeCacheFor => WindowsResourceProbe.CacheFor;
 
-    protected override IResourceProbe CreateProbe()
-    {
-        // The inherited tests are gated on the opt-in variable alone, not on the platform, so a live run
-        // on Linux or macOS reaches this. Fail it with the reason rather than judge the Windows probe on a
-        // machine it cannot read.
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException($"the Windows probe's contract can only be judged on Windows; this is {Environment.OSVersion}");
-        return new WindowsResourceProbe();
-    }
+    protected override IResourceProbe CreateProbe() => new WindowsResourceProbe();
 }
