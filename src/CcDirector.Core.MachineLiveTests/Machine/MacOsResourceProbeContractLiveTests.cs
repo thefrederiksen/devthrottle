@@ -39,4 +39,12 @@ public sealed class MacOsResourceProbeContractLiveTests : ResourceProbeContractL
     protected override IResourceProbe CreateProbe() => new MacOsResourceProbe();
 
     protected override string ProbeName => "the macOS probe";
+
+    /// <summary>
+    /// The macOS probe's own cache, named from the probe rather than copied, so it moves when the probe
+    /// does. It is defined as <see cref="MachineMemoryProbe.CacheFor"/> today - and this probe reads
+    /// memory through that one - so the two agree; stating it here through <c>MacOsResourceProbe</c>
+    /// means that stays true by reference and not by anyone remembering.
+    /// </summary>
+    protected override TimeSpan ProbeCacheFor => MacOsResourceProbe.CacheFor;
 }

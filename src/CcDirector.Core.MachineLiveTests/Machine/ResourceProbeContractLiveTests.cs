@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CcDirector.Core.Machine;
 using Xunit;
 
@@ -40,16 +41,103 @@ public abstract class ResourceProbeContractLiveTests
     protected abstract string ProbeName { get; }
 
     /// <summary>
+    /// HOW LONG THE PROBE UNDER TEST REUSES ONE SAMPLE. Every derived class must state it, and there is
+    /// deliberately no default.
+    ///
+    /// A default would be a run-time trap rather than a build-time one. Every probe today derives its
+    /// cache from <see cref="MachineMemoryProbe.CacheFor"/>, so a default of that constant would be
+    /// right for all three - but only BY CONVENTION, and a convention is only as good as the next
+    /// reader. The platform most likely to break it is the one not yet written: a Windows performance
+    /// counter needing a longer interval is the obvious candidate. With a default, that author inherits
+    /// a wait that is too short and finds out only when someone runs this suite by hand on that
+    /// platform with the opt-in set - which is the exact population of runs that carried the hole this
+    /// hook was added to close, unseen, for its whole life. Declared here with no default, a missing
+    /// answer fails the BUILD, on every platform, including the two-hourly full run.
+    /// </summary>
+    protected abstract TimeSpan ProbeCacheFor { get; }
+
+    /// <summary>
+    /// Added to every cache wait so the second read is past the cache rather than on its boundary.
+    /// <c>Thread.Sleep</c> never returns early and every probe timestamps before its own pass, so load
+    /// only ever lengthens the real gap; the margin covers the resolution of the comparison, not drift.
+    /// </summary>
+    private static readonly TimeSpan Margin = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// The wait that puts a second <c>Read</c> past every cache in the way: the longer of the probe's
+    /// own and the memory probe's, because the macOS probe reads memory THROUGH that one
+    /// (<c>MacOsResourceProbe</c> holds a <see cref="MachineMemoryProbe"/>) while the Linux probe parses
+    /// <c>/proc/meminfo</c> itself. A sample is past both only once the longer has elapsed.
+    /// </summary>
+    private TimeSpan CacheToWaitOut =>
+        ProbeCacheFor > MachineMemoryProbe.CacheFor ? ProbeCacheFor : MachineMemoryProbe.CacheFor;
+
+    /// <summary>
+    /// Sleeps for at least <paramref name="atLeast"/> and reports the time that ACTUALLY passed, read
+    /// from the monotonic clock. The failure messages below quote this rather than the requested figure,
+    /// so what they state is a measurement and not an intention.
+    /// </summary>
+    private static TimeSpan SleepAndMeasure(TimeSpan atLeast)
+    {
+        var from = Stopwatch.GetTimestamp();
+        Thread.Sleep(atLeast);
+        return Stopwatch.GetElapsedTime(from);
+    }
+
+    /// <summary>
+    /// PROVES THE PROBE WENT BACK TO THE MACHINE, and is the reason every wait in this file is computed
+    /// from <see cref="ProbeCacheFor"/> rather than written as a number.
+    ///
+    /// The two stamps are compared for INEQUALITY, never for order. A cache hit hands back the stored
+    /// record with the stamp untouched, so equal means one reading however the clock has moved; and
+    /// <see cref="ResourceSample.TakenAtUtc"/> says on the type that ordering two of these stamps is the
+    /// defect that interface was changed to remove - time synchronisation steps the wall clock while the
+    /// cache ages on the monotonic one, so a step backwards larger than the wait would make a
+    /// legitimately fresh sample compare as earlier and fail this test on correct code, with a message
+    /// that said something false.
+    /// </summary>
+    private void AssertItWentBackToTheMachine(
+        ResourceSample first, ResourceSample second, TimeSpan waited, string whatTheCheckNeeded)
+    {
+        Assert.True(second.TakenAtUtc != first.TakenAtUtc,
+            $"{ProbeName} returned the SAME sample twice, so {whatTheCheckNeeded} came from a single "
+            + "reading of the machine and the checks below would pass without measuring anything. The "
+            + "second Read came out of the probe's cache because the wait was shorter than that cache: "
+            + $"waited {waited.TotalSeconds:F3} seconds (measured), cache declared as "
+            + $"{CacheToWaitOut.TotalSeconds:F3} seconds, both samples stamped {first.TakenAtUtc:O}. "
+            + $"Check {nameof(ProbeCacheFor)} in this derived class against the cache interval of the "
+            + "probe it tests.");
+    }
+
+    /// <summary>
     /// Reads twice, far enough apart that the rates have an interval, which is the state most of these
     /// checks are about. The first sample is a legitimate sample in its own right - see
     /// <see cref="TheFirstSample_StillNamesEveryProcess_AndIsUnreadableOnlyForTheRates"/> - it simply has
     /// no rates yet.
+    ///
+    /// IT PROVES IT GOT TWO READINGS AND DOES NOT TRUST THE SLEEP TO HAVE BEEN LONG ENOUGH. Every probe
+    /// reuses one sample for <see cref="ProbeCacheFor"/> and hands back the identical record while it
+    /// does, so a wait shorter than that cache makes the second <c>Read</c> return the FIRST sample.
+    /// Nothing fails when that happens: every rate is the first sample's, every contract check still
+    /// passes, and the suite reports green on a run that read the machine exactly once - in the one test
+    /// written to catch a cross-platform disagreement no other test can see. A check whose pass
+    /// condition is the ABSENCE of a stale sample certifies a run that never happened, so the condition
+    /// is restated here as a PRESENCE - a second, distinct reading - and asserted.
+    ///
+    /// The wait is the longer of the probe's own cache and the memory probe's, because a probe may read
+    /// memory through that one, and a sample is past both only once the longer has elapsed.
     /// </summary>
     private ResourceSample ReadWithRates(IResourceProbe probe)
     {
-        probe.Read();
-        Thread.Sleep(MachineMemoryProbe.CacheFor + TimeSpan.FromMilliseconds(250));
-        return probe.Read();
+        var first = probe.Read();
+
+        var waited = SleepAndMeasure(CacheToWaitOut + Margin);
+
+        var second = probe.Read();
+
+        AssertItWentBackToTheMachine(first, second, waited, "every rate the checks below read");
+
+        return second;
     }
 
     [LiveMachineFact("the whole machine, twice")]
@@ -69,13 +157,23 @@ public abstract class ResourceProbeContractLiveTests
     {
         var cores = Environment.ProcessorCount;
         var probe = CreateProbe();
-        probe.Read();
+        var before = probe.Read();
 
-        // ONE core's worth of load, in this very process, for long enough to cross a sampling interval.
+        // ONE core's worth of load, in this very process, held long enough to cross a sampling interval
+        // AND to outlast the probe's cache - whichever is longer. Three seconds was the figure here while
+        // the wait was written as a number, and it is kept as the floor: it is how long the load needs to
+        // run to be visible. The cache is the other floor, and a probe that caches for longer than that
+        // would otherwise hand back `before`, whose rates are empty - failing with a message blaming the
+        // probe for giving this process no processor figure, which is the one test in phase one written
+        // to catch a cross-platform disagreement, pointing its reader at the wrong culprit.
         using var load = new OneCoreLoad();
-        Thread.Sleep(TimeSpan.FromSeconds(3));
+        var loadFloor = TimeSpan.FromSeconds(3);
+        var waited = SleepAndMeasure(
+            CacheToWaitOut + Margin > loadFloor ? CacheToWaitOut + Margin : loadFloor);
         var sample = probe.Read();
         load.Stop();
+
+        AssertItWentBackToTheMachine(before, sample, waited, "this process's processor share");
 
         Assert.True(sample.Processes.CouldRead,
             $"{ProbeName} could not read the process list under load: {sample.Processes.UnreadableReason}");

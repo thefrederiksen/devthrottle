@@ -17,6 +17,13 @@ public sealed class LinuxResourceProbeContractLiveTests : ResourceProbeContractL
     protected override IResourceProbe CreateProbe() => new LinuxResourceProbe();
 
     protected override string ProbeName => "the Linux probe";
+
+    /// <summary>
+    /// The Linux probe's own cache, named from the probe rather than copied, so it moves when the probe
+    /// does. It is defined as <see cref="MachineMemoryProbe.CacheFor"/> today; stating it here through
+    /// <c>LinuxResourceProbe</c> means that stays true by reference and not by anyone remembering.
+    /// </summary>
+    protected override TimeSpan ProbeCacheFor => LinuxResourceProbe.CacheFor;
 }
 
 /// <summary>
