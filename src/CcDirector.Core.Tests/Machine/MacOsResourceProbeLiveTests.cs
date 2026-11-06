@@ -122,13 +122,17 @@ public class MacOsResourceProbeLiveTests
         var sample = SecondSample();
 
         Assert.True(sample.Cpu.CouldRead, sample.Cpu.UnreadableReason);
+        // BOTH ARE NULLABLE ON THE SHARED TYPE AND NEITHER MAY BE NULL HERE. A platform that cannot
+        // offer a core count or a busiest core says null; macOS offers both, so a null would be a
+        // failed read dressed as "not offered".
         Assert.Equal(Environment.ProcessorCount, sample.Cpu.LogicalCoreCount);
+        Assert.NotNull(sample.Cpu.BusiestCorePercent);
         Assert.InRange(sample.Cpu.TotalBusyPercent, 0.0, 100.0);
-        Assert.InRange(sample.Cpu.BusiestCorePercent, 0.0, 100.0);
+        Assert.InRange(sample.Cpu.BusiestCorePercent.Value, 0.0, 100.0);
 
         // The busiest core cannot be less busy than the machine's average, by definition. This catches
         // the two figures being taken from each other's arithmetic.
-        Assert.True(sample.Cpu.BusiestCorePercent >= sample.Cpu.TotalBusyPercent - 0.001,
+        Assert.True(sample.Cpu.BusiestCorePercent.Value >= sample.Cpu.TotalBusyPercent - 0.001,
             $"the machine read {sample.Cpu.TotalBusyPercent:F2}% busy but its busiest core read " +
             $"{sample.Cpu.BusiestCorePercent:F2}%");
 
@@ -453,7 +457,7 @@ public class MacOsResourceProbeLiveTests
         // own processor time is divided by the core count too, or the two sides would be comparing
         // different quantities and the test would demand the probe be wrong by the core count.
         var expectedPercent =
-            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / sample.Cpu.LogicalCoreCount;
+            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / CoreCountOf(sample);
         var us = sample.Processes.Processes.Single(process => process.Pid == Environment.ProcessId);
 
         // A FLOOR ON THE WORK DONE, NOT ON THE MACHINE'S SPEED. Eight units of arithmetic across two
@@ -476,6 +480,7 @@ public class MacOsResourceProbeLiveTests
         Assert.True(sample.Cpu.CouldRead, sample.Cpu.UnreadableReason);
         Assert.True(sample.Cpu.TotalBusyPercent > 0);
         Assert.True(sample.Cpu.BusiestCorePercent > 0);
+
     }
 
     // =============================================================================================
@@ -521,7 +526,7 @@ public class MacOsResourceProbeLiveTests
         // call, the way the two-thread test does. An interval of minus an hour, or of an hour, would put
         // this out by orders of magnitude rather than within a factor of two.
         var expectedPercent =
-            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / sample.Cpu.LogicalCoreCount;
+            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / CoreCountOf(sample);
         var us = sample.Processes.Processes.Single(process => process.Pid == Environment.ProcessId);
 
         Assert.NotNull(us.CpuPercent);
@@ -622,4 +627,17 @@ public class MacOsResourceProbeLiveTests
 
         return probe.Read();
     }
+    /// <summary>
+    /// The machine's logical core count, asserted to be present first. It is nullable on the shared
+    /// type because a platform may not offer it; macOS does, and dividing by a null would otherwise
+    /// make every expected figure null and the comparison vacuous.
+    /// </summary>
+    private static int CoreCountOf(ResourceSample sample)
+    {
+        Assert.NotNull(sample.Cpu.LogicalCoreCount);
+        Assert.True(sample.Cpu.LogicalCoreCount > 0);
+        return sample.Cpu.LogicalCoreCount.Value;
+    }
+
+
 }
