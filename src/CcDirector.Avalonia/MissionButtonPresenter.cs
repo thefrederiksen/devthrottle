@@ -43,6 +43,11 @@ public sealed class MissionButtonPresenter
     private readonly Action<Action> _post;
     private Session? _session;
 
+    /// <summary>The verdict the buttons show, copied from the session on the screen thread only (in <see cref="Attach"/>
+    /// and in the posted redraw). Every getter reads this one copy, so a stamp arriving on another thread mid-redraw
+    /// cannot make one redraw read two verdicts; the stamp is shown when its posted redraw runs.</summary>
+    private MissionButtonDisplay? _shown;
+
     /// <param name="post">Runs work on the screen thread. The Gateway's stamp arrives on another thread, and every
     /// change to what the buttons show is made on the screen thread so the window never reads half of one.</param>
     public MissionButtonPresenter(Action<Action> post)
@@ -58,10 +63,15 @@ public sealed class MissionButtonPresenter
 
     /// <summary>The Gateway's verdict for the selected session, or null when there is none or this build cannot draw it
     /// (see <see cref="Problem"/>).</summary>
-    public MissionButtonDisplay? Verdict => Problem is null ? _session?.GatewayMissionButton : null;
+    public MissionButtonDisplay? Verdict => Problem is null ? _shown : null;
 
     /// <summary>Why the Gateway's verdict cannot be drawn: a colour key this build does not know. Null otherwise.</summary>
-    public string? Problem => ProblemWith(_session?.GatewayMissionButton);
+    public string? Problem => ProblemWith(_shown);
+
+    /// <summary>The line shown in place of the button when the Gateway's verdict cannot be drawn - the
+    /// <see cref="Problem"/>, verbatim - so an unknown colour key does not look exactly like "the Gateway sent no
+    /// verdict". Null when there is nothing to say, which is also when the line is hidden.</summary>
+    public string? Note => Problem;
 
     /// <summary>True when there is a button to draw.</summary>
     public bool IsVisible => Verdict is not null;
@@ -110,6 +120,7 @@ public sealed class MissionButtonPresenter
         FileLog.Write($"[MissionButtonPresenter] Attach: session={session?.Id.ToString() ?? "(none)"}");
         if (_session is not null) _session.OnGatewayDisplayStateChanged -= OnDisplayStateChanged;
         _session = session;
+        _shown = session?.GatewayMissionButton;
         if (session is not null) session.OnGatewayDisplayStateChanged += OnDisplayStateChanged;
         LogProblem();
         RaiseChanged();
@@ -119,6 +130,7 @@ public sealed class MissionButtonPresenter
 
     private void ApplyDisplayState()
     {
+        _shown = _session?.GatewayMissionButton;
         LogProblem();
         RaiseChanged();
     }

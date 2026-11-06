@@ -79,14 +79,37 @@ cannot be compiled; it plays no part in this change) and run as instance `slot-5
 |---|---|
 | `02-mission-without-document.png` | Before the fixture document was published: the Mission's name in the indigo outline, in the tab bar and in the corner. |
 | `03-mission-without-document-tooltip.png` | Its tooltip, the Gateway's words: the name and "This Mission has no document yet." The border stays on hover. |
-| `04-mission-without-document-click.png` | Clicking it opens nothing. The Director's log: `address=(none)` then `the Gateway gave no document address, opening nothing`. |
+| `04-mission-without-document-click.png` | The frame after clicking it. A click that opens nothing looks the same as no click, so the frame is not the evidence; the Director's log is, quoted below. |
 | `05-no-mission.png` | Session 149 selected: yellow "No mission" in the tab bar, and the corner followed the selection to "No mission". The session works normally. |
 | `06-no-mission-tooltip.png` | Its tooltip, the Gateway's words, telling how to attach a Mission. |
-| `11-no-mission-click-opens-nothing.png` | Clicking "No mission" (tab bar and corner) opens nothing; the log shows both clicks and "opening nothing". |
+| `11-no-mission-click-opens-nothing.png` | The frame after clicking "No mission" in the tab bar. As with 04, the evidence that nothing opened is the log quoted below. |
 | `07-mission-with-document.png` | Session 129 after `python tools\cc-dev-reports\main.py open ...\phase2-fixture-report.html --mission-document` run from source inside it: the Gateway answered with the mission document link and the goal, and both buttons turned indigo filled without reselecting. |
 | `08-mission-with-document-tooltip.png` | The tab bar tooltip: "Mission: Missions First-Class - phase 2 fixture" and "Goal: Show the three states of the Mission button in a slot-5 Director, and open this page from it." |
 | `09-corner-tooltip.png` | The corner button, same session, same verdict. |
 | `10-mission-with-document-click-opens-report.png` | The click opened `https://gateway.devthrottle.com/r/f7cce310-60c1-4af7-93d1-1428dd8b9601`, which landed in the Cockpit on the fixture report. The corner button's click logged the same address. |
+
+Every Mission button click in that run, quoted exactly from the test Director's log
+(`%LOCALAPPDATA%\cc-director\instances\slot-5\logs\director\director-2026-11-06-5980.log`; a slot instance keeps
+its log under its own folder). Session `9a84795a...` is session 129, in the fixture Mission; `6d2b8a8c...` is
+session 149, in no Mission.
+
+```
+2026-11-06 07:03:52.797 [MainWindow] MissionButton_Click: session=9a84795a-327f-4967-8bd9-19f9f6d97567, address=(none)
+2026-11-06 07:03:52.798 [MainWindow] MissionButton_Click: the Gateway gave no document address, opening nothing
+2026-11-06 07:16:04.330 [MainWindow] MissionButton_Click: session=9a84795a-327f-4967-8bd9-19f9f6d97567, address=/r/f7cce310-60c1-4af7-93d1-1428dd8b9601
+2026-11-06 07:16:04.330 [MainWindow] MissionButton_Click: opening https://gateway.devthrottle.com/r/f7cce310-60c1-4af7-93d1-1428dd8b9601
+2026-11-06 07:21:36.447 [MainWindow] MissionButton_Click: session=9a84795a-327f-4967-8bd9-19f9f6d97567, address=/r/f7cce310-60c1-4af7-93d1-1428dd8b9601
+2026-11-06 07:21:36.448 [MainWindow] MissionButton_Click: opening https://gateway.devthrottle.com/r/f7cce310-60c1-4af7-93d1-1428dd8b9601
+2026-11-06 07:22:03.874 [MainWindow] MissionButton_Click: session=6d2b8a8c-0552-4bc6-9e58-6b1260f1da58, address=(none)
+2026-11-06 07:22:03.875 [MainWindow] MissionButton_Click: the Gateway gave no document address, opening nothing
+2026-11-06 07:22:15.717 [MainWindow] MissionButton_Click: session=6d2b8a8c-0552-4bc6-9e58-6b1260f1da58, address=(none)
+2026-11-06 07:22:15.718 [MainWindow] MissionButton_Click: the Gateway gave no document address, opening nothing
+```
+
+In order: 07:03:52 is the outline button clicked before the document existed (screenshot 04); 07:16:04 is the tab bar
+button after it was published (screenshot 10); 07:21:36 is the corner button on the same session; 07:22:03 is the tab
+bar "No mission" (screenshot 11) and 07:22:15 the corner "No mission". Those are the only five Mission button clicks
+in the log.
 
 The fixture report is committed as `phase2-fixture-report.html`. The fixture Mission was completed afterwards
 (`cc-devthrottle mission complete 1d5f359f-c09b-4363-bb38-05ef85c765d5`), the test Director was stopped with its named
@@ -154,6 +177,41 @@ the change to those two files is an optional parameter that defaults to null and
 selected parked tests that reach them (all of `Gateway.UnitTests`, 85 classes of `Core.Tests`) passed. The
 reviewer may ask for `-Gateway`.
 
-## Answers to the review
+## Answers to the review (`_briefs/missions-first-class/phase2-review.md`)
 
-(To be filled in when the separate review session has read the change.)
+1. **Screenshots 04 and 11 do not prove that nothing opened - ACCEPTED.** They cannot: a click that opens nothing
+   leaves the same frame as no click. The two rows now say so, and the evidence is the Director's log, quoted above
+   with timestamps for all five Mission button clicks of the run, including both clicks that opened nothing on the
+   outline button and both on "No mission".
+2. **The gate's verdict was OVER BUDGET - SETTLED by the Delivery Lead.** The Delivery Lead ran
+   `.\scripts	est-local.ps1 -Parked` on 5fc485fc5 and it was GREEN, every suite Completed, `CcDirector.Gateway.Tests`
+   included. The code changes made for findings 4 and 5 were then gated again with the default run; that result is in
+   "The gate after the review" below.
+3. **The four colours are not in `docs/VisualStyle.md` - ACCEPTED.** The four brushes are rows in section 1's
+   Semantic Colors table (the yellow noted as deliberately not the warning amber, because the owner asked for yellow),
+   and the three looks are rows in section 13's Button States table, with a note that the Gateway's key chooses them
+   and that they keep their border and text colour under the pointer.
+4. **The presenter read the verdict live, so one redraw could read two verdicts - ACCEPTED, fixed.** The presenter
+   now copies the session's verdict into one field, on the screen thread only (in `Attach` and in the posted redraw),
+   and every getter reads that copy, so the comment's promise is now true. The session replaces its verdict by one
+   reference assignment of a fresh copy, so the copy is always one whole verdict. Test:
+   `GatewayPush_BeforeThePostedRedrawRuns_EveryGetterStillReadsTheShownVerdict` - with a screen thread the test runs
+   by hand, a stamp leaves label, tooltip, look and address all on the old verdict until the posted redraw runs, then
+   all on the new one. Reading the session live, as before, fails its first assertion.
+5. **An unknown colour key is invisible on screen - CHANGED, as the Delivery Lead ruled.** The presenter has a `Note`
+   (its `Problem`, verbatim, null otherwise), and the window shows it in place of the button, in both places
+   (`TabBarMissionNote` beside the tab bar Cockpit button, `BtnMissionNote` beside the toolbar Cockpit button), in the
+   problem colour `TabBarWheelNote` uses (#F48771), cut with an ellipsis and with the whole sentence as its tooltip.
+   Tests: `Note_UnknownColourKey_IsTheProblemSoTheScreenSaysWhyThereIsNoButton`, `Note_KnownColourKey_IsNull` (all
+   three keys), `Note_GatewaySentNoVerdict_IsNull` (an older Gateway is not a problem and says nothing). Not
+   screenshotted: the live Gateway sends only known keys, so a real Director cannot be shown one; like the wheel's
+   note, the window's copying of the note onto the controls has no test, because it needs a screen.
+
+The reviewer's observation about a Director with no Gateway configured (the base is the loopback default, which the
+Cockpit button refuses on principle) needs no change: such a Director is sent no Mission verdict by any Gateway it is
+not connected to, and the brief asked for the configured base joined with the address. Noted here as the reviewer
+suggested.
+
+## The gate after the review
+
+(Filled in below.)

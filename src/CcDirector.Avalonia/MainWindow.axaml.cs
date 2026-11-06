@@ -3463,6 +3463,14 @@ public partial class MainWindow : Window
             text.Text = _missionPresenter.Label;
             ToolTip.SetTip(button, _missionPresenter.Tooltip);
         }
+
+        // An undrawable verdict shows its problem where the button would be, so it does not look like no verdict.
+        foreach (var note in new[] { TabBarMissionNote, BtnMissionNote })
+        {
+            note.IsVisible = _missionPresenter.Note is not null;
+            note.Text = _missionPresenter.Note ?? "";
+            ToolTip.SetTip(note, _missionPresenter.Note);
+        }
     }
 
     /// <summary>

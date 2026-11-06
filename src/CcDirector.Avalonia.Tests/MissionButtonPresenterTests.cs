@@ -110,6 +110,77 @@ public sealed class MissionButtonPresenterTests
     }
 
     [Fact]
+    public void Note_UnknownColourKey_IsTheProblemSoTheScreenSaysWhyThereIsNoButton()
+    {
+        // Arrange
+        var verdict = WithDocument;
+        verdict.ColorKey = "teal";
+
+        // Act
+        var (presenter, _) = NewPresenter(NewSession(verdict));
+
+        // Assert: the empty spot is explained on screen, in the presenter's own words.
+        Assert.NotNull(presenter.Note);
+        Assert.Equal(presenter.Problem, presenter.Note);
+        Assert.Contains("\"teal\"", presenter.Note);
+    }
+
+    [Theory]
+    [InlineData(MissionButtonDisplay.ColorMission)]
+    [InlineData(MissionButtonDisplay.ColorMissionOutline)]
+    [InlineData(MissionButtonDisplay.ColorWarning)]
+    public void Note_KnownColourKey_IsNull(string colorKey)
+    {
+        // Arrange
+        var verdict = WithDocument;
+        verdict.ColorKey = colorKey;
+
+        // Act
+        var (presenter, _) = NewPresenter(NewSession(verdict));
+
+        // Assert
+        Assert.Null(presenter.Note);
+    }
+
+    [Fact]
+    public void Note_GatewaySentNoVerdict_IsNull()
+    {
+        // Act: no verdict is not a problem - an older Gateway - so nothing is said and nothing is drawn.
+        var (presenter, _) = NewPresenter(NewSession(null));
+
+        // Assert
+        Assert.Null(presenter.Note);
+    }
+
+    [Fact]
+    public void GatewayPush_BeforeThePostedRedrawRuns_EveryGetterStillReadsTheShownVerdict()
+    {
+        // Arrange: a screen thread that runs posted work only when the test says so.
+        var queued = new Queue<Action>();
+        var session = NewSession(WithoutDocument);
+        var presenter = new MissionButtonPresenter(work => queued.Enqueue(work));
+        presenter.Attach(session);
+
+        // Act: a stamp lands on another thread, mid-redraw as far as the window knows.
+        Stamp(session, WithDocument);
+
+        // Assert: until the posted redraw runs, every getter reads the one verdict being shown - never a mix.
+        Assert.Equal("Repeat Events", presenter.Label);
+        Assert.Equal(WithoutDocument.Tooltip, presenter.Tooltip);
+        Assert.Equal(MissionButtonPresenter.LookOutline, presenter.Look);
+        Assert.False(presenter.CanOpen);
+
+        // Act: the screen thread runs the posted redraw.
+        while (queued.Count > 0) queued.Dequeue()();
+
+        // Assert: now every getter reads the new verdict.
+        Assert.Equal(WithDocument.Label, presenter.Label);
+        Assert.Equal(WithDocument.Tooltip, presenter.Tooltip);
+        Assert.Equal(MissionButtonPresenter.LookFilled, presenter.Look);
+        Assert.True(presenter.CanOpen);
+    }
+
+    [Fact]
     public void Attach_MissionWithDocument_CarriesLabelAndTooltipVerbatimInTheFilledLook()
     {
         // Act

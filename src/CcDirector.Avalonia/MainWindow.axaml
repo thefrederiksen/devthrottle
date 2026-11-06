@@ -193,6 +193,16 @@
                     <!-- The Mission button for the SELECTED session (Missions First-Class mission): the Gateway's label,
                          tooltip and look, verbatim, from MissionButtonPresenter. Follows the selection; hidden when no
                          session is selected or the Gateway sent no verdict. -->
+                    <!-- In place of the button when the Gateway's verdict cannot be drawn (a colour key this build does
+                         not know): the presenter's problem, verbatim, in the problem colour TabBarWheelNote uses. -->
+                    <TextBlock x:Name="BtnMissionNote"
+                               Foreground="#F48771"
+                               FontSize="11"
+                               MaxWidth="280"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Margin="0,0,6,0"
+                               IsVisible="False" />
                     <Button x:Name="BtnMission" Classes="missionBtn"
                             Click="MissionButton_Click"
                             Margin="0,0,6,0"
@@ -1289,6 +1299,16 @@
                                  Cockpit button so the Cockpit button keeps its spot at the right edge. Label, tooltip
                                  and look are the Gateway's, verbatim, from MissionButtonPresenter; hidden when the
                                  Gateway sent no verdict. -->
+                            <!-- In place of the button when the Gateway's verdict cannot be drawn: the presenter's
+                                 problem, verbatim, the way TabBarWheelNote shows the wheel's. -->
+                            <TextBlock x:Name="TabBarMissionNote"
+                                       Foreground="#F48771"
+                                       FontSize="11"
+                                       MaxWidth="360"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Margin="6,0,0,0"
+                                       IsVisible="False" />
                             <Button x:Name="TabBarMissionButton" Classes="missionBtn"
                                     Click="MissionButton_Click"
                                     Margin="6,0,0,0"
