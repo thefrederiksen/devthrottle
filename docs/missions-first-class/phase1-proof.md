@@ -122,7 +122,7 @@ the one a mission fixture missing the new fields, fixed, and the four mission te
 
 ## Answers to the review (`_briefs/missions-first-class/phase1-review.md`)
 
-1. **Non-ASCII character in a regular expression - ACCEPTED.** The no-break space is now written ` ` in
+1. **Non-ASCII character in a regular expression - ACCEPTED.** The no-break space is now written `\u00A0` in
    `MissionDocumentSections.cs`. A byte scan of every line this pull request adds finds no character outside
    ASCII.
 2. **Command-line reference and readme out of date - ACCEPTED.** `docs/cli-reference.md` (mission list fields,
