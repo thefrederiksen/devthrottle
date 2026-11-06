@@ -196,7 +196,15 @@ internal static class FactoryNaming
                 return true;
 
             FileLog.Write($"[FactoryNaming] {route}: REFUSED - session {caller.SessionId} (factory {lookup.Factory ?? "none"}) acted on a {what} of '{owner}'");
-            error = Refuse(what, owner);
+            // A session in no factory is told the way in (6 November 2026): a rescue started by hand was born in no
+            // factory, and every journal write it made was refused with nothing saying how a session joins one.
+            error = lookup.Factory is null
+                ? Results.Json(new
+                {
+                    error = ActRefusal(what, owner),
+                    detail = ActDetail(what, owner) + " " + NoFactoryWayIn(owner),
+                }, statusCode: StatusCodes.Status403Forbidden)
+                : Refuse(what, owner);
             return false;
         }
 
@@ -284,6 +292,15 @@ internal static class FactoryNaming
         $"runs, and when - and that session may read and write that factory's memory. Changing or running it from " +
         $"outside the factory would therefore direct one of its members. A {what} with no factory on it is open to " +
         $"any session, as before.";
+
+    /// <summary>
+    /// How a session joins a factory, told to a session in no factory that was refused a factory's row. Membership is
+    /// set when a session is born and never by asking, so the only way in is to be started as a seat.
+    /// </summary>
+    internal static string NoFactoryWayIn(string factory) =>
+        "A session joins a factory only when it is started as one: start the factory's Boss " +
+        $"(cc-devthrottle session spawn --factory {factory} --seat <boss seat>) and have it run " +
+        "cc-devthrottle factory seat start, or use Talk on the seat.";
 
     /// <summary>Why the refusal happened and what to do instead. Held here so tests can pin it.</summary>
     internal static string Detail(string what) =>

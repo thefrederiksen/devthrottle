@@ -680,6 +680,9 @@ def whoami() -> None:
 #: The next step after a call about one session failed: look the session up again.
 _CHECK_SESSION = ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY]
 
+# What a scheduled run's own session runs instead of `session done` while its run has not reported.
+_REPORT_THE_RUN = ["cc-devthrottle run result ok", 'cc-devthrottle run result problem "<one line why>"']
+
 
 def _is_true(value: Any) -> bool:
     return value is True
@@ -1500,6 +1503,10 @@ def mark_done(target: Optional[str], reason: Optional[str]) -> Dict[str, Any]:
     try:
         resp = gateway.post_json(f"sessions/{sid}/request-deletion", body)
     except gateway.GatewayError as err:
+        if err.status == 409:
+            # A refusal the Gateway wrote for this exact case: a scheduled run's own session asking to close before
+            # it has reported. Its sentence already says what happened and what to run, so it is printed as written.
+            axi_cli.fail(str(err), _REPORT_THE_RUN)
         axi_cli.fail(f"could not flag session {sid} for deletion: {err}", _CHECK_SESSION)
     axi_cli.confirmed(
         resp, ("pendingDeletion", "PendingDeletion"), f"flagging session {sid} for deletion",

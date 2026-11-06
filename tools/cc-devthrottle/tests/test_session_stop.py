@@ -552,6 +552,33 @@ def test_plain_done_still_flags_the_session(monkeypatch, plain):
     assert "Marked" in plain(result.output)
 
 
+def test_done_refused_because_the_run_has_not_reported_prints_the_gateway_words_and_fails(monkeypatch, plain):
+    # A scheduled run's own session asking to close before it reported is refused by the Gateway (409). The
+    # command line prints the Gateway's sentence as written, names the two report commands, never says
+    # "Marked", and exits non-zero.
+    sentence = (
+        "This session is a scheduled run that has not reported. Run `cc-devthrottle run result ok` "
+        "(it closes this session for you) or `cc-devthrottle run result problem \"<one line why>\"`. "
+        "Nothing was flagged for deletion."
+    )
+    monkeypatch.setenv("CC_SESSION_ID", SESSION_ID)
+    monkeypatch.setattr(session_ops, "_get_fleet", lambda: ([_row()], True, None, None))
+
+    def refuse(path, body=None, timeout=30):
+        raise session_ops.gateway.GatewayError(sentence, status=409, body={"error": sentence})
+
+    monkeypatch.setattr(session_ops.gateway, "post_json", refuse)
+
+    result = runner.invoke(app, ["session", "done"])
+
+    assert result.exit_code != 0
+    out = plain(result.output)
+    assert sentence in out
+    assert "could not flag session" not in out
+    assert "Marked" not in out
+    assert "cc-devthrottle run result ok" in out
+
+
 # ===== discovery: a verb an agent cannot find does not exist as far as the fleet is concerned =====
 
 

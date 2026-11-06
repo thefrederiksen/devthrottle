@@ -2704,6 +2704,19 @@ internal static partial class GatewayEndpoints
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+            // A scheduled run's own session may not flag itself before it has reported (6 November 2026): the refusal
+            // comes BEFORE the forward, so nothing is flagged. A person or another session is never refused here.
+            if (scheduledRuns is not null && ResolveReadTenant(ctx, tenantBoundary) is { } guardTenant)
+            {
+                var refusal = Running.ScheduledRunDeletionGuard.RefusalFor(
+                    AuthMiddleware.CallingSession(ctx)?.SessionId.ToString(), session.SessionId,
+                    id => scheduledRuns.FindBySession(guardTenant, id)?.Run);
+                if (refusal is not null)
+                {
+                    FileLog.Write($"[GatewayEndpoints] POST /sessions/{session.SessionId}/request-deletion REFUSED: the session's own scheduled run has not reported");
+                    return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status409Conflict);
+                }
+            }
             // Tunnel-only. The Ok result is success and synthesizes the { pendingDeletion } body; a null result
             // (Director not connected) collapses to 502.
             var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "request-deletion", sid, body, ct, machineName: director.MachineName);
