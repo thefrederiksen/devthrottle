@@ -165,34 +165,25 @@ internal static class DevReportEndpoints
                 }, statusCode: 422);
             }
 
-            // A mission document needs the session's own Mission, and that is settled BEFORE anything is written, so a
-            // refusal publishes nothing (never a report version that silently failed to become the document).
-            Core.Sessions.Mission? targetMission = null;
-            if (asMissionDocument)
-            {
-                var target = missionDocuments.Resolve(tenant, sessionId);
-                if (target.Refused)
-                    return Error(409, target.RefusalCode!, target.Refusal!);
-                targetMission = target.Mission;
-            }
-
+            // The order - a mission document's Mission found before anything is written, then the report, then the link or
+            // the refresh of a report that already is the Mission's document - lives in DevReportPublish, where it is tested.
             var title = DevReportTitle.Read(html, key);
-            var nowUtc = DateTime.UtcNow;
-            var (report, created) = DevReportAuthor.PublishAs(store, authorAnswer, tenant, sessionId, key, html, verdict.Status!, title,
-                nowUtc, factorySeatOf(tenant, sessionId));
-            if (targetMission is null)
-                return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
-
-            var link = missionDocuments.Link(tenant, targetMission, report.Id, html, new DateTimeOffset(nowUtc, TimeSpan.Zero));
-            if (link is null)
+            var outcome = DevReportPublish.Run(store, missionDocuments, authorAnswer, tenant, sessionId, key, html,
+                verdict.Status!, title, DateTime.UtcNow, factorySeatOf(tenant, sessionId), asMissionDocument);
+            if (outcome.Refused)
+                return Error(409, outcome.RefusalCode!, outcome.Refusal!);
+            var report = outcome.Report!;
+            if (outcome.LinkLost)
                 return Error(409, "mission_unknown",
                     $"The report was published as version {report.Version} of report {report.Id:D}, but its Mission " +
-                    $"{targetMission.MissionId:D} was removed from this Gateway before the report could be linked to it. " +
+                    $"{outcome.LinkLostMissionId:D} was removed from this Gateway before the report could be linked to it. " +
                     "List the missions with: cc-devthrottle mission list");
+            if (outcome.Link is not { } link)
+                return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created = outcome.Created });
             return Results.Json(new
             {
                 report = Summary(store, delivery, naming, tenant, report),
-                created,
+                created = outcome.Created,
                 missionDocument = new
                 {
                     missionId = link.MissionId,

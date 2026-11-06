@@ -734,3 +734,16 @@ def test_open_mission_document_json_carries_the_link(wire, report_file):
     parsed = json.loads(result.output)
     assert tuple(parsed.keys()) == reports_ops.RESULT_KEYS
     assert parsed["missionDocument"]["missionId"] == MISSION_ID
+
+
+def test_open_without_the_flag_of_the_missions_document_prints_the_refreshed_link(wire, report_file):
+    # The Gateway refreshes the goal of a report that already IS the session's Mission's document, flag or no flag,
+    # and says so; the tool shows it rather than hide a change made to the Mission.
+    calls = wire((200, {"report": _summary(version=2), "created": False, "missionDocument": _linked()}))
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 0, result.output
+    assert "missionDocument" not in calls[0]["body"]
+    assert "mission document:" in result.output
+    assert "  goal: Every session shows its mission." in result.output

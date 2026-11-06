@@ -61,7 +61,8 @@ internal static class MissionButtonFold
                 Tooltip = goal.Length > 0
                     ? $"Mission: {name}\nGoal: {goal}"
                     : $"Mission: {name}\nGoal: not set - the mission document has no goal section.",
-                DocumentAddress = $"/r/{reportId:D}",
+                // The one source of the address is the route that serves it, so the two cannot drift apart.
+                DocumentAddress = $"{Api.DevReportLinkRoute.Prefix}{reportId:D}",
             };
         }
 

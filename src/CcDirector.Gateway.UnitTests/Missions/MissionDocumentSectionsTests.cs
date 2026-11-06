@@ -104,4 +104,28 @@ public sealed class MissionDocumentSectionsTests
 
         Assert.Equal(MissionDocumentSections.MaxLength, text.Goal!.Length);
     }
+
+
+    [Fact]
+    public void Cut_LimitFallsInsideASurrogatePair_CutsBeforeThePair()
+    {
+        // A character outside the basic plane, written as its two halves, straddling the limit.
+        var text = new string('a', MissionDocumentSections.MaxLength - 1) + char.ConvertFromUtf32(0x1F680) + "tail";
+
+        var cut = MissionDocumentSections.Cut(text);
+
+        Assert.Equal(MissionDocumentSections.MaxLength - 1, cut.Length);
+        Assert.False(char.IsHighSurrogate(cut[^1]));
+    }
+
+    [Fact]
+    public void Cut_LimitFallsAfterAWholePair_KeepsThePair()
+    {
+        var text = new string('a', MissionDocumentSections.MaxLength - 2) + char.ConvertFromUtf32(0x1F680) + "tail";
+
+        var cut = MissionDocumentSections.Cut(text);
+
+        Assert.Equal(MissionDocumentSections.MaxLength, cut.Length);
+        Assert.True(char.IsLowSurrogate(cut[^1]));
+    }
 }

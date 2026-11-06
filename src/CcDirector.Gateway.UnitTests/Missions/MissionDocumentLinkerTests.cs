@@ -55,6 +55,9 @@ public sealed class MissionDocumentLinkerTests : IDisposable
         Assert.Equal("no_mission", target.RefusalCode);
         Assert.Contains("attached to no Mission", target.Refusal);
         Assert.Contains("Nothing was published", target.Refusal);
+        // An attach made a moment ago reaches the Gateway on the Director's next push, so the refusal says so rather
+        // than send the agent round to attach again (review finding 5).
+        Assert.Contains("may not have reached the Gateway yet", target.Refusal);
     }
 
     [Fact]

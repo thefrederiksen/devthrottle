@@ -164,10 +164,13 @@ def open_report(file_path: str, mission_document: bool = False) -> Dict[str, Any
         if not isinstance(report, dict) or not report.get("id"):
             raise CommandError("The Gateway accepted the report but its answer carried no report id.",
                                "bad_answer")
-        linked = None
+        # Without the flag the Gateway still answers a missionDocument block when this report already IS the
+        # session's Mission's document: it refreshed that Mission's goal and why, and that is shown too.
+        linked = answer.get("missionDocument")
+        if not isinstance(linked, dict) or not linked.get("missionId"):
+            linked = None
         if mission_document:
-            linked = answer.get("missionDocument")
-            if not isinstance(linked, dict) or not linked.get("missionId"):
+            if linked is None:
                 raise CommandError(
                     f"The Gateway published report {report['id']} but did not link it to the session's Mission: "
                     "it does not know --mission-document. The Gateway needs updating; publish again once it is.",

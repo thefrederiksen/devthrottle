@@ -29,7 +29,8 @@ internal sealed record MissionDocumentText(string? Why, string? Goal);
 /// element (a paragraph, a list item, a table row) is its own line, a list item starts with "- ", white space inside a
 /// line is collapsed, and empty lines are dropped.
 ///
-/// A section longer than <see cref="MaxLength"/> characters is cut there. That is the page's own text, stored on the
+/// A section longer than <see cref="MaxLength"/> characters is cut there, one sooner when that would split a
+/// surrogate pair. That is the page's own text, stored on the
 /// Mission for a tooltip; the whole document is always one click away.
 /// </summary>
 internal static class MissionDocumentSections
@@ -38,7 +39,7 @@ internal static class MissionDocumentSections
     public const int MaxLength = 4000;
 
     private const string HostHead = "<!doctype html><html><head></head>";
-    private static readonly Regex Whitespace = new(@"[ \t\f\v ]+|\r", RegexOptions.CultureInvariant);
+    private static readonly Regex Whitespace = new(@"[ \t\f\v\u00A0]+|\r", RegexOptions.CultureInvariant);
 
     private static readonly HashSet<string> Headings = new(StringComparer.OrdinalIgnoreCase)
         { "h1", "h2", "h3", "h4", "h5", "h6" };
@@ -78,7 +79,17 @@ internal static class MissionDocumentSections
             .Select(line => Whitespace.Replace(line, " ").Trim())
             .Where(line => line.Length > 0 && line != "-");
         var text = string.Join("\n", lines);
-        return text.Length <= MaxLength ? text : text[..MaxLength];
+        return Cut(text);
+    }
+
+    /// <summary>The text cut to <see cref="MaxLength"/>, never between the two halves of a surrogate pair: a lone
+    /// high surrogate would be stored as a replacement character and end the tooltip with one.</summary>
+    internal static string Cut(string text)
+    {
+        if (text.Length <= MaxLength)
+            return text;
+        var end = char.IsHighSurrogate(text[MaxLength - 1]) ? MaxLength - 1 : MaxLength;
+        return text[..end];
     }
 
     private static void AppendText(INode node, StringBuilder into)

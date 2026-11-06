@@ -63,7 +63,8 @@ internal sealed class MissionDocumentLinker
             return new MissionDocumentTarget(null, "no_mission",
                 "This session is attached to no Mission, so its report cannot be a mission document. Nothing was " +
                 "published. Attach this session to its Mission first (cc-devthrottle mission attach <session> <mission>), " +
-                "or publish without --mission-document.");
+                "or publish without --mission-document. If you attached it a moment ago, the attachment may not have " +
+                "reached the Gateway yet: wait a few seconds and publish again.");
         }
 
         var mission = _missions.Get(tenant, id);
@@ -77,6 +78,26 @@ internal sealed class MissionDocumentLinker
 
         FileLog.Write($"[MissionDocumentLinker] Resolve: sid={sessionId} mission={mission.MissionId}");
         return new MissionDocumentTarget(mission, null, null);
+    }
+
+    /// <summary>
+    /// A republish WITHOUT the flag of the report that already IS the document of the publishing session's own Mission
+    /// (owner ruling, review finding 4). The document is the one source of the goal and the why, so a new version of it
+    /// refreshes them exactly as a publish with the flag does - otherwise the button's tooltip would state one goal while
+    /// the document one click away states another. No new permission is involved: the Mission is the session's own,
+    /// and the report is one this session published. Returns null, changing nothing, for any other report.
+    /// </summary>
+    public MissionDocumentLinkResult? RefreshIfDocument(TenantId tenant, string sessionId, Guid reportId, string html,
+        DateTimeOffset nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        if (_missionOf(tenant, sessionId) is not { } missionId || missionId == Guid.Empty)
+            return null;
+        var mission = _missions.Get(tenant, missionId);
+        if (mission?.DocumentReportId != reportId)
+            return null;
+        FileLog.Write($"[MissionDocumentLinker] RefreshIfDocument: report={reportId} is mission {missionId}'s document; refreshing");
+        return Link(tenant, mission, reportId, html, nowUtc);
     }
 
     /// <summary>
