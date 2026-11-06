@@ -23,16 +23,20 @@ public static class ResourceBannerFold
     /// <param name="crossing">A crossing whose <see cref="ResourceCrossing.ShowsBanner"/> is true.</param>
     /// <param name="sample">The sample that produced it, so the biggest user is named from the same moment.</param>
     /// <param name="machineName">The machine's name.</param>
-    /// <param name="sessions">This Director's sessions and their process trees. Empty when not known yet.</param>
+    /// <param name="sessions">
+    /// This Director's sessions and their process trees. NULL WHEN NOT KNOWN, which is not the same as empty: an
+    /// empty list is a Director running no sessions, so the busiest process is certainly not one of ours; null
+    /// means nobody has worked out which processes belong to which session, and the banner then makes no claim
+    /// about ownership either way.
+    /// </param>
     public static ResourceBannerView Build(
         ResourceCrossing crossing,
         ResourceSample? sample,
         string machineName,
-        IReadOnlyList<ResourceSessionInput> sessions)
+        IReadOnlyList<ResourceSessionInput>? sessions)
     {
         ArgumentNullException.ThrowIfNull(crossing);
         ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
-        ArgumentNullException.ThrowIfNull(sessions);
         if (!crossing.ShowsBanner)
             throw new ArgumentException($"A {crossing.Change} crossing shows no banner.", nameof(crossing));
 
@@ -62,7 +66,7 @@ public static class ResourceBannerFold
         return text.EndsWith('.') ? text : text + ".";
     }
 
-    private static string Busiest(ResourceKind kind, ResourceSample? sample, IReadOnlyList<ResourceSessionInput> sessions)
+    private static string Busiest(ResourceKind kind, ResourceSample? sample, IReadOnlyList<ResourceSessionInput>? sessions)
     {
         if (sample is null || !sample.Processes.CouldRead)
             return "The busiest process could not be named: " +
@@ -93,8 +97,16 @@ public static class ResourceBannerFold
         var figure = byProcessor
             ? ResourceViewText.PercentOf100(top.CpuPercent)
             : ResourceViewText.Bytes(top.MemoryBytes);
-        var owner = sessions.FirstOrDefault(s => s.Usage.Pids.Contains(top.Pid));
-        var where = owner is null ? " (not one of this Director's sessions)" : $" in session {owner.Label}";
+        string where;
+        if (sessions is null)
+        {
+            where = string.Empty;
+        }
+        else
+        {
+            var owner = sessions.FirstOrDefault(s => s.Usage.Pids.Contains(top.Pid));
+            where = owner is null ? " (not one of this Director's sessions)" : $" in session {owner.Label}";
+        }
         return $"{(byProcessor ? "Busiest" : "Biggest")}: {top.Name}{where}, {figure}.";
     }
 }

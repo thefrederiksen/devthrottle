@@ -33,7 +33,18 @@ public sealed record ResourceMeterView(
     ResourceBarView Cpu,
     ResourceBarView Memory,
     string NarrowText,
-    IReadOnlyList<string> TooltipLines);
+    IReadOnlyList<string> TooltipLines)
+{
+    /// <summary>
+    /// The level the meter's frame takes: the worse of the two bars. Unknown only when both are unknown, so one
+    /// bar that cannot be read never hides the other bar's warning (the same rule as
+    /// <see cref="ResourcePressureVerdict.Worst"/>).
+    /// </summary>
+    public ResourceLevel FrameLevel => Cpu.Level > Memory.Level ? Cpu.Level : Memory.Level;
+
+    /// <summary>What a screen reader says for the whole meter, for example "Resources: CPU 28%, memory 55%".</summary>
+    public string AccessibleName => $"Resources: CPU {Cpu.PercentText}, memory {Memory.PercentText}";
+}
 
 /// <summary>The figures and words every Resource Monitor view shares, so the meter and the detail screen cannot disagree.</summary>
 public static class ResourceViewText

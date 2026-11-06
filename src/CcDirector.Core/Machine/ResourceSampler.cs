@@ -63,11 +63,7 @@ public sealed class ResourceSampler : IResourceSampler
         get { lock (_gate) return CopyHistory(); }
     }
 
-    /// <summary>
-    /// How long ago the latest sample was taken, measured on the monotonic clock. Null before the first read.
-    /// The meter's "updated N seconds ago" reads this, never the sample's wall-clock stamp, so a clock that
-    /// is stepped does not make a fresh reading look old or an old one look fresh.
-    /// </summary>
+    /// <inheritdoc />
     public TimeSpan? LatestAge
     {
         get

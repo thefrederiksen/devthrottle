@@ -58,6 +58,27 @@ public sealed class ResourceBannerTests
     }
 
     [Fact]
+    public void Build_WhenWhichSessionOwnsWhatIsNotKnown_MakesNoClaimAboutOwnership()
+    {
+        var banner = ResourceBannerFold.Build(
+            Crossing(ResourceKind.Cpu, ResourceLevel.Normal, ResourceLevel.Tight, ResourceCrossingChange.Raised),
+            BusySample(), "m", sessions: null);
+
+        Assert.EndsWith("Busiest: dotnet test, 62%.", banner.Body);
+        Assert.DoesNotContain("session", banner.Body);
+    }
+
+    [Fact]
+    public void Build_WhenTheDirectorRunsNoSessions_SaysTheBusiestIsNotOurs()
+    {
+        var banner = ResourceBannerFold.Build(
+            Crossing(ResourceKind.Cpu, ResourceLevel.Normal, ResourceLevel.Tight, ResourceCrossingChange.Raised),
+            BusySample(), "m", sessions: []);
+
+        Assert.EndsWith("Busiest: dotnet test (not one of this Director's sessions), 62%.", banner.Body);
+    }
+
+    [Fact]
     public void Build_WhenNoProcessHasAFigure_SaysSo_NeverNamesAProcessAtZero()
     {
         var sample = new ResourceSampleBuilder().Process(400, 1, "refused", null, null).Build();

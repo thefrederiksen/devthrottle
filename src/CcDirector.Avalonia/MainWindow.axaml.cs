@@ -219,6 +219,10 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
         Activated += MainWindow_Activated;
 
+        // The resource meter drops its bars on a narrow toolbar (issue #2812) - from the first layout, whether
+        // or not a sampler has been attached yet.
+        WireResourceMeterFit();
+
         // Register KeyDown as tunnel so it fires before AcceptsReturn consumes Ctrl+Enter
         PromptInput.AddHandler(KeyDownEvent, PromptInput_KeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
         // Every change to the box's text - typing, a paste, a session switch, the clear after a send - passes
