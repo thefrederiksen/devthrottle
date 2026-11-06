@@ -32,7 +32,7 @@ public sealed class ResourceMeterWindowTests
     /// <summary>One window with the meter attached to a sampler whose verdict the test sets.</summary>
     private sealed class Rig : IDisposable
     {
-        public Rig(double width = 1400)
+        public Rig(double width = 1400, bool attach = true)
         {
             Window = new MainWindow { SkipApplicationWiringOnLoaded = true, Width = width, Height = 600 };
             Window.Show();
@@ -42,8 +42,11 @@ public sealed class ResourceMeterWindowTests
             Host = new ResourceMonitorHost(
                 Sampler, () => Sessions, new ResourceSummaryRecorder(new ResourceSummaryOutbox(Time), "soren-north"),
                 new ResourceRecorder(RecordingDirectory, Time), Time);
-            Window.AttachResourceMonitor(Host, () => 4, () => DetailOpened++);
+            if (attach) Attach();
         }
+
+        // As the Director does it: the monitor may have read before the window exists.
+        public void Attach() => Window.AttachResourceMonitor(Host, () => 4, () => DetailOpened++);
 
         public MainWindow Window { get; }
         public FakeTimeProvider Time { get; } = new(FakeSampleBuilder.DefaultTakenAtUtc);
@@ -148,7 +151,7 @@ public sealed class ResourceMeterWindowTests
         Assert.Equal("28%", view.Cpu.PercentText);
         Assert.Equal("55%", view.Memory.PercentText);
         Assert.Equal(ResourceLevel.Normal, view.FrameLevel);
-        Assert.StartsWith(Environment.MachineName + " - 4 sessions running", view.TooltipLines[0]);
+        Assert.StartsWith(Environment.MachineName + " - 1 session running", view.TooltipLines[0]);
         Assert.False(rig.Meter.IsCompact);
         Assert.False(rig.Banners.IsVisible);
         Photograph(rig.Window, "01-normal.png");
@@ -173,6 +176,21 @@ public sealed class ResourceMeterWindowTests
         Assert.Contains("Busiest: dotnet test in session 140 (Resource Monitor - Dev - Linux probe), 62%.", banner.Body);
         Assert.True(rig.Banners.IsVisible);
         Photograph(rig.Window, "02-amber-and-the-banner.png");
+    }
+
+    [AvaloniaFact]
+    public void AWarningAlreadyInForceAtStartUp_GetsItsBanner_WhenTheWindowAttaches()
+    {
+        using var rig = new Rig(attach: false);
+
+        // The first read, before the window exists: memory is already short, so its crossing goes to nobody.
+        rig.Read(Machine(30, (ulong)(1.6 * Gb)).Build(), ResourceLevel.Normal, ResourceLevel.Tight);
+        rig.Attach();
+        Pump();
+
+        var banner = Assert.Single(rig.Banners.Banners);
+        Assert.Equal(ResourceKind.Memory, banner.Kind);
+        Assert.Equal(ResourceLevel.Tight, rig.Meter.View!.Memory.Level);
     }
 
     [AvaloniaFact]

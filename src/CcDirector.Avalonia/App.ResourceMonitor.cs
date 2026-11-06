@@ -17,6 +17,9 @@ public partial class App
     /// </summary>
     public ResourceMonitorHost? ResourceMonitor { get; private set; }
 
+    /// <summary>Why the resource monitor did not start, in plain words; null when it started.</summary>
+    public string? ResourceMonitorFailure { get; private set; }
+
     /// <summary>
     /// Creates and starts the resource monitor. Called after the control services are constructed, because the
     /// five-minute summary goes out through their outbox.
@@ -25,7 +28,8 @@ public partial class App
     {
         if (ControlApiHost is null)
         {
-            log("Resource monitor NOT started: the Director's control services did not start, so the summary has no outbox");
+            ResourceMonitorFailure = "the Director's control services did not start, so the Gateway summary has no outbox";
+            log($"Resource monitor NOT started: {ResourceMonitorFailure}");
             return;
         }
 
@@ -47,6 +51,7 @@ public partial class App
         {
             log($"Resource monitor FAILED to start: {ex}");
             ResourceMonitor = null;
+            ResourceMonitorFailure = ex.Message;
         }
     }
 

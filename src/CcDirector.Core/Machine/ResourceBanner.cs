@@ -105,7 +105,7 @@ public static class ResourceBannerFold
         else
         {
             var owner = sessions.FirstOrDefault(s => s.Usage.Pids.Contains(top.Pid));
-            where = owner is null ? " (not one of this Director's sessions)" : $" in session {owner.Label}";
+            where = owner is null ? " (not attributed to any of this Director's sessions)" : $" in session {owner.Label}";
         }
         return $"{(byProcessor ? "Busiest" : "Biggest")}: {top.Name}{where}, {figure}.";
     }
@@ -160,6 +160,32 @@ public sealed class ResourceBannerBoard
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Puts up a banner for every resource ALREADY in amber or red when the screen starts listening - the case a
+    /// crossing cannot cover, because that crossing happened before anyone was subscribed (a machine already short
+    /// of memory when the Director starts). Each is treated as a crossing into its current level. Returns true
+    /// when the visible list changed.
+    /// </summary>
+    /// <param name="state">The sampler's state at the moment the screen attached.</param>
+    /// <param name="machineName">The machine's name, for the headline.</param>
+    /// <param name="sessions">This Director's sessions at that read; null when not known.</param>
+    public bool SeedFrom(ResourceSamplerState state, string machineName, IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.Latest is not { } sample) return false;
+
+        var changed = false;
+        foreach (var verdict in state.Verdict.Resources)
+        {
+            if (verdict.Level is not (ResourceLevel.Tight or ResourceLevel.Critical)) continue;
+            var crossing = new ResourceCrossing(verdict.Kind, ResourceLevel.Unknown, verdict.Level,
+                ResourceCrossingChange.Raised, sample.TakenAtUtc, verdict.Evidence);
+            changed |= Apply(crossing, ResourceBannerFold.Build(crossing, sample, machineName, sessions));
+        }
+        FileLog.Write($"[ResourceBannerBoard] SeedFrom: {Visible.Count} banner(s) already in force");
+        return changed;
     }
 
     /// <summary>Hides one resource's banner until it next crosses. Returns true when one was up.</summary>

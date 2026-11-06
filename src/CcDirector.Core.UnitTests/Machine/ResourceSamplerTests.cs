@@ -161,6 +161,24 @@ public sealed class ResourceSamplerTests
     }
 
     [Fact]
+    public void TimelineHistory_IsTheRingWithItsMonotonicPlaces_OldestFirst()
+    {
+        var (sampler, probe, time) = Create(_ => Verdict(ResourceLevel.Normal));
+        using (sampler)
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                probe.Set(new FakeSampleBuilder().At(FakeSampleBuilder.DefaultTakenAtUtc.AddHours(-i)).Build());
+                sampler.Tick();
+                time.Advance(Step);
+            }
+
+            Assert.Equal([TimeSpan.Zero, Step, Step * 2], sampler.TimelineHistory.Select(s => s.Timeline));
+            Assert.Equal(sampler.History, sampler.TimelineHistory.Select(s => s.Sample));
+        }
+    }
+
+    [Fact]
     public void Crossed_AResourceHeldInAmber_RaisesOneBanner_NotOnePerSample()
     {
         var level = ResourceLevel.Normal;
@@ -297,6 +315,76 @@ public sealed class ResourceSamplerTests
         time.Advance(Step * 5);
 
         Assert.Equal(1, probe.ReadCount);
+    }
+
+    [Fact]
+    public void Dispose_WaitsForAReadInProgress_BeforeItReturns()
+    {
+        using var probe = new BlockingProbe();
+        var time = new FakeTimeProvider(FakeSampleBuilder.DefaultTakenAtUtc);
+        var sampler = new ResourceSampler(probe, _ => Verdict(ResourceLevel.Normal), time) { DisposeWaitLimit = TimeSpan.FromMinutes(1) };
+        var sampled = 0;
+        sampler.Sampled += (_, _) => Interlocked.Increment(ref sampled);
+
+        var reading = Started(sampler.Tick);
+        Assert.True(probe.Entered.Wait(TimeSpan.FromSeconds(30)), "the read never reached the probe");
+        var stopped = false;
+        var stopping = Started(() => stopped = sampler.StopAndWait());
+
+        // The read is held inside the probe, so Dispose must still be waiting.
+        Assert.False(stopping.Join(TimeSpan.FromMilliseconds(300)), "Dispose returned while a read was still running");
+
+        probe.Release.Set();
+        Assert.True(stopping.Join(TimeSpan.FromSeconds(30)), "Dispose did not return once the read finished");
+        Assert.True(stopped);
+        Assert.True(reading.Join(TimeSpan.FromSeconds(30)));
+        // The read that was running when Dispose began found the sampler disposed and raised nothing.
+        Assert.Equal(0, sampled);
+    }
+
+    [Fact]
+    public void Dispose_AReadStuckInTheProbe_StopsWaitingAtTheLimit_SoShutdownCanFinish()
+    {
+        using var probe = new BlockingProbe();
+        var time = new FakeTimeProvider(FakeSampleBuilder.DefaultTakenAtUtc);
+        var sampler = new ResourceSampler(probe, _ => Verdict(ResourceLevel.Normal), time) { DisposeWaitLimit = TimeSpan.FromMilliseconds(50) };
+
+        var reading = Started(sampler.Tick);
+        Assert.True(probe.Entered.Wait(TimeSpan.FromSeconds(30)), "the read never reached the probe");
+
+        Assert.False(sampler.StopAndWait());
+
+        probe.Release.Set();
+        Assert.True(reading.Join(TimeSpan.FromSeconds(30)));
+    }
+
+    // A dedicated thread, so the test can wait on it with a time limit without blocking on a task.
+    private static Thread Started(Action work)
+    {
+        var thread = new Thread(() => work()) { IsBackground = true };
+        thread.Start();
+        return thread;
+    }
+
+    // A probe that holds a read until the test lets it go.
+    private sealed class BlockingProbe : IResourceProbe, IDisposable
+    {
+        public ManualResetEventSlim Entered { get; } = new();
+        public ManualResetEventSlim Release { get; } = new();
+
+        public ResourceSample Read()
+        {
+            Entered.Set();
+            Release.Wait();
+            return new FakeSampleBuilder().Build();
+        }
+
+        public void Dispose()
+        {
+            Release.Set();
+            Entered.Dispose();
+            Release.Dispose();
+        }
     }
 
     private sealed class ThrowOnceProbe : IResourceProbe

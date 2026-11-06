@@ -196,6 +196,42 @@ public static class ResourceMeterFold
         return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}", lines);
     }
 
+    /// <summary>
+    /// The meter when the resource monitor never started: both bars cannot be read, and say why. Never "not read
+    /// yet", which would promise a reading that is not coming.
+    /// </summary>
+    public static ResourceMeterView NotStarted(string machineName, string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        var why = $"the resource monitor did not start: {reason}";
+        var cpu = Unreadable(ResourceKind.Cpu, "CPU", why);
+        var memory = Unreadable(ResourceKind.Memory, "MEM", why);
+        return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}",
+            [machineName, cpu.Tooltip, memory.Tooltip]);
+    }
+
+    /// <summary>
+    /// What this Director's sessions cost together - the tooltip's "This Director's sessions" line. Each figure
+    /// is the sum over the sessions, and each lower-bound count is the sum of theirs, so the total is a floor
+    /// exactly when any session's figure was. Null when there are no sessions or they are not known, so the
+    /// tooltip leaves the line out rather than claiming the sessions cost nothing.
+    /// </summary>
+    public static SessionUsage? Combine(IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        if (sessions is null || sessions.Count == 0) return null;
+        ulong memory = 0;
+        foreach (var session in sessions) memory += session.Usage.MemoryBytes;
+        return new SessionUsage(
+            "all",
+            0,
+            sessions.Sum(s => s.Usage.CpuPercent),
+            memory,
+            sessions.SelectMany(s => s.Usage.Pids).ToList(),
+            sessions.Sum(s => s.Usage.ProcessesWithUnknownProcessor),
+            sessions.Sum(s => s.Usage.ProcessesWithUnknownMemory));
+    }
+
     private static ResourceBarView CpuBar(ResourceSamplerState state)
     {
         var level = state.VerdictFor(ResourceKind.Cpu).Level;

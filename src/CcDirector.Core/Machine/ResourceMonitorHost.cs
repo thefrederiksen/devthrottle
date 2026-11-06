@@ -18,7 +18,9 @@ public sealed record DirectorSessionInfo(string SessionId, int RootPid, string L
 /// Each session's process-tree usage. NULL WHEN NOT KNOWN - the process list could not be read - which is
 /// never the same as an empty list (a Director running no sessions).
 /// </param>
-public sealed record ResourceMonitorUpdate(ResourceSamplerState State, IReadOnlyList<ResourceSessionInput>? Sessions);
+/// <param name="RunningSessions">How many sessions this Director runs, counted at the same read.</param>
+public sealed record ResourceMonitorUpdate(
+    ResourceSamplerState State, IReadOnlyList<ResourceSessionInput>? Sessions, int RunningSessions);
 
 /// <summary>
 /// Everything the Director does with each five-second read, in one place and in one order (the Resource
@@ -89,8 +91,9 @@ public sealed class ResourceMonitorHost : IDisposable
     {
         if (state.Latest is not { } sample) return;
 
-        var sessions = SessionsAt(sample, _sessions());
-        var update = new ResourceMonitorUpdate(state, sessions);
+        var running = _sessions();
+        var sessions = SessionsAt(sample, running);
+        var update = new ResourceMonitorUpdate(state, sessions, running.Count);
         _latest = update;
 
         var summarySample = ResourceSummarySampleFold.From(state, sessions ?? Array.Empty<ResourceSessionInput>());

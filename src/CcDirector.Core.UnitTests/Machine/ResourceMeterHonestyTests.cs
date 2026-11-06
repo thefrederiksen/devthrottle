@@ -10,6 +10,8 @@ namespace CcDirector.Core.Tests.Machine;
 [Trait("Category", "Resources")]
 public sealed class ResourceMeterHonestyTests
 {
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
+
     private static ResourceSamplerState State(ResourceSample sample, ResourceLevel cpu = ResourceLevel.Normal) =>
         new(sample, new ResourcePressureVerdict([
             new ResourceVerdict(ResourceKind.Cpu, cpu, "cpu"),
@@ -74,5 +76,39 @@ public sealed class ResourceMeterHonestyTests
         var lines = Meter(State(sample), TimeSpan.FromSeconds(3)).TooltipLines;
 
         Assert.Equal("Updated 3 seconds ago - click for detail", lines[^1]);
+    }
+
+    [Fact]
+    public void NotStarted_BothBarsSayTheMonitorDidNotStart_NeverNotReadYet()
+    {
+        var meter = ResourceMeterFold.NotStarted("soren-north", "the recording folder is read-only");
+
+        Assert.Equal("-", meter.Cpu.PercentText);
+        Assert.Equal("-", meter.Memory.PercentText);
+        Assert.Equal(ResourceLevel.Unknown, meter.FrameLevel);
+        Assert.Contains("the resource monitor did not start: the recording folder is read-only", meter.Cpu.Tooltip);
+        Assert.DoesNotContain(meter.TooltipLines, line => line.Contains(ResourceSamplerState.NotYetSampledReason));
+    }
+
+    [Fact]
+    public void Combine_SumsTheSessions_AndAFloorStaysAFloor()
+    {
+        var combined = ResourceMeterFold.Combine([
+            new ResourceSessionInput(new SessionUsage("a", 1, 10, 2 * Gb, [1, 2], 0, 1), "a", null),
+            new ResourceSessionInput(new SessionUsage("b", 5, 5, 1 * Gb, [5], 1, 0), "b", null),
+        ])!;
+
+        Assert.Equal(15, combined.CpuPercent, 6);
+        Assert.Equal(3 * Gb, combined.MemoryBytes);
+        Assert.Equal([1, 2, 5], combined.Pids);
+        Assert.Equal(1, combined.ProcessesWithUnknownProcessor);
+        Assert.Equal(1, combined.ProcessesWithUnknownMemory);
+    }
+
+    [Fact]
+    public void Combine_NoSessionsOrNotKnown_IsNull_SoTheTooltipClaimsNothing()
+    {
+        Assert.Null(ResourceMeterFold.Combine(null));
+        Assert.Null(ResourceMeterFold.Combine([]));
     }
 }

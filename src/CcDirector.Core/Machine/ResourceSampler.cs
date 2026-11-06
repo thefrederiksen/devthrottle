@@ -57,6 +57,14 @@ public sealed class ResourceSampler : IResourceSampler
         _timelineOrigin = time.GetTimestamp();
     }
 
+    /// <summary>
+    /// The longest <see cref="Dispose"/> waits for a read in progress: five seconds. Bounded, because Director
+    /// shutdown waits on it and a probe stuck on a thrashing disk must not stop the Director exiting. Running out
+    /// loses nothing the 24-hour recording does not already protect - its own lock keeps a write and its close
+    /// apart - and is logged.
+    /// </summary>
+    internal TimeSpan DisposeWaitLimit { get; init; } = TimeSpan.FromSeconds(5);
+
     /// <inheritdoc />
     public ResourceSamplerState Current
     {
@@ -76,6 +84,12 @@ public sealed class ResourceSampler : IResourceSampler
                 return copy;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<TimelineSample> TimelineHistory
+    {
+        get { lock (_gate) return CopyHistory(); }
     }
 
     /// <inheritdoc />
@@ -173,30 +187,35 @@ public sealed class ResourceSampler : IResourceSampler
     }
 
     /// <summary>
-    /// Stops the timer AND WAITS FOR A READ ALREADY RUNNING TO FINISH, so when this returns no handler of
-    /// <see cref="Sampled"/> or <see cref="Crossed"/> is running or will run again. That is what lets an owner
-    /// dispose what those handlers write to - the 24-hour recording is not safe to write and dispose on two
-    /// threads, and the Director shuts down on a different thread from the timer.
+    /// Stops the timer AND WAITS FOR A READ ALREADY RUNNING TO FINISH - up to <see cref="DisposeWaitLimit"/> - so
+    /// that normally, when this returns, no handler of <see cref="Sampled"/> or <see cref="Crossed"/> is running or
+    /// will run again, and the owner closes what those handlers write to in order. A read that starts after this
+    /// returns sees the sampler disposed and raises nothing. Returns false when the wait ran out.
     /// </summary>
-    public void Dispose()
+    public void Dispose() => StopAndWait();
+
+    /// <summary>Stops the sampler; true when no read was left running, false when the bounded wait ran out.</summary>
+    internal bool StopAndWait()
     {
         ITimer? timer;
         lock (_gate)
         {
-            if (_disposed) return;
+            if (_disposed) return true;
             _disposed = true;
             timer = _timer;
             _timer = null;
         }
         timer?.Dispose();
 
-        FileLog.Write("[ResourceSampler] Dispose: timer stopped, waiting for any read in progress");
-        lock (_tickLock)
+        FileLog.Write($"[ResourceSampler] Dispose: timer stopped, waiting up to {DisposeWaitLimit.TotalSeconds:F0}s for any read in progress");
+        if (!Monitor.TryEnter(_tickLock, DisposeWaitLimit))
         {
-            // Nothing to do: taking the lock is the wait. A read that starts after this sees _disposed and
-            // returns before raising anything.
+            FileLog.Write($"[ResourceSampler] Dispose: a read was still running after {DisposeWaitLimit.TotalSeconds:F0}s - stopping without it (the probe is stuck)");
+            return false;
         }
+        Monitor.Exit(_tickLock);
         FileLog.Write("[ResourceSampler] Dispose: stopped");
+        return true;
     }
 
     // The buffer is bounded by COUNT, never by comparing timestamps: a wall clock that jumps cannot empty it

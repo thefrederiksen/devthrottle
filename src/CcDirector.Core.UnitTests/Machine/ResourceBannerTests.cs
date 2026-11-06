@@ -54,7 +54,7 @@ public sealed class ResourceBannerTests
             BusySample(), "soren-north", Sessions);
 
         Assert.Equal("Memory is nearly gone on soren-north.", banner.Headline);
-        Assert.Equal("Only 600 MB available. Biggest: chrome (not one of this Director's sessions), 3.00 GB.", banner.Body);
+        Assert.Equal("Only 600 MB available. Biggest: chrome (not attributed to any of this Director's sessions), 3.00 GB.", banner.Body);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class ResourceBannerTests
             Crossing(ResourceKind.Cpu, ResourceLevel.Normal, ResourceLevel.Tight, ResourceCrossingChange.Raised),
             BusySample(), "m", sessions: []);
 
-        Assert.EndsWith("Busiest: dotnet test (not one of this Director's sessions), 62%.", banner.Body);
+        Assert.EndsWith("Busiest: dotnet test (not attributed to any of this Director's sessions), 62%.", banner.Body);
     }
 
     [Fact]
@@ -153,6 +153,32 @@ public sealed class ResourceBannerTests
         board.Apply(cpu, ResourceBannerFold.Build(cpu, BusySample(), "m", []));
 
         Assert.Equal([ResourceKind.Cpu, ResourceKind.Memory], board.Visible.Select(b => b.Kind));
+    }
+
+    [Fact]
+    public void SeedFrom_AWarningAlreadyInForceWhenTheScreenAttaches_PutsItsBannerUp()
+    {
+        var board = new ResourceBannerBoard();
+        var state = new ResourceSamplerState(BusySample(), new ResourcePressureVerdict([
+            new ResourceVerdict(ResourceKind.Cpu, ResourceLevel.Normal, "fine"),
+            new ResourceVerdict(ResourceKind.Memory, ResourceLevel.Tight, "only 1.6 GB available"),
+            new ResourceVerdict(ResourceKind.Swap, ResourceLevel.Unknown, "swap cannot be read"),
+        ]));
+
+        Assert.True(board.SeedFrom(state, "soren-north", Sessions));
+
+        var banner = Assert.Single(board.Visible);
+        Assert.Equal(ResourceKind.Memory, banner.Kind);
+        Assert.Equal("Memory is running short on soren-north.", banner.Headline);
+    }
+
+    [Fact]
+    public void SeedFrom_BeforeTheFirstRead_PutsNothingUp()
+    {
+        var board = new ResourceBannerBoard();
+
+        Assert.False(board.SeedFrom(ResourceSamplerState.NotYetSampled, "m", null));
+        Assert.Empty(board.Visible);
     }
 
     [Fact]

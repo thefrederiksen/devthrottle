@@ -72,6 +72,13 @@ public interface IResourceSampler : IDisposable
     /// </summary>
     TimeSpan? LatestAge { get; }
 
+    /// <summary>
+    /// The same ring buffer as <see cref="History"/>, oldest first, with each sample's place on the sampler's
+    /// monotonic timeline. A chart of the last hour draws its time axis from this, never from
+    /// <see cref="ResourceSample.TakenAtUtc"/>, so a clock step mid-hour cannot fold or stretch the line.
+    /// </summary>
+    IReadOnlyList<TimelineSample> TimelineHistory { get; }
+
     /// <summary>Raised after every read, carrying the new <see cref="Current"/>.</summary>
     event EventHandler<ResourceSamplerState>? Sampled;
 

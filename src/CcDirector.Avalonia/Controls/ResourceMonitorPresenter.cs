@@ -28,7 +28,7 @@ public sealed class ResourceMonitorPresenter : IDisposable
     /// <param name="meter">The toolbar meter.</param>
     /// <param name="banners">The banner strip under the toolbar.</param>
     /// <param name="machineName">The machine's name, for the tooltip and the banner headline.</param>
-    /// <param name="runningSessions">How many sessions this Director runs, read at each sample.</param>
+    /// <param name="runningSessions">How many sessions this Director runs, read once at attach on the user-interface thread.</param>
     /// <param name="openDetail">Opens the detail screen (phase 2b). Must show its window at once, even empty.</param>
     public ResourceMonitorPresenter(
         ResourceMonitorHost host,
@@ -59,31 +59,23 @@ public sealed class ResourceMonitorPresenter : IDisposable
         _banners.ShowResourcesRequested += OnShowResources;
         _banners.DismissRequested += OnDismiss;
 
-        _meter.Render(BuildMeter(_sampler.Current, null));
+        // A warning already in force before the screen attached raised its crossing to nobody: put its banner up
+        // now. Subscribed above first, so a crossing arriving meanwhile is applied after this and replaces it.
+        var latest = _host.Latest;
+        var current = _sampler.Current;
+        // On the user-interface thread here, so the window's own count is safe to read; every later render takes
+        // the count the host made at the same read, off the sampler's thread.
+        _meter.Render(BuildMeter(current, latest?.Sessions, latest?.RunningSessions ?? _runningSessions()));
+        if (_board.SeedFrom(current, _machineName, latest?.Sessions)) _banners.Render(_board.Visible);
         FileLog.Write($"[ResourceMonitorPresenter] wired: machine={machineName}");
     }
 
-    private ResourceMeterView BuildMeter(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput>? sessions) =>
-        ResourceMeterFold.Build(state, _machineName, _runningSessions(), Combined(sessions), _sampler.LatestAge);
-
-    // What this Director's sessions cost together. Null when there are none to add up, so the tooltip leaves the
-    // line out rather than claiming the sessions cost nothing.
-    private static SessionUsage? Combined(IReadOnlyList<ResourceSessionInput>? sessions)
-    {
-        if (sessions is null || sessions.Count == 0) return null;
-        return new SessionUsage(
-            "all",
-            0,
-            sessions.Sum(s => s.Usage.CpuPercent),
-            (ulong)sessions.Sum(s => (decimal)s.Usage.MemoryBytes),
-            sessions.SelectMany(s => s.Usage.Pids).ToList(),
-            sessions.Sum(s => s.Usage.ProcessesWithUnknownProcessor),
-            sessions.Sum(s => s.Usage.ProcessesWithUnknownMemory));
-    }
+    private ResourceMeterView BuildMeter(ResourceSamplerState state, IReadOnlyList<ResourceSessionInput>? sessions, int runningSessions) =>
+        ResourceMeterFold.Build(state, _machineName, runningSessions, ResourceMeterFold.Combine(sessions), _sampler.LatestAge);
 
     private void OnUpdated(object? sender, ResourceMonitorUpdate update)
     {
-        var view = BuildMeter(update.State, update.Sessions);
+        var view = BuildMeter(update.State, update.Sessions, update.RunningSessions);
         Dispatcher.UIThread.Post(() => _meter.Render(view));
     }
 

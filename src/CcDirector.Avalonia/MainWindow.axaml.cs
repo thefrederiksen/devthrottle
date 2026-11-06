@@ -414,7 +414,11 @@ public partial class MainWindow : Window
         if (app.ResourceMonitor is { } resourceMonitor)
             AttachResourceMonitor(resourceMonitor, () => _sessions.Count, OpenResourceDetail);
         else
-            FileLog.Write("[MainWindow] MainWindow_Loaded: no resource monitor to attach - see the start-up log for why");
+        {
+            var why = app.ResourceMonitorFailure ?? "it was not started";
+            FileLog.Write($"[MainWindow] MainWindow_Loaded: no resource monitor to attach - {why}");
+            ResourceMeterControl.Render(CcDirector.Core.Machine.ResourceMeterFold.NotStarted(Environment.MachineName, why));
+        }
 
         BindSessionRail();
         QueueItemsList.ItemsSource = _queueItems;
