@@ -10,7 +10,9 @@ namespace CcDirector.Core.Tests.ApiMode;
 /// </summary>
 internal sealed class FakeApiModeProcess : IApiModeProcess
 {
-    private readonly Channel<byte[]> _output = Channel.CreateUnbounded<byte[]>();
+    // Each chunk carries how many standard error lines had been pushed before it, so the order across the two
+    // streams can be kept (see KeepsOrderAcrossStreams).
+    private readonly Channel<(byte[] Chunk, int ErrorLinesBefore)> _output = Channel.CreateUnbounded<(byte[], int)>();
     private readonly Channel<string> _error = Channel.CreateUnbounded<string>();
     private readonly TaskCompletionSource<int> _exit = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _writeGate = new();
@@ -18,6 +20,11 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     private byte[] _current = [];
     private int _currentOffset;
     private bool _inputClosed;
+    private readonly object _orderGate = new();
+    private int _errorLinesEmitted;
+    private int _errorLinesTaken;
+    private int _errorLinesHandedOver;
+    private readonly List<(int Needed, TaskCompletionSource Done)> _handOverWaiters = [];
 
     /// <summary>When set, <see cref="Start"/> throws it, as a process that cannot be started does.</summary>
     public ApiModeStartException? StartFailure { get; init; }
@@ -46,6 +53,14 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
 
     /// <summary>The exit code a kill reports: 137 as on Linux, or -1 as on Windows.</summary>
     public int KillExitCode { get; init; } = 137;
+
+    /// <summary>
+    /// Whether output pushed after a standard error line is held back until the reader of standard error has taken that
+    /// line and come back for the next one (so the transport has stored it). A real agent's two pipes carry no order
+    /// between them, but a recording made on a real agent wrote its lines with time between them; pushed all at once,
+    /// the two reader loops would race and a stored warning could land after the output that followed it.
+    /// </summary>
+    public bool KeepsOrderAcrossStreams { get; init; }
 
     /// <summary>When set, reading standard error throws it.</summary>
     public Exception? ErrorReadFailure { get; init; }
@@ -128,7 +143,9 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
                 return 0;
             if (_output.Reader.TryRead(out var next))
             {
-                _current = next;
+                if (KeepsOrderAcrossStreams)
+                    await WaitForErrorLinesHandedOverAsync(next.ErrorLinesBefore, cancellationToken);
+                _current = next.Chunk;
                 _currentOffset = 0;
             }
         }
@@ -143,9 +160,40 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     {
         if (ErrorReadFailure is not null)
             throw ErrorReadFailure;
+        // Coming back for the next line means the caller has finished with the one it took last.
+        HandOverErrorLinesTaken();
         if (!await _error.Reader.WaitToReadAsync(cancellationToken))
             return null;
-        return _error.Reader.TryRead(out var line) ? line : await ReadErrorLineAsync(cancellationToken);
+        if (!_error.Reader.TryRead(out var line))
+            return await ReadErrorLineAsync(cancellationToken);
+        lock (_orderGate)
+            _errorLinesTaken++;
+        return line;
+    }
+
+    private void HandOverErrorLinesTaken()
+    {
+        List<TaskCompletionSource> released;
+        lock (_orderGate)
+        {
+            _errorLinesHandedOver = _errorLinesTaken;
+            released = _handOverWaiters.Where(w => w.Needed <= _errorLinesHandedOver).Select(w => w.Done).ToList();
+            _handOverWaiters.RemoveAll(w => w.Needed <= _errorLinesHandedOver);
+        }
+        foreach (var done in released)
+            done.TrySetResult();
+    }
+
+    private Task WaitForErrorLinesHandedOverAsync(int needed, CancellationToken cancellationToken)
+    {
+        lock (_orderGate)
+        {
+            if (_errorLinesHandedOver >= needed)
+                return Task.CompletedTask;
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _handOverWaiters.Add((needed, done));
+            return done.Task.WaitAsync(cancellationToken);
+        }
     }
 
     public Task<int> WaitForExitAsync(CancellationToken cancellationToken) => _exit.Task.WaitAsync(cancellationToken);
@@ -176,14 +224,24 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     /// <summary>Push bytes to standard output, each array as one read's worth (or less, if the reader's buffer is smaller).</summary>
     public void EmitOutput(params byte[][] chunks)
     {
+        int errorLinesBefore;
+        lock (_orderGate)
+            errorLinesBefore = _errorLinesEmitted;
         foreach (var chunk in chunks)
-            _output.Writer.TryWrite(chunk);
+            _output.Writer.TryWrite((chunk, errorLinesBefore));
     }
 
     /// <summary>Push text to standard output as UTF-8, in one read.</summary>
     public void EmitOutput(string text) => EmitOutput(Encoding.UTF8.GetBytes(text));
 
-    public void EmitError(string line) => _error.Writer.TryWrite(line);
+    public void EmitError(string line)
+    {
+        lock (_orderGate)
+        {
+            _errorLinesEmitted++;
+            _error.Writer.TryWrite(line);
+        }
+    }
 
     /// <summary>The process exits with <paramref name="code"/>. Its output ends first, unless <see cref="ExitEndsStreams"/> is false.</summary>
     public void Exit(int code)

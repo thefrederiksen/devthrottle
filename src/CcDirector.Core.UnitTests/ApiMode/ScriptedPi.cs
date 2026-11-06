@@ -9,7 +9,10 @@ namespace CcDirector.Core.UnitTests.ApiMode;
 /// A Pi that answers from a real recording (TestData/pi-rpc/&lt;scenario&gt;.transcript.jsonl, Pi 1.2.0): each command the
 /// host writes is answered with the records Pi wrote after the same command in the recording, up to the next command -
 /// standard output, standard error and the exit - pushed through a <see cref="FakeApiModeProcess"/>. No Pi, no process,
-/// no clock.
+/// no clock. The records keep the recording's order across the two streams
+/// (<see cref="FakeApiModeProcess.KeepsOrderAcrossStreams"/>): the recorded Pi wrote its standard error warning a tenth
+/// of a second before the output that followed it, and pushed at once the two reader loops would race, so the warning
+/// could reach the dialect after the turn began and wrongly land in the reason the connection ended.
 ///
 /// The host writes its own command ids (<c>dt-1</c>, ...); the recording's id on the matching response is replaced with
 /// the host's, by text, so every other byte of Pi's line is what Pi wrote. A command is matched to the first recorded
@@ -71,7 +74,7 @@ internal sealed class ScriptedPi
             var plain = ReadBlocks(File.ReadAllLines(PiWireLogReplay.FixturePath("plain")).Skip(1)).Single(b => b.Type == "get_state");
             _blocks.Add(plain with { Items = plain.Items.Select(i => i with { Text = i.Text?.Replace(PlainConversationId, AgentSessionId) }).ToList() });
         }
-        Process = new FakeApiModeProcess { ExitsWhenInputCloses = exitsWhenInputCloses };
+        Process = new FakeApiModeProcess { ExitsWhenInputCloses = exitsWhenInputCloses, KeepsOrderAcrossStreams = true };
         Process.LineWritten = OnLineWritten;
     }
 
