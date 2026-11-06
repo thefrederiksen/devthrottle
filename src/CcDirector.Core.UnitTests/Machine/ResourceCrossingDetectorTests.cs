@@ -1,7 +1,7 @@
 using CcDirector.Core.Machine;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// When a resource has crossed a limit, and what that means for the banner (issue #2811, phase 2). Both

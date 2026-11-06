@@ -1,7 +1,7 @@
 using CcDirector.Core.Machine;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// The meter never turns an impossible or unknown figure into a plausible one. Each test here is a case where
@@ -27,7 +27,7 @@ public sealed class ResourceMeterHonestyTests
     [InlineData(double.NaN)]
     public void CpuBar_AFigureThatCannotBeTrue_ShowsADashAndSaysWhy_NeverAFullBar(double impossible)
     {
-        var sample = new ResourceSampleBuilder().Build() with { Cpu = CpuReading.Read(impossible, null, 8) };
+        var sample = new FakeSampleBuilder().Build() with { Cpu = CpuReading.Read(impossible, null, 8) };
 
         var bar = Meter(State(sample, cpu: ResourceLevel.Critical), TimeSpan.Zero).Cpu;
 
@@ -50,7 +50,7 @@ public sealed class ResourceMeterHonestyTests
     [Fact]
     public void CpuTooltip_WhenTheCoreCountIsNotKnown_LeavesItOut_RatherThanPrintingABlank()
     {
-        var sample = new ResourceSampleBuilder().Build() with { Cpu = CpuReading.Read(28, 71, logicalCoreCount: null) };
+        var sample = new FakeSampleBuilder().Build() with { Cpu = CpuReading.Read(28, 71, logicalCoreCount: null) };
 
         var tooltip = Meter(State(sample), TimeSpan.Zero).Cpu.Tooltip;
 
@@ -60,7 +60,7 @@ public sealed class ResourceMeterHonestyTests
     [Fact]
     public void CpuTooltip_WhenTheCoreCountIsKnown_SaysIt()
     {
-        var sample = new ResourceSampleBuilder().Build() with { Cpu = CpuReading.Read(28, 71, 8) };
+        var sample = new FakeSampleBuilder().Build() with { Cpu = CpuReading.Read(28, 71, 8) };
 
         Assert.Equal("CPU 28% of 8 cores - busiest core 71%", Meter(State(sample), TimeSpan.Zero).Cpu.Tooltip);
     }
@@ -69,7 +69,7 @@ public sealed class ResourceMeterHonestyTests
     public void Updated_ReadsTheAgeItIsHanded_NotTheSamplesWallClockStamp()
     {
         // The stamp is forty minutes old, as a stepped clock leaves it; the monotonic age says three seconds.
-        var sample = new ResourceSampleBuilder().At(ResourceSampleBuilder.DefaultTakenAtUtc.AddMinutes(-40)).Build();
+        var sample = new FakeSampleBuilder().At(FakeSampleBuilder.DefaultTakenAtUtc.AddMinutes(-40)).Build();
 
         var lines = Meter(State(sample), TimeSpan.FromSeconds(3)).TooltipLines;
 

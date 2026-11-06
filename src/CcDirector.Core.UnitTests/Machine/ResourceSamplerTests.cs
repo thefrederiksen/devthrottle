@@ -2,7 +2,7 @@ using CcDirector.Core.Machine;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// The resource sampler, driven by a virtual clock and a fake probe. No test sleeps and none reads the real
@@ -24,7 +24,7 @@ public sealed class ResourceSamplerTests
     private static (ResourceSampler Sampler, FakeResourceProbe Probe, FakeTimeProvider Time) Create(
         Func<IReadOnlyList<TimelineSample>, ResourcePressureVerdict> evaluate)
     {
-        var time = new FakeTimeProvider(ResourceSampleBuilder.DefaultTakenAtUtc);
+        var time = new FakeTimeProvider(FakeSampleBuilder.DefaultTakenAtUtc);
         var probe = new FakeResourceProbe();
         return (new ResourceSampler(probe, evaluate, time), probe, time);
     }
@@ -82,14 +82,14 @@ public sealed class ResourceSamplerTests
         {
             for (var i = 0; i < ResourceSampling.HistoryCapacity + 80; i++)
             {
-                probe.Set(new ResourceSampleBuilder().Cpu(i % 100).At(ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(i)).Build());
+                probe.Set(new FakeSampleBuilder().Cpu(i % 100).At(FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(i)).Build());
                 sampler.Tick();
             }
 
             var history = sampler.History;
             Assert.Equal(ResourceSampling.HistoryCapacity, history.Count);
-            Assert.Equal(ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(80), history[0].TakenAtUtc);
-            Assert.Equal(ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(ResourceSampling.HistoryCapacity + 79), history[^1].TakenAtUtc);
+            Assert.Equal(FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(80), history[0].TakenAtUtc);
+            Assert.Equal(FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(ResourceSampling.HistoryCapacity + 79), history[^1].TakenAtUtc);
         }
     }
 
@@ -102,8 +102,8 @@ public sealed class ResourceSamplerTests
             for (var i = 0; i < ResourceSampling.HistoryCapacity + 10; i++)
             {
                 // Every other stamp is a day earlier: a clock that is stepped back and forth.
-                var stamp = ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(i).AddDays(i % 2 == 0 ? 0 : -1);
-                probe.Set(new ResourceSampleBuilder().At(stamp).Build());
+                var stamp = FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(i).AddDays(i % 2 == 0 ? 0 : -1);
+                probe.Set(new FakeSampleBuilder().At(stamp).Build());
                 sampler.Tick();
             }
 
@@ -122,8 +122,8 @@ public sealed class ResourceSamplerTests
         });
         using (sampler)
         {
-            var first = new ResourceSampleBuilder().At(ResourceSampleBuilder.DefaultTakenAtUtc).Build();
-            var second = new ResourceSampleBuilder().At(ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(5)).Build();
+            var first = new FakeSampleBuilder().At(FakeSampleBuilder.DefaultTakenAtUtc).Build();
+            var second = new FakeSampleBuilder().At(FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(5)).Build();
             probe.Set(first);
             sampler.Tick();
             probe.Set(second);
@@ -149,7 +149,7 @@ public sealed class ResourceSamplerTests
             DateTime[] stamps = [At(0), At(3600), At(-86400)];
             foreach (var stamp in stamps)
             {
-                probe.Set(new ResourceSampleBuilder().At(stamp).Build());
+                probe.Set(new FakeSampleBuilder().At(stamp).Build());
                 sampler.Tick();
                 time.Advance(Step);
             }
@@ -157,7 +157,7 @@ public sealed class ResourceSamplerTests
             Assert.Equal([TimeSpan.Zero, Step, Step * 2], last!.Select(s => s.Timeline));
         }
 
-        static DateTime At(int seconds) => ResourceSampleBuilder.DefaultTakenAtUtc.AddSeconds(seconds);
+        static DateTime At(int seconds) => FakeSampleBuilder.DefaultTakenAtUtc.AddSeconds(seconds);
     }
 
     [Fact]
@@ -242,7 +242,7 @@ public sealed class ResourceSamplerTests
     [Fact]
     public void Tick_WhenTheProbeThrows_SkipsThatRead_AndKeepsSampling()
     {
-        var time = new FakeTimeProvider(ResourceSampleBuilder.DefaultTakenAtUtc);
+        var time = new FakeTimeProvider(FakeSampleBuilder.DefaultTakenAtUtc);
         var probe = new ThrowOnceProbe();
         using var sampler = new ResourceSampler(probe, _ => Verdict(ResourceLevel.Normal), time);
 
@@ -278,7 +278,7 @@ public sealed class ResourceSamplerTests
         using (sampler)
         {
             // A stamp forty minutes in the past, as a stepped clock would produce.
-            probe.Set(new ResourceSampleBuilder().At(ResourceSampleBuilder.DefaultTakenAtUtc.AddMinutes(-40)).Build());
+            probe.Set(new FakeSampleBuilder().At(FakeSampleBuilder.DefaultTakenAtUtc.AddMinutes(-40)).Build());
             sampler.Tick();
 
             time.Advance(TimeSpan.FromSeconds(3));
@@ -305,7 +305,7 @@ public sealed class ResourceSamplerTests
 
         public ResourceSample Read()
         {
-            if (_thrown) return new ResourceSampleBuilder().Build();
+            if (_thrown) return new FakeSampleBuilder().Build();
             _thrown = true;
             throw new InvalidOperationException("a probe defect");
         }

@@ -8,6 +8,7 @@ using CcDirector.Avalonia;
 using CcDirector.Avalonia.Controls;
 using CcDirector.Core.Machine;
 using CcDirector.Core.Machine.ResourceSummaries;
+using CcDirector.Core.Tests.Machine;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -26,7 +27,7 @@ namespace CcDirector.Avalonia.Tests;
 public sealed class ResourceMeterWindowTests
 {
     private const string ProofDirectoryVariable = "CC_RESOURCE_MONITOR_PROOF_DIR";
-    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
 
     /// <summary>One window with the meter attached to a sampler whose verdict the test sets.</summary>
     private sealed class Rig : IDisposable
@@ -45,7 +46,7 @@ public sealed class ResourceMeterWindowTests
         }
 
         public MainWindow Window { get; }
-        public FakeTimeProvider Time { get; } = new(ResourceSampleBuilder.DefaultTakenAtUtc);
+        public FakeTimeProvider Time { get; } = new(FakeSampleBuilder.DefaultTakenAtUtc);
         public FakeResourceProbe Probe { get; } = new();
         public ResourceSampler Sampler { get; }
         public ResourceMonitorHost Host { get; }
@@ -91,12 +92,12 @@ public sealed class ResourceMeterWindowTests
         ]);
 
     // This Mac mini's own readings on 2026-11-06, from mission section 5d.
-    private static ResourceSampleBuilder Machine(double cpu, ulong availableBytes) =>
-        new ResourceSampleBuilder()
+    private static FakeSampleBuilder Machine(double cpu, ulong availableBytes) =>
+        new FakeSampleBuilder()
             .Cpu(cpu, 71, 8)
             .Memory(16 * Gb, availableBytes)
             .Swap(2 * Gb, (ulong)(0.94 * Gb))
-            .Process(150, 1, "claude", 1, 400 * ResourceSampleBuilder.Megabyte)
+            .Process(150, 1, "claude", 1, 400 * FakeSampleBuilder.Megabyte)
             .Process(200, 150, "dotnet test", cpu * 0.7, (ulong)(1.21 * Gb))
             .Process(300, 1, "chrome", 3, (ulong)(4.4 * Gb));
 

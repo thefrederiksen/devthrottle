@@ -3,7 +3,7 @@ using CcDirector.Core.Machine.ResourceSummaries;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// What the Director does with each read: the summary's shape keeps every unknown unknown, the five-minute
@@ -13,8 +13,8 @@ namespace CcDirector.Core.UnitTests.Machine;
 [Trait("Category", "Resources")]
 public sealed class ResourceMonitorHostTests
 {
-    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
-    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
+    private static readonly DateTime At = FakeSampleBuilder.DefaultTakenAtUtc;
 
     private static ResourcePressureVerdict Verdict(ResourceLevel cpu, ResourceLevel memory) =>
         new([
@@ -32,7 +32,7 @@ public sealed class ResourceMonitorHostTests
     [Fact]
     public void From_AReadableSample_CarriesTheFiguresAndTheLevelsItWasGiven()
     {
-        var sample = new ResourceSampleBuilder().At(At).Cpu(88).Memory(16 * Gb, 6 * Gb).Build();
+        var sample = new FakeSampleBuilder().At(At).Cpu(88).Memory(16 * Gb, 6 * Gb).Build();
 
         var summary = ResourceSummarySampleFold.From(new ResourceSamplerState(sample, Verdict(ResourceLevel.Tight, ResourceLevel.Normal)), [])!;
 
@@ -48,7 +48,7 @@ public sealed class ResourceMonitorHostTests
     [Fact]
     public void From_AnUnreadableProcessor_IsNullWithItsReason_NeverZero()
     {
-        var sample = new ResourceSampleBuilder().CpuUnreadable("the counters are switched off").Build();
+        var sample = new FakeSampleBuilder().CpuUnreadable("the counters are switched off").Build();
 
         var summary = ResourceSummarySampleFold.From(new ResourceSamplerState(sample, Verdict(ResourceLevel.Unknown, ResourceLevel.Normal)), [])!;
 
@@ -60,7 +60,7 @@ public sealed class ResourceMonitorHostTests
     [Fact]
     public void From_AnImpossibleProcessorFigure_IsNullAndSaysItCannotBeTrue()
     {
-        var sample = new ResourceSampleBuilder().Build() with { Cpu = CpuReading.Read(400, null, 8) };
+        var sample = new FakeSampleBuilder().Build() with { Cpu = CpuReading.Read(400, null, 8) };
 
         var summary = ResourceSummarySampleFold.From(new ResourceSamplerState(sample, Verdict(ResourceLevel.Critical, ResourceLevel.Normal)), [])!;
 
@@ -74,7 +74,7 @@ public sealed class ResourceMonitorHostTests
         var refused = new ResourceSessionInput(new SessionUsage("s-1", 10, 0, 0, [10, 11], 2, 2), "1", "Marketing");
 
         var session = Assert.Single(ResourceSummarySampleFold.From(
-            new ResourceSamplerState(new ResourceSampleBuilder().Build(), Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), [refused])!.Sessions);
+            new ResourceSamplerState(new FakeSampleBuilder().Build(), Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), [refused])!.Sessions);
 
         Assert.Null(session.ProcessorPercent);
         Assert.Null(session.MemoryBytes);
@@ -88,7 +88,7 @@ public sealed class ResourceMonitorHostTests
         var partial = new ResourceSessionInput(new SessionUsage("s-1", 10, 12, 2 * Gb, [10, 11, 12], 1, 0), "1", null);
 
         var session = Assert.Single(ResourceSummarySampleFold.From(
-            new ResourceSamplerState(new ResourceSampleBuilder().Build(), Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), [partial])!.Sessions);
+            new ResourceSamplerState(new FakeSampleBuilder().Build(), Verdict(ResourceLevel.Normal, ResourceLevel.Normal)), [partial])!.Sessions);
 
         Assert.Equal(12, session.ProcessorPercent);
         Assert.Equal((long)(2 * Gb), session.MemoryBytes);
@@ -137,7 +137,7 @@ public sealed class ResourceMonitorHostTests
         using var rig = new Rig();
 
         // Five minutes of reads, stamped 12:00:00 to 12:04:55.
-        for (var i = 0; i < 60; i++) rig.Read(new ResourceSampleBuilder().At(At.AddSeconds(i * 5)).Build());
+        for (var i = 0; i < 60; i++) rig.Read(new FakeSampleBuilder().At(At.AddSeconds(i * 5)).Build());
         Assert.Equal(0, rig.Outbox.Count);
 
         // The clock is now past 12:05:00 but the next sample still carries the old stamp, so only CloseIfDue
@@ -155,7 +155,7 @@ public sealed class ResourceMonitorHostTests
         using var rig = new Rig();
 
         // The recording writes once a minute, so a minute and a bit of reads must leave a file with content.
-        for (var i = 0; i < 14; i++) rig.Read(new ResourceSampleBuilder().At(At.AddSeconds(i * 5)).Build());
+        for (var i = 0; i < 14; i++) rig.Read(new FakeSampleBuilder().At(At.AddSeconds(i * 5)).Build());
         rig.Host.Dispose();
 
         var files = Directory.GetFiles(rig.RecordingDirectory, "*", SearchOption.AllDirectories);
@@ -169,8 +169,8 @@ public sealed class ResourceMonitorHostTests
         using var rig = new Rig();
         rig.Sessions = [new DirectorSessionInfo("s-140", 200, "140 (Resource Monitor)", "Marketing")];
 
-        rig.Read(new ResourceSampleBuilder()
-            .Process(200, 1, "claude", 2, 400 * ResourceSampleBuilder.Megabyte)
+        rig.Read(new FakeSampleBuilder()
+            .Process(200, 1, "claude", 2, 400 * FakeSampleBuilder.Megabyte)
             .Process(201, 200, "dotnet test", 60, 2 * Gb)
             .Process(300, 1, "chrome", 9, 3 * Gb)
             .Build());
@@ -178,7 +178,7 @@ public sealed class ResourceMonitorHostTests
         var session = Assert.Single(rig.Host.Latest!.Sessions!);
         Assert.Equal("s-140", session.Usage.SessionId);
         Assert.Equal(62, session.Usage.CpuPercent, 6);
-        Assert.Equal(2 * Gb + 400 * ResourceSampleBuilder.Megabyte, session.Usage.MemoryBytes);
+        Assert.Equal(2 * Gb + 400 * FakeSampleBuilder.Megabyte, session.Usage.MemoryBytes);
         Assert.Equal("Marketing", session.Factory);
     }
 
@@ -188,7 +188,7 @@ public sealed class ResourceMonitorHostTests
         using var rig = new Rig();
         rig.Sessions = [new DirectorSessionInfo("s-140", 200, "140", null)];
 
-        rig.Read(new ResourceSampleBuilder().ProcessesUnreadable("the platform refused the process list").Build());
+        rig.Read(new FakeSampleBuilder().ProcessesUnreadable("the platform refused the process list").Build());
 
         Assert.Null(rig.Host.Latest!.Sessions);
     }

@@ -1,7 +1,7 @@
 using CcDirector.Core.Machine;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// The probe a platform uses while its full probe is not built: real memory, and every other figure unreadable
@@ -10,8 +10,8 @@ namespace CcDirector.Core.UnitTests.Machine;
 [Trait("Category", "Resources")]
 public sealed class MemoryOnlyResourceProbeTests
 {
-    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
-    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
+    private static readonly DateTime At = FakeSampleBuilder.DefaultTakenAtUtc;
 
     private sealed class FixedMemory(MachineMemoryReading reading) : IMachineMemoryProbe
     {

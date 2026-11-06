@@ -1,7 +1,7 @@
 using CcDirector.Core.Machine;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// What the toolbar meter and the detail screen are handed (issue #2811, mission sections 5d to 5h). The
@@ -160,7 +160,7 @@ public class ResourceViewFoldTests
     [InlineData(120, "Updated 2 minutes ago - click for detail")]
     public void Meter_Updated_SaysHowOldTheReadingIs(int ageSeconds, string expected)
     {
-        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, At.AddSeconds(ageSeconds));
+        var meter = ResourceMeterFold.Build(State(new FakeSampleBuilder().Build()), "m", 1, null, TimeSpan.FromSeconds(ageSeconds));
 
         Assert.Equal(expected, meter.TooltipLines[^1]);
     }

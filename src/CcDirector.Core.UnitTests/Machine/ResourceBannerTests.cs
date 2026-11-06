@@ -2,7 +2,7 @@ using CcDirector.Core.Machine;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
-namespace CcDirector.Core.UnitTests.Machine;
+namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
 /// The warning banner's words and its lifetime: one banner per resource per crossing, and a warning that
@@ -11,15 +11,15 @@ namespace CcDirector.Core.UnitTests.Machine;
 [Trait("Category", "Resources")]
 public sealed class ResourceBannerTests
 {
-    private const ulong Gb = ResourceSampleBuilder.Gigabyte;
-    private static readonly DateTime At = ResourceSampleBuilder.DefaultTakenAtUtc;
+    private const ulong Gb = FakeSampleBuilder.Gigabyte;
+    private static readonly DateTime At = FakeSampleBuilder.DefaultTakenAtUtc;
 
     private static ResourceCrossing Crossing(ResourceKind kind, ResourceLevel from, ResourceLevel to, ResourceCrossingChange change,
         string evidence = "the processor has been above 85% for 2 minutes") =>
         new(kind, from, to, change, At, evidence);
 
     private static ResourceSample BusySample() =>
-        new ResourceSampleBuilder()
+        new FakeSampleBuilder()
             .Cpu(88)
             .Process(200, 1, "dotnet test", 62, 1 * Gb)
             .Process(300, 1, "chrome", 9, 3 * Gb)
@@ -81,7 +81,7 @@ public sealed class ResourceBannerTests
     [Fact]
     public void Build_WhenNoProcessHasAFigure_SaysSo_NeverNamesAProcessAtZero()
     {
-        var sample = new ResourceSampleBuilder().Process(400, 1, "refused", null, null).Build();
+        var sample = new FakeSampleBuilder().Process(400, 1, "refused", null, null).Build();
 
         var banner = ResourceBannerFold.Build(
             Crossing(ResourceKind.Cpu, ResourceLevel.Normal, ResourceLevel.Critical, ResourceCrossingChange.Raised),
@@ -94,7 +94,7 @@ public sealed class ResourceBannerTests
     [Fact]
     public void Build_WhenTheProcessListIsUnreadable_GivesTheReason()
     {
-        var sample = new ResourceSampleBuilder().ProcessesUnreadable("the platform refused the process list").Build();
+        var sample = new FakeSampleBuilder().ProcessesUnreadable("the platform refused the process list").Build();
 
         var banner = ResourceBannerFold.Build(
             Crossing(ResourceKind.Cpu, ResourceLevel.Normal, ResourceLevel.Tight, ResourceCrossingChange.Raised),

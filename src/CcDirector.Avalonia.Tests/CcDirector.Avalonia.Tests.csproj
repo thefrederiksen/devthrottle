@@ -25,6 +25,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Avalonia\CcDirector.Avalonia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The resource monitor's fake probe, shared with the Core unit tests, so the window tests drive the real
+         meter from the same samples (issue #2811). -->
+    <Compile Include="..\CcDirector.Core.Tests\Machine\FakeResourceProbe.cs" Link="Machine/FakeResourceProbe.cs" />
     <!-- Mission "Session State Truth", phase 5: the cross-surface agreement check's comparison, so every
          fault it claims to catch is injected and it is WATCHED reporting it. A check nobody has seen fail
          is the thing this mission exists to end. -->
