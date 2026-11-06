@@ -146,6 +146,28 @@ public static class ToolShimPath
     }
 
     /// <summary>
+    /// Is this the PATH launchd gives a process it starts with no shell involved - the four system
+    /// directories and nothing else (or nothing at all)? That is the one case the deleted bash wrapper
+    /// used to repair, and so the only case worth repairing here.
+    ///
+    /// Written as an exact set rather than a prefix test on purpose. Anything a shell profile touched
+    /// has more in it, and a machine where the administrator has set a richer PATH with
+    /// <c>launchctl config user path</c> has made its own decision; both are left alone.
+    /// </summary>
+    internal static bool IsLaunchdDefaultPath(string? searchPath)
+    {
+        if (string.IsNullOrWhiteSpace(searchPath)) return true;
+
+        string[] launchdDefaults = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+
+        return searchPath
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .Where(p => p.Length > 0)
+            .All(p => launchdDefaults.Contains(p, StringComparer.Ordinal));
+    }
+
+    /// <summary>
     /// The directories a desktop launch has to be told about - the agent binaries (<c>claude</c> and
     /// friends) and Homebrew live here, and launchd hands a GUI application a minimal PATH that holds
     /// none of them.
@@ -193,6 +215,22 @@ public static class ToolShimPath
         if (!OperatingSystem.IsMacOS()) return false;
 
         var current = Environment.GetEnvironmentVariable("PATH");
+
+        // AND ONLY WHEN THE PATH IS THE ONE launchd HANDS OUT. The wrapper was the bundle's
+        // CFBundleExecutable, so it ran when the desktop started the application and at no other time:
+        // a terminal start, an SSH start and a launcher start all ran the binary directly and never saw
+        // it. Running unconditionally would reach further than the wrapper ever did, and the case that
+        // bites is a developer whose PATH deliberately resolves python3 or node through pyenv, nvm or
+        // asdf shims and does not list /usr/local/bin - putting that directory in front would hand every
+        // session a different interpreter than the one the machine is set up to use.
+        if (!IsLaunchdDefaultPath(current))
+        {
+            (log ?? FileLog.Write)(
+                "[ToolShimPath] EnsureGuiLaunchPathDefaults: not a desktop launch (PATH was inherited "
+                + "from a shell or a parent), leaving it alone");
+            return false;
+        }
+
         var updated = current;
 
         // Walked BACKWARDS because each one is prepended: the last directory prepended ends up first,

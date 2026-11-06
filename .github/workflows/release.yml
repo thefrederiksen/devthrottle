@@ -182,6 +182,15 @@ jobs:
           --identity '${{ steps.macos-sign.outputs.identity }}'
           ${{ steps.macos-sign.outputs.signed == 'true' && '--require-certificate' || '' }}
 
+      # Puts the user's keychain search list back and deletes the temporary keychain. always(), so a
+      # failed build does not leave machine state behind on a self-hosted runner.
+      - name: Restore the macOS keychain search list
+        if: always()
+        uses: ./.github/actions/restore-macos-keychains
+        with:
+          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
+          keychain: ${{ steps.macos-sign.outputs.keychain }}
+
       - name: Upload cc-director mac artifact
         uses: actions/upload-artifact@v6
         with:
@@ -314,6 +323,15 @@ jobs:
             echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
             exit 1
           fi
+
+      # Puts the user's keychain search list back and deletes the temporary keychain. always(), so a
+      # failed build does not leave machine state behind on a self-hosted runner.
+      - name: Restore the macOS keychain search list
+        if: always()
+        uses: ./.github/actions/restore-macos-keychains
+        with:
+          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
+          keychain: ${{ steps.macos-sign.outputs.keychain }}
 
       - name: Upload macOS setup CLI artifact
         uses: actions/upload-artifact@v6
@@ -632,6 +650,15 @@ jobs:
             echo "::error title=macOS signing::Signed with an identity, but the designated requirement names no certificate. A privacy grant would not survive an update."
             exit 1
           fi
+
+      # Puts the user's keychain search list back and deletes the temporary keychain. always(), so a
+      # failed build does not leave machine state behind on a self-hosted runner.
+      - name: Restore the macOS keychain search list
+        if: always()
+        uses: ./.github/actions/restore-macos-keychains
+        with:
+          restore-list: ${{ steps.macos-sign.outputs.restore-list }}
+          keychain: ${{ steps.macos-sign.outputs.keychain }}
 
       - name: Upload launcher mac artifact
         uses: actions/upload-artifact@v6

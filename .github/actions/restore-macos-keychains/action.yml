@@ -1,0 +1,58 @@
+# Put the user's keychain search list back the way sign-macos found it, and delete the temporary
+# keychain it made. Call it with `if: always()` after the last step that signs.
+#
+# WHY IT IS A SEPARATE ACTION. `security list-keychains -s` changes state that belongs to the USER,
+# not to the job: it outlives the job and every later job on the same machine reads it. On a
+# GitHub-hosted runner that does not matter, because the machine is destroyed - but this repository
+# also runs work on a self-hosted Mac, where a temporary keychain dies with RUNNER_TEMP and would
+# leave a dangling entry in the search list for everything that followed. A composite action cannot
+# register a `post:` step, so the cleanup is its own action and each job calls it.
+#
+# Safe to call when nothing was changed: with empty inputs it does nothing and says so.
+
+name: Restore the macOS keychain search list
+description: Undo the keychain search list change made by sign-macos and delete its keychain.
+
+inputs:
+  restore-list:
+    description: The restore-list output of sign-macos. Empty means there is nothing to undo.
+    required: false
+    default: ""
+  keychain:
+    description: The keychain output of sign-macos. Empty means none was created.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RESTORE_LIST: ${{ inputs.restore-list }}
+        KEYCHAIN: ${{ inputs.keychain }}
+      run: |
+        set -uo pipefail
+
+        if [[ -z "${RESTORE_LIST}" || ! -f "${RESTORE_LIST}" ]]; then
+          echo "No saved keychain search list - nothing to restore."
+        else
+          EXISTING=()
+          while IFS= read -r line; do
+            [[ -n "$line" ]] && EXISTING+=("$line")
+          done < "${RESTORE_LIST}"
+
+          if [[ ${#EXISTING[@]} -eq 0 ]]; then
+            echo "The saved search list is empty; leaving the current one alone rather than emptying it."
+          else
+            security list-keychains -d user -s "${EXISTING[@]}"
+            echo "keychain search list restored to:"
+            security list-keychains -d user | sed 's/^/  /'
+          fi
+        fi
+
+        # Deleted last, so a failure to restore the list does not also leave the keychain behind.
+        if [[ -n "${KEYCHAIN}" ]]; then
+          security delete-keychain "${KEYCHAIN}" 2>/dev/null \
+            && echo "deleted the temporary signing keychain" \
+            || echo "the temporary signing keychain was already gone"
+        fi

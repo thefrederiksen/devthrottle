@@ -1266,10 +1266,12 @@ public partial class App : Application
                 }
             }
 
-            // ...then the per-install appsettings.json next to the exe, which WINS over the
-            // shared config: an isolated test Director (issue #329) points its own appsettings
-            // at a test communications DB and a mock channel tool without ever touching the
-            // shared per-machine config.json other Directors on this box read.
+            // ...then appsettings.json, which WINS over the shared config: an isolated test Director
+            // (issue #329) points its own appsettings at a test communications DB and a mock channel
+            // tool without ever touching the shared per-machine config.json other Directors on this box
+            // read. That override is still the copy NEXT TO THE EXECUTABLE and is still per-install;
+            // what moved is only where a DEFAULT is written when there is no copy at all, and that
+            // default lands in the root's config directory - see ResolveAgentConfigPath.
             var configPath = ResolveAgentConfigPath();
             if (File.Exists(configPath))
             {
@@ -1321,6 +1323,13 @@ public partial class App : Application
     /// signed bundle and broke its seal - codesign then reports "a sealed resource is missing or
     /// invalid", and the bundle can never be notarized. A signed bundle is replaced whole and never
     /// edited in place, so the default goes to the user's config directory and is read back there.
+    ///
+    /// THAT DEFAULT IS NOT PER-INSTALL, and the difference is worth knowing. <c>CcStorage.Config()</c>
+    /// is the CURRENT ROOT's config directory: a named Director has its own root and so its own copy,
+    /// but two installs sharing one root now share one file where each used to have its own beside its
+    /// own executable. It is equivalent today because the only thing ever written there is the default,
+    /// and because a real per-install override still wins by sitting next to the executable. A reader
+    /// who later puts real settings in the written default needs to know it is shared.
     /// </summary>
     private static string ResolveAgentConfigPath()
     {

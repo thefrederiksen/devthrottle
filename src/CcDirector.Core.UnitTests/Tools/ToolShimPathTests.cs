@@ -220,6 +220,31 @@ public sealed class ToolShimPathTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
+    [InlineData("/usr/bin:/bin:/usr/sbin:/sbin")]
+    [InlineData("/sbin:/usr/sbin:/bin:/usr/bin")]          // the order does not matter
+    [InlineData("/usr/bin/:/bin/:/usr/sbin/:/sbin/")]      // nor does a trailing separator
+    [InlineData("/usr/bin:/bin")]                          // a subset is still nothing but system defaults
+    public void IsLaunchdDefaultPath_WhatLaunchdHandsADesktopLaunch_IsRecognised(string? searchPath)
+    {
+        // The only case the deleted bash wrapper ever repaired, so the only case worth repairing.
+        Assert.True(ToolShimPath.IsLaunchdDefaultPath(searchPath));
+    }
+
+    [Theory]
+    [InlineData("/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin")]
+    [InlineData("/Users/someone/.pyenv/shims:/usr/bin:/bin:/usr/sbin:/sbin")]
+    [InlineData("/usr/local/bin:/usr/bin:/bin")]
+    public void IsLaunchdDefaultPath_AnythingAShellTouched_IsLeftAlone(string searchPath)
+    {
+        // A terminal start, an SSH start and a launcher start all ran the binary directly and never saw
+        // the wrapper. Reaching into their PATH would change which python3 or node a session gets.
+        Assert.False(ToolShimPath.IsLaunchdDefaultPath(searchPath));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
     public void GuiLaunchPathDirectories_WithoutAHome_NamesNothing(string? home)
     {
         // Every entry but the Homebrew ones is relative to the home folder. Without one we would be

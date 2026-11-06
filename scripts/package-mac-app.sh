@@ -232,11 +232,31 @@ else
     echo "  codesign: signing as '$SIGN_WITH'"
 fi
 
-# Nested Mach-O first (the real binary), then the bundle.
+# Inside out: any nested Mach-O before the bundle that seals it.
+#
+# For this bundle TODAY the first line is belt and braces - Contents/MacOS/$BIN_NAME is the bundle's
+# CFBundleExecutable rather than nested code, so signing it alone gives it the identifier codesign
+# derives from the FILENAME ("cc-director"), and the second line immediately replaces that with the
+# CFBundleIdentifier from Info.plist. It stays because the order is the rule the moment anything else
+# is added under Contents - a helper tool, a framework, a dylib - and because --deep, which used to
+# paper over the order, is deprecated for distribution.
+#
+# The second line is the one that decides the identifier half of the designated requirement, which is
+# why the check below asserts that identifier and not only the certificate.
 codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP/Contents/MacOS/$BIN_NAME"
 codesign --force --timestamp=none --sign "$SIGN_WITH" "$APP"
 
-codesign --verify --deep --strict "$APP" 2>&1 | sed 's/^/  codesign: /' || true
+# NOT `| sed ... || true`. That discarded codesign's exit status, so a bundle codesign REFUSES to
+# verify - a sealed resource missing or invalid, nested code left unsigned - still printed a tidy
+# requirement line, passed the gates below (they read the requirement's text, not the signature's
+# validity) and was zipped and published. The output is captured so it can still be indented.
+VERIFY_OUTPUT="$(codesign --verify --deep --strict "$APP" 2>&1)" && VERIFY_OK=1 || VERIFY_OK=0
+[[ -n "$VERIFY_OUTPUT" ]] && echo "$VERIFY_OUTPUT" | sed 's/^/  codesign: /'
+if [[ "$VERIFY_OK" != "1" ]]; then
+    echo "ERROR: the signature on $APP does not verify. Refusing to package." >&2
+    exit 1
+fi
+echo "  codesign: verified (valid on disk, seal intact)"
 
 # The designated requirement is the line that decides whether a privacy grant survives: a bare
 # "cdhash H..." means it will not, an "identifier ... and certificate leaf ..." means it will.
@@ -255,17 +275,24 @@ echo "$REQUIREMENT" | sed 's/^/    /'
 #                          misconfiguration, and the empty-identity case is caught here and nowhere else.
 #   an identity was given  then it must have produced a certificate-based requirement, whatever the caller
 #                          believed.
-if [[ "$REQUIRE_CERTIFICATE" == "1" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
-    echo "ERROR: --require-certificate was passed, but the designated requirement names no certificate." >&2
-    echo "       identity passed: '${IDENTITY:-(empty)}'" >&2
-    echo "       A privacy grant would NOT survive an update. Refusing to package." >&2
-    exit 1
-fi
-
-if [[ "$SIGN_WITH" != "-" ]] && ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
-    echo "ERROR: signed as '$SIGN_WITH', but the designated requirement does not name a certificate." >&2
-    echo "       A privacy grant would NOT survive an update. Refusing to package." >&2
-    exit 1
+if [[ "$REQUIRE_CERTIFICATE" == "1" ]] || [[ "$SIGN_WITH" != "-" ]]; then
+    # BOTH HALVES OF THE REQUIREMENT ARE CHECKED. It reads
+    #     identifier "<bundle id>" and certificate leaf = H"<hash>"
+    # and a grant is keyed to the whole line, so the identifier matters as much as the certificate.
+    # Checking only the leaf would let a future edit ship identifier "cc-director" - what codesign
+    # derives from the filename when the bundle itself is not signed - and still pass.
+    if ! echo "$REQUIREMENT" | grep -q "certificate leaf"; then
+        echo "ERROR: the designated requirement names no certificate." >&2
+        echo "       identity passed: '${IDENTITY:-(empty)}'" >&2
+        echo "       A privacy grant would NOT survive an update. Refusing to package." >&2
+        exit 1
+    fi
+    if ! echo "$REQUIREMENT" | grep -q "identifier \"$BID\""; then
+        echo "ERROR: the designated requirement does not name the bundle identifier $BID:" >&2
+        echo "       $REQUIREMENT" >&2
+        echo "       A privacy grant would be keyed to the wrong application. Refusing to package." >&2
+        exit 1
+    fi
 fi
 
 # ----------------------------------------------------------------------------

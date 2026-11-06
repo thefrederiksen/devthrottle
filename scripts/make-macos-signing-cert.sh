@@ -38,9 +38,17 @@
 # Usage:
 #   scripts/make-macos-signing-cert.sh [--out <dir>] [--name "<certificate common name>"]
 #
+# --out defaults to ~/.devthrottle-signing and must be OUTSIDE every git repository: this writes a
+# private signing key, and the script refuses to put one in a working tree.
+#
 set -euo pipefail
 
-OUT_DIR="$(pwd)"
+# NOT the working directory. This script writes a CODE-SIGNING PRIVATE KEY, and the documented way
+# to run it is from the repository root, so a default of $(pwd) put the key in the working tree one
+# `git add -A` away from being committed - and nothing in .gitignore covered a .p12. The key is also
+# the thing whose loss costs every user a fresh round of permission prompts, so it does not belong
+# anywhere a `git clean` can reach either.
+OUT_DIR="$HOME/.devthrottle-signing"
 CN="DevThrottle Code Signing"
 DAYS=7300   # 20 years. An expired certificate would orphan every grant on the same day.
 
@@ -53,7 +61,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Refuse to write the key inside a git working tree, wherever --out points. This is cheap, and the
+# alternative is a private key in a commit, which cannot be undone by deleting it in a later one.
+if git -C "$OUT_DIR" rev-parse --show-toplevel >/dev/null 2>&1 \
+   || { mkdir -p "$OUT_DIR" && git -C "$OUT_DIR" rev-parse --show-toplevel >/dev/null 2>&1; }; then
+    echo "ERROR: $OUT_DIR is inside a git repository:" >&2
+    echo "       $(git -C "$OUT_DIR" rev-parse --show-toplevel)" >&2
+    echo "       This script writes a private signing key. Choose --out outside every repository." >&2
+    exit 1
+fi
+
 mkdir -p "$OUT_DIR"
+chmod 700 "$OUT_DIR"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -84,6 +103,9 @@ openssl pkcs12 -export \
     -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \
     -name "$CN" -passout "pass:$P12_PASSWORD" \
     -legacy -macalg sha1 -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES 2>/dev/null
+
+# Readable by this user alone. The default umask leaves it world-readable on most machines.
+chmod 600 "$OUT_DIR/devthrottle-codesign.p12"
 
 SHA1="$(openssl x509 -in "$WORK/cert.pem" -noout -fingerprint -sha1 \
         | sed 's/.*=//; s/://g')"
