@@ -109,10 +109,44 @@ Foundation requires to be zero. Declared 64-bit, with the reasoning recorded so 
   regression test, checked against the defect rather than merely written: with wall-clock cache aging
   reintroduced it failed with "Assert.NotSame() Failure: Values are the same instance", and passed
   once the fix was back.
-- **The clock regression test covers the cache and not the interval.** I asked the reviewer this
-  directly and record it here rather than claiming coverage I do not have: a backwards wall-clock step
-  is proved not to freeze the cache, and the interval side rests on reading the code. Both now come
-  off the same monotonic timestamp, so one test exercising one of them is weaker evidence than it
-  looks.
+- **The clock regression test covered the cache and not the interval - now closed.** I raised this
+  doubt myself, the reviewer confirmed it in its addendum, and it is fixed rather than recorded.
+  `Read_WhenTheWallClockStepsBackMidSample_TheIntervalAndEveryRateSurviveIt` advances the monotonic
+  clock by the interval while stepping the wall clock an hour BACKWARDS - the arrangement that cannot
+  occur with one clock reading - and then checks the processor reads, the interval really is the
+  monotonic one (this process's figure against the runtime's own over the same interval, within a
+  factor of two), and the sample is still stamped with the stepped-back wall time. Checked against the
+  defect like the other one: with the interval put back to a wall-clock subtraction it fails, and
+  passes once the monotonic interval returns. Both halves of the clock rule are now pinned and both
+  tests have been run against the behaviour they are named for.
 - No Intel Mac, no spinning disk on macOS, no external or network volume, and the PowerShell gate
   cannot run here. The processor and latency limits remain proposals.
+
+## Addendum: the re-review, and three more answers (2026-11-06)
+
+The reviewer re-reviewed the three commits that followed, in a detached throwaway worktree so the
+moving working tree could not affect the result. Its addendum is appended to the review. Three things
+came out of it.
+
+**Finding 1 was still standing when it looked, and is fixed now.** It re-reviewed at 79f5b243e, which
+is one commit before the fix; the fix is 4621bbf5a. Measured after it, on this machine: the first
+sample lists 465 processes with **nought** reporting a processor share, where before the fix 328 of 513
+did.
+
+**A test of mine failed on correct code when the Director runs as root - ACCEPTED, fixed.** The
+refused-process test asserted that at least one process comes back refused. As root nothing is
+refused, because root may read every process, so the assertion failed on a correct probe. The reviewer
+suggested leaving it and documenting it; I have not, because this repository deletes a test that fails
+while the code is correct rather than carrying it with a note. Instead both cases now assert something
+specific and true: as an ordinary user some processes must be refused, and as root every process must
+be readable. Neither branch asserts nothing.
+
+**`FoldCpu` would not notice a core whose counters stood still - ACCEPTED as a limit, written down
+rather than fixed.** The reviewer is right that a still core is not skipped: it adds nought to both
+sums, so the denominator silently covers only the cores that moved, and a parked core that had really
+been idle would make the machine read busier than it was. There is no honest verdict to put in that
+arithmetic, because nothing in it can tell "idle and still counting" from "not counting". So the limit
+is now written at the line itself, naming the live per-core assertion as the only thing guarding it and
+saying that if that test ever goes red this loop is what has to change. The reviewer also confirmed
+from its own measurement that macOS does not take a logical processor offline while running, and that
+it found no condition where a parked core's idle counter stops advancing.

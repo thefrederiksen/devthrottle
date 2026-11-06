@@ -279,6 +279,19 @@ public sealed class MacOsResourceProbe : IResourceProbe
             var before = previous.Cores[index];
             var after = cores[index];
 
+            // A core whose counters went BACKWARDS wrapped, and its interval cannot be used. It is
+            // skipped rather than zeroed, which drops it from both sums.
+            //
+            // A CORE WHOSE COUNTERS STOOD STILL IS NOT CAUGHT HERE, AND THAT IS A KNOWN LIMIT. It is
+            // not skipped: it adds nought to both sums, so the denominator silently covers only the
+            // cores that moved, and a parked core that had really been idle would make the machine read
+            // busier than it was. Nothing in this arithmetic can tell "idle and still counting" from
+            // "not counting", so there is no honest verdict to put here - what guards it is the live
+            // test that every one of this machine's cores advances across an interval
+            // (ReadProcessorTicks_TwoReadingsWithWorkBetween_ShowTimePassing). Measured on an Apple M4
+            // with four performance and six efficiency cores, all ten advance, and macOS does not take
+            // a logical processor offline while running. If that ever changes, that test goes red and
+            // this loop is what has to change.
             if (after.Total < before.Total || after.Busy < before.Busy) continue;
 
             busy += after.Busy - before.Busy;

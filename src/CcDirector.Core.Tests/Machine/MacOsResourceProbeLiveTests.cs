@@ -58,12 +58,18 @@ public class MacOsResourceProbeLiveTests
 
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
-        /// <summary>Moves both readings forward by the same amount.</summary>
+        /// <summary>Moves both readings forward by the same amount, which is the ordinary case.</summary>
         public void Advance(TimeSpan by)
         {
             _wall = _wall.Add(by);
             _timestamp += by.Ticks;
         }
+
+        /// <summary>What a monotonic clock does. Only ever forward, and never the wall clock.</summary>
+        public void AdvanceMonotonic(TimeSpan by) => _timestamp += by.Ticks;
+
+        /// <summary>What time synchronisation does to the wall clock, and only to it. May be negative.</summary>
+        public void StepWallClock(TimeSpan by) => _wall = _wall.Add(by);
     }
 
     /// <summary>The interval handed to the probe between two samples. See <see cref="Start"/>.</summary>
@@ -385,6 +391,20 @@ public class MacOsResourceProbeLiveTests
         // the test would pass on a machine where the refused ones were being dropped after all.
         var refused = sample.Processes.Processes.Where(process => process.MemoryBytes is null).ToList();
 
+        // WHAT IS ASSERTED DEPENDS ON WHO IS RUNNING, and both branches assert something specific rather
+        // than one of them asserting nothing. As an ordinary user the platform refuses a good share of
+        // the machine, and some processes MUST come back refused or they are being dropped again. As
+        // root nothing is refused, because root may read every process - so the honest assertion there
+        // is that everything really is readable. Written this way round because a test that fails when
+        // the Director happens to run as root is a test that fails on correct code, and this repository
+        // deletes those rather than carrying them.
+        if (Environment.IsPrivilegedProcess)
+        {
+            Assert.Empty(refused);
+            Assert.All(sample.Processes.Processes, process => Assert.NotNull(process.MemoryBytes));
+            return;
+        }
+
         Assert.True(
             refused.Count > 0,
             "not one process had unreadable figures, which on a Mac running as an ordinary user means " +
@@ -461,6 +481,57 @@ public class MacOsResourceProbeLiveTests
     // =============================================================================================
     // The cache
     // =============================================================================================
+
+    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [Trait("Category", "Resources")]
+    public void Read_WhenTheWallClockStepsBackMidSample_TheIntervalAndEveryRateSurviveIt()
+    {
+        // THE OTHER HALF OF THE CLOCK RULE, AND IT WAS GENUINELY UNPINNED UNTIL NOW. The unit test in
+        // MacOsResourceProbeSafetyTests proves a backwards wall-clock step does not freeze the CACHE,
+        // but it asserts only which object comes back - so putting the INTERVAL back to a wall-clock
+        // subtraction would leave it passing. The reviewer said so, I agreed, and this is the test that
+        // closes it. It has to be a live test: off macOS every reading is unreadable whatever the clock
+        // does, so there is no rate to get wrong.
+        //
+        // The arrangement is the one that cannot happen with a single clock reading: monotonic time
+        // moves FORWARD by the interval while the wall clock is stepped an hour BACKWARDS, which is
+        // what time synchronisation does to a machine mid-sample.
+        var clock = new TestClock(Start);
+        var probe = new MacOsResourceProbe(clock);
+        probe.Read();
+
+        var processorBefore = Process.GetCurrentProcess().TotalProcessorTime;
+        Assert.True(MachineWork.BurnOnThreads(threads: 2, units: 4) > 0);
+        var usedByTheRuntime = Process.GetCurrentProcess().TotalProcessorTime - processorBefore;
+        Assert.True(usedByTheRuntime > TimeSpan.FromMilliseconds(20),
+            "a fixed amount of arithmetic accounted for almost no processor time, so there is nothing to compare");
+
+        clock.AdvanceMonotonic(Interval);
+        clock.StepWallClock(TimeSpan.FromHours(-1));
+        var sample = probe.Read();
+
+        // WITH A WALL-CLOCK INTERVAL THIS SAMPLE WOULD REPORT "first sample, no interval yet" - the
+        // subtraction would be minus an hour, which is not positive - and every process rate would be
+        // null. The machine would look unreadable because a clock was corrected.
+        Assert.True(sample.Cpu.CouldRead, sample.Cpu.UnreadableReason);
+        Assert.True(sample.Cpu.TotalBusyPercent > 0);
+
+        // And the interval really is the monotonic one, not merely positive: the process figure is
+        // checked against the runtime's own measurement over the same interval, from a different system
+        // call, the way the two-thread test does. An interval of minus an hour, or of an hour, would put
+        // this out by orders of magnitude rather than within a factor of two.
+        var expectedPercent =
+            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / sample.Cpu.LogicalCoreCount;
+        var us = sample.Processes.Processes.Single(process => process.Pid == Environment.ProcessId);
+
+        Assert.NotNull(us.CpuPercent);
+        Assert.InRange(us.CpuPercent.Value, expectedPercent * 0.5, expectedPercent * 2.0);
+
+        // The sample is still STAMPED with wall-clock time, which is now an hour earlier. That is
+        // correct and is the whole division of labour: wall time says when, monotonic time says how
+        // long.
+        Assert.Equal(Start.Add(TimeSpan.FromHours(-1)).UtcDateTime, sample.TakenAtUtc);
+    }
 
     [MacOsOnlyFact("the probe reads macOS system calls")]
     [Trait("Category", "Resources")]
