@@ -140,11 +140,30 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
     [Fact]
     public async Task ManyParksInsideTheGap_ShareOneTrailingInspection()
     {
-        var held = new TaskCompletionSource();
+        // THE TRAILING INSPECTION RUNS ON ANOTHER THREAD, SO THIS TEST WAITS FOR IT. It used to yield
+        // once and then read _inspected, which is a data race, not a slow path: the assert enumerated
+        // the list while that thread was still adding to it and the test died on "Collection was
+        // modified; enumeration operation may not execute" - a red main, from a test whose subject was
+        // working perfectly (continuous integration run 42206687148). The signal below is sent after the
+        // list has been added to, so by the time it arrives the list is final and needs no lock.
+        //
+        // The wait completes its continuation asynchronously ON PURPOSE. Resumed inline it would finish
+        // inside SetResult on this thread, and the test would prove the collapse only for the
+        // arrangement that never fails; off-thread is the one that bit us, and now it is the one every
+        // run exercises, on every machine.
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trailingInspected = new TaskCompletionSource();
+        var inspections = 0;
         using var first = WorkingSessionIn(Folder);
         using var second = WorkingSessionIn(PoolSlot, primaryRepository: Repository);
         using var third = WorkingSessionIn(SiblingWorktree, primaryRepository: Repository);
-        using var watcher = Watcher(heldDelay: held.Task);
+        using var watcher = Watcher(
+            inspect: _ =>
+            {
+                if (Interlocked.Increment(ref inspections) == 2) trailingInspected.TrySetResult();
+                return Task.CompletedTask;
+            },
+            heldDelay: held.Task);
         watcher.WireSession(first);
         watcher.WireSession(second);
         watcher.WireSession(third);
@@ -160,7 +179,9 @@ public sealed class IdleTreeInspectionWatcherTests : IDisposable
         Assert.Single(_waits);
 
         held.SetResult();
-        await Task.Yield();
+        // A bounded wait, so a trailing inspection that never arrives fails this test rather than
+        // hanging the run.
+        await trailingInspected.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.Equal(new[] { Repository, Repository }, _inspected);
         Assert.Single(_waits);
