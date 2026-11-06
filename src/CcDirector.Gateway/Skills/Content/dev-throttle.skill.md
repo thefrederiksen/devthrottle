@@ -180,11 +180,24 @@ grace has passed and the session is no longer working. It does NOT kill the call
 mid-request, so you can flag yourself and then finish your turn normally.
 
 ```
-# Close THIS session gracefully (run at the very end of your turn, on an unattended run)
+# Close THIS session gracefully (run at the very end of your turn)
 cc-devthrottle session done
 ```
 
 To reap a DIFFERENT session, pass its id or name: `cc-devthrottle session done <target>`.
+
+**A scheduled run does not use `session done` to close itself.** Its run is not finished until it
+reports, and the report closes the session: the very last command is `cc-devthrottle run result ok`,
+or `cc-devthrottle run result problem "<one line why>"`. A journal entry (`cc-devthrottle factory
+record`) is not a report. While a scheduled run's own session has not reported, the Gateway refuses
+its `session done` and flags nothing, so the run is never recorded "did not report" for work it did.
+
+**A session joins a factory only when it is started as one.** A session you start by hand is born in
+no factory, so its writes to a factory's journal, memory and records are refused, and asking cannot
+change that. To do a factory's work - a rescue included - start the factory's Boss
+(`cc-devthrottle session spawn <repo> --controlled-by self --factory <factory> --seat <boss seat>`,
+from a session in no factory)
+and have it run `cc-devthrottle factory seat start`, or use Talk on the seat.
 
 Do not self-close while something still needs the user (a pending decision, an approval, an
 unanswered question). Reap only when the queue is truly empty.

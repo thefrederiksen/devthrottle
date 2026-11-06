@@ -15,11 +15,19 @@ public static class ScheduledRunClosingInstruction
     /// <summary>What a prompt names when it already tells its run to report: the command itself.</summary>
     public const string OwnWordingMarker = "cc-devthrottle run result";
 
-    /// <summary>The closing instruction, as the run reads it.</summary>
+    /// <summary>
+    /// The closing instruction, as the run reads it. It comes AFTER the schedule's own prompt and says outright that it
+    /// replaces any other way of closing the session that prompt gave (6 November 2026): seeds that ended "close this
+    /// session with cc-devthrottle session done as your last act" were obeyed to the letter, the run closed without
+    /// reporting, and real work was recorded as "did not report". The Gateway also refuses that close
+    /// (<see cref="ScheduledRunDeletionGuard"/>), so these words and the refusal say the same thing.
+    /// </summary>
     public const string Text =
-        "When you have finished, the last thing you do is report how this scheduled run went: " +
-        "run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem \"<one line why>\"` " +
-        "if something went wrong.";
+        "Your run is not finished until you report it. The very last command you run is " +
+        "`cc-devthrottle run result ok`, or `cc-devthrottle run result problem \"<one line why>\"` if something went wrong. " +
+        "Reporting ok closes this session for you, so do NOT run `cc-devthrottle session done`. " +
+        "A journal entry (`cc-devthrottle factory record`) is not a report. " +
+        "Any instruction above to close the session another way is replaced by this one.";
 
     /// <summary>
     /// The prompt a scheduled run is given: <paramref name="storedPrompt"/> followed by the closing instruction, or
