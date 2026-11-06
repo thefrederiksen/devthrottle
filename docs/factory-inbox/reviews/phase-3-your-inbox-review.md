@@ -166,3 +166,88 @@ The rebase itself: the old `AddYourInbox` migrations (SQLite `20261106090441`, P
 and regenerated with `dotnet ef migrations add AddYourInbox` after main's `AddFactoryBossStarts`: SQLite
 `20261106145000_AddYourInbox`, Postgres `20261106145006_AddYourInbox`. Both `Up` and `Down` bodies are byte-identical
 to the old ones (no table shape changed), and each new designer's model is identical to its project's snapshot.
+
+## Re-review after the migration rebase
+
+Reviewed by a separate review session on 6 November 2026, worktree `/home/soren/ReposFred/devthrottle-fi-review-4608`
+on devlinux, detached at `da645066e`. Only the two commits added since the approval above were read:
+`cfca4a7b1` (the migrations regenerated after main's `AddFactoryBossStarts`) and `da645066e` (the answers to the four
+notes). The worktree was read and tested, never edited apart from this section.
+
+### Verdict
+
+**Approve. No finding proves a harm.** The regenerated migrations are correct and complete for both databases, the
+new wake call is wired exactly as the owner's own send and is tested, and the four answers do what they say.
+
+### Scope
+
+What was read: the six migration files of `cfca4a7b1` (both `AddYourInbox` migrations, their designers, both model
+snapshots), compared against the dropped migrations at the old branch head `9b05a8c00`, against the base `cbce2401f`
+and against the `AddFactoryBossStarts` designers; the `MessageSent` part added to `YourInboxEndpoints.Parts`, its call in
+`ReplyIntoFactoryAsync`, its host wiring, and the owner's own send in `FactoryInboxEndpoints` and its host wiring for
+comparison; `FactoryInboxWake.MessageSent`, `LookLaterAsync` and `LookSafeAsync`; the two changed tests in
+`YourInboxEndpointTests`; the two new comments; the paragraph in `docs/cli-reference.md`; the newest-designer test in
+`FleetOutcomeStopIdentityMigrationTests`.
+
+What was run, on devlinux with `~/.dotnet/dotnet`, polling file watcher on, Windows targeting enabled:
+
+| Run | Result |
+|---|---|
+| `dotnet test CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Migration` | 38 passed, 0 failed |
+| `dotnet test CcDirector.Gateway.UnitTests --filter FullyQualifiedName~YourInbox` | 80 passed, 0 failed |
+
+Not reached: no real Postgres was started, so the Postgres `Up` was not executed against a server; the Postgres proof
+here is the designer and snapshot comparison plus the newest-designer test, which diffs the designed model against the
+live model for the Postgres provider with no database. The old branch's migrations were read from `9b05a8c00`, which is
+reachable in this clone.
+
+### The migrations are correct and complete
+
+- **No table shape changed.** A `diff` of the new SQLite `20261106145000_AddYourInbox.cs` against the dropped
+  `20261106090441_AddYourInbox.cs`, and of the new Postgres `20261106145006_AddYourInbox.cs` against the dropped
+  `20261106090535_AddYourInbox.cs`, gives zero lines for both: the whole file, `Up` and `Down`, is byte-identical.
+- **They order last.** SQLite `20261106145000` sorts after `20261106094441_AddFactoryBossStarts`; Postgres
+  `20261106145006` after `20261106094559_AddFactoryBossStarts`. The old ids (`090441`, `090535`) are gone from both
+  folders, so there is no duplicate `AddYourInbox` and nothing sorts between the Boss starts migration and this one.
+- **Each designer carries the whole model.** The model body of each new designer is identical to its project's
+  snapshot (zero diff lines, both providers). Each snapshot differs from the base `cbce2401f` by additions only
+  (zero removed lines) and those additions are exactly the two entities `YourInboxMessageEntity` and
+  `YourInboxReplyEntity`. Each snapshot differs from its `AddFactoryBossStarts` designer by the same two entities and
+  nothing else, so the chain Boss starts plus Your inbox equals the Your inbox designer. `FactoryBossStartEntity` is
+  present in both new designers. Against the old branch's snapshots the only difference is the `factory_boss_starts`
+  table main added, which is what a rebase should show.
+- **The live model agrees.** `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel` passed for both
+  providers: the newest migration is found by attribute, the model differ finds no difference between its designed
+  model and the context's live model, and `HasPendingModelChanges` is false. The designer attributes name
+  `GatewayDbContext` and the right migration ids, and all six files carry `ProductVersion` 9.0.2, the same as the
+  Boss starts designers.
+
+### The wake call is right and tested
+
+- The host wires `MessageSent` to `_ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc)`, the same line
+  as the Factory inbox routes use, so the two sends are identical in what they tell the wake and in not waiting for
+  the look.
+- Discarding the task is safe: `LookLaterAsync` catches the cancellation of the delay, and `LookSafeAsync` catches
+  everything else and logs it, so a scheduled look never faults an unobserved task.
+- It is called after the store write and before the Your inbox reply row, which matches the deliberate
+  deliver-then-record order and matches the owner's send, where the wake is told after the write.
+- Both ways into a factory inbox go through `ReplyIntoFactoryAsync`: a reply to a factory's own message and the
+  `to: "factory"` offer after a session has ended. Both therefore tell the wake.
+- The test asserts the wake was told exactly once with the tenant, the factory and the stored message's sent time, for
+  the phone and the Cockpit; the archived-factory refusal asserts it was not told. `Parts` is constructed in exactly
+  two places (the host and this test class), both updated, and the project builds.
+
+### The answers to the notes are sound
+
+1. Wake call: accepted and done, as above.
+2. Deliver before record: the comment sits above the running-session delivery, says it covers the factory reply
+   below, gives the reason the other order would be worse, and says not to swap them. That is what the note asked.
+3. Count route: the comment says the silence is on purpose because a phone polls it, that a refusal still carries its
+   reason, and that the write routes log. That is what the note asked.
+4. Command line reference: the paragraph now names no route and says in words who may call what. A renamed route
+   can no longer leave it stale.
+
+### Observations (no harm; nothing to change)
+
+- The two ended-session tests that take the `to: "factory"` offer do not assert on the wake. They share the code path
+  with the asserted test, so the wake is told there too; an assertion would only pin the shared path twice.
