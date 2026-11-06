@@ -62,6 +62,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
     private CronJobStore? _schedules;
     private TriggerService? _triggers;
     private NewSessionRequest? _directorSaw;
+    private string? _directorStarted;
 
     public FactoryBossThroughTheRoutesTests()
     {
@@ -110,8 +111,9 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         {
             if (command.Verb != "create") return Task.FromResult<DirectorCommandResult?>(null);
             _directorSaw = JsonSerializer.Deserialize<NewSessionRequest>(command.PayloadJson ?? "{}", Web);
+            _directorStarted = Guid.NewGuid().ToString();
             return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
-                JsonSerializer.Serialize(new SessionDto { SessionId = Guid.NewGuid().ToString() }, Web)));
+                JsonSerializer.Serialize(new SessionDto { SessionId = _directorStarted }, Web)));
         };
 
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
@@ -121,7 +123,9 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             seatRulesFor: _ => (_, _, _) => SeatRulesRead.Carries(false),
             bossStartFor: _ => factory => factory == TheFactory
                 ? new FactoryBossStart(TheFactory, TheBoss, ThePublished, Archived: false)
-                : null);
+                : null,
+            recordBossStart: (sid, factory, seat, by, kind) => _history.RecordBossStart(sid, factory, seat, by, kind, Now),
+            bossStartOf: _history.BossStartOf);
 
         var db = _db.Open();
         _schedules = new CronJobStore(db, Path.Combine(_dir, "jobs.json"));
@@ -226,6 +230,61 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
         Assert.Equal(TheBoss, sent.FactorySeat);
         Assert.Equal(ThePublished, sent.FactoryDefinitionVersion);
         Assert.Equal(FactoryKits.RulesOnly, sent.FactoryKit);
+    }
+
+    /// <summary>The roster push the Director makes for a session it started: in the factory, the seat, the rules-only
+    /// kit, and the session that asked for it.</summary>
+    private void Pushed(string sessionId, string? parent)
+    {
+        _history.UpsertLive(DirectorId, new SessionDto
+        {
+            SessionId = sessionId,
+            Name = "Website Factory - boss",
+            RepoPath = Path.GetTempPath(),
+            Agent = "ClaudeCode",
+            MachineName = Machine,
+            CreatedAt = Now,
+            LastActivityAt = Now,
+            ActivityState = "Working",
+            Status = "Running",
+            Factory = TheFactory,
+            FactorySeat = TheBoss,
+            FactoryDefinitionVersion = ThePublished,
+            FactoryKit = FactoryKits.RulesOnly,
+            ParentSessionId = parent,
+        }, Now);
+    }
+
+    [Fact]
+    public async Task THE_BOSS_A_SESSION_IN_NO_FACTORY_STARTS_IS_RECORDED_AS_THE_BOSS_and_a_child_it_spawns_is_not()
+    {
+        await StartGatewayAsync();
+        var owners = Session(factory: null);
+        var boss = await Send(HttpMethod.Post, $"/directors/{DirectorId}/sessions", owners, new
+        {
+            repoPath = Path.GetTempPath(), agent = "ClaudeCode", controllerSessionId = "none",
+            factory = TheFactory, factorySeat = TheBoss,
+        });
+        Assert.True(boss.IsSuccessStatusCode, await boss.Content.ReadAsStringAsync());
+        var bossId = Assert.IsType<string>(_directorStarted);
+        Pushed(bossId, owners.ToString());
+
+        var asBoss = _history.FactoryOf(bossId);
+        Assert.True(asBoss.StartedAsTheBoss);
+        Assert.False(asBoss.InheritedForPublishing);
+
+        // The Boss's own child, through the same door on the Boss's key: it inherits the seat and no record is written.
+        _directorStarted = null;
+        var child = await Send(HttpMethod.Post, $"/directors/{DirectorId}/sessions", Guid.Parse(bossId), new
+        {
+            repoPath = Path.GetTempPath(), agent = "ClaudeCode", controllerSessionId = "none",
+        });
+        Assert.True(child.IsSuccessStatusCode, await child.Content.ReadAsStringAsync());
+        var childId = Assert.IsType<string>(_directorStarted);
+        Pushed(childId, bossId);
+
+        Assert.Null(_history.BossStartOf(childId));
+        Assert.True(_history.FactoryOf(childId).InheritedForPublishing);
     }
 
     // ---- triggers -------------------------------------------------------------------------------------------------

@@ -85,7 +85,8 @@ public sealed class FactoryDefinitionStore
     // the session the owner tells what to make; his word in that session is the approval.
     //
     // THE BOSS IS THE BOSS OF ITS FACTORY (the owner's ruling of 21 October 2026): a factory's Boss session - a session
-    // of the factory STARTED AS the bossSeat of the published definition, never a child that inherited that seat -
+    // of the factory STARTED AS the bossSeat of the published definition, by its schedule, its trigger, the Talk button
+    // or a session in no factory (issue #4598), never a child that inherited that seat -
     // publishes and restores any change to its
     // own factory's definition on its own authority. A version that changes the Boss's OWN seat or its authority (its
     // seats/<seat>.yaml, which seat factory.yaml names as the boss, a grant that includes the boss seat, a rule set the
@@ -100,18 +101,26 @@ public sealed class FactoryDefinitionStore
     /// <summary>The flag the command line passes the owner's words with, named in every refusal that needs them.</summary>
     public const string OwnerApprovedFlag = "--owner-approved \"<the owner's words, verbatim>\"";
 
-    /// <summary>Who this session is, against the boss seat, in words: why it is not the Boss.</summary>
+    /// <summary>Who this session is, against the boss seat, in words: why it is not the Boss, and who can publish
+    /// instead (issue #4598, ask 2) - so a refusal never sends a session to ask a Boss that may not be running.</summary>
     private static string NotTheBoss(string sessionFactory, string? sessionSeat, string? bossSeat, bool inherited)
     {
         var who = string.IsNullOrWhiteSpace(sessionSeat) ? "this session is no seat" : $"this session is the seat '{sessionSeat}'";
         if (inherited && !string.IsNullOrWhiteSpace(bossSeat))
             return $"only its Boss publishes, and this session inherited the seat '{sessionSeat}' from the session that " +
-                   $"started it, so it is not the Boss. Ask the Boss session to publish. {InsteadOfPublishing}";
+                   $"started it, so it is not the Boss. {WhoPublishes(sessionFactory, bossSeat)} {InsteadOfPublishing}";
         return string.IsNullOrWhiteSpace(bossSeat)
             ? $"factory '{sessionFactory}' has no published definition naming a boss seat, so it has no Boss yet. The owner " +
               "publishes its first version, in the Cockpit or by telling a session that is in no factory to publish."
-            : $"only its Boss publishes, and {who}, not the boss seat '{bossSeat}'. {InsteadOfPublishing}";
+            : $"only its Boss publishes, and {who}, not the boss seat '{bossSeat}'. {WhoPublishes(sessionFactory, bossSeat)} " +
+              InsteadOfPublishing;
     }
+
+    /// <summary>Who may publish a factory's definition, and how to start a Boss when none is running.</summary>
+    private static string WhoPublishes(string factory, string bossSeat) =>
+        $"Who can publish: the owner (in the Cockpit), a session in no factory, or a session STARTED AS the seat '{bossSeat}' - " +
+        "by its schedule, its trigger, the owner's Talk button, or by a session in no factory with " +
+        $"'cc-devthrottle session spawn <repo> --factory {factory} --seat {bossSeat}'.";
 
     /// <summary>The sentence a factory's session that is not its Boss is refused a publish with. Held here so the routes
     /// and the tests say the same words.</summary>

@@ -1481,6 +1481,11 @@ public sealed class GatewayHost : IAsyncDisposable
     private Factory.Definition.BossStartReader BossStartFor(TenantId tenant)
         => factory => Factory.Definition.FactoryBossStarts.Read(FactoryRegistry, FactoryDefinitions, tenant, factory);
 
+    /// <summary>Records a session a spawn door started as a factory's Boss for a session in no factory, or the verified
+    /// restore of one (issue #4598), in the account the request is scoped to. Handed to both spawn doors.</summary>
+    private void RecordBossStart(string sessionId, string factory, string seat, string startedBy, string kind)
+        => _sessionHistory.RecordBossStart(sessionId, factory, seat, startedBy, kind, DateTime.UtcNow);
+
     /// <summary>Which Directors run checks from a factory's definition (Factory Definition, phase 5b) - recorded at
     /// Hello, read when a Director asks for its triggers and when a trigger's status is decided.</summary>
     private readonly Streaming.DefinitionCheckCapabilityRegistry _definitionCheckCapabilities = new();
@@ -5372,6 +5377,9 @@ public sealed class GatewayHost : IAsyncDisposable
             seatRulesFor: SeatRulesFor,
             // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
             bossStartFor: BossStartFor,
+            // Issue #4598: a Boss started for a session in no factory is recorded, so it holds the Boss's authority.
+            recordBossStart: RecordBossStart,
+            bossStartOf: _sessionHistory.BossStartOf,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -5804,7 +5812,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 _tenantPass.Current ?? throw new InvalidOperationException("no account is bound to this request, so no dev report can pass."),
                 nowUtc),
             // In a team the workspace list is the caller's own (devthrottle_internal#2311, live proof F2).
-            teamCaller: ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant ? TeamCallerFor(ctx, tenant) : null);
+            teamCaller: ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant ? TeamCallerFor(ctx, tenant) : null,
+            // Issue #4598: a Smart Restart reopen of a Boss carries the Boss's record to the session it reopened as.
+            carryBossStart: (from, to) => Api.SpawnFactory.CarryBossStart(from, to, _sessionHistory.BossStartOf, RecordBossStart,
+                "POST /gateway/workspaces/{id}/restore/marks"));
         // The register names WHICH library it is for the caller's key - this Gateway's stable id, the tenant the
         // store just answered for, and the team when that tenant is one - so a Director stamps its skills with an
         // identity that never depends on the address it used (devthrottle_internal#2311, SK-F2/SK-F3).
@@ -6832,7 +6843,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // seat carries them, read from the definition version the seat was started from.
             seatRulesFor: SeatRulesFor,
             // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
-            bossStartFor: BossStartFor);
+            bossStartFor: BossStartFor,
+            // Issue #4598: a Boss started for a session in no factory is recorded, so it holds the Boss's authority.
+            recordBossStart: RecordBossStart);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

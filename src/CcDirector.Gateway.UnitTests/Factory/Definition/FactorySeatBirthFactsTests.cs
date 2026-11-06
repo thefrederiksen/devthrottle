@@ -116,6 +116,68 @@ public sealed class FactorySeatBirthFactsTests : IDisposable
         Assert.Equal(4, afterRestart.DefinitionVersion);
     }
 
+    // ---------- started as the Boss, or inherited (issue #4598) ----------
+
+    private static SessionDto WithParent(SessionDto dto, string? parent)
+    {
+        dto.ParentSessionId = parent;
+        return dto;
+    }
+
+    [Fact]
+    public void FactoryOf_ABossTheGatewayRecordedAsStarted_IsNotInherited()
+    {
+        var store = new SessionHistoryStore(_h.Open());
+        store.UpsertLive("director-1", WithParent(Pushed("boss", "boss", 4, FactoryKits.RulesOnly), "owners-agent"), Now);
+        store.RecordBossStart("boss", TheFactory, "boss", "owners-agent", FactoryBossStartKinds.Started, Now);
+
+        var lookup = store.FactoryOf("boss");
+
+        Assert.Equal("boss", lookup.Seat);
+        Assert.True(lookup.StartedAsTheBoss);
+        Assert.False(lookup.InheritedForPublishing);
+        // The inbox and seat starts keep the Tech Lead's ruling: the kit is still rules-only.
+        Assert.True(lookup.SeatIsInherited);
+    }
+
+    [Fact]
+    public void FactoryOf_ARulesOnlySessionWithNoRecord_IsInherited_whatever_its_parent_is()
+    {
+        var store = new SessionHistoryStore(_h.Open());
+        // A parent in no factory proves nothing on its own: a restore ordered by the owner's agent looks the same.
+        store.UpsertLive("director-1", Pushed("owners-agent", factory: null), Now);
+        store.UpsertLive("director-1", WithParent(Pushed("restored-child", "boss", 4, FactoryKits.RulesOnly), "owners-agent"), Now);
+
+        var lookup = store.FactoryOf("restored-child");
+
+        Assert.False(lookup.StartedAsTheBoss);
+        Assert.True(lookup.InheritedForPublishing);
+    }
+
+    [Fact]
+    public void FactoryOf_ARecordForAnotherFactoryOrSeat_LendsNoAuthority()
+    {
+        var store = new SessionHistoryStore(_h.Open());
+        store.UpsertLive("director-1", Pushed("s1", "writer", 4, FactoryKits.RulesOnly), Now);
+        store.RecordBossStart("s1", TheFactory, "boss", "owners-agent", FactoryBossStartKinds.Started, Now);
+        store.UpsertLive("director-1", Pushed("s2", "boss", 4, FactoryKits.RulesOnly), Now);
+        store.RecordBossStart("s2", "invoice-factory", "boss", "owners-agent", FactoryBossStartKinds.Started, Now);
+
+        Assert.True(store.FactoryOf("s1").InheritedForPublishing);
+        Assert.True(store.FactoryOf("s2").InheritedForPublishing);
+    }
+
+    [Fact]
+    public void RecordBossStart_IsWriteOnce_and_BossStartOf_reads_it()
+    {
+        var store = new SessionHistoryStore(_h.Open());
+        store.RecordBossStart("boss", TheFactory, "boss", "owners-agent", FactoryBossStartKinds.Started, Now);
+        store.RecordBossStart("boss", "invoice-factory", "ceo", "someone", FactoryBossStartKinds.Restored, Now.AddMinutes(1));
+
+        Assert.Equal((TheFactory, "boss"), store.BossStartOf("boss"));
+        Assert.Null(store.BossStartOf("never-recorded"));
+    }
+
     // ---------- capture, restore and reopen hand the seat and its model back ----------
 
     private static WorkspaceSeat ASeat() => new()
