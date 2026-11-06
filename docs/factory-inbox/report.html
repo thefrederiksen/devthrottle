@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory Inbox and Your Inbox - mission document</title>
+<style>
+  :root { --ink:#1d2330; --muted:#5b6475; --line:#dde2ea; --bg:#ffffff; --panel:#f5f7fa; --accent:#2457c5; --red:#c0392b; --green:#1e8449; --amber:#b9770e; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#e6e9ef; --muted:#a3abba; --line:#343b48; --bg:#151922; --panel:#1d2230; --accent:#7ea2ff; --red:#ff7b6e; --green:#5fd38d; --amber:#f0b955; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; } h2 { font-size:1.2rem; margin:34px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+  h3 { font-size:1.02rem; margin:18px 0 6px; }
+  .sub { color:var(--muted); margin:0; }
+  section[data-dev-report="questions"] > div { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:12px 0; }
+  label { display:block; margin:6px 0; } textarea { width:100%; box-sizing:border-box; min-height:44px; margin-top:6px; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  table { border-collapse:collapse; width:100%; font-size:.93rem; } td, th { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); } code { font-size:.88em; background:var(--panel); padding:1px 4px; border-radius:4px; }
+  .flow { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:10px 0; font-size:.9rem; }
+  .flow span.box { border:1px solid var(--line); background:var(--panel); border-radius:6px; padding:6px 9px; }
+  .mocks { display:flex; flex-wrap:wrap; gap:16px; }
+  .phone { border:2px solid var(--line); border-radius:24px; padding:12px; width:290px; background:var(--panel); font-size:.86rem; box-sizing:border-box; }
+  .phone .bar { display:flex; justify-content:space-between; font-weight:600; border-bottom:1px solid var(--line); padding-bottom:6px; margin-bottom:8px; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:7px 4px; border-bottom:1px solid var(--line); }
+  .row small { color:var(--muted); display:block; }
+  .badge { border-radius:10px; padding:0 7px; font-size:.75rem; height:18px; line-height:18px; white-space:nowrap; }
+  .b-red { background:var(--red); color:#fff; } .b-green { background:var(--green); color:#fff; } .b-amber { background:var(--amber); color:#fff; } .b-muted { border:1px solid var(--line); color:var(--muted); }
+  .bubble { border-radius:12px; padding:7px 10px; margin:6px 0 2px; max-width:88%; }
+  .me { background:var(--accent); color:#fff; margin-left:auto; }
+  .note { background:var(--bg); border:1px solid var(--line); }
+  .state { color:var(--muted); font-size:.74rem; text-align:right; margin-bottom:6px; }
+  .composer { border:1px solid var(--line); border-radius:12px; padding:7px; margin-top:8px; background:var(--bg); }
+  .composer .ph { color:var(--muted); }
+  .composer .btns { display:flex; gap:6px; margin-top:6px; }
+  .composer .btns span { border:1px solid var(--line); border-radius:12px; padding:1px 9px; font-size:.78rem; }
+  .composer .btns .send { margin-left:auto; background:var(--accent); color:#fff; border-color:var(--accent); }
+  .cockpit { border:2px solid var(--line); border-radius:8px; width:100%; display:flex; font-size:.84rem; min-height:260px; }
+  .cockpit .rail { width:150px; border-right:1px solid var(--line); padding:8px; background:var(--panel); }
+  .cockpit .rail div { padding:4px 6px; border-radius:4px; } .cockpit .rail .on { background:var(--accent); color:#fff; }
+  .cockpit .list { width:250px; border-right:1px solid var(--line); padding:8px; }
+  .cockpit .read { flex:1; padding:10px; }
+  .cap { color:var(--muted); font-size:.82rem; margin:4px 0 0; }
+  @media (max-width:640px) { .cockpit { flex-direction:column; } .cockpit .rail, .cockpit .list { width:auto; border-right:0; border-bottom:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<main>
+
+<header data-dev-report="header" data-dev-report-status="agent-working">
+  <h1>Factory Inbox and Your Inbox</h1>
+  <p class="sub">Mission document, version 3, final. All your answers recorded, 4 November 2026. Handed to the Delivery Lead.</p>
+</header>
+
+<section data-dev-report="summary">
+  <p><strong>What changed from version 1:</strong> the mission is now TWO inboxes, and the Boss never handles a message itself.</p>
+  <p><strong>The factory inbox.</strong> You leave a message in a factory, typed or spoken, from the phone or the Cockpit. The Gateway starts that factory's <strong>Secretary</strong>, a short-lived seat that every factory gets for free. The Secretary reads the inbox, merges duplicates, files Good and Bad notes, marks each message "received", and hands one bundle to the <strong>Boss</strong>. The Boss judges the bundle and only delegates: it starts a session to do the work now, adds a to-do item for later, or declines and tells you why. It never does the work itself. Every message is logged with what was decided, so nothing is lost and you can see that it was listened to. Messages that were simply dealt with stay in the factory's record and do not message you. A factory summary can show them in the morning when you ask for it.</p>
+  <p><strong>Your inbox.</strong> This is a mailbox inside DevThrottle for messages TO you, on the phone and in the Cockpit, which you read in the morning. It replaces the email that factories and sessions send you now. A Boss uses it only when something cannot be done, should not be done, or when it is pushing back on you.</p>
+  <p><strong>What wakes the Boss: an event, with no polling.</strong> The message is written on the Gateway, so the Gateway knows the instant it arrives and acts on it directly. The tools for that already exist and are working today. Details in section 5.</p>
+  <p><strong>Now:</strong> all decisions are made. The mission document is at <code>D:\ReposFred\_briefsactory-inbox-2026-11-04\MISSION.md</code>, with a copy of this report beside it. A Delivery Lead, "Factory Inbox - Delivery Lead - drive to done", is open as its own seat answering to you. The Architect is closing.</p>
+</section>
+
+<section data-dev-report="questions">
+  <p data-dev-report-no-questions>No questions - nothing needed from you. You chose my recommendation on all seven, recorded in section 4: the goal as written; "Factory inbox" and "Your inbox" under one Inbox entry with two tabs; start the Boss at once; factory emails become Your inbox messages and stop; replies route back to the sender; the delegator rule in the Boss opening, factory-interviewer and the definition check; a 60-second gather window.</p>
+</section>
+
+<section data-dev-report="detail">
+
+  <h2>1. The mission</h2>
+  <p>Replace email with two DevThrottle inboxes. One is for each factory, so you can leave its Boss work in seconds. One is for you, so the fleet can tell you things without email.</p>
+
+  <h2>2. The why</h2>
+  <p>In your words, 4 November 2026: talking to a Boss means waiting for it to fire up, and you want to message any factory quickly, for example while listening to a video. "We're starting to send a hell of a lot of email around, and it's really annoying because emails are not connected to my sessions." "It's a really bad way of communicating and it adds work to me. It doesn't minimize." "I want to remove all the emails I have in my inbox in the morning."</p>
+
+  <h2>3. The goal</h2>
+  <p>Approved by you as written in the summary. It is proven by the end-to-end report in section 7.</p>
+
+  <h2>4. Decisions (your words, 4 November 2026)</h2>
+  <ul>
+    <li><strong>Input:</strong> "from the phone or from the cockpit ... I should be able to type it, but I should also be able to use our normal transcription, our normal box as input."</li>
+    <li><strong>Logged:</strong> "messages to the boss should be obviously logged. So if they're missed, they can be found again. And then when they're handled, they should also be clearly said that they were dealt with, that they were listened to."</li>
+    <li><strong>Outcomes vary:</strong> "It could be like a brand new feature they need to add or lots of instructions."</li>
+    <li><strong>The Secretary:</strong> "What we spin up is not the normal boss to deal with the inbox. It's the secretary of the boss ... deals with the inbox and then hands it off to the boss." "The secretary filters out for the boss and then the boss deals with it." It "can shut itself down when it's finished dealing with the inbox or it can stay open as long as it's working on things."</li>
+    <li><strong>The Boss only delegates:</strong> "the boss should never deal with things ... we also write this into our factory skill. The boss is just a delegator ... It can add a to-do item to do later. It can spin up a session, do it right away. But it can't be doing it itself."</li>
+    <li><strong>The Boss judges:</strong> "Boss should always judge if things are good and bad, but that's the boss's job to push back on me if I say something stupid."</li>
+    <li><strong>Few replies:</strong> "I really don't want too many messages. I want to know if it cannot be done or it should not be done. But if it is just handled ... it should just be in the memory of the factory and maybe we could summarize it in the morning if I ask for a factory summary."</li>
+    <li><strong>Your inbox:</strong> "We should also do an inbox now for the user ... kind of like email, and then I can check those in the morning." "Reachable both on the phone and on the cockpit."</li>
+    <li><strong>Two kinds of message are different:</strong> "there's a difference between sending me a message as the user, and then just leaving a message in the factory. Because factory messages, nobody has to read other than the boss."</li>
+    <li><strong>Surfaces:</strong> phone AND Cockpit.</li>
+    <li><strong>Deploy grant, for this mission only:</strong> "this needs to be fully deployed and tested. So it also means that there needs to be mock-ups for this." Each phase is deployed with the deploy-hosted-gateway skill and tested live.</li>
+    <li><strong>Answers on this report:</strong> names "Factory inbox" and "Your inbox", one Inbox entry, two tabs; Boss started at once on a handover; factory emails switched to Your inbox and stopped, and "email me" / "tell me" mean Your inbox; replies route back to the factory inbox or the live session; delegator rule in the Boss opening, factory-interviewer and the definition check; 60-second gather window.</li>
+    <li><strong>The wake:</strong> "You kind of have to figure that out ... review the code and tell me how would we actually do this." Answered in section 5.</li>
+  </ul>
+  <p>Version 1's question about "what the woken Boss carries" is gone. It asked whether a started Boss gets everything it normally has or only its rules. The answer now: the Boss starts as itself, with its brief, memory and skills, exactly as it does at night. The Secretary starts with the factory's rules plus the inbox commands, and nothing else, because filing is its whole job.</p>
+
+  <h2>5. Design</h2>
+
+  <h3>The path of one message</h3>
+  <div class="flow">
+    <span class="box">You: type or speak, Send</span> <span>-&gt;</span>
+    <span class="box">Gateway logs it: <em>Sent</em></span> <span>-&gt;</span>
+    <span class="box">60 s later: Secretary started, or rung if already running</span> <span>-&gt;</span>
+    <span class="box">Secretary files it: <em>Received</em></span> <span>-&gt;</span>
+    <span class="box">Hands bundle to Boss: <em>With the Boss</em></span> <span>-&gt;</span>
+    <span class="box">Boss decides: <em>Delegated / To do / Noted / Declined / Cannot be done</em></span>
+  </div>
+  <p>Only <em>Declined</em> and <em>Cannot be done</em>, plus a push-back, also write a message into Your inbox. Everything else is quiet, and you can see it on the factory's thread and in the factory summary.</p>
+
+  <h3>What wakes whom, technically</h3>
+  <p>No seat polls. The Gateway writes every message, so the write itself is the event. Each step below uses machinery that already exists and works today:</p>
+  <table>
+    <tr><th>Moment</th><th>What the Gateway does</th><th>Already exists as</th></tr>
+    <tr><td>A message arrives</td><td>Opens a 60-second gather window for that factory. If a window is already open, the message just joins it.</td><td>The Fleet Manager's batching window for its events.</td></tr>
+    <tr><td>The window closes, no Secretary running</td><td>Starts one Secretary on the Boss's computer. Only one start can be in flight per factory, so a burst never starts two.</td><td>The factory seat start (the same path a schedule and the Talk button use), and the trigger's in-flight lock.</td></tr>
+    <tr><td>The window closes, a Secretary is running</td><td>Rings it: types one line, "N new factory inbox messages - run cc-devthrottle factory inbox list", but only when the session is waiting for a prompt. Never while it works, and never while you have text typed in it.</td><td>The fleet doorbell and the Fleet Manager's guarded prompt send (refused as Busy or OwnerDraft, and retried).</td></tr>
+    <tr><td>The Secretary hands a bundle to the Boss</td><td>Same two rules again. If a Boss session of this factory is alive, it is rung when it is idle. If not, one Boss is started. That includes a Boss running its night start, which reads the bundle when it is next idle.</td><td>The trigger's "last session still alive" rule and the session's factory and seat fields.</td></tr>
+    <tr><td>Nobody picks it up</td><td>A message that is not Received within 15 minutes, or a bundle not decided within 2 hours, becomes an alert: "the Factory inbox of X is stuck", with the reason.</td><td>The doorbell's stuck rule and the Alerts sources.</td></tr>
+    <tr><td>No computer to run on</td><td>The message waits. Its thread says "waiting - no Director is running on the Boss's computer", and the start is tried again when that Director connects. It never starts on another computer.</td><td>The Talk button's "no other computer" rule.</td></tr>
+  </table>
+
+  <h3>The Secretary</h3>
+  <ul>
+    <li>A seat the product gives every factory that has a Boss. Nobody defines it, and it runs on the Boss's computer in the factory.</li>
+    <li>Its job is to read new messages, merge duplicates, attach what each one is about (the run, report or record), and mark each one Received. A Good or Bad note is written into the factory's memory as a judgement for the Boss. It then hands ONE bundle to the Boss.</li>
+    <li>It never decides whether something is good or should be done. That is the Boss's job. It never starts work sessions. The Gateway enforces this: a Secretary's session key cannot start seats.</li>
+    <li>It closes itself when the inbox is empty and its bundle is handed over. If more arrives while it is still working, it is rung and stays open.</li>
+  </ul>
+
+  <h3>The Boss with a bundle</h3>
+  <ul>
+    <li>It reads the bundle with <code>cc-devthrottle factory inbox bundle</code> and decides each item with one command: <code>decide &lt;id&gt; delegated --session &lt;started session&gt;</code>, <code>todo</code>, <code>noted</code>, <code>declined --why "..."</code>, or <code>cannot --why "..."</code>. The last two, and <code>pushback --why "..."</code>, also write to Your inbox.</li>
+    <li>"Delegated" is accepted only together with the id of a session the Boss actually started. "To do" adds a row to the factory's to-do list, which is a factory record, so it survives. That is how "never does it itself" becomes something the product can check, not just words.</li>
+    <li>It already may start any seat of its factory (Boss delegation, shipped). The new rule in its opening says it must not do the work itself.</li>
+  </ul>
+
+  <h3>Your inbox</h3>
+  <ul>
+    <li>Messages to you from a factory's Boss, from the factory's morning summary (instead of the email), and from any session (<code>cc-devthrottle inbox send --subject "..." --body "..."</code>). Each shows who sent it and links to the session, report or factory it came from.</li>
+    <li>Unread, Read and Archived, like email. The count shows on the Inbox entry. Nothing in it is an alert. Alerts stay for things that need an answer now, and dev reports stay for documents with questions.</li>
+    <li>It is kept like a mailbox, and nothing is deleted by the system.</li>
+  </ul>
+
+  <h3>Mockups - phone</h3>
+  <div class="mocks">
+    <div>
+      <div class="phone">
+        <div class="bar"><span>&lt; Inbox</span><span>Factories | Yours (3)</span></div>
+        <div class="row"><div>Managed Marketing<small>Delegated: rewrite LinkedIn draft</small></div><span class="badge b-green">dealt with</span></div>
+        <div class="row"><div>Website Factory<small>Received, with the Boss</small></div><span class="badge b-amber">with Boss</span></div>
+        <div class="row"><div>Booking<small>Declined - see Your inbox</small></div><span class="badge b-red">declined</span></div>
+        <div class="row"><div>Private<small>No messages yet</small></div><span class="badge b-muted">-</span></div>
+        <div class="composer"><div class="ph">Leave a message in... <strong>Managed Marketing v</strong></div>
+          <div class="btns"><span>Good</span><span>Bad</span><span>Mic</span><span class="send">Send</span></div></div>
+      </div>
+      <p class="cap">A. The Factory inbox list. The composer is on the list itself, so you can pick, speak and send in one place without opening a thread.</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="bar"><span>&lt; Managed Marketing</span><span>Summary</span></div>
+        <div class="bubble me">The LinkedIn draft this morning is too salesy.</div>
+        <div class="state">Bad - spoken - Sent 09:02 - Received 09:04 - Delegated 09:07</div>
+        <div class="bubble note">Boss: delegated to "Managed Marketing - Writer - rewrite LinkedIn draft". Added "no selling" to the Writer's rules.</div>
+        <div class="bubble me">Add a weekly video round-up.</div>
+        <div class="state">Sent 09:10 - Received 09:12 - To do</div>
+        <div class="bubble me">Love the new thumbnails.</div>
+        <div class="state">Good - Sent 09:15 - Received - with the Boss</div>
+        <div class="composer"><div class="ph">Message Managed Marketing...</div>
+          <div class="btns"><span>Good</span><span>Bad</span><span>Mic</span><span class="send">Send</span></div></div>
+      </div>
+      <p class="cap">B. One factory's thread. Each message carries its own trail, so "listened to" can be seen at a glance. The words under each message come from the Gateway. The phone only prints them.</p>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="bar"><span>&lt; Inbox</span><span>Factories | <u>Yours (3)</u></span></div>
+        <div class="row"><div><strong>Booking - Boss</strong><small>Declined: "move Friday's date" - the client's contract fixes it.</small></div><span class="badge b-red">new</span></div>
+        <div class="row"><div><strong>Managed Marketing - morning summary</strong><small>7 messages: 5 delegated, 1 to do, 1 noted</small></div><span class="badge b-red">new</span></div>
+        <div class="row"><div><strong>Release - Developer</strong><small>v2.25 notes ready for your read</small></div><span class="badge b-red">new</span></div>
+        <div class="row"><div>Website Factory - morning summary<small>Yesterday</small></div><span class="badge b-muted">read</span></div>
+        <p class="cap" style="margin-top:8px">Tap a message to read it, reply, open its session, or archive it.</p>
+      </div>
+      <p class="cap">C. Your inbox: what used to arrive as email.</p>
+    </div>
+  </div>
+
+  <h3>Mockup - Cockpit</h3>
+  <div class="cockpit">
+    <div class="rail"><div>Sessions</div><div>Factories</div><div class="on">Inbox (3)</div><div>Alerts</div><div>Reports</div></div>
+    <div class="list">
+      <div style="font-weight:600;margin-bottom:6px">Factories | Yours (3)</div>
+      <div class="row"><div>Managed Marketing<small>3 today</small></div><span class="badge b-amber">with Boss</span></div>
+      <div class="row"><div>Booking<small>declined 1</small></div><span class="badge b-red">declined</span></div>
+      <div class="row"><div>Website Factory<small>all dealt with</small></div><span class="badge b-green">ok</span></div>
+    </div>
+    <div class="read">
+      <div style="font-weight:600">Managed Marketing <span style="float:right;font-weight:400;color:var(--muted)">Summary - Open the Boss</span></div>
+      <div class="bubble me">The LinkedIn draft this morning is too salesy.</div>
+      <div class="state">Bad - Sent 09:02 - Received 09:04 - Delegated 09:07</div>
+      <div class="bubble note">Boss: delegated to "Writer - rewrite LinkedIn draft".</div>
+      <div class="composer"><div class="ph">Message Managed Marketing... (the same voice box as a session)</div>
+        <div class="btns"><span>Good</span><span>Bad</span><span>Mic</span><span class="send">Send</span></div></div>
+    </div>
+  </div>
+  <p class="cap">D. The same screens in the Cockpit, built once in the shared client code. The Cockpit's factory page also gets a "Leave a message" box.</p>
+
+  <h3>Voice</h3>
+  <p>Voice uses the same durable voice box and upload the phone and Cockpit already have, with its target set to a factory inbox instead of a session. It is transcribed under the verbatim rule: the stored message is the speech model's text plus only your hand-listed corrections, and the raw text is kept beside it.</p>
+
+  <h3>The factory summary</h3>
+  <p>The summary is built by the Gateway from the log, so no agent needs to start. It shows what came in since a time, and the decision on each item, as counts and lines. The thread's Summary button shows it, and each factory's morning message in Your inbox carries it.</p>
+
+  <h3>Out of scope</h3>
+  <ul><li>Sending email to other people. That stays as it is.</li><li>Changing fleet messaging between sessions.</li><li>Messages to seats other than the Boss. The Secretary only ever hands to the Boss.</li></ul>
+
+  <h2>6. Implementation plan</h2>
+  <table>
+    <tr><th>Phase</th><th>What is built</th><th>Seats</th></tr>
+    <tr><td>0. Words and rules</td><td>Terminology entries for the two inboxes, the Secretary and the decision words. The "Boss only delegates" rule in the Gateway's Boss opening and in factory-interviewer, plus the definition check (question 6). The shared skill copies are regenerated from the shipped file.</td><td>One Developer.</td></tr>
+    <tr><td>1. Factory inbox: store, routes, commands</td><td>New table and migrations (SQLite and Postgres) for messages, bundles and decisions. Owner routes (send, list, thread, summary) and session routes (list, receive, bundle, decide). The <code>cc-devthrottle factory inbox</code> commands. Claims lapse when the claiming session ends. "Delegated" requires a started session. Thread states are decided on the Gateway.</td><td>A Tech Lead with two Developers: store and routes, and commands.</td></tr>
+    <tr><td>2. The wake</td><td>The gather window, the one-start-per-factory lock, the Secretary seat start with its rules and session-key limits, the ring when idle, the Boss start or ring on a bundle, the stuck alert, and waiting when no computer is available.</td><td>The same Tech Lead. This is where the concurrency is.</td></tr>
+    <tr><td>3. Your inbox</td><td>The store, <code>cc-devthrottle inbox send</code>, Unread, Read and Archive, reply routing (question 5), and the Inbox count.</td><td>One Developer. Runs in parallel with phase 2.</td></tr>
+    <tr><td>4. The screens</td><td>Mockups A to D built once in client-core and mounted in the phone and the Cockpit. Typed and spoken input, Good and Bad, thread states, the summary. Behind the factory area switch until the end of the phase.</td><td>Two Developers, phone and Cockpit frames, after phase 1's routes merge.</td></tr>
+    <tr><td>5. Email off</td><td>The factory morning email becomes a Your-inbox message. Built-in skills say "email me" means Your inbox (question 4). The definition check flags a seat brief that still emails you.</td><td>One Developer.</td></tr>
+    <tr><td>6. Proof and deploy</td><td>The end-to-end QA report (section 7) on the deployed Gateway. Deployed after every phase with deploy-hosted-gateway.</td><td>The Delivery Lead runs it.</td></tr>
+  </table>
+  <p>Every Developer's work is reviewed by a separate review session: chosen in the owner's reviewer order. Style guides: <code>docs/CodingStyle.md</code>, <code>docs/VisualStyle.md</code> and <code>docs/CockpitVisualStyle.md</code>.</p>
+
+  <h2>7. The check</h2>
+  <p><strong>Every task:</strong> <code>.\scripts\test-local.ps1</code> green, plus <code>-Parked</code> because the Gateway changes; the client-core and phone web tests; and a separate review.</p>
+  <p><strong>Gateway tests that must exist and pass:</strong></p>
+  <ul>
+    <li>Three messages in one second start exactly one Secretary.</li>
+    <li>A running Secretary is rung and no second one starts.</li>
+    <li>A ring is never typed while the session works or holds your draft.</li>
+    <li>A Boss session that is alive is rung, never doubled.</li>
+    <li>"Delegated" without a started session is refused.</li>
+    <li>A Secretary's key cannot start a seat.</li>
+    <li>A claim held by an ended session is taken by the next one.</li>
+    <li>A message not received in 15 minutes raises the stuck alert.</li>
+    <li>A spoken message equals the raw transcript plus only listed corrections.</li>
+    <li>Declined, Cannot be done and push-back each write exactly one Your-inbox message. Delegated, To do and Noted write none.</li>
+  </ul>
+  <p><strong>End to end on the deployed Gateway</strong>, with a test factory on a test Director in slot 5, driven through the phone and Cockpit screens with browser-harness. Screenshots and the session list are taken at every step:</p>
+  <ul>
+    <li>A spoken Bad note is sent from the phone. One Secretary starts, marks it Received, hands it over, and closes. One Boss starts, delegates to a Writer session, and the thread shows the full trail.</li>
+    <li>A second message is sent while the Boss is still alive: no second Boss, and the decision arrives.</li>
+    <li>A request the Boss should refuse becomes "Declined" on the thread and one new message in Your inbox. A reply from Your inbox lands back in the factory inbox.</li>
+    <li>A session sends a message with <code>cc-devthrottle inbox send</code>. It appears on the phone and in the Cockpit, and no email is sent.</li>
+    <li>Failure cases: the Director is stopped (the thread says why, and work resumes on reconnect), the Secretary is killed mid-claim (the next one takes it), the stuck alert is raised, and an archived factory is refused in words.</li>
+  </ul>
+
+  <h2>8. Merge plan</h2>
+  <p>Each task merges to main the same day on a green local run and a review, then is deployed. That is safe because phases 1 to 3 add new tables and routes and change no existing answer. The screens stay behind the factory area switch until phase 4 is whole. The email switch-off in phase 5 is the only change to existing behaviour, and it lands last, after Your inbox is proven.</p>
+
+  <h2>9. Where it ends</h2>
+  <p>Merged to main, deployed, and tested live, with the QA report committed. That is your grant for this mission only.</p>
+
+  <h2>10. Questions</h2>
+  <p>All answered. The build must settle the open items in the evidence section with tests, not guesses.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>What this rests on, and what I did not check</h2>
+  <p>Read on origin/main at 31db15d92: the Talk route, the Boss start door, Boss delegation (<code>FactorySeatDelegation.cs</code>), the trigger's in-flight lock and last-session-alive rule, the due check, the Fleet Manager's batching window and guarded prompt send, the fleet doorbell and stuck rule, the alert sources, the durable dictation upload, the factory email sender (owner-email service, morning email), the phone's pages, and the session's factory and seat fields. devthrottle_internal: there is no skill named "factory". The factory-interviewer skill designs factories.</p>
+  <p><strong>Not checked:</strong></p>
+  <ul>
+    <li>Whether a factory to-do list already exists as a record kind. If not, phase 1 adds one.</li>
+    <li>Whether a session key can be limited to "may not start seats" without new key types. Phase 2 must prove the Secretary limit with a test.</li>
+    <li>How a night-start Boss behaves when rung mid-run. Phase 2 must test this.</li>
+    <li>The running cost of one Secretary plus one Boss per batch.</li>
+    <li>Which sessions and skills outside the built-in four send you email today. Phase 5 starts with a search for them.</li>
+  </ul>
+  <p>Nothing was built, committed or deployed.</p>
+</section>
+
+</main>
+</body>
+</html>

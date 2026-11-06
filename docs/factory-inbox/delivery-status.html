@@ -1,0 +1,70 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Factory Inbox - delivery status</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#222;line-height:1.5}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}th{background:#f3f3f3}
+code{background:#f3f3f3;padding:1px 4px}.ask{border:2px solid #c60;padding:10px 14px;background:#fff7ef}</style></head>
+<body>
+<header data-dev-report="header" data-dev-report-status="waiting-on-you">
+<h1>Factory Inbox - delivery status</h1>
+<p>Delivery Lead, session 111. 5 November 2026, evening.</p>
+</header>
+
+<section data-dev-report="summary">
+<p>The SDK you installed unblocked everything. Phase 0 (words and rules) and phase 1 (the Factory inbox store, its server routes and the command-line commands) are merged, along with the SDK fix and six fixes to tests that were failing on main. The live Gateway was deployed from main tonight and answers healthy.</p>
+<p>One thing to know: that deploy took the live service off the air for 69.6 seconds. It is swapped in place because there is no warm spare slot, so this is what a deploy costs right now, not something new. Phase 2 (the wake) merges next, then phase 3 (Your inbox). The phase 4 screens are being built now.</p>
+<p><strong>Phase 2 is live.</strong> I deployed main at 761c24802 this morning and watched it myself. It stalled for a few minutes while the new container started, the same start-up stall the earlier build showed, then settled to 0.1 seconds. The deploy measured 68.3 seconds as its longest outage, 216.8 seconds unavailable in total. Last night's 20-minute stall after the first phase 2 deploy did not come back. Its cause is still not proven: our logs show only database writes timing out, so the next evidence would be Supabase's own logs. The alerts check that phase 2 had made more expensive is now cheaper than before.</p>
+<p>The two questions below are not urgent. Work continues on my recommendation unless you pick otherwise.</p>
+</section>
+
+<section data-dev-report="questions">
+<div data-dev-report-question="tailnet-door" data-dev-report-question-text="What should this machine's Tailscale front door point at?">
+<h3>What should this machine's Tailscale front door (https on port 443) point at?</h3>
+<p>A Developer's local test boot tonight rewrote it to proxy http://localhost:17881, which nothing listens on. The old value was not recorded. The product's own report says it used to point at the local Gateway on port 7878, but nothing listens there either right now. Port 8443 (the assistant) is untouched. I have not changed it back, because that would be a guess.</p>
+<label><input type="radio" name="tailnet-door" value="leave" data-recommended> Leave it - I do not use it now; nothing listens at either port</label>
+<label><input type="radio" name="tailnet-door" value="7878"> Point it back at http://localhost:7878, the local Gateway</label>
+<textarea data-dev-report-comment placeholder="Or tell me the right value"></textarea>
+</div>
+<div data-dev-report-question="kit-probe" data-dev-report-question-text="May a stop skip the uncommitted-changes check for a factory seat's kit work folder?">
+<h3>May a stop skip the uncommitted-changes check for a factory seat's kit work folder?</h3>
+<p>The check asks git whether the folder holds uncommitted work. For a kit work folder the Director deletes the folder at the end anyway, so the answer means nothing - and a slow git made the folder delete fail. The reviewer called this your choice.</p>
+<label><input type="radio" name="kit-probe" value="skip" data-recommended> Yes, skip it - the answer is meaningless for that folder and the skip removes the race at its source</label>
+<label><input type="radio" name="kit-probe" value="keep"> No, keep the check and only fix the wait</label>
+<textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+<div data-dev-report-question="rule-home" data-dev-report-question-text="Where should the written 'the Boss only delegates' rule live besides the Gateway?">
+<h3>Where should the written "the Boss only delegates" rule live besides the Gateway?</h3>
+<p>The mission named the factory-interviewer skill, but that skill plans How We Work videos; no skill in either repository builds factories. The rule is already enforced where it matters: the Boss openings and the factory definition check.</p>
+<label><input type="radio" name="rule-home" value="method" data-recommended> The devthrottle-method skill, which every seat reads - and leave factory-interviewer as it is</label>
+<label><input type="radio" name="rule-home" value="interviewer"> Keep it only in factory-interviewer, as the mission says</label>
+<textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+</section>
+
+<section data-dev-report="detail">
+<h2>Where each phase stands</h2>
+<table>
+<tr><th>Phase</th><th>State</th></tr>
+<tr><td>0. Words and rules</td><td>Merged and deployed.</td></tr>
+<tr><td>1. Inbox store, routes, commands</td><td>Merged. The store and routes are deployed. The command-line commands merged just after the deploy, so they reach the live Gateway with the next one.</td></tr>
+<tr><td>2. The wake</td><td>Merged and deployed: the start-door guard, the stuck alert, the wake, and a cheaper alerts check.</td></tr>
+<tr><td>3. Your inbox</td><td>Done and in review (pull request 4608), with its database changes after phase 2.</td></tr>
+<tr><td>4. Screens</td><td>The Factory inbox screens (pull request 4603) are reviewed. Two spoken-path findings are fixed and being re-reviewed. A third, a spoken message that could be lost while the screen says it was left, gets its own fix before phase 6. Everything stays hidden behind the factory area switch. The Your inbox tab starts after phase 3 merges.</td></tr>
+<tr><td>5. Email off</td><td>Lands last.</td></tr>
+<tr><td>6. Proof and deploy</td><td>End-to-end test on the live Gateway with a test Director, after phase 5.</td></tr>
+</table>
+<h2>Problems on main fixed along the way</h2>
+<ul>
+<li>The build: compiler advisory GHSA-p3jp-9v83-76w9. Fixed by moving the repository and every build job to SDK 10.0.403.</li>
+<li>Ten Mac setup tests that failed on Windows.</li>
+<li>A real product bug: a message to a busy session could clear your unsent draft.</li>
+<li>A real product bug: a stopped factory seat could leave its kit folder behind.</li>
+<li>Two Postgres proof tests that had gone out of date.</li>
+<li>A web self-test that failed about one run in four. That run stopped my first deploy. The cause was the test's own time budget, which was exactly as long as the waits it needs, so any slow second failed it. The cases that must pass now get 60 seconds. Proven on the GitHub runners: the fixed version passed every run, the old one failed 7 of 30.</li>
+</ul>
+<p>Filed separately: issue 4582, a stop that cannot remove the kit folder still reports success.</p>
+</section>
+
+<section data-dev-report="evidence">
+<p>Every merge so far had a separate review session read it and was gated on a full test run with the security check on. The deploy ran from main at commit 4f61a23e6. The deploy workflow passed, and /healthz answered 200 afterwards. The 69.6 seconds is the workflow's own measurement. Not yet proven: anything end to end on the live service. That is phase 6.</p>
+</section>
+</body></html>
