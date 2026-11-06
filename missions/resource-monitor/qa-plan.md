@@ -98,6 +98,31 @@ your own by its named shutdown signal rather than force-killing it - a force-kil
   `-p:EnableWindowsTargeting=true`. devlinux has a history of being slow because of its disk, so a
   slow build there is the machine, not the change.
 
+## The live tests live in a project no gate runs, so the quality assurance is what runs them
+
+Phase 1 put the tests that measure a real machine in their own project,
+`src/CcDirector.Core.MachineLiveTests`. That was the right call: a contract test measuring a real
+machine over a real interval needs a real wait, and the gate's own source guard refuses a sleep or a
+clock read inside a gate project - correctly, and its baseline only ever shrinks. The project is in
+the solution so a signature change breaks the build, is in none of the gate's project lists, and
+every test in it is additionally gated on `CC_DIRECTOR_LIVE_MACHINE_TESTS` so it skips visibly even
+when run directly.
+
+**The consequence has to be faced rather than admired: nothing in continuous integration or in the
+local gate will ever run these tests.** A test suite nobody runs is indistinguishable from one that
+always passes, and it reads like coverage while providing none. So:
+
+- **This plan is what runs them.** Running this project is a required step of the quality assurance,
+  on each of the three machines, with the opt-in variable set.
+- **The report must show their output per platform** - the real test names and results on Windows, on
+  Linux and on macOS - not a sentence saying the project exists or that it passed somewhere.
+- **A skip is not a pass.** These tests skip by default, so a run that reports "skipped" is a run
+  that did not happen. The report states, for each platform, that they RAN and what they measured.
+- The shared contract every probe is judged against (`ResourceSampleContract`, exercised through
+  `ResourceProbeContractLiveTests`) is the test that proves the three platforms answer the same
+  question the same way - particularly that per-process processor is a share of the whole machine.
+  If it runs on only one platform it proves nothing about agreement, which is its entire purpose.
+
 ## Rules the report itself must obey
 
 - **One self-contained HTML file published with `cc-dev-reports open`.** A file path handed over
