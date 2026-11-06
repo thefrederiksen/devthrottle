@@ -179,7 +179,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DefinedStart_CheckStart_PromptCarriesBriefKitSentenceAndReportInstruction()
+    public async Task DefinedStart_CheckStart_PromptCarriesBriefAndKitSentence()
     {
         // Regression (Factory Failures, 6 November 2026): a check-started seat was given only the trigger's words, asked
         // a person to paste its brief, and waited all night. It is opened as a scheduled run is.
@@ -193,11 +193,13 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         string[] inOrder =
         {
             "You are the boss of ",
-            "This run was started by the check 'warmforward-frontdesk'.",
+            "(factory id: warmforward; your agent id: frontdesk).",
+            "This run was started by the check 'warmforward-frontdesk'. Your brief is given to you here in full, as the "
+                + "Gateway holds it (definition version 4, part of the factory's definition); it is not a file in the "
+                + "factory's folder. With it comes what the check asks of this run.",
             "--- your brief, definition version 4 ---\n" + brief + "\n--- end of your brief, definition version 4 ---",
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.KitSentence,
             "Mail has waited 2 times. Do what your brief says, from STEP 1.",
-            CcDirector.Gateway.Running.ScheduledRunClosingInstruction.Text,
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork,
             CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal,
         };
@@ -208,6 +210,21 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             Assert.True(next > at, $"expected, after position {at}: {part}");
             at = next;
         }
+        // Not told to report: a check-started session has no run the report command can find yet, so it would be refused.
+        Assert.DoesNotContain(CcDirector.Gateway.Running.ScheduledRunClosingInstruction.OwnWordingMarker, prompt);
+    }
+
+    [Fact]
+    public async Task DefinedStart_CheckStart_APromptThatIsACommand_StaysFirst()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger(prompt: "/triage {count}");
+
+        await Send(service, t, Report("""{"count": 3}"""));
+
+        var prompt = Assert.Single(_starts).request.PrePrompt!;
+        Assert.StartsWith("/triage 3\n\nYou are the boss of ", prompt);
+        Assert.Contains("This run was started by the check 'warmforward-frontdesk'.", prompt);
     }
 
     [Fact]

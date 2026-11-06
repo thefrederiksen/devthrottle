@@ -122,6 +122,12 @@ public static class FactorySeatStart
     /// machine ran on the weakest model and nothing said so. The product default is the one the Director's agent
     /// catalog holds (<see cref="AgentToolCatalog.ClaudeDefaultModel"/> for Claude Code), never a second copy of it. An
     /// agent the catalog gives no default model is left to choose its own, and the model is then null.
+    ///
+    /// ON PURPOSE, this also replaces a model a machine's saved agent entry names: the Director's
+    /// <c>AgentLaunchModel.Compose</c> puts a start's model in place of the entry's <c>--model</c>. The owner's ruling is
+    /// that a factory seat runs on Opus everywhere unless its definition says otherwise, so the definition, never the
+    /// machine, is where a seat's model is changed. The Gateway cannot see the machine's line, so its log says only which
+    /// of these four the model came from.
     /// </summary>
     public static (string? Model, string Source) ModelFor(string agent, string? chosen, string? seatModel, string? definitionDefault)
     {

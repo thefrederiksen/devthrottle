@@ -115,6 +115,27 @@ public sealed class FactorySeatStartTests : IDisposable
         Assert.Equal(((string?)null, FactorySeatStart.ModelSources.ProductDefault), FactorySeatStart.ModelFor("Codex", null, null, null));
     }
 
+    [Theory]
+    [InlineData("Custom")]
+    [InlineData("NoSuchAgent")]
+    public void ModelFor_AnAgentTheCatalogDoesNotHold_IsNull(string agent)
+    {
+        Assert.Equal(((string?)null, FactorySeatStart.ModelSources.ProductDefault), FactorySeatStart.ModelFor(agent, null, null, null));
+    }
+
+    [Fact]
+    public void Build_NoModelAnywhere_ACodexSeatSendsNone()
+    {
+        // The boss seat inherits the factory's agent; with Codex there and no model anywhere, the catalog gives none.
+        var content = DefinitionFixture.PublishableEdit("factory.yaml", "  model: claude-opus-5-5\n", "");
+        content = new Dictionary<string, string>(content) { ["factory.yaml"] = content["factory.yaml"].Replace("agent: ClaudeCode", "agent: Codex") };
+        var p = Published(content);
+
+        var built = FactorySeatStart.Build(p, Seat(p, "boss"), "n", "Go.");
+
+        Assert.Equal(("Codex", (string?)null), (built.Request.Agent, built.Request.Model));
+    }
+
     [Fact]
     public void Build_WithAPersonsOverride_UsesWhatWasChosen_AndRecordsItInWords()
     {
