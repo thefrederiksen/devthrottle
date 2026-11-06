@@ -70,7 +70,30 @@ publishes, so the Architect's seat is where it fits. Nothing else in the method 
 
 ## The gate
 
-To be filled with the run on the final commit.
+`.\scripts\test-local.ps1` on commit 1a5219186 (the skill change), tree clean:
+
+```
+CcDirector.Core.UnitTests                outcome=Completed    total=3392   executed=3392
+CcDirector.Avalonia.Tests                outcome=Completed    total=1215   executed=1215
+CcDirector.Engine.Tests                  outcome=Completed    total=85     executed=85
+CcDirector.HostedAgent.Tests             outcome=Completed    total=85     executed=85
+CcDirector.Launcher.Tests                outcome=Completed    total=234    executed=234
+CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=111    executed=111
+CcDirector.Reclaim.Tests                 outcome=Completed    total=307    executed=307
+CcDirector.DeliveryQualification.Tests   outcome=Completed    total=151    executed=151
+CcDirector.RuleHook.Tests                outcome=Completed    total=70     executed=70
+cc-director-setup.Tests                  outcome=Completed    total=43     executed=43
+cc-director-setup-engine.Tests           outcome=Completed    total=1029   executed=1023
+cc-director-setup-cli.Tests              outcome=Completed    total=78     executed=78
+RESULT: GREEN at commit 1a52191867fa5171b3d9a04aff4286c547a7c6b0, tree clean.
+```
+
+The run printed no COVERAGE GAP line and selected no parked test class: the change is two markdown files, which
+declare no types. The skill tests in the parked Gateway suite were run by hand on the same commit:
+`dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Skill"`, 116 passed, 0 failed (the skill
+store, the seeder and the skill routes). The two named guards, in the default run, also by name: 6 passed -
+`BuiltInSkillsHaveOneSourceTests` (2) and `ShippedSkillsTeachOwnershipTests` (4). The only commit after the gate run
+fills in this section of this file.
 
 ## What this rests on, and what I have not checked
 
