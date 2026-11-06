@@ -53,7 +53,10 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
     private readonly string _uploadRoot = Path.Combine(Path.GetTempPath(), "fi-voice-" + Guid.NewGuid().ToString("N"));
     private GatewayDatabase _db = null!;
     private FactoryInboxStore _store = null!;
+    private FactoryInboxWakeStore _wakes = null!;
     private VoiceUploadStore _uploads = null!;
+    // What each route told the wake: a message logged, with its factory and the time it is dated by.
+    private readonly List<(TenantId Tenant, string Factory, DateTime SentAtUtc)> _sentToWake = new();
     private WebApplication? _app;
     private HttpClient _client = null!;
     private readonly DateTime _now = new(2026, 11, 5, 9, 0, 0, DateTimeKind.Utc);
@@ -67,6 +70,7 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
     {
         _db = _h.Open();
         _store = new FactoryInboxStore(_db, DictionaryOf);
+        _wakes = new FactoryInboxWakeStore(_db);
         _uploads = new VoiceUploadStore(_uploadRoot, TenantId.Local).ForTenant(A);
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
         builder.Services.AddRouting();
@@ -79,7 +83,8 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
             await next();
         });
         FactoryInboxEndpoints.Map(app, new FactoryInboxEndpoints.Parts(
-            _store, Resolve, _ => Factories(), (_, _) => SessionFactoryLookup.NotKnown, (_, _) => null, (_, _) => false, () => _now));
+            _store, Resolve, _ => Factories(), (_, _) => SessionFactoryLookup.NotKnown, (_, _) => null, (_, _) => false, () => _now,
+            _wakes, (t, f, at) => _sentToWake.Add((t, f, at)), (_, _) => { }));
         FactoryInboxVoiceEndpoints.Map(app, new FactoryInboxVoiceEndpoints.Parts(
             _store, Resolve, _ => Factories(), _ => _uploads,
             (_, audio, fileName, mime, _) =>
@@ -88,7 +93,8 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
                 _transcribed.Add((audio, fileName, mime));
                 return Task.FromResult(_heard);
             },
-            () => _now));
+            () => _now,
+            _wakes, (t, f, at) => _sentToWake.Add((t, f, at))));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();
@@ -209,6 +215,62 @@ public sealed class FactoryInboxVoiceEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, status);
         var row = Assert.Single(_store.Thread(A, "invoices", 10).Messages);
         Assert.Equal(pressed, row.SentAtUtc);
+    }
+
+    [Fact]
+    public async Task Complete_SpokenMessage_OpensTheGatherWindowFromTheSendPress()
+    {
+        // The press was an hour before the complete: the wake must measure the gather window from the press.
+        var pressed = _now.AddHours(-1);
+        var id = await Recorded("audio");
+
+        var (status, _) = await Complete(id, 1, sentAtUtc: pressed);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        var told = Assert.Single(_sentToWake);
+        Assert.Equal(A, told.Tenant);
+        Assert.Equal("invoices", told.Factory);
+        Assert.Equal(pressed, told.SentAtUtc);
+    }
+
+    [Fact]
+    public async Task Complete_Repeated_TellsTheWakeOnce()
+    {
+        var id = await Recorded("audio");
+        await Complete(id, 1);
+
+        await Complete(id, 1);
+
+        Assert.Single(_sentToWake);
+    }
+
+    [Fact]
+    public async Task Complete_FailedTranscription_TellsTheWakeNothing()
+    {
+        _heard = GatewayTranscriptionResult.ProviderError("test", "test-model", "the provider timed out");
+        var id = await Recorded("audio");
+
+        await Complete(id, 1);
+
+        Assert.Empty(_sentToWake);
+    }
+
+    [Fact]
+    public async Task Complete_FactoryWaiting_AnswersWithTheSameWaitingLabelAsATypedMessage()
+    {
+        var row = _wakes.Row(A, "invoices", _now);
+        Assert.True(_wakes.TryUpdate(A, "invoices", row.Version, w =>
+        {
+            w.SecretaryWaiting = FactoryInboxWords.Waiting.NoDirector;
+            w.SecretaryWaitingDetail = "SOREN_NORTH";
+        }, _now));
+        var id = await Recorded("audio");
+
+        var (status, body) = await Complete(id, 1);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal("Waiting - no Director is running on the Boss's computer, SOREN_NORTH; it goes on when one connects there",
+            body.GetProperty("message").GetProperty("stateLabel").GetString());
     }
 
     [Fact]

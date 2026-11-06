@@ -56,13 +56,20 @@ internal static class FactoryInboxVoiceEndpoints
     /// <summary>What the routes read. Every function is required, so a wiring line that forgot one fails to compile.</summary>
     /// <param name="OpenUploads">This request's own partition of the dictation staging - the one the chunk leg opens - or
     /// null when no account is bound to the request.</param>
+    /// <param name="Wakes">Each factory's wake row (phase 2): why its messages wait, put on the 201 exactly as the typed
+    /// route puts it.</param>
+    /// <param name="MessageSent">Tells the wake a message was logged (<see cref="FactoryInboxWake.MessageSent"/>), with the
+    /// time the owner pressed Send, so a spoken message opens the factory's gather window exactly as a typed one does. The
+    /// route never waits for it.</param>
     internal sealed record Parts(
         FactoryInboxStore Store,
         Func<HttpContext, TenantId?> ResolveTenant,
         Func<TenantId, IReadOnlyList<RegisteredFactoryDto>> Factories,
         Func<HttpContext, VoiceUploadStore?> OpenUploads,
         TranscribeRaw Transcribe,
-        Func<DateTime> NowUtc);
+        Func<DateTime> NowUtc,
+        FactoryInboxWakeStore Wakes,
+        Action<TenantId, string, DateTime> MessageSent);
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
@@ -233,7 +240,11 @@ internal static class FactoryInboxVoiceEndpoints
         // The tombstone carries the words left, so a repeated complete answers them and sends nothing.
         uploads.MarkDelivered(uid, submitted: true, movedOn: false, transcript: message.Text);
         FileLog.Write($"[FactoryInboxVoiceEndpoints] complete uploadId={uid}: left message {message.Id:D} in {message.Factory}, chars={message.Text.Length}, sentAt={sentAtUtc:O}, completedAt={parts.NowUtc():O}");
-        return Results.Json(new { message = FactoryInboxFold.Message(message, null) }, statusCode: StatusCodes.Status201Created);
+        // THE WRITE IS THE EVENT (phase 2), as on the typed route: the wake looks at this factory when the gather window,
+        // measured from the Send press, closes.
+        parts.MessageSent(tenant, message.Factory, message.SentAtUtc);
+        return Results.Json(new { message = FactoryInboxFold.Message(message, null, null,
+            FactoryInboxFold.WaitingOf(parts.Wakes.Find(tenant, message.Factory))) }, statusCode: StatusCodes.Status201Created);
     }
 
     private sealed record Opened(TenantId Tenant, FactoryInboxEndpoints.OwnerSend Owner, VoiceUploadStore Uploads);

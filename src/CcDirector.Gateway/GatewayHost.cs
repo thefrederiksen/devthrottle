@@ -5896,7 +5896,10 @@ public sealed class GatewayHost : IAsyncDisposable
             OpenUploads: ctx => factoryInboxUploads.TryOpen(ctx, out var store, out _, out _) ? store : null,
             Transcribe: (tenant, audio, fileName, mime, ct) => factoryInboxTranscription.TranscribeAsync(
                 audio, fileName, mime, applyCorrection: false, ct, tenant: tenant, source: "factory-inbox"),
-            NowUtc: () => DateTime.UtcNow));
+            NowUtc: () => DateTime.UtcNow,
+            Wakes: FactoryInboxWakes,
+            // Phase 2, as on the typed route: the write is the event, and the route never waits for the wake.
+            MessageSent: (tenant, factory, sentAtUtc) => _ = TheFactoryInboxWake().MessageSent(tenant, factory, sentAtUtc)));
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
