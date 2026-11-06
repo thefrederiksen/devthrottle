@@ -68,7 +68,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, director) => _definitionDirectors.Contains(director),
             machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine),
-            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null, mailDeskOn: _ => false);
+            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null,
+            registeredFactoryOf: (_, factory) => _published.TryGetValue(factory, out var r) ? RegisteredAsPublished.Of(r) : null, mailDeskOn: _ => false);
 
     /// <summary>A definition trigger as a publish writes it: a check path and no command.</summary>
     private Guid AddDefinitionTrigger(bool paused = false, string prompt = "New mail: {count}. {context}")
@@ -125,6 +126,20 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         return ctx.FactoryCheckStates.Where(s => s.OwnerKey == owner).OrderBy(s => s.Sequence).ToList();
     }
 
+    /// <summary>The text a check-started frontdesk seat is given: opened as its registration and brief say, with the
+    /// trigger's words, then the Boss and owner paragraphs every Boss start ends with.</summary>
+    private string Opened(string triggerText)
+    {
+        var published = _published[Factory];
+        var seat = published.Definition.Seats.Single();
+        var registration = RegisteredAsPublished.Of(published);
+        var opened = CcDirector.Gateway.Factory.Talk.FactorySeatOpening.CheckStartPrompt(
+            new CcDirector.Gateway.Running.ScheduledRunSeat(registration, registration.Seats.Single(), published.BriefOf(seat)),
+            "warmforward-frontdesk", triggerText);
+        return opened + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork
+               + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal;
+    }
+
     // ---------- the prompt ----------
 
     [Fact]
@@ -138,7 +153,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal(TriggerRunOutcome.Started, run.Outcome);
         var (machine, request) = Assert.Single(_starts);
         Assert.Equal("SOREN_NORTH", machine);
-        Assert.Equal("New mail: 2. from ada@example.com, bo@example.com\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
+        Assert.Equal(Opened("New mail: 2. from ada@example.com, bo@example.com"), request.PrePrompt);
         Assert.Equal(Director, request.Director);
         Assert.Equal(Factory, request.Factory);
     }
@@ -159,8 +174,81 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal(("ClaudeCode", "claude-sonnet-5-5"), (request.Agent, request.Model));
         Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
         Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
-        Assert.Equal("New mail: 2. from ada@example.com\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, request.PrePrompt);
+        Assert.Equal(Opened("New mail: 2. from ada@example.com"), request.PrePrompt);
         Assert.Null(request.FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task DefinedStart_CheckStart_PromptCarriesBriefAndKitSentence()
+    {
+        // Regression (Factory Failures, 6 November 2026): a check-started seat was given only the trigger's words, asked
+        // a person to paste its brief, and waited all night. It is opened as a scheduled run is.
+        var service = Service();
+        var t = AddDefinitionTrigger(prompt: "Mail has waited {count} times. Do what your brief says, from STEP 1.");
+        var brief = _published[Factory].Definition.Seats.Single().Brief.TrimEnd('\r', '\n');
+
+        await Send(service, t, Report("""{"count": 2}"""));
+
+        var prompt = Assert.Single(_starts).request.PrePrompt!;
+        string[] inOrder =
+        {
+            "You are the boss of ",
+            "(factory id: warmforward; your agent id: frontdesk).",
+            "This run was started by the check 'warmforward-frontdesk'. Your brief is given to you here in full, as the "
+                + "Gateway holds it (definition version 4, part of the factory's definition); it is not a file in the "
+                + "factory's folder. With it comes what the check asks of this run.",
+            "--- your brief, definition version 4 ---\n" + brief + "\n--- end of your brief, definition version 4 ---",
+            CcDirector.Gateway.Factory.Talk.FactorySeatOpening.KitSentence,
+            "Mail has waited 2 times. Do what your brief says, from STEP 1.",
+            CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork,
+            CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal,
+        };
+        var at = -1;
+        foreach (var part in inOrder)
+        {
+            var next = prompt.IndexOf(part, at + 1, StringComparison.Ordinal);
+            Assert.True(next > at, $"expected, after position {at}: {part}");
+            at = next;
+        }
+        // Not told to report: a check-started session has no run the report command can find yet, so it would be refused.
+        Assert.DoesNotContain(CcDirector.Gateway.Running.ScheduledRunClosingInstruction.OwnWordingMarker, prompt);
+    }
+
+    [Fact]
+    public async Task DefinedStart_CheckStart_APromptThatIsACommand_StaysFirst()
+    {
+        var service = Service();
+        var t = AddDefinitionTrigger(prompt: "/triage {count}");
+
+        await Send(service, t, Report("""{"count": 3}"""));
+
+        var prompt = Assert.Single(_starts).request.PrePrompt!;
+        Assert.StartsWith("/triage 3\n\nYou are the boss of ", prompt);
+        Assert.Contains("This run was started by the check 'warmforward-frontdesk'.", prompt);
+    }
+
+    [Fact]
+    public async Task DefinedStart_NoRegisteredSeat_RefusesToStart_InTheWordsAScheduledRunIsRefusedWith()
+    {
+        // The seat is told who it is from its registration; a seat without one is never started without its brief.
+        var service = new TriggerService(new TriggerStore(_db), new FactoryActivityRecord(_harness.Open()),
+            (machine, request, _) =>
+            {
+                lock (_starts) _starts.Add((machine, request));
+                return Task.FromResult(TriggerStartAttempt.Started("bbbbbbbb-0000-4000-8000-000000000999"));
+            },
+            findSession: (_, _) => null, findSessionByName: (_, _) => null, timeZone: _ => TimeZoneInfo.Utc,
+            nowUtc: () => _now, startLifetime: CancellationToken.None,
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
+            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null,
+            registeredFactoryOf: (_, _) => null, mailDeskOn: _ => false);
+        var t = AddDefinitionTrigger();
+
+        var run = await Send(service, t, Report("""{"count": 2}"""));
+
+        Assert.Empty(_starts);
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Equal(TriggerStatusFold.StartFailedPrefix + "the seat 'frontdesk' of 'warmforward' is not registered as its definition says, so no session was started. Publish the definition again.", run.Reason);
     }
 
     [Fact]
@@ -208,7 +296,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
 
         await Send(service, t, Report("""{"count": 1}"""));
 
-        Assert.Equal("New mail: 1. \n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.BossNeverDoesTheWork + "\n\n" + CcDirector.Gateway.Factory.Talk.FactorySeatOpening.OwnerWordIsFinal, Assert.Single(_starts).request.PrePrompt);
+        Assert.Equal(Opened("New mail: 1."), Assert.Single(_starts).request.PrePrompt);
     }
 
     [Fact]

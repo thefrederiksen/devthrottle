@@ -140,7 +140,7 @@ public sealed class FactoryBossThroughTheRoutesTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, mailDeskOn: _ => false);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, registeredFactoryOf: (_, _) => null, mailDeskOn: _ => false);
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
             directorMachine: (_, _) => Machine, nowUtc: () => Now, sessionFactoryOf: _history.FactoryOf,
             isDefined: (_, id) => defined && id == TheFactory,

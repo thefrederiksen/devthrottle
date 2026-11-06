@@ -120,6 +120,7 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, bool> _directorRunsDefinitionChecks;
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
+    private readonly Func<TenantId, string, RegisteredFactoryDto?> _registeredFactoryOf;
     private readonly Func<TenantId, bool> _mailDeskOn;
     private readonly MailDesk.MailDeskService? _mailDesk;
     // The Mail Desk starts whose screening is running right now on this Gateway (phase 3, section 2): a second report
@@ -148,6 +149,9 @@ public sealed class TriggerService
     /// published; throws <see cref="InvalidOperationException"/> with the reason when the published version cannot be
     /// read (<see cref="FactorySeatStart.ReadPublished"/>). A definition trigger's session is built from it (phase 5b,
     /// brief D item 8); a command trigger never reads it.</param>
+    /// <param name="registeredFactoryOf">The registration of a factory (by id) in the account, or null when it is not
+    /// registered. A definition trigger's session is told who it is from it, as a scheduled run is; a seat with no
+    /// registration is refused, never started without being told who it is and given its brief.</param>
     /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
     /// A Mail Desk screening check reported for an account it is off for is refused before anything is recorded.</param>
     /// <param name="mailDesk">Where a Mail Desk start's report is handed (Mail Desk phase 3, section 2). Null in a
@@ -157,9 +161,11 @@ public sealed class TriggerService
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
-        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn,
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf,
+        Func<TenantId, string, RegisteredFactoryDto?> registeredFactoryOf, Func<TenantId, bool> mailDeskOn,
         MailDesk.MailDeskService? mailDesk = null)
     {
+        _registeredFactoryOf = registeredFactoryOf ?? throw new ArgumentNullException(nameof(registeredFactoryOf));
         _mailDesk = mailDesk;
         _startLifetime = startLifetime;
         _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
@@ -835,7 +841,22 @@ public sealed class TriggerService
             return (null, noStart);
         }
 
-        var request = FactorySeatStart.Build(published, seat, name, prompt).Request;
+        // A CHECK-STARTED SEAT IS OPENED LIKE A SCHEDULED RUN (the Factory Failures mission, 6 November 2026): told who
+        // it is from the registration, given the brief of the published version its kit is built from, told where its
+        // kit is and told to report. The publish writes the registration, so a defined seat without one is a registry
+        // that went its own way since: refused in the words a scheduled run is refused with.
+        var registeredFactory = _registeredFactoryOf(tenant, published.Definition.Factory);
+        var registeredSeat = registeredFactory?.Seats.FirstOrDefault(s => string.Equals(s.Id, seat.Seat, StringComparison.OrdinalIgnoreCase));
+        if (registeredFactory is null || registeredSeat is null)
+        {
+            var unregistered = $"the seat '{seat.Seat}' of '{published.Definition.Factory}' is not registered as its definition says, so no session was started. Publish the definition again.";
+            FileLog.Write($"[TriggerService] DefinedStart REFUSED: trigger={trigger.Name}: {unregistered}");
+            return (null, unregistered);
+        }
+        var brief = published.BriefOf(seat);
+        var opened = Talk.FactorySeatOpening.CheckStartPrompt(new Running.ScheduledRunSeat(registeredFactory, registeredSeat, brief), trigger.Name, prompt);
+
+        var request = FactorySeatStart.Build(published, seat, name, opened).Request;
         // WHAT THE CHECK FOUND reaches the agent as check.json in its kit (design 3.4): the version is the one the check
         // was run from, the one the trigger carries.
         request.FactoryCheck = new FactoryCheckDto
@@ -852,7 +873,7 @@ public sealed class TriggerService
         request.AutoDismiss = true;
         request.Origin = SessionOriginKinds.Schedule;
         request.OriginSurface = SessionOriginSurfaces.Trigger;
-        FileLog.Write($"[TriggerService] DefinedStart: trigger={trigger.Name}, {trigger.Factory}/{seat.Seat} v{published.Version}, director={directorId}");
+        FileLog.Write($"[TriggerService] DefinedStart: trigger={trigger.Name}, {trigger.Factory}/{seat.Seat} v{published.Version}, brief={brief.VersionWords}, director={directorId}");
         return (request, null);
     }
 

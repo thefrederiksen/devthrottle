@@ -75,7 +75,7 @@ public static class FactorySeatStart
         var chosen = byPerson is { IsEmpty: false } ? byPerson : null;
 
         var agent = Chosen(chosen?.Agent) ?? seat.AgentOrDefault(definition.Defaults);
-        var model = Chosen(chosen?.Model) ?? seat.ModelOrDefault(definition.Defaults);
+        var (model, modelSource) = ModelFor(agent, Chosen(chosen?.Model), Chosen(seat.Model), Chosen(definition.Defaults.Model));
         var machine = Chosen(chosen?.Machine) ?? seat.MachineOrDefault(definition.Defaults);
         var repository = Chosen(seat.Repository);
 
@@ -99,10 +99,54 @@ public static class FactorySeatStart
             FactoryHome = repository is null ? true : null,
             FactoryStartOverride = chosen?.Words(),
         };
-        FileLog.Write($"[FactorySeatStart] Build: {definition.Factory}/{seat.Seat} v{published.Version} on {machine}, agent={agent}, model={model ?? "(agent default)"}, "
+        FileLog.Write($"[FactorySeatStart] Build: {definition.Factory}/{seat.Seat} v{published.Version} on {machine}, agent={agent}, model={model ?? "(none: the agent has no product default)"} from {modelSource}, "
                       + (repository is null ? "home (no repository)" : $"repository {repository}")
                       + (chosen is null ? "" : $", override: {chosen.Words()}"));
         return new FactorySeatStartBuilt(request, machine);
+    }
+
+    /// <summary>Where the model of a seat start came from, as the start's log line says it.</summary>
+    public static class ModelSources
+    {
+        public const string ChosenByThePerson = "chosen by the person";
+        public const string Seat = "the seat";
+        public const string DefinitionDefault = "the definition's default";
+        public const string ProductDefault = "the product default";
+    }
+
+    /// <summary>
+    /// THE GATEWAY DECIDES THE MODEL OF EVERY FACTORY SEAT START (the Factory Failures mission, 6 November 2026): the model
+    /// the person chose, else the seat's, else the definition's default, else the product's default for the agent. A
+    /// start that names no model leaves it to the machine's saved agent entry, and an entry saved with a blank model let
+    /// Claude Code fall back to the account's own choice, which was Haiku on 6 November - so every factory run on such a
+    /// machine ran on the weakest model and nothing said so. The product default is the one the Director's agent
+    /// catalog holds (<see cref="AgentToolCatalog.ClaudeDefaultModel"/> for Claude Code), never a second copy of it. An
+    /// agent the catalog gives no default model is left to choose its own, and the model is then null.
+    ///
+    /// ON PURPOSE, this also replaces a model a machine's saved agent entry names: the Director's
+    /// <c>AgentLaunchModel.Compose</c> puts a start's model in place of the entry's <c>--model</c>. The owner's ruling is
+    /// that a factory seat runs on Opus everywhere unless its definition says otherwise, so the definition, never the
+    /// machine, is where a seat's model is changed. The Gateway cannot see the machine's line, so its log says only which
+    /// of these four the model came from.
+    /// </summary>
+    public static (string? Model, string Source) ModelFor(string agent, string? chosen, string? seatModel, string? definitionDefault)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent);
+        if (chosen is not null) return (chosen, ModelSources.ChosenByThePerson);
+        if (seatModel is not null) return (seatModel, ModelSources.Seat);
+        if (definitionDefault is not null) return (definitionDefault, ModelSources.DefinitionDefault);
+        return (ProductDefaultModelFor(agent), ModelSources.ProductDefault);
+    }
+
+    /// <summary>The product's default model for an agent, read from the agent catalog, or null when the catalog gives the
+    /// agent none (its default model is empty) or does not hold it.</summary>
+    public static string? ProductDefaultModelFor(string agent)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent);
+        if (!Enum.TryParse<AgentKind>(agent.Trim(), ignoreCase: true, out var kind) || !AgentToolCatalog.Contains(kind))
+            return null;
+        var model = AgentToolCatalog.GetEntry(kind).DefaultModel;
+        return string.IsNullOrWhiteSpace(model) ? null : model;
     }
 
     /// <summary>Whether this seat of a definition is a Boss: the seat its <c>bossSeat</c> names, or a seat with the role

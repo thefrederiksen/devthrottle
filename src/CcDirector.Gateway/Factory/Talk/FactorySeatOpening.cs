@@ -172,6 +172,39 @@ public static class FactorySeatOpening
     }
 
     /// <summary>
+    /// THE TEXT A CHECK-STARTED SEAT IS GIVEN (the Factory Failures mission, 6 November 2026). A seat a definition
+    /// trigger's check starts used to be given only the trigger's own words, so a seat told "do what your brief says"
+    /// was never given its brief, asked a person to paste it, and waited all night. It is now opened the way a scheduled
+    /// run is (<see cref="Running.ScheduledRunOpening.Opening"/>): who it is, which check started it, its brief in full
+    /// with its version, where its kit is, and what the check asked for. It is not yet told to run
+    /// <c>cc-devthrottle run result</c>: a check-started session has no run that command can find, so it would be
+    /// refused; the instruction comes with the run record that lets it report. The Boss and owner
+    /// paragraphs are added by <see cref="Definition.FactorySeatStart.Build"/>, the one place every seat start passes.
+    /// Pure.
+    /// </summary>
+    /// <param name="registered">The seat as registered, with the brief of the published version it starts from.</param>
+    /// <param name="triggerName">The trigger whose check started the run.</param>
+    /// <param name="triggerText">The trigger's prompt with what its check counted and found already put in.</param>
+    public static string CheckStartPrompt(Running.ScheduledRunSeat registered, string triggerName, string triggerText)
+    {
+        ArgumentNullException.ThrowIfNull(registered);
+        ArgumentException.ThrowIfNullOrWhiteSpace(triggerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(triggerText);
+        var opening = WhoYouAre(registered.Factory, registered.Seat) + "\n\n"
+                      + $"This run was started by the check '{triggerName}'. Your brief is given to you here in full, as the "
+                      + $"Gateway holds it ({registered.Brief.VersionWords}"
+                      + (registered.Brief.FromDefinition ? ", part of the factory's definition" : "")
+                      + "); it is not a file in the factory's folder. With it comes what the check asks of this run.\n\n"
+                      + BriefBlock(registered.Brief, "\n") + "\n\n"
+                      + KitSentence + "\n\n"
+                      + "The factory's goal is part of its definition. If it should change, " + GoalChange;
+        var own = triggerText.Trim();
+        // A prompt that begins with a slash is a command the agent runs only when it is the first thing it is given, so
+        // the opening follows such a prompt instead of leading it, as a scheduled run's does.
+        return own.StartsWith('/') ? own + "\n\n" + opening : opening + "\n\n" + own;
+    }
+
+    /// <summary>
     /// The brief as the session reads it: its text between two lines that say which version it is. The text is given
     /// whole and unchanged; only line ends at its very end are dropped, so the closing line always starts a line.
     /// </summary>
