@@ -127,6 +127,18 @@ public sealed class GatewayStatsDbContext : DbContext
     /// durability for the in-memory dedup sets, nothing else.</summary>
     public DbSet<ConcurrencyHourMemberEntity> ConcurrencyHourMembers => Set<ConcurrencyHourMemberEntity>();
 
+    /// <summary>Five-minute machine resource windows (<c>resource_window</c>), kept 90 days (Mission: Resource Monitor).</summary>
+    public DbSet<ResourceWindowEntity> ResourceWindows => Set<ResourceWindowEntity>();
+
+    /// <summary>Each session's share of a five-minute window (<c>resource_session_window</c>), kept 90 days.</summary>
+    public DbSet<ResourceSessionWindowEntity> ResourceSessionWindows => Set<ResourceSessionWindowEntity>();
+
+    /// <summary>Hourly machine roll-ups of the resource windows (<c>resource_hour</c>), kept two years.</summary>
+    public DbSet<ResourceHourEntity> ResourceHours => Set<ResourceHourEntity>();
+
+    /// <summary>Hourly session roll-ups of the resource windows (<c>resource_session_hour</c>), kept two years.</summary>
+    public DbSet<ResourceSessionHourEntity> ResourceSessionHours => Set<ResourceSessionHourEntity>();
+
     /// <summary>
     /// The check constraint name for one table's non-empty tenant guard. Named per table because a
     /// PostgreSQL constraint name is unique within its schema, and named deterministically so a migration
@@ -412,6 +424,9 @@ public sealed class GatewayStatsDbContext : DbContext
         }
 
         ConcurrencyStatsModel.Configure(modelBuilder);
+        // Mission: Resource Monitor. Before the tenant guard below, so the four tables get their constraint under their
+        // real names, for the reason that guard's comment gives.
+        ResourceSummaryStatsModel.Configure(modelBuilder);
 
         // SQLITE IS UNTOUCHED BY ALL OF THIS, exactly as it is by the block above: a self-host
         // gateway-stats.db is already on disk carrying the tenant default, and removing it there would

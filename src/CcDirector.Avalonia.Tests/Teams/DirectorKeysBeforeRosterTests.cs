@@ -413,5 +413,7 @@ public sealed class DirectorKeysBeforeRosterTests
             Record("PushHostedDesktops");
             return Task.CompletedTask;
         }
+
+        public Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch) => Task.FromResult<ResourceSummaryAck?>(null);
     }
 }

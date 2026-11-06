@@ -229,5 +229,6 @@ public sealed class SecretTransferMachineKeyTests
         public Task RevokeSessionKeyAsync(string sessionId) => Task.CompletedTask;
         public Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories) => Task.CompletedTask;
         public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops) => Task.CompletedTask;
+        public Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch) => Task.FromResult<ResourceSummaryAck?>(null);
     }
 }

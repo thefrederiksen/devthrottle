@@ -97,6 +97,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The desktops each connected Director hosts (the Factory Boxes mission, phase 1).</summary>
     public Streaming.PushedHostedDesktopStore PushedHostedDesktops { get; }
 
+    /// <summary>The Directors' five-minute resource summaries (Mission: Resource Monitor, section 6), kept in the
+    /// statistics database. Asks <see cref="StatsStore"/> for its factory on every call, so it starts working the moment
+    /// a hosted statistics store finishes opening.</summary>
+    public Stats.ResourceSummaryStore ResourceSummaries { get; }
+
+    /// <summary>The hourly roll-up and retention of <see cref="ResourceSummaries"/>.</summary>
+    private readonly Stats.ResourceSummaryRollupJob _resourceSummaryRollup;
+
     /// <summary>Which accounts Factory Boxes is on for, from <see cref="Boxes.BoxesSwitch.EnvironmentVariable"/>. Off for all by default.</summary>
     internal Boxes.BoxesSwitch BoxesSwitch { get; }
 
@@ -2178,6 +2186,11 @@ public sealed class GatewayHost : IAsyncDisposable
             ? new Stats.LateStatsObservers(StatsStore)
             : null;
         InputStatsHandle = OpenInputStats(inputStatsPath, _hostedStatsObservers, Hosted);
+        // Mission: Resource Monitor: the five-minute summaries and their hourly roll-up, over the same statistics store.
+        ResourceSummaries = new Stats.ResourceSummaryStore(() => StatsStore.Factory, Options.StatsClock);
+        _resourceSummaryRollup = new Stats.ResourceSummaryRollupJob(
+            new Stats.ResourceSummaryRollup(() => StatsStore.Factory, Options.StatsClock), Options.StatsClock);
+        _resourceSummaryRollup.Start();
         _promptLog = new Prompts.GatewayPromptLog(promptLogPath);
         // The self-host fleet concurrency record, which is the only one constructed eagerly. A hosted
         // Gateway never constructs it, so gateway-concurrency-stats.json is never written on that path -
@@ -4840,6 +4853,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(PushedSessions);
         builder.Services.AddSingleton(PushedRepositories);
         builder.Services.AddSingleton(PushedHostedDesktops);
+        builder.Services.AddSingleton(ResourceSummaries);
         builder.Services.AddSingleton(RepoHistory);
         // Issue #2194: the work-history recorder, so the SignalR-constructed DirectorHub folds every
         // accepted push into the durable session record (throttled inside the recorder).
@@ -6871,7 +6885,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Issue #4351: a session in no factory may start a factory's Boss, read from the registry and the definition.
             bossStartFor: BossStartFor,
             // Issue #4598: a Boss started for a session in no factory is recorded, so it holds the Boss's authority.
-            recordBossStart: RecordBossStart);
+            recordBossStart: RecordBossStart,
+            // Mission: Resource Monitor: each machine's capacity on GET /machines, and its history on /resources.
+            resourceSummaries: ResourceSummaries);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,
@@ -8477,6 +8493,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // dispose instances it did not create - so until this line nothing disposed it, and its pooled SQLite
         // connections kept gateway-stats.db open for the life of the process. Every test host left its storage
         // root undeletable, and 9,000 temporary folders, each holding exactly that file, leaked in two days.
+        // The resource roll-up's timer first, so no run starts on a store that is being disposed.
+        try { _resourceSummaryRollup.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] resource roll-up dispose error: {ex.Message}"); }
         try { StatsStore.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] statistics store dispose error: {ex.Message}"); }
 
         // The input-statistics aggregator opened on self-host owns a GatewayStatsDatabase with an OPEN raw

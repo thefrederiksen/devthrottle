@@ -91,6 +91,10 @@ public sealed class FleetMachineDto
     /// </summary>
     public bool UpToDate { get; set; }
 
+    /// <summary>The machine's processor, memory and spare capacity from its five-minute resource summaries (Mission:
+    /// Resource Monitor), folded by ResourceCapacityFold. Always present; an offline or silent machine shows dashes.</summary>
+    public FleetMachineCapacityDto Capacity { get; set; } = new();
+
     public List<FleetDirectorDto> Directors { get; set; } = new();
 }
 

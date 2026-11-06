@@ -25,6 +25,7 @@ internal interface IDirectorHubCalls
     Task RevokeSessionKeyAsync(string sessionId);
     Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories);
     Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops);
+    Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch);
 }
 
 /// <summary>The production <see cref="IDirectorHubCalls"/>: each call is the hub method of the same name.</summary>
@@ -68,4 +69,8 @@ internal sealed class HubConnectionCalls : IDirectorHubCalls
 
     public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops)
         => _connection.InvokeAsync(GatewayStreamClient.PushHostedDesktopsMethod, sequence, desktops);
+
+    // Invoked generically, so the Gateway's answer - which windows it holds, which it refuses for good - is read.
+    public Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch)
+        => _connection.InvokeAsync<ResourceSummaryAck?>(ResourceSummaryContract.PushHubMethod, batch);
 }

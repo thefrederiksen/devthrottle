@@ -135,5 +135,7 @@ public sealed class HostedDesktopPushTests
             Sequences.Add(sequence);
             return Task.CompletedTask;
         }
+
+        public Task<ResourceSummaryAck?> PushResourceSummariesAsync(ResourceSummaryBatch batch) => Task.FromResult<ResourceSummaryAck?>(null);
     }
 }
