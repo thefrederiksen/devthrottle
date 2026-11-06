@@ -397,6 +397,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "license-sessions", "license-plan",
     # Issue #4324: the owner deletes an archived factory.
     "factory-delete",
+    # Issue #2811: why this machine is slow, read from the Director's 24-hour local recording.
+    "machine-diagnose",
 }
 
 

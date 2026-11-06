@@ -60,6 +60,9 @@ public sealed class CcStorageProtectedPathsTests
             ["DirectorInstances"] = InsideConfig,
             ["Output"] = InsideAUserFolder,
             ["Logs"] = DataTheMissionReportsAndNeverOffers,
+            // The Resource Monitor's 24-hour recording (issue #2811): it prunes itself to 24 hours, holds no
+            // credentials, and is the evidence for a slowdown that has passed.
+            ["ResourceRecording"] = DataTheMissionReportsAndNeverOffers,
             ["TurnLog"] = DataTheMissionReportsAndNeverOffers,
             ["StateChanges"] = DataTheMissionReportsAndNeverOffers,
             ["TurnDetectionShadow"] = DataTheMissionReportsAndNeverOffers,
