@@ -3903,8 +3903,8 @@ def mission_list(
     fields: Optional[str] = typer.Option(
         None,
         "--fields",
-        help="Fields to show, comma separated. Default: id,name,state. "
-        "Valid: id, name, state, why, why-updated, state-changed, run.",
+        help="Fields to show, comma separated. Default: id,name,state,document. "
+        "Valid: id, name, state, document, goal, why, why-updated, state-changed, run.",
     ),
 ) -> None:
     """List the Missions on the Gateway (active ones by default): id, name and state."""

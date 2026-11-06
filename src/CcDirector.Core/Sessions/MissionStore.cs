@@ -216,6 +216,56 @@ public sealed class MissionStore
     }
 
     /// <summary>
+    /// Link <paramref name="tenant"/>'s Mission to its MISSION DOCUMENT, the dev report
+    /// <paramref name="reportId"/>, and stamp the goal and why read from that document (the Missions
+    /// First-Class mission). Returns the outcome, or null when this tenant has no such mission -
+    /// indistinguishable from another tenant's, like every accessor here.
+    ///
+    /// ONE DOCUMENT PER MISSION. Linking replaces whatever document the Mission held, so a republish of the same
+    /// report keeps the same link and a newer report takes it over. The report it replaced is returned, so the
+    /// caller can say so rather than leave a replacement unseen.
+    ///
+    /// THE GOAL MIRRORS THE DOCUMENT: it is set to <paramref name="goal"/> every time, and a document with no goal
+    /// section leaves it empty, because the goal is only ever the document's. THE WHY IS SET ONLY WHEN THE DOCUMENT
+    /// HAS ONE (<paramref name="why"/> not null): a Mission's why could be set by hand before documents existed, and a
+    /// document without a why section says nothing about it, so it is not cleared.
+    /// </summary>
+    /// <param name="goal">The goal section's plain text, or null when the document has no goal section.</param>
+    /// <param name="why">The why section's plain text, or null when the document has no why section.</param>
+    public MissionDocumentLinkOutcome? SetDocument(TenantId tenant, Guid missionId, Guid reportId, string? goal,
+        string? why, DateTimeOffset nowUtc)
+    {
+        RequireValid(tenant);
+        if (reportId == Guid.Empty)
+            throw new ArgumentException("reportId is required", nameof(reportId));
+
+        FileLog.Write($"[MissionStore] SetDocument: tenant={tenant.ToLogString()} mission={missionId} " +
+                      $"report={reportId} goal={(goal is null ? "absent" : "present")} why={(why is null ? "absent" : "present")}");
+        lock (_lock)
+        {
+            var missions = LoadFresh();
+            var mission = missions.FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
+            if (mission is null)
+                return null;
+
+            var previous = mission.DocumentReportId;
+            mission.DocumentReportId = reportId;
+            mission.DocumentLinkedAt = nowUtc;
+            mission.Goal = (goal ?? string.Empty).Trim();
+            if (why is not null)
+            {
+                var trimmedWhy = why.Trim();
+                mission.Why = trimmedWhy;
+                mission.WhyUpdatedAt = trimmedWhy.Length == 0 ? null : nowUtc;
+            }
+            SaveAll(missions);
+            FileLog.Write($"[MissionStore] SetDocument: mission={missionId} linked to report={reportId} " +
+                          $"previous={(previous?.ToString() ?? "(none)")}");
+            return new MissionDocumentLinkOutcome(Copy(mission), previous is { } p && p != reportId ? p : null);
+        }
+    }
+
+    /// <summary>
     /// Rename <paramref name="tenant"/>'s Mission. Returns the updated Mission, or null when this tenant has
     /// no such mission - indistinguishable from another tenant's, like every accessor here.
     ///
@@ -416,6 +466,9 @@ public sealed class MissionStore
         MissionName = m.MissionName,
         Why = m.Why,
         WhyUpdatedAt = m.WhyUpdatedAt,
+        DocumentReportId = m.DocumentReportId,
+        DocumentLinkedAt = m.DocumentLinkedAt,
+        Goal = m.Goal,
         State = m.State,
         StateChangedAt = m.StateChangedAt,
         CreatedAt = m.CreatedAt,
@@ -454,3 +507,10 @@ public sealed class MissionStore
         FileLog.Write($"[MissionStore] SaveAll: saved {missions.Count} mission(s)");
     }
 }
+
+/// <summary>
+/// What <see cref="MissionStore.SetDocument"/> did: the Mission as it now stands, and the report that was its
+/// document before this call when a DIFFERENT report was replaced (null for a first link and for a republish of the
+/// same report).
+/// </summary>
+public sealed record MissionDocumentLinkOutcome(Mission Mission, Guid? ReplacedReportId);

@@ -5,7 +5,7 @@ to the owner inside it (Dev Reports mission, phase 2). The Gateway owns every ru
 check, the title, the status, the size limit, and which report is newest.
 
 ```
-cc-dev-reports open <file> [--json]                    # same session = a new version; later session = a new report
+cc-dev-reports open <file> [--mission-document] [--json] # same session = a new version; later session = a new report
 cc-dev-reports reply "<text>" [--report <id>] [--json] # default: this session's newest report
 cc-dev-reports answers <file> [--claim] [--json]       # read, or claim before acting
 cc-dev-reports answers --report <id> [--claim|--ack] [--item <id>...] [--json]
@@ -17,8 +17,14 @@ cc-dev-reports answers --report <id> [--claim|--ack] [--item <id>...] [--json]
   path uniqueness is not a contract.
 - A shape-check refusal prints every error, one per line, and exits 1. Nothing is published.
 - A file over 10485760 bytes is refused before anything is sent, with the Gateway's own sentence.
+- `--mission-document` makes the report the document of this session's own Mission. The Gateway
+  reads the report's `data-dev-report="why"` and `data-dev-report="goal"` sections onto the Mission:
+  the goal every time (empty when there is no goal section), the why only when there is a why
+  section. A Mission has one document; publishing a different report this way replaces it. A
+  session attached to no Mission is refused and nothing is published. Republishing the report that
+  already is the Mission's document refreshes the why and goal, with or without the flag.
 - `--json` always has the same keys: `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`,
-  `count`, `reports`, `claimed`, `marked`, `error`, `code`, `errors`. `ownerRoute` carries the same whole
+  `count`, `reports`, `claimed`, `marked`, `missionDocument`, `error`, `code`, `errors`. `ownerRoute` carries the same whole
   address the human output prints.
 
 ## Reading the owner's answers in a later run

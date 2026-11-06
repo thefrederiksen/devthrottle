@@ -266,10 +266,15 @@ MISSION_STATES = ("active", "complete", "removed")
 # What `mission list --state` accepts: one state, or "all" (the same values the Gateway accepts).
 MISSION_STATE_FILTERS = MISSION_STATES + ("all",)
 
-# Every field `mission list --fields` accepts, and the three shown when it is not given. The why is
-# free text that runs to hundreds of characters, so it is asked for, never shown by default.
-MISSION_LIST_FIELDS = ("id", "name", "state", "why", "why-updated", "state-changed", "run")
-MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state")
+# Every field `mission list --fields` accepts, and the four shown when it is not given. The why and the
+# goal are free text that runs to hundreds of characters, so they are asked for, never shown by default.
+# The document is shown by default: whether a Mission has its mission document is the first thing to see
+# (the Missions First-Class mission).
+MISSION_LIST_FIELDS = ("id", "name", "state", "document", "goal", "why", "why-updated", "state-changed", "run")
+MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state", "document")
+
+# What the document column says for a Mission that has no mission document yet.
+NO_DOCUMENT = "none"
 
 
 _usage_error = usage_errors.usage_error
@@ -382,12 +387,29 @@ def _mission_text(mission: Dict[str, Any], names: tuple, *, nullable: bool, blan
     return value
 
 
+def _mission_document(mission: Dict[str, Any]) -> str:
+    """The Mission's document report id, or "none" when it has no document.
+
+    A Gateway that sends no documentReportId key at all predates mission documents. That is said in so many
+    words: listing its missions as having no document would state something the Gateway never said.
+    """
+    if "documentReportId" not in mission and "DocumentReportId" not in mission:
+        _bad_mission(
+            mission.get("missionId", mission.get("MissionId")),
+            "no documentReportId; this Gateway predates mission documents and needs updating",
+        )
+    value = _mission_text(mission, ("documentReportId", "DocumentReportId"), nullable=True, blank_ok=False)
+    return NO_DOCUMENT if value is None else value
+
+
 # How each `mission list` field is read from a MissionDto (origin/main, CcDirector.Gateway.Contracts).
 # MissionName, Why and State are non-nullable strings; the three others are nullable. The id and name are
 # checked by _require_mission_rows itself and the state by _mission_state, so they are read as checked.
 _MISSION_READERS = {
     "id": lambda m: m.get("missionId", m.get("MissionId")),
     "name": lambda m: m.get("missionName", m.get("MissionName")),
+    "document": _mission_document,
+    "goal": lambda m: _mission_text(m, ("goal", "Goal"), nullable=False, blank_ok=True),
     "why": lambda m: _mission_text(m, ("why", "Why"), nullable=False, blank_ok=True),
     "why-updated": lambda m: _mission_text(m, ("whyUpdatedAt", "WhyUpdatedAt"), nullable=True, blank_ok=False),
     "state-changed": lambda m: _mission_text(
@@ -397,7 +419,7 @@ _MISSION_READERS = {
 }
 
 
-_CHECKED_MISSION_FIELDS = ("why", "why-updated", "state-changed", "run")
+_CHECKED_MISSION_FIELDS = ("document", "goal", "why", "why-updated", "state-changed", "run")
 
 
 def _mission_record(mission: Dict[str, Any], state: str, chosen_fields: List[str]) -> Dict[str, object]:
@@ -488,13 +510,21 @@ def list_missions(
             if name is not None:
                 conditions.append(f"a name containing '{axi_output.escape_ascii(name.strip())}'")
             blocks.append(f"No missions with {' and '.join(conditions)}.")
-    elif "why" not in chosen_fields:
-        # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
-        # mission whose reason nobody wrote down is the thing worth noticing in this list.
-        unset = sum(1 for m, _ in rows if not _MISSION_READERS["why"](m).strip())
-        if unset:
-            noun = "mission has" if unset == 1 else "missions have"
-            blocks.append(f"{unset} of these {noun} no why set.")
+    else:
+        if "why" not in chosen_fields:
+            # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
+            # mission whose reason nobody wrote down is the thing worth noticing in this list.
+            unset = sum(1 for m, _ in rows if not _MISSION_READERS["why"](m).strip())
+            if unset:
+                noun = "mission has" if unset == 1 else "missions have"
+                blocks.append(f"{unset} of these {noun} no why set.")
+        # A mission with no mission document is counted, whichever columns are shown: it is the Mission
+        # whose button opens nothing.
+        undocumented = sum(1 for m, _ in rows if _MISSION_READERS["document"](m) == NO_DOCUMENT)
+        if undocumented:
+            noun = "mission has" if undocumented == 1 else "missions have"
+            blocks.append(f"{undocumented} of these {noun} no mission document "
+                          "(cc-dev-reports open <file> --mission-document).")
 
     blocks.append(axi_output.format_help(_mission_list_help(rows, bool(everything), wanted, name, chosen_fields)))
     axi_output.write_blocks(sys.stdout, *blocks)

@@ -520,4 +520,34 @@ public sealed class DevReportShapeCheckTests
         Assert.True(File.Exists(marker), $"Resolved the repository root to {root}, but it has no {marker}. Run the suite from a checkout.");
         return root;
     }
+
+    // ---------------------------------------------------------------- the why and goal markers (Missions First-Class)
+
+    private const string WhyAndGoal =
+        "<section data-dev-report=\"why\"><p>Why.</p></section><section data-dev-report=\"goal\"><p>Goal.</p></section>";
+
+    [Fact]
+    public void Check_WhyAndGoalAfterTheQuestions_Passes()
+    {
+        var verdict = DevReportShapeCheck.Check(Report(evidence: false, tail: WhyAndGoal));
+        Assert.True(verdict.Passed, string.Join(" | ", verdict.Errors));
+    }
+
+    [Fact]
+    public void Check_TwoGoalSections_Fails()
+        => AssertFailsWith(Report(evidence: false, tail: WhyAndGoal + "<section data-dev-report=\"goal\"><p>Again.</p></section>"),
+            "2 goal sections");
+
+    [Fact]
+    public void Check_GoalBeforeTheQuestions_Fails()
+        => AssertFailsWith(Report(afterHeader: null, questions: false, evidence: false,
+                tail: "<section data-dev-report=\"goal\"><p>Goal.</p></section>" +
+                      $"<section data-dev-report=\"questions\">{Question}</section>"),
+            "must come after the questions section");
+
+    [Fact]
+    public void Check_GoalInsideADetailSection_Fails()
+        => AssertFailsWith(Report(detail: false, evidence: false,
+                tail: "<section data-dev-report=\"detail\"><section data-dev-report=\"goal\"><p>Goal.</p></section></section>"),
+            "The goal section is inside the detail section");
 }

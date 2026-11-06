@@ -28,6 +28,17 @@ names or headings, so a report can look however it likes.
 | `data-dev-report="questions"` | the questions section | Exactly one. Comes right after the summary. Present even when there are no questions. |
 | `data-dev-report="detail"` | a detail section | At least one. Every one comes after the questions section. |
 | `data-dev-report="evidence"` | evidence and what is not proven | Optional, at most one. If present, it is the last marker. |
+| `data-dev-report="why"` | a Mission's why | Optional, at most one. Comes after the questions section. Expected in a mission document. |
+| `data-dev-report="goal"` | a Mission's goal | Optional, at most one. Comes after the questions section. Expected in a mission document. |
+
+**A mission document** is a dev report published with `cc-dev-reports open <file> --mission-document`. It
+becomes the document of the publishing session's Mission, and the Gateway reads the plain text of the
+`why` and `goal` sections onto the Mission: the goal every time (empty when the section is missing), the
+why only when the section is there. Any report may carry either marker. Published without
+`--mission-document`, nothing is read from it - unless that report already IS the publishing session's
+Mission's document, in which case the why and goal are read again exactly as with the flag, so the Mission
+never shows a goal its document no longer states. A `why` or `goal` section is a section like any other: it does not contain another section and is not
+inside one.
 
 "Right after" is about the ORDER OF THE MARKERS, not about the HTML between them: the check reads the
 markers in document order and does not judge untagged content in between.

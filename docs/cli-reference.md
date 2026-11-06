@@ -950,21 +950,22 @@ OPTIONS:
   --all      -a  Include missions that have been completed or removed.
   --state        Show only this state: active, complete, removed, or all. Overrides --all.
   --name         Only missions whose name contains this text, ignoring case.
-  --fields       Fields to show, comma separated. Default: id,name,state.
-                 Valid: id, name, state, why, why-updated, state-changed, run.
+  --fields       Fields to show, comma separated. Default: id,name,state,document.
+                 Valid: id, name, state, document, goal, why, why-updated, state-changed, run.
 ```
 
 The same shape as `session list`: a `count:` line, one row per mission, then `help[N]:`.
 
 ```
 count: 70 of 78 total (active 70)
-missions[70]{id,name,state}:
-  43b85d84-07bd-410b-a6c6-88a137bcc1c3,AXI - make our command-line tools agent-shaped,active
+missions[70]{id,name,state,document}:
+  43b85d84-07bd-410b-a6c6-88a137bcc1c3,AXI - make our command-line tools agent-shaped,active,none
   ...
 38 of these missions have no why set.
+69 of these missions have no mission document (cc-dev-reports open <file> --mission-document).
 help[5]:
   cc-devthrottle mission list --all
-  cc-devthrottle mission list --fields id,name,state,why,why-updated,state-changed,run
+  cc-devthrottle mission list --fields id,name,state,document,goal,why,why-updated,state-changed,run
   cc-devthrottle mission list --json
   cc-devthrottle mission attach <session> <id>
   cc-devthrottle session spawn <repo> --controlled-by self --mission <id>
@@ -974,14 +975,19 @@ help[5]:
   out. `--all` shows every state and counts each: `count: 78 (active 70, complete 5, removed 3)`.
 - **The why** is long free text, so it is shown only when `--fields` asks for it. When it is not
   shown, a line says how many of the listed missions have no why set.
+- **The document** is the report id of the Mission's mission document, or `none`. It is shown by
+  default, and a line counts the listed missions with no document. **The goal** is read from that
+  document's goal section and, like the why, is shown only when `--fields` asks for it.
 - **Filters** apply to `--json` as well. `--json` asks the Gateway exactly what it always asked
   (`--state` is passed through), and `--name` narrows that same bare array.
 - An unknown state or field exits 2 and lists the valid values. Every row is checked in full before
   anything is filtered or shown, and a broken one exits 1 rather than being listed, filtered out or
   shown blank: a row that is not an object; a mission with no id, an id another row already has, or
   no name or a blank one (the Gateway refuses a blank name); a state other than active, complete or
-  removed; a why that is missing or not text (an empty why is "unset", and is flagged); or a
-  why-updated, state-changed or run that is missing, blank, or neither text nor null. `--json`
+  removed; a why or a goal that is missing or not text (an empty why is "unset", and is flagged); a
+  why-updated, state-changed, run or documentReportId that is missing, blank, or neither text nor
+  null. A row with no documentReportId at all comes from a Gateway that predates mission documents,
+  and the error says it needs updating. `--json`
   without `--name` prints the Gateway's answer as it came; `--json --name` checks every row first.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` with the filter that matched
   nothing named on the next line.
@@ -2761,10 +2767,10 @@ Publish a dev report (one HTML file) to the owner through the Gateway, and reply
 
 | Command | What it does |
 |---|---|
-| `cc-dev-reports open <file>` | Publish the file; publishing it again makes a new version. A shape-check refusal prints every error |
+| `cc-dev-reports open <file> [--mission-document]` | Publish the file; publishing it again makes a new version. A shape-check refusal prints every error. `--mission-document` makes it the document of this session's Mission and reads its why and goal sections onto the Mission; a session with no Mission is refused and nothing is published |
 | `cc-dev-reports reply "<text>" [--report <id>]` | Reply to the owner in a report; default is this session's newest report |
 
-Both take `--json`, which always has the keys `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`, `error`, `code`, `errors`. Errors exit 1.
+Every command takes `--json`, which always has the keys `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`, `count`, `reports`, `claimed`, `marked`, `missionDocument`, `error`, `code`, `errors`. Errors exit 1.
 
 ## cc-reddit
 

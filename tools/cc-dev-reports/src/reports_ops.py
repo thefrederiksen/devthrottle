@@ -41,7 +41,7 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 
 RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "count", "reports", "claimed", "marked",
-               "error", "code", "errors")
+               "missionDocument", "error", "code", "errors")
 
 
 def key_too_long_sentence(length: int) -> str:
@@ -138,15 +138,23 @@ def _read_report(file_path: str) -> str:
                            "not_utf8") from exc
 
 
-def open_report(file_path: str) -> Dict[str, Any]:
-    """Publish the file as a new version of this session's report for that file."""
+def open_report(file_path: str, mission_document: bool = False) -> Dict[str, Any]:
+    """Publish the file as a new version of this session's report for that file.
+
+    With `mission_document`, the report also becomes the document of this session's Mission (the Missions
+    First-Class mission). The Gateway decides which Mission - the session's own - and refuses, publishing
+    nothing, when the session has none. Its answer must say what it linked: a Gateway that answers without
+    a `missionDocument` block does not know the flag, and that is reported as a failure, never as a link.
+    """
     try:
         sid = _require_environment()
         key = report_key(file_path)
         if len(key) > MAX_KEY_LENGTH:
             raise CommandError(key_too_long_sentence(len(key)), "key_too_long")
         html = _read_report(file_path)
-        body = {"key": key, "html": html}
+        body: Dict[str, Any] = {"key": key, "html": html}
+        if mission_document:
+            body["missionDocument"] = True
         try:
             answer = gateway.post_json(f"sessions/{gateway.path_segment(sid)}/dev-reports", body,
                                        timeout=HTTP_TIMEOUT_SECONDS)
@@ -156,8 +164,19 @@ def open_report(file_path: str) -> Dict[str, Any]:
         if not isinstance(report, dict) or not report.get("id"):
             raise CommandError("The Gateway accepted the report but its answer carried no report id.",
                                "bad_answer")
+        # Without the flag the Gateway still answers a missionDocument block when this report already IS the
+        # session's Mission's document: it refreshed that Mission's goal and why, and that is shown too.
+        linked = answer.get("missionDocument")
+        if not isinstance(linked, dict) or not linked.get("missionId"):
+            linked = None
+        if mission_document:
+            if linked is None:
+                raise CommandError(
+                    f"The Gateway published report {report['id']} but did not link it to the session's Mission: "
+                    "it does not know --mission-document. The Gateway needs updating; publish again once it is.",
+                    "mission_document_unsupported")
         return _result("open", ok=True, report=report, created=bool(answer.get("created")),
-                       ownerRoute=owner_route(str(report["id"])))
+                       ownerRoute=owner_route(str(report["id"])), missionDocument=linked)
     except CommandError as exc:
         return _result("open", ok=False, error=str(exc), code=exc.code, errors=exc.errors)
 
@@ -374,14 +393,32 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
             _line("title", report.get("title")),
             _line("status", report.get("status")),
             _line("created", result["created"]),
+        ]
+        linked = result.get("missionDocument")
+        if linked:
+            blocks.append("mission document:")
+            blocks.append(_line("mission", linked.get("missionId")))
+            blocks.append(_line("name", linked.get("missionName")))
+            blocks.append(_line("goal", linked.get("goal") or "(none)"))
+            if linked.get("replacedReportId"):
+                blocks.append(_line("replaced", linked.get("replacedReportId")))
+            notes = linked.get("notes") or []
+            if notes:
+                blocks.append(f"notes[{len(notes)}]:")
+                blocks.extend(f"  {_ascii(str(n))}" for n in notes)
+        blocks.extend([
             "owner:",
             "  opens this address and lands in the report",
             _line("route", result["ownerRoute"]),
             axi_output.format_help([
                 f'cc-dev-reports reply --report {report.get("id")} "<text>"',
                 "cc-dev-reports open <file>",
+                "cc-devthrottle mission list",
+            ] if linked else [
+                f'cc-dev-reports reply --report {report.get("id")} "<text>"',
+                "cc-dev-reports open <file>",
             ]),
-        ]
+        ])
     else:
         posted = result["reply"]
         blocks = [

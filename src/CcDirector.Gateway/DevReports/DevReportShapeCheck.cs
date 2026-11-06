@@ -52,9 +52,17 @@ internal static class DevReportShapeCheck
     public const string Detail = "detail";
     public const string Evidence = "evidence";
 
+    /// <summary>The Mission's why, in a mission document (the Missions First-Class mission). Optional in any report,
+    /// at most one, after the questions section. When the report is published as a mission document the Gateway reads
+    /// its plain text onto the Mission (<see cref="MissionDocumentSections"/>).</summary>
+    public const string Why = "why";
+
+    /// <summary>The Mission's goal, in a mission document. Same rules as <see cref="Why"/>.</summary>
+    public const string Goal = "goal";
+
     public static readonly IReadOnlyList<string> Statuses = ["waiting-on-you", "agent-working", "done"];
 
-    private static readonly string[] SectionKinds = [Header, Summary, Questions, Detail, Evidence];
+    private static readonly string[] SectionKinds = [Header, Summary, Questions, Detail, Evidence, Why, Goal];
     private static readonly Regex QuestionId = new("^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
 
     // What the host writes before the report's bytes (CONTRACT.md section 4, rule 2), without its script, so
@@ -148,6 +156,15 @@ internal static class DevReportShapeCheck
             errors.Add($"The report has {evidenceCount} evidence sections. It may have at most one " +
                        "data-dev-report=\"evidence\".");
         }
+        foreach (var once in new[] { Why, Goal })
+        {
+            var count = kinds.Count(k => k == once);
+            if (count > 1)
+            {
+                errors.Add($"The report has {count} {Words(once)}s. It may have at most one " +
+                           $"data-dev-report=\"{once}\".");
+            }
+        }
         return status;
     }
 
@@ -194,10 +211,10 @@ internal static class DevReportShapeCheck
         }
         if (questions >= 0)
         {
-            var early = kinds.Take(questions).Count(k => k == Detail || k == Evidence);
+            var early = kinds.Take(questions).Count(k => k == Detail || k == Evidence || k == Why || k == Goal);
             if (early > 0)
             {
-                errors.Add("Every detail and evidence section must come after the questions section, but " +
+                errors.Add("Every detail, why, goal and evidence section must come after the questions section, but " +
                            $"{early} comes before it. Move it below the questions.");
             }
         }
@@ -466,14 +483,14 @@ internal static class DevReportShapeCheck
         return false;
     }
 
-    private static bool IsUnrendered(IElement element)
+    internal static bool IsUnrendered(IElement element)
     {
         var name = element.LocalName.ToLowerInvariant();
         return UnrenderedElements.Contains(name) ||
                (element.NamespaceUri == NamespaceNames.SvgUri && UnrenderedSvgElements.Contains(name));
     }
 
-    private static bool IsUnrenderedOrInsideOne(IElement element)
+    internal static bool IsUnrenderedOrInsideOne(IElement element)
     {
         for (var e = element; e is not null; e = e.ParentElement)
         {
@@ -523,6 +540,8 @@ internal static class DevReportShapeCheck
         Questions => "questions section",
         Detail => "detail section",
         Evidence => "evidence section",
+        Why => "why section",
+        Goal => "goal section",
         _ => kind,
     };
 }
