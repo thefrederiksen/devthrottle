@@ -464,9 +464,22 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(readable > 10, $"only {readable} of {entries.Count} processes could be read");
         Assert.Equal(entries.Count, readable + refused);
 
-        // AND SOME REALLY ARE REFUSED on an ordinary user's Mac. If every process were readable this
-        // test would be proving nothing about the case it exists for, and the null-figure path through
-        // the probe would be uncovered.
+        // AND WHAT MUST BE TRUE DEPENDS ON WHO IS RUNNING, with both branches asserting something
+        // specific. As an ordinary user some processes MUST come back refused, or this run proved
+        // nothing about the case the test exists for and the null-figure path is uncovered. As root
+        // nothing is refused, because root may read every process, so the honest assertion there is
+        // that everything really was readable.
+        //
+        // Asserted this way round because the unconditional version fails on a correct reader whenever
+        // the Director runs as root, and a test that fails while the code is correct is deleted here
+        // rather than carried with a note. This is the same fix as in MacOsResourceProbeLiveTests; the
+        // reviewer caught that I had made it in one place and not the other.
+        if (Environment.IsPrivilegedProcess)
+        {
+            Assert.Equal(0, refused);
+            return;
+        }
+
         Assert.True(refused > 0,
             "every process was readable, so this run did not exercise the refusal this test is for");
     }

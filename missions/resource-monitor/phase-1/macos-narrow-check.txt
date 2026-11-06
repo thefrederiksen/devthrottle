@@ -164,6 +164,25 @@ error message itself names. scripts/test-local.ps1 is PowerShell and cannot run 
    That last column is the honest figure for this check, and the one before it is why the naive
    version of it could not be trusted in either direction.
 
+   TWO LIMITS OF THIS INSTRUMENT, both raised by the reviewer and both real.
+
+   First, the probe fell BELOW the bracket in three of the four runs rather than scattering either
+   side of it, by 0.51, 1.36 and 0.73 points. A consistent lean is not what random timing looks like,
+   so it is more likely that the probe's reading is taken a moment later than vm_stat's within each
+   run, on a machine whose used memory was falling. It is well inside the requirement either way, and
+   this says plainly that it is a lean rather than noise.
+
+   Second, LANDING INSIDE THE BRACKET IS NOT PROOF. The bracket only bounds the quantity if it moved
+   monotonically between the two vm_stat reads, and nothing here establishes that: a figure that went
+   up and came back down would bound a probe reading that was wrong in between. It is a better
+   instrument than one reading and it is not an exact one.
+
+   The exact check would read vm_stat's own formula and the probe's figure out of the SAME
+   host_statistics64 snapshot, so no time passes between them at all. That belongs to the memory
+   probe rather than to this one - MachineMemoryProbe is the pre-existing, already-tested reading
+   from issue #2818 and this probe does not measure memory twice - so it is recorded here as the way
+   to settle it rather than done here.
+
 ====================================================================================================
 7. THE CLOCK, AND A REGRESSION TEST THAT WAS CHECKED AGAINST THE DEFECT
 

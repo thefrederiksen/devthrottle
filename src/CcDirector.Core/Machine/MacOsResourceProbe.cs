@@ -255,10 +255,15 @@ public sealed class MacOsResourceProbe : IResourceProbe
         TimeSpan since)
     {
         if (cores.Count == 0)
+            // No core count here, deliberately: the counters could not be read at all, so the number of
+            // cores was never established either and inventing one would be a guess.
             return CpuReading.Unreadable(reason ?? "the processor tick counters could not be read");
 
         if (previous is null || since <= TimeSpan.Zero)
-            return CpuReading.Unreadable(ResourceUnreadableReasons.FirstSample);
+            // THE CORE COUNT IS KNOWN EVEN THOUGH NO PERCENTAGE IS. The cores were read and counted;
+            // what is missing is a second reading to compare against. Carrying the count means the
+            // first thing the Director draws can still say how big the machine is.
+            return CpuReading.Unreadable(ResourceUnreadableReasons.FirstSample, cores.Count);
 
         if (previous.Cores.Count != cores.Count)
             return CpuReading.Unreadable(
@@ -306,7 +311,8 @@ public sealed class MacOsResourceProbe : IResourceProbe
 
         if (total == 0 || !anyCoreComparable)
             return CpuReading.Unreadable(
-                "no processor ticks passed between the two readings, so no percentage can be worked out");
+                "no processor ticks passed between the two readings, so no percentage can be worked out",
+                cores.Count);
 
         return CpuReading.Read(
             totalBusyPercent: busy / (double)total * 100.0,

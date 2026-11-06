@@ -91,6 +91,11 @@ public class MacOsResourceProbeLiveTests
 
         Assert.False(sample.Cpu.CouldRead);
         Assert.Equal(ResourceUnreadableReasons.FirstSample, sample.Cpu.UnreadableReason);
+        // THE CORE COUNT SURVIVES AN UNREADABLE PROCESSOR READING, because it was really counted - what
+        // is missing is a second reading to compare against, not the machine's size. So the first thing
+        // the Director draws can still say how many cores it has.
+        Assert.Equal(Environment.ProcessorCount, sample.Cpu.LogicalCoreCount);
+
         Assert.True(sample.DiskEvidence.CouldRead);
         Assert.All(sample.DiskEvidence.Disks, disk =>
         {

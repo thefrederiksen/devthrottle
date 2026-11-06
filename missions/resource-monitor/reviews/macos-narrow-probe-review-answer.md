@@ -157,3 +157,45 @@ is now written at the line itself, naming the live per-core assertion as the onl
 saying that if that test ever goes red this loop is what has to change. The reviewer also confirmed
 from its own measurement that macOS does not take a logical processor offline while running, and that
 it found no condition where a parked core's idle counter stops advancing.
+
+## Addendum: the verification review of the four fixes (2026-11-06)
+
+I asked the reviewer to check the four fixes rather than merge on my own measurement, because the
+whole lesson of finding 1 is that a fix was answered, believed and never re-run. Its verdict: nothing
+in the four is wrong, fix one more thing, then merge. It verified finding 1's fix by running the probe
+- first sample 463 processes, 0 with a share, 294 with memory, 169 refused, 0 unnamed, nothing dropped,
+against `ps -ax` counting 462 - and confirmed the second sample's shares sum sensibly against the
+machine figure.
+
+**The root-user fix was made in one place and not the other - ACCEPTED, fixed.** I changed the
+probe-level test and left `ReadProcess_ManyProcessesOnThisMachine_AreReadableAndTheRestAreNullNotAFailure`
+in the reader tests asserting `refused > 0` unconditionally, so it failed as root exactly as the other
+one used to. Both now assert something specific in each case. This is worth recording as a plain miss:
+I found the defect, understood it, fixed the instance in front of me and did not sweep for the rest.
+
+**The reviewer's own suggestion was declined and it agreed.** It had suggested leaving the root case
+documented rather than fixed; I did not, because a test that fails while the code is correct is deleted
+here rather than carried with a note, and it confirmed that was right and that the ordinary-user branch
+is not weaker for it.
+
+**The still-core comment is enough - CONFIRMED, not changed.** I had asked whether `FoldCpu` should
+instead report the processor unreadable when a core stands still. It should not: that verdict would
+fire on an ordinary idle core between ticks, which is a false alarm on a healthy machine. The written
+limit plus the live per-core assertion is the right shape.
+
+**The interval test covers what was meant - CONFIRMED.** It fails on the defect for the right reason:
+a wall-clock interval goes negative and the sample reports "first sample".
+
+**Two limits of the memory bracket - ACCEPTED, recorded in the proof file.** The reviewer called the
+bracket a fair instrument and better than one reading, with two caveats I have written into section 6
+rather than leave implied. The probe fell BELOW the range in three of four runs (0.51, 1.36, 0.73),
+which is a lean rather than noise and probably means the probe's read lands a moment after vm_stat's.
+And landing inside the bracket is not proof, because the bracket only bounds the quantity if it moved
+monotonically between the two reads. The exact check reads vm_stat's formula and the probe's figure out
+of the same `host_statistics64` snapshot; that belongs to the memory probe, which this one does not
+measure twice, so it is recorded as the way to settle it rather than done here.
+
+**One minor improvement taken.** An unreadable processor reading can now carry the core count where the
+cores really were counted - the first sample and the no-ticks case - so the Director's first draw can
+say how big the machine is even before any percentage exists. It stays null where the counters could
+not be read at all, because then the count was never established either. Pinned by a test.

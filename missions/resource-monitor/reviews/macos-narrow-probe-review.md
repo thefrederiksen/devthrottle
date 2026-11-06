@@ -226,3 +226,67 @@ read, not re-measured by me.
 **Finding 1 stands at 79f5b243e.** The lifetime-average path is unchanged. The working tree was mid-edit
 when I last looked (an unused `figuresRefused` variable failing the build under TreatWarningsAsErrors), so
 whatever is being changed there is not reviewed.
+
+## Second addendum: pull request 4628 at d167d7b5d, the four fixes checked
+
+Built and tested in a detached throwaway worktree at d167d7b5d: no errors, no warning in the macOS files,
+190 unit tests and 36 live tests pass, 0 skipped. The rebase onto the merged interface left the files I had
+reviewed byte-identical (git diff 79f5b243e against 27b634e19 is empty for them). The four earlier reviewed
+findings that were acted on: the lifetime average (1) is gone, the `CFPropertyListCreateData` options
+argument (3) is now 64 bits, the unused `FiguresRefused` is removed, and the interval half of the clock
+rule is pinned.
+
+**1. Finding 1 is fixed, and the fix is right.** `ProcessPercent` returns null when there is no earlier
+reading and `ProcessLifetimeMachinePercent` is deleted. Measured through the built library, not read:
+
+    first sample   463 processes, 0 with a processor share, 294 with memory, 169 refused, 0 unnamed,
+                   0 without a start time (ps -ax listed 462 at the same moment)
+    second sample  464 processes, 293 with a processor share, 295 with memory, 169 refused;
+                   readable processes present in both samples yet null: 0;
+                   per-process shares sum to 5.1 percent against a machine figure of 7.4
+
+So nothing is dropped, the only null shares on the second sample are the two processes that did not exist
+on the first, and the shares add up below the machine's figure as they must with refused processes
+excluded. Deleting the helper rather than leaving it callable was the right call.
+
+**2. The root case.** The Developer was right not to follow my suggestion to leave the assertion with a
+note; the repository's rule is delete or make it true, and the privileged branch asserts a specific
+presence (nothing refused, memory on every process) rather than nothing. The ordinary-user branch is not
+weaker: it is unchanged, and the proxy for "refused" moved from `CpuPercent is null` to `MemoryBytes is
+null`, which is exact, since memory is null only when the per-process call was refused. One gap remains:
+the reader-level test `ReadProcess_ManyProcessesOnThisMachine_AreReadableAndTheRestAreNullNotAFailure`
+still asserts `refused > 0` unconditionally, so it fails on correct code as root in exactly the way the
+probe-level test no longer does. Same treatment wanted there.
+
+**3. The interval test covers what I meant.** It advances the monotonic clock by the interval and steps
+the wall clock an hour back, then asserts the processor reads, this process's share is within a factor of
+two of the runtime's own, and the sample is stamped with the stepped-back wall time. With a wall-clock
+interval `since` is negative, the processor reads "first sample" and the first assertion fails, so it
+does not pass for the wrong reason. The processor ratio and the share both use the handed interval on
+both sides, so the machine's speed does not enter.
+
+**4. The still-core comment is enough.** Reporting the processor unreadable when a core's counters stand
+still would be wrong: a core whose total did not move inside a one-second interval can be an ordinary
+idle core between ticks, so an unreadable verdict there would fire on healthy machines. There is no
+honest verdict in that arithmetic, as the comment says, and the per-core live assertion is the right
+guard. Not too weak.
+
+**The memory bracket.** A fair instrument for "same quantity, right order of magnitude", and a clear
+improvement on one reading; the reasoning that a single reading at a different moment is a different
+quantity is correct. Two things to say about it. First, the probe fell BELOW the operating system's own
+range in three of the four runs (0.51, 1.36 and 0.73 points below the lower bound). Three of four in one
+direction is a lean, not noise, and worth one sentence in the file: either the probe's figure is taken a
+moment later on a machine that was freeing memory, or its page formula differs slightly from vm_stat's.
+Second, the bracket assumes memory moved monotonically between the two reads, which it need not have, so
+"inside the bracket" is also not proof. The exact check is to compute vm_stat's formula and the probe's
+from the SAME `host_statistics64` snapshot inside one live test and demand agreement to a fraction of a
+point; that measures the arithmetic with no load in the way. That belongs to the memory probe's owner,
+and the bracket is acceptable evidence for this phase.
+
+**Two small notes from the merged interface.** `CpuReading.Unreadable` now accepts the core count, so the
+first sample's "first sample, no interval yet" could carry the ten cores the probe already knows rather
+than null; today it passes none. And the live tests now check `LogicalCoreCount` and `BusiestCorePercent`
+are present before using them, which is right.
+
+**Verdict.** Nothing in the four fixes is wrong. The one item I would still change before merge is the
+root case in the reader-level test; the rest are notes.
