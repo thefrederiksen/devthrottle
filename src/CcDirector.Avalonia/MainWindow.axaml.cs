@@ -197,11 +197,16 @@ public partial class MainWindow : Window
         () => (global::Avalonia.Application.Current as App)?.ControlApiHost?.GatewayWheel,
         work => Dispatcher.UIThread.Post(work));
 
+    /// <summary>The Mission button for the selected session (the Missions First-Class mission), drawn twice: on the session
+    /// tab bar and in the toolbar corner. It posts its changes to the screen thread.</summary>
+    private readonly MissionButtonPresenter _missionPresenter = new(work => Dispatcher.UIThread.Post(work));
+
     public MainWindow()
     {
         InitializeComponent();
         FileLog.Write("[MainWindow] Avalonia MainWindow initialized");
         _wheelPresenter.Changed += UpdateWheelBar;
+        _missionPresenter.Changed += UpdateMissionButtons;
 
         // The declared size is a PREFERENCE, not a promise - shrink it to the display before the
         // window is ever shown (issue #1049).
@@ -2363,6 +2368,7 @@ public partial class MainWindow : Window
                     SourceControlView.Detach();
                     _activeSession = null;
                     _wheelPresenter.Attach(null);
+                    _missionPresenter.Attach(null);
 
                     SetSessionHeaderVisible(false);
                     PlaceholderText.IsVisible = true;
@@ -2564,6 +2570,7 @@ public partial class MainWindow : Window
 
         _activeSession = vm;
         _wheelPresenter.Attach(vm?.Session);
+        _missionPresenter.Attach(vm?.Session);
 
         // Driver-capability action buttons (Stop / Interrupt / Clear context /
         // History) follow the active session; null hides them all.
@@ -2752,6 +2759,7 @@ public partial class MainWindow : Window
         SourceControlView.Detach();
         _activeSession = null;
         _wheelPresenter.Attach(null);
+        _missionPresenter.Attach(null);
         // Same reason as the removal path above: _activeSession is nulled here without going through
         // SelectSession, so the Cockpit button must be hidden explicitly.
         TabBarCockpitButton.IsVisible = false;
@@ -3438,6 +3446,53 @@ public partial class MainWindow : Window
         TabBarWheelButton.Classes.Set("handback", handBack);
         TabBarWheelButton.Classes.Set("take", !handBack);
         ToolTip.SetTip(TabBarWheelButton, _wheelPresenter.DisabledReason);
+    }
+
+    /// <summary>
+    /// Draw both Mission buttons - the session tab bar's and the toolbar corner's - from <see cref="_missionPresenter"/>.
+    /// Words, tooltip and look are the presenter's, which are the Gateway's verdict verbatim; this only copies them onto
+    /// the controls. Both buttons show the selected session, so the corner follows the selection.
+    /// </summary>
+    private void UpdateMissionButtons()
+    {
+        foreach (var (button, text) in new[] { (TabBarMissionButton, TabBarMissionText), (BtnMission, BtnMissionText) })
+        {
+            button.IsVisible = _missionPresenter.IsVisible;
+            foreach (var look in MissionButtonPresenter.AllLooks)
+                button.Classes.Set(look, look == _missionPresenter.Look);
+            text.Text = _missionPresenter.Label;
+            ToolTip.SetTip(button, _missionPresenter.Tooltip);
+        }
+    }
+
+    /// <summary>
+    /// Either Mission button: open the Mission's document, at the Gateway this Director is connected to plus the Gateway's
+    /// address for it. With no address (a Mission with no document yet, or no Mission) the click opens nothing and says so
+    /// in the log - the same as the tab bar Cockpit button when its target is gone. An address the Gateway sent that is
+    /// not a path is a broken contract, shown to the user rather than opened.
+    /// </summary>
+    private void MissionButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var session = _missionPresenter.Session;
+        var address = _missionPresenter.Verdict?.DocumentAddress;
+        FileLog.Write($"[MainWindow] MissionButton_Click: session={session?.Id.ToString() ?? "(none)"}, address={address ?? "(none)"}");
+        try
+        {
+            var url = MissionButtonPresenter.BuildOpenUrl(CockpitUrlResolver.ResolveCockpitBase(GatewayConfig.Load()), address);
+            if (url is null)
+            {
+                FileLog.Write("[MainWindow] MissionButton_Click: the Gateway gave no document address, opening nothing");
+                return;
+            }
+
+            FileLog.Write($"[MainWindow] MissionButton_Click: opening {url}");
+            OpenUrlInBrowser(url);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] MissionButton_Click FAILED: {ex}");
+            ShowNotification(ShownError.Report("main window", "open the Mission document", ex.Message, ex));
+        }
     }
 
     /// <summary>The Terminal tab's wheel button: take the wheel or hand it back, through the Gateway.</summary>
@@ -7263,6 +7318,7 @@ public partial class MainWindow : Window
         SourceControlView.Detach();
         _activeSession = null;
         _wheelPresenter.Attach(null);
+        _missionPresenter.Attach(null);
 
         // Stop git status polling
         _sessionGitTimer?.Stop();

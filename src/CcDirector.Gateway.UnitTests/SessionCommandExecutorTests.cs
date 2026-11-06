@@ -396,6 +396,60 @@ public sealed class SessionCommandExecutorTests
         finally { sm.Dispose(); }
     }
 
+    // ---------- set-display-state carries the Mission button (Missions First-Class mission, phase 2) ----------
+
+    [Fact]
+    public async Task DispatchAsync_SetDisplayState_StoresTheMissionButtonVerbatim_MapEchoesIt_AndALaterStampWithoutOneClearsIt()
+    {
+        // The Director draws its two Mission buttons from Session.GatewayMissionButton. The Gateway's verdict must land on
+        // the session field for field, through the real JSON payload, come back out of Map unchanged, and a stamp without
+        // it means no verdict and no button.
+        const string Tooltip = "Mission: Missions First-Class\nGoal: every session shows its mission";
+        var (sm, session, _) = NewSession();
+        try
+        {
+            async Task Stamp(MissionButtonDisplay? verdict)
+            {
+                var command = new DirectorCommand
+                {
+                    Verb = "set-display-state",
+                    SessionId = session.Id.ToString(),
+                    PayloadJson = JsonSerializer.Serialize(new SetDisplayStateRequest
+                    {
+                        EffectiveColor = "blue",
+                        StateLabel = "Working",
+                        TriageBucket = "active",
+                        MissionButton = verdict,
+                    }, Json),
+                };
+                var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+                Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            }
+
+            await Stamp(new MissionButtonDisplay
+            {
+                Verdict = MissionButtonDisplay.VerdictMissionWithDocument,
+                Label = "Missions First-Class",
+                ColorKey = MissionButtonDisplay.ColorMission,
+                Tooltip = Tooltip,
+                DocumentAddress = "/r/abc",
+            });
+            var stored = session.GatewayMissionButton;
+            Assert.NotNull(stored);
+            Assert.Equal(MissionButtonDisplay.VerdictMissionWithDocument, stored!.Verdict);
+            Assert.Equal("Missions First-Class", stored.Label);
+            Assert.Equal(MissionButtonDisplay.ColorMission, stored.ColorKey);
+            Assert.Equal(Tooltip, stored.Tooltip);
+            Assert.Equal("/r/abc", stored.DocumentAddress);
+            Assert.Equal("/r/abc", ControlEndpoints.Map(session, directorId: "").MissionButton?.DocumentAddress);
+
+            await Stamp(null);
+            Assert.Null(session.GatewayMissionButton);
+            Assert.Null(ControlEndpoints.Map(session, directorId: "").MissionButton);
+        }
+        finally { sm.Dispose(); }
+    }
+
     // ---------- set-display-state reconciles the raw hold mirror (inspection finding 3) ----------
 
     [Fact]

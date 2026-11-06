@@ -435,6 +435,9 @@ internal static class ControlEndpoints
             // The Gateway's API-mode verdict, echoed like the other Gateway display fields; the Gateway assigns it fresh
             // on every fold, so the echo never survives (mission #4070).
             ApiMode = s.GatewayApiMode,
+            // The Mission button's verdict, echoed the same way; the Gateway's fold assigns it fresh (null over an echo
+            // when it read no missions), so the echo never survives.
+            MissionButton = s.GatewayMissionButton,
             // Chunk 3: the auto-vs-explicit name marker (a future auto-rename gates on it).
             IsAutoNamed = s.IsAutoNamed,
             IsBackgroundRunning = s.IsBackgroundRunning,
