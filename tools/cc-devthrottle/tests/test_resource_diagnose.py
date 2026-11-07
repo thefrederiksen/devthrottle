@@ -74,12 +74,14 @@ def test_actions_listsMachineDiagnose_asReadOnly():
     assert row["changes-state"] == "no"
 
 
-def test_help_isShortAndNamesEveryFilter():
+def test_help_isShortAndNamesEveryFilter(plain):
     result = invoke("--help")
 
     assert result.exit_code == 0
+    # Rich styles the help on a colour console (continuous integration forces colour), so the check is on
+    # what a reader sees, not on the escape sequences threaded through it (conftest.py, issue #1082).
     for flag in ("--minutes", "--at", "--instance", "--fields", "--json"):
-        assert flag in result.output
+        assert flag in plain(result.output)
 
 
 # ---------------------------------------------------------------------------------------------------
