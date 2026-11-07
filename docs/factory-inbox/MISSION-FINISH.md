@@ -231,3 +231,27 @@ None for the owner. Settle by reading, not guessing: whether the factory area sw
 - **Free memory is tight.** Stop every session the moment its work is merged. The owner asks for this.
 - The owner does not read code or technical questions. Report in plain words: what he can now see and use, what is
   next, and when. Ask him only what needs his judgement, one question at a time, with a plain explanation.
+
+## Where the finishing run ended (7 November 2026)
+
+Driven from devlinux by the Delivery Lead (session 136, "Factory Inbox - Delivery Lead - finish on devlinux"). Every
+pull request below was gated by the Delivery Lead in its own worktree (see `devlinux-readiness.md` for how the gate is
+read on Linux) and reviewed by a separate session; every review file is under `reviews/`.
+
+| Pull request | What | Deployed |
+|---|---|---|
+| 4610 | Closed unmerged: main fixed the same test in 4612. | - |
+| 4608 | Your inbox back end (migrations regenerated after main's AddFactoryBossStarts). | 16:14 UTC, 6 November |
+| 4603 | Factory inbox screens, spoken send opens the gather window from the press. | 16:14 UTC, 6 November |
+| 4637 | Your inbox screens and the unread count on the Inbox entry. | 17:06 UTC, 6 November |
+| 4630 | A held spoken message is never dropped by the 24-hour sweep. | 18:25 UTC, 6 November |
+| 4652 | Archived factories left out on purpose; Leave a message only where one is taken. | 18:25 UTC, 6 November |
+| 4667, 4691 | Two tests that failed under load: races in the tests' own set-up, fixed. | with later deploys |
+| 4690 | The thread took 70 seconds (4630's held lookup walked every upload); now an indexed lookup, warmed at start-up. | 00:04 UTC, 7 November |
+| 4664 | Email off: each factory's morning summary goes to Your inbox; the sweep has no mail sender. | 00:04 UTC, 7 November |
+| 4703 | Small defects from the end-to-end proof, and reads that cannot hang a screen. | 00:49 UTC, 7 November |
+| 4699 | The end-to-end QA report and this record. | - |
+
+Issues filed for what is outside this mission: 4701 (two Directors on one computer), 4702 (session keys refused for an
+owned session). Deploys cost between no failed answer and an 8-minute stall (17:06 UTC); the rule to roll back after
+five minutes was missed once and is recorded in the owner's report.
