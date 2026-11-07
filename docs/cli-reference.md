@@ -1817,7 +1817,7 @@ COMMANDS:
 **A failed schedule tells its owner by default (issue #4436).** `--notify-on` defaults to `failure`:
 a run that did not run (a missed run too), did not start, may not have started, or ended with a
 problem tells the schedule's owner - on the fleet notification channel, the owner's phones, the
-webhook when one is set, and the account owner's email on the hosted Gateway - at most once an
+webhook when one is set, and a message in the account owner's Your inbox - at most once an
 hour for each cause of each schedule. `always` also tells every run that started; `none` turns it
 off. Every schedule that was still on the old default (`none`) was moved to `failure`, and
 `schedule get` says so in its `Note:` line.
