@@ -32,7 +32,8 @@ public sealed class LicenseRenewalRow
 /// <summary>What a renewal did to one account, in the Director's words.</summary>
 public static class LicenseRenewalResults
 {
-    /// <summary>The sign-in ends within five days; the Director signs the account in again.</summary>
+    /// <summary>The sign-in ends within the tool's renewal window (<c>license_signin.RENEW_AHEAD</c>, seven days); the
+    /// Director signs the account in again.</summary>
     public const string Due = "due";
 
     /// <summary>It was due and the Director's sign-in renewed it.</summary>

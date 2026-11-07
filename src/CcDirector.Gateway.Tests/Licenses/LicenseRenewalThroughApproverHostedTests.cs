@@ -263,7 +263,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         FiveHour = new LicenseWindow { Utilization = 10, ResetsAtUtc = Now.AddHours(2) },
         SevenDay = new LicenseWindow { Utilization = 20, ResetsAtUtc = Now.AddDays(4) },
         ReadAtUtc = Now,
-        // The spare ends within five days, so it is due; the active account was signed in recently.
+        // The spare ends within seven days (the tool's RENEW_AHEAD), so it is due; the active account was signed in recently.
         SignedInAtUtc = active ? Now.AddDays(-2) : Now.AddDays(-26),
         SignInExpiresAtUtc = active ? Now.AddDays(27) : Now.AddDays(3),
     };
@@ -271,7 +271,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
     // ---- the fakes: the license command line, the seal, and the two tunnel seams ----
 
     /// <summary>
-    /// The license command line of one machine. The account that ends within five days is due; no browser profile is
+    /// The license command line of one machine. The account that ends within seven days is due; no browser profile is
     /// set in the tool for any account, so a renewal asks the relay. A sign-in waits for an approval and completes
     /// only with the one this fake's approver hands out for that account; an approval is answered with
     /// <see cref="ApproveAnswer"/> when one is set.

@@ -314,7 +314,30 @@ def test_approveScript_ComparesTheShownAccountAndClosesItsTab():
 # --- renew_due -----------------------------------------------------------------------------------------
 
 
-def test_renewDue_RenewsOnlySparesWithinFiveDays_AndReportsTheRest(store, tmp_path):
+def test_renewAhead_IsSevenDays_TheOnePlaceTheWindowIsSet():
+    # Issue 4697: every held sign-in is renewed a week before it ends. The Director and the Gateway take "due" from this
+    # tool's answer and hold no window of their own.
+    assert license_signin.RENEW_AHEAD == dt.timedelta(days=7)
+
+
+@pytest.mark.parametrize("left, expected", [
+    (dt.timedelta(days=7), "due"),                              # exactly a week out: due
+    (dt.timedelta(days=6, hours=23), "due"),
+    (dt.timedelta(days=5, hours=12), "due"),                    # was NOT due under the old five-day window
+    (dt.timedelta(days=7, minutes=1), "not-due"),
+    (dt.timedelta(days=12), "not-due"),
+])
+def test_renewDueCheck_TheSevenDayWindow_SpareAndActiveAlike(tmp_path, left, expected):
+    _write_sign_in(tmp_path / "default", ACCOUNT_A, "A", NOW + left)
+    store = LicenseStore(str(tmp_path / "default"), str(tmp_path / "store"), backend=FileKeyBackend())
+    _add_spare(store, tmp_path, ACCOUNT_B, NOW + left)
+
+    rows = license_signin.renew_due(store, check=True, now=lambda: NOW)
+
+    assert {r.account: r.result for r in rows} == {ACCOUNT_A: expected, ACCOUNT_B: expected}
+
+
+def test_renewDue_RenewsOnlySparesWithinSevenDays_AndReportsTheRest(store, tmp_path):
     _add_spare(store, tmp_path, ACCOUNT_B, NOW + dt.timedelta(days=4))      # due
     _add_spare(store, tmp_path, ACCOUNT_C, NOW + dt.timedelta(days=12))     # not due
     license_signin.set_browser(store, ACCOUNT_B, "Profile B")
@@ -383,8 +406,8 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.setenv("CC_LICENSE_DEFAULT_CONFIG_DIR", str(tmp_path / "default"))
     monkeypatch.setenv("CC_LICENSE_STORE_DIR", str(tmp_path / "store"))
     monkeypatch.setattr(license_signin, "start_claude_login", lambda folder, email: FakeLogin(folder, email))
-    # The commands call these with the real clock, and "due" means a sign-in ends within five days of now, so
-    # without this the answers changed on 26 October 2026, five days before account A's fixed end. Pinned here,
+    # The commands call these with the real clock, and "due" means a sign-in ends within RENEW_AHEAD of now, so
+    # without this the answers changed on 24 October 2026, RENEW_AHEAD (seven days) before account A's fixed end. Pinned here,
     # every command test sees the same day as the rest of this file.
     sign_in, renew_due = license_signin.sign_in, license_signin.renew_due
     monkeypatch.setattr(license_signin, "sign_in", lambda *a, **k: sign_in(*a, **{"now": lambda: NOW, **k}))

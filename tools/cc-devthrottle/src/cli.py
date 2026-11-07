@@ -2535,7 +2535,7 @@ def license_renew(
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
 ) -> None:
-    """Sign in again every account held whose sign-in ends within five days."""
+    """Sign in again every account held whose sign-in ends within seven days."""
     license_signin_ops.renew(account, force, json_output, fields, default_config_dir, store_dir, check)
 
 

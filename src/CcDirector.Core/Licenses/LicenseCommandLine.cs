@@ -36,7 +36,7 @@ public interface ILicenseCommandLine
     /// <see cref="LicenseSwitchReasonCodes.ExchangeFailedUnknown"/>, because the Director cannot know what happened.</summary>
     Task<LicenseExchangeAnswer> SwitchAsync(string targetAccountEmail, string expectedActiveAccountEmail, CancellationToken cancellationToken);
 
-    /// <summary>Which held accounts - the active one too - have a sign-in that ends within five days
+    /// <summary>Which held accounts - the active one too - have a sign-in that ends within seven days
     /// (<c>license renew --check</c>). It signs nothing in: one row per held account, <c>due</c>, <c>not-due</c> or
     /// <c>unknown-expiry</c>, and <c>failed</c> only for an account whose stored sign-in could not be read. The tool
     /// decides what "due" means, in one place. Throws <see cref="LicenseCommandLineException"/> when the tool did not

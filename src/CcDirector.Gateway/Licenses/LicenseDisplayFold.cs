@@ -1055,6 +1055,7 @@ public static partial class LicenseDisplayFold
             StateText = stateText,
             StateTone = stateTone,
             IsOpen = row.Kind is NoRoomKind or LicenseRenewalFailureLog.Kind or LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent
+                     or LicenseLogKinds.SignInNotKept
                 ? row.FinishedAtUtc is null
                 : LicenseLogStates.IsOpen(row.State),
             ReasonCode = row.ReasonCode,

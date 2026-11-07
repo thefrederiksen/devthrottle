@@ -18,7 +18,10 @@ namespace CcDirector.Gateway.Licenses;
 /// <see cref="LicenseContract.SignInExpiryWarning"/> of now, or has already ended. A sign-in whose end the machine did
 /// not say is not emailed about: nothing here can tell that it is about to end.
 ///
-/// ONCE FOR EACH SIGN-IN, FOR EACH FAILURE STREAK. A streak starts with the first report that says the renewal failed.
+/// ONCE FOR EACH SIGN-IN, FOR EACH FAILURE STREAK. A streak starts with the first report that says the renewal failed,
+/// whatever time the sign-in has left (issue 4697): its row is opened then, and its email waits until the sign-in is
+/// within the warning time. The license alarm for a failed renewal (<see cref="LicenseRenewalFailureAlarm"/>) reads the
+/// same open row, so the two never disagree about whether a streak is over. A sign-in whose end was not said opens no row.
 /// Its warning is a row of the Licenses log (<see cref="LicenseRenewalFailureLog"/>), open while the streak lasts, and
 /// what became of its email is on the row. A later failed try inside the streak moves the failure's time and sends
 /// nothing.
@@ -183,17 +186,36 @@ public sealed class LicenseRenewalEmailService
             //    open row whose email has not gone out, also when the machine's last report no longer carries the
             //    failure time: the row is still open, so the owner is still owed its email.
             var due = new List<(LicenseMachineView Machine, LicenseHoldingView Holding, DateTime Expires, LicenseSwitchLogEntity? Row)>();
+            var opened = 0;
             foreach (var (machine, holding) in failing)
             {
-                if (holding.SignInExpiresAtUtc is { } expires && expires - now <= LicenseContract.SignInExpiryWarning)
-                    due.Add((machine, holding, expires, open.FirstOrDefault(r => IsFor(r, machine, holding))));
+                if (holding.SignInExpiresAtUtc is not { } expires)
+                    continue;
+                var known = open.FirstOrDefault(r => IsFor(r, machine, holding));
+                if (expires - now <= LicenseContract.SignInExpiryWarning)
+                {
+                    due.Add((machine, holding, expires, known));
+                    continue;
+                }
+                // The streak starts at the FIRST failure, whatever time is left (issue 4697): its row is opened now,
+                // and its email waits for the warning time. The license alarm for a failed renewal reads the open row,
+                // so a Director restart - whose first report forgets the failure - never reads as fixed.
+                if (known is null)
+                {
+                    var facts = new Facts(Label(machines, machine.MachineName, machine.OsUser), holding, expires, machine.LastReportAtUtc);
+                    open.Add(_log.Open(tenant, machine, holding.AccountEmail, expires, holding.SignedInAtUtc,
+                        WarningMessage(facts, EmailWaitsClause), now));
+                    opened++;
+                }
             }
             foreach (var row in open.Where(r => !failing.Any(f => IsFor(r, f.Machine, f.Holding))))
             {
-                // Still held, or step 1 would have ended it.
+                // Still held, or step 1 would have ended it. Its email waits for the warning time, as a failing one's does.
                 var machine = machines.First(m => m.MachineId == row.MachineId);
                 var holding = machine.Holdings.First(h => h.AccountEmail == row.ToAccountEmail);
-                due.Add((machine, holding, holding.SignInExpiresAtUtc ?? row.NotAfterUtc!.Value, row));
+                var expires = holding.SignInExpiresAtUtc ?? row.NotAfterUtc!.Value;
+                if (expires - now <= LicenseContract.SignInExpiryWarning)
+                    due.Add((machine, holding, expires, row));
             }
 
             // 4. Every warning whose email is due in THIS check - a new one, or one whose earlier send failed and
@@ -223,8 +245,8 @@ public sealed class LicenseRenewalEmailService
 
             // A check that found nothing to do says nothing: it runs every minute for every tenant, for good.
             var emails = inThisEmail.Count > 0 ? 1 : 0;
-            if (emails + closed + marked.Count > 0)
-                FileLog.Write($"[LicenseRenewalEmailService] TickAsync: tenant={tenant.ToLogString()}, failing={failing.Count}, emails={emails}, signInsInIt={inThisEmail.Count}, ended={closed}, marked={marked.Count}");
+            if (emails + closed + marked.Count + opened > 0)
+                FileLog.Write($"[LicenseRenewalEmailService] TickAsync: tenant={tenant.ToLogString()}, failing={failing.Count}, emails={emails}, signInsInIt={inThisEmail.Count}, ended={closed}, marked={marked.Count}, streaksOpened={opened}");
             return emails;
         }
         finally
@@ -326,6 +348,10 @@ public sealed class LicenseRenewalEmailService
 
     /// <summary>What one warning is written from: the machine's label, the sign-in as last reported, when it ends, and
     /// when the machine last reported.</summary>
+    /// <summary>What a streak's row says of the email while the sign-in has more than the warning time left.</summary>
+    internal static string EmailWaitsClause =>
+        $"the owner is emailed if it is still failing when {LicenseDisplayFold.Span(LicenseContract.SignInExpiryWarning)} of the sign-in are left";
+
     private sealed record Facts(string Label, LicenseHoldingView Holding, DateTime ExpiresAtUtc, DateTime LastReportAtUtc);
 
     // ----- the words -----

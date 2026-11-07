@@ -1877,7 +1877,7 @@ The overview of the same picture (`GET /gateway/licenses`), which the layout che
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again), `approval` (Approval), `cannot-switch` (Cannot switch), `can-switch-again` (Can switch again), `forgotten` (Machine forgotten). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again), `approval` (Approval), `cannot-switch` (Cannot switch), `can-switch-again` (Can switch again), `sign-in-not-kept` (Sign-in not kept; contract section 2.7), `forgotten` (Machine forgotten). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A `report-refused` row of a machine none of whose reports was ever accepted also has `machineId` null; it names the machine as its report did, or "" when the report named none. A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. On `cannot-switch` and `can-switch-again` neither is set: they are about the machine. |
@@ -1906,6 +1906,8 @@ The overview of the same picture (`GET /gateway/licenses`), which the layout che
 | `open` on a `report-refused` row | Refused | bad | yes |
 | `open` on a `machine-silent` row | Silent | warning | yes |
 | `ended` on a `report-refused` or `machine-silent` row | Over | neutral | no |
+| `open` on a `sign-in-not-kept` row | Not kept | bad | yes |
+| `ended` on a `sign-in-not-kept` row | Over | neutral | no |
 | `recorded` on a `report-accepted` or `reporting-again` row | Recorded | good | no |
 | `approved` on an `approval` row | Approved | good | no |
 | `refused` on an `approval` row | Refused | bad | no |

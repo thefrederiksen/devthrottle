@@ -8,7 +8,9 @@ namespace CcDirector.Core.Licenses;
 /// License Switching contract 8.2: the key holder renews this machine's sign-ins before they die. A sign-in lives a
 /// little under thirty days however often its key is refreshed, and the ACTIVE account's dies too, so once a day and
 /// once at start the key holder asks the license tool which held accounts are due (<c>license renew --check</c>: the
-/// sign-in ends within five days) and signs each of those in again, in place.
+/// sign-in ends within seven days - the tool's <c>license_signin.RENEW_AHEAD</c>, the one place the window is set, so
+/// this Director never decides it) and signs each of those in again, in place. A renewal that fails is tried again on
+/// the next daily run, and every day after, until one works; the account stays due all that time.
 ///
 /// Each one goes through <see cref="LicenseSignInCoordinator"/>, the same path a sign-in the Gateway asks for takes:
 /// approved in the browser profile set for the account on this machine, or - with none here - on another machine

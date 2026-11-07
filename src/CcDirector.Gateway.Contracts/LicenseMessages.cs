@@ -573,9 +573,6 @@ public static class LicenseContract
     /// bound into the envelope, so it opens for this one sign-in only.</summary>
     public const string ApprovalSealPurpose = "license-approval";
 
-    /// <summary>A renewal is due when the sign-in ends within this of now (matches <c>license_signin.RENEW_AHEAD</c>).</summary>
-    public static readonly TimeSpan RenewAhead = TimeSpan.FromDays(5);
-
     /// <summary>The key holder runs the renewal this often, and once at start.</summary>
     public static readonly TimeSpan RenewalRunInterval = TimeSpan.FromDays(1);
 
