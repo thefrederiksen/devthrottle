@@ -424,7 +424,98 @@ export const OVERVIEW: LicenseOverview = {
       "readinessText": "Ready for account-b@example.com.",
       "readinessTone": "good"
     }
-  ]
+  ],
+  "coverage": {
+    "text": "2 missing sign-ins on 2 machines.",
+    "tone": "warning",
+    "gapCount": 2,
+    "accounts": [
+      {
+        "accountEmail": "account-a@example.com",
+        "planText": "Max"
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "planText": "Max"
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "planText": "Max"
+      }
+    ],
+    "rows": [
+      {
+        "machine": {
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        "activeAccountEmail": "account-a@example.com",
+        "text": "Missing a fresh sign-in for 1 paid account.",
+        "tone": "warning",
+        "gapCount": 1,
+        "cells": [
+          {
+            "accountEmail": "account-a@example.com",
+            "state": "in-use",
+            "text": "In use",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-b@example.com",
+            "state": "held",
+            "text": "Held",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-c@example.com",
+            "state": "not-held",
+            "text": "Not held",
+            "tone": "warning",
+            "isGap": true
+          }
+        ]
+      },
+      {
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "activeAccountEmail": "account-a@example.com",
+        "text": "Missing a fresh sign-in for 1 paid account.",
+        "tone": "warning",
+        "gapCount": 1,
+        "cells": [
+          {
+            "accountEmail": "account-a@example.com",
+            "state": "in-use",
+            "text": "In use",
+            "tone": "good",
+            "isGap": false
+          },
+          {
+            "accountEmail": "account-b@example.com",
+            "state": "ending",
+            "text": "Ends in 2 days 5 hours",
+            "tone": "warning",
+            "isGap": true
+          },
+          {
+            "accountEmail": "account-c@example.com",
+            "state": "held",
+            "text": "Held",
+            "tone": "good",
+            "isGap": false
+          }
+        ]
+      }
+    ]
+  }
 };
 
 /** The last two fields of an account that is barred from the automatic choice of a target. */
@@ -1190,7 +1281,14 @@ export const EMPTY_OVERVIEW: LicenseOverview = {
   "isEmpty": true,
   "emptyText": "No machine has reported its Claude accounts yet. They appear here once a Director with license switching turned on has connected.",
   "accounts": [],
-  "machines": []
+  "machines": [],
+  "coverage": {
+    "text": "No machine has reported yet.",
+    "tone": "neutral",
+    "gapCount": 0,
+    "accounts": [],
+    "rows": []
+  }
 };
 
 /** PUT /gateway/licenses/accounts/renewal, a date stored. */

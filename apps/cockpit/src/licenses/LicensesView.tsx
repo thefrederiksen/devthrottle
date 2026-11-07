@@ -29,6 +29,7 @@ import { useLicenseAlarms } from "@devthrottle/client-core/licenses/LicenseAlarm
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
+import { LicenseCoverageGrid } from "./LicenseCoverage";
 import { LicenseUsageTab } from "./LicenseUsageTab";
 import { LicenseOutlookChart, LicenseOutlookHeadline, LicenseOutlookTiles } from "./LicenseOutlook";
 import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
@@ -373,6 +374,9 @@ export function LicensesView({ initialTab = "accounts" }: { initialTab?: License
               />
             ))}
           </div>
+
+          <h2 className="lic-h2">Coverage</h2>
+          <LicenseCoverageGrid coverage={data.coverage} />
 
           {lastSwitch !== null && (
             <SwitchNowAnswer result={lastSwitch} log={log.data?.entries ?? []} onDismiss={() => setLastSwitch(null)} />
