@@ -39,10 +39,10 @@ public sealed class CcWorktreesPoolTests
             () => @"C:\fake\cc-worktrees.exe");
 
     [Fact]
-    public void Get_ReadsTheSlotPathAndLease()
+    public async Task Get_ReadsTheSlotPathAndLease()
     {
         var calls = new List<IReadOnlyList<string>>();
-        var pooled = PoolAnswering(GetAnswer, 0, calls).Get(@"C:\Temp\primary", "session-abc", 4);
+        var pooled = await PoolAnswering(GetAnswer, 0, calls).GetAsync(@"C:\Temp\primary", "session-abc", 4, CancellationToken.None);
 
         Assert.Equal("wt01", pooled.Slot);
         Assert.Equal(@"C:\Temp\primary.worktrees\wt01", pooled.Path);
@@ -54,11 +54,11 @@ public sealed class CcWorktreesPoolTests
     }
 
     [Fact]
-    public void Get_PoolFull_ThrowsTheToolsOwnWords()
+    public async Task Get_PoolFull_ThrowsTheToolsOwnWords()
     {
         var pool = PoolAnswering(PoolFullAnswer, 4);
 
-        var refused = Assert.Throws<CcWorktreesRefusedException>(() => pool.Get(@"C:\Temp\primary", "session-abc", 4));
+        var refused = await Assert.ThrowsAsync<CcWorktreesRefusedException>(() => pool.GetAsync(@"C:\Temp\primary", "session-abc", 4, CancellationToken.None));
         Assert.Equal("pool-full", refused.Code);
         Assert.Equal(4, refused.ExitCode);
         Assert.StartsWith("pool full (4 of 4):", refused.Message);
@@ -66,11 +66,11 @@ public sealed class CcWorktreesPoolTests
     }
 
     [Fact]
-    public void Get_ToolNotInstalled_IsARefusalThatNamesIt()
+    public async Task Get_ToolNotInstalled_IsARefusalThatNamesIt()
     {
         var pool = new CcWorktreesPool(_ => (-1, "", "not found", false), () => null);
 
-        var refused = Assert.Throws<CcWorktreesRefusedException>(() => pool.Get(@"C:\Temp\primary", "session-abc", 4));
+        var refused = await Assert.ThrowsAsync<CcWorktreesRefusedException>(() => pool.GetAsync(@"C:\Temp\primary", "session-abc", 4, CancellationToken.None));
         Assert.Equal("tool-not-runnable", refused.Code);
         Assert.Contains("cc-worktrees is not installed", refused.Message);
     }

@@ -184,6 +184,58 @@ internal static class ControlEndpoints
     }
 
     /// <summary>
+    /// The row for a session this Director has accepted and is still starting, or whose start failed (factory failures
+    /// of 6 November 2026). It carries the id, the name and the birth facts the create settled, in the Starting state,
+    /// so the Gateway finds the session by its id and its name from the moment it was accepted; the launched session
+    /// replaces it under the same id with its full row. Everything only a running session can know is left at its
+    /// empty value, which is what every reader already reads from a Director too old to send it.
+    /// </summary>
+    internal static SessionDto MapStarting(PendingSessionStart p, string directorId)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        var failedAt = p.FailedAtUtc;
+        var failed = failedAt is not null;
+        return new SessionDto
+        {
+            SessionId = p.Id.ToString(),
+            DirectorId = directorId,
+            Agent = p.Agent.ToString(),
+            RepoPath = p.RepoPath,
+            Name = p.Name,
+            CreatedAt = DateTime.SpecifyKind(p.AcceptedAtUtc, DateTimeKind.Utc),
+            // Starting is a state every reader already knows (a session is Starting before its process runs). A start
+            // that failed reads as a crashed session: gone, kept in the roster with its reason until a person closes it.
+            Status = failed ? SessionStatus.Failed.ToString() : SessionStatus.Starting.ToString(),
+            ActivityState = failed ? ActivityState.Exited.ToString() : ActivityState.Starting.ToString(),
+            Crashed = failed,
+            // The reason travels where a session that never got its first prompt already reports one, so every reader of
+            // that fact - a schedule's run result above all - sees this start's failure too. StartFailed tells it the
+            // session never launched, so the Gateway words it as a run that did not start.
+            FirstPromptFailedAtUtc = failedAt,
+            FirstPromptFailureReason = failed ? p.FailureReason : null,
+            StartFailed = failed,
+            IsControlled = p.Facts.ControllerSessionId is not null,
+            ControllerSessionId = p.Facts.ControllerSessionId?.ToString(),
+            OriginKind = p.Facts.OriginKind,
+            OriginSurface = p.Facts.OriginSurface,
+            ParentSessionId = p.Facts.ParentSessionId?.ToString(),
+            Factory = p.Facts.Factory,
+            MissionId = p.Facts.MissionId,
+            MissionName = p.Facts.MissionName,
+            ExplicitRole = p.Facts.ExplicitRole,
+            WorkflowRunId = p.Facts.WorkflowRunId,
+            WorkflowId = p.Facts.WorkflowId,
+            WorkflowVersion = p.Facts.WorkflowVersion,
+            FactorySeat = p.Facts.FactorySeat,
+            FactoryDefinitionVersion = p.Facts.FactoryDefinitionVersion,
+            FactoryKit = p.Facts.FactoryKit,
+            FactoryStartOverride = p.Facts.FactoryStartOverride,
+            LaunchModel = p.Facts.LaunchModel,
+            ConnectionMode = p.Facts.ConnectionMode ?? ConnectionModes.Terminal,
+        };
+    }
+
+    /// <summary>
     /// Map a session to its DTO. Issue #335: machineName, user, tailnetEndpoint, and viewUrl
     /// are now populated by the Director itself (not patched in by the Gateway), so every
     /// consumer of the Director-local /sessions and /sessions/{sid} endpoints always sees

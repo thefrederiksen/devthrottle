@@ -97,13 +97,13 @@ public sealed class WorkflowSeatTests : IAsyncLifetime
     };
 
     private DirectorCommandResult Spawn(NewSessionRequest body)
-        => SessionCommandExecutor.Create(_sm, "dir-seat-test", new DirectorCommand
+        => SessionCommandExecutor.CreateAsync(_sm, "dir-seat-test", new DirectorCommand
         {
             CommandId = "cmd-seat",
             Verb = "create",
             SessionId = "",
             PayloadJson = JsonSerializer.Serialize(body, Json),
-        });
+        }).GetAwaiter().GetResult();
 
     private async Task CleanUpAsync(SessionDto dto)
     {

@@ -1204,6 +1204,38 @@ internal static class SessionCommandExecutor
 
         var session = sessionManager.GetSession(guid);
 
+        // A START THIS DIRECTOR ACCEPTED AND HAS NOT LAUNCHED (factory failures of 6 November 2026). A failed one is
+        // closed like a crashed session: its row goes. One still starting is refused in words: its slot and its process
+        // may yet appear, and closing the row would hide them.
+        var pendingStart = session is null ? sessionManager.GetPendingStart(guid) : null;
+        // A start that launched between the two reads above is in the roster now, and neither read saw it: read the
+        // roster again, so a running session is never answered as "no row on this Director".
+        if (session is null && pendingStart is null)
+            session = sessionManager.GetSession(guid);
+        if (session is null && pendingStart is { } pending)
+        {
+            if (pending.FailedAtUtc is null)
+            {
+                FileLog.Write($"[SessionCommandExecutor] kill REFUSED: session={guid} is still starting");
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                    "This session is still starting, so it cannot be stopped yet. Stop it once it has started, or close it if its start fails.");
+            }
+            var closed = sessionManager.DismissFailedStart(guid);
+            var dismissed = new DirectorStopResult
+            {
+                Killed = true,
+                Removed = true,
+                ProcessId = null,
+                ProcessEnded = false,
+                RowRemoved = closed,
+                WorktreePath = null,
+                WorktreeHadUncommittedChanges = null,
+                Verdict = SessionStopVerdict.AlreadyStopped,
+            };
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} was a failed start; rowRemoved={closed}");
+            return DirectorCommandResult.Success(Serialize(dismissed));
+        }
+
         // NO ROW ON THIS DIRECTOR. Not an error - Ruling 3. Killed/Removed are the COMPATIBILITY pair (see
         // DirectorStopResult): they are best-effort and do NOT distinguish these states, which is exactly
         // why the honest fields sit beside them. They read true here because the only thing the old
@@ -1754,7 +1786,22 @@ internal static class SessionCommandExecutor
     internal static DirectorCommandStatus CreateFailureStatus(Exception ex) =>
         ex is FactorySeatRefusedException ? DirectorCommandStatus.Conflict : DirectorCommandStatus.Error;
 
-    internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
+    /// <summary>
+    /// The <c>create</c> verb, in two steps (factory failures of 6 November 2026, findings 1, fixes A and B).
+    ///
+    /// ACCEPT, on the thread that delivered the command: every refusal a create can make at once, then the session's
+    /// id and name are minted and the session is reported as starting. START, on its own task: the seat's kit, a pooled
+    /// worktree from cc-worktrees, the launch, then the stamps and the first prompt.
+    ///
+    /// A start that must take a pooled slot is answered with the starting row once it reaches that call, after its quick
+    /// checks (a seat's kit, agent and secrets, whose refusals are still answered as refusals): that call took 106 to 430
+    /// seconds on 5 and 6 November against the Gateway's 30, and while it ran nothing else reached this Director. Its
+    /// outcome is reported on its row - the launched session under the same id, or a failed row with the reason in the
+    /// tool's own words. Every other start is answered when it has launched, exactly as before, so a caller that acts on
+    /// the new session at once (a restore's rename) still finds it. Either way the delivering thread is given back at the
+    /// first await, so a start never holds the Director's command channel.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> CreateAsync(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
 
@@ -2006,10 +2053,37 @@ internal static class SessionCommandExecutor
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, trustRefusal);
         }
 
-        Session session;
+        // The facts the starting row carries, the same values the pre-launch stamps below put on the session, so the
+        // Gateway's write-once history columns read the same whichever row it sees first.
+        var preLaunchRole = SessionRoles.Normalize(req.Role);
+        var pendingFacts = new PendingSessionFacts(
+            OriginKind: origin.Kind,
+            OriginSurface: origin.Surface,
+            ParentSessionId: origin.ParentSessionId,
+            Factory: string.IsNullOrWhiteSpace(req.Factory) ? null : req.Factory.Trim(),
+            ControllerSessionId: controllerSessionId,
+            MissionId: attachMissionId,
+            MissionName: attachMissionName,
+            ExplicitRole: preLaunchRole)
+        {
+            // The seat and the factory seat facts, settled exactly as the pre-launch stamps settle them, so a seat answered
+            // with its starting row is seated in the Gateway's eyes from that answer (its workflow participant is
+            // recorded, the inbox recognises the seat by its kit).
+            WorkflowRunId = seatRequested ? req.WorkflowRunId : null,
+            WorkflowId = seatRequested ? req.WorkflowId : null,
+            WorkflowVersion = seatRequested ? req.WorkflowVersion : null,
+            FactorySeat = string.IsNullOrWhiteSpace(req.FactorySeat) ? null : req.FactorySeat.Trim(),
+            FactoryDefinitionVersion = req.FactoryDefinitionVersion,
+            FactoryKit = string.IsNullOrWhiteSpace(req.FactoryKit) ? null : req.FactoryKit.Trim(),
+            FactoryStartOverride = string.IsNullOrWhiteSpace(req.FactoryStartOverride) ? null : req.FactoryStartOverride.Trim(),
+            LaunchModel = string.IsNullOrWhiteSpace(req.Model) ? null : req.Model.Trim(),
+            ConnectionMode = Core.ApiMode.SessionConnectionModeWords.ToWord(connectionMode),
+        };
+
+        SessionStart start;
         try
         {
-            session = sessionManager.CreateSession(
+            start = sessionManager.AcceptSessionStart(
                 // A seat with no repository ignores this: the SessionManager works it in its kit's work folder.
                 req.RepoPath ?? "",
                 agent,
@@ -2029,7 +2103,6 @@ internal static class SessionCommandExecutor
                 // missed Pi entirely. Both values were validated above.
                 beforeLaunch: s =>
                 {
-                    var preLaunchRole = SessionRoles.Normalize(req.Role);
                     if (preLaunchRole is not null)
                         s.SetExplicitRole(preLaunchRole);
                     if (seatRequested)
@@ -2055,7 +2128,66 @@ internal static class SessionCommandExecutor
                 reattachPooledWorktree: reattachPooledWorktree,
                 factoryKit: factoryKit,
                 forcePooledWorktree: forcePooledWorktree,
-                connectionMode: connectionMode);
+                connectionMode: connectionMode,
+                pendingFacts: pendingFacts);
+        }
+        catch (Exception ex)
+        {
+            // A create refused at the accept (a creation hold, a missing folder, a seat whose repository setting cannot
+            // be read) answers exactly as a failed create always did.
+            FileLog.Write($"[SessionCommandExecutor] create FAILED at the accept: {ex.Message}");
+            return DirectorCommandResult.Fail(CreateFailureStatus(ex), ex.Message);
+        }
+
+        // The command's correlation id is read here, on the command's own flow, for the start's own task (issue #3675).
+        var correlationId = ErrorContext.Current?.CorrelationId;
+        var launched = Task.Run(async () =>
+        {
+            using var errorContext = ErrorContext.Begin(correlationId: correlationId, sessionId: start.Id.ToString());
+            var session = await sessionManager.StartAcceptedSessionAsync(start).ConfigureAwait(false);
+            try
+            {
+                FinishCreatedSession(session, req, explicitName, attachMissionId, attachMissionName);
+            }
+            catch (Exception ex) when (start.ReachedThePool.IsCompleted)
+            {
+                // Answered before the launch, so nobody hears this throw: the session runs without its first prompt, and
+                // its row says so, which is what a schedule's run result reads (CronRunResultFold).
+                FileLog.Write($"[SessionCommandExecutor] CreateAsync FAILED: session={session.Id} launched, but finishing it failed: {ex.Message}");
+                session.RecordFirstPromptFailure($"the session started, but setting it up failed before its first prompt: {ex.Message}");
+                throw;
+            }
+            return session;
+        });
+
+        if (start.TakesPooledSlot)
+        {
+            // ANSWERED WHEN THE START REACHES THE POOL. Everything quick - the seat's kit, its agent, its secrets - is
+            // behind it by then, so a seat refusal is still answered as a refusal (a Conflict the spawn door turns into
+            // its 409); only cc-worktrees, the call that took minutes, is left, and its outcome is reported on the row.
+            await Task.WhenAny(start.ReachedThePool, launched).ConfigureAwait(false);
+            if (start.ReachedThePool.IsCompleted && !launched.IsCompletedSuccessfully)
+            {
+                // Nobody awaits this task from here on, so it is an entry point and its failure is logged here (the
+                // SessionManager has already marked the row failed with the reason).
+                _ = launched.ContinueWith(t => FileLog.Write(
+                        $"[SessionCommandExecutor] CreateAsync FAILED: session={start.Id}, its start failed after the create was answered: {t.Exception?.GetBaseException().Message}"),
+                    CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                var pending = start.Pending ?? throw new InvalidOperationException($"session {start.Id} was accepted without its starting row");
+                FileLog.Write($"[SessionCommandExecutor] create: session={start.Id} reached the pool; answered now, it starts on its own task");
+                // A start that launched in the meantime (and failed only while being finished) answers with its own row.
+                var live = sessionManager.GetSession(start.Id);
+                return DirectorCommandResult.Success(Serialize(live is not null
+                    ? ControlEndpoints.Map(live, directorId)
+                    : ControlEndpoints.MapStarting(pending, directorId)));
+            }
+            // Either refused before the pool (answered as the refusal below) or already launched (answered with its row).
+        }
+
+        Session created;
+        try
+        {
+            created = await launched.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -2064,7 +2196,17 @@ internal static class SessionCommandExecutor
             FileLog.Write($"[SessionCommandExecutor] create FAILED: {ex.Message}");
             return DirectorCommandResult.Fail(CreateFailureStatus(ex), ex.Message);
         }
+        return DirectorCommandResult.Success(Serialize(ControlEndpoints.Map(created, directorId)));
+    }
 
+    /// <summary>
+    /// What a create does to its session once it has launched: the Wingman choice, closing itself when done, the
+    /// auto-named mark, the mission, and the first prompt typed on its own task. Run on the start's task, so it follows
+    /// the launch whether the create was answered at the pool or after the launch.
+    /// </summary>
+    private static void FinishCreatedSession(Session session, NewSessionRequest req, string? explicitName,
+        Guid? attachMissionId, string? attachMissionName)
+    {
         // Apply the per-session Wingman opt-in (contract default true, matching Session.WingmanEnabled).
         session.WingmanEnabled = req.WingmanEnabled;
         FileLog.Write($"[SessionCommandExecutor] create: sid={session.Id} wingmanEnabled={session.WingmanEnabled}");
@@ -2095,7 +2237,6 @@ internal static class SessionCommandExecutor
         if (attachMissionId is Guid stampMissionId)
             session.AttachToMission(stampMissionId, attachMissionName);
 
-
         // Issue #212: dispatch a supplied PrePrompt once the agent is actually READY, fire-and-forget so
         // create returns immediately. ActivityState alone is not a gate (a fresh session reads WaitingForInput
         // from t=0, and seeding into a still-booting agent drops the Enter keypresses).
@@ -2110,8 +2251,6 @@ internal static class SessionCommandExecutor
         {
             _ = StartPrePrompt(session, seedText, TimeSpan.FromMilliseconds(Math.Max(1000, req.PrePromptWaitMs)));
         }
-
-        return DirectorCommandResult.Success(Serialize(ControlEndpoints.Map(session, directorId)));
     }
 
     /// <summary>

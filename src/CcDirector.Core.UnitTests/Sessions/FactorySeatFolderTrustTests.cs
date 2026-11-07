@@ -55,7 +55,10 @@ public sealed class FactorySeatFolderTrustTests : IDisposable
 
     private sealed class Pool(List<PooledWorktree> returned, string slot) : IWorktreePool
     {
-        public PooledWorktree Get(string repoPath, string holder, int poolSize)
+        public Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
+            => Task.FromResult(Get(repoPath, holder, poolSize));
+
+        private PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Directory.CreateDirectory(slot);
             return new PooledWorktree(repoPath, "wt01", slot, "lease-1");

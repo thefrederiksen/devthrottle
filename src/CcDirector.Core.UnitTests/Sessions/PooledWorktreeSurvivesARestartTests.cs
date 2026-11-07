@@ -177,7 +177,10 @@ public sealed class PooledWorktreeSurvivesARestartTests : IDisposable
         public List<(string Repo, string Holder, int PoolSize)> Gets { get; } = new();
         public List<PooledWorktree> Returns { get; } = new();
 
-        public PooledWorktree Get(string repoPath, string holder, int poolSize)
+        public Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
+            => Task.FromResult(Get(repoPath, holder, poolSize));
+
+        private PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Gets.Add((repoPath, holder, poolSize));
             throw new InvalidOperationException("a restored session must never ask for a new slot");

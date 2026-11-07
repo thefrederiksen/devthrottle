@@ -95,6 +95,17 @@ public static class CronRunResultFold
         ArgumentNullException.ThrowIfNull(run);
         if (run.Result != CronRunResults.Pending || session?.FirstPromptFailedAtUtc is null) return null;
         var why = (session.FirstPromptFailureReason ?? "").Trim().TrimEnd('.');
+        // A SESSION THAT NEVER LAUNCHED (factory failures of 6 November 2026). The Director answers a create at once and
+        // starts the session afterwards; when that start fails, the run did not run, exactly as if the create had been
+        // refused, and it is told in those words - never as a session that started.
+        if (session.StartFailed)
+        {
+            var startFailed = why.Length == 0
+                ? "the session could not be started"
+                : $"the session could not be started: {why}";
+            return new GatewayRecordedProblem(CronRunProblems.DidNotRun,
+                startFailed.Length <= MaxReasonChars ? startFailed : startFailed[..MaxReasonChars]);
+        }
         var reason = why.Length == 0
             ? "its session started, but the prompt it was given never reached the agent"
             : $"its session started, but the prompt it was given never reached the agent: {why}";

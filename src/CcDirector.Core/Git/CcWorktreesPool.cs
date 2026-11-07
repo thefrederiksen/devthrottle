@@ -51,8 +51,10 @@ public interface IWorktreePool
     /// Take a worktree for <paramref name="holder"/> out of <paramref name="repoPath"/>'s pool.
     /// Throws <see cref="CcWorktreesRefusedException"/> when the tool refuses (pool full, a remote it
     /// cannot reach, anything else non-zero). There is no fallback - a refusal means no worktree.
+    /// Awaited, never waited on: the call can take minutes (it fetches the repository under a machine-wide lock),
+    /// and a session start awaits it on its own task so the Director's command channel is never held by it.
     /// </summary>
-    PooledWorktree Get(string repoPath, string holder, int poolSize);
+    Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken);
 
     /// <summary>
     /// Give <paramref name="worktree"/> back. A slot the tool freed comes back with
@@ -97,6 +99,7 @@ public sealed class CcWorktreesPool : IWorktreePool
     public static readonly TimeSpan CallTimeout = TimeSpan.FromMinutes(10);
 
     private readonly Func<IReadOnlyList<string>, (int ExitCode, string StandardOutput, string StandardError, bool Started)> _run;
+    private readonly Func<IReadOnlyList<string>, CancellationToken, Task<(int ExitCode, string StandardOutput, string StandardError, bool Started)>> _runAsync;
     private readonly Func<string?> _resolveExecutable;
 
     public CcWorktreesPool() : this(null, null)
@@ -110,6 +113,8 @@ public sealed class CcWorktreesPool : IWorktreePool
         Func<string?>? resolveExecutable)
     {
         _run = run ?? RunTool;
+        // A test's seam answers at once; the tool itself is awaited.
+        _runAsync = run is not null ? (args, _) => Task.FromResult(run(args)) : RunToolAsync;
         _resolveExecutable = resolveExecutable ?? ResolveExecutable;
     }
 
@@ -122,14 +127,15 @@ public sealed class CcWorktreesPool : IWorktreePool
     public static string? ResolveExecutable() => CcToolExecutable.Resolve(ToolName, ExecutableEnvVar);
 
     /// <inheritdoc />
-    public PooledWorktree Get(string repoPath, string holder, int poolSize)
+    public async Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(repoPath)) throw new ArgumentException("Repository path is required", nameof(repoPath));
         if (string.IsNullOrWhiteSpace(holder)) throw new ArgumentException("Holder is required", nameof(holder));
         if (poolSize < 1) throw new ArgumentOutOfRangeException(nameof(poolSize), poolSize, "The pool size must be at least 1");
 
         FileLog.Write($"[CcWorktreesPool] Get: repo={repoPath}, holder={holder}, poolSize={poolSize}");
-        var json = Invoke(new[] { "get", "--repo", repoPath, "--holder", holder, "--pool-size", poolSize.ToString(), "--json" });
+        var args = new[] { "get", "--repo", repoPath, "--holder", holder, "--pool-size", poolSize.ToString(), "--json" };
+        var json = Parse(args, await _runAsync(args, cancellationToken).ConfigureAwait(false));
 
         var lease = new PooledWorktree(
             Text(json, "repo") ?? repoPath,
@@ -180,9 +186,15 @@ public sealed class CcWorktreesPool : IWorktreePool
     /// Runs one command and returns its parsed JSON object, or throws
     /// <see cref="CcWorktreesRefusedException"/> carrying the tool's own words.
     /// </summary>
-    private JsonElement Invoke(IReadOnlyList<string> args)
+    private JsonElement Invoke(IReadOnlyList<string> args) => Parse(args, _run(args));
+
+    /// <summary>
+    /// Reads one finished call's result as its JSON object, or throws <see cref="CcWorktreesRefusedException"/>
+    /// carrying the tool's own words.
+    /// </summary>
+    private JsonElement Parse(IReadOnlyList<string> args, (int ExitCode, string StandardOutput, string StandardError, bool Started) result)
     {
-        var (exitCode, stdout, stderr, started) = _run(args);
+        var (exitCode, stdout, stderr, started) = result;
 
         if (!started)
         {
@@ -259,6 +271,23 @@ public sealed class CcWorktreesPool : IWorktreePool
         // above kills its whole tree, so optional locks go off here or a kill strands index.lock (#2872).
         var result = Task.Run(() => ProcessRunner.RunAsync(
             exe, args, workingDirectory: null, standardInput: null, GitOptionalLocks.Off, cts.Token)).GetAwaiter().GetResult();
+        return (result.ExitCode, result.StandardOutput, result.StandardError, result.Started);
+    }
+
+    /// <summary>
+    /// Starts the tool and awaits it, for <see cref="GetAsync"/>. Same bound and environment as <see cref="RunTool"/>;
+    /// nothing here waits on a thread.
+    /// </summary>
+    private async Task<(int, string, string, bool)> RunToolAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
+    {
+        var exe = _resolveExecutable();
+        if (exe is null)
+            return (-1, "", $"{ToolName} was not found", false);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(CallTimeout);
+        var result = await ProcessRunner.RunAsync(
+            exe, args, workingDirectory: null, standardInput: null, GitOptionalLocks.Off, cts.Token).ConfigureAwait(false);
         return (result.ExitCode, result.StandardOutput, result.StandardError, result.Started);
     }
 }

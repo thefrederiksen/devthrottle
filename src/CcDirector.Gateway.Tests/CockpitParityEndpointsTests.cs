@@ -282,7 +282,7 @@ public sealed class CockpitParityEndpointsTests : IDisposable
     // ===== ResumeSessionId passthrough =====
 
     [Fact]
-    public void Create_session_accepts_resume_session_id_field()
+    public async Task Create_session_accepts_resume_session_id_field()
     {
         // A bogus repo path must be a BadRequest (proves the body, incl. ResumeSessionId, parsed
         // cleanly and the create core reached validation rather than throwing on the new field).
@@ -292,7 +292,7 @@ public sealed class CockpitParityEndpointsTests : IDisposable
             Agent = "ClaudeCode",
             ResumeSessionId = "abc-123-resume",
         };
-        var result = SessionCommandExecutor.Create(_sm, DirectorId,
+        var result = await SessionCommandExecutor.CreateAsync(_sm, DirectorId,
             new DirectorCommand { Verb = "create", PayloadJson = Payload(req) });
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
     }

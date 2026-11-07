@@ -163,7 +163,10 @@ public sealed class PooledWorktreeSurvivesAWorkspaceRestartTests : IDisposable
 
         public List<string> Calls { get; } = new();
 
-        public PooledWorktree Get(string repoPath, string holder, int poolSize)
+        public Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
+            => Task.FromResult(Get(repoPath, holder, poolSize));
+
+        private PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Calls.Add($"get {repoPath}");
             var second = Path.Combine(_root, "primary.worktrees", "wt02");

@@ -8370,11 +8370,15 @@ public sealed class GatewayHost : IAsyncDisposable
         FileLog.Write($"[GatewayHost] SendCommandAsync: director={directorId}, verb={command.Verb}, sid={command.SessionId}, cmdId={command.CommandId}");
         // THIS MUST STAY InvokeAsync (a client result), NEVER SendAsync. The license sign-in relay (contract
         // section 8.3) depends on it: a Director answering a long license-sign-in is sent its approval as a
-        // second "Command" on the same connection, and the SignalR client runs client-result invocations
-        // concurrently but fire-and-forget ones one after another. Sent with SendAsync, the approval would wait
-        // behind the sign-in it answers and the sign-in would end expired. The Director's side of this is the
-        // "Command" registration in GatewayStreamClient. Measured out of tree, not by a test here:
-        // missions/license-switching/review-phases-2-and-4-whole.md.
+        // second "Command" on the same connection, and the SignalR client does not wait for a client-result
+        // invocation to finish before it delivers the next one, while it runs fire-and-forget ones one after
+        // another. Sent with SendAsync, the approval would wait behind the sign-in it answers and the sign-in would
+        // end expired. NOT side by side unconditionally: the client calls each handler on its one delivery loop and
+        // moves on only when the handler returns its task, at its first real wait. Until then that handler holds
+        // the loop and no other command reaches the Director - which is how one create blocked a Director's whole
+        // command channel for seven minutes on 6 November 2026. So every Director handler must yield before slow
+        // work. The Director's side of this is the "Command" registration in GatewayStreamClient. Measured out of
+        // tree, not by a test here: missions/license-switching/review-phases-2-and-4-whole.md.
         return await hub.Clients.Client(connectionId).InvokeAsync<DirectorCommandResult>("Command", command, ct);
     }
 

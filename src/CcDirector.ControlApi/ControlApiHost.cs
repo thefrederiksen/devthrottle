@@ -1833,7 +1833,19 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// to what a pull would have returned for the same session.
     /// </summary>
     private List<SessionDto> SnapshotFullSessions()
-        => _sessionManager.ListSessions().Select(s => ControlEndpoints.Map(s, DirectorId)).ToList();
+        => BuildSessionSnapshot(_sessionManager, DirectorId);
+
+    /// <summary>
+    /// Every session row this Director reports: the launched sessions, then the starts it has accepted and not yet
+    /// launched, and the starts that failed (factory failures of 6 November 2026). A start that has launched is in the
+    /// first list only, so no snapshot reports one id twice.
+    /// </summary>
+    internal static List<SessionDto> BuildSessionSnapshot(Core.Sessions.SessionManager sessionManager, string directorId)
+    {
+        var rows = sessionManager.ListSessions().Select(s => ControlEndpoints.Map(s, directorId)).ToList();
+        rows.AddRange(sessionManager.ListPendingStarts().Select(p => ControlEndpoints.MapStarting(p, directorId)));
+        return rows;
+    }
 
     /// <summary>
     /// This machine's live sessions as the worktree classifier wants them (issue #2118): a worktree a
@@ -2079,6 +2091,13 @@ public sealed class ControlApiHost : IAsyncDisposable
             // never grows past the live roster.
             _exitAnnounced.TryRemove(session.Id, out _);
         };
+        // A start the Director accepted is reported at once, and again when it fails; a failed start a person closed
+        // leaves the roster (factory failures of 6 November 2026). A start that launches needs nothing here: the
+        // launched session's own row replaces it under the same id through OnSessionCreated above.
+        _sessionManager.OnPendingStartChanged += pending =>
+            _streamClient?.NotifyDelta(ControlEndpoints.MapStarting(pending, DirectorId));
+        _sessionManager.OnPendingStartDismissed += pending =>
+            _streamClient?.NotifyRemove(pending.Id.ToString());
         foreach (var s in _sessionManager.ListSessions())
             Attach(s);
     }

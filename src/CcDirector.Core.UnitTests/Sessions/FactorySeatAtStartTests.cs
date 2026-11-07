@@ -56,7 +56,10 @@ public sealed class FactorySeatAtStartTests : IDisposable
 
     private sealed class RecordingPool(List<string> taken) : IWorktreePool
     {
-        public PooledWorktree Get(string repoPath, string holder, int poolSize)
+        public Task<PooledWorktree> GetAsync(string repoPath, string holder, int poolSize, CancellationToken cancellationToken)
+            => Task.FromResult(Get(repoPath, holder, poolSize));
+
+        private PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             taken.Add(repoPath);
             var slot = Path.Combine(Path.GetDirectoryName(repoPath)!, "repo.worktrees", "wt01");

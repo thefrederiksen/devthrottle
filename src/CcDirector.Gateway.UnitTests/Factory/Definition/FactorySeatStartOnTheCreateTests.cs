@@ -13,7 +13,7 @@ namespace CcDirector.Gateway.Tests.Factory.Definition;
 /// <see cref="SessionCommandExecutor.SettleSeatStart"/> decides the kit the Director writes and where the seat works;
 /// <see cref="SessionCommandExecutor.LaunchLineWithModel"/> puts the model on the launch line. What the SessionManager
 /// then does with the kit is proven through the real create in FactoryKitAtLaunchTests. The refusals here are also run
-/// through <see cref="SessionCommandExecutor.Create"/> itself, which refuses before any session or process exists, so
+/// through <see cref="SessionCommandExecutor.CreateAsync"/> itself, which refuses before any session or process exists, so
 /// the verb is proven to call them.
 /// </summary>
 [Trait("Category", "FactoryDefinition")]
@@ -233,9 +233,9 @@ public sealed class FactorySeatStartOnTheCreateTests : IDisposable
     private DirectorCommandResult CreateThroughTheVerb(NewSessionRequest req, RepositoryRegistry? registry = null)
     {
         using var manager = new SessionManager(new AgentOptions());
-        return SessionCommandExecutor.Create(manager, "dir-1",
+        return SessionCommandExecutor.CreateAsync(manager, "dir-1",
             new DirectorCommand { Verb = "create", PayloadJson = JsonSerializer.Serialize(req, Web) },
-            new SessionCommandServices { Repositories = registry });
+            new SessionCommandServices { Repositories = registry }).GetAwaiter().GetResult();
     }
 
     [Fact]

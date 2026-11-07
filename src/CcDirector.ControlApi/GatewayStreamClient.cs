@@ -564,14 +564,25 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // the Gateway can fall back on, never a faulted hub invocation.
         //
         // THE LICENSE SIGN-IN RELAY DEPENDS ON "Command" BEING A CLIENT RESULT (contract section 8.3). The
-        // SignalR client runs client-result invocations concurrently and fire-and-forget invocations one
-        // after another. A license-sign-in command waits here for minutes for its approval, and that
+        // SignalR client does not wait for a client-result invocation to finish before it delivers the next one,
+        // and runs fire-and-forget invocations one after another. A license-sign-in command waits here for minutes
+        // for its approval, and that
         // approval arrives as a second "Command" (license-approval-result) on this same connection: it is
         // delivered only because this handler is registered with a result and the Gateway sends it with
         // InvokeAsync. Registered without a result, or sent with SendAsync, the approval would wait behind
         // the sign-in it answers and the sign-in would end expired. For the same reason no fire-and-forget
         // handler on this connection may wait on anything. Measured out of tree, not by a test here:
         // missions/license-switching/review-phases-2-and-4-whole.md.
+        //
+        // "DOES NOT WAIT" IS NOT "SIDE BY SIDE" (factory failures of 6 November 2026). The client calls this handler
+        // on its one delivery loop and moves to the next command only when the handler hands back its task - at its
+        // first real wait. Everything a verb does before that holds the loop, and no other command is received
+        // meanwhile: a create that waited synchronously on cc-worktrees for 430 seconds left the log with no
+        // "Command received" line from 08:06:49 to 08:14:04, then about forty arrived in one millisecond. So a verb
+        // that does slow work awaits it, or runs it on the thread pool and awaits that (the create verb starts its
+        // session on its own task). The handler itself does NOT push every command onto the thread pool: the terminal
+        // verbs are synchronous, so they run in the order they arrive and keystrokes reach the terminal in order; on
+        // the thread pool two of them could overtake each other.
         _connection.On<DirectorCommand, DirectorCommandResult>("Command",
             cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay));
 
