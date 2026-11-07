@@ -19,7 +19,8 @@ namespace CcDirector.Gateway.Api;
 ///    the same rule.
 ///  - Spare is total memory minus the HIGHEST memory in use in the last hour - free memory at the hour's peak, not
 ///    right now - so a machine that spikes is not advertised as roomy.
-///  - A tone comes from the newest window's crossings: red is bad, amber is warn, none is ok. A figure the machine
+///  - A tone comes from the crossings of THE ROW THAT SUPPLIED THAT RESOURCE'S FIGURE: red is bad, amber is warn,
+///    none is ok. The figure and its colour always come from the same reading. A figure the machine
 ///    could not read says "cannot read" in the idle tone, with the reason in <see cref="FleetMachineCapacityDto.Why"/>.
 ///  - An offline machine (no running Director) and a silent one (no window in the last 15 minutes) show dashes, never
 ///    zeros, and no status of their own - reachability is the reach line's. Offline is not idle.
@@ -78,8 +79,12 @@ internal static class ResourceCapacityFold
             .OrderByDescending(w => w.SampleCount)
             .ToList();
         var newest = atNewest.FirstOrDefault();
-        // The GROUP's end, not the chosen row's: one Director's row may carry a shorter window than another's, and
-        // silence is a question about the machine.
+        // The GROUP's end, not the chosen row's, because silence is a question about the machine rather than about one
+        // Director's row. TODAY THIS IS EQUIVALENT, and the comment says so rather than implying a case it prevents:
+        // ResourceSummaryStore.StructuralRefusalFor refuses outright any window that is not exactly
+        // ResourceSummaryContract.WindowSeconds long, so every stored row at a start has the same length and the
+        // group's longest always equals the chosen row's. The rule is kept because it is the correct question to ask
+        // of a group, not because it changes an answer the store allows.
         var newestEnd = newestStart?.AddSeconds(
             atNewest.Max(w => w.WindowSeconds > 0 ? w.WindowSeconds : ResourceSummaryContract.WindowSeconds));
         var newestReceived = windows.Count == 0 ? (DateTime?)null : windows.Max(w => w.ReceivedUtc);
@@ -99,7 +104,7 @@ internal static class ResourceCapacityFold
         // another Director's good reading of the same machine (issue #4678).
         if (atNewest.TrueForAll(w => w.RefusedReason is not null))
         {
-            var refused = atNewest[0].RefusedReason!;
+            var refused = RefusalsAt(atNewest)!;
             return new FleetMachineCapacityDto
             {
                 Reporting = true,
@@ -130,6 +135,7 @@ internal static class ResourceCapacityFold
         // PER RESOURCE, THE ROW AT THE NEWEST START THAT READ IT, and "cannot read" only when none of them did.
         var processorRow = atNewest.Find(w => w.ProcessorAveragePercent is not null);
         var memoryRow = atNewest.Find(w => w.MemoryAverageUsedBytes is not null && w.MemoryTotalBytes > 0);
+        var survivedRefusal = RefusalsAt(atNewest);
         var dto = new FleetMachineCapacityDto { Reporting = true, ReadingWindowStartUtc = newest.WindowStartUtc };
         var why = new List<string>();
 
@@ -159,8 +165,7 @@ internal static class ResourceCapacityFold
         {
             dto.ProcessorLabel = "cannot read";
             dto.ProcessorTone = FleetTone.Idle;
-            var reason = atNewest.Select(w => w.ProcessorUnreadableReason).FirstOrDefault(r => r is not null);
-            why.Add($"The processor could not be read: {reason ?? "the Director gave no reason"}");
+            why.Add($"The processor could not be read: {NoRowCouldRead(atNewest, w => w.ProcessorUnreadableReason)}");
         }
 
         // ---- memory, and spare ----
@@ -209,9 +214,8 @@ internal static class ResourceCapacityFold
         {
             dto.MemoryLabel = "cannot read";
             dto.MemoryTone = FleetTone.Idle;
-            var reason = atNewest.Select(w => w.MemoryUnreadableReason).FirstOrDefault(r => r is not null);
-            why.Add(reason is not null
-                ? $"Memory could not be read: {reason}"
+            why.Add(atNewest.Exists(w => w.MemoryUnreadableReason is not null)
+                ? $"Memory could not be read: {NoRowCouldRead(atNewest, w => w.MemoryUnreadableReason)}"
                 : "Memory was read but the machine's total was not, so no share or spare capacity can be given.");
         }
 
@@ -241,9 +245,64 @@ internal static class ResourceCapacityFold
                         + "so the spare capacity is at most what is shown.");
         }
 
+        // A REFUSAL THAT WAS SURVIVED IS STILL REPORTED (review of #4678, finding 2). One Director's refusal says
+        // nothing about the machine - every refusal rule is about one row's own figures being impossible - so the other
+        // Director's reading is the right thing to SHOW. But it used to appear whenever the refused row won the
+        // tie-break, and saying nothing at all would make a Director that is refused every window invisible here, in
+        // HourGap (the start is covered) and everywhere else, on a machine whose second Director is healthy. Only when
+        // both figures were supplied: otherwise the resource's own reason already names the refusal, and this would say
+        // it twice.
+        if (survivedRefusal is not null && processorRow is not null && memoryRow is not null)
+            why.Add($"One of this machine's Directors sent figures the Gateway refused for that window because "
+                    + $"{survivedRefusal}. The figures shown are from another Director on the same machine.");
+
         (dto.StatusLabel, dto.StatusTone) = StatusOf(dto);
         dto.Why = why.Count == 0 ? null : string.Join(" ", why);
         return dto;
+    }
+
+    /// <summary>
+    /// Why NO row at the newest start could supply a resource. It prefers the reason of a Director that genuinely
+    /// could not read it over the words of a REFUSAL, and names both when both happened - the same rule
+    /// <see cref="HourGap"/> uses for the hour.
+    ///
+    /// THE REASON MUST NOT BE PICKED BY ROW ORDER (review of #4678, finding 1). A refused row's unreadable reason is
+    /// set by the store to the REFUSAL's words, so quoting the first non-null reason in sample-count order could tell
+    /// the reader the processor "could not be read: the Gateway refused this window's figures because ..." while never
+    /// naming the Director whose counters actually did not answer - and which of the two sentences appeared depended on
+    /// the order the store happened to return. That is the defect this file was just changed to remove from the
+    /// figures; leaving it in the explanation sends someone to the wrong machine instead of showing them a wrong number.
+    /// </summary>
+    private static string NoRowCouldRead(List<ResourceWindowEntity> atNewest, Func<ResourceWindowEntity, string?> unreadReason)
+    {
+        var unread = atNewest
+            .Where(w => w.RefusedReason is null)
+            .Select(unreadReason)
+            .FirstOrDefault(r => r is not null);
+        var refusals = RefusalsAt(atNewest);
+        if (unread is null)
+            return refusals is null
+                ? "the Director gave no reason"
+                : $"the Gateway refused this machine's figures for that window because {refusals}";
+        return refusals is null
+            ? unread
+            : $"{unread}; and the Gateway refused another Director's figures for the same window because {refusals}";
+    }
+
+    /// <summary>
+    /// Every DISTINCT refusal reason among a start's rows, in a fixed order, or null when none was refused. Ordered by
+    /// the text rather than by the rows, so two Directors refused for different reasons do not produce a sentence that
+    /// depends on which row the store returned first - and both are named rather than only the first.
+    /// </summary>
+    private static string? RefusalsAt(List<ResourceWindowEntity> atNewest)
+    {
+        var reasons = atNewest
+            .Select(w => w.RefusedReason)
+            .Where(r => r is not null)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(r => r, StringComparer.Ordinal)
+            .ToList();
+        return reasons.Count == 0 ? null : string.Join("; and ", reasons);
     }
 
     /// <summary>A full window's samples: one every five seconds for the window's five minutes.</summary>
