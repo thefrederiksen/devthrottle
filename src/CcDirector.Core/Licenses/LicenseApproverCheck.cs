@@ -140,7 +140,7 @@ public sealed class LicenseApproverCheck
     private BackgroundJob? _job;
 
     /// <param name="enabled">The license switching setting. Off: no check ever runs.</param>
-    /// <param name="offersApprovers">The offer setting: whether this Director's own profiles are checked too.</param>
+    /// <param name="offersApprovers">The offer setting: whether the profiles recorded here for an account (<c>license set-browser</c>) are checked too, each with that account - never every profile on the machine.</param>
     public LicenseApproverCheck(ILicenseCommandLine tool, LicenseKeyHolderLock holder, LicenseBrowserLane lane,
         ILicenseBrowserProfiles profiles, Func<DateTime> utcNow, bool enabled, bool offersApprovers)
     {
@@ -326,7 +326,7 @@ public sealed class LicenseApproverCheck
         return assignments.Rows.Where(a => a.CheckDue && !_checkedWhenDue.Contains(Key(a))).ToList();
     }
 
-    /// <summary>Checks only the records the Gateway marks due, each with its account; this Director's own profiles wait
+    /// <summary>Checks only the records the Gateway marks due, each with its account; the profiles recorded here wait
     /// for the daily run.</summary>
     private async Task<LicenseApproverCheckReport> CheckDueAsync(IReadOnlyList<LicenseApproverAssignment> due, CancellationToken cancellationToken)
     {
