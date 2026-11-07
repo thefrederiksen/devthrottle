@@ -220,7 +220,7 @@ public sealed class FactoryNamingOnTriggersAndSchedulesTests
             new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         Assert.Contains(
             "A session joins a factory only when it is started as one: start the factory's Boss " +
-            "(cc-devthrottle session spawn --factory website-factory --seat <boss seat>) and have it run " +
+            "(cc-devthrottle session spawn <repo> --controlled-by self --factory website-factory --seat <boss seat>) and have it run " +
             "cc-devthrottle factory seat start, or use Talk on the seat.",
             text);
     }

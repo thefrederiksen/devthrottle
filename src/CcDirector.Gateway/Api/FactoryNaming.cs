@@ -299,7 +299,7 @@ internal static class FactoryNaming
     /// </summary>
     internal static string NoFactoryWayIn(string factory) =>
         "A session joins a factory only when it is started as one: start the factory's Boss " +
-        $"(cc-devthrottle session spawn --factory {factory} --seat <boss seat>) and have it run " +
+        $"(cc-devthrottle session spawn <repo> --controlled-by self --factory {factory} --seat <boss seat>) and have it run " +
         "cc-devthrottle factory seat start, or use Talk on the seat.";
 
     /// <summary>Why the refusal happened and what to do instead. Held here so tests can pin it.</summary>

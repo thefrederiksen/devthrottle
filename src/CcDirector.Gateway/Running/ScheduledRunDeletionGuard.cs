@@ -4,7 +4,7 @@ using CcDirector.Gateway.Contracts;
 namespace CcDirector.Gateway.Running;
 
 /// <summary>
-/// A SCHEDULED RUN CANNOT CLOSE ITSELF WITHOUT REPORTING (6 November 2026). "Reported" means one command,
+/// A SCHEDULED RUN CANNOT CLOSE ITSELF WITH SESSION DONE WITHOUT REPORTING (6 November 2026). "Reported" means one command,
 /// <c>cc-devthrottle run result ok|problem</c>. <c>cc-devthrottle session done</c> only flags the session for deletion and
 /// records nothing on the run, so a run that closed that way was recorded "did not report" even when it had done all its
 /// work: two seats on devlinux did exactly that, obeying a schedule seed that said "close this session with
@@ -13,7 +13,9 @@ namespace CcDirector.Gateway.Running;
 /// So the Gateway refuses that one request: a session asking for ITS OWN deletion while its own scheduled run is still
 /// waiting on its report. Nothing is flagged, and the refusal names the command that does both jobs - reporting ok closes
 /// the session by itself. A deletion asked for by a person, or by another session, is never refused here: they are not
-/// the run, and stopping a run that went wrong must stay one step.
+/// the run, and stopping a run that went wrong must stay one step. A session stopping itself through
+/// <c>cc-devthrottle session stop</c> is NOT refused here: that door asks for a reason, is stamped "closed itself", and the
+/// run is still recorded "did not report", so the owner hears of it.
 ///
 /// The run is found by the run store's lookup by session (<see cref="CronRunHistoryStore.FindBySession"/>), so every
 /// kind of run that is recorded as a pending run of a session is covered by the same rule.
