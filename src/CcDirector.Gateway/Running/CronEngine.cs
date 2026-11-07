@@ -316,7 +316,7 @@ public sealed class CronEngine
             {
                 record.Result = CronRunResults.StartUnknown;
                 record.ResultReason = StartUnknownReason(error);
-                record.ResultUtc = firedUtc;
+                record.ResultUtc = null;
             }
             else if (!started)
             {

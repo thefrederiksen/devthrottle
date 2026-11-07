@@ -144,6 +144,12 @@ public static class ScheduleFailureWords
 
     private static (string, string) DidNotRun(string reason, string machine, string? os)
     {
+        // A start whose outcome was not known lapses when its window closes (CronRunResultService.SettleUnknownStarts):
+        // it was recorded as Problem but the reason is in the StartUnknown format.
+        if (reason.Contains("whether it started a session was not known", StringComparison.Ordinal)
+            && reason.Contains("when its window closed", StringComparison.Ordinal))
+            return StartUnknown(reason, machine);
+
         // The folder sentences are the save's own (issue #4421).
         if (ScheduleFolderWords.MissingFolderIn(reason) is { } path)
             return (ScheduleFailureCauses.FolderMissing, $"{ScheduleFolderWords.Missing(path, machine, os)} Then edit the schedule.");

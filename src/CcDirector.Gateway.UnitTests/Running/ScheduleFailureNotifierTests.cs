@@ -63,6 +63,18 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         return run;
     }
 
+    private CronRunRecord StartUnknown(string jobId, string reason = "the Director did not answer within 30 seconds")
+    {
+        var run = new CronRunRecord
+        {
+            ScheduledUtc = _now, FiredUtc = _now, Machine = "studio-mac", TargetDirectorId = "director-1",
+            SessionName = "scheduled-run-1", InfraStatus = "start-unknown", TaskStatus = "unknown",
+            Result = CronRunResults.StartUnknown, ResultReason = reason, ResultUtc = null,
+        };
+        _runs.Append(jobId, run);
+        return run;
+    }
+
     private const string MissingFolder = "it did not start a session: director returned BadRequest: repoPath does not exist: /Users/you/site";
     private const string MachineOff = "it did not start a session: no Director on 'studio-mac' and the launcher could not start one";
 
@@ -287,6 +299,20 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         _now = _now.AddSeconds(30);
 
         Assert.Equal(0, await NewNotifier().ScanAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AStartUnknownRun_IsNotToldImmediately_BecauseTheDirectorMayBeSlowButTheSessionMayStillStart()
+    {
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        StartUnknown(job.Id, "the Director did not answer within 30 seconds");
+        _now = _now.AddSeconds(30);
+
+        Assert.Equal(0, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Empty(_fleet);
+        Assert.Empty(_pushed);
+        Assert.Empty(InboxMessages());
     }
 
     [Fact]
