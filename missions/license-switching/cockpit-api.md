@@ -200,7 +200,7 @@ that decides "gap"; the page draws every `text` in its `tone` and decides nothin
 | `gapCount` | How many cells are gaps. |
 | `accounts` | The columns, in account email order: `accountEmail`, `planText`. |
 | `rows` | One per machine, in the overview's machine order: `machine` (a machine reference), `activeAccountEmail`, `text`, `tone`, `gapCount`, and `cells` - one per column, in the same order. |
-| a cell | `accountEmail`, `state`, `text`, `tone`, `isGap`. `state` is `in-use` ("In use"), `held` ("Held"), `ending` ("Ends in 2 days 5 hours", or "Sign-in has ended" - within 7 days), `not-held` ("Not held") or `refused` ("Sign-in refused"). Every state but `in-use` and `held` is a gap. |
+| a cell | `accountEmail`, `state`, `text`, `tone`, `isGap`. `state` is `in-use` ("In use"), `held` ("Held"), `ending` ("Ends in 2 days 5 hours", or "Sign-in has ended" - within 5 days, inside the 7 at which renewal starts), `not-held` ("Not held") or `refused` ("Sign-in refused"). Every state but `in-use` and `held` is a gap. |
 
 **Colour** (the owner, verbatim): "I think a warning should be yellow, not red. It doesn't go red until it goes above
 97%." A gap is `warning`. A cell is `bad` only when its machine is on an account at or above the switching threshold,

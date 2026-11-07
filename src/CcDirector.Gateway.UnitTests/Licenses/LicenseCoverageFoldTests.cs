@@ -160,10 +160,13 @@ public sealed class LicenseCoverageFoldTests : IDisposable
         Assert.Equal(("m1 is not reporting, so it cannot be switched.", LicenseTones.Warning), (grid.Text, grid.Tone));
     }
 
+    // Five days, inside the seven at which renewal starts: a sign-in renewal is still working on is held, not a gap.
     [Theory]
     [InlineData(3, LicenseCoverageCellStates.Ending, "Ends in 3 days")]
+    [InlineData(4, LicenseCoverageCellStates.Ending, "Ends in 4 days")]
+    [InlineData(6, LicenseCoverageCellStates.Held, "Held")]
     [InlineData(8, LicenseCoverageCellStates.Held, "Held")]
-    public void Judge_ASignInEndingWithinSevenDays_IsAGap(int days, string state, string text)
+    public void Judge_ASignInEndingWithinFiveDays_IsAGap(int days, string state, string text)
     {
         Apply(Report("m1", Holding(A, true), Ending(Holding(B, false), T0.AddDays(days))));
         Apply(Report("m2", Holding(B, true), Holding(A, false)));
