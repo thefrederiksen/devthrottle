@@ -77,6 +77,18 @@ Added `SuccessRunsSince(DateTime, string jobId)` method to find successful runs 
 
 If a run genuinely fails (no session appeared by window close), it's then reported as a failure.
 
+## Critical Fixes Applied
+
+After code review identified resource leaks and error handling gaps, the following were fixed:
+- Added try-catch around SaveChanges in CronFailureNoticeStore (prevents deadlock)
+- Disposed _scanGate in Dispose() method (prevents OS resource leak)
+- Added error handling for TimeoutException in Dispose() (prevents exception during shutdown)
+- Removed deleted job IDs from _jobsWithFailureNotified set (prevents memory leak)
+- Added error handling for _push delegate in both failure and recovery paths
+- Added try-catch around _notices.Claim() (prevents silent failures)
+- Added try-catch around NotifyRecoveryAsync (prevents early loop exit)
+- All notification paths now best-effort: one channel failure doesn't stop others
+
 ## Not Proven
 
 - End-to-end behavior with real slow Director responses
