@@ -19,8 +19,10 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 public static partial class LicenseEndpoints
 {
+    /// <param name="drillLifetime">What a drill run from the route runs on: the Gateway's own license lifetime, never the
+    /// request's. A drill is two switches; a browser that leaves must not stop it between the way out and the way back.</param>
     public static void MapFireDrill(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
-        Func<TenantId?> tenantInScope, LicenseFireDrillService drills)
+        Func<TenantId?> tenantInScope, LicenseFireDrillService drills, CancellationToken drillLifetime)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(tenantInScope);
@@ -48,17 +50,12 @@ public static partial class LicenseEndpoints
                 return;
             }
             var body = ParseBody<LicenseFireDrillMachineRequest>(await ReadBodyTextAsync(ctx));
-            await (await SetFireDrillMachineAsync(ctx, resolveTenant, drills, body)).ExecuteAsync(ctx);
+            await (await SetFireDrillMachineAsync(ctx, c => OwnerOnly(c, what), resolveTenant, drills, body)).ExecuteAsync(ctx);
         });
         app.MapPost(LicenseFireDrillRoutes.Run, async (HttpContext ctx) =>
         {
             const string what = "run the license fire drill";
-            if (OwnerOnly(ctx, what) is { } refused)
-            {
-                await refused.ExecuteAsync(ctx);
-                return;
-            }
-            await (await RunFireDrillAsync(ctx, resolveTenant, tenantInScope, drills)).ExecuteAsync(ctx);
+            await (await RunFireDrillAsync(ctx, c => OwnerOnly(c, what), resolveTenant, tenantInScope, drills, drillLifetime)).ExecuteAsync(ctx);
         });
         FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseFireDrillRoutes.FireDrill}, PUT {LicenseFireDrillRoutes.Machine}, POST {LicenseFireDrillRoutes.Run}");
     }
@@ -69,12 +66,14 @@ public static partial class LicenseEndpoints
         Line = drills.ReportLine(tenant),
     };
 
-    internal static async Task<IResult> SetFireDrillMachineAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        LicenseFireDrillService drills, LicenseFireDrillMachineRequest? body)
+    internal static async Task<IResult> SetFireDrillMachineAsync(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, LicenseFireDrillService drills, LicenseFireDrillMachineRequest? body)
     {
         FileLog.Write("[LicenseEndpoints] PUT fire-drill machine");
         try
         {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             if (body is null)
@@ -86,7 +85,7 @@ public static partial class LicenseEndpoints
                     return Refuse(StatusCodes.Status400BadRequest, "invalid_machine", "machineId is a machine's identifier as the Licenses page gives it, or null.");
                 machine = id;
             }
-            if (await drills.SetDrillMachineAsync(tenant, machine, ctx.RequestAborted) is { } why)
+            if (await drills.SetDrillMachineAsync(tenant, machine, CancellationToken.None) is { } why)
                 return Refuse(StatusCodes.Status409Conflict, "unknown_machine", why);
             return Results.Json(FireDrillAnswer(tenant, drills));
         }
@@ -97,21 +96,27 @@ public static partial class LicenseEndpoints
         }
     }
 
-    internal static async Task<IResult> RunFireDrillAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        Func<TenantId?> tenantInScope, LicenseFireDrillService drills)
+    internal static async Task<IResult> RunFireDrillAsync(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, Func<TenantId?> tenantInScope, LicenseFireDrillService drills,
+        CancellationToken drillLifetime)
     {
         FileLog.Write("[LicenseEndpoints] POST fire-drill run");
         try
         {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             if (drills.DrillMachine(tenant) is null)
-                return Refuse(StatusCodes.Status409Conflict, "no_drill_machine", "No drill machine is chosen, so there is no drill to run.");
+                return Refuse(StatusCodes.Status409Conflict, "no_drill_machine", drills.IsSettingUnreadable(tenant)
+                    ? "The drill machine setting is not a machine identifier; choose the drill machine again."
+                    : "No drill machine is chosen, so there is no drill to run.");
             // The drill's switches are SENT in the scope in effect; a scope that is not the caller's would write rows
             // and send nothing, so that is refused before anything is written.
             if (tenantInScope() is not { } scope || scope != tenant)
                 throw new InvalidOperationException("The fire drill was run outside the scope of the caller's own account; nothing was written or sent.");
-            if (await drills.RunAsync(tenant, ctx.RequestAborted) is null)
+            // On the Gateway's lifetime, never the request's: the drill finishes even when the caller has gone.
+            if (await drills.RunAsync(tenant, drillLifetime) is null)
                 return Refuse(StatusCodes.Status409Conflict, "drill_not_run", "The drill did not run: one is already running, or no machine of this account reports.");
             return Results.Json(FireDrillAnswer(tenant, drills));
         }

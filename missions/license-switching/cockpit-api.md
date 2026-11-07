@@ -3101,7 +3101,9 @@ session key guard's list; the two writes are the owner's own, like Switch now.
   the drill machine; `{ "machineId": null }` clears the choice and closes every alarm the drill raised. A machine not on
   the Licenses page is refused 409 `unknown_machine`. Answers as the read.
 - `POST /gateway/licenses/fire-drill/run` runs the drill now, whether or not it is due. Refused 409 `no_drill_machine`
-  when none is chosen and `drill_not_run` when one is already running. Answers as the read, after the drill.
+  when none is chosen (or the stored choice is not a machine identifier) and `drill_not_run` when one is already
+  running. Answers as the read, after the drill. The drill runs on the Gateway's lifetime: a caller that leaves does not
+  stop it.
 
 Each drill writes one `fire-drill` row in the log (section 4), and its two switches are ordinary `switch` rows whose
 explanation says they are the drill.

@@ -1448,10 +1448,17 @@ run by the Gateway once a day (`LicenseFireDrillService`), for each account that
 3. **The result.** One `fire-drill` row of the Licenses log, written `open` before anything else and finished `passed`
    or `failed` with one sentence; the daily report's attention item `license-fire-drill`; and the alarm kind
    `fire-drill-failed` raised through the alarm service with every finding of the drill at once - one per hole (machine
-   and account), and one for a failed switch (the drill machine) - so a hole fixed since the last drill closes.
+   and account), and one for a failed switch (the drill machine) - so a hole fixed since the last drill closes. The kind
+   repeats every hour and is yellow (`warning`), like the cannot-switch warning (section 9, pull request 4720): between
+   drills the minute check raises the open findings again as they stand, read back from the open alarms, so the repeat
+   survives a restart. Its push waits out the owner's night; its email and banner do not.
 
 **Due**: when no drill has started in the last 24 hours, judged from the rows, so a restart neither drills twice nor
-forgets. A row left `open` by a Gateway that stopped is finished `failed` with reason `interrupted`, does not count,
-and the next drill runs at once. **Not set up**: an account with no drill machine is never drilled and raises nothing;
+forgets. A drill that breaks part-way - an exception, or the cancellation of a Gateway that is stopping - is finished at
+once, `failed` at "the drill itself" naming the step it was in, with its alarm raised. A row left `open` by a Gateway
+that stopped is finished `failed` with reason `interrupted` on the next check, with its alarm raised. Either way it
+counts as the day's drill: a drill never starts again every minute. The owner's run-now route runs the drill on the
+Gateway's own lifetime, never the request's, so a caller who leaves cannot stop it between the way out and the way back.
+A drill machine setting that is not a machine identifier is not run, and the daily report's line says to choose it again. **Not set up**: an account with no drill machine is never drilled and raises nothing;
 its daily report says every day that the drill is not set up. The mission closes after seven passes in a row, which the
 report line counts.

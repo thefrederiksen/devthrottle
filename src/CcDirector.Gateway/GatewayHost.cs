@@ -6465,7 +6465,8 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.LicenseEndpoints.MapFireDrill(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             tenantInScope: () => _tenantPass.Current,
-            drills: LicenseFireDrills);
+            drills: LicenseFireDrills,
+            drillLifetime: _licenseSwitchLifetime.Token);
 
         Api.LicenseSignInEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

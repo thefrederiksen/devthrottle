@@ -39,6 +39,8 @@ public sealed class LicenseFireDrillServiceTests : IDisposable
     // How the fake Director answers the n-th switch it is sent (0-based); a switch with no entry is switched and verified.
     private readonly Dictionary<int, Func<LicenseSwitchRequest, LicenseSwitchResult?>> _answers = new();
     private bool _offline;
+    // Run by the fake Director after it answers the n-th switch: how a test stops a drill between its legs.
+    private readonly Dictionary<int, Action> _afterAnswer = new();
     private DateTime _now = T0;
     private long _sequence;
 
@@ -52,7 +54,7 @@ public sealed class LicenseFireDrillServiceTests : IDisposable
         _alarms = new LicenseAlarmService(_db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
-            () => _now);
+            () => _now, (_, _) => false);
         _log = new LicenseFireDrillLog(_db);
         _settings = new TenantSettingsStore(_db);
         _drill = new LicenseFireDrillService(_store, _snapshots, switches, _alarms, _log, _settings, () => _now);
@@ -71,6 +73,8 @@ public sealed class LicenseFireDrillServiceTests : IDisposable
         int n;
         lock (_sent) { n = _sent.Count; _sent.Add(request); }
         var answer = _answers.TryGetValue(n, out var make) ? make(request) : Switched(request);
+        if (_afterAnswer.TryGetValue(n, out var after))
+            after();
         return Task.FromResult<DirectorCommandResult?>(answer is null
             ? DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "no answer in time")
             : DirectorCommandResult.Success(JsonSerializer.Serialize(answer, Web)));
@@ -310,19 +314,90 @@ public sealed class LicenseFireDrillServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RunIfDueAsync_ADrillLeftOpenByAGatewayThatStopped_IsFinishedAsInterrupted_AndTheDrillRunsAtOnce()
+    public async Task RunIfDueAsync_ADrillLeftOpenByAGatewayThatStopped_IsFinishedAsInterrupted_RaisesItsAlarm_AndIsTheDaysDrill()
     {
         BothMachinesReady();
         await ChooseWindows();
         var left = _log.Start(Tenant, MachineId(Windows), Windows, "owner", "dir-" + Windows, _now.AddMinutes(-5));
 
-        var result = await _drill.RunIfDueAsync(Tenant, CancellationToken.None);
+        Assert.Null(await _drill.RunIfDueAsync(Tenant, CancellationToken.None));
 
-        Assert.True(result!.Passed);
-        var rows = _log.Newest(Tenant, 10);
-        var interrupted = rows.Single(r => r.Id == left.Id);
-        Assert.Equal((LicenseLogStates.Failed, LicenseFireDrillLog.InterruptedReason), (interrupted.State, interrupted.ReasonCode));
-        Assert.Equal(LicenseLogStates.Passed, rows.First().State);
+        var interrupted = Assert.Single(_log.Newest(Tenant, 10));
+        Assert.Equal((left.Id, LicenseLogStates.Failed, LicenseFireDrillLog.InterruptedReason), (interrupted.Id, interrupted.State, interrupted.ReasonCode));
+        Assert.Empty(_sent);
+        Assert.Contains(LicenseFireDrillFold.StepInterrupted, Assert.Single(OpenAlarms()).Problem);
+    }
+
+    [Fact]
+    public async Task RunIfDueAsync_ADrillStoppedBetweenItsLegs_IsFinishedFailed_RaisesItsAlarm_AndIsNotRunAgainEveryMinute()
+    {
+        // Review of pull request 4721, reproduced: the token is cancelled after the way out answered switched. Before the
+        // fix the row was left open with no alarm, and a minute later a new drill sent a new real switch out.
+        BothMachinesReady();
+        await ChooseWindows();
+        using var stopping = new CancellationTokenSource();
+        _afterAnswer[0] = stopping.Cancel;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _drill.RunIfDueAsync(Tenant, stopping.Token));
+
+        var row = LatestDrillRow();
+        Assert.Equal((LicenseLogStates.Failed, LicenseFireDrillLog.FailedReason, A, B), (row.State, row.ReasonCode, row.FromAccountEmail, row.ToAccountEmail));
+        Assert.Equal($"Failed: 0 holes. The drill switch failed at {LicenseFireDrillFold.StepInterrupted}: it was stopped during "
+                     + $"{LicenseFireDrillFold.StepBack}, because the Gateway was stopping.", row.Message);
+        Assert.Contains(LicenseFireDrillFold.StepInterrupted, Assert.Single(OpenAlarms()).Problem);
+
+        _now = _now.AddMinutes(1);
+        BothMachinesReady();
+        Assert.Null(await _drill.RunIfDueAsync(Tenant, CancellationToken.None));
+        Assert.Single(_sent);
+        Assert.Single(_log.Newest(Tenant, 10));
+    }
+
+    [Fact]
+    public async Task RunIfDueAsync_AHoleStillOpenAnHourOn_IsToldAgain_ByTheMinuteCheck()
+    {
+        Reports(Windows, Fresh(A, true, _now), Fresh(B, false, _now));
+        Reports(Mac, Fresh(A, true, _now));
+        await ChooseWindows();
+        await _drill.RunIfDueAsync(Tenant, CancellationToken.None);
+        Assert.Single(_pushed);
+
+        _now = _now.AddMinutes(59);
+        await _drill.RunIfDueAsync(Tenant, CancellationToken.None);
+        Assert.Single(_pushed);
+        _now = _now.AddMinutes(1);
+        await _drill.RunIfDueAsync(Tenant, CancellationToken.None);
+
+        Assert.Equal(new[] { false, true }, _pushed.Select(p => p.IsRepeat).ToArray());
+        Assert.Single(OpenAlarms());
+        Assert.Single(_log.Newest(Tenant, 10));   // told again, not drilled again
+        Assert.True(LicenseFireDrillFold.AlarmKind.RepeatsHourly);
+        Assert.Equal(LicenseAlarmTones.Warning, LicenseFireDrillFold.AlarmKind.Tone);
+        Assert.All(_alarms.ListOpen(Tenant), a => Assert.Equal(LicenseAlarmTones.Warning, a.Tone));
+    }
+
+    [Fact]
+    public async Task ReportLine_ASettingThatIsNotAMachineIdentifier_IsOneLineSayingSo_AndTheDrillDoesNotRun()
+    {
+        BothMachinesReady();
+        _settings.Set(Tenant, TenantSettingKeys.LicenseFireDrillMachine, "the-windows-machine", _now);
+
+        Assert.Null(await _drill.RunIfDueAsync(Tenant, CancellationToken.None));
+
+        Assert.True(_drill.IsSettingUnreadable(Tenant));
+        Assert.Empty(_sent);
+        Assert.Equal("The license fire drill does not run: its drill machine setting is not a machine identifier. Choose the drill machine again.",
+            _drill.ReportLine(Tenant)!.Text);
+    }
+
+    [Fact]
+    public void MachineIdOf_ARowOfADirectorWhoseReportsWereOnlyEverRefused_IsTheIdentifierThePageGivesIt()
+    {
+        var refusal = new LicenseSwitchLogEntity { Kind = LicenseLogKinds.ReportRefused, MachineName = Mac, OsUser = "owner", DirectorId = "dir-x" };
+        var id = LicenseDisplayFold.RefusedMachineId(refusal);
+        var row = new LicenseCoverageRow(id, Mac, "owner", "dir-x", Mac, null, true, true, null, null, Array.Empty<LicenseCoverageCell>());
+
+        Assert.Equal(Guid.ParseExact(id, "N"), LicenseFireDrillFold.MachineIdOf(row));
     }
 
     [Fact]

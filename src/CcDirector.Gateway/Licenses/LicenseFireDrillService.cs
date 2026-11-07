@@ -26,7 +26,9 @@ namespace CcDirector.Gateway.Licenses;
 ///
 /// DUE: a drill is due when no drill has started in the last <see cref="Every"/>. The rows are the record, so a Gateway
 /// that restarts neither drills twice in a day nor forgets the day's drill. A drill the Gateway stopped in the middle of
-/// is finished as interrupted on the next check, does not count, and the next drill runs at once.
+/// is finished as interrupted on the next check and counts as the day's drill; a drill that breaks part-way in this process
+/// is finished at once (<see cref="RunMarkedAsync"/>). Either way its alarm is raised, and no drill is started again
+/// that day unless the owner runs it.
 ///
 /// NOT SET UP, NOT RUN: an account with no drill machine chosen is never drilled - nothing is switched and no alarm is
 /// raised - and its daily report says, every day, that the drill is not set up. An account none of whose machines
@@ -62,17 +64,23 @@ public sealed class LicenseFireDrillService
 
     // ----- the setting -----
 
-    /// <summary>The drill machine this account chose, or null when it chose none.</summary>
-    /// <exception cref="InvalidOperationException">The stored value is not a machine identifier: a defect to find, never
-    /// a setting to guess at.</exception>
-    public Guid? DrillMachine(TenantId tenant)
+    /// <summary>The drill machine this account chose, or null when it chose none - or when what is stored is not a
+    /// machine identifier, which <see cref="IsSettingUnreadable"/> says and the daily report's line says to the owner.</summary>
+    public Guid? DrillMachine(TenantId tenant) => ReadSetting(tenant).Id;
+
+    /// <summary>True when a drill machine is stored and is not a machine identifier (a hand-edited setting): the drill
+    /// does not run, and the daily report's line says to choose the machine again. One line, never the whole report.</summary>
+    public bool IsSettingUnreadable(TenantId tenant) => ReadSetting(tenant).Unreadable;
+
+    private (Guid? Id, bool Unreadable) ReadSetting(TenantId tenant)
     {
         var stored = _settings.Get(tenant, TenantSettingKeys.LicenseFireDrillMachine);
         if (stored is null)
-            return null;
-        if (!Guid.TryParse(stored, out var id))
-            throw new InvalidOperationException($"The fire drill machine of account {tenant.ToLogString()} is stored as '{stored}', which is not a machine identifier.");
-        return id;
+            return (null, false);
+        if (Guid.TryParse(stored, out var id))
+            return (id, false);
+        FileLog.Write($"[LicenseFireDrillService] ReadSetting: tenant={tenant.ToLogString()}, the stored drill machine is not a machine identifier");
+        return (null, true);
     }
 
     /// <summary>
@@ -144,21 +152,51 @@ public sealed class LicenseFireDrillService
         {
             var now = _nowUtc();
             var newest = _log.Newest(tenant, 5);
-            // Under this process's mark for the tenant, so an open row here is never a drill that is running.
+            // Under this process's mark for the tenant, so an open row here is never a drill that is running: it was left
+            // by a Gateway that stopped. It is finished failed, its alarm is raised, and it COUNTS as the day's drill -
+            // never a new drill with a real switch every minute. The owner can run the drill again at once.
             foreach (var left in newest.Where(r => r.FinishedAtUtc is null))
             {
                 FileLog.Write($"[LicenseFireDrillService] RunIfDueAsync: row={left.Id} was left open by a Gateway that stopped");
+                var interrupted = new LicenseFireDrillResult(left.MachineId, left.MachineName, Array.Empty<LicenseFireDrillHole>(),
+                    new LicenseFireDrillFailure(LicenseFireDrillFold.StepInterrupted, "the Gateway stopped while the drill was running"),
+                    left.FromAccountEmail, left.ToAccountEmail);
                 _log.Finish(tenant, left.Id, passed: false, LicenseFireDrillLog.InterruptedReason, LicenseFireDrillFold.InterruptedMessage,
                     left.FromAccountEmail, left.ToAccountEmail, now);
+                await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.AlarmKind, LicenseFireDrillFold.Conditions(interrupted), ct).ConfigureAwait(false);
             }
-            var due = !newest.Any(r => r.FinishedAtUtc is not null && r.ReasonCode != LicenseFireDrillLog.InterruptedReason
-                                       && now - r.CreatedAtUtc < Every);
-            return due ? await RunMarkedAsync(tenant, ct).ConfigureAwait(false) : null;
+            var due = !newest.Any(r => now - r.CreatedAtUtc < Every);
+            if (due)
+                return await RunMarkedAsync(tenant, ct).ConfigureAwait(false);
+            await KeepTellingAsync(tenant, ct).ConfigureAwait(false);
+            return null;
         }
         finally
         {
             _running.TryRemove(tenant, out _);
         }
+    }
+
+    /// <summary>
+    /// Between drills, the findings of the last drill are raised again as they stand, every minute, so the alarm service
+    /// tells the owner again every hour while they are open (the kind repeats, pull request 4720). Only a drill changes
+    /// WHAT is open; this keeps it loud. Read back from the open alarms themselves, so a Gateway that restarts keeps
+    /// telling. Quiet when nothing is open.
+    /// </summary>
+    private async Task KeepTellingAsync(TenantId tenant, CancellationToken ct)
+    {
+        var open = _alarms.ListOpen(tenant).Where(a => a.Kind == LicenseFireDrillFold.AlarmKind.Key).ToList();
+        if (open.Count == 0)
+            return;
+        var conditions = open.Select(a => new LicenseAlarmCondition(
+                a.MachineId == Guid.Empty ? null : a.MachineId,
+                a.MachineId == Guid.Empty ? null : a.MachineName,
+                string.IsNullOrEmpty(a.AccountEmail) ? null : a.AccountEmail,
+                a.Problem, a.Action, LoudAtNight: false))
+            .ToList();
+        var raised = await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.AlarmKind, conditions, ct).ConfigureAwait(false);
+        if (raised.Repeated > 0)
+            FileLog.Write($"[LicenseFireDrillService] KeepTellingAsync: tenant={tenant.ToLogString()}, open={open.Count}, toldAgain={raised.Repeated}");
     }
 
     /// <summary>
@@ -184,42 +222,66 @@ public sealed class LicenseFireDrillService
         }
     }
 
-    /// <summary>One drill, under this process's mark for the tenant.</summary>
+    /// <summary>
+    /// One drill, under this process's mark for the tenant. A drill that breaks part-way - an exception, or the
+    /// cancellation of a Gateway that is stopping - is finished here, failed at <see cref="LicenseFireDrillFold.StepInterrupted"/>
+    /// naming the step it was in, its alarm raised, and it counts as the day's drill; then the exception goes on.
+    /// </summary>
     private async Task<LicenseFireDrillResult?> RunMarkedAsync(TenantId tenant, CancellationToken ct)
     {
         if (DrillMachine(tenant) is not { } machineId)
             return null;
+        var now = _nowUtc();
+        var picture = _snapshots.ReadPicture(tenant, now, Array.Empty<LicenseExhaustion>());
+        var coverage = LicenseCoverageFold.Judge(picture);
+        var row = coverage.Rows.FirstOrDefault(r => LicenseFireDrillFold.MachineIdOf(r) == machineId);
+        // Judged before the row is written: nothing that can break comes between the row and the try that finishes it.
+        var holes = LicenseFireDrillFold.Holes(picture, coverage);
+        var drillRow = _log.Start(tenant, machineId, row?.Label ?? "a machine no longer on the Licenses page", row?.OsUser ?? "",
+            row?.DirectorId, now);
+        FileLog.Write($"[LicenseFireDrillService] RunAsync: tenant={tenant.ToLogString()}, drill={drillRow.Id}, machine={machineId}, rows={coverage.Rows.Count}, accounts={coverage.Accounts.Count}");
+        var progress = new Progress();
+        LicenseFireDrillResult result;
         try
         {
-            var now = _nowUtc();
-            var picture = _snapshots.ReadPicture(tenant, now, Array.Empty<LicenseExhaustion>());
-            var coverage = LicenseCoverageFold.Judge(picture);
-            var row = coverage.Rows.FirstOrDefault(r => r.MachineId == machineId);
-            var drillRow = _log.Start(tenant, machineId, row?.Label ?? "a machine no longer on the Licenses page", row?.OsUser ?? "",
-                row?.DirectorId, now);
-            FileLog.Write($"[LicenseFireDrillService] RunAsync: tenant={tenant.ToLogString()}, drill={drillRow.Id}, machine={machineId}, rows={coverage.Rows.Count}, accounts={coverage.Accounts.Count}");
-
-            var holes = LicenseFireDrillFold.Holes(picture, coverage);
-            var result = await SwitchOutAndBackAsync(tenant, picture, row, machineId, holes, ct).ConfigureAwait(false);
-
-            var message = LicenseFireDrillFold.Message(result);
-            _log.Finish(tenant, drillRow.Id, result.Passed, result.Passed ? null : LicenseFireDrillLog.FailedReason, message,
-                result.FromAccountEmail, result.SpareAccountEmail, _nowUtc());
-            var raised = await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.AlarmKind, LicenseFireDrillFold.Conditions(result), ct)
-                .ConfigureAwait(false);
-            FileLog.Write($"[LicenseFireDrillService] RunAsync: drill={drillRow.Id}, passed={result.Passed}, holes={result.Holes.Count}, "
-                          + $"failedStep={result.Failure?.Step ?? "(none)"}, alarmsOpened={raised.Opened}, alarmsClosed={raised.Closed}");
-            return result;
+            result = await SwitchOutAndBackAsync(tenant, picture, row, machineId, holes, progress, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            FileLog.Write($"[LicenseFireDrillService] RunAsync FAILED: tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
+            var why = ex is OperationCanceledException
+                ? $"it was stopped during {progress.Step}, because the Gateway was stopping"
+                : $"it broke during {progress.Step} ({ex.GetType().Name}: {ex.Message})";
+            FileLog.Write($"[LicenseFireDrillService] RunAsync FAILED: tenant={tenant.ToLogString()}, drill={drillRow.Id}: {why}");
+            var broken = new LicenseFireDrillResult(machineId, row?.Label, holes,
+                new LicenseFireDrillFailure(LicenseFireDrillFold.StepInterrupted, why), progress.From, progress.Spare);
+            // Recorded whatever stopped the drill, so with no token: a stopping Gateway still leaves a finished row.
+            await FinishAsync(tenant, drillRow.Id, broken, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
+        await FinishAsync(tenant, drillRow.Id, result, ct).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task FinishAsync(TenantId tenant, Guid drillRowId, LicenseFireDrillResult result, CancellationToken ct)
+    {
+        _log.Finish(tenant, drillRowId, result.Passed, result.Passed ? null : LicenseFireDrillLog.FailedReason,
+            LicenseFireDrillFold.Message(result), result.FromAccountEmail, result.SpareAccountEmail, _nowUtc());
+        var raised = await _alarms.RaiseAsync(tenant, LicenseFireDrillFold.AlarmKind, LicenseFireDrillFold.Conditions(result), ct)
+            .ConfigureAwait(false);
+        FileLog.Write($"[LicenseFireDrillService] RunAsync: drill={drillRowId}, passed={result.Passed}, holes={result.Holes.Count}, "
+                      + $"failedStep={result.Failure?.Step ?? "(none)"}, alarmsOpened={raised.Opened}, alarmsClosed={raised.Closed}");
+    }
+
+    /// <summary>Where a drill's switch has got to, so a drill that breaks part-way can say so.</summary>
+    private sealed class Progress
+    {
+        public string Step { get; set; } = LicenseFireDrillFold.StepChooseSpare;
+        public string From { get; set; } = "";
+        public string Spare { get; set; } = "";
     }
 
     private async Task<LicenseFireDrillResult> SwitchOutAndBackAsync(TenantId tenant, LicensePicture picture,
-        LicenseCoverageRow? row, Guid machineId, IReadOnlyList<LicenseFireDrillHole> holes, CancellationToken ct)
+        LicenseCoverageRow? row, Guid machineId, IReadOnlyList<LicenseFireDrillHole> holes, Progress progress, CancellationToken ct)
     {
         if (row is null)
             return new LicenseFireDrillResult(machineId, null, holes,
@@ -228,6 +290,7 @@ public sealed class LicenseFireDrillService
         if (spare is null)
             return new LicenseFireDrillResult(machineId, row.Label, holes, refusal, row.ActiveAccountEmail ?? "", "");
         var from = row.ActiveAccountEmail!;
+        (progress.From, progress.Spare, progress.Step) = (from, spare, LicenseFireDrillFold.StepOut);
 
         var outRow = await _switches.DrillSwitchAsync(tenant, machineId, from, spare,
             $"The daily fire drill: {row.Label} goes out to {spare}, then back to {from}.", ct).ConfigureAwait(false);
@@ -235,6 +298,7 @@ public sealed class LicenseFireDrillService
             return new LicenseFireDrillResult(machineId, row.Label, holes,
                 new LicenseFireDrillFailure(LicenseFireDrillFold.StepOut, outWhy), from, spare);
 
+        progress.Step = LicenseFireDrillFold.StepBack;
         var backRow = await _switches.DrillSwitchAsync(tenant, machineId, spare, from,
             $"The daily fire drill: {row.Label} comes back from {spare} to {from}.", ct).ConfigureAwait(false);
         if (LicenseFireDrillFold.SwitchFailure(backRow, from) is { } backWhy)
@@ -250,7 +314,8 @@ public sealed class LicenseFireDrillService
     /// none of its machines reports.</summary>
     public LicenseFireDrillAttentionDto? ReportLine(TenantId tenant)
     {
-        var line = LicenseFireDrillFold.ReportLine(_store.HasMachines(tenant), DrillMachine(tenant) is not null,
+        var (machine, unreadable) = ReadSetting(tenant);
+        var line = LicenseFireDrillFold.ReportLine(_store.HasMachines(tenant), machine is not null, unreadable,
             _log.Newest(tenant, 30), _nowUtc());
         FileLog.Write($"[LicenseFireDrillService] ReportLine: tenant={tenant.ToLogString()}, line={(line is null ? "none" : line.Passed ? "passed" : "not passed")}");
         return line;

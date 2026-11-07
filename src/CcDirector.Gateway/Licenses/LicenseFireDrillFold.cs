@@ -67,8 +67,10 @@ public static class LicenseFireDrillFold
     /// <summary>A drill the Gateway stopped in the middle of.</summary>
     public const string StepInterrupted = "the drill itself";
 
-    /// <summary>The kind every alarm of the drill is raised under.</summary>
-    public static readonly LicenseAlarmKind AlarmKind = new("fire-drill-failed", "The daily license drill failed");
+    /// <summary>The kind every alarm of the drill is raised under: a warning that repeats every hour until a drill no
+    /// longer finds it, yellow, like the cannot-switch warning (pull request 4720).</summary>
+    public static readonly LicenseAlarmKind AlarmKind = new("fire-drill-failed", "The daily license drill failed",
+        repeatsHourly: true, tone: LicenseAlarmTones.Warning);
 
     /// <summary>Every hole of every machine in <paramref name="coverage"/>, in the grid's order.</summary>
     public static List<LicenseFireDrillHole> Holes(LicensePicture picture, LicenseCoverage coverage)
@@ -80,24 +82,26 @@ public static class LicenseFireDrillFold
         var holes = new List<LicenseFireDrillHole>();
         foreach (var row in coverage.Rows)
         {
+            var id = MachineIdOf(row);
             if (row.ReportsRefused)
             {
-                holes.Add(new LicenseFireDrillHole(row.MachineId, row.Label, null,
+                holes.Add(new LicenseFireDrillHole(id, row.Label, null,
                     $"{row.Label}: its reports are being refused, so it cannot be switched."));
                 continue;
             }
             if (row.IsStale)
             {
-                holes.Add(new LicenseFireDrillHole(row.MachineId, row.Label, null,
-                    $"{row.Label}: not reporting since {Clock(row.LastReportAtUtc)}, so it cannot be switched."));
+                holes.Add(new LicenseFireDrillHole(id, row.Label, null, row.LastReportAtUtc is { } last
+                    ? $"{row.Label}: not reporting since {Clock(last)}, so it cannot be switched."
+                    : $"{row.Label}: no report from it was ever accepted, so it cannot be switched."));
                 continue;
             }
-            var holdings = machines[row.MachineId].Holdings;
+            var holdings = machines[id].Holdings;
             foreach (var cell in row.Cells)
             {
                 var holding = holdings.FirstOrDefault(h => LicenseStore.NormalizeEmail(h.AccountEmail) == cell.AccountEmail);
                 if (CellHole(row.Label, cell, holding, now) is { } text)
-                    holes.Add(new LicenseFireDrillHole(row.MachineId, row.Label, cell.AccountEmail, text));
+                    holes.Add(new LicenseFireDrillHole(id, row.Label, cell.AccountEmail, text));
             }
         }
         return holes;
@@ -129,6 +133,21 @@ public static class LicenseFireDrillFold
         }
     }
 
+    /// <summary>
+    /// The machine a coverage row is about, as the alarm and the drill key it. A row's identifier is the one the Licenses
+    /// page gives it: a machine's database identifier, or - for a Director whose reports were only ever refused, which
+    /// has no machine row - <see cref="LicenseDisplayFold.RefusedMachineId"/>, a stable identifier of the same shape made
+    /// from the refusal. Both read as an identifier here, so a refused-only Director is one hole keyed the way the
+    /// refused-report alarm keys it. Such a row can never be the drill machine: only a machine on the page can be chosen.
+    /// </summary>
+    public static Guid MachineIdOf(LicenseCoverageRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return Guid.TryParseExact(row.MachineId, "N", out var id)
+            ? id
+            : throw new InvalidOperationException($"The coverage row of {row.Label} has the identifier '{row.MachineId}', which is not the shape the Licenses page gives.");
+    }
+
     /// <summary>A read error word as a clause.</summary>
     internal static string ReadErrorWhy(string error) => error switch
     {
@@ -153,13 +172,14 @@ public static class LicenseFireDrillFold
         ArgumentNullException.ThrowIfNull(picture);
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(holes);
-        if (holes.Any(h => h.MachineId == row.MachineId && h.AccountEmail is null))
+        var id = MachineIdOf(row);
+        if (holes.Any(h => h.MachineId == id && h.AccountEmail is null))
             return (null, new LicenseFireDrillFailure(StepMachine, $"{row.Label} cannot be switched now"));
         if (row.ActiveAccountEmail is not { } active)
             return (null, new LicenseFireDrillFailure(StepChooseSpare, $"{row.Label} is on no account"));
         var fresh = row.Cells
             .Where(c => c.State == LicenseCoverageCellStates.Held)
-            .Where(c => !holes.Any(h => h.MachineId == row.MachineId && h.AccountEmail == c.AccountEmail))
+            .Where(c => !holes.Any(h => h.MachineId == id && h.AccountEmail == c.AccountEmail))
             .Select(c => c.AccountEmail)
             .ToHashSet(StringComparer.Ordinal);
         var spare = LicenseDecisionEngine.TargetsWithRoom(picture.Snapshot, active)
@@ -231,7 +251,7 @@ public static class LicenseFireDrillFold
 
     /// <summary>The sentence of a drill the Gateway stopped in the middle of.</summary>
     public const string InterruptedMessage =
-        "Failed: the Gateway stopped while the drill was running, so it did not finish. The next drill runs at once.";
+        "Failed: the Gateway stopped while the drill was running, so it did not finish. It counts as the day's drill: run it again now from the fire drill route, or the next one runs in a day.";
 
     /// <summary>
     /// The alarms a drill raises: one for each hole, keyed on its machine and account, and one for a failed switch, keyed
@@ -250,7 +270,7 @@ public static class LicenseFireDrillFold
             var action = hole.AccountEmail is null
                 ? "Bring the machine back to reporting, or forget it on the Licenses page. The next daily drill closes this alarm when it is fixed."
                 : "Sign in to that account on that machine from the Licenses page. The next daily drill closes this alarm when the sign-in answers a usage read.";
-            conditions.Add(new LicenseAlarmCondition(hole.MachineId, hole.Label, hole.AccountEmail, problem, action));
+            conditions.Add(new LicenseAlarmCondition(hole.MachineId, hole.Label, hole.AccountEmail, problem, action, LoudAtNight: false));
         }
         if (result.Failure is { } failure
             && !result.Holes.Any(h => h.MachineId == result.MachineId && h.AccountEmail is null))
@@ -260,7 +280,8 @@ public static class LicenseFireDrillFold
                 $"The daily license drill could not switch {label}: {failure.Step} failed. The Licenses log says why.",
                 $"The daily license drill could not switch its drill machine: {failure.Step} failed. The Licenses log says which machine and why.");
             conditions.Add(new LicenseAlarmCondition(result.MachineId, result.MachineLabel ?? "the drill machine", null, problem,
-                "Read the drill's switch on the Licenses log and put right what it says. The next daily drill closes this alarm when its switch works."));
+                "Read the drill's switch on the Licenses log and put right what it says. The next daily drill closes this alarm when its switch works.",
+                LoudAtNight: false));
         }
         return conditions;
     }
@@ -271,8 +292,9 @@ public static class LicenseFireDrillFold
     /// </summary>
     /// <param name="newest">The newest drill rows, newest first (<see cref="LicenseFireDrillLog.Newest"/>).</param>
     /// <param name="machineSet">Whether a drill machine is chosen.</param>
-    public static LicenseFireDrillAttentionDto? ReportLine(bool hasMachines, bool machineSet, IReadOnlyList<LicenseSwitchLogEntity> newest,
-        DateTime nowUtc)
+    /// <param name="settingUnreadable">What is stored as the drill machine is not a machine identifier.</param>
+    public static LicenseFireDrillAttentionDto? ReportLine(bool hasMachines, bool machineSet, bool settingUnreadable,
+        IReadOnlyList<LicenseSwitchLogEntity> newest, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(newest);
         if (!hasMachines)
@@ -280,6 +302,12 @@ public static class LicenseFireDrillFold
         var latest = newest.FirstOrDefault(r => r.FinishedAtUtc is not null);
         var streak = newest.TakeWhile(r => r.FinishedAtUtc is null || r.State == LicenseLogStates.Passed)
             .Count(r => r.State == LicenseLogStates.Passed);
+        if (settingUnreadable)
+            return new LicenseFireDrillAttentionDto
+            {
+                Passed = false,
+                Text = "The license fire drill does not run: its drill machine setting is not a machine identifier. Choose the drill machine again.",
+            };
         if (!machineSet)
             return new LicenseFireDrillAttentionDto
             {
