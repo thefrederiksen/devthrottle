@@ -3248,8 +3248,12 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, utc) => Licenses.LicenseOwnerNight.IsNight(TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)), utc));
         // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
+        // A failing spare raises only when its machine would have no ready next license: the readiness check's verdict,
+        // built below.
         LicenseRenewalFailureAlarm = new Licenses.LicenseRenewalFailureAlarm(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
-            LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
+            LicenseAlarms,
+            tenant => (LicenseReadiness ?? throw new InvalidOperationException("The readiness check is built before any renewal alarm is raised."))
+                .NextLicensesNow(tenant));
         // The daily license check: every machine under the ready-next-license rule, one log row and the daily report's
         // line. It switches nothing and raises no alarm. The verdict is the readiness check's, built below.
         LicenseFireDrills = new Licenses.LicenseFireDrillService(LicenseStore, LicenseSnapshots,

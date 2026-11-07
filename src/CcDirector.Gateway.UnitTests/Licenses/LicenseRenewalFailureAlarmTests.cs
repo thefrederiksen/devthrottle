@@ -3,6 +3,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Licenses;
+using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
 using static CcDirector.Gateway.Tests.Licenses.LicenseTestData;
@@ -12,7 +13,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// <summary>
 /// A RENEWAL THAT FAILED IS A LICENSE ALARM FROM THE FIRST FAILURE UNTIL A RENEWAL WORKS (issue 4697). Over the real
 /// license store, the real failure-streak log and the real alarm service on a throwaway SQLite file, with a push that
-/// records what it is given. The clock is the test's own.
+/// records what it is given. The clock is the test's own. Whether a failing SPARE matters is the real readiness
+/// service's next-license verdict, on the same store: account A, the license the machine is on, sits at 85% of its weekly
+/// limit unless a test says otherwise, so a spare that is the machine's only ready next license is one it relies on.
 /// </summary>
 public sealed class LicenseRenewalFailureAlarmTests : IDisposable
 {
@@ -28,8 +31,11 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     private readonly List<LicenseAlarmOpened> _pushed = new();
     private readonly List<LicenseOwnerEmail> _mailed = new();
     private readonly LicenseRenewalEmailService _emails;
+    private readonly LicenseReadinessService _readiness;
     private DateTime _now = T0;
     private long _sequence;
+    // The weekly use of account A, the license the machine is on.
+    private double _aWeekly = 85;
 
     public LicenseRenewalFailureAlarmTests()
     {
@@ -40,7 +46,16 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
             () => _now, NeverNight);
-        _alarm = new LicenseRenewalFailureAlarm(_store, _log, new LicenseReadModel(_store), _alarms, () => _now);
+        var reads = new LicenseReadModel(_store);
+        var directors = new FakeLicenseDirectors();
+        var signInLog = new LicenseSignInLog(_db);
+        var signIns = new LicenseSignInService(signInLog, reads, directors.IsConnected, directors.SendAsync, directors.EnterScope,
+            () => _now, CancellationToken.None);
+        var approvers = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), reads,
+            directors.IsConnected, () => _now);
+        _readiness = new LicenseReadinessService(_store, new LicenseSnapshotSource(_store, reads), signInLog, signIns,
+            approvers.WhyNotReady, directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
+        _alarm = new LicenseRenewalFailureAlarm(_store, _log, _alarms, _readiness.NextLicensesNow);
         _emails = new LicenseRenewalEmailService(_store, _log, new LicenseReadModel(_store),
             (_, email, _) => { lock (_mailed) _mailed.Add(email); return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)); },
             () => _now);
@@ -62,8 +77,11 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
 
     private LicenseHolding Fine(string account, TimeSpan endsIn, bool active = false)
     {
-        var holding = Holding(account, active, readAt: _now);
+        var holding = active ? Holding(account, true, sevenDay: _aWeekly, readAt: _now) : Holding(account, false, readAt: _now);
         holding.SignInExpiresAtUtc = _now + endsIn;
+        // The windows reset ahead of the test's own clock, so a test that moves the clock to November still reads them.
+        holding.FiveHour!.ResetsAtUtc = _now.AddHours(2);
+        holding.SevenDay!.ResetsAtUtc = _now.AddDays(1);
         return holding;
     }
 
@@ -263,12 +281,130 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     {
         var holding = new LicenseHoldingView(new string('a', 300) + "@example.com", false, null, T0.AddDays(7), LicenseSignInExpiry.Fine, false, null,
             RenewalFailedAtUtc: T0, RenewalError: LicenseRenewalErrors.NeedsFreshSignIn);
-        var machine = new LicenseMachineView(Guid.NewGuid(), new string('m', 128), new string('u', 128), "dir-1", null,
+        // The license the machine is on: its failure always raises, whatever the next-license verdict.
+        var machine = new LicenseMachineView(Guid.NewGuid(), new string('m', 128), new string('u', 128), "dir-1", holding.AccountEmail,
             Array.Empty<string>(), new[] { holding }, T0, false, null, 0);
 
-        var condition = Assert.Single(LicenseRenewalFailureAlarm.Conditions(new[] { machine }, Array.Empty<LicenseSwitchLogEntity>(), T0));
+        var condition = Assert.Single(LicenseRenewalFailureAlarm.Conditions(new[] { machine }, Array.Empty<LicenseSwitchLogEntity>(),
+            Array.Empty<LicenseNextLicense>(), T0));
 
         Assert.True(condition.Problem.Length <= LicenseAlarmService.MaxSentenceLength);
         Assert.True(condition.Action.Length <= LicenseAlarmService.MaxSentenceLength);
     }
+
+    // A SPARE'S FAILURE REACHES THE BAR ONLY WHEN THE MACHINE WOULD BE STUCK (owner ruling of 7 November 2026). Each of
+    // these goes through the real minute check and the real readiness service's verdict.
+
+    [Fact]
+    public async Task MinuteCheck_ASpareFailsUnderTheWarningLevel_RaisesNothing_AndThePageStillSaysIt()
+    {
+        _aWeekly = 20;
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)));
+
+        await MinuteCheck();
+
+        Assert.Empty(Open());
+        Assert.Empty(_pushed);
+        var page = System.Text.Json.JsonSerializer.Serialize(OverviewOf(new LicenseSnapshotSource(_store, new LicenseReadModel(_store))
+            .ReadPicture(Tenant, _now, Array.Empty<LicenseExhaustion>())));
+        Assert.Contains("Renewing this sign-in failed", page);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_ASpareFailsWhileAnotherReadySpareIsHeld_RaisesNothing()
+    {
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)), Fine(C, TimeSpan.FromDays(30)));
+
+        await MinuteCheck();
+
+        Assert.Empty(Open());
+        Assert.Empty(_pushed);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_TheLicenseTheMachineIsOnFails_RaisesAtAnyLevel()
+    {
+        _aWeekly = 20;
+        var active = Failing(A, TimeSpan.FromDays(5));
+        active.IsActive = true;
+        Reports(active, Fine(B, TimeSpan.FromDays(30)));
+
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(A, alarm.AccountEmail);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_AQuietSpareFailure_Raises_OnceTheMachineReachesTheWarningLevelAndReliesOnIt()
+    {
+        _aWeekly = 20;
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5)));
+        await MinuteCheck();
+        Assert.Empty(Open());
+
+        _now = _now.AddMinutes(1);
+        _aWeekly = 85;
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(5) - TimeSpan.FromMinutes(1)));
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(B, alarm.AccountEmail);
+        Assert.Single(_pushed);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_AMachineOnNoLicense_RaisesForAFailingSignIn()
+    {
+        // No license it is on: the sign-in it holds is the one it would have to use, so its failure is loud.
+        Reports(Failing(B, TimeSpan.FromDays(5)));
+
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(B, alarm.AccountEmail);
+    }
+
+    [Fact]
+    public async Task MinuteCheck_ASpareFails_WhileTheMachineCannotBeJudged_StillRaises()
+    {
+        // The reading of the license it is on is too old to judge: a state the verdict cannot vouch for never silences it,
+        // even with another ready spare held.
+        var active = Fine(A, TimeSpan.FromDays(20), active: true);
+        active.ReadAtUtc = _now - LicenseContract.ActiveHoldingStaleAfter - TimeSpan.FromMinutes(5);
+        Reports(active, Failing(B, TimeSpan.FromDays(5)), Fine(C, TimeSpan.FromDays(30)));
+
+        await MinuteCheck();
+
+        var alarm = Assert.Single(Open());
+        Assert.Equal(B, alarm.AccountEmail);
+    }
+
+    private static LicenseNextLicense Verdict(string state, params string[] ready)
+        => new(Guid.NewGuid(), Mac, "u", Mac, A, state, null, false, null, ready, null, null, null, "", LicenseTones.Neutral);
+
+    [Theory]
+    [InlineData(LicenseNextLicenseStates.NotNeeded, false)]
+    [InlineData(LicenseNextLicenseStates.NoRoom, false)]
+    [InlineData(LicenseNextLicenseStates.Needed, true)]
+    [InlineData(LicenseNextLicenseStates.SwitchFailing, true)]
+    [InlineData(LicenseNextLicenseStates.NotJudged, true)]
+    public void SpareMatters_ByVerdictState(string state, bool matters)
+        => Assert.Equal(matters, LicenseRenewalFailureAlarm.SpareMatters(Verdict(state), B));
+
+    [Fact]
+    public void SpareMatters_NoVerdict_AMachineOnNoLicense_Matters()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(null, B));
+
+    [Fact]
+    public void SpareMatters_ReadyOnlyThroughThisSpare_Matters_InAnyCase()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready, B.ToUpperInvariant()), B));
+
+    [Fact]
+    public void SpareMatters_ReadyThroughAnotherLicenseToo_IsQuiet()
+        => Assert.False(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready, B, C), B));
+
+    [Fact]
+    public void SpareMatters_ReadyWithNoAccountNamed_Matters()
+        => Assert.True(LicenseRenewalFailureAlarm.SpareMatters(Verdict(LicenseNextLicenseStates.Ready), B));
 }
