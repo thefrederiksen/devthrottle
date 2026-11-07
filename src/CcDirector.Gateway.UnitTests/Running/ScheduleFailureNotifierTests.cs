@@ -1,6 +1,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
+using CcDirector.Gateway.Inbox;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
@@ -21,13 +22,14 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
     private readonly Dictionary<string, CronJobDto> _jobs = new(StringComparer.Ordinal);
     private readonly List<CronRunCompletedPayload> _fleet = new();
     private readonly List<CronRunCompletedPayload> _pushed = new();
-    private readonly List<(string Subject, string Body)> _emailed = new();
+    private readonly YourInboxStore _inbox;
     private DateTime _now = new(2026, 10, 24, 6, 0, 0, DateTimeKind.Utc);
 
     public ScheduleFailureNotifierTests()
     {
         _db = _h.Open();
         _runs = new CronRunHistoryStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
+        _inbox = new YourInboxStore(_db);
     }
 
     public void Dispose() => _h.Dispose();
@@ -37,14 +39,14 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         machineOsOf: (_, _) => DirectorOs.MacOs,
         fleet: new FleetChannel(_fleet),
         push: (_, notice, _) => { _pushed.Add(notice); return Task.CompletedTask; },
-        mail: (_, subject, body, _) => { _emailed.Add((subject, body)); return Task.FromResult<string?>(null); },
+        inbox: (tenant, message) => _inbox.Add(tenant, message),
         enterScope: _ => new NoScope(),
         clock: () => _now);
 
     // A schedule as a person makes one, without touching its notifications.
-    private CronJobDto NewSchedule(string id = "cj_morning", string name = "Morning report")
+    private CronJobDto NewSchedule(string id = "cj_morning", string name = "Morning report", string? factory = null)
     {
-        var job = new CronJobDto { Id = id, Name = name, Target = new CronJobTarget { Machine = "studio-mac" } };
+        var job = new CronJobDto { Id = id, Name = name, Factory = factory, Target = new CronJobTarget { Machine = "studio-mac" } };
         _jobs[id] = job;
         return job;
     }
@@ -82,10 +84,94 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         Assert.Equal(ScheduleFailureCauses.FolderMissing, told.Cause);
         Assert.False(told.Succeeded);
         Assert.Equal(expected, Assert.Single(_pushed).Reason);
-        var (subject, body) = Assert.Single(_emailed);
-        Assert.Equal("Schedule failed: Morning report", subject);
-        Assert.StartsWith("Your schedule \"Morning report\" failed on studio-mac.\n\n" + expected, body);
-        Assert.Contains("Details: " + MissingFolder, body);
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal("Schedule failed: Morning report", message.Subject);
+        Assert.StartsWith("Your schedule \"Morning report\" failed on studio-mac.\n\n" + expected, message.Body);
+        Assert.Contains("Details: " + MissingFolder, message.Body);
+        Assert.Contains("To stop these messages, set the schedule's Notify to Off.", message.Body);
+        Assert.DoesNotContain("email", message.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Every message in the account's Your inbox, oldest first.
+    private IReadOnlyList<CcDirector.Gateway.Data.Entities.YourInboxMessageEntity> InboxMessages() =>
+        _inbox.List(TenantId.Local, YourInboxWords.Views.Inbox, YourInboxStore.MaxList).Messages.Reverse().ToList();
+
+    [Fact]
+    public async Task AFailedScheduleInAFactory_IsToldInYourInbox_FromThatFactory_AndAReplyGoesToItsFactoryInbox()
+    {
+        var job = NewSchedule(factory: "booking");
+        var notifier = NewNotifier();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal((YourInboxWords.Senders.Factory, "booking", YourInboxWords.ScheduleFailureSeat, YourInboxWords.States.Unread),
+            (message.FromKind, message.Factory, message.Seat, message.State));
+        Assert.Equal(_now, message.SentAtUtc);
+        Assert.EndsWith(ScheduleFailureNotifier.FactoryReplyLine, message.Body);
+        var titles = new Dictionary<string, string> { ["booking"] = "Booking" };
+        Assert.Equal("Booking - Schedule failure", YourInboxFold.FromLabel(message, titles));
+        Assert.Equal(new YourInboxReplyToDto(YourInboxWords.ReplyTargets.Factory, "Reply into the Factory inbox of Booking"),
+            YourInboxFold.ReplyTo(message, titles));
+    }
+
+    [Fact]
+    public async Task AFailedScheduleInNoFactory_IsToldInYourInbox_FromTheGateway_AndOffersNoReply()
+    {
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+
+        var message = Assert.Single(InboxMessages());
+        Assert.Equal((YourInboxWords.Senders.Gateway, (string?)null, YourInboxWords.ScheduleFailureSeat),
+            (message.FromKind, message.Factory, message.Seat));
+        Assert.DoesNotContain(ScheduleFailureNotifier.FactoryReplyLine, message.Body);
+        var titles = new Dictionary<string, string>();
+        Assert.Equal("Schedule failure - schedule in no factory", YourInboxFold.FromLabel(message, titles));
+        Assert.Null(YourInboxFold.ReplyTo(message, titles));
+        Assert.Contains("a schedule in no factory failed", YourInboxWords.NoReplyToGateway(message.Seat));
+    }
+
+    [Fact]
+    public async Task AYourInboxWriteThatFails_DoesNotKeepTheOwnerFromHearingOnTheOtherChannels()
+    {
+        var job = NewSchedule();
+        var notifier = new ScheduleFailureNotifier(_runs, new CronFailureNoticeStore(_db),
+            jobOf: (_, id) => _jobs.TryGetValue(id, out var j) ? j : null,
+            machineOsOf: (_, _) => DirectorOs.MacOs,
+            fleet: new FleetChannel(_fleet),
+            push: (_, notice, _) => { _pushed.Add(notice); return Task.CompletedTask; },
+            inbox: (_, _) => throw new InvalidOperationException("the inbox store is down"),
+            enterScope: _ => new NoScope(),
+            clock: () => _now);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Single(_fleet);
+        Assert.Single(_pushed);
+    }
+
+    [Fact]
+    public void InboxMessage_ALongDetail_IsCut_SoTheNoticeFitsInOneMessage()
+    {
+        var job = NewSchedule(factory: "booking");
+        var notice = new CronRunCompletedPayload
+        {
+            JobId = job.Id, JobName = job.Name, Machine = "studio-mac", Reason = "It failed.", Occurrences = 1,
+            Detail = new string('x', 30000), FiredUtc = _now,
+        };
+
+        var message = ScheduleFailureNotifier.InboxMessage(TenantId.Local, job, notice, _now);
+
+        Assert.True(message.Body.Length <= YourInboxStore.MaxBodyLength);
+        Assert.Contains("Details: " + new string('x', ScheduleFailureNotifier.MaxDetailLength - 3) + "...", message.Body);
+        Assert.EndsWith(ScheduleFailureNotifier.FactoryReplyLine, message.Body);
     }
 
     [Fact]
@@ -104,7 +190,7 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         }
         Assert.Single(_fleet);
         Assert.Single(_pushed);
-        Assert.Single(_emailed);
+        Assert.Single(InboxMessages());
 
         // 07:00: the hour has passed, so the thirteenth failure is told, standing for itself and the eleven held back.
         Fail(job.Id, MissingFolder);
@@ -113,6 +199,8 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         Assert.Equal(2, _fleet.Count);
         Assert.Equal(12, _fleet[1].Occurrences);
         Assert.EndsWith("It has failed this way 12 times since the last notice.", ScheduleFailureNotifier.PushWords(_pushed[1]).Body);
+        Assert.Equal(2, InboxMessages().Count);
+        Assert.Contains("It has failed this way 12 times since the last notice.", InboxMessages()[1].Body);
     }
 
     [Fact]
@@ -154,7 +242,7 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         Assert.Equal(0, await notifier.ScanAsync(CancellationToken.None));
         Assert.Empty(_fleet);
         Assert.Empty(_pushed);
-        Assert.Empty(_emailed);
+        Assert.Empty(InboxMessages());
     }
 
     [Fact]

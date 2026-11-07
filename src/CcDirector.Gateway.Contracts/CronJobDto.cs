@@ -88,7 +88,7 @@ public sealed class CronJobDto
     /// <c>always</c> (also tell every run that started), or <c>none</c> (the owner turned it off). A failed run - one that
     /// did not run, did not start, whose start is not known, or that ended with a problem, missed runs included - is told
     /// by <c>ScheduleFailureNotifier</c> on the fleet notification channel (the per-Director doorbell event ring), the
-    /// owner's phones and the account owner's email, at most once an hour for each cause of each schedule; when
+    /// owner's phones and the account owner's Your inbox (never email), at most once an hour for each cause of each schedule; when
     /// <see cref="NotifyWebhookUrl"/> is set the same payload is also POSTed there.
     /// </summary>
     public string NotifyOn { get; set; } = CronNotify.Default;

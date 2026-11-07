@@ -223,7 +223,7 @@ internal static class YourInboxEndpoints
     {
         var titles = Titles(parts, tenant);
         if (message.FromKind == YourInboxWords.Senders.Gateway)
-            return Error(409, "no_reply_to_gateway", YourInboxWords.NoReplyToGateway);
+            return Error(409, "no_reply_to_gateway", YourInboxWords.NoReplyToGateway(message.Seat));
         if (message.FromKind == YourInboxWords.Senders.Factory || to == YourInboxWords.ReplyTargets.Factory)
         {
             if (message.Factory is null)

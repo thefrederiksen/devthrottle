@@ -462,8 +462,38 @@ public sealed class YourInboxEndpointTests : IAsyncLifetime
         Assert.Equal(0, m.GetProperty("links").GetArrayLength());
         Assert.Equal(HttpStatusCode.Conflict, status);
         Assert.Equal("no_reply_to_gateway", Code(body));
-        Assert.Equal(YourInboxWords.NoReplyToGateway, body.GetProperty("error").GetString());
+        Assert.Equal(YourInboxWords.NoReplyToGateway(YourInboxWords.MorningReportSeat), body.GetProperty("error").GetString());
         Assert.Empty(_store.Replies(A, row.Id));
+    }
+
+    [Fact]
+    public async Task Reply_ToAScheduleFailureInNoFactory_IsRefusedInItsOwnWords_AndItListsWithNoReplyTarget()
+    {
+        var row = _store.Add(A, YourInboxStore.ForScheduleFailure(A, null, "Schedule failed: Morning report", "It failed.", _now));
+
+        var (_, list) = await Call("GET", "/gateway/inbox", Phone);
+        var (status, body) = await Post($"/gateway/inbox/{row.Id:D}/reply", Phone, new { text = "Thanks." });
+
+        var m = list.GetProperty("messages").EnumerateArray().Single();
+        Assert.Equal("Schedule failure - schedule in no factory", m.GetProperty("from").GetProperty("label").GetString());
+        Assert.Equal(JsonValueKind.Null, m.GetProperty("replyTo").ValueKind);
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("no_reply_to_gateway", Code(body));
+        Assert.Equal(YourInboxWords.NoReplyToGateway(YourInboxWords.ScheduleFailureSeat), body.GetProperty("error").GetString());
+        Assert.Empty(_store.Replies(A, row.Id));
+    }
+
+    [Fact]
+    public async Task Reply_ToAScheduleFailureFromAFactory_IsLeftInThatFactorysInbox()
+    {
+        var row = _store.Add(A, YourInboxStore.ForScheduleFailure(A, "booking", "Schedule failed: Morning report", "It failed.", _now));
+
+        var (status, body) = await Post($"/gateway/inbox/{row.Id:D}/reply", Phone, new { text = "Move it to the studio machine." });
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal("Left in the Factory inbox of Booking", body.GetProperty("reply").GetProperty("label").GetString());
+        Assert.Equal("Move it to the studio machine.", Assert.Single(_factoryInbox.Thread(A, "booking", 10).Messages).Text);
+        Assert.Equal(0, _deliveries);
     }
 
     [Fact]

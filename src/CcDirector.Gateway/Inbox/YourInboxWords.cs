@@ -26,24 +26,37 @@ public static class YourInboxWords
         public const string Factory = "factory";
 
         /// <summary>The Gateway itself, with no session and no factory behind it: the 08:00 morning report's message about
-        /// open problems whose schedule no factory's morning summary carries. Nobody reads a reply to it.</summary>
+        /// open problems whose schedule no factory's morning summary carries, and the notice that a schedule in no factory
+        /// failed. Nobody reads a reply to it.</summary>
         public const string Gateway = "gateway";
     }
 
     /// <summary>The seat a Gateway message is written from: the 08:00 morning report.</summary>
     public const string MorningReportSeat = "morning report";
 
+    /// <summary>The seat a schedule failure notice is written from (issue #4436, moved off email by the Factory Inbox
+    /// mission): a factory's seat when the schedule belongs to a factory, the Gateway's when it belongs to none.</summary>
+    public const string ScheduleFailureSeat = "schedule failure";
+
     /// <summary>Who a Gateway message is from, as the owner reads it.</summary>
     public static string GatewayFromLabel(string? seat) => seat switch
     {
         MorningReportSeat => "Morning report - schedules in no factory",
+        ScheduleFailureSeat => "Schedule failure - schedule in no factory",
         _ => throw new ArgumentOutOfRangeException(nameof(seat), seat, "not a seat a Gateway message is written from"),
     };
 
-    /// <summary>What the reply route answers when a reply is posted to a Gateway message.</summary>
-    public const string NoReplyToGateway =
-        "This message is from the Gateway's morning report, not from a session or a factory, so nobody reads a reply to it. "
-        + "Nothing was sent. Put the schedule into a factory, or fix it on the Schedule page.";
+    /// <summary>What the reply route answers when a reply is posted to a Gateway message written from
+    /// <paramref name="seat"/>.</summary>
+    public static string NoReplyToGateway(string? seat) => seat switch
+    {
+        ScheduleFailureSeat =>
+            "This message is the Gateway's notice that a schedule in no factory failed, not a message from a session or a factory, "
+            + "so nobody reads a reply to it. Nothing was sent. Fix the schedule on the Schedule page, or put it into a factory.",
+        _ =>
+            "This message is from the Gateway's morning report, not from a session or a factory, so nobody reads a reply to it. "
+            + "Nothing was sent. Put the schedule into a factory, or fix it on the Schedule page.",
+    };
 
     /// <summary>Where a reply went.</summary>
     public static class ReplyTargets

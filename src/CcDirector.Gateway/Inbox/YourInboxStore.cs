@@ -226,7 +226,8 @@ public sealed class YourInboxStore
         };
     }
 
-    /// <summary>Write a morning summary built by <see cref="ForMorningSummary"/>, unread.</summary>
+    /// <summary>Write a message built by <see cref="ForMorningSummary"/>, <see cref="ForNoFactoryProblems"/> or
+    /// <see cref="ForScheduleFailure"/>, unread.</summary>
     public YourInboxMessageEntity Add(TenantId tenant, YourInboxMessageEntity row)
     {
         ArgumentNullException.ThrowIfNull(row);
@@ -254,6 +255,39 @@ public sealed class YourInboxStore
         row.Factory = null;
         row.Seat = YourInboxWords.MorningReportSeat;
         return row;
+    }
+
+    /// <summary>
+    /// THE NOTICE THAT A SCHEDULE FAILED (issue #4436; Factory Inbox mission, "factories stop emailing"): it replaced the
+    /// "Schedule failed" email, and no email is sent. When the schedule belongs to <paramref name="factory"/> it is sent
+    /// from that factory, seat <see cref="YourInboxWords.ScheduleFailureSeat"/>, so a reply is left in that factory's
+    /// Factory inbox, as a morning summary's is; when it belongs to no factory (null) it is sent from the Gateway, and
+    /// nobody reads a reply to it. A subject or body over the limits is cut and says so.
+    /// </summary>
+    public static YourInboxMessageEntity ForScheduleFailure(TenantId tenant, string? factory, string subject, string body, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        subject = subject.Trim().Replace('\r', ' ').Replace('\n', ' ');
+        if (subject.Length > MaxSubjectLength) subject = subject[..(MaxSubjectLength - 3)].TrimEnd() + "...";
+        if (body.Length > MaxBodyLength)
+        {
+            const string Cut = "\n\nThis notice was longer than one message holds; every run is on the Schedule page.";
+            body = body[..(MaxBodyLength - Cut.Length)].TrimEnd() + Cut;
+        }
+        var fromFactory = !string.IsNullOrWhiteSpace(factory);
+        FileLog.Write($"[YourInboxStore] ForScheduleFailure: factory={(fromFactory ? factory : "(none)")} bodyLength={body.Length}");
+        return new YourInboxMessageEntity
+        {
+            TenantId = tenant.Value,
+            Subject = subject,
+            Body = body,
+            FromKind = fromFactory ? YourInboxWords.Senders.Factory : YourInboxWords.Senders.Gateway,
+            Factory = fromFactory ? factory!.Trim() : null,
+            Seat = YourInboxWords.ScheduleFailureSeat,
+            State = YourInboxWords.States.Unread,
+            SentAtUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
     }
 
     /// <summary>The 08:00 message about problems in no factory already written for the boundary, or null.</summary>

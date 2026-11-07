@@ -84,7 +84,7 @@ public sealed class CronNotifyTests : IDisposable
 
     private ScheduleFailureNotifier FailureNotifier(CronJobStore store, CronRunHistoryStore history, ICronNotifier fleet) =>
         new(history, new CronFailureNoticeStore(Db), (_, id) => store.Get(id), (_, _) => null, fleet,
-            (_, _, _) => Task.CompletedTask, (_, _, _, _) => Task.FromResult<string?>("no account to email in this test"),
+            (_, _, _) => Task.CompletedTask, (_, _) => { },
             _ => new NoScope(), () => Now);
 
     [Fact]
