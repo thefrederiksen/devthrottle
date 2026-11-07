@@ -219,6 +219,29 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadHasBrowserProfile(output));
 
     [Fact]
+    public void ReadRecordedBrowsers_TheToolsList_IsReadWithTheAccountInLowerCase()
+    {
+        var rows = CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers(
+            "{\"count\": 2, \"accounts\": [{\"accountEmail\": \"Account-A@Example.com\", \"browser\": \"Work Chrome\"}, "
+            + "{\"accountEmail\": \"account-b@example.com\", \"browser\": \"home-edge\"}]}");
+
+        Assert.Equal(new[] { new LicenseRecordedBrowser("account-a@example.com", "Work Chrome"), new LicenseRecordedBrowser("account-b@example.com", "home-edge") }, rows);
+    }
+
+    [Fact]
+    public void ReadRecordedBrowsers_NoneSet_IsAnEmptyList() =>
+        Assert.Empty(CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers("{\"count\": 0, \"accounts\": []}"));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("{\"count\": 0}")]
+    [InlineData("{\"accounts\": [{\"accountEmail\": \"account-a@example.com\"}]}")]
+    [InlineData("{\"accounts\": [\"account-a@example.com\"]}")]
+    public void ReadRecordedBrowsers_AnAnswerItCannotRead_IsNotGuessed(string output) =>
+        Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadRecordedBrowsers(output));
+
+    [Fact]
     public void TheDirectorsTimeLimits_FitInsideTheGatewaysWaits()
     {
         // Review of 3916, finding 2. An approval made for a Gateway that stopped listening spends a one-use answer

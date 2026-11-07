@@ -2549,6 +2549,16 @@ def license_set_browser(
     license_signin_ops.set_browser(account, browser, default_config_dir, store_dir, json_output)
 
 
+@license_app.command("list-browsers")
+def license_list_browsers(
+    default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
+    store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {count, accounts: [{accountEmail, browser}]}."),
+) -> None:
+    """List every account a browser profile is set for on this machine."""
+    license_signin_ops.list_browsers(default_config_dir, store_dir, json_output)
+
+
 @license_app.command("get-browser")
 def license_get_browser(
     account: str = typer.Argument(..., help="The Claude account's email."),

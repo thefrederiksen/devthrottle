@@ -216,6 +216,19 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         }
     }
 
+    /// <summary>The accounts a browser profile is set for here (<c>license list-browsers</c>), as the owner typed the
+    /// profile: its name or its identifier.</summary>
+    public List<LicenseRecordedBrowser> RecordedBrowsers { get; } = new();
+
+    /// <summary>When set, the profile list fails as a tool that gave no readable answer.</summary>
+    public string? RecordedBrowsersFailWith { get; set; }
+
+    public Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken)
+    {
+        if (RecordedBrowsersFailWith is not null) throw new LicenseCommandLineException(RecordedBrowsersFailWith);
+        return Task.FromResult<IReadOnlyList<LicenseRecordedBrowser>>(RecordedBrowsers.ToList());
+    }
+
     private void ThrowIfFailing()
     {
         if (!IsInstalled) throw new LicenseCommandLineException("cc-devthrottle is not installed in this machine's Python tool environment (the fake's).");

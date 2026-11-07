@@ -62,6 +62,7 @@ internal sealed class LicenseApproverDirectorKit : IDisposable
         public Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<CcDirector.Core.Licenses.LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class NoProfiles : ILicenseBrowserProfiles

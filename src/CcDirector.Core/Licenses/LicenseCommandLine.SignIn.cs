@@ -93,6 +93,10 @@ public sealed class LicenseApproverToolAnswer
         new() { State = LicenseApproverStates.CheckFailed, AccountEmail = accountEmail, ToolAnswered = false, Detail = detail };
 }
 
+/// <summary>One account a browser profile is set for on this machine (<c>license set-browser</c>), as
+/// <c>license list-browsers --json</c> answers it: the account, and the profile's name or identifier as the owner typed it.</summary>
+public sealed record LicenseRecordedBrowser(string AccountEmail, string BrowserProfile);
+
 /// <summary>What <c>license approve --json</c> answered. <see cref="Approval"/> is the authorize answer the waiting
 /// login needs: it is never logged, and it leaves this process only sealed to the waiting machine.</summary>
 public sealed class LicenseApproveAnswer
@@ -234,6 +238,35 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         var answer = ReadApproverCheck(output, accountEmail);
         FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile={browserProfile}, account={answer.AccountEmail ?? "-"}, state={answer.State}, answered={answer.ToolAnswered}, detail={answer.Detail ?? "-"}");
         return answer;
+    }
+
+    public async Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken)
+    {
+        FileLog.Write("[CcDevthrottleLicenseCommandLine] ListRecordedBrowsersAsync");
+        var output = await RunForJsonAsync(new[] { "license", "list-browsers" }, cancellationToken);
+        var rows = ReadRecordedBrowsers(output);
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] ListRecordedBrowsersAsync: count={rows.Count}");
+        return rows;
+    }
+
+    /// <summary>The <c>list-browsers --json</c> answer: <c>{count, accounts: [{accountEmail, browser}]}</c>. An answer of
+    /// any other shape throws: a list read wrongly would check the wrong profiles.</summary>
+    internal static IReadOnlyList<LicenseRecordedBrowser> ReadRecordedBrowsers(string? output)
+    {
+        using var document = FirstObject(output)
+            ?? throw new LicenseCommandLineException($"{ToolName} license list-browsers printed no JSON answer.");
+        if (!document.RootElement.TryGetProperty("accounts", out var accounts) || accounts.ValueKind != JsonValueKind.Array)
+            throw new LicenseCommandLineException($"{ToolName} license list-browsers answered no \"accounts\" list.");
+        var rows = new List<LicenseRecordedBrowser>();
+        foreach (var row in accounts.EnumerateArray())
+        {
+            var account = row.ValueKind == JsonValueKind.Object ? Text(row, "accountEmail")?.Trim().ToLowerInvariant() : null;
+            var browser = row.ValueKind == JsonValueKind.Object ? Text(row, "browser")?.Trim() : null;
+            if (string.IsNullOrEmpty(account) || string.IsNullOrEmpty(browser))
+                throw new LicenseCommandLineException($"{ToolName} license list-browsers answered a row without an account and a profile.");
+            rows.Add(new LicenseRecordedBrowser(account, browser));
+        }
+        return rows;
     }
 
     /// <summary>How long one <c>license check-approver</c> may take: reading the signed-in account, starting the

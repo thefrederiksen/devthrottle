@@ -329,6 +329,9 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         public Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken)
             => throw new NotSupportedException("no approver check happens in a renewal");
 
+        public Task<IReadOnlyList<LicenseRecordedBrowser>> ListRecordedBrowsersAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
         {
             Assert.True(askAnotherMachineWhenNoBrowser, "with no profile here, the renewal must be allowed to ask another machine");

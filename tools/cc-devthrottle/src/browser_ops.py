@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import functools
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from rich import box
 from rich.console import Console
@@ -280,20 +280,24 @@ class DrivenBrowser:
     For code that drives a profile itself (`license approve`), not for an agent at a prompt. It finds the profile
     by name or id among this machine's, starts it when it is stopped, gives the browser-harness environment the
     Director folded for it, and `stop` stops it again only if it was stopped before. Raises LookupError when no
-    profile matches, and gateway.GatewayError when the Gateway cannot be reached."""
+    profile matches, and gateway.GatewayError when the Gateway cannot be reached.
 
-    def __init__(self, target: str):
-        browsers = _browsers()
+    ``call`` runs each Gateway request - the list, the start, the stop - one at a time, so a caller can retry one
+    that met a dropped connection (license_signin.with_reconnect). Each is retried on its own: retrying the whole
+    start would read a profile this run had just started as "already running", and never stop it again."""
+
+    def __init__(self, target: str, call: Callable[[Callable[[], Any]], Any] = lambda request: request()):
+        self._call = call
+        browsers = call(_browsers)
         key = target.strip().lower()
-        match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None) \
-            or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
+        match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None)             or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
         if match is None:
             names = ", ".join(f'"{gateway.field(b, "name", "Name")}"' for b in browsers) or "none"
             raise LookupError(f'no browser profile "{target}" on this machine (there are: {names})')
         self.id = gateway.field(match, "id", "Id")
         self.name = gateway.field(match, "name", "Name")
         self._was_running = (gateway.field(match, "status", "Status") or "").lower() != "stopped"
-        dto = gateway.post_json(f"{_mine()}/{self.id}/start", {})
+        dto = call(lambda: gateway.post_json(f"{_mine()}/{self.id}/start", {}))
         self._env = {"BU_NAME": gateway.field(dto, "buName", "BuName"),
                      "BU_CDP_URL": gateway.field(dto, "buCdpUrl", "BuCdpUrl")}
 
@@ -302,4 +306,4 @@ class DrivenBrowser:
 
     def stop(self) -> None:
         if not self._was_running:
-            gateway.post_json(f"{_mine()}/{self.id}/stop", {})
+            self._call(lambda: gateway.post_json(f"{_mine()}/{self.id}/stop", {}))

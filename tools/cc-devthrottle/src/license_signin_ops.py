@@ -27,6 +27,9 @@ in the AXI shape (docs/axi-standard.md).
   it first reads which account the profile is signed in to claude.ai as. It answers the profile by its identifier
   (`browserProfile`, the Director's slug) whether it was given the identifier or the name, and its display name as
   `browserProfileName`. The Director runs it daily.
+- `license list-browsers` lists every account a profile is set for here (`license set-browser`), and that profile.
+  The Director's daily approver check checks exactly these, with their account, and the approver records the
+  Gateway names - never every profile on the machine.
 - `license get-browser <email>` says which profile is set for an account on this machine, or that none is; exit 0
   either way.
 - A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval
@@ -196,6 +199,28 @@ def get_browser(email: str, default_config_dir: Optional[str], store_dir: Option
         axi_cli.write_lines(f"No browser profile is set for {account} on this machine.")
         axi_cli.print_next([f"cc-devthrottle license set-browser {account} \"<profile name>\"",
                             "cc-devthrottle browser list"])
+
+
+def list_browsers(default_config_dir: Optional[str], store_dir: Optional[str], json_output: bool) -> None:
+    """Every account a browser profile is set for on this machine. None set is an answer (count 0), not a failure."""
+    store = license_ops._open(default_config_dir, store_dir)
+    try:
+        recorded = license_signin.load_browsers(store)
+    except SignInError as ex:
+        _fail(ex)
+    rows = [{"accountEmail": account, "browser": profile} for account, profile in sorted(recorded.items())]
+    if json_output:
+        print(json.dumps({"count": len(rows), "accounts": rows}, indent=2))
+        return
+    blocks: List[str] = [axi_output.format_count(len(rows))]
+    if rows:
+        blocks.append(axi_output.render_list("accounts", ["account", "browser"],
+                                             [{"account": r["accountEmail"], "browser": r["browser"]} for r in rows]))
+    else:
+        blocks.append("No browser profile is set for any account on this machine.")
+    blocks.append(axi_output.format_help(['cc-devthrottle license set-browser <account> "<profile name>"',
+                                          "cc-devthrottle license list-browsers --json"]))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def renew(account: Optional[str], force: bool, json_output: bool, fields: Optional[str],
