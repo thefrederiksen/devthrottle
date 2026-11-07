@@ -75,6 +75,13 @@ public static class LicenseLogKinds
     /// switch (never every minute), so the switch never reads as done while a machine is still on the tired account.
     /// Final when written.</summary>
     public const string LeftBehind = "left-behind";
+
+    /// <summary>A sign-in by hand replaced an account in a machine's default config and the machine could NOT keep it as
+    /// a spare (<see cref="LicenseUsageReport.SignInsNotKept"/>): it is held nowhere a switch can reach. One row for each
+    /// machine and account, open while the machine's reports say so, ended by the first report that does not (or by
+    /// forgetting the machine). Written by <see cref="LicenseStore.ApplyReport"/> only; the license alarm is raised
+    /// from the open rows (<see cref="LicenseMachineHealthAlarm.NotKept"/>).</summary>
+    public const string SignInNotKept = "sign-in-not-kept";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -258,6 +265,10 @@ public sealed class LicenseStore
 
             if (report.SwitchedByHand is { } hand)
                 ctx.LicenseSwitchLog.Add(HandSwitchRow(ctx, machine, directorId, NormalizeEmail(hand.AccountEmail), previousActive, byEmail, now));
+
+            // A Director older than the field says nothing, and nothing it has open is touched.
+            if (report.SignInsNotKept is { } notKept)
+                ReconcileNotKept(ctx, machine, directorId, first, notKept, now);
 
             ctx.SaveChanges();
             var removedEmails = removed.Select(r => r.AccountEmail).ToList();
@@ -512,6 +523,64 @@ public sealed class LicenseStore
             FinishedAtUtc = now,
             TenantId = ctx.ActiveTenant!,
         };
+    }
+
+    /// <summary>
+    /// Bring the machine's open <see cref="LicenseLogKinds.SignInNotKept"/> rows into line with what its report says now:
+    /// open one for each account named that has none, end each open one whose account the report no longer names. A
+    /// reason word the Gateway does not know is stored as <see cref="LicenseNotKeptReasons.NotKnown"/>.
+    /// </summary>
+    private static void ReconcileNotKept(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId, bool first,
+        IReadOnlyList<LicenseSignInNotKept> notKept, DateTime now)
+    {
+        var named = notKept
+            .Select(n => (Email: NormalizeEmail(n.AccountEmail), Reason: LicenseNotKeptReasons.All.Contains(n.Reason ?? "") ? n.Reason! : LicenseNotKeptReasons.NotKnown))
+            .Where(n => n.Email.Length > 0)
+            .GroupBy(n => n.Email, StringComparer.Ordinal).Select(g => g.First())
+            .ToList();
+        var open = first
+            ? new List<LicenseSwitchLogEntity>()
+            : ctx.LicenseSwitchLog.Where(r => r.MachineId == machine.Id && r.Kind == LicenseLogKinds.SignInNotKept && r.FinishedAtUtc == null).ToList();
+        foreach (var row in open.Where(r => named.All(n => n.Email != r.FromAccountEmail)))
+        {
+            row.State = LicenseLogStates.Ended;
+            row.FinishedAtUtc = now;
+            FileLog.Write($"[LicenseStore] ReconcileNotKept: machine={machine.Id}, account={row.FromAccountEmail} is no longer reported not kept; row={row.Id} ended");
+        }
+        foreach (var (email, reason) in named.Where(n => open.All(r => r.FromAccountEmail != n.Email)))
+        {
+            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.SignInNotKept,
+                MachineId = machine.Id,
+                MachineName = machine.MachineName,
+                OsUser = machine.OsUser,
+                DirectorId = directorId,
+                FromAccountEmail = email,
+                ToAccountEmail = "",
+                State = LicenseLogStates.Open,
+                ReasonCode = reason,
+                Message = NotKeptMessage(machine.MachineName, email, reason),
+                CreatedAtUtc = now,
+                TenantId = ctx.ActiveTenant!,
+            });
+            FileLog.Write($"[LicenseStore] ReconcileNotKept: machine={machine.Id}, account={email} was replaced by a sign-in by hand and NOT kept ({reason}); a row is opened");
+        }
+    }
+
+    /// <summary>The Licenses log's sentence for an account a sign-in by hand replaced and the machine could not keep.</summary>
+    public static string NotKeptMessage(string machineName, string email, string reason) => reason == LicenseNotKeptReasons.SpareFolderHoldsAnotherSignIn
+        ? $"A sign-in by hand on {machineName} replaced {email}, and it could not be kept as a spare: its spare folder holds another sign-in."
+        : $"A sign-in by hand on {machineName} replaced {email}, and it could not be kept as a spare.";
+
+    /// <summary>Every open <see cref="LicenseLogKinds.SignInNotKept"/> row, oldest first.</summary>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListOpenNotKept(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == LicenseLogKinds.SignInNotKept && r.FinishedAtUtc == null)
+            .ToList()
+            .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
     }
 
     // ---- The switch log (written by the decision engine) ----
@@ -1359,7 +1428,9 @@ public sealed class LicenseStore
                 return new LicenseForgetResult(null, LicenseForgetRefusals.SignInOpen);
             }
             var silences = open.Where(r => r.Kind == LicenseLogKinds.MachineSilent).ToList();
-            foreach (var row in refusals.Concat(silences))
+            // A forgotten machine holds nothing, so nothing on it is left not kept.
+            var notKept = open.Where(r => r.Kind == LicenseLogKinds.SignInNotKept).ToList();
+            foreach (var row in refusals.Concat(silences).Concat(notKept))
             {
                 row.State = LicenseLogStates.Ended;
                 row.FinishedAtUtc = now;

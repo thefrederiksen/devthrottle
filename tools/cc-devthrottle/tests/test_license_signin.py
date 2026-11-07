@@ -151,14 +151,16 @@ def test_signIn_ActiveAccount_IsRenewedInPlace(store):
     assert str(FakeLogin.instances[0].folder) == store.default_config_dir
 
 
-def test_signIn_BrowserSignedInAsAnotherAccount_NothingIsKept(store):
+def test_signIn_BrowserSignedInAsAnotherAccount_IsRefused_AndTheWrongSignInIsKeptAsItsOwnAccountsSpare(store):
+    # A sign-in is never deleted except by `license remove`: the login the browser made for the wrong account is a
+    # working sign-in, so it is kept where it belongs - never left in a folder named for another account.
     with pytest.raises(SignInError) as refused:
         license_signin.sign_in(store, ACCOUNT_B, _approve, start_login=_starter(signs_in_as=ACCOUNT_C),
                                now=lambda: NOW)
 
     assert refused.value.kind == license_signin.STORE_REFUSED
-    assert _held(store) == {ACCOUNT_A: "active"}
-    assert not _new_spare_left(store, ACCOUNT_B), "the unwanted sign-in must be deleted, not left behind"
+    assert _held(store) == {ACCOUNT_A: "active", ACCOUNT_C: "spare"}
+    assert not _new_spare_left(store, ACCOUNT_B), "no folder named for B is left behind"
 
 
 @pytest.mark.parametrize("failure", ["no-url", "bad-code", "approve-raises", "finish-fails"])

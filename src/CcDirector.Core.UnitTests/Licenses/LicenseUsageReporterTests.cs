@@ -349,6 +349,43 @@ public sealed class LicenseUsageReporterTests : IDisposable
     }
 
 
+    // ---- a sign-in by hand replaced an account the key store could not keep (issue 4696) ----
+
+    [Fact]
+    public async Task TickAsync_TheStoreCouldNotKeepAReplacedAccount_AReportGoesAtOnceAndEveryReportSaysSoWhileItLasts()
+    {
+        // The account is held nowhere a switch can reach: the report says so at once ("changed"), and every report
+        // after it says so too, because it is a state. Once the store keeps it, the next report goes at once with an
+        // empty list, which is what ends it at the Gateway.
+        await _reporter.TickAsync(CancellationToken.None);
+        _tool.NotKept.Add(new LicenseSignInNotKept { AccountEmail = "account-c@example.com", Reason = LicenseNotKeptReasons.SpareFolderHoldsAnotherSignIn });
+        _clock.Advance(TimeSpan.FromSeconds(30));
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        var lost = Assert.Single(report.SignInsNotKept!);
+        Assert.Equal(("account-c@example.com", LicenseNotKeptReasons.SpareFolderHoldsAnotherSignIn), (lost.AccountEmail, lost.Reason));
+        _clock.Advance(LicenseContract.ReportInterval);
+        Assert.Single((await _reporter.TickAsync(CancellationToken.None))!.SignInsNotKept!);
+
+        _tool.NotKept.Clear();
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        var cleared = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseReportTriggers.Changed, cleared!.Trigger);
+        Assert.Empty(cleared.SignInsNotKept!);
+    }
+
+    [Fact]
+    public async Task TickAsync_NothingNotKept_EveryReportSaysSoWithAnEmptyList()
+    {
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.NotNull(report!.SignInsNotKept);
+        Assert.Empty(report.SignInsNotKept!);
+    }
+
     // ----- contract section 12.1: whether a switch can run -----
 
     [Fact]

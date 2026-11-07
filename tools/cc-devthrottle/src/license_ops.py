@@ -72,12 +72,23 @@ def _report_recovery(store: LicenseStore) -> None:
     for kept in store.last_kept:
         axi_cli.warn(f"a sign-in by hand replaced {kept.account} in the default folder; it is kept as a spare in "
                      f"{kept.kept_in}")
+    for lost in store.not_kept:
+        axi_cli.warn(f"a sign-in by hand replaced {lost.account} in the default folder, and it could NOT be kept as a "
+                     f"spare: its spare folder {lost.spare_folder} holds another sign-in. Its only copy is {lost.copy}; "
+                     f"move {lost.spare_folder} out of the store by hand and it is kept on the next run")
 
 
 def healed_json(store: LicenseStore) -> list:
     """The `healed` field of a `--json` answer: every hand sign-in this run healed (see
     `LicenseStore._heal_hand_sign_in`). The Director reads it to tell the Gateway the machine was switched by hand."""
     return [heal.to_json() for heal in store.last_heals]
+
+
+def not_kept_json(store: LicenseStore) -> list:
+    """The `notKept` field of a `--json` answer: every account a sign-in by hand replaced that this open could NOT keep
+    as a spare (see `LicenseStore._keep_replaced`). A state, present on every answer while it lasts. The Director
+    reports it, and the Gateway raises the license alarm for it."""
+    return [row.to_json() for row in store.not_kept]
 
 
 def _run(store: LicenseStore, action):
@@ -107,6 +118,7 @@ def list_accounts(default_config_dir: Optional[str], store_dir: Optional[str], f
             "storeDir": store.store_dir,
             "recovered": store.last_recovery,
             "healed": healed_json(store),
+            "notKept": not_kept_json(store),
             "accounts": [a.to_json() for a in accounts],
         }, indent=2))
         return
@@ -217,5 +229,6 @@ def remove_account(email: str, yes: bool, default_config_dir: Optional[str], sto
         print(json.dumps({"removed": account.email, "configDir": account.config_dir,
                           "recovered": store.last_recovery}, indent=2))
         return
-    axi_cli.write_lines(f"Removed: the spare sign-in for {account.email} was deleted from this machine.")
+    axi_cli.write_lines(f"Removed: the spare sign-in for {account.email} was deleted from this machine. Remove is the only "
+                         "command that drops a sign-in; every other one keeps it or refuses.")
     axi_cli.print_next([LIST, "cc-devthrottle license add <account-folder>"])

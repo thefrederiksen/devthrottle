@@ -13,6 +13,8 @@ namespace CcDirector.Gateway.Licenses;
 /// <item><see cref="Refused"/> - a machine whose reports the Gateway refuses for what they say
 /// (<see cref="LicenseLogKinds.ReportRefused"/>, written by the ingest). Its sentence is the refusal's own reason.</item>
 /// <item><see cref="Silent"/> - the retired kind, retained only to close stored alarms.</item>
+/// <item><see cref="NotKept"/> - a machine where a sign-in by hand replaced an account it could not keep as a spare
+/// (<see cref="LicenseLogKinds.SignInNotKept"/>, written by the report): the account is held nowhere a switch can reach.</item>
 /// </list>
 ///
 /// RAISED BY CONDITION, ONCE A MINUTE. The rows are the state: the ingest opens and ends a refusal and the minute check
@@ -35,6 +37,9 @@ public sealed class LicenseMachineHealthAlarm
 
     /// <summary>The kind a silent machine's alarm is raised under.</summary>
     public static readonly LicenseAlarmKind Silent = new("machine-silent", "Machine stopped reporting");
+
+    /// <summary>The kind a machine that lost an account to a sign-in by hand is raised under.</summary>
+    public static readonly LicenseAlarmKind NotKept = new("sign-in-not-kept", "A sign-in was replaced and not kept");
 
     private readonly LicenseStore _store;
     private readonly LicenseReadModel _reads;
@@ -117,6 +122,37 @@ public sealed class LicenseMachineHealthAlarm
         return new LicenseAlarmCondition(row.MachineId, label, null, problem, action);
     }
 
+    /// <summary>
+    /// The alarms for the open <see cref="LicenseLogKinds.SignInNotKept"/> rows, as pure code: one for each machine (the
+    /// alarm service refuses two of a kind about one machine), naming every account it could not keep.
+    /// </summary>
+    public static List<LicenseAlarmCondition> NotKeptConditions(IReadOnlyList<LicenseSwitchLogEntity> openNotKept,
+        IReadOnlyList<LicenseMachineView> machines)
+    {
+        ArgumentNullException.ThrowIfNull(openNotKept);
+        ArgumentNullException.ThrowIfNull(machines);
+        return openNotKept
+            .Where(r => r.Kind == LicenseLogKinds.SignInNotKept)
+            .GroupBy(r => r.MachineId)
+            .Select(g =>
+            {
+                var machine = machines.FirstOrDefault(m => m.MachineId == g.Key);
+                var label = machine is not null ? LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser) : g.First().MachineName;
+                var accounts = g.Select(r => r.FromAccountEmail).Distinct(StringComparer.Ordinal).OrderBy(a => a, StringComparer.Ordinal).ToList();
+                var problem = $"A sign-in by hand on {label} replaced {string.Join(" and ", accounts)}, and the machine could not keep "
+                              + $"{(accounts.Count == 1 ? "it" : "them")} as a spare, so it cannot switch to {(accounts.Count == 1 ? "that account" : "those accounts")}.";
+                if (problem.Length > LicenseAlarmService.MaxSentenceLength)
+                    problem = $"A sign-in by hand on {label} replaced {accounts.Count} accounts it could not keep as spares; the Licenses page names them.";
+                if (problem.Length > LicenseAlarmService.MaxSentenceLength)
+                    problem = "A sign-in by hand replaced accounts a machine could not keep as spares; the Licenses page names them.";
+                var action = $"Run cc-devthrottle license list on {label}: it says which spare folder is in the way. Move that folder out, and the account is kept on the next report.";
+                if (action.Length > LicenseAlarmService.MaxSentenceLength)
+                    action = "Run cc-devthrottle license list on that machine: it says which spare folder is in the way.";
+                return new LicenseAlarmCondition(g.Key, label, accounts.Count == 1 ? accounts[0] : null, problem, action);
+            })
+            .ToList();
+    }
+
     private static string Clock(DateTime utc)
         => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
@@ -135,6 +171,11 @@ public sealed class LicenseMachineHealthAlarm
             // A machine that is switched off is status on the Licenses page, not an alarm. Raising the retired kind
             // with no conditions closes every database row left open by an earlier Gateway without opening, pushing or mailing one.
             var silentRaised = await RaiseKindAsync(tenant, Silent, Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
+            var openNotKept = _store.ListOpenNotKept(tenant);
+            var notKept = openNotKept.Count == 0 ? new List<LicenseAlarmCondition>() : NotKeptConditions(openNotKept, _reads.Read(tenant, _nowUtc()).Machines);
+            var notKeptRaised = await RaiseKindAsync(tenant, NotKept, notKept, failures, ct).ConfigureAwait(false);
+            if (notKept.Count > 0 || notKeptRaised?.Closed > 0)
+                FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, notKept={notKept.Count}, notKeptClosed={notKeptRaised?.Closed}");
             // Quiet when there is nothing to say; the alarm service logs every open and close itself.
             if (refused.Count > 0 || silentRaised?.Closed > 0)
                 FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, refused={refused.Count}, silentClosed={silentRaised?.Closed}");

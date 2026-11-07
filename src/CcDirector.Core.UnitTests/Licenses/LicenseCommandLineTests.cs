@@ -115,6 +115,51 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
+    public void ReadNotKept_ARowFromTheTool_IsReadAsEmailAndReasonOnly()
+    {
+        // The shape license list --json prints when a sign-in by hand replaced an account it could not keep as a spare.
+        const string json = """
+            {"count": 1, "healed": [], "notKept": [{"accountEmail": "Account-A@Example.com",
+              "reason": "spare-folder-holds-another-sign-in", "copy": "/store/active-copy",
+              "spareFolder": "/store/spares/account-a-example.com"}],
+             "accounts": [{"email": "account-b@example.com", "role": "active"}]}
+            """;
+
+        var lost = Assert.Single(CcDevthrottleLicenseCommandLine.ReadNotKept(json, "list"));
+
+        Assert.Equal("account-a@example.com", lost.AccountEmail);
+        Assert.Equal(LicenseNotKeptReasons.SpareFolderHoldsAnotherSignIn, lost.Reason);
+    }
+
+    [Theory]
+    [InlineData("""{"accounts": []}""")]
+    [InlineData("""{"notKept": [], "accounts": []}""")]
+    [InlineData("""{"notKept": null, "accounts": []}""")]
+    public void ReadNotKept_NoRows_IsEmpty(string json)
+    {
+        // An older tool prints no notKept field; it has none to say.
+        Assert.Empty(CcDevthrottleLicenseCommandLine.ReadNotKept(json, "usage"));
+    }
+
+    [Fact]
+    public void ReadNotKept_AReasonThisDirectorDoesNotKnow_TravelsAsNotKnown_SoTheAccountIsStillReported()
+    {
+        const string json = """{"notKept": [{"accountEmail": "a@example.com", "reason": "a-newer-word"}], "accounts": []}""";
+
+        var lost = Assert.Single(CcDevthrottleLicenseCommandLine.ReadNotKept(json, "list"));
+
+        Assert.Equal(LicenseNotKeptReasons.NotKnown, lost.Reason);
+    }
+
+    [Theory]
+    [InlineData("""{"notKept": {}, "accounts": []}""")]
+    [InlineData("""{"notKept": [{"reason": "spare-folder-holds-another-sign-in"}], "accounts": []}""")]
+    public void ReadNotKept_ARowNotInTheToolsShape_Throws(string json)
+    {
+        Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadNotKept(json, "list"));
+    }
+
+    [Fact]
     public void ReadListedAccounts_KeyStoreRows_MapsRoleToActive()
     {
         // The shape license list --json prints: email and role, among the key store's own fields.

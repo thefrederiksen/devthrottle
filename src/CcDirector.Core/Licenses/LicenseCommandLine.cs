@@ -72,6 +72,13 @@ public interface ILicenseCommandLine
     /// </summary>
     IReadOnlyList<LicenseHandSwitch> TakeHandSwitches();
 
+    /// <summary>
+    /// The accounts a sign-in by hand replaced that the key store could NOT keep as a spare, as the newest <c>list</c>
+    /// or <c>usage</c> answer said: a state, worked out on every open of the store, so it is replaced by every answer
+    /// and never accumulated. Empty until a run has answered, and from a tool older than the field.
+    /// </summary>
+    IReadOnlyList<LicenseSignInNotKept> SignInsNotKept => Array.Empty<LicenseSignInNotKept>();
+
     /// <summary>Whether the browser profile <paramref name="browserProfile"/> (its identifier) could approve a sign-in
     /// for <paramref name="accountEmail"/> now, read from a real approval page and pressing nothing
     /// (<c>license check-approver</c>). With a null email the tool first reads which account the profile is signed in
@@ -162,6 +169,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     private readonly ToolRun _run;
     private readonly object _healedGate = new();
     private readonly List<LicenseHandSwitch> _healed = new();
+    private volatile IReadOnlyList<LicenseSignInNotKept> _notKept = Array.Empty<LicenseSignInNotKept>();
 
     /// <summary>How one run of the tool is made: the program, its arguments, the variables added to its environment.</summary>
     internal delegate Task<ProcessRunner.Result> ToolRun(string exe, IReadOnlyList<string> args,
@@ -233,6 +241,7 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
         var output = await RunForJsonAsync(new[] { "license", "list" }, cancellationToken);
         var rows = ReadListedAccounts(output);
         KeepHandSwitches(output, "list");
+        _notKept = ReadNotKept(output, "list");
         return rows;
     }
 
@@ -244,8 +253,11 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
         var output = await RunForJsonAsync(args, cancellationToken);
         var rows = ReadUsageRows(output);
         KeepHandSwitches(output, "usage");
+        _notKept = ReadNotKept(output, "usage");
         return rows;
     }
+
+    public IReadOnlyList<LicenseSignInNotKept> SignInsNotKept => _notKept;
 
     public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches()
     {
@@ -412,6 +424,36 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
             FileLog.Write($"[CcDevthrottleLicenseCommandLine] hand sign-in healed: account={email} was signed in by hand while also held as a spare; "
                           + $"the stale spare was moved from {from} to {to} at {healedAt:O}");
             found.Add(new LicenseHandSwitch { AccountEmail = email, HealedAtUtc = DateTime.SpecifyKind(healedAt, DateTimeKind.Utc) });
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// The <c>notKept</c> rows of a <c>list</c> or <c>usage</c> answer: the accounts a sign-in by hand replaced that the
+    /// key store could not keep as a spare. Each is logged here with its folders, because this is the one place the
+    /// Director sees them; only the email and the reason word travel on. A reason word this Director does not know (a
+    /// newer tool's) travels as <see cref="LicenseNotKeptReasons.NotKnown"/>: the word itself could be anything the tool
+    /// printed, but that the account was not kept is never lost. An answer with no <c>notKept</c> field (an older tool)
+    /// has none to say. A row with no email throws.
+    /// </summary>
+    internal static IReadOnlyList<LicenseSignInNotKept> ReadNotKept(string output, string subcommand)
+    {
+        using var document = JsonDocument.Parse(output);
+        if (!document.RootElement.TryGetProperty("notKept", out var notKept) || notKept.ValueKind == JsonValueKind.Null)
+            return Array.Empty<LicenseSignInNotKept>();
+        if (notKept.ValueKind != JsonValueKind.Array)
+            throw new LicenseCommandLineException($"{ToolName} license {subcommand} answered a notKept field that is not a list.");
+        var found = new List<LicenseSignInNotKept>();
+        foreach (var row in notKept.EnumerateArray())
+        {
+            string? Text(string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var v)
+                && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            var email = Normalize(Text("accountEmail"), subcommand);
+            var said = Text("reason");
+            var reason = said is not null && LicenseNotKeptReasons.All.Contains(said) ? said : LicenseNotKeptReasons.NotKnown;
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] sign-in NOT KEPT: account={email} was replaced by a sign-in by hand and could not be kept as a spare "
+                          + $"({reason}); its only copy is {Text("copy")}, and its spare folder {Text("spareFolder")} holds another sign-in");
+            found.Add(new LicenseSignInNotKept { AccountEmail = email, Reason = reason });
         }
         return found;
     }

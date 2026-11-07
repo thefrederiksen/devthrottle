@@ -113,6 +113,25 @@ def test_list_Json_HandSignInOverASpare_IsHealedAndSaysSoOnce(machine):
     assert json.loads(_run("list", "--json").stdout)["healed"] == []
 
 
+def test_list_Json_ASignInByHandReplacesAnAccountThatCannotBeKept_NotKeptSaysSoOnEveryList_AndTheWarningSaysHowToFixIt(
+        machine):
+    # A is active; its spare folder holds C's sign-in (a folder named for A holding another account's key). B is signed
+    # in by hand over A. A cannot be kept without overwriting C, so nothing is overwritten and `notKept` names A - on
+    # every list while it lasts, because it is a state the Director reports, not an event it hears once.
+    _sign_in(machine["default"], ACCOUNT_A, 1)
+    assert _run("list").exit_code == 0
+    _sign_in(machine["store"] / "spares" / "account-a-example.com", ACCOUNT_C, 2)
+    _sign_in(machine["default"], ACCOUNT_B, 3)
+
+    for _ in range(2):
+        result = _run("list", "--json")
+        data = json.loads(result.stdout)
+        [lost] = data["notKept"]
+        assert (lost["accountEmail"], lost["reason"]) == (ACCOUNT_A, "spare-folder-holds-another-sign-in")
+        assert Path(lost["copy"]) == machine["store"] / "active-copy"
+        assert "could NOT be kept as a spare" in result.stderr
+
+
 def test_list_Text_HandSignInOverASpare_WarnsWhatWasMoved(machine):
     _with_active_and_spare(machine)
     _sign_in(machine["default"], ACCOUNT_B, 3)

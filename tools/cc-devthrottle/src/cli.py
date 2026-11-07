@@ -2371,7 +2371,9 @@ def license_remove(
     store_dir: str = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Delete a spare's sign-in from this machine."""
+    """Delete a spare's sign-in; the only command that drops one.
+
+    Switch, add and sign-in refuse rather than overwrite a sign-in this machine holds."""
     license_ops.remove_account(account, yes, default_config_dir, store_dir, json_output)
 
 

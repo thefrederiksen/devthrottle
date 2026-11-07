@@ -113,6 +113,7 @@ def usage(json_output: bool, fields: Optional[str], default_config_dir: Optional
             "storeDir": store.store_dir,
             "recovered": store.last_recovery,
             "healed": license_ops.healed_json(store),
+            "notKept": license_ops.not_kept_json(store),
             "accounts": [r.to_json() for r in readings],
         }, indent=2))
         return
