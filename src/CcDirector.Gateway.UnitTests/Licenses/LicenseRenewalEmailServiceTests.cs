@@ -293,21 +293,23 @@ public sealed class LicenseRenewalEmailServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task AFailedRenewal_OfASignInEndingLaterThanTheWarningTime_WaitsUntilItIsWithinIt()
+    public async Task AFailedRenewal_OfASignInEndingLaterThanTheWarningTime_OpensItsStreakAtOnce_AndItsEmailWaitsUntilItIsWithinIt()
     {
+        // Issue 4697: the streak starts at the first failure, so its row is opened now; only the email waits.
         var justOutside = LicenseContract.SignInExpiryWarning + TimeSpan.FromMinutes(1);
         Reports(One, Mac, Failing(A, justOutside));
 
         Assert.Equal(0, await Tick());
         Assert.Empty(_sent);
-        Assert.Empty(Rows());
+        Assert.Equal(T0, TheRow().CreatedAtUtc);
+        Assert.Null(TheRow().ReasonCode);
 
         // Two minutes on, nothing else changed: the sign-in now ends within the warning time.
         _now = T0.AddMinutes(2);
         Assert.Equal(1, await Tick());
 
         Assert.Single(_sent);
-        Assert.Equal(T0.AddMinutes(2), TheRow().CreatedAtUtc);
+        Assert.Equal((T0, LicenseGatewayReasonCodes.OwnerEmailed), (TheRow().CreatedAtUtc, TheRow().ReasonCode));
     }
 
     [Fact]

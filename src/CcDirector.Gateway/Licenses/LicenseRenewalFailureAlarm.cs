@@ -15,10 +15,13 @@ namespace CcDirector.Gateway.Licenses;
 /// the reason, and the alarm stays open while the daily retries keep failing.
 ///
 /// TRUE WHILE: the machine's last report says the last renewal of the sign-in failed (<c>RenewalFailedAtUtc</c>), OR a
-/// failure streak of it is still open in the Licenses log (<see cref="LicenseRenewalFailureLog"/>). The second keeps the
-/// alarm open across a Director restart, whose first report forgets the failure until its renewal at start fails again;
-/// a streak ends only on something present - a newer sign-in reported, or the sign-in no longer held. So the alarm closes
-/// when a renewal has worked, and never because a fact went missing for a minute.
+/// failure streak of it is still open in the Licenses log (<see cref="LicenseRenewalFailureLog"/>). The streak's row is
+/// opened by <see cref="LicenseRenewalEmailService"/> at the first failure, whatever time is left, so the second keeps the
+/// alarm open across a Director restart - whose first report forgets the failure until its renewal at start fails again -
+/// at seven days out as at two. A streak ends only on something present - a newer sign-in reported, or the sign-in no
+/// longer held. So the alarm closes when a renewal has worked, and never because a fact went missing for a minute. The one
+/// gap: a sign-in whose end the machine did not say opens no streak row, so a restart can close its alarm until the next
+/// failure reopens it.
 ///
 /// ONE ALARM FOR EACH SIGN-IN: keyed on the machine and the account, raised once a minute through
 /// <see cref="LicenseAlarmService"/>, which opens it with one push and one email and closes it by itself. The words are
@@ -81,11 +84,10 @@ public sealed class LicenseRenewalFailureAlarm
         var problem = why is null
             ? $"Renewing the sign-in for {holding.AccountEmail} on {label} failed.{ends}"
             : $"Renewing the sign-in for {holding.AccountEmail} on {label} failed: {why}.{ends}";
-        // An account email may be 320 characters and a label 257: the shorter sentence sends the owner to the page.
+        // An account email may be 320 characters: the shorter sentence sends the owner to the page. A label is at most
+        // a name and a user of 128 characters each with brackets, so the shorter sentence always fits.
         if (problem.Length > LicenseAlarmService.MaxSentenceLength)
             problem = $"Renewing a sign-in on {label} failed; the Licenses page says which and why.";
-        if (problem.Length > LicenseAlarmService.MaxSentenceLength)
-            problem = "Renewing a sign-in on a machine failed; the Licenses page says which and why.";
         var action = $"Put right what the reason says. {label} tries again every day, and the alarm closes by itself when a renewal works.";
         if (action.Length > LicenseAlarmService.MaxSentenceLength)
             action = "Put right what the reason says. The machine tries again every day, and the alarm closes by itself when a renewal works.";

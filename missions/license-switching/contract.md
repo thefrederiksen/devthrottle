@@ -738,9 +738,11 @@ dies. The rule, exactly as built:
   and its sign-in was about to end, and silence since then is not good news.
 - **The license alarm opens at the FIRST failure** (issue 4697), whatever time is left: kind `renewal-failing`, one
   for each machine and account, with the reason in words (`LicenseRenewalFailureAlarm`). It stays open while the
-  machine's report says the last renewal failed, or the sign-in's failure streak above is open (so a Director restart,
-  which forgets the failure until its renewal at start fails again, does not close it), and closes by itself once a
-  renewal works. The three-day email above is unchanged.
+  machine's report says the last renewal failed, or the sign-in's failure streak above is open, and closes by itself
+  once a renewal works. The streak's row is opened at the FIRST failure, whatever time is left; only its email waits
+  for the three days. So a Director restart, which forgets the failure until its renewal at start fails again, does not
+  close the alarm at seven days out any more than at two. A sign-in whose end the machine did not say opens no row, so
+  for it a restart can close the alarm until the next failure reopens it.
 
 ### 8.2 The Director renews on a schedule
 

@@ -26,6 +26,8 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
     private readonly LicenseAlarmService _alarms;
     private readonly LicenseRenewalFailureAlarm _alarm;
     private readonly List<LicenseAlarmOpened> _pushed = new();
+    private readonly List<LicenseOwnerEmail> _mailed = new();
+    private readonly LicenseRenewalEmailService _emails;
     private DateTime _now = T0;
     private long _sequence;
 
@@ -39,6 +41,9 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
             () => _now);
         _alarm = new LicenseRenewalFailureAlarm(_store, _log, new LicenseReadModel(_store), _alarms, () => _now);
+        _emails = new LicenseRenewalEmailService(_store, _log, new LicenseReadModel(_store),
+            (_, email, _) => { lock (_mailed) _mailed.Add(email); return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)); },
+            () => _now);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -111,20 +116,56 @@ public sealed class LicenseRenewalFailureAlarmTests : IDisposable
         Assert.Empty(Open());
     }
 
-    [Fact]
-    public async Task RaiseAsync_ADirectorRestartForgetsTheFailure_AnOpenStreakKeepsTheAlarmOpen()
+    /// <summary>The Gateway's minute checks as they run in production: the renewal email check (which opens a failure
+    /// streak's row) and the alarm raise.</summary>
+    private async Task MinuteCheck()
     {
-        // A Director keeps its failed renewals in memory; its first report after a restart carries no failure time. The
-        // failure streak in the Licenses log is still open, so the alarm does not read as fixed.
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(2)));
-        var machine = new LicenseReadModel(_store).Read(Tenant, _now).Machines.Single();
-        _log.Open(Tenant, machine, B, _now + TimeSpan.FromDays(2), null, "a failure streak", _now);
+        await _emails.TickAsync(Tenant, CancellationToken.None);
         await Raise();
+    }
 
-        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Fine(B, TimeSpan.FromDays(2)));
-        await Raise();
+    [Theory]
+    [InlineData(7)]
+    [InlineData(2)]
+    public async Task RaiseAsync_ADirectorRestartForgetsTheFailure_TheAlarmStaysOpen_WithNoCameBack_AtAnyTimeLeft(int daysLeft)
+    {
+        // Review of pull request 4717: a Director keeps its failed renewals in memory, and its first report after a restart
+        // carries no failure time. At seven days out no streak row used to exist, so that report closed the alarm and the
+        // next failure reopened it as "it has come and gone". Nothing is hand-built here: the real email check opens the
+        // streak at the first failure, and the alarm must survive the restart's report.
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(daysLeft)));
+        await MinuteCheck();
+        var opened = Assert.Single(Open());
+        Assert.Single(_log.ListOpen(Tenant));
 
-        Assert.Single(Open());
+        _now = _now.AddMinutes(1);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Fine(B, TimeSpan.FromDays(daysLeft) - TimeSpan.FromMinutes(1)));
+        await MinuteCheck();
+        _now = _now.AddMinutes(3);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(daysLeft) - TimeSpan.FromMinutes(4)));
+        await MinuteCheck();
+
+        var still = Assert.Single(Open());
+        Assert.Equal(opened.Id, still.Id);
+        Assert.DoesNotContain("come and gone", LicenseAlarmFold.Banner(_alarms.ListOpen(Tenant), _now).Alarms.Single().Text);
+        Assert.DoesNotContain(_store.ListLog(Tenant, T0.AddDays(-1)), r => r.Kind == LicenseLogKinds.AlarmClosed);
+        Assert.Single(_pushed);
+    }
+
+    [Fact]
+    public async Task EmailCheck_AFailureAWeekOut_OpensTheStreakAtOnce_ButEmailsOnlyWhenThreeDaysAreLeft()
+    {
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(7)));
+
+        Assert.Equal(0, await _emails.TickAsync(Tenant, CancellationToken.None));
+        var row = Assert.Single(_log.ListOpen(Tenant));
+        Assert.EndsWith("the owner is emailed if it is still failing when 3 days of the sign-in are left.", row.Message);
+        Assert.DoesNotContain(_mailed, m => !m.Subject.StartsWith("DevThrottle license alarm", StringComparison.Ordinal));
+
+        _now = _now.AddDays(4).AddMinutes(1);
+        Reports(Fine(A, TimeSpan.FromDays(20), active: true), Failing(B, TimeSpan.FromDays(3) - TimeSpan.FromMinutes(1)));
+        Assert.Equal(1, await _emails.TickAsync(Tenant, CancellationToken.None));
+        Assert.Single(_log.ListOpen(Tenant));
     }
 
     [Fact]
