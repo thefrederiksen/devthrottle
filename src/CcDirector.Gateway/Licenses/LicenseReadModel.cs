@@ -44,7 +44,28 @@ public sealed record LicenseHoldingView(
     DateTime? RenewalFailedAtUtc = null,
     string? RenewalError = null,
     string? RenewalErrorDetail = null,
-    DateTime? ReadErrorSinceUtc = null);
+    DateTime? ReadErrorSinceUtc = null,
+    bool RenewalFailureOver = false);
+
+/// <summary>
+/// WHEN A FAILED RENEWAL IS OVER (live on 7 November 2026). A Director keeps the time of its last failed renewal of a
+/// sign-in and reports it until a renewal of its own works. A sign-in made in another way - by hand, or by Add a spare -
+/// is a newer sign-in, and the Director went on reporting the old failure under it: the Gateway raised a renewal alarm
+/// at 07:07 for a failure at 14:27 the day before whose sign-in had been made again at 19:07.
+///
+/// The rule, in one place: a failure older than the sign-in the machine holds now is over. Such a holding is read as
+/// not failing (<see cref="LicenseHoldingView.RenewalFailedAtUtc"/> null, with no reason), and
+/// <see cref="LicenseHoldingView.RenewalFailureOver"/> is true, so the open failure streak of that sign-in is ended
+/// (<see cref="LicenseRenewalEmailService"/>) and its alarm closes (<see cref="LicenseRenewalFailureAlarm"/>). A
+/// report with no failure time says nothing about whether a streak is over: that is a Director restart.
+/// </summary>
+public static class LicenseRenewalFailure
+{
+    /// <summary>True when the failure at <paramref name="failedAtUtc"/> is older than the sign-in made at
+    /// <paramref name="signedInAtUtc"/>. False when either is not known.</summary>
+    public static bool IsOver(DateTime? failedAtUtc, DateTime? signedInAtUtc)
+        => failedAtUtc is { } failed && signedInAtUtc is { } signedIn && signedIn > failed;
+}
 
 /// <summary>One machine as the engine and the Licenses page read it.</summary>
 public sealed record LicenseMachineView(
@@ -168,7 +189,11 @@ public sealed class LicenseReadModel
                     .Select(h => new LicenseHoldingView(h.AccountEmail, h.IsActive, h.SignedInAtUtc, h.SignInExpiresAtUtc,
                         LicenseSignInExpiry.Verdict(h.SignInExpiresAtUtc, nowUtc),
                         LicenseStaleness.IsHoldingStale(h.IsActive, h.JudgedReadAtUtc, nowUtc), h.ReadError,
-                        h.RenewalFailedAtUtc, h.RenewalError, h.RenewalErrorDetail, h.ReadErrorSinceUtc))
+                        LicenseRenewalFailure.IsOver(h.RenewalFailedAtUtc, h.SignedInAtUtc) ? null : h.RenewalFailedAtUtc,
+                        LicenseRenewalFailure.IsOver(h.RenewalFailedAtUtc, h.SignedInAtUtc) ? null : h.RenewalError,
+                        LicenseRenewalFailure.IsOver(h.RenewalFailedAtUtc, h.SignedInAtUtc) ? null : h.RenewalErrorDetail,
+                        h.ReadErrorSinceUtc,
+                        LicenseRenewalFailure.IsOver(h.RenewalFailedAtUtc, h.SignedInAtUtc)))
                     .ToList(),
                 m.LastReportAtUtc, LicenseStaleness.IsMachineStale(m.LastReportAtUtc, nowUtc), m.SwitchInProgressId, m.ClockSkewSeconds,
                 m.CannotSwitchReason))
