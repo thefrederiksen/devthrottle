@@ -70,7 +70,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         _log = new LicenseSignInLog(_db);
         _signIns = new LicenseSignInService(_log, _reads, _directors.IsConnected, _directors.SendAsync, _directors.EnterScope,
             () => _now, CancellationToken.None);
-        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now, NeverNight);
         _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads, _directors.IsConnected, () => _now);
         // By default the Director takes the command and never answers: the sign-in stays open.
         _directors.Answer = _ => _neverAnswers.Task;
@@ -201,7 +201,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         var (picture, judged) = JudgeAndPicture(T0.AddDays(5), aWeekly: 85, withC: true);
 
         Assert.True(Assert.Single(judged, j => j.MachineName == MachineA).CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One));
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.DoesNotContain(warnings, c => c.MachineId == judged.Single(j => j.MachineName == MachineA).MachineId);
         Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One)));
     }
@@ -214,7 +214,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         var a = Assert.Single(judged, j => j.MachineName == MachineA);
         Assert.False(a.CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One));
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.Contains(warnings, c => c.MachineId == a.MachineId);
     }
 

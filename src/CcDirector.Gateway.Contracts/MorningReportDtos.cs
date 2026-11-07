@@ -100,6 +100,7 @@ public sealed class MorningReportWindowDto
 [JsonDerivedType(typeof(LongRunningSessionsAttentionDto))]
 [JsonDerivedType(typeof(UsageLimitStopsAttentionDto))]
 [JsonDerivedType(typeof(OutdatedDirectorsAttentionDto))]
+[JsonDerivedType(typeof(LicenseCoverageGapsAttentionDto))]
 public abstract class MorningAttentionItemDto
 {
     /// <summary>The item's discriminator: "waiting-session", "stale-worktrees", "unmerged-branches",
@@ -116,6 +117,25 @@ public static class MorningAttentionTypes
     public const string LongRunningSessions = "long-running-sessions";
     public const string UsageLimitStops = "usage-limit-stops";
     public const string OutdatedDirectors = "outdated-directors";
+    public const string LicenseCoverageGaps = "license-coverage-gaps";
+}
+
+/// <summary>
+/// THE QUIET DAILY LINE OF A LICENSE GAP (mission "Licenses - Always Ready, Loud When Not", step 2). The owner, 6 November
+/// 2026: "As soon as any machine is missing a sign-in it would need, at any usage level, as a quiet daily line." ONE item
+/// per account, present only while the coverage grid has a gap (<c>Licenses.LicenseCoverageFold</c>). Both sentences are
+/// the Gateway's own, finished: the renderer draws them as given. The loud, repeating warning is a different thing and
+/// does not come through here.
+/// </summary>
+public sealed class LicenseCoverageGapsAttentionDto : MorningAttentionItemDto
+{
+    public override string Type => MorningAttentionTypes.LicenseCoverageGaps;
+
+    /// <summary>The row's heading: "2 missing sign-ins on 2 machines".</summary>
+    public string Title { get; set; } = "";
+
+    /// <summary>The row's detail: each machine and what it is missing, then what to do.</summary>
+    public string Text { get; set; } = "";
 }
 
 /// <summary>

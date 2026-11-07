@@ -15,6 +15,9 @@
   /* Brief accents (issue #973): warning yellow, an inset code/tail surface, and the tinted
      needs-you panel. Tokens so the Brief hard-codes no color outside this file. */
   --warn: #f59e0b;
+  /* The license warning banner's yellow (the owner, 6 November 2026: "a warning should be yellow, not red"). */
+  --caution: #facc15;
+  --caution-text: #fde047;
   --code-bg: #0a0f1e;
   --needsyou-bg: #2a1d1f;
   --needsyou-text: #f1d8d8;
@@ -358,9 +361,10 @@ body {
   padding: 24px 28px;
 }
 
-/* THE LICENSE ALARM BANNER (License Switching phase 6): red, on every page, above the routed page. The attention red is
-   the Cockpit's danger colour (docs/CockpitVisualStyle.md), drawn as the error banner draws it but solid enough to be
-   seen from across the room. */
+/* THE LICENSE ALARM BANNER (License Switching phase 6): on every page, above the routed page. Its colour is the
+   Gateway's verdict (data-tone): YELLOW while it is a warning, RED only when a machine is stuck above the switching
+   threshold (the owner, 6 November 2026). The red is the Cockpit's danger colour (docs/CockpitVisualStyle.md), drawn as
+   the error banner draws it but solid enough to be seen from across the room; the yellow is drawn the same way. */
 .license-alarm-banner {
   display: flex;
   flex: 0 0 auto;
@@ -395,6 +399,16 @@ body {
 
 .license-alarm-banner-link:hover {
   filter: brightness(1.1);
+}
+
+.license-alarm-banner--warning {
+  border-bottom-color: var(--caution);
+  background: rgba(250, 204, 21, 0.16);
+}
+
+.license-alarm-banner--warning .license-alarm-banner-summary,
+.license-alarm-banner--warning .license-alarm-banner-link {
+  color: var(--caution-text);
 }
 
 .pane-title {

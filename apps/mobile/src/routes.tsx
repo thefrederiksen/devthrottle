@@ -23,6 +23,7 @@ import { RequireDeviceKey } from "./components/RequireDeviceKey";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { VoiceModeBanner } from "./components/VoiceModeBanner";
 import { RecordingBanner } from "./components/RecordingBanner";
+import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
 import { useVisibleViewportHeight } from "./hooks/useVisibleViewportHeight";
 import { useScreenWakeLock } from "./hooks/useScreenWakeLock";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
@@ -96,9 +97,12 @@ function GatedLayout() {
           be on every screen too. Renders nothing while no recording is running, and nothing on the
           Recorder page itself. */}
       <RecordingBanner />
-      {/* No license alarm banner on the phone (owner, 18 October 2026): three open alarms filled the whole first
-          screen and the app could not be used. The alarms still reach the phone as a push, and the Cockpit's
-          Licenses page shows them. */}
+      {/* The license bar (mission "Licenses - Always Ready, Loud When Not", the owner, 6 November 2026): "a YELLOW bar
+          across the top of every Cockpit, Director and phone screen (red only above 97%)", until a machine that cannot
+          switch can. It replaces the ruling of 18 October that kept the banner off the phone because three open alarms
+          filled the first screen: the banner is now ONE summary line ("2 license problems - Open Licenses"), however
+          many are open. The link opens the Cockpit's Licenses page; the phone has no Licenses screen of its own. */}
+      <LicenseAlarmBanner enabled href="/licenses" />
       <Outlet />
     </AlertsProvider>
   );

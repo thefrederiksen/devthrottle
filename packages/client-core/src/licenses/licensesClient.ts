@@ -570,7 +570,12 @@ export interface LicenseAlarm {
   accountEmail: string | null;
   text: string;
   openedAtUtc: string;
+  /** "warning" (yellow) or "critical" (red): the tone of its kind, the Gateway's verdict. */
+  tone: LicenseAlarmTone;
 }
+
+/** The banner's colour, decided on the Gateway: yellow while a warning, red only above the switching threshold. */
+export type LicenseAlarmTone = "warning" | "critical";
 
 /**
  * The license alarms open now. The frame shows only `summary` and `linkText` on one line, and nothing when `count`
@@ -581,10 +586,12 @@ export interface LicenseAlarms {
   count: number;
   summary: string | null;
   linkText: string | null;
+  /** The banner's tone: "critical" when any open alarm is, else "warning"; null when none is open. Drawn as given. */
+  tone: LicenseAlarmTone | null;
   alarms: LicenseAlarm[];
 }
 
-/** GET /gateway/licenses/alarms - the license alarms open now, for the red banner on every page. */
+/** GET /gateway/licenses/alarms - the license alarms open now, for the banner on every page. */
 export function getLicenseAlarms(signal?: AbortSignal): Promise<LicenseAlarms> {
   return readJson<LicenseAlarms>("/gateway/licenses/alarms", "read the license alarms", "alarms", signal);
 }

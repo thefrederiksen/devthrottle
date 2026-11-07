@@ -46,7 +46,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         _alarms = new LicenseAlarmService(db,
             (_, email, _) => { lock (_mailed) _mailed.Add(email); return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)); },
             (_, opened, _) => { lock (_pushed) _pushed.AddRange(opened); return Task.CompletedTask; },
-            () => _now);
+            () => _now, NeverNight);
         _alarm = new LicenseMachineHealthAlarm(_store, reads, _alarms, () => _now);
     }
 

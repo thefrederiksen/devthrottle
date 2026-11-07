@@ -43,7 +43,7 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         _db = _harness.Open();
         _licenses = new LicenseStore(_db);
         _approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
-        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now, NeverNight);
         _alarm = new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, (_, directorId) => _connected.Contains(directorId), _ => new NoScope(), () => _now,
             CancellationToken.None, _logged.Enqueue);
         _licenses.ApplyReport(One, DirectorA, ++_sequence, Report(MachineA, _now, Holding(A, true)), _now, TimeSpan.Zero);

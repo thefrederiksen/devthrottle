@@ -1066,8 +1066,29 @@ internal static partial class GatewayEndpoints
         // verbatim exactly as before: the Director's "Cockpit" button on a session asks for that session and
         // opens what it is handed. It never appends the session path itself - that would be the client
         // composing a URL, which rule 7 forbids and which a desktop test reddens on.
-        app.MapGet("/cockpit", (HttpContext ctx, string? sessionId) =>
+        //
+        // With page=licenses, the answer is the Cockpit's Licenses page ({base}/licenses): the Director's license banner
+        // opens it (mission "Licenses - Always Ready, Loud When Not", step 2). No other page is named; an unknown one,
+        // or a page together with a sessionId, is refused rather than answered with the front door.
+        app.MapGet("/cockpit", (HttpContext ctx, string? sessionId, string? page) =>
         {
+            if (page is not null)
+            {
+                if (page != GatewayPublicUrl.LicensesPage || sessionId is not null)
+                {
+                    FileLog.Write($"[GatewayEndpoints] GET /cockpit: page was not one this Gateway hands out (sessionId given: {sessionId is not null}) - refused");
+                    return Results.Json(
+                        new { error = $"page may only be \"{GatewayPublicUrl.LicensesPage}\", and not together with sessionId. Omit both for the Cockpit front door." },
+                        statusCode: StatusCodes.Status400BadRequest);
+                }
+                return Results.Json(new CockpitInfoDto
+                {
+                    Url = GatewayPublicUrl.ResolveCockpitLicenses(hosted),
+                    Port = ctx.Connection.LocalPort,
+                    Up = true,
+                });
+            }
+
             // NO sessionId at all (null) is the front door, exactly as before. A sessionId that is PRESENT
             // but blank is a caller error, and it is refused rather than folded into the front door: a
             // caller that asked for a session and was silently handed the fleet's landing page would look

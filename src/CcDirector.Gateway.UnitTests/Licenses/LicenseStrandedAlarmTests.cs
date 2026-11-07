@@ -90,7 +90,7 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     // ----- helpers -----
 
-    private LicenseAlarmService NewAlarmService() => new(_db, Mail, Push, () => _now);
+    private LicenseAlarmService NewAlarmService() => new(_db, Mail, Push, () => _now, NeverNight);
 
     private Task<LicenseOwnerEmailResult> Mail(TenantId tenant, LicenseOwnerEmail email, CancellationToken ct)
     {
@@ -205,14 +205,16 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
         Assert.Equal(NoApprover, alarm.Action);
     }
 
-    // One email, one push, one banner line - and the email names the machine, both accounts and the one thing to do.
+    // One email, one push, one banner line - and the email's subject names the machine and that it is at its limit, the
+    // body both accounts and the one thing to do. The banner is red: the machine is stuck above the threshold.
     [Fact]
     public async Task Tick_TheAlarmOpens_SendsOneEmailOnePushAndOneBannerLine()
     {
         var alarm = await OpenTheAlarm();
 
         var email = Assert.Single(_emails);
-        Assert.Equal("DevThrottle license alarm: a problem on machine-a needs you", email.Subject);
+        Assert.Equal("DevThrottle: machine-a cannot switch - at its limit", email.Subject);
+        Assert.Equal(LicenseAlarmTones.Critical, LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Tone);
         Assert.Contains(alarm.Problem, email.BodyText);
         Assert.Contains(alarm.Action, email.BodyText);
         var pushed = Assert.Single(_pushed);
@@ -505,10 +507,11 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
     // machine-a's Director is connected and answers every command with a timeout, as the Mac Mini's did on 26 October
     // (issue #4490). The sign-in the Gateway starts is marked unknown at once; the minute settle asks again every minute
     // and settles nothing. Once it is older than the wait the sign-in service gives a sign-in, it is not running as far as
-    // anyone can tell, so it is no repair: the stranded alarm opens, says the sign-in got no answer, and stays open - one
-    // email - for days.
+    // anyone can tell, so it is no repair: the stranded alarm opens, says the sign-in got no answer, and stays open for
+    // days - and the owner is told again on every check an hour or more after the last time (the owner, 6 November 2026:
+    // "repeat until fixed"). Opened at 16 minutes; told again at 180, 1500 and 5000, not at 60.
     [Fact]
-    public async Task Tick_ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndStays()
+    public async Task Tick_ADirectorThatNeverAnswers_TheSignInIsNoRepair_TheAlarmOpensSayingItGotNoAnswer_AndIsToldAgainHourly()
     {
         TheApproverCanApprove();
         TheDirectorTimesOut();
@@ -527,8 +530,8 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
             Assert.Equal("The sign-in to account-b@example.com that DevThrottle sent to machine-a at 03:12 UTC got no answer from "
                          + "the machine, so restart the Director on machine-a.", alarm.Action);
         }
-        Assert.Single(_emails);
-        Assert.Single(_pushed);
+        Assert.Equal(4, _emails.Count);
+        Assert.Equal(new[] { false, true, true, true }, _pushed.Select(p => p.IsRepeat).ToArray());
     }
 
     // The third review: a send that times out, or whose tunnel drops, marks the sign-in unknown at once, while the Director
@@ -585,8 +588,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
 
     // The 80-to-97 shape with that deaf Director: at 85% nothing opens while the Gateway's sign-in is young; past the
     // unanswered wait the 80% warning opens and says the sign-in got no answer; at 97% that line closes as the stranded
-    // alarm opens - the "again". Once the warning is open there is exactly one line on every check, never two, and two
-    // pushes in that order.
+    // alarm opens - the "again". Once the warning is open there is exactly one line on every check, never two. The pushes,
+    // in order: the warning, the stranded alarm, and the stranded alarm told again an hour on (at 90 minutes, 70 after it
+    // opened at 20; not at 30).
     [Fact]
     public async Task Tick_From80To97_WithADirectorThatNeverAnswers_OneLineAlways_AndTheStrandedAlarmIsTheAgain()
     {
@@ -615,8 +619,9 @@ public sealed class LicenseStrandedAlarmTests : IDisposable
             var line = Assert.Single(LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now).Alarms);
             Assert.Equal(LicenseStrandedAlarm.Kind.Key, line.Kind);
         }
-        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key }, _pushed.Select(p => p.Kind.Key).ToArray());
-        Assert.Equal(2, _emails.Count);
+        Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key, LicenseStrandedAlarm.Kind.Key },
+            _pushed.Select(p => p.Kind.Key).ToArray());
+        Assert.Equal(3, _emails.Count);
     }
 
     // ----- what it is not -----

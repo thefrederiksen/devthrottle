@@ -275,12 +275,14 @@ public static class LicenseDecisionEngine
     /// which machine cannot switch. "An account with room" is the same at any level (both windows under the threshold),
     /// so only which accounts in use are looked at changes. In <see cref="StrandedMachines"/>' order, its
     /// <see cref="LicenseStrandedMachine.Tired"/> naming every window at or above <paramref name="atPercent"/>.
+    /// At 0 every account in use with a fresh reading is looked at, whatever its use: the cannot-switch warning asks so for
+    /// an account the forecast expects to reach the threshold soon (mission "Licenses - Always Ready, Loud When Not").
     /// </summary>
     public static IReadOnlyList<LicenseStrandedMachine> MachinesThatCannotSwitch(LicenseSnapshot snapshot, double atPercent)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (atPercent is <= 0 or > ThresholdPercent)
-            throw new ArgumentOutOfRangeException(nameof(atPercent), atPercent, $"A use level above 0 and at most {ThresholdPercent}.");
+        if (atPercent is < 0 or > ThresholdPercent)
+            throw new ArgumentOutOfRangeException(nameof(atPercent), atPercent, $"A use level from 0 to {ThresholdPercent}.");
         var readings = IndexReadings(snapshot.Accounts);
         var stranded = new List<LicenseStrandedMachine>();
         foreach (var source in AccountsInUse(snapshot))

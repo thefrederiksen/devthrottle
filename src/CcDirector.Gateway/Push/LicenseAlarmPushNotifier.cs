@@ -51,7 +51,7 @@ public sealed class LicenseAlarmPushNotifier
         {
             Kind = Kind,
             Title = LicenseAlarmFold.PushTitle,
-            Body = LicenseAlarmFold.PushBody(alarm.MachineName, alarm.Kind),
+            Body = LicenseAlarmFold.PushBody(alarm.MachineName, alarm.Kind, alarm.IsRepeat),
             // One notification per alarm: two opening at once must not replace each other. The id is not secret.
             Tag = "devthrottle-license-alarm-" + alarm.AlarmId.ToString("N"),
             Url = LicensesUrl,

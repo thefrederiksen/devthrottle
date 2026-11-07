@@ -128,6 +128,20 @@
         <Style Selector="Button.slimDot:pointerover Border">
             <Setter Property="BorderBrush" Value="#FFFFFF" />
         </Style>
+
+        <!-- The license banner's two tones (docs/VisualStyle.md). Which one is the Gateway's verdict; this only colours it. -->
+        <Style Selector="Border#LicenseAlarmBar.warning">
+            <Setter Property="Background" Value="#EAB308" />
+        </Style>
+        <Style Selector="Border#LicenseAlarmBar.warning TextBlock">
+            <Setter Property="Foreground" Value="#1E1E1E" />
+        </Style>
+        <Style Selector="Border#LicenseAlarmBar.critical">
+            <Setter Property="Background" Value="#B91C1C" />
+        </Style>
+        <Style Selector="Border#LicenseAlarmBar.critical TextBlock">
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
     </Window.Styles>
 
     <!-- The menu bar and toolbar span the full window width above the sidebar and
@@ -272,6 +286,30 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ==================== LICENSE BANNER (full width) ====================
+             Mission "Licenses - Always Ready, Loud When Not", step 2: while a license alarm is open it is shown across
+             the top of every Cockpit, Director and phone screen. The words and the tone are the Gateway's
+             (GET /gateway/licenses/alarms); the link opens the Cockpit's Licenses page at the address the Gateway
+             hands back. Hidden while no alarm is open. Above the resource banners: a machine that cannot
+             switch stops its sessions, which outranks a busy machine. -->
+        <Border x:Name="LicenseAlarmBar"
+                DockPanel.Dock="Top"
+                IsVisible="False"
+                Padding="12,6">
+            <DockPanel>
+                <Button x:Name="LicenseAlarmLink"
+                        DockPanel.Dock="Right"
+                        Background="Transparent" BorderThickness="0" Padding="8,2"
+                        Cursor="Hand"
+                        Click="LicenseAlarmLink_Click">
+                    <TextBlock x:Name="LicenseAlarmLinkText" FontSize="12" FontWeight="SemiBold"
+                               TextDecorations="Underline" />
+                </Button>
+                <TextBlock x:Name="LicenseAlarmSummary" FontSize="12" FontWeight="SemiBold"
+                           VerticalAlignment="Center" TextWrapping="Wrap" />
             </DockPanel>
         </Border>
 

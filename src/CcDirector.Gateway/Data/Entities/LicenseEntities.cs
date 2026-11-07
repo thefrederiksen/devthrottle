@@ -323,4 +323,16 @@ public sealed class LicenseAlarmEntity : GatewayMintedKeyEntity
 
     /// <summary>When the mail service confirmed the owner email; null until it did.</summary>
     public DateTime? EmailSentAtUtc { get; set; }
+
+    /// <summary>When the owner was last told of it - its opening, or its latest hourly repeat (mission "Licenses - Always
+    /// Ready, Loud When Not", step 2); null on a row stored before repeats existed, read as its opening.</summary>
+    public DateTime? LastToldAtUtc { get; set; }
+
+    /// <summary>The subject of its owner email when the check that raised it gave one ("machine-a cannot switch - about
+    /// 9 hours to its limit"), as the check last said it; null to use the general subject.</summary>
+    public string? Subject { get; set; }
+
+    /// <summary>The banner tone of its kind: <c>warning</c> (yellow) or <c>critical</c> (red), the kind's own
+    /// (<c>Licenses.LicenseAlarmKind.Tone</c>). A row stored before tones existed reads as <c>warning</c>.</summary>
+    public string Tone { get; set; } = "warning";
 }

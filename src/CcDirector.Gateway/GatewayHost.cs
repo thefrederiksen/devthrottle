@@ -2511,6 +2511,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // the Cockpit's Machines view reads, so the email and that page cannot disagree about "behind".
             // Lambdas, because the registry is reached at report time and not at construction.
             directors: tenant => Registry.ListDirectors(tenant),
+            // The quiet daily line of a license gap reads the coverage grid, the one place a gap is decided, from the same
+            // snapshot source the Licenses page reads. A lambda: the license services are built after this builder.
+            licenseCoverage: (tenant, now) => Licenses.LicenseCoverageFold.Judge(
+                (LicenseSnapshots ?? throw new InvalidOperationException("The license snapshot source is built before any morning report is."))
+                    .ReadPicture(tenant, now, Array.Empty<Licenses.LicenseExhaustion>())),
             newestRelease: () => _newestRelease.Current().Version);
         // Snooze Length mission: the persisted snooze registry (sessionId -> SnoozeUntilUtc), now in the
         // snoozes table of the EF data layer - a Gateway restart re-arms every pending snooze from the
@@ -3231,7 +3236,9 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => _tenantBoundary.EnterScope(tenant));
         // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
         LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
-            _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
+            _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow,
+            // The owner's night, in the account's own time zone: a repeating warning waits it out below 90%.
+            (tenant, utc) => Licenses.LicenseOwnerNight.IsNight(TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)), utc));
         // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
         LicenseRenewalFailureAlarm = new Licenses.LicenseRenewalFailureAlarm(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),

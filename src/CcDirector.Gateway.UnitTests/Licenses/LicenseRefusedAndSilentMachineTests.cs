@@ -454,4 +454,24 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
         Assert.Equal(LicenseMachineStatuses.Reporting, Assert.Single(Overview(Other).Machines).Status);
         Assert.Empty(Log(LicenseLogKinds.ReportAccepted, Other));
     }
+
+    // The coverage grid (the review of pull request 4707, finding a): a Director whose reports were only ever refused has no
+    // machine row, and the Licenses page shows it from its refusal. The grid gives it a row too, every paid account a gap,
+    // since the cannot-switch warning and the daily fire drill read the same Judge.
+    [Fact]
+    public void Coverage_ADirectorOnlyEverRefused_IsARow_EveryPaidAccountAGap()
+    {
+        _store.ApplyReport(Tenant, "dir-machine-b", 1, Report("machine-b", Holding(A, true), Holding(B, false)), _now, TimeSpan.Zero);
+        Assert.Equal(LicenseIngestOutcome.Malformed, Push(HeldTwice()));
+
+        var coverage = LicenseCoverageFold.Judge(Picture());
+
+        var refused = Assert.Single(coverage.Rows, r => r.MachineName == "machine-a");
+        Assert.Equal(LicenseDisplayFold.RefusedMachineId(Assert.Single(Log(LicenseLogKinds.ReportRefused))), refused.MachineId);
+        Assert.True(refused.ReportsRefused);
+        Assert.Equal(new[] { A, B }, refused.Gaps.Select(c => c.AccountEmail));
+        var row = Assert.Single(LicenseCoverageFold.Dto(coverage).Rows, r => r.Machine.MachineName == "machine-a");
+        Assert.Equal(("Its reports are being refused, so what it holds now is not known and it cannot be switched.", LicenseTones.Warning),
+            (row.Text, row.Tone));
+    }
 }

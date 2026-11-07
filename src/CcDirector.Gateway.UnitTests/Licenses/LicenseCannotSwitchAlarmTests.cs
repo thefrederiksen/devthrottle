@@ -62,6 +62,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
     private bool _machineAOnB;
     // machine-a stops reporting: only machine-b's reports arrive.
     private bool _machineASilent;
+    private bool _night;
 
     public LicenseCannotSwitchAlarmTests()
     {
@@ -73,7 +74,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
             () => _now, CancellationToken.None);
         _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads,
             _directors.IsConnected, () => _now);
-        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now, (_, _) => _night);
         _directors.Answer = _ => _neverAnswers.Task;
     }
 
@@ -473,4 +474,160 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         Assert.Equal(new[] { LicenseCannotSwitchAlarm.Kind.Key }, _alarms.ListOpen(One).Select(a => a.Kind).ToArray());
     }
+
+    // ----- repeat until fixed (mission "Licenses - Always Ready, Loud When Not", step 2) -----
+
+    // The dry run of the owner's ruling: a machine that cannot switch is told about when the warning opens, and again an
+    // hour later while it is still not fixed - two pushes an hour apart, two emails whose subject names the machine, and a
+    // row of the Licenses log for the repeat. Nothing more at 59 minutes.
+    [Fact]
+    public async Task Tick_StillCannotSwitchAnHourOn_IsToldAgain_TwoPushesAnHourApart()
+    {
+        _aWeekly = 85;
+        Report();
+        await Tick();
+        Later(59);
+        await Tick();
+        Assert.Single(_pushed);
+
+        Later(60);
+        var tick = await Tick();
+
+        Assert.Equal((0, 1, 0, 1), (tick.Alarms!.Opened, tick.Alarms.StillOpen, tick.Alarms.Closed, tick.Alarms.Repeated));
+        Assert.Equal(new[] { false, true }, _pushed.Select(p => p.IsRepeat).ToArray());
+        Assert.Equal("Still: machine-a: Cannot switch accounts. Open Licenses to see what to do.",
+            LicenseAlarmFold.PushBody(_pushed[1].MachineName, _pushed[1].Kind, _pushed[1].IsRepeat));
+        Assert.Equal(2, _emails.Count);
+        // The subject names the machine and the hours the forecast gives the account (the rig's readings forecast about 10).
+        Assert.All(_emails, e => Assert.Matches("^DevThrottle: machine-a cannot switch - about [0-9]+ hours to its limit$", e.Subject));
+        Assert.DoesNotContain("only email", _emails[1].BodyText);
+        Assert.Contains("You are told again every hour", _emails[1].BodyText);
+        var repeated = _store.ListLog(One, T0.AddDays(-1)).Single(r => r.Kind == LicenseLogKinds.AlarmRepeated);
+        Assert.Equal(T0.AddMinutes(60), DateTime.SpecifyKind(repeated.CreatedAtUtc, DateTimeKind.Utc));
+    }
+
+    // At night it is pushed only once the account is past 90% (the owner: "also at night once the account is past 90%").
+    // The email is not held: at 89% the owner is emailed, at opening and an hour on, and the phone stays quiet.
+    [Theory]
+    [InlineData(89, 0)]
+    [InlineData(91, 2)]
+    public async Task Tick_AtNight_PushesOnlyPastNinety(double weekly, int pushes)
+    {
+        _night = true;
+        _aWeekly = weekly;
+        Report();
+        await Tick();
+        Later(60);
+        await Tick();
+
+        Assert.Equal(pushes, _pushed.Count);
+        Assert.Equal(2, _emails.Count);
+    }
+
+    // The forecast trigger: below 80%, a machine that cannot switch is warned about when the forecast puts its account at
+    // the threshold less than 12 hours away - at 11 hours, not at 13. The subject names the hours left.
+    [Theory]
+    [InlineData(11, true)]
+    [InlineData(13, false)]
+    public void Conditions_Below80_TheForecastUnderTwelveHoursRaisesIt(int hoursLeft, bool raised)
+    {
+        _aWeekly = 50;
+        Report();
+        var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
+        var judged = Readiness().Judge(One, picture, _now);
+
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One),
+            _alarms.ListOpen(One), account => account == A ? _now.AddHours(hoursLeft) : null);
+
+        if (!raised)
+        {
+            Assert.Empty(warnings);
+            return;
+        }
+        var warning = Assert.Single(warnings);
+        Assert.Equal(MachineA, warning.MachineName);
+        Assert.Equal($"machine-a cannot switch - about {hoursLeft} hours to its limit", warning.Subject);
+        Assert.Contains($"expected to reach its limit in about {hoursLeft} hours", warning.Problem);
+    }
+
+    // A gap below 80% with no forecast is not loud: no alarm, no push, no email - one quiet line of the daily report.
+    [Fact]
+    public async Task Tick_AGapBelow80_RaisesNothing_AndIsOneQuietLineOfTheDailyReport()
+    {
+        _aWeekly = 50;
+        Report();
+
+        var tick = await Tick();
+
+        AssertNothingRaised(tick);
+        var source = new LicenseSnapshotSource(_store, _reads);
+        var report = new Reports.MorningReportBuilder(_db, utcNow: () => _now,
+                licenseCoverage: (tenant, now) => LicenseCoverageFold.Judge(source.ReadPicture(tenant, now, Array.Empty<LicenseExhaustion>())))
+            .Build("owner@example.com", One, Reports.MorningReportWindow.Resolve("2026-10-10", "UTC"));
+        var line = Assert.Single(report.Attention.OfType<LicenseCoverageGapsAttentionDto>());
+        Assert.Equal("2 missing sign-ins on 1 machine", line.Title);
+        Assert.Equal("machine-a: no sign-in for account-b@example.com; no sign-in for account-c@example.com. "
+                     + "Sign them in from the Licenses page before a machine needs to switch.", line.Text);
+    }
+
+    // Yellow until the threshold, red at it: the banner's tone is the Gateway's verdict.
+    [Theory]
+    [InlineData(96, LicenseAlarmTones.Warning)]
+    [InlineData(97, LicenseAlarmTones.Critical)]
+    public async Task Tick_TheBannerIsYellowUntil97_RedAtIt(double fiveHour, string tone)
+    {
+        _aFiveHour = fiveHour;
+        Report();
+
+        await Tick();
+
+        var banner = LicenseAlarmFold.Banner(_alarms.ListOpen(One), _now);
+        Assert.Equal(tone, banner.Tone);
+        Assert.Equal(tone, Assert.Single(banner.Alarms).Tone);
+    }
+
+    // It closes on a fact: the machine holds a sign-in for the account with room. Nothing is sent after that.
+    [Fact]
+    public async Task Tick_ASignInArrives_TheWarningCloses_AndTheRepeatsStop()
+    {
+        Report();
+        await Tick();
+        Assert.Single(Warnings());
+
+        _machineAHoldsB = true;
+        Later(30);
+        var tick = await Tick();
+        Later(120);
+        await Tick();
+
+        Assert.Equal(1, tick.Alarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Single(_pushed);
+        Assert.Single(_emails);
+    }
+
+    // The hold-down quiets a flapping FIRST notice only; it never silences the hourly repeat.
+    [Fact]
+    public async Task Tick_AWarningThatCameBackWithinTheHoldDown_IsStillToldAnHourLater()
+    {
+        Report();
+        await Tick();
+        _machineAHoldsB = true;
+        Later(10);
+        await Tick();
+        _machineAHoldsB = false;
+        Later(20);
+        await Tick();
+        Assert.Single(_pushed); // came back within six hours: held
+
+        Later(80);
+        await Tick();
+
+        Assert.Equal(new[] { false, true }, _pushed.Select(p => p.IsRepeat).ToArray());
+        Assert.Equal(2, _emails.Count);
+    }
+
+    private LicenseReadinessService Readiness()
+        => new(_store, new LicenseSnapshotSource(_store, _reads), _log, _signIns, _approverReadiness.WhyNotReady,
+            _directors.IsConnected, _alarms, new LicenseUsageHistory(), () => _now);
 }

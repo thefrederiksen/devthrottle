@@ -21,7 +21,11 @@ public sealed record LicenseAlarmKind
     /// <param name="key">Lower-case words joined by hyphens, at most 64 characters: <c>not-ready-at-80</c>.</param>
     /// <param name="title">What kind of problem it is, in a few plain words with no full stop and never an email
     /// address: "Not ready to switch". It is what a phone's locked screen shows.</param>
-    public LicenseAlarmKind(string key, string title)
+    /// <param name="repeatsHourly">True for a kind that tells the owner again every <see cref="LicenseAlarmService.RepeatEvery"/>
+    /// while it is open - a push and an email each time - until it is fixed. False tells the owner once, when it opens.</param>
+    /// <param name="tone">The banner tone of the kind: <see cref="LicenseAlarmTones.Warning"/> (yellow) or
+    /// <see cref="LicenseAlarmTones.Critical"/> (red).</param>
+    public LicenseAlarmKind(string key, string title, bool repeatsHourly = false, string tone = LicenseAlarmTones.Warning)
     {
         if (string.IsNullOrEmpty(key) || key.Length > 64 || !KeyShape.IsMatch(key))
             throw new ArgumentException($"'{key}' is not an alarm kind: lower-case words joined by hyphens, at most 64 characters.", nameof(key));
@@ -30,12 +34,22 @@ public sealed record LicenseAlarmKind
         if (words.Length == 0 || words.Length > 80 || words.Contains('@') || words.EndsWith('.')
             || words.Any(c => char.IsControl(c)))
             throw new ArgumentException("An alarm title is a few plain words on one line, with no full stop and no email address.", nameof(title));
+        if (tone is not (LicenseAlarmTones.Warning or LicenseAlarmTones.Critical))
+            throw new ArgumentException($"'{tone}' is not an alarm tone: '{LicenseAlarmTones.Warning}' or '{LicenseAlarmTones.Critical}'.", nameof(tone));
         Key = key;
         Title = words;
+        RepeatsHourly = repeatsHourly;
+        Tone = tone;
     }
 
     public string Key { get; }
     public string Title { get; }
+
+    /// <summary>True when the owner is told again every <see cref="LicenseAlarmService.RepeatEvery"/> while it is open.</summary>
+    public bool RepeatsHourly { get; }
+
+    /// <summary>One of <see cref="LicenseAlarmTones"/>.</summary>
+    public string Tone { get; }
 }
 
 /// <summary>
@@ -47,17 +61,49 @@ public sealed record LicenseAlarmKind
 /// <param name="AccountEmail">The account it is about; null for an alarm about no one account.</param>
 /// <param name="Problem">What is wrong, one plain-English sentence ending in a full stop. It may name the account.</param>
 /// <param name="Action">The one thing to do, one plain-English sentence ending in a full stop.</param>
-public sealed record LicenseAlarmCondition(Guid? MachineId, string? MachineName, string? AccountEmail, string Problem, string Action);
+/// <param name="Subject">The subject of its owner email, one line with no full stop; null for the general subject.</param>
+/// <param name="LoudAtNight">False when its push must wait out the owner's night (<see cref="LicenseOwnerNight"/>): the
+/// cannot-switch warning is pushed at night only once the account is past 90%. The email and the banner are not held.</param>
+public sealed record LicenseAlarmCondition(Guid? MachineId, string? MachineName, string? AccountEmail, string Problem, string Action,
+    string? Subject = null, bool LoudAtNight = true);
 
-/// <summary>One alarm that opened, as it is pushed to the owner's phones.</summary>
-public sealed record LicenseAlarmOpened(Guid AlarmId, LicenseAlarmKind Kind, string MachineName);
+/// <summary>One alarm that opened, or one hourly repeat of an open one, as it is pushed to the owner's phones.</summary>
+public sealed record LicenseAlarmOpened(Guid AlarmId, LicenseAlarmKind Kind, string MachineName, bool IsRepeat = false);
 
 /// <summary>Sends the push for alarms that just opened to every phone of one tenant. Never throws.</summary>
 public delegate Task LicenseAlarmPusher(TenantId tenant, IReadOnlyList<LicenseAlarmOpened> opened, CancellationToken ct);
 
 /// <summary>What one <see cref="LicenseAlarmService.RaiseAsync"/> did. <paramref name="Held"/> is how many of the
-/// <paramref name="Opened"/> came back within <see cref="LicenseAlarmService.HoldDown"/> and told nobody.</summary>
-public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed, int Held = 0);
+/// <paramref name="Opened"/> came back within <see cref="LicenseAlarmService.HoldDown"/> and told nobody;
+/// <paramref name="Repeated"/> how many of the <paramref name="StillOpen"/> were told again, an hour on.</summary>
+public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed, int Held = 0, int Repeated = 0);
+
+/// <summary>The banner tone of an alarm: yellow while it is a warning, red only above the switching threshold (the owner,
+/// 6 November 2026: "a warning should be yellow, not red. It doesn't go red until it goes above 97%.").</summary>
+public static class LicenseAlarmTones
+{
+    public const string Warning = "warning";
+    public const string Critical = "critical";
+}
+
+/// <summary>
+/// THE OWNER'S NIGHT, for the push of a repeating alarm. The owner, 6 November 2026: a phone push every hour, "also at
+/// night once the account is past 90%". Night is <see cref="StartsAtHour"/>:00 to <see cref="EndsAtHour"/>:00 in the
+/// account's own time zone (the time zone of the Settings page). Pure.
+/// </summary>
+public static class LicenseOwnerNight
+{
+    public const int StartsAtHour = 22;
+    public const int EndsAtHour = 7;
+
+    /// <summary>True when <paramref name="utc"/> falls in the night of <paramref name="zone"/>.</summary>
+    public static bool IsNight(TimeZoneInfo zone, DateTime utc)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+        var hour = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone).Hour;
+        return hour >= StartsAtHour || hour < EndsAtHour;
+    }
+}
 
 /// <summary>
 /// THE LICENSE ALARM (License Switching phase 6): the ONE mechanism by which a problem with licenses is made loud and
@@ -67,18 +113,19 @@ public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed, i
 /// RAISED BY CONDITION, AND IDEMPOTENT. A check calls <see cref="RaiseAsync"/> with its kind and EVERY alarm of that
 /// kind that is true now - an empty list when none is. An alarm that is not open yet opens: one row of
 /// <c>license_alarms</c>, one row of the Licenses log, one push to the owner's phones, and one owner email. An alarm
-/// already open stays open and sends nothing more; only its two sentences are brought up to date. An open alarm of that
+/// already open stays open and its sentences are brought up to date; a kind that does not repeat sends nothing more, and
+/// a kind that repeats is told again every hour (below). An open alarm of that
 /// kind that is not in the list closes by itself and writes a row of the Licenses log. Raising it again later opens a
 /// NEW alarm, with its own push and its own email - unless it comes back within the hold-down, below. A check never closes another kind's alarms.
 ///
-/// ONE OWNER EMAIL FOR EACH ALARM, through the same channel and with the same care as the "no account has room" email
+/// AN OWNER EMAIL WHEN AN ALARM OPENS, AND AGAIN WITH EACH REPEAT OF A KIND THAT REPEATS, through the same channel and with the same care as the "no account has room" email
 /// (<see cref="LicenseOwnerMailer"/>): recorded as emailed only when the mail service confirmed it, and a send that
 /// failed is tried again on a later check - one minute, two, four, up to an hour, or longer when the mail service asks
 /// - for as long as the alarm is open. Every alarm whose email is due in one check of one tenant goes out in ONE email.
 /// A confirmed send is remembered in this process until its row is marked. The one gap is the same as that email's: a
 /// Gateway that stops between the confirmation and the mark sends once more after it restarts.
 ///
-/// AN ALARM THAT COMES AND GOES TELLS THE OWNER ONCE. An alarm that opens again within <see cref="HoldDown"/> of the
+/// AN ALARM THAT COMES AND GOES IS NOT TOLD AGAIN AS IT REOPENS. An alarm that opens again within <see cref="HoldDown"/> of the
 /// same alarm (same kind, machine and account) closing, when the owner was told of that one, opens as usual - its row,
 /// its banner line and its Licenses log row - but sends no push and no email: its row is marked
 /// <see cref="LicenseGatewayReasonCodes.HeldCameBack"/>. The banner says how many times in a row it has come back. After
@@ -86,9 +133,18 @@ public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed, i
 /// process's memory, so a Gateway restart between the close and the reopen still holds it. The hold-down never changes
 /// WHEN an alarm opens or closes, only whether an opening tells the owner.
 ///
-/// ONE PUSH FOR EACH ALARM, when it opens. It carries the machine's name and the kind's title only - never an account
-/// email address, because a push shows on a locked screen. It is not tried again: the banner and the email are the
-/// alarm's lasting voice.
+/// A PUSH WHEN AN ALARM OPENS, and with each repeat of a kind that repeats. It carries the machine's name and the kind's title only - never an account
+/// email address, because a push shows on a locked screen. A failed push is not tried again.
+///
+/// A KIND THAT REPEATS IS TOLD AGAIN EVERY HOUR UNTIL IT IS FIXED (mission "Licenses - Always Ready, Loud When Not",
+/// step 2). On 6 November 2026 the 80% warning fired exactly once and then went silent while the machine climbed to 99%
+/// and stopped; the owner replaced that one-shot design: "repeat until fixed". For a kind with
+/// <see cref="LicenseAlarmKind.RepeatsHourly"/>, every raise that finds the alarm still open and
+/// <see cref="RepeatEvery"/> past the last time the owner was told (<see cref="LicenseAlarmEntity.LastToldAtUtc"/>) tells
+/// the owner again: a push, an owner email due again, and a row of the Licenses log. The hold-down above quiets only a
+/// FIRST notice that comes and goes; it never silences the repeat - a held opening is counted as told when it opens, and
+/// is told an hour later like any other. A condition with <see cref="LicenseAlarmCondition.LoudAtNight"/> false is not
+/// pushed during the owner's night (<see cref="LicenseOwnerNight"/>); its email and its banner line are not held.
 ///
 /// Per tenant: every read and write is in the tenant's own partition, so two tenants never see each other's alarms.
 /// There is no route that raises one: only Gateway code calls this.
@@ -110,6 +166,9 @@ public sealed class LicenseAlarmService
     /// </summary>
     public static readonly TimeSpan HoldDown = TimeSpan.FromHours(6);
 
+    /// <summary>How often an open alarm of a kind that repeats tells the owner again: every hour (the owner, 6 November 2026).</summary>
+    public static readonly TimeSpan RepeatEvery = TimeSpan.FromHours(1);
+
     // These conditions are status, not faults. The old mixed-window kind is retired too: its rows cannot prove
     // whether the weekly window alone raised them. The five-hour-only kind that replaced it is retired in turn: the
     // 80% warning ("cannot-switch-at-80") covers both windows, for a machine that cannot switch only.
@@ -119,6 +178,7 @@ public sealed class LicenseAlarmService
     private readonly LicenseOwnerEmailSender _mail;
     private readonly LicenseAlarmPusher _push;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Func<TenantId, DateTime, bool> _isOwnerNight;
 
     // One raise per tenant at a time, so one identity can never be opened twice by two raises at once.
     private readonly ConcurrentDictionary<TenantId, SemaphoreSlim> _raising = new();
@@ -132,12 +192,16 @@ public sealed class LicenseAlarmService
     /// <param name="mail">Sends the owner email (<see cref="LicenseOwnerMailer.SendAsync"/>).</param>
     /// <param name="push">Pushes an alarm that opened to the tenant's phones.</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
-    public LicenseAlarmService(GatewayDatabase db, LicenseOwnerEmailSender mail, LicenseAlarmPusher push, Func<DateTime> nowUtc)
+    /// <param name="isOwnerNight">Whether a moment falls in the night of the tenant's owner
+    /// (<see cref="LicenseOwnerNight.IsNight"/> in the tenant's time zone).</param>
+    public LicenseAlarmService(GatewayDatabase db, LicenseOwnerEmailSender mail, LicenseAlarmPusher push, Func<DateTime> nowUtc,
+        Func<TenantId, DateTime, bool> isOwnerNight)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _mail = mail ?? throw new ArgumentNullException(nameof(mail));
         _push = push ?? throw new ArgumentNullException(nameof(push));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
+        _isOwnerNight = isOwnerNight ?? throw new ArgumentNullException(nameof(isOwnerNight));
     }
 
     /// <summary>
@@ -160,25 +224,24 @@ public sealed class LicenseAlarmService
 
         var gate = _raising.GetOrAdd(tenant, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        List<LicenseAlarmOpened> opened;
-        int stillOpen, closed, held;
+        Reconciled done;
         try
         {
-            (opened, stillOpen, closed, held) = Reconcile(tenant, kind, wanted, _nowUtc());
+            done = Reconcile(tenant, kind, wanted, _nowUtc());
         }
         finally
         {
             gate.Release();
         }
-        if (opened.Count + held + closed > 0)
-            FileLog.Write($"[LicenseAlarmService] RaiseAsync: tenant={tenant.ToLogString()}, kind={kind.Key}, opened={opened.Count + held}, held={held}, stillOpen={stillOpen}, closed={closed}");
+        if (done.Opened + done.Closed + done.Repeated > 0)
+            FileLog.Write($"[LicenseAlarmService] RaiseAsync: tenant={tenant.ToLogString()}, kind={kind.Key}, opened={done.Opened}, held={done.Held}, "
+                          + $"stillOpen={done.StillOpen}, repeated={done.Repeated}, closed={done.Closed}, pushes={done.Pushes.Count}");
 
-        if (opened.Count > 0)
-        {
-            await PushAsync(tenant, opened, ct).ConfigureAwait(false);
+        if (done.Pushes.Count > 0)
+            await PushAsync(tenant, done.Pushes, ct).ConfigureAwait(false);
+        if (done.Told > 0)
             await SendDueEmailAsync(tenant, ct).ConfigureAwait(false);
-        }
-        return new LicenseAlarmRaised(opened.Count + held, stillOpen, closed, held);
+        return new LicenseAlarmRaised(done.Opened, done.StillOpen, done.Closed, done.Held, done.Repeated);
     }
 
     /// <summary>Every alarm of the tenant that is open now, oldest first.</summary>
@@ -287,17 +350,22 @@ public sealed class LicenseAlarmService
 
     // ----- the database part of a raise -----
 
-    private (List<LicenseAlarmOpened> Opened, int StillOpen, int Closed, int Held) Reconcile(TenantId tenant, LicenseAlarmKind kind,
-        IReadOnlyList<LicenseAlarmCondition> wanted, DateTime nowUtc)
+    // What one reconcile did. Told counts the openings and repeats whose email is now due.
+    private sealed record Reconciled(List<LicenseAlarmOpened> Pushes, int Opened, int StillOpen, int Closed, int Held, int Repeated, int Told);
+
+    private Reconciled Reconcile(TenantId tenant, LicenseAlarmKind kind, IReadOnlyList<LicenseAlarmCondition> wanted, DateTime nowUtc)
     {
         try
         {
             using var ctx = _db.CreateContext(tenant);
             var open = ctx.LicenseAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc == null).ToList();
-            var opened = new List<LicenseAlarmOpened>();
-            var stillOpen = 0;
-            var heldCount = 0;
+            var pushes = new List<LicenseAlarmOpened>();
+            var rearmed = new List<Guid>();
+            int opened = 0, stillOpen = 0, heldCount = 0, repeated = 0, told = 0;
             var now = Utc(nowUtc);
+            // Asked once, and only when a push could be held for it.
+            bool? night = null;
+            bool Quiet(LicenseAlarmCondition condition) => !condition.LoudAtNight && (night ??= _isOwnerNight(tenant, now));
             foreach (var condition in wanted)
             {
                 var machineId = condition.MachineId ?? Guid.Empty;
@@ -305,11 +373,31 @@ public sealed class LicenseAlarmService
                 var row = open.FirstOrDefault(a => a.MachineId == machineId && a.AccountEmail == account);
                 if (row is not null)
                 {
-                    // Still true: the words are brought up to date, and nothing is sent.
+                    // Still true: the words are brought up to date.
                     row.Problem = condition.Problem;
                     row.Action = condition.Action;
+                    row.Subject = condition.Subject;
+                    row.Tone = kind.Tone;
                     open.Remove(row);
                     stillOpen++;
+                    if (kind.RepeatsHourly && now - Utc(row.LastToldAtUtc ?? row.OpenedAtUtc) >= RepeatEvery)
+                    {
+                        // An hour since the owner was last told, and still not fixed: tell them again.
+                        row.LastToldAtUtc = now;
+                        if (row.EmailState is not LicenseGatewayReasonCodes.NoOwnerAccount)
+                        {
+                            row.EmailState = null; // due again: the email check sends it
+                            row.EmailSentAtUtc = null;
+                            rearmed.Add(row.Id);
+                            told++;
+                        }
+                        var quiet = Quiet(condition);
+                        ctx.LicenseSwitchLog.Add(LogRow(ctx, LicenseLogKinds.AlarmRepeated, row,
+                            LicenseAlarmFold.RepeatedLogMessage(row.Problem, row.Action, quiet), now));
+                        if (!quiet)
+                            pushes.Add(new LicenseAlarmOpened(row.Id, kind, row.MachineName, IsRepeat: true));
+                        repeated++;
+                    }
                     continue;
                 }
                 var held = CameBackWithinHoldDown(ctx, kind.Key, machineId, account, now);
@@ -321,7 +409,11 @@ public sealed class LicenseAlarmService
                     AccountEmail = account,
                     Problem = condition.Problem,
                     Action = condition.Action,
+                    Subject = condition.Subject,
+                    Tone = kind.Tone,
                     OpenedAtUtc = now,
+                    // A held opening counts as told: the hold-down quiets the first notice, and the hourly repeat runs from here.
+                    LastToldAtUtc = now,
                     EmailState = held ? LicenseGatewayReasonCodes.HeldCameBack : null,
                     TenantId = ctx.ActiveTenant!,
                 };
@@ -330,10 +422,15 @@ public sealed class LicenseAlarmService
                     ? LicenseAlarmFold.HeldLogMessage(row.Problem, row.Action)
                     : LicenseAlarmFold.OpenedLogMessage(row.Problem, row.Action);
                 ctx.LicenseSwitchLog.Add(LogRow(ctx, LicenseLogKinds.AlarmOpened, row, message, now));
+                opened++;
                 if (held)
                     heldCount++;
                 else
-                    opened.Add(new LicenseAlarmOpened(row.Id, kind, row.MachineName));
+                {
+                    told++;
+                    if (!Quiet(condition))
+                        pushes.Add(new LicenseAlarmOpened(row.Id, kind, row.MachineName));
+                }
             }
             // Open, and no longer true: it closes by itself.
             foreach (var row in open)
@@ -344,7 +441,10 @@ public sealed class LicenseAlarmService
             ctx.SaveChanges();
             foreach (var row in open)
                 ForgetEmail(tenant, row.Id);
-            return (opened, stillOpen, open.Count, heldCount);
+            // A repeat starts the email's own retries afresh.
+            foreach (var id in rearmed)
+                ForgetEmail(tenant, id);
+            return new Reconciled(pushes, opened, stillOpen, open.Count, heldCount, repeated, told);
         }
         catch (Exception ex)
         {
