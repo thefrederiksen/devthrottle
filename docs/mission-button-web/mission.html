@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mission Button on the Web - the Cockpit and the mobile app show each session's Mission</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; color: #1f2328; line-height: 1.5; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #d0d7de; padding-bottom: 4px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+  .sub { color: #57606a; }
+  .q { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; margin: 14px 0; background: #f6f8fa; }
+  .q label { display: block; margin: 6px 0; }
+  .q textarea { width: 100%; min-height: 44px; margin-top: 6px; }
+  .ctx { color: #57606a; font-size: 14px; margin: 0 0 6px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f6f8fa; }
+  .mock { background: #1e1e1e; border-radius: 8px; padding: 14px; color: #ccc; font-size: 12px; font-family: Segoe UI, Arial, sans-serif; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #252526; border-radius: 4px; margin-bottom: 10px; }
+  .tab { padding: 4px 10px; color: #bbb; }
+  .sp { flex: 1; }
+  .btn { padding: 4px 10px; border-radius: 5px; color: #fff; font-weight: 600; font-size: 11px; border: 1px solid; }
+  .cockpit { background: #0D9488; border-color: #14B8A6; }
+  .mission { background: #4338CA; border-color: #6366F1; }
+  .nomission { background: #CA8A04; border-color: #EAB308; color: #1f1f1f; }
+  .tb { padding: 3px 9px; border-radius: 4px; background: #333; color: #ddd; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+  code { background: #eaeef2; padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<section data-dev-report="header" data-dev-report-status="done">
+  <h1>Mission Button on the Web - the Cockpit and the mobile app show each session's Mission</h1>
+  <p class="sub">Mission document, 7 November 2026, finished the same day. Written by the Delivery Lead, session 113, on the owner's go.</p>
+</section>
+
+<section data-dev-report="summary">
+  <p><strong>What you asked for:</strong> the Mission button you now have in the desktop Director, in the Cockpit and in the mobile app too. Proof is a QA report with screenshots of both, run in a browser on the computer, showing the buttons working.</p>
+  <p><strong>What is true today:</strong> the Gateway already rules the button for every session on the roster it serves: the verdict, the label, the colour key, the tooltip (the Mission's name and goal) and the document's address. It went live with the Missions First-Class mission. The desktop Director renders it. The Cockpit and the mobile app receive it and show nothing.</p>
+  <p><strong>Where it stands: done.</strong> The Cockpit and the mobile app show each session's Mission button, live, in all three looks; the click or tap opens the document and a hover or long press shows the name and goal. The quality assurance report with the screenshots: <a href="https://gateway.devthrottle.com/r/ee5cee8d-05aa-4165-ad32-f1bd7d01b9cc">https://gateway.devthrottle.com/r/ee5cee8d-05aa-4165-ad32-f1bd7d01b9cc</a>.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Questions</h2>
+  <p data-dev-report-no-questions>No questions - nothing needed from you. You said go on 7 November 2026.</p>
+</section>
+
+<section data-dev-report="why">
+  <h2>The why</h2>
+  <p>You run the fleet from the Cockpit and from your phone as much as from the desktop. A session's Mission and goal that only the desktop shows is invisible exactly where you are when a session asks you for something. The Gateway already decides the button; the two web surfaces just have to show it.</p>
+</section>
+
+<section data-dev-report="goal">
+  <h2>The goal</h2>
+  <p>On the live Cockpit and the live mobile app, both opened in a browser on the computer, each session shows its Mission button, and a QA report proves it with screenshots:</p>
+  <ul>
+    <li>A session attached to a Mission with a document shows an indigo button with the Mission's name; its tooltip or long-press shows the name and goal; clicking it opens the mission document.</li>
+    <li>A session with no Mission shows yellow "No mission". Nothing stops it working.</li>
+    <li>Both surfaces render one shared component, so they cannot drift.</li>
+    <li>Merged to origin/main, reviewed by a separate review session, deployed with the deploy workflow.</li>
+  </ul>
+</section>
+
+<section data-dev-report="detail">
+  <h2>1. What gets built</h2>
+  <ul>
+    <li><strong>One shared component</strong> in <code>packages/client-core</code>, a Mission button that renders the session's <code>missionButton</code> verdict verbatim: the label, the colour from the colour key (<code>mission</code> indigo, <code>mission-outline</code> indigo outline, <code>warning</code> yellow), the tooltip, and a link to the document address. An unknown colour key shows a visible problem, never a guessed colour.</li>
+    <li><strong>Placement:</strong> on each session's own screen - the Cockpit session detail header beside its actions, and the mobile session app bar. The session roster rows are left as they are.</li>
+    <li><strong>No Gateway change.</strong> The client decides only layout, never what a state means.</li>
+  </ul>
+  <h2>2. The proof</h2>
+  <p>After the deploy, in a signed-in browser on the computer: the live Cockpit and the live mobile app (the mobile app in a phone-sized window), each showing a session in this Mission (indigo, its tooltip, the click opening this document) and a session with no Mission (yellow). Published as a QA report linked from section 3.</p>
+  <h2>3. The outcome</h2>
+  <p>Done on 7 November 2026.</p>
+  <ul>
+    <li>Pull request 4734, merged as 43172929e: one shared Mission button in client-core, mounted in the Cockpit session header and the mobile session app bar. No Gateway change.</li>
+    <li>A separate review session read it: no blocking findings; seven of eight closed on re-check, the phone long press closed by the live check.</li>
+    <li>Type checks clean; client-core 2495, Cockpit 1504 and mobile 214 tests passed.</li>
+    <li>Deployed through the deploy workflow. The first attempt went live and was then rolled back by the Factory Inbox Delivery Lead for its own deploy's 468-second outage; its redeploy of the same main put this change live at 4317292. My own run measured a 173.4-second outage against the 120-second budget.</li>
+    <li>Quality assurance report, with all screenshots: <a href="https://gateway.devthrottle.com/r/ee5cee8d-05aa-4165-ad32-f1bd7d01b9cc">https://gateway.devthrottle.com/r/ee5cee8d-05aa-4165-ad32-f1bd7d01b9cc</a>.</li>
+    <li>Found on the way, not caused by this change: the license banner covers the mobile app bar; the report page is unreadable at phone width; client-core tests can exit red on a terminal stream timer (issue 4738). Small and cosmetic in the new button: a long name is cut off with no "..." in the Cockpit header, and the phone bubble runs past the left edge.</li>
+  </ul>
+</section>
+
+</body>
+</html>
