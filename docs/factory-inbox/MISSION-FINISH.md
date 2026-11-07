@@ -251,6 +251,7 @@ read on Linux) and reviewed by a separate session; every review file is under `r
 | 4664 | Email off: each factory's morning summary goes to Your inbox; the sweep has no mail sender. | 00:04 UTC, 7 November |
 | 4703 | Small defects from the end-to-end proof, and reads that cannot hang a screen. | 00:49 UTC, 7 November |
 | 4699 | The end-to-end QA report and this record, with the morning check of 7 November. | - (documents only) |
+| 4737 | A failed schedule tells its owner in Your inbox, never by email (the sender `owner-emails.md` missed). | 15:38 Coordinated Universal Time, 7 November, in `4317292` |
 
 Issues filed for what is outside this mission: 4701 (two Directors on one computer), 4702 (session keys refused for an
 owned session). Deploys cost between no failed answer and an 8-minute stall (17:06 UTC); the rule to roll back after
@@ -268,3 +269,20 @@ emailing the owner: the Gateway's "Schedule failed" notices (`ScheduleFailureNot
 `owner-emails.md`), the `devthrottle_internal` seat briefs listed in `owner-emails.md` section 6, the kept system
 alerts, and the website's daily account report. The first is this repository's work; the second needs
 `devthrottle_internal`; the last two are the owner's decisions.
+
+### After the morning check (7 November)
+
+Pull request 4737 moved the Gateway's "Schedule failed" notice from email to Your inbox; proven live at 15:54 (step 9
+of the end-to-end quality assurance report). Its first deploy (run 42383776188, 15:01) overlapped another session's
+deploy of `4317292` started 90 seconds later. The deploy workflow measured the outage from 15:02:16: its longest
+stretch 468 seconds, 670 seconds unavailable in all, from about 15:02 to 15:19 (the window includes the rollback's own
+restart). The Delivery Lead's 15-second probe saw the first failed answer at 15:04:55 and then separate stalls of 33,
+69 and 21 seconds with slow answers between, and rolled back to `7c1019b` at 15:13 - about 11 minutes after the
+outage the workflow measured had begun, so later than the five-minute rule asks. `7c1019b` was just as unsteady for
+about three minutes after its own restart, so the code was not the cause. Main (`4317292`, which holds 4737) was then
+deployed alone (run 42386678204, 15:30): the workflow measured 117 seconds, inside the 120-second budget, beginning
+15:38:48; the Delivery Lead's probe saw `4317292` on `/healthz` at 15:38:34 and one stall of 87 seconds (15:39:06 to
+15:40:45), then nothing wrong to the end of a 15-minute watch at 15:53:41.
+
+**Status now:** the Gateway no longer emails the owner about factories. Still emailing him: the `devthrottle_internal`
+seat briefs (`owner-emails.md` section 6), the kept system alerts, and the website's daily account report.

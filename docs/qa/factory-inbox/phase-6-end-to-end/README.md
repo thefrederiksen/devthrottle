@@ -413,6 +413,27 @@ output 709 to 3,087) and worked 0.3 to 2.4 minutes; the longer Bosses were the o
 decided a second bundle. Almost all the volume is cache reads of the seat's opening (brief, rules and skills), which
 every reply re-reads. No money figure is given: the price per token was not checked for this report.
 
+## Step 9 - a failed schedule tells the owner in Your inbox, not by email (7 November)
+
+Run by the Delivery Lead after pull request 4737 ("a failed schedule tells its owner in Your inbox, never by email")
+was deployed in commit `4317292` (first served at 15:38:34 Coordinated Universal Time, read from `/healthz` by the
+Delivery Lead's probe).
+
+**Done:** at 15:54 a test schedule in no factory, "Factory Inbox test - schedule failure proof" (`cj_3852a3`), aimed at
+a machine that does not exist (`fi-no-such-machine`), was fired by hand (`cc-devthrottle schedule run`). Its run ended
+"did not start a session". The schedule was deleted afterwards.
+
+**Seen:** one Your inbox message on both shells, subject "Schedule failed: Factory Inbox test - schedule failure proof",
+from "Schedule failure - schedule in no factory", with the reason, the time, and "To stop these messages, set the
+schedule's Notify to Off." It offers Mark unread and Archive and no Reply, as a schedule in no factory should. **No
+email:** the owner's mailbox has no "Schedule failed" email after 14:56, the last one sent before the deploy. A
+schedule in a factory (the message from that factory, with Reply into its Factory inbox) is covered by the pull
+request's unit tests only; no factory schedule failed during the check.
+
+| Phone | Cockpit |
+|---|---|
+| ![](09b-phone-schedule-failure-in-your-inbox.png) | ![](09a-cockpit-schedule-failure-in-your-inbox.png) |
+
 ## Evidence: what this run did NOT prove
 
 - **The morning message** and the **"no email is sent" checks**: run by the Delivery Lead at 13:17 on 7 November
