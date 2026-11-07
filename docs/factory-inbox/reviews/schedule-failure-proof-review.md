@@ -102,3 +102,30 @@ factory was not exercised live and rests on the pull request's unit tests; that 
 It did not re-run the schedule, send a message, or touch the live Gateway beyond reading `/healthz` and the schedule
 list and run record. It did not read the owner's mailbox (see above). It did not check the older text of either file;
 only the lines this pull request adds.
+
+## Second pass: commit `dda53dce9`, verdict APPROVE
+
+Reviewed the same day, after the Delivery Lead's reply that all five findings were addressed. Only that one commit
+was read; it changes the "After the morning check (7 November)" paragraph in `MISSION-FINISH.md` and the first
+sentence of step 9 in the end-to-end README.
+
+- **Finding 1 (the watch):** fixed. "Clean" is gone. The sentence now gives the workflow's 117 seconds beginning
+  15:38:48, inside the 120-second budget, and keeps the Delivery Lead's own 15-minute watch to 15:53:41 as a
+  separate statement with its one 87-second stall (15:39:06 to 15:40:45). The two agree: the workflow's stretch of
+  117.2 seconds from 15:38:48 ends at 15:40:45, the second the probe saw the site come back.
+- **Finding 2 (the rollback):** fixed. The text now says the rollback came about 11 minutes after the outage the
+  workflow measured had begun, "so later than the five-minute rule asks".
+- **Finding 3 (the abbreviation):** fixed. "QA report" is now "the end-to-end quality assurance report". The new
+  lines of this commit contain no abbreviation and none of the banned words.
+- **Finding 4 (the source of 15:38:34):** fixed. Step 9 now says the time is the Delivery Lead's own probe of
+  `/healthz`. The deploy run's log gives the same second for its third healthy answer, so the two sources agree.
+- **Finding 5 (the window):** fixed. The paragraph now gives the workflow's numbers as the runs show them: from
+  15:02:16, longest stretch 468 seconds, 670 seconds unavailable in all, about 15:02 to 15:19, with the note that the
+  window includes the rollback's own restart.
+
+**Not verified by this review:** the Delivery Lead's own probe figures (first failed answer 15:04:55; stalls of 33, 69
+and 21 seconds; the 87-second stall; the watch ending 15:53:41) come from that session's probe log, which this review
+did not have. They are stated as the probe's readings, beside the workflow's, and nowhere contradict the runs. The
+owner's mailbox remains unverified, as in the first pass.
+
+Nothing else in the pull request changed. APPROVE.
