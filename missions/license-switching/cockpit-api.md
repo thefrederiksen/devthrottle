@@ -605,7 +605,7 @@ switch to any paid account now." (good).
     }
   ],
   "coverage": {
-    "text": "2 missing sign-ins on 2 machines.",
+    "text": "the-mac and the-windows-machine need a ready next license.",
     "tone": "warning",
     "gapCount": 2,
     "accounts": [
@@ -631,7 +631,7 @@ switch to any paid account now." (good).
           "label": "the-mac"
         },
         "activeAccountEmail": "account-a@example.com",
-        "text": "Missing a fresh sign-in for 1 paid account.",
+        "text": "Needs one more license: account-a@example.com is at 85% of its weekly limit, and account-b@example.com would fill before account-a@example.com resets. Sign it in to account-c@example.com.",
         "tone": "warning",
         "gapCount": 1,
         "cells": [
@@ -666,7 +666,7 @@ switch to any paid account now." (good).
           "label": "the-windows-machine"
         },
         "activeAccountEmail": "account-a@example.com",
-        "text": "Missing a fresh sign-in for 1 paid account.",
+        "text": "Needs a next license: account-a@example.com is at 88% of its weekly limit, and its sign-in for account-b@example.com ends before a switch could finish. Sign it in to account-b@example.com.",
         "tone": "warning",
         "gapCount": 1,
         "cells": [
