@@ -256,7 +256,7 @@ Issues filed for what is outside this mission: 4701 (two Directors on one comput
 owned session). Deploys cost between no failed answer and an 8-minute stall (17:06 UTC); the rule to roll back after
 five minutes was missed once and is recorded in the owner's report.
 
-### The morning check (7 November, 13:17 UTC) and the status
+### The morning check (7 November, 13:17 Coordinated Universal Time) and the status
 
 The product's own 08:00 New York run (kept row `2026-11-07T08`, 13:06:16) wrote ten morning messages to Your inbox,
 one for the test factory, and its detail says "No email was sent"; the owner's mailbox has no morning email for
