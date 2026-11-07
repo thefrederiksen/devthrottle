@@ -62,6 +62,9 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
     private bool _machineAOnB;
     // machine-a stops reporting: only machine-b's reports arrive.
     private bool _machineASilent;
+    // When account A's week resets: a day ahead, so at its weekly pace a fresh spare lasts until then. A test about a
+    // spare that fills before the reset moves it out.
+    private TimeSpan _aWeekResetsIn = TimeSpan.FromDays(1);
     private bool _night;
 
     public LicenseCannotSwitchAlarmTests()
@@ -107,7 +110,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         {
             var a = new List<LicenseHolding>
             {
-                _machineAOnB ? Holding(B, true, 5, 2, readAt: _now) : Holding(A, true, _aFiveHour, _aWeekly, readAt: _now),
+                _machineAOnB ? Holding(B, true, 5, 2, readAt: _now) : OnA(),
             };
             if (_machineAHoldsB && !_machineAOnB)
                 a.Add(Holding(B, false, 5, 2, readAt: _now));
@@ -115,7 +118,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
                 a.Add(Holding(C, false, 5, 40, readAt: _now));
             _store.ApplyReport(One, DirA, ++_sequence, LicenseTestData.Report(MachineA, _now, a.ToArray()), _now, TimeSpan.Zero);
         }
-        var b = new List<LicenseHolding> { Holding(A, true, _aFiveHour, _aWeekly, readAt: _now) };
+        var b = new List<LicenseHolding> { OnA() };
         if (_machineBHoldsB)
             b.Add(Holding(B, false, 5, 2, readAt: _now));
         if (_machineBHoldsC)
@@ -123,6 +126,13 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         _store.ApplyReport(One, DirB, ++_sequence, LicenseTestData.Report(MachineB, _now, b.ToArray()), _now, TimeSpan.Zero);
         _directors.Connect(One, DirA);
         _directors.Connect(One, DirB);
+    }
+
+    private LicenseHolding OnA()
+    {
+        var holding = Holding(A, true, _aFiveHour, _aWeekly, readAt: _now);
+        holding.SevenDay!.ResetsAtUtc = _now + _aWeekResetsIn;
+        return holding;
     }
 
     private Task<LicenseReadinessTick> Tick()
@@ -165,8 +175,8 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal((1, 0, 0), (tick.Alarms!.Opened, tick.Alarms.StillOpen, tick.Alarms.Closed));
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.", alarm.Problem);
         Assert.Equal(NoApprover, alarm.Action);
         var push = Assert.Single(_pushed);
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA), (push.Kind.Key, push.MachineName));
@@ -190,7 +200,7 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
 
         var alarm = Assert.Single(Warnings());
         Assert.Equal(MachineA, alarm.MachineName);
-        Assert.StartsWith("machine-a is on account-a@example.com, which is at 80% of its 5-hour window, and cannot switch to account-b@example.com",
+        Assert.StartsWith("machine-a is on account-a@example.com, which is at 80% of its 5-hour window, and it holds no sign-in for account-b@example.com",
             alarm.Problem);
         Assert.Single(_pushed);
     }
@@ -237,6 +247,26 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal((LicenseReadinessStates.Ready, C, "Ready for account-c@example.com."), (a.State, a.TargetAccountEmail, a.Text));
         Assert.Empty(tick.Started);
         AssertNothingRaised(tick);
+    }
+
+    // READY means its room lasts until the license it is on resets (the owner, 7 November 2026). With account A's week
+    // resetting in four days, at the pace A was used, C (at 40%) fills first: machine-a needs one more license - B, the
+    // most room - and the warning says so and names it. Nothing automatic signs it in for a second license: it is the owner's.
+    [Fact]
+    public async Task Tick_TheOnlyReadyLicenseFillsBeforeTheReset_WarnsForOneMore_NamingIt()
+    {
+        _machineAHoldsC = true;
+        _aWeekResetsIn = TimeSpan.FromDays(4);
+        Report();
+
+        var tick = await Tick();
+
+        Assert.Empty(tick.Started);
+        var alarm = Assert.Single(Warnings());
+        Assert.Equal(MachineA, alarm.MachineName);
+        Assert.Contains("account-c@example.com would fill before account-a@example.com resets", alarm.Problem);
+        Assert.EndsWith("it needs account-b@example.com as one more license.", alarm.Problem);
+        Assert.Equal("Sign machine-a in to account-b@example.com from the Licenses page.", alarm.Action);
     }
 
     // A stale machine is never stranded and never warned about: its holdings are not known to be current. machine-a stops
@@ -524,36 +554,27 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         Assert.Equal(2, _emails.Count);
     }
 
-    // The forecast trigger: below 80%, a machine that cannot switch is warned about when the forecast puts its account at
-    // the threshold less than 12 hours away - at 11 hours, not at 13. The subject names the hours left.
+    // Below 80% there is no warning, whatever the forecast says (the owner, 7 November 2026: under 80% is no problem). The
+    // earlier forecast trigger raised one when the threshold was under 12 hours away; it is gone.
     [Theory]
-    [InlineData(11, true)]
-    [InlineData(13, false)]
-    public void Conditions_Below80_TheForecastUnderTwelveHoursRaisesIt(int hoursLeft, bool raised)
+    [InlineData(1)]
+    [InlineData(11)]
+    public void Conditions_Below80_RaisesNothing_WhateverTheForecast(int hoursLeft)
     {
         _aWeekly = 50;
         Report();
         var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
         var judged = Readiness().Judge(One, picture, _now);
 
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One),
-            _alarms.ListOpen(One), account => account == A ? _now.AddHours(hoursLeft) : null);
-
-        if (!raised)
-        {
-            Assert.Empty(warnings);
-            return;
-        }
-        var warning = Assert.Single(warnings);
-        Assert.Equal(MachineA, warning.MachineName);
-        Assert.Equal($"machine-a cannot switch - about {hoursLeft} hours to its limit", warning.Subject);
-        Assert.Contains($"expected to reach its limit in about {hoursLeft} hours", warning.Problem);
+        Assert.Empty(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, NextOf(picture),
+            _log.ListOpen(One), _alarms.ListOpen(One), account => account == A ? _now.AddHours(hoursLeft) : null));
     }
 
-    // With no fresh forecast (after a restart, before the forecaster has history), the subject still says how full the
-    // account is: the fuller window, "at 85%".
-    [Fact]
-    public void Conditions_At80WithNoForecast_TheSubjectNamesTheUse()
+    // At 80% or more the subject names the hours left when the forecast has them, else how full the license is.
+    [Theory]
+    [InlineData(9, "machine-a cannot switch - about 9 hours to its limit")]
+    [InlineData(-1, "machine-a cannot switch - at 85%")]
+    public void Conditions_At85_TheSubjectNamesTheHoursLeftOrTheUse(int hoursLeft, string subject)
     {
         _aWeekly = 85;
         Report();
@@ -561,27 +582,31 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         var judged = Readiness().Judge(One, picture, _now);
 
         var warning = Assert.Single(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-            _log.ListOpen(One), _alarms.ListOpen(One), _ => null));
+            NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => hoursLeft > 0 ? _now.AddHours(hoursLeft) : null));
 
-        Assert.Equal("machine-a cannot switch - at 85%", warning.Subject);
+        Assert.Equal(subject, warning.Subject);
     }
 
-    // A forecast time already in the past is not "within 12 hours": below 80% it raises nothing.
+    // The warning names the RECOMMENDED next license - the most room this week - and says it is needed.
     [Fact]
-    public void Conditions_Below80_AForecastTimeAlreadyPassed_RaisesNothing()
+    public void Conditions_At85_NamesTheRecommendedLicense()
     {
-        _aWeekly = 50;
+        _aWeekly = 85;
         Report();
         var picture = new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>());
         var judged = Readiness().Judge(One, picture, _now);
 
-        Assert.Empty(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
-            _log.ListOpen(One), _alarms.ListOpen(One), account => account == A ? _now.AddHours(-1) : null));
+        var warning = Assert.Single(LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => null));
+
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its weekly limit, and it holds no sign-in for "
+                     + "account-b@example.com: it needs account-b@example.com as its next license.", warning.Problem);
     }
 
-    // A gap below 80% with no forecast is not loud: no alarm, no push, no email - one quiet line of the daily report.
+    // A license not held below 80% is no problem at all: no alarm, no push, no email, and no gap in the grid. The quiet
+    // daily gap line is gone with the ruling.
     [Fact]
-    public async Task Tick_AGapBelow80_RaisesNothing_AndIsOneQuietLineOfTheDailyReport()
+    public async Task Tick_AGapBelow80_RaisesNothing_AndTheGridShowsNoGap()
     {
         _aWeekly = 50;
         Report();
@@ -589,14 +614,9 @@ public sealed class LicenseCannotSwitchAlarmTests : IDisposable
         var tick = await Tick();
 
         AssertNothingRaised(tick);
-        var source = new LicenseSnapshotSource(_store, _reads);
-        var report = new Reports.MorningReportBuilder(_db, utcNow: () => _now,
-                licenseCoverage: (tenant, now) => LicenseCoverageFold.Judge(source.ReadPicture(tenant, now, Array.Empty<LicenseExhaustion>())))
-            .Build("owner@example.com", One, Reports.MorningReportWindow.Resolve("2026-10-10", "UTC"));
-        var line = Assert.Single(report.Attention.OfType<LicenseCoverageGapsAttentionDto>());
-        Assert.Equal("2 missing sign-ins on 1 machine", line.Title);
-        Assert.Equal("machine-a: no sign-in for account-b@example.com; no sign-in for account-c@example.com. "
-                     + "Sign them in from the Licenses page before a machine needs to switch.", line.Text);
+        var coverage = CoverageOf(new LicenseSnapshotSource(_store, _reads).ReadPicture(One, _now, Array.Empty<LicenseExhaustion>()));
+        Assert.Equal(0, coverage.GapCount);
+        Assert.All(coverage.Rows, r => Assert.False(r.HasGap));
     }
 
     // Yellow until the threshold, red at it: the banner's tone is the Gateway's verdict.

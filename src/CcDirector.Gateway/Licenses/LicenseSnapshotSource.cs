@@ -41,11 +41,15 @@ public sealed class LicenseSnapshotSource
 {
     private readonly LicenseStore _store;
     private readonly LicenseReadModel _reads;
+    private readonly Func<TenantId, Guid?>? _testUsageMachine;
 
-    public LicenseSnapshotSource(LicenseStore store, LicenseReadModel reads)
+    /// <param name="testUsageMachine">The machine the owner's 82% test switch is on for, per tenant
+    /// (<see cref="LicenseTestUsage.MachineFor"/>); null when this source has no test switch.</param>
+    public LicenseSnapshotSource(LicenseStore store, LicenseReadModel reads, Func<TenantId, Guid?>? testUsageMachine = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
+        _testUsageMachine = testUsageMachine;
     }
 
     /// <summary>The engine's picture of <paramref name="tenant"/> at <paramref name="nowUtc"/>.</summary>
@@ -63,7 +67,8 @@ public sealed class LicenseSnapshotSource
         // the review of pull request 3936, finding 9): a read that runs every minute logs failures only.
         try
         {
-            var overview = _reads.Read(tenant, nowUtc);
+            // The owner's 82% test switch, when it is on, raises one license's weekly use here, so every reader sees it.
+            var overview = LicenseTestUsage.Apply(_reads.Read(tenant, nowUtc), _testUsageMachine?.Invoke(tenant));
             var open = _store.ListOpenSwitches(tenant);
             var bars = _store.ListActiveBars(tenant, nowUtc);
             var holds = _store.ListHolds(tenant, nowUtc);

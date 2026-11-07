@@ -95,7 +95,8 @@ public sealed record LicenseMachineReadiness(
 /// COVERED BY ANY ACCOUNT WITH ROOM (mission "Licenses - Loud When Stranded", step 2). A machine is ready when it is
 /// ready for AT LEAST ONE account with room (<see cref="LicenseDecisionEngine.TargetsWithRoom"/>), named against the
 /// best of those it is ready for - exactly where the switch would move it. Only a machine ready for none of them is not
-/// ready, and it is judged against the best account with room, the one a sign-in is started for.
+/// ready, and it is judged against the recommended next license (<see cref="LicenseNextLicenseFold.Recommend"/>), the one
+/// a sign-in is started for and the cannot-switch warning names.
 ///
 /// WHAT IS DONE ABOUT A MACHINE THAT IS NOT READY, judged in this order:
 /// 1. a sign-in for that machine and account is running - wait for it;
@@ -232,8 +233,11 @@ public static class LicenseReadinessFold
                     LicenseReadinessStates.Ready, null, null, null, null, null, ReadyText(readyFor), LicenseTones.Good, null));
                 continue;
             }
-            // Ready for none: judged against the best, the account it would go to and the one a sign-in is started for.
-            var target = ranked[0];
+            // Ready for none: judged against the recommended next license (LicenseNextLicenseFold.Recommend: the most room
+            // this week, the sooner reset of two close ones) - the one the cannot-switch warning names and a sign-in is
+            // started for, so the warning and the repair never name two licenses.
+            var target = LicenseNextLicenseFold.Recommend(picture.Snapshot, ranked)
+                ?? throw new InvalidOperationException("Accounts with room have no weekly reading to recommend from.");
             var readiness = LicenseDecisionEngine.Readiness(state, target, nowUtc);
             var clause = LicenseDecisionEngine.NotReadyWhy(readiness)
                 ?? throw new InvalidOperationException("A machine that is not ready has no reason.");

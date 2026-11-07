@@ -441,6 +441,27 @@ public sealed class LicenseMachineDto
 
     /// <summary>One of <see cref="LicenseTones"/>; null exactly when <see cref="Readiness"/> is.</summary>
     public string? ReadinessTone { get; set; }
+
+    /// <summary>
+    /// Whether this machine has a READY next license (mission "Licenses - Always Ready, Loud When Not", the owner's ruling
+    /// of 7 November 2026): <c>not-needed</c> (under 80% on the license it is on), <c>ready</c>, <c>needed</c> (it will be
+    /// stuck: the one state that is a problem), <c>no-room</c> or <c>not-judged</c>. Null when it is on no license.
+    /// </summary>
+    public string? NextLicenseState { get; set; }
+
+    /// <summary>The finished sentence for <see cref="NextLicenseState"/>; null exactly when it is.</summary>
+    public string? NextLicenseText { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/>; null exactly when <see cref="NextLicenseState"/> is.</summary>
+    public string? NextLicenseTone { get; set; }
+
+    /// <summary>When <see cref="NextLicenseState"/> is <c>needed</c>: the license to sign it in to - the paid license with
+    /// the most room left this week, the sooner reset of two close ones. Else null.</summary>
+    public string? RecommendedAccountEmail { get; set; }
+
+    /// <summary>With <see cref="RecommendedAccountEmail"/>: the sign-in that gives it, <c>add-spare</c> (it holds no sign-in
+    /// for it) or <c>renew</c> (its sign-in is refused or ends too soon). Else null.</summary>
+    public string? RecommendedSignInAction { get; set; }
 }
 
 /// <summary>Whether a machine is ready to move to the account it would switch to next.</summary>
@@ -1111,35 +1132,51 @@ public sealed class LicenseAlarmDto
     public string Tone { get; set; } = "";
 }
 
-// ---- the daily license fire drill ----
+// ---- the daily license check ----
 
-/// <summary>The routes of the daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7).</summary>
+/// <summary>The route of the daily license check (mission "Licenses - Always Ready, Loud When Not").</summary>
 public static class LicenseFireDrillRoutes
 {
-    /// <summary>GET: the drill machine and the drill's newest line (<see cref="LicenseFireDrillResponse"/>).</summary>
+    /// <summary>GET: the check's newest line (<see cref="LicenseFireDrillResponse"/>).</summary>
     public const string FireDrill = "/gateway/licenses/fire-drill";
-
-    /// <summary>PUT: choose the drill machine, or clear it (<see cref="LicenseFireDrillMachineRequest"/>). The owner's own.</summary>
-    public const string Machine = "/gateway/licenses/fire-drill/machine";
-
-    /// <summary>POST: run the drill now, whether or not it is due. The owner's own: it switches a machine out and back.</summary>
-    public const string Run = "/gateway/licenses/fire-drill/run";
 }
 
-/// <summary>The body of <see cref="LicenseFireDrillRoutes.Machine"/>: the machine's identifier as the Licenses page gives
-/// it (<see cref="LicenseMachineDto.MachineId"/>), or null to clear the choice.</summary>
-public sealed class LicenseFireDrillMachineRequest
-{
-    public string? MachineId { get; set; }
-}
-
-/// <summary>The answer of every fire drill route: the drill machine chosen, and the drill's newest line as the daily
-/// report shows it. Folded on the Gateway; shown as given.</summary>
+/// <summary>The daily license check's newest line as the daily report shows it. Folded on the Gateway; shown as given.</summary>
 public sealed class LicenseFireDrillResponse
 {
-    /// <summary>The drill machine's identifier; null when none is chosen.</summary>
+    /// <summary>The check's line; null when no machine of the account reports.</summary>
+    public LicenseFireDrillAttentionDto? Line { get; set; }
+}
+
+// ---- the owner's 82% test switch ----
+
+/// <summary>The route of the owner's license test switch (mission "Licenses - Always Ready, Loud When Not").</summary>
+public static class LicenseTestUsageRoutes
+{
+    /// <summary>GET: whether the switch is on, and for which machine. PUT (<see cref="LicenseTestUsageRequest"/>): turn it on
+    /// for one machine. DELETE: turn it off. PUT and DELETE are the owner's own.</summary>
+    public const string TestUsage = "/gateway/licenses/test-usage";
+}
+
+/// <summary>The body of a PUT to <see cref="LicenseTestUsageRoutes.TestUsage"/>: the machine's identifier as the Licenses
+/// page gives it (<see cref="LicenseMachineDto.MachineId"/>).</summary>
+public sealed class LicenseTestUsageRequest
+{
+    public string? MachineId { get; set; }
+}
+
+/// <summary>The answer of every test switch route. Folded on the Gateway; shown as given.</summary>
+public sealed class LicenseTestUsageResponse
+{
+    /// <summary>The switch is on.</summary>
+    public bool IsOn { get; set; }
+
+    /// <summary>The machine it is on for; null when it is off.</summary>
     public string? MachineId { get; set; }
 
-    /// <summary>The drill's line; null when no machine of the account reports.</summary>
-    public LicenseFireDrillAttentionDto? Line { get; set; }
+    /// <summary>The weekly use the machine's license reads as while it is on, in percent.</summary>
+    public double Percent { get; set; }
+
+    /// <summary>The finished sentence: what is on and how to turn it off, or that it is off.</summary>
+    public string Text { get; set; } = "";
 }

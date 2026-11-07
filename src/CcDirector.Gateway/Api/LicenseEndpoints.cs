@@ -147,7 +147,7 @@ public static partial class LicenseEndpoints
     {
         // The page does not judge the open "no account has room" events, so none are passed.
         var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
-        var response = LicenseDisplayFold.Overview(picture);
+        var response = LicenseDisplayFold.Overview(picture, readiness.NextLicenses(tenant, picture, now));
         // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
         LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
             directorId => isConnected(tenant, directorId), now);

@@ -201,7 +201,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         var (picture, judged) = JudgeAndPicture(T0.AddDays(5), aWeekly: 85, withC: true);
 
         Assert.True(Assert.Single(judged, j => j.MachineName == MachineA).CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            LicenseTestData.NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.DoesNotContain(warnings, c => c.MachineId == judged.Single(j => j.MachineName == MachineA).MachineId);
         Assert.Empty(LicenseStrandedAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One)));
     }
@@ -214,7 +215,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         var a = Assert.Single(judged, j => j.MachineName == MachineA);
         Assert.False(a.CoveredLater);
-        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged, _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
+        var warnings = LicenseCannotSwitchAlarm.Conditions(picture.Snapshot, picture.Overview.Machines, judged,
+            LicenseTestData.NextOf(picture), _log.ListOpen(One), _alarms.ListOpen(One), _ => null);
         Assert.Contains(warnings, c => c.MachineId == a.MachineId);
     }
 
@@ -592,8 +594,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(first.Started);
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
-        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("machine-a is on account-a@example.com, which is at 80% of its weekly limit, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.", alarm.Problem);
         Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. Set an approver for account-b@example.com on the Licenses page.",
             alarm.Action);
         Assert.Single(_emails);
@@ -610,8 +612,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         await Tick();
 
-        Assert.Equal("machine-a is on account-a@example.com, which is at 85.5% of its 5-hour window, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.",
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85.5% of its 5-hour window, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.",
             Assert.Single(_alarms.ListOpen(One)).Problem);
     }
 
@@ -1021,8 +1023,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
 
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal((LicenseCannotSwitchAlarm.Kind.Key, MachineA), (alarm.Kind, alarm.MachineName));
-        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its 5-hour window, and cannot switch to account-b@example.com, "
-                     + "the account with room it would go to, because it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal("machine-a is on account-a@example.com, which is at 85% of its 5-hour window, and it holds no sign-in for account-b@example.com: "
+                     + "it needs account-b@example.com as its next license.", alarm.Problem);
         Assert.Equal((0, 0, 0), (tick.NoRoomAlarms!.Opened, tick.NoRoomAlarms.StillOpen, tick.NoRoomAlarms.Closed));
     }
 }

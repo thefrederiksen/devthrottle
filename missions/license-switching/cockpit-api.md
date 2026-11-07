@@ -3089,21 +3089,27 @@ Two open:
 `machineName` is null for an alarm about no one machine, and `accountEmail` for an alarm about no one account.
 
 
-## 8. The daily license fire drill
+## 8. The daily license check and the owner's test switch
 
-Step 7 of the mission "Licenses - Always Ready, Loud When Not" (contract section 13). None of these routes is in the
-session key guard's list; the two writes are the owner's own, like Switch now.
+Mission "Licenses - Always Ready, Loud When Not" (contract section 13). None of these routes is in the session key
+guard's list; the writes are the owner's own, like Switch now. The drill's earlier routes that chose a drill machine
+(`PUT /gateway/licenses/fire-drill/machine`) and ran a live switch out and back (`POST /gateway/licenses/fire-drill/run`)
+are gone (the owner, 7 November 2026: he tests the licensing himself).
 
-- `GET /gateway/licenses/fire-drill` answers `{ machineId, line }`: the drill machine's identifier (null when none is
-  chosen) and the drill's newest line exactly as the daily report shows it (`LicenseFireDrillAttentionDto`: `passed`,
-  `text`, `ranAtUtc`, `passedInARow`; null when no machine of the account reports).
-- `PUT /gateway/licenses/fire-drill/machine` with `{ "machineId": "<the machine's identifier on this page>" }` chooses
-  the drill machine; `{ "machineId": null }` clears the choice and closes every alarm the drill raised. A machine not on
-  the Licenses page is refused 409 `unknown_machine`. Answers as the read.
-- `POST /gateway/licenses/fire-drill/run` runs the drill now, whether or not it is due. Refused 409 `no_drill_machine`
-  when none is chosen (or the stored choice is not a machine identifier) and `drill_not_run` when one is already
-  running. Answers as the read, after the drill. The drill runs on the Gateway's lifetime: a caller that leaves does not
-  stop it.
+- `GET /gateway/licenses/fire-drill` answers `{ line }`: the daily license check's newest line exactly as the daily
+  report shows it (`LicenseFireDrillAttentionDto`: `passed`, `text`, `ranAtUtc`; null when no machine of the account
+  reports). There is no "in a row" count.
+- `GET /gateway/licenses/test-usage` answers `{ isOn, machineId, percent, text }`: whether the owner's 82% test switch is
+  on, and for which machine.
+- `PUT /gateway/licenses/test-usage` with `{ "machineId": "<the machine's identifier on this page>" }` turns it on: the
+  license that machine is on reads as at least 82% of its weekly limit on every read, so the yellow cannot-switch
+  warning can be watched on a real machine. It only ever raises a number, and 82% is under the threshold, so nothing is
+  switched. Refused 400 `invalid_machine` and 409 `unknown_machine`. Answers as the read.
+- `DELETE /gateway/licenses/test-usage` turns it off. Answers as the read.
 
-Each drill writes one `fire-drill` row in the log (section 4), and its two switches are ordinary `switch` rows whose
-explanation says they are the drill.
+Each check writes one `fire-drill` row in the log (section 4); it names no machine and switches nothing.
+
+Each machine line of `GET /gateway/licenses` also carries its next-license verdict: `nextLicenseState` (`not-needed`,
+`ready`, `needed`, `no-room`, `not-judged`), `nextLicenseText`, `nextLicenseTone`, and - when `needed` -
+`recommendedAccountEmail` and `recommendedSignInAction` (`add-spare` or `renew`). The coverage grid's `gapCount` counts
+machines that will be stuck, never licenses that are not held.

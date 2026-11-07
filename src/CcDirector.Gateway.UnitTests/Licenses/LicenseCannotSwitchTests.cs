@@ -40,7 +40,7 @@ public sealed class LicenseCannotSwitchTests : IDisposable
     private LicensePicture Picture(DateTime now) => _source.ReadPicture(Tenant, now, Array.Empty<LicenseExhaustion>());
 
     private LicenseMachineDto MachineDto(string name, DateTime now) =>
-        LicenseDisplayFold.Overview(Picture(now)).Machines.Single(m => m.MachineName == name);
+        LicenseTestData.OverviewOf(Picture(now)).Machines.Single(m => m.MachineName == name);
 
     /// <summary>A machine on account A, which is tired (98% on the five-hour window), holding a spare for B, which has room.</summary>
     private static LicenseUsageReport OnTiredA(string machine, DateTime at, bool? canSwitch, string? reason = null)

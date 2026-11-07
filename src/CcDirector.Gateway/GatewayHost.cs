@@ -686,9 +686,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>A sign-in whose renewal failed is a license alarm from the first failure until a renewal works (issue 4697).</summary>
     internal Licenses.LicenseRenewalFailureAlarm LicenseRenewalFailureAlarm { get; }
 
-    /// <summary>The daily license fire drill (mission "Licenses - Always Ready, Loud When Not", step 7): run on the minute
-    /// check when it is due, beside the switch pass and never behind it.</summary>
+    /// <summary>The daily license check (mission "Licenses - Always Ready, Loud When Not"): run on the minute check when it
+    /// is due, beside the switch pass.</summary>
     internal Licenses.LicenseFireDrillService LicenseFireDrills { get; }
+
+    /// <summary>The owner's 82% license test switch (mission "Licenses - Always Ready, Loud When Not").</summary>
+    internal Licenses.LicenseTestUsage LicenseTestUsage { get; }
 
     /// <summary>License Switching phase 6: readiness on every minute - each machine against the account it would switch
     /// to next, the automatic sign-in that fixes a gap, and the 80% alarm. The Licenses page reads its judgement.</summary>
@@ -2515,14 +2518,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // the Cockpit's Machines view reads, so the email and that page cannot disagree about "behind".
             // Lambdas, because the registry is reached at report time and not at construction.
             directors: tenant => Registry.ListDirectors(tenant),
-            // The quiet daily line of a license gap reads the coverage grid, the one place a gap is decided, from the same
-            // snapshot source the Licenses page reads. A lambda: the license services are built after this builder.
-            licenseCoverage: (tenant, now) => Licenses.LicenseCoverageFold.Judge(
-                (LicenseSnapshots ?? throw new InvalidOperationException("The license snapshot source is built before any morning report is."))
-                    .ReadPicture(tenant, now, Array.Empty<Licenses.LicenseExhaustion>())),
             newestRelease: () => _newestRelease.Current().Version,
-            // The license fire drill's line (step 7 of "Licenses - Always Ready, Loud When Not"), from the drill's own
-            // rows. A lambda: the drill is built after this report.
+            // The daily license check's line ("Licenses - Always Ready, Loud When Not"), from the check's own rows. A
+            // lambda: the check is built after this report.
             licenseFireDrill: tenant => (LicenseFireDrills ?? throw new InvalidOperationException("The fire drill is built before any report.")).ReportLine(tenant));
         // Snooze Length mission: the persisted snooze registry (sessionId -> SnoozeUntilUtc), now in the
         // snoozes table of the EF data layer - a Gateway restart re-arms every pending snooze from the
@@ -2746,7 +2744,9 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseHistory = new Licenses.LicenseUsageHistory((tenant, since) => SessionUsage.ReadReadings(tenant, since));
         LicenseUsage = new Licenses.LicenseUsageIngest(LicenseStore, LicenseHistory);
         LicenseReads = new Licenses.LicenseReadModel(LicenseStore);
-        LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads);
+        // The owner's 82% test switch: every read of the license picture sees it while it is on.
+        LicenseTestUsage = new Licenses.LicenseTestUsage(_tenantSettings);
+        LicenseSnapshots = new Licenses.LicenseSnapshotSource(LicenseStore, LicenseReads, LicenseTestUsage.MachineFor);
         // The owner email goes the way POST /account/email sends on hosted: by tenant, the account service resolving
         // the owner. A self-hosted Gateway has no tenant account, so its mailer logs and sends nothing.
         var licenseOwnerMailer = new Licenses.LicenseOwnerMailer(_tenantBoundary.IsHosted,
@@ -3250,10 +3250,12 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
         LicenseRenewalFailureAlarm = new Licenses.LicenseRenewalFailureAlarm(LicenseStore, new Licenses.LicenseRenewalFailureLog(_gatewayDb),
             LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
-        // The daily fire drill (step 7): coverage held to a fresh usage read, one real switch out and back on the drill
-        // machine the account chose, one log row and the daily report's line; its findings are license alarms.
-        LicenseFireDrills = new Licenses.LicenseFireDrillService(LicenseStore, LicenseSnapshots, LicenseSwitches, LicenseAlarms,
-            new Licenses.LicenseFireDrillLog(_gatewayDb), _tenantSettings, LicenseNow.UtcNow);
+        // The daily license check: every machine under the ready-next-license rule, one log row and the daily report's
+        // line. It switches nothing and raises no alarm. The verdict is the readiness check's, built below.
+        LicenseFireDrills = new Licenses.LicenseFireDrillService(LicenseStore, LicenseSnapshots,
+            (tenant, picture, now) => (LicenseReadiness ?? throw new InvalidOperationException("The readiness check is built before any daily license check runs."))
+                .NextLicenses(tenant, picture, now),
+            LicenseAlarms, new Licenses.LicenseFireDrillLog(_gatewayDb), LicenseNow.UtcNow);
         LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms, IsDirectorConnected,
             tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token,
             // Which machines need an account whose approver cannot approve: the readiness check's judgement, built below.
@@ -6460,13 +6462,14 @@ public sealed class GatewayHost : IAsyncDisposable
             alarms: LicenseAlarms,
             nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
-        // The daily license fire drill (step 7): which machine it switches, and running it now. Both writes are the owner's
-        // own, like Switch now; the read is not in SessionKeyGuard's allow list either.
+        // The daily license check's line, and the owner's 82% test switch: its writes are the owner's own, like Switch now;
+        // no route here is in SessionKeyGuard's allow list.
         Api.LicenseEndpoints.MapFireDrill(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            tenantInScope: () => _tenantPass.Current,
             drills: LicenseFireDrills,
-            drillLifetime: _licenseSwitchLifetime.Token);
+            testUsage: LicenseTestUsage,
+            snapshots: LicenseSnapshots,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
 
         Api.LicenseSignInEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
@@ -7799,8 +7802,8 @@ public sealed class GatewayHost : IAsyncDisposable
         => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync(), RunSessionUsageRecordAsync(),
             RunLicenseFireDrillAsync());
 
-    /// <summary>The daily license fire drill, when one is due: beside the switch pass, because a drill waits up to two
-    /// switch answers and no account's minute check waits behind that.</summary>
+    /// <summary>The daily license check, when one is due: beside the switch pass, so no account's minute check waits
+    /// behind it.</summary>
     internal async Task RunLicenseFireDrillAsync()
     {
         await Task.Yield();
