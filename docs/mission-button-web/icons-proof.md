@@ -135,8 +135,10 @@ new one was started; Codex refused its model, so the next seat in the order revi
    `MissionButton_TooltipChangesWhileBubbleOpen_IsMeasuredAgain`; it fails with the old dependency list
    (`expected '' to be 'translateX(32px)'`) and passes with the fix.
 5. LOW - the two icons' path data was written twice in `MainWindow.axaml`. FIXED: the shapes are
-   `MissionDocumentIconGeometry` and `MissionWarningIconGeometry` in `App.axaml`, next to the Mission colours, and
-   both buttons use them.
+   `MissionDocumentIconGeometry` and `MissionWarningIconGeometry` in `MainWindow.axaml`'s own resources, and both
+   buttons use them. New test `MissionButtonIconShapeTests` loads the real window and checks each of the four icons
+   has a shape with an area. (With the shapes first put in `App.axaml`, that test was red: a window built without
+   the application's resources drew four empty icons, so the shapes moved into the window that uses them.)
 6. LOW - the with-document tooltip says "Click to open the mission document.", which the phone also shows in its
    long-press bubble. NOT CHANGED: it is the approved mockup's wording. Left for the Delivery Lead.
 7. LOW - `docs/mission-button-web/mission.html` still describes a yellow "No mission" button. NOT CHANGED here: the
