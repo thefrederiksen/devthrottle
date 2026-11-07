@@ -23,6 +23,14 @@ namespace CcDirector.Gateway.Licenses;
 /// gap: a sign-in whose end the machine did not say opens no streak row, so a restart can close its alarm until the next
 /// failure reopens it.
 ///
+/// A SPARE'S FAILURE IS QUIET UNLESS THE MACHINE WOULD BE STUCK (owner ruling of 7 November 2026, agreed with the UI
+/// Coordinator). A failed renewal of the license a machine is ON always raises. A failed renewal of a SPARE - a license the
+/// machine holds but is not on - shows on the Licenses page only, and raises only when the machine would then have no
+/// READY next license (<see cref="SpareMatters"/>): its next-license verdict is already a problem, or this spare is the
+/// only ready next license it has. Under the warning level the machine needs no next license at all, so a spare failing
+/// there is no problem to put on the bar. The verdict is the one every other license surface reads
+/// (<see cref="LicenseNextLicenseFold"/>), so the bar never disagrees with the page about a machine.
+///
 /// ONE ALARM FOR EACH SIGN-IN: keyed on the machine and the account, raised once a minute through
 /// <see cref="LicenseAlarmService"/>, which opens it with one push and one email and closes it by itself. The words are
 /// folded here, once; clients render them verbatim.
@@ -37,27 +45,31 @@ public sealed class LicenseRenewalFailureAlarm
     private readonly LicenseReadModel _reads;
     private readonly LicenseAlarmService _alarms;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Func<TenantId, IReadOnlyList<LicenseNextLicense>> _judge;
     private readonly ConcurrentDictionary<TenantId, SemaphoreSlim> _raising = new();
 
     public LicenseRenewalFailureAlarm(LicenseStore store, LicenseRenewalFailureLog log, LicenseReadModel reads, LicenseAlarmService alarms,
-        Func<DateTime> nowUtc)
+        Func<DateTime> nowUtc, Func<TenantId, IReadOnlyList<LicenseNextLicense>> judge)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
         _alarms = alarms ?? throw new ArgumentNullException(nameof(alarms));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
+        _judge = judge ?? throw new ArgumentNullException(nameof(judge));
     }
 
     /// <summary>
     /// The alarms that are true now, as pure code: one for each held sign-in whose last renewal failed, or whose failure
-    /// streak is open. A streak row whose machine no longer holds the account raises nothing.
+    /// streak is open. A streak row whose machine no longer holds the account raises nothing. A spare raises only when
+    /// <see cref="SpareMatters"/> says so on <paramref name="next"/>.
     /// </summary>
     public static List<LicenseAlarmCondition> Conditions(IReadOnlyList<LicenseMachineView> machines,
-        IReadOnlyList<LicenseSwitchLogEntity> openStreaks, DateTime nowUtc)
+        IReadOnlyList<LicenseSwitchLogEntity> openStreaks, IReadOnlyList<LicenseNextLicense> next, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(machines);
         ArgumentNullException.ThrowIfNull(openStreaks);
+        ArgumentNullException.ThrowIfNull(next);
         var conditions = new List<LicenseAlarmCondition>();
         foreach (var machine in machines.OrderBy(m => m.MachineName, StringComparer.Ordinal).ThenBy(m => m.OsUser, StringComparer.Ordinal))
         {
@@ -72,10 +84,31 @@ public sealed class LicenseRenewalFailureAlarm
                                                    && !LicenseRenewalEmailService.IsNewerSignIn(r, holding));
                 if (holding.RenewalFailedAtUtc is null && !streak)
                     continue;
+                var isSpare = !string.Equals(holding.AccountEmail, machine.ActiveAccountEmail, StringComparison.OrdinalIgnoreCase);
+                if (isSpare && !SpareMatters(next.FirstOrDefault(n => n.MachineId == machine.MachineId), holding.AccountEmail))
+                    continue;
                 conditions.Add(Condition(machines, machine, holding, nowUtc));
             }
         }
         return conditions;
+    }
+
+    /// <summary>
+    /// Whether a failing renewal of the spare <paramref name="account"/> would leave its machine with no READY next license:
+    /// the machine's verdict is already a problem (it needs one, or its switch keeps failing), or it is ready only through
+    /// this spare. No verdict - a machine on no license - and every other state (under the warning level, no license with
+    /// room, not judged, ready through another license) is the Licenses page's alone.
+    /// </summary>
+    public static bool SpareMatters(LicenseNextLicense? verdict, string account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        if (verdict is null)
+            return false;
+        if (verdict.IsProblem)
+            return true;
+        return verdict.State == LicenseNextLicenseStates.Ready
+               && verdict.ReadyAccounts.Count > 0
+               && verdict.ReadyAccounts.All(a => string.Equals(a, account, StringComparison.OrdinalIgnoreCase));
     }
 
     private static LicenseAlarmCondition Condition(IReadOnlyList<LicenseMachineView> machines, LicenseMachineView machine,
@@ -113,7 +146,7 @@ public sealed class LicenseRenewalFailureAlarm
         try
         {
             var now = _nowUtc();
-            var conditions = Conditions(_reads.Read(tenant, now).Machines, _log.ListOpen(tenant), now);
+            var conditions = Conditions(_reads.Read(tenant, now).Machines, _log.ListOpen(tenant), _judge(tenant), now);
             var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
             if (conditions.Count > 0 || raised.Closed > 0)
                 FileLog.Write($"[LicenseRenewalFailureAlarm] RaiseAsync: tenant={tenant.ToLogString()}, failing={conditions.Count}, opened={raised.Opened}, closed={raised.Closed}");

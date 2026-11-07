@@ -97,6 +97,14 @@ public sealed class LicenseReadinessService
     /// <summary>Every machine of <paramref name="picture"/> on a license, judged for a READY next license
     /// (<see cref="LicenseNextLicenseFold.Judge"/>) at today's pace from the kept readings. What the Licenses page, the
     /// coverage grid and the daily check show, and what <see cref="TickAsync"/> warns on.</summary>
+    /// <summary>Every machine's next-license verdict now, on a fresh picture: the same verdict the Licenses page, the
+    /// warning and the daily check read. The renewal failure alarm asks it whether a failing spare matters.</summary>
+    public IReadOnlyList<LicenseNextLicense> NextLicensesNow(TenantId tenant)
+    {
+        var now = _nowUtc();
+        return NextLicenses(tenant, _snapshots.ReadPicture(tenant, now, NoExhaustions), now);
+    }
+
     public IReadOnlyList<LicenseNextLicense> NextLicenses(TenantId tenant, LicensePicture picture, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
