@@ -122,6 +122,8 @@ describe("MissionButton absences and problems", () => {
 
   it("missionButtonProblem_ProtocolRelativeAddress_IsAProblem", () => {
     expect(missionButtonProblem({ ...WITH_DOCUMENT, documentAddress: "//evil.example/r/1" })).not.toBeNull();
+    // A browser resolves a backslash after the first slash as a second slash: this leaves the Gateway too.
+    expect(missionButtonProblem({ ...WITH_DOCUMENT, documentAddress: "/\\evil.example/r/1" })).not.toBeNull();
     expect(missionButtonProblem(WITH_DOCUMENT)).toBeNull();
     expect(missionButtonProblem(null)).toBeNull();
   });

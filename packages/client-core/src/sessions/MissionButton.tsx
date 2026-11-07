@@ -20,9 +20,10 @@ import "./missionButton.css";
 // A null or absent `missionButton` renders nothing: the Gateway claims nothing (an older Gateway, or a fold that was
 // given no missions to read).
 //
-// THE TOOLTIP ON A TOUCH SCREEN. A `title` attribute never shows on a phone, so a long press (and, when there is no
-// document to open, a plain tap) shows the same words in a small bubble under the button. A long press that showed
-// the bubble does not also open the document.
+// THE TOOLTIP BUBBLE. A `title` attribute never shows on a phone, so the same words also show in a small bubble under
+// the button. A long press by a finger shows it on any button. A button with no document to open shows it on a click
+// by ANY pointer - mouse, pen or finger - because that click has nothing else to do; on a mouse surface it repeats the
+// hover words, which is harmless. A long press that showed the bubble does not also open the document.
 
 const SURFACE = "mission button";
 
@@ -52,10 +53,20 @@ export function missionButtonProblem(display: MissionButtonDisplay | null | unde
     return `The Gateway sent a Mission button colour this app does not know ("${String(display.colorKey)}"), so no Mission button is shown. Update the app or the Gateway so they agree.`;
   }
   const address = display.documentAddress;
-  if (address !== null && address !== undefined && (typeof address !== "string" || !address.startsWith("/") || address.startsWith("//"))) {
+  if (address !== null && address !== undefined && !isGatewayPath(address)) {
     return `The Gateway sent a Mission document address this app cannot open ("${String(address)}"): it must be a path on the Gateway, starting with one slash.`;
   }
   return null;
+}
+
+/**
+ * True when the address is a path on this page's own origin - the Gateway that served it. A string check alone is
+ * not enough: a browser resolves "/\evil.example/r/1" to another site, so the address is resolved the way the link
+ * will be, and the origin it lands on must be this one.
+ */
+function isGatewayPath(address: unknown): boolean {
+  if (typeof address !== "string" || !address.startsWith("/") || address.startsWith("//")) return false;
+  return new URL(address, window.location.origin).origin === window.location.origin;
 }
 
 export interface MissionButtonProps {

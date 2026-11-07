@@ -62,8 +62,9 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
   missionButton?: MissionButtonDisplay | null;
 };
 
-/** The Mission button's verdict for one session (see the C# MissionButtonDisplay). Hand-written for the reason
- *  `modelDisplay` is: the committed `schema.ts` predates the field. Rendered verbatim - a client reads `colorKey`
+/** The Mission button's verdict for one session (see the C# MissionButtonDisplay). Hand-written because the committed
+ *  `schema.ts` has not been regenerated (`npm run gen:api` against a running Gateway) since the Gateway gained this
+ *  field; regenerating it makes this interface redundant. Rendered verbatim - a client reads `colorKey`
  *  only to pick how to draw it, and never reads `verdict` to decide anything. */
 export interface MissionButtonDisplay {
   /** `mission-with-document` | `mission-without-document` | `no-mission`. Carried for the record; never branched on. */
