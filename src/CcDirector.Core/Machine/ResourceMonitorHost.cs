@@ -113,7 +113,8 @@ public sealed class ResourceMonitorHost : IDisposable
         // THE TIMELINE COMES FROM THE SAMPLER, NEVER FROM THE STAMPS. TimelineHistory is the monotonic
         // position of each sample, kept by the thing that owns the clock. Building one here by subtracting
         // ResourceSample.TakenAtUtc values is the defect of #4686, and this is exactly the caller that issue
-        // predicted would be tempted to do it. ResourceMeterTimelineGuardTests fails if anyone does.
+        // predicted would be tempted to do it. TimelineGuardTests trips on the obvious spelling of that
+        // mistake - it is a net, not a proof, and its own summary says what it cannot see.
         //
         // Cost: the history is at most ResourceSampling.HistoryCapacity (720, one hour), so this is a sort and
         // a scan of 720 items every five seconds - measured against the mission's 0.5 per cent of one core

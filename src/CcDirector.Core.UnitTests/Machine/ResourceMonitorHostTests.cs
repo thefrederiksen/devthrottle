@@ -213,10 +213,21 @@ public sealed class ResourceMonitorHostTests
         var read = ResourceRecordingReader.ReadRetained(rig.RecordingDirectory);
         Assert.NotEmpty(read.Lines);
 
-        // Every written line carries a diagnosis object, and none is the null that used to be hard-coded.
+        // Every written line carries a diagnosis object, and none is the null that used to be hard-coded. The
+        // recorder writes without indentation, so this substring is exact rather than hopeful.
         Assert.All(read.Lines, line =>
             Assert.DoesNotContain("\"diagnosis\":null", line.Json, StringComparison.Ordinal));
-        Assert.Contains(read.Lines, line => line.Json.Contains("\"diagnosis\"", StringComparison.Ordinal));
+
+        // NOT MERELY NON-NULL. Review of pull request 4739 pointed out that the assertions above would be
+        // satisfied by SlownessDiagnosis.CannotDiagnose on every line - an object that says nothing, written
+        // every five seconds, which is barely better than the null it replaced. So this demands a diagnosis
+        // that actually reached a verdict and carries the sentences a person reads.
+        Assert.All(read.Lines, line =>
+        {
+            Assert.Contains("\"couldDiagnose\":true", line.Json, StringComparison.Ordinal);
+            Assert.Contains("\"summary\":", line.Json, StringComparison.Ordinal);
+            Assert.Contains("\"nextStep\":", line.Json, StringComparison.Ordinal);
+        });
     }
 
     [Fact]

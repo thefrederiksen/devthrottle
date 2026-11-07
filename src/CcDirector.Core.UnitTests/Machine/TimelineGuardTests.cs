@@ -4,8 +4,27 @@ using Xunit;
 namespace CcDirector.Core.Tests.Machine;
 
 /// <summary>
-/// AN INTERVAL IS NEVER MEASURED BY SUBTRACTING TWO WALL-CLOCK STAMPS (issue #4733). This reads the Resource
-/// Monitor's own source and fails when anyone writes one.
+/// A TRIPWIRE FOR THE OBVIOUS SPELLING OF ONE DEFECT - NOT A GUARD (issue #4733). It reads the Resource
+/// Monitor's own source and fails on a subtraction written as plainly as the one in #4686 was.
+///
+/// WHAT IT DOES NOT CATCH, measured by the reviewer of pull request 4739, who injected the real #4686 defect
+/// three ways and watched ALL THREE walk past this file:
+/// <list type="bullet">
+/// <item>the subtraction split across two locals;</item>
+/// <item><c>DateTime.Subtract</c> instead of the operator;</item>
+/// <item>a cutoff built with <c>AddSeconds</c> and then compared with <c>&gt;=</c> - which is how membership,
+/// one of #4686's own three uses, was actually written.</item>
+/// </list>
+/// It is also blind to a stamp passed to a helper, <c>.Ticks</c> on the left, a <c>DateTimeOffset</c>
+/// conversion, stamps projected into a list, ORDERING OR COMPARING by stamp (the other two of #4686's three
+/// uses), the alias <c>ResourceCrossing.AtUtc</c>, and anything outside this folder - including
+/// <c>tools/harnesses/resource-load-proof/Program.cs</c>, which subtracts a sample stamp from the wall clock
+/// today, in the very harness #4684 was raised against.
+///
+/// SO DO NOT READ A PASS HERE AS "NO STAMP SUBTRACTION EXISTS". It means the obvious spelling is absent. The
+/// real answer is a Roslyn analyzer that follows the type rather than the text, and that is filed separately.
+/// The diagnoser's own clock-step tests caught all three injections this file missed; THEY are the guard,
+/// and this is a cheap net in front of them.
 ///
 /// WHY THIS IS A TEST AND NOT A COMMENT. The rule was carried by prose in three places - the parameter
 /// documentation on <c>SlownessDiagnoser.Diagnose</c>, the type documentation on <c>TimelineSample</c>, and a
@@ -35,7 +54,7 @@ public sealed class TimelineGuardTests
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     [Fact]
-    public void NoFileUnderMachine_MeasuresAnIntervalBySubtractingWallClockStamps()
+    public void NoFileUnderMachine_SpellsAnIntervalAsAPlainStampSubtraction()
     {
         var folder = MachineSourceFolder();
         var offenders = new List<string>();
