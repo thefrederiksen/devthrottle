@@ -91,7 +91,7 @@ live surfaces are the mission's quality assurance step after the deploy.
 
 ## Review findings
 
-The separate review session (`D:\ReposFred\_briefs\mission-button-webeview.md`) found nothing blocking. Each
+The separate review session (`D:\ReposFred\_briefs\mission-button-web\review.md`) found nothing blocking. Each
 finding, answered:
 
 1. **Backslash address left the Gateway.** Fixed. `missionButtonProblem` now resolves the address with
