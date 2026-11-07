@@ -482,6 +482,20 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    public IReadOnlyList<AccountRun> SuccessRunsSince(DateTime sinceUtc, string jobId)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var found = ctx.CronRuns.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => e.JobId == jobId && e.ResultUtc != null && e.ResultUtc >= sinceUtc
+                    && e.Result == CronRunResults.Ok)
+                .OrderBy(e => e.ResultUtc).ThenBy(e => e.Sequence)
+                .Take(1).ToList();
+            return WithNames(ctx, found);
+        }
+    }
+
     private static IReadOnlyList<AccountRun> WithNames(GatewayDbContext ctx, List<CronRunEntity> runs)
     {
         if (runs.Count == 0) return Array.Empty<AccountRun>();

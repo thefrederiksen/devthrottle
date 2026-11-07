@@ -141,6 +141,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
     private readonly Func<DateTime> _clock;
     private readonly SemaphoreSlim _scanGate = new(1, 1);
     private readonly Dictionary<(string RunId, DateTime ResultUtc), DateTime> _seen = new();
+    private readonly HashSet<string> _jobsWithFailureNotified = new(StringComparer.Ordinal);
     private DateTime _since;
 
     private readonly CancellationTokenSource _stop = new();
@@ -180,7 +181,7 @@ public sealed class ScheduleFailureNotifier : IDisposable
 
     /// <summary>
     /// Tell the owner of every failed run recorded since the last scan that has not been considered yet, within the
-    /// hourly limit. Returns how many notices were sent.
+    /// hourly limit. Also check for recoveries on previously-failed schedules. Returns how many notices were sent.
     /// </summary>
     public async Task<int> ScanAsync(CancellationToken ct)
     {
@@ -209,8 +210,14 @@ public sealed class ScheduleFailureNotifier : IDisposable
                 _seen[key] = now;
                 considered++;
                 if (await ConsiderAsync(f, now, ct).ConfigureAwait(false))
+                {
                     sent++;
+                    _jobsWithFailureNotified.Add(f.JobId);
+                }
             }
+
+            // Check for recoveries on previously-failed schedules
+            sent += await ScanRecoveriesAsync(now, ct).ConfigureAwait(false);
 
             // While a backlog remains the window stays where it is (the seen set keeps it from being told twice); once it
             // is drained the window moves on to now.
@@ -228,6 +235,95 @@ public sealed class ScheduleFailureNotifier : IDisposable
         {
             _scanGate.Release();
         }
+    }
+
+    private async Task<int> ScanRecoveriesAsync(DateTime now, CancellationToken ct)
+    {
+        var sent = 0;
+        foreach (var jobId in _jobsWithFailureNotified.ToList())
+        {
+            var successRuns = _runs.SuccessRunsSince(_since - Overlap, jobId);
+            foreach (var s in successRuns)
+            {
+                if (await NotifyRecoveryAsync(jobId, s, now, ct).ConfigureAwait(false))
+                {
+                    sent++;
+                    _jobsWithFailureNotified.Remove(jobId);
+                    break;
+                }
+            }
+        }
+        return sent;
+    }
+
+    private async Task<bool> NotifyRecoveryAsync(string jobId, CronRunHistoryStore.AccountRun s, DateTime now, CancellationToken ct)
+    {
+        var tenant = new TenantId(s.Account);
+        var job = _jobOf(tenant, jobId);
+        if (job is null)
+            return false;
+
+        var notice = new CronRunCompletedPayload
+        {
+            JobId = job.Id,
+            JobName = job.Name,
+            Succeeded = true,
+            InfraStatus = s.Run.InfraStatus,
+            TaskStatus = s.Run.TaskStatus,
+            Machine = s.Run.Machine,
+            SessionId = string.IsNullOrWhiteSpace(s.Run.SessionId) ? null : s.Run.SessionId,
+            SessionLink = "",
+            Reason = "The schedule has recovered.",
+            Detail = "A recent run succeeded after previous failures.",
+            Cause = ScheduleFailureCauses.Recovered,
+            Occurrences = 1,
+            FiredUtc = s.Run.FiredUtc,
+        };
+
+        FileLog.Write($"[ScheduleFailureNotifier] notifying recovery: tenant={tenant.ToLogString()}, job={job.Id}, run={s.Run.RunId}");
+        using (_enterScope(tenant))
+        {
+            try
+            {
+                await _fleet.NotifyRunCompletedAsync(job, s.Run.TargetDirectorId ?? "", notice, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[ScheduleFailureNotifier] recovery notice FAILED: job={job.Id}: {ex.Message}");
+            }
+            await _push(tenant, notice, ct).ConfigureAwait(false);
+            try
+            {
+                var (subject, body) = RecoveryInboxWords(job, notice);
+                var written = YourInboxStore.ForScheduleFailure(tenant, job.Factory, subject, body, now);
+                _inbox(tenant, written);
+                FileLog.Write($"[ScheduleFailureNotifier] wrote recovery to Your inbox: job={job.Id}, message={written.Id}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                FileLog.Write($"[ScheduleFailureNotifier] recovery inbox message FAILED: job={job.Id}: {ex.Message}");
+            }
+        }
+        return true;
+    }
+
+    private static (string Subject, string Body) RecoveryInboxWords(CronJobDto job, CronRunCompletedPayload notice)
+    {
+        var lines = new List<string>
+        {
+            $"Your schedule \"{job.Name}\" has recovered.",
+            "",
+            "A recent run succeeded after previous failures.",
+            "",
+            $"When: {DateTime.SpecifyKind(notice.FiredUtc, DateTimeKind.Utc):yyyy-MM-dd HH:mm} UTC",
+            "See every run on the Schedule page of DevThrottle.",
+        };
+        if (!string.IsNullOrWhiteSpace(notice.Detail))
+        {
+            lines.Add("");
+            lines.Add($"Details: {notice.Detail}");
+        }
+        return ($"Schedule recovered: {job.Name}", string.Join("\n", lines));
     }
 
     // One failed run: told when its schedule asks for failure notices and the hour for its cause has passed.

@@ -316,6 +316,42 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
     }
 
     [Fact]
+    public async Task ARunThatWasMarkedFailed_ThenRecovers_NotifiesTheOwnerOfRecovery()
+    {
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+
+        // Run fails and notification is sent
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Single(_fleet);
+        var failedNotice = _fleet[0];
+
+        // Schedule recovers: owner fixes the issue and the next run succeeds
+        var recovered = new CronRunRecord
+        {
+            ScheduledUtc = _now.AddMinutes(5), FiredUtc = _now.AddMinutes(5), Machine = "studio-mac",
+            TargetDirectorId = "director-1",
+            SessionId = "session-1", InfraStatus = "started", TaskStatus = "completed",
+            Result = CronRunResults.Ok, ResultReason = null, ResultUtc = _now.AddMinutes(5),
+        };
+        _runs.Append(job.Id, recovered);
+        _now = _now.AddMinutes(6);
+
+        // Recovery notification is sent - successful run on previously-failed schedule
+        var recovery = await notifier.ScanAsync(CancellationToken.None);
+        Assert.Equal(1, recovery);
+        Assert.Equal(2, _fleet.Count);
+
+        var recoveryNotice = _fleet[1];
+        Assert.True(recoveryNotice.Succeeded);
+        Assert.Equal(job.Id, recoveryNotice.JobId);
+        Assert.NotNull(recoveryNotice.Reason);
+        Assert.Contains("recovered", recoveryNotice.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Claim_InsideTheHour_HoldsBack_AfterIt_SendsWithTheCount()
     {
         var store = new CronFailureNoticeStore(_db);

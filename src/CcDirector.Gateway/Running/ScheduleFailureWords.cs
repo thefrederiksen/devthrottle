@@ -42,6 +42,7 @@ public static class ScheduleFailureCauses
     public const string WaitedWithoutReporting = "waited-without-reporting";
     public const string FolderNotTrusted = "folder-not-trusted";
     public const string Other = "other";
+    public const string Recovered = "recovered";
 }
 
 /// <summary>One failed run in words: its cause, the sentence the owner reads, and the run record's own reason.</summary>
