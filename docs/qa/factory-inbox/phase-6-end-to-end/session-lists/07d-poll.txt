@@ -1,0 +1,12 @@
+=== 22:34:40
+  factory-inbox-test,1,Sent,"Step 7 test, Director stopped: this message is left while the factory's compu... (172 chars)"
+count: 0 of 60 total
+No session matches the filter.
+=== 22:35:37
+  factory-inbox-test,1,"Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there","Step 7 test, Director stopped: this message is left while the factory's compu... (172 chars)"
+count: 0 of 60 total
+No session matches the filter.
+=== 22:35:59
+  factory-inbox-test,1,"Waiting - no Director is running on the Boss's computer, fi-inbox-test; it goes on when one connects there","Step 7 test, Director stopped: this message is left while the factory's compu... (172 chars)"
+count: 0 of 59 total
+No session matches the filter.

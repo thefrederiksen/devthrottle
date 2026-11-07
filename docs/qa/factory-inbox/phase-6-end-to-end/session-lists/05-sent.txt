@@ -1,0 +1,4 @@
+# cc-devthrottle session list --machine fi-inbox-test --fields number,id,name,state,machine,model  (2026-11-06T22:22:21Z)
+count: 1 of 58 total (snoozed 1)
+sessions[1]{number,id,name,state,machine,model}:
+  146,cffb02a7-db62-4af2-933d-86074f9b3e6c,Factory Inbox - QA test seat - step 5 inbox send,snoozed,fi-inbox-test,opus-5-5 (Opus 5.5)

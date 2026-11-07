@@ -1,0 +1,4 @@
+# cc-devthrottle session list --machine fi-inbox-test --fields number,id,name,state,machine,model  (2026-11-06T21:18:17Z)
+count: 0 of 70 total
+sessions[0]{number,id,name,state,machine,model}:
+No session matches the filter.
