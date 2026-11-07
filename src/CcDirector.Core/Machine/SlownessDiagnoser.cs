@@ -7,8 +7,13 @@ namespace CcDirector.Core.Machine;
 /// are waiting on the processor, memory, the disk, or a combination - with the figures, the culprit and a
 /// plain next step.
 ///
-/// A pure function of the samples it is handed: no clock, no platform call, no state. Time is read only
-/// from each sample's <see cref="ResourceSample.TakenAtUtc"/>. It judges the last minute, averaged
+/// A pure function of the samples it is handed: no clock, no platform call, no state. TIME COMES FROM THE
+/// MONOTONIC TIMELINE EACH SAMPLE SITS ON (<see cref="TimelineSample.Timeline"/>), NEVER FROM SUBTRACTING
+/// TWO <see cref="ResourceSample.TakenAtUtc"/> STAMPS - that stamp is for printing, and subtracting a pair
+/// of them is the defect <see cref="ResourceSample"/> was reshaped to remove (issue #4686). Until that
+/// issue this method ordered its samples, chose its minute and printed its span from those stamps, so a
+/// routine time correction or a machine waking from sleep could reorder the readings and judge the wrong
+/// minute with no change in load at all. It judges the last minute, averaged
 /// (<see cref="Window"/>): a diagnosis is an explanation, not a warning, so it speaks at once rather than
 /// waiting a full minute as <see cref="ResourcePressure"/> does, and averaging keeps one burst from being
 /// named as the cause.
@@ -108,11 +113,15 @@ public static class SlownessDiagnoser
     /// <summary>
     /// Diagnose a history of samples.
     /// </summary>
-    /// <param name="history">The samples, in any order; they are put in time order before they are judged.</param>
+    /// <param name="history">
+    /// The samples with their positions on a monotonic timeline, in any order; they are put in timeline
+    /// order before they are judged. The caller owns the clock: live, the sampler's time since it started;
+    /// replayed, the recording's own <c>recordingSeconds</c>. See <see cref="TimelineSample"/>.
+    /// </param>
     /// <param name="membership">Which session each live process belongs to, to name the culprit's session. <see cref="SessionProcessMembership.Empty"/> names none.</param>
     /// <param name="sessionNameById">Each session's display name, for the sentence. Null when names are not known.</param>
     public static SlownessDiagnosis Diagnose(
-        IReadOnlyList<ResourceSample> history,
+        IReadOnlyList<TimelineSample> history,
         SessionProcessMembership membership,
         IReadOnlyDictionary<string, string>? sessionNameById = null)
     {
@@ -120,11 +129,21 @@ public static class SlownessDiagnoser
         ArgumentNullException.ThrowIfNull(membership);
         if (history.Count == 0) return SlownessDiagnosis.CannotDiagnose("no sample has been taken yet");
 
-        // OrderBy is a stable sort, so samples sharing a time keep the order the caller gave them.
-        var ordered = history.OrderBy(sample => sample.TakenAtUtc).ToList();
+        // ALL THREE OF THESE READ THE TIMELINE, NOT THE WALL CLOCK, AND THEY FAIL DIFFERENTLY, WHICH IS WHY
+        // EACH IS PROVED BY ITS OWN TEST:
+        //   ORDER decides which sample is the newest, and so which minute is judged at all. A backward step
+        //     makes an older reading hold the largest stamp, and the newest reading is then not last.
+        //   MEMBERSHIP decides which samples are averaged. A step pulls readings from outside the minute in,
+        //     or pushes real ones out, and every figure in the verdict moves with no change in load.
+        //   THE SPAN is only printed ("averaged over 60 seconds"); it is a string, never a divisor, so a
+        //     wrong one mis-states the window in the evidence line without moving a single figure. It is
+        //     the mildest of the three and it is still a sentence that is not true.
+        // OrderBy is a stable sort, so samples sharing a position keep the order the caller gave them.
+        var ordered = history.OrderBy(sample => sample.Timeline).ToList();
         var newest = ordered[^1];
-        var window = ordered.Where(sample => sample.TakenAtUtc >= newest.TakenAtUtc - Window).ToList();
-        var span = Seconds(newest.TakenAtUtc - window[0].TakenAtUtc);
+        var inWindow = ordered.Where(sample => sample.Timeline >= newest.Timeline - Window).ToList();
+        var span = Seconds(newest.Timeline - inWindow[0].Timeline);
+        var window = inWindow.ConvertAll(sample => sample.Sample);
 
         var stallMeasured = window.Any(sample => sample.Stall is { CouldRead: true, Source: StallSource.LinuxPressureStall });
         var cores = window.LastOrDefault(sample => sample.Cpu.LogicalCoreCount is > 0)?.Cpu.LogicalCoreCount;

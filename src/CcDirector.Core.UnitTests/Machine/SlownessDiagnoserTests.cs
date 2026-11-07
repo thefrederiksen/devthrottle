@@ -29,7 +29,7 @@ public sealed class SlownessDiagnoserTests : IDisposable
     }
 
     private static SlownessDiagnosis Diagnose(IReadOnlyList<ResourceSample> history) =>
-        SlownessDiagnoser.Diagnose(history, SessionProcessMembership.Empty);
+        SlownessDiagnoser.Diagnose(OnTheTimeline(history), SessionProcessMembership.Empty);
 
     private static int CountOf(string word, string text) =>
         (text.Length - text.Replace(word, "", StringComparison.Ordinal).Length) / word.Length;
@@ -147,6 +147,119 @@ public sealed class SlownessDiagnoserTests : IDisposable
                 millisecondsPerRead: 0.5, millisecondsPerWrite: millisecondsPerWrite, averageQueueDepth: 2.0),
         ]),
     };
+
+    // ---------------------------------------------------------------------------------------------
+    // The wall clock steps and the verdict does not (issue #4686)
+    //
+    // Before #4686 this diagnosis ordered its samples, chose its minute and printed its span by
+    // SUBTRACTING ResourceSample.TakenAtUtc stamps - the one thing that record forbids, because a routine
+    // time correction or a machine waking from sleep moves the wall clock while the load does not move at
+    // all. The three uses fail in three different ways and in BOTH directions, so each has its own case
+    // below and each names the wrong answer it would have given. Every history here states the stamp and
+    // the timeline position separately, which is the only way to make the two clocks disagree; the ordinary
+    // tests go through OnTheTimeline, where by construction they agree.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A history whose WALL CLOCK STEPS at a chosen point while its monotonic timeline does not: every
+    /// sample carries a stamp of <c>Start + timeline (+ step, once the step has happened)</c> and a
+    /// timeline position of <c>timeline</c>. A negative step is the clock going backwards.
+    /// </summary>
+    private static List<TimelineSample> SteppingClock(
+        TimeSpan span, TimeSpan stepAt, TimeSpan step, Func<TimeSpan, ResourceSampleBuilder> at)
+    {
+        var history = new List<TimelineSample>();
+        for (var timeline = TimeSpan.Zero; timeline <= span; timeline += TimeSpan.FromSeconds(5))
+        {
+            var stamped = timeline >= stepAt ? timeline + step : timeline;
+            history.Add(new TimelineSample((at(timeline) with { At = stamped }).Build(), timeline));
+        }
+        return history;
+    }
+
+    /// <summary>
+    /// THE ORDER. The clock steps BACK ten minutes half way through two minutes of samples, so the readings
+    /// taken after the step carry the smallest stamps and an older reading holds the largest one. Ordering by
+    /// the stamp therefore makes the last minute's readings sort FIRST and picks a sample from the first
+    /// minute as the newest, and the minute that gets judged is the quiet one that has already passed.
+    ///
+    /// The wrong answer this would give is the dangerous direction: the disk is answering at 15.8
+    /// milliseconds a write for the whole of the last minute, and the verdict is NOT SLOW.
+    /// </summary>
+    [Fact]
+    public void Diagnose_TheClockStepsBackMidHistory_JudgesTheNewestMinuteNotTheOneWithTheLargestStamps()
+    {
+        var history = SteppingClock(
+            TimeSpan.FromSeconds(120), stepAt: TimeSpan.FromSeconds(65), step: TimeSpan.FromMinutes(-10),
+            at: timeline => MacOs(millisecondsPerWrite: timeline >= TimeSpan.FromSeconds(60) ? 15.8 : 1.1));
+
+        // The stepped readings really do hold the smallest stamps, so this history would be mis-ordered.
+        Assert.True(history[^1].Sample.TakenAtUtc < history[0].Sample.TakenAtUtc);
+
+        var diagnosis = SlownessDiagnoser.Diagnose(history, SessionProcessMembership.Empty);
+
+        Assert.True(diagnosis.IsSlow);
+        Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
+        Assert.Contains("the disk is answering slowly", diagnosis.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// WHICH SAMPLES ARE IN THE MINUTE. The clock steps FORWARD ten minutes before the last two readings,
+    /// which leaves the ORDER untouched - every later stamp is still larger - so this case is about
+    /// membership alone. Measured from the newest stamp, only those last two readings are inside the
+    /// minute, and the verdict is then built from ten seconds of a machine while claiming a minute.
+    ///
+    /// The wrong answer is again NOT SLOW, on a disk that has been answering at 40 milliseconds a write for
+    /// the whole minute, and the evidence line would have said "averaged over 5 seconds" while the verdict
+    /// claims the minute.
+    /// </summary>
+    [Fact]
+    public void Diagnose_TheClockStepsForwardBeforeTheLastReadings_StillJudgesTheWholeMinute()
+    {
+        var history = SteppingClock(
+            TimeSpan.FromSeconds(120), stepAt: TimeSpan.FromSeconds(115), step: TimeSpan.FromMinutes(10),
+            at: timeline => MacOs(millisecondsPerWrite: timeline >= TimeSpan.FromSeconds(115) ? 1.1 : 40.0));
+
+        // The step did NOT reorder anything: this case isolates membership from ordering.
+        var stamps = history.Select(sample => sample.Sample.TakenAtUtc).ToList();
+        Assert.Equal(stamps.OrderBy(stamp => stamp).ToList(), stamps);
+
+        var diagnosis = SlownessDiagnoser.Diagnose(history, SessionProcessMembership.Empty);
+
+        Assert.True(diagnosis.IsSlow);
+        Assert.Equal(SlownessCause.Disk, diagnosis.Cause);
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("averaged over 60 seconds", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnosis.Evidence, line => line.Contains("averaged over 5 seconds", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// THE PRINTED SPAN, WHICH IS THE MILD ONE AND IS STILL A FALSE SENTENCE. The step here is small enough
+    /// that every reading stays inside the minute and the order is untouched, so the SAME samples are
+    /// averaged and not one figure in the verdict moves. All that changes is the window the evidence claims
+    /// to have averaged over: thirty seconds of readings, described as fifty.
+    ///
+    /// This is the case that says what the span is and is not. It is a string in a sentence, never a
+    /// divisor, so it cannot make a figure wrong - and a sentence that misreports its own window is still
+    /// something we would have to withdraw.
+    /// </summary>
+    [Fact]
+    public void Diagnose_AClockStepInsideTheMinute_PrintsTheSpanItReallyAveraged()
+    {
+        var history = SteppingClock(
+            TimeSpan.FromSeconds(30), stepAt: TimeSpan.FromSeconds(5), step: TimeSpan.FromSeconds(20),
+            at: _ => MacOs(millisecondsPerWrite: 1.1));
+
+        // Nothing is reordered and nothing leaves the minute, so only the span can differ.
+        var stamps = history.Select(sample => sample.Sample.TakenAtUtc).ToList();
+        Assert.Equal(stamps.OrderBy(stamp => stamp).ToList(), stamps);
+        Assert.Equal(TimeSpan.FromSeconds(50), stamps[^1] - stamps[0]);
+
+        var diagnosis = SlownessDiagnoser.Diagnose(history, SessionProcessMembership.Empty);
+
+        Assert.False(diagnosis.IsSlow);
+        Assert.Contains(diagnosis.Evidence, line => line.Contains("averaged over 30 seconds", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnosis.Evidence, line => line.Contains("averaged over 50 seconds", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void Diagnose_MacOsDiskAnsweringSlowly_SaysAnsweringSlowlyAndNeverClaimsAStallPercentage()
@@ -387,7 +500,7 @@ public sealed class SlownessDiagnoserTests : IDisposable
         var roots = new Dictionary<string, int> { ["140"] = 4000 };
         var membership = SessionProcessMembership.Update(SessionProcessMembership.Empty, history[^1].Processes, roots);
 
-        var diagnosis = SlownessDiagnoser.Diagnose(history, membership,
+        var diagnosis = SlownessDiagnoser.Diagnose(OnTheTimeline(history), membership,
             new Dictionary<string, string> { ["140"] = "Resource Monitor - Dev - Linux probe" });
 
         Assert.Equal("140", diagnosis.Culprit?.SessionId);

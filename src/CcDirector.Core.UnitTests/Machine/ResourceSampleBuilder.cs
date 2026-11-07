@@ -55,4 +55,24 @@ internal sealed record ResourceSampleBuilder
         }
         return samples;
     }
+
+    /// <summary>
+    /// Pairs each sample with its position on a monotonic timeline, taken from its own
+    /// <see cref="ResourceSample.TakenAtUtc"/> relative to the earliest in the list.
+    ///
+    /// THIS DERIVATION IS HONEST HERE AND NOWHERE ELSE. Every stamp these tests produce is
+    /// <see cref="Start"/> plus an offset the test chose, so the wall clock and the timeline cannot
+    /// disagree and reading one off the other loses nothing. In production the caller owns a real
+    /// monotonic clock and must never build a timeline out of wall-clock stamps - doing that is precisely
+    /// the defect of issue #4686. A test that is ABOUT a stepping clock therefore does not use this: it
+    /// states both the stamp and the timeline position itself, because that is the only way the two can
+    /// be made to disagree.
+    /// </summary>
+    public static List<TimelineSample> OnTheTimeline(IReadOnlyList<ResourceSample> samples)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        if (samples.Count == 0) return [];
+        var earliest = samples.Min(sample => sample.TakenAtUtc);
+        return samples.Select(sample => new TimelineSample(sample, sample.TakenAtUtc - earliest)).ToList();
+    }
 }
