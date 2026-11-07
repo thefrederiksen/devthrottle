@@ -85,7 +85,7 @@ public interface IResourceSampler : IDisposable
     /// <summary>
     /// Raised when a resource crosses into amber or red, moves between them, or comes back to normal.
     /// What each crossing means for the banner is already decided on the event - see
-    /// <see cref="ResourceCrossing.ShowsBanner"/> and <see cref="ResourceCrossing.EndsWarning"/>.
+    /// <see cref="ResourceCrossing.IsNewWarning"/> and <see cref="ResourceCrossing.EndsWarning"/>.
     /// </summary>
     event EventHandler<ResourceCrossingEventArgs>? Crossed;
 

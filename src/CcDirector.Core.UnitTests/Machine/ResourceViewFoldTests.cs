@@ -24,7 +24,8 @@ public class ResourceViewFoldTests
         ]));
 
     private static ResourceMeterView Meter(ResourceSamplerState state, SessionUsage? own = null) =>
-        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4, own, TimeSpan.FromSeconds(3));
+        ResourceMeterFold.Build(state, "devthrottle-mac-mini", 4,
+            own is null ? null : [new ResourceSessionInput(own, own.SessionId, null)], TimeSpan.FromSeconds(3));
 
     // ---- the toolbar meter ----
 

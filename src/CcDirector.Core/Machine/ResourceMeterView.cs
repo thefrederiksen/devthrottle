@@ -155,7 +155,7 @@ public static class ResourceMeterFold
         ResourceSamplerState state,
         string machineName,
         int runningSessions,
-        SessionUsage? directorSessions,
+        IReadOnlyList<ResourceSessionInput>? sessions,
         TimeSpan? latestAge)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -163,6 +163,7 @@ public static class ResourceMeterFold
 
         var cpu = CpuBar(state);
         var memory = MemoryBar(state);
+        var directorSessions = Combine(sessions);
 
         var lines = new List<string>
         {
@@ -170,6 +171,23 @@ public static class ResourceMeterFold
             cpu.Tooltip,
             memory.Tooltip,
         };
+
+        // THE WARNING BANNER'S ONE UNIQUE FACT, KEPT (the owner's ruling of 2026-11-07, which deleted the banner
+        // strip outright: "it should really just show red in the resource meter, that's enough").
+        //
+        // Everything else the banner said is said better elsewhere: its headline repeated the bar's own colour,
+        // and its evidence is already this bar's tooltip line. The one thing NEITHER can say is WHICH PROGRAM is
+        // eating the resource, and whether it is one of ours - on the screenshot that prompted this, the answer
+        // was chrome.exe at 4.48 GB and not a session of this Director's, which is exactly the fact that tells
+        // you whether to look at DevThrottle at all. So that sentence moves here and nothing else does.
+        //
+        // ONLY FOR A BAR THAT IS ACTUALLY AMBER OR RED. On a quiet machine it would be a line about nothing, and
+        // a tooltip padded with lines nobody needs is the banner's own mistake in a smaller space.
+        foreach (var bar in new[] { cpu, memory })
+        {
+            if (bar.Level is ResourceLevel.Tight or ResourceLevel.Critical)
+                lines.Add(BiggestUser(bar.Kind, state.Latest, sessions));
+        }
 
         if (state.Latest is { } sample)
         {
@@ -209,6 +227,61 @@ public static class ResourceMeterFold
         var memory = Unreadable(ResourceKind.Memory, "MEM", why);
         return new ResourceMeterView(cpu, memory, $"{cpu.PercentText}/{memory.PercentText}",
             [machineName, cpu.Tooltip, memory.Tooltip]);
+    }
+
+    /// <summary>
+    /// "Biggest: chrome.exe (not attributed to any of this Director's sessions), 4.48 GB." - the one sentence the
+    /// deleted warning banner carried that neither the bar nor its tooltip line could.
+    ///
+    /// AN UNKNOWN IS SAID, NEVER READ AS ZERO. A process with no figure is skipped rather than ranked at zero, and
+    /// when no process has a figure at all the line says so instead of naming whichever one happened to sort first.
+    /// </summary>
+    /// <param name="sessions">
+    /// This Director's sessions and their process trees. NULL IS NOT EMPTY: an empty list is a Director running no
+    /// sessions, so the busiest process is certainly not one of ours and the line may say so; null means nobody has
+    /// worked out which processes belong to which session, and the line then claims nothing about ownership.
+    /// </param>
+    private static string BiggestUser(ResourceKind kind, ResourceSample? sample, IReadOnlyList<ResourceSessionInput>? sessions)
+    {
+        if (sample is null || !sample.Processes.CouldRead)
+            return "The busiest process could not be named: " +
+                   (sample is null ? "there is no reading yet." : $"{sample.Processes.UnreadableReason}.");
+
+        var byProcessor = kind == ResourceKind.Cpu;
+        ProcessReading? top = null;
+        foreach (var process in sample.Processes.Processes)
+        {
+            if (byProcessor)
+            {
+                if (process.CpuPercent is not { } cpu) continue;
+                if (top is null || cpu > top.CpuPercent!.Value) top = process;
+            }
+            else
+            {
+                if (process.MemoryBytes is not { } bytes) continue;
+                if (top is null || bytes > top.MemoryBytes!.Value) top = process;
+            }
+        }
+
+        if (top is null)
+            return byProcessor
+                ? "The busiest process is not known yet: no process has a processor figure in this reading."
+                : "The biggest process is not known: no process has a memory figure in this reading.";
+
+        var figure = byProcessor
+            ? ResourceViewText.PercentOf100(top.CpuPercent)
+            : ResourceViewText.Bytes(top.MemoryBytes);
+        string where;
+        if (sessions is null)
+        {
+            where = string.Empty;
+        }
+        else
+        {
+            var owner = sessions.FirstOrDefault(s => s.Usage.Pids.Contains(top.Pid));
+            where = owner is null ? " (not attributed to any of this Director's sessions)" : $" in session {owner.Label}";
+        }
+        return $"{(byProcessor ? "Busiest" : "Biggest")}: {top.Name}{where}, {figure}.";
     }
 
     /// <summary>

@@ -35,7 +35,7 @@ public partial class MainWindow
             throw new InvalidOperationException("The resource monitor is already attached to this window.");
 
         _resourceMonitor = new ResourceMonitorPresenter(
-            host, ResourceMeterControl, ResourceBanners, Environment.MachineName, runningSessions, openDetail);
+            host, ResourceMeterControl, Environment.MachineName, runningSessions, openDetail);
         WireResourceMeterFit();
         Closed += (_, _) => _resourceMonitor?.Dispose();
     }

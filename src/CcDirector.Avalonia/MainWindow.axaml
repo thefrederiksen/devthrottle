@@ -313,9 +313,10 @@
             </DockPanel>
         </Border>
 
-        <!-- The resource warning banners: at most one per resource, up when it crosses into amber or red
-             and down when the load goes away. Collapsed when there are none. -->
-        <controls:ResourceBannerStrip x:Name="ResourceBanners" DockPanel.Dock="Top" />
+        <!-- NO RESOURCE WARNING BANNER. A resource in trouble is shown by its own bar in the toolbar going
+             amber or red, and by the meter's tooltip - never by a strip across the window. The owner removed
+             the strip on 2026-11-07: "it should really just show red in the resource meter, that's enough".
+             Nothing here may push MainLayoutGrid down. -->
 
     <Grid x:Name="MainLayoutGrid" ColumnDefinitions="264,Auto,*" RowDefinitions="Auto,*">
 

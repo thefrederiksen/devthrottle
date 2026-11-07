@@ -15,10 +15,13 @@ using Xunit;
 namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
-/// The resource meter and the warning banner in the REAL Director window, rendered headless, driven by a fake
-/// probe and a virtual clock (the Resource Monitor mission, issue #2811, phase 2a). Each scenario the mission
-/// asks a screenshot of is asserted here and photographed:
-/// normal, amber, red, the banner, the warning clearing, a narrow window and "cannot read".
+/// The resource meter in the REAL Director window, rendered headless, driven by a fake probe and a virtual
+/// clock (the Resource Monitor mission, issue #2811, phase 2a). Each scenario the mission asks a screenshot
+/// of is asserted here and photographed: normal, amber, red, the warning clearing, a narrow window and
+/// "cannot read".
+///
+/// THERE IS NO WARNING BANNER (the owner's ruling of 2026-11-07). The meter's own colour is the warning, and
+/// <see cref="GoingRed_MovesNothingInTheWindow"/> is the guard that nothing may push the window down again.
 ///
 /// The pictures go to %TEMP%\resource-monitor-phase2a-shots, and are copied to the directory in
 /// <see cref="ProofDirectoryVariable"/> when it is set.
@@ -65,7 +68,6 @@ public sealed class ResourceMeterWindowTests
         ];
 
         public ResourceMeter Meter => Window.ResourceMeterControl;
-        public ResourceBannerStrip Banners => Window.ResourceBanners;
 
         public void Read(ResourceSample sample, ResourceLevel cpu, ResourceLevel memory)
         {
@@ -141,7 +143,7 @@ public sealed class ResourceMeterWindowTests
     }
 
     [AvaloniaFact]
-    public void Normal_TwoGreenBars_TheMachineFiguresFirst_AndNoBanner()
+    public void Normal_TwoGreenBars_TheMachineFiguresFirst()
     {
         using var rig = new Rig();
 
@@ -153,12 +155,14 @@ public sealed class ResourceMeterWindowTests
         Assert.Equal(ResourceLevel.Normal, view.FrameLevel);
         Assert.StartsWith(Environment.MachineName + " - 1 session running", view.TooltipLines[0]);
         Assert.False(rig.Meter.IsCompact);
-        Assert.False(rig.Banners.IsVisible);
+        // A quiet machine's tooltip does NOT carry a biggest-process line: it would be a line about nothing.
+        Assert.DoesNotContain(view.TooltipLines, line => line.StartsWith("Biggest:", StringComparison.Ordinal)
+            || line.StartsWith("Busiest:", StringComparison.Ordinal));
         Photograph(rig.Window, "01-normal.png");
     }
 
     [AvaloniaFact]
-    public void Amber_OnlyTheCpuBarTurns_AndOneBannerNamesTheBusiestProcess()
+    public void Amber_OnlyTheCpuBarTurns_AndTheTooltipNamesTheBusiestProcess()
     {
         using var rig = new Rig();
         rig.Read(Machine(30, 7 * Gb).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
@@ -171,15 +175,17 @@ public sealed class ResourceMeterWindowTests
         Assert.Equal(ResourceLevel.Normal, view.Memory.Level);
         Assert.Equal(ResourceLevel.Tight, view.FrameLevel);
 
-        var banner = Assert.Single(rig.Banners.Banners);
-        Assert.Equal($"CPU is running hot on {Environment.MachineName}.", banner.Headline);
-        Assert.Contains("Busiest: dotnet test in session 140 (Resource Monitor - Dev - Linux probe), 62%.", banner.Body);
-        Assert.True(rig.Banners.IsVisible);
-        Photograph(rig.Window, "02-amber-and-the-banner.png");
+        // The one fact the deleted banner carried and the bar cannot: WHICH program, and whose it is. It must
+        // survive the banner's removal or the removal cost the user something real.
+        Assert.Contains("Busiest: dotnet test in session 140 (Resource Monitor - Dev - Linux probe), 62%.",
+            view.TooltipLines);
+        // Memory is fine, so it contributes no line of its own.
+        Assert.DoesNotContain(view.TooltipLines, line => line.StartsWith("Biggest:", StringComparison.Ordinal));
+        Photograph(rig.Window, "02-amber.png");
     }
 
     [AvaloniaFact]
-    public void AWarningAlreadyInForceAtStartUp_GetsItsBanner_WhenTheWindowAttaches()
+    public void AWarningAlreadyInForceAtStartUp_ColoursTheBarWhenTheWindowAttaches()
     {
         using var rig = new Rig(attach: false);
 
@@ -188,13 +194,14 @@ public sealed class ResourceMeterWindowTests
         rig.Attach();
         Pump();
 
-        var banner = Assert.Single(rig.Banners.Banners);
-        Assert.Equal(ResourceKind.Memory, banner.Kind);
-        Assert.Equal(ResourceLevel.Tight, rig.Meter.View!.Memory.Level);
+        var view = rig.Meter.View!;
+        Assert.Equal(ResourceLevel.Tight, view.Memory.Level);
+        Assert.Equal(ResourceLevel.Normal, view.Cpu.Level);
+        Assert.Contains(view.TooltipLines, line => line.StartsWith("Biggest: chrome", StringComparison.Ordinal));
     }
 
     [AvaloniaFact]
-    public void Red_BothBarsRed_AndOneBannerPerResource()
+    public void Red_BothBarsRed_AndBothNameTheirBiggestUser()
     {
         using var rig = new Rig();
         rig.Read(Machine(30, 7 * Gb).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
@@ -202,43 +209,56 @@ public sealed class ResourceMeterWindowTests
         rig.Read(Machine(97, (ulong)(0.96 * Gb)).Build(), ResourceLevel.Critical, ResourceLevel.Critical);
         rig.Read(Machine(98, (ulong)(0.95 * Gb)).Build(), ResourceLevel.Critical, ResourceLevel.Critical);
 
-        Assert.Equal(ResourceLevel.Critical, rig.Meter.View!.FrameLevel);
-        Assert.Equal([ResourceKind.Cpu, ResourceKind.Memory], rig.Banners.Banners.Select(b => b.Kind));
-        Assert.All(rig.Banners.Banners, b => Assert.Equal(ResourceLevel.Critical, b.Level));
+        var view = rig.Meter.View!;
+        Assert.Equal(ResourceLevel.Critical, view.FrameLevel);
+        Assert.Contains(view.TooltipLines, line => line.StartsWith("Busiest: dotnet test", StringComparison.Ordinal));
+        Assert.Contains(view.TooltipLines, line => line.StartsWith("Biggest: chrome", StringComparison.Ordinal));
         Photograph(rig.Window, "03-red.png");
     }
 
+    /// <summary>
+    /// THE OWNER'S ACTUAL REQUIREMENT, pinned: "we don't want this massive yellow bar at the top of the screen"
+    /// (2026-11-07). A machine going from quiet to red must not move one pixel of the user's own window.
+    ///
+    /// This is deliberately a measurement and not an absence. Asserting "no banner control exists" would pass
+    /// for the wrong reason the moment someone renames the control, and an absence certifies nothing; measuring
+    /// where the body actually sits catches ANY new strip, whoever adds it and whatever they call it.
+    /// </summary>
     [AvaloniaFact]
-    public void Clearing_WhenTheLoadGoesAway_TheBannerComesDown_AndTheBarIsGreenAgain()
+    public void GoingRed_MovesNothingInTheWindow()
+    {
+        using var rig = new Rig();
+        rig.Read(Machine(28, (ulong)(7.14 * Gb)).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
+        var quiet = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        Assert.NotNull(quiet);
+
+        rig.Read(Machine(98, (ulong)(0.95 * Gb)).Build(), ResourceLevel.Critical, ResourceLevel.Critical);
+
+        // It really did go red - otherwise this test would pass on a machine that never warned at all.
+        Assert.Equal(ResourceLevel.Critical, rig.Meter.View!.FrameLevel);
+
+        var red = rig.Window.MainLayoutGrid.TranslatePoint(new Point(0, 0), rig.Window);
+        Assert.NotNull(red);
+        Assert.Equal(quiet!.Value.Y, red!.Value.Y);
+    }
+
+    [AvaloniaFact]
+    public void Clearing_WhenTheLoadGoesAway_TheBarIsGreenAgain_AndTheBusiestLineGoes()
     {
         using var rig = new Rig();
         rig.Read(Machine(30, 7 * Gb).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
         rig.Read(Machine(97, 7 * Gb).Build(), ResourceLevel.Critical, ResourceLevel.Normal);
-        Assert.Single(rig.Banners.Banners);
+        Assert.Equal(ResourceLevel.Critical, rig.Meter.View!.Cpu.Level);
+        Assert.Contains(rig.Meter.View!.TooltipLines, line => line.StartsWith("Busiest:", StringComparison.Ordinal));
         Photograph(rig.Window, "04a-warning-up.png");
 
         rig.Read(Machine(22, 7 * Gb).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
 
-        Assert.Empty(rig.Banners.Banners);
-        Assert.False(rig.Banners.IsVisible);
         Assert.Equal(ResourceLevel.Normal, rig.Meter.View!.Cpu.Level);
+        Assert.DoesNotContain(rig.Meter.View!.TooltipLines, line => line.StartsWith("Busiest:", StringComparison.Ordinal));
         Photograph(rig.Window, "04b-warning-cleared.png");
     }
 
-    [AvaloniaFact]
-    public void Dismiss_TakesTheBannerDown_ButTheMeterKeepsItsColour()
-    {
-        using var rig = new Rig();
-        rig.Read(Machine(30, 7 * Gb).Build(), ResourceLevel.Normal, ResourceLevel.Normal);
-        rig.Read(Machine(91, 7 * Gb).Build(), ResourceLevel.Tight, ResourceLevel.Normal);
-
-        var dismiss = rig.Banners.GetVisualDescendants().OfType<Button>().Single(b => (b.Content as TextBlock)?.Text == "Dismiss");
-        dismiss.RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Pump();
-
-        Assert.Empty(rig.Banners.Banners);
-        Assert.Equal(ResourceLevel.Tight, rig.Meter.View!.Cpu.Level);
-    }
 
     [AvaloniaFact]
     public void CannotRead_TheCpuBarIsADash_WhileMemoryKeepsItsRealFigure()
