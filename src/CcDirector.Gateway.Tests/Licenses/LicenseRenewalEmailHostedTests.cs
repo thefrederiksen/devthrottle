@@ -133,6 +133,20 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         ],
     };
 
+    /// <summary>The renewal warnings among the emails sent. Since issue 4697 a failed renewal is also a license alarm,
+    /// which opens with an email of its own on the same minute check; that channel is counted by <see cref="AlarmEmails"/>.</summary>
+    private List<(TenantId Tenant, LicenseOwnerEmail Email)> RenewalEmails()
+    {
+        lock (_sent) return _sent.Where(s => !s.Email.Subject.StartsWith(AlarmSubject, StringComparison.Ordinal)).ToList();
+    }
+
+    private List<(TenantId Tenant, LicenseOwnerEmail Email)> AlarmEmails()
+    {
+        lock (_sent) return _sent.Where(s => s.Email.Subject.StartsWith(AlarmSubject, StringComparison.Ordinal)).ToList();
+    }
+
+    private const string AlarmSubject = "DevThrottle license alarm";
+
     private List<CcDirector.Gateway.Data.Entities.LicenseSwitchLogEntity> Warnings(TenantId tenant)
         => _gateway.LicenseStore.ListLog(tenant, Now.AddHours(-1)).Where(r => r.Kind == LicenseRenewalFailureLog.Kind).ToList();
 
@@ -146,7 +160,7 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         await _gateway.RunLicenseSwitchCheckAsync();
 
         // One email, to Alice's account, for her machine - although the check ran twice.
-        var (tenant, email) = Assert.Single(_sent);
+        var (tenant, email) = Assert.Single(RenewalEmails());
         Assert.Equal(_alice.Tenant, tenant);
         Assert.Equal($"DevThrottle: the sign-in for {A} on MACHINE_OF_ALICE expires in 2 days and could not be renewed", email.Subject);
         Assert.Contains("Why the last try failed: the machine that approves this account was not connected.", email.BodyText);
@@ -155,6 +169,13 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         Assert.Equal((LicenseLogStates.Open, LicenseGatewayReasonCodes.OwnerEmailed, "MACHINE_OF_ALICE", A, 1),
             (row.State, row.ReasonCode, row.MachineName, row.ToAccountEmail, row.SendCount));
         Assert.Empty(Warnings(_bob.Tenant));
+
+        // And the host's minute check raised the license alarm for it (issue 4697): one, for Alice, with the reason.
+        var (alarmTenant, alarm) = Assert.Single(AlarmEmails());
+        Assert.Equal(_alice.Tenant, alarmTenant);
+        Assert.Contains($"Renewing the sign-in for {A} on MACHINE_OF_ALICE failed: the machine that approves this account was not connected.", alarm.BodyText);
+        Assert.Single(_gateway.LicenseAlarms.ListOpen(_alice.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
+        Assert.DoesNotContain(_gateway.LicenseAlarms.ListOpen(_bob.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
     }
 
     [Fact]
@@ -172,14 +193,16 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
         // Its renewal fails as before: the same streak, no second email.
         await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: true));
         await _gateway.RunLicenseSwitchCheckAsync();
-        Assert.Single(_sent);
+        Assert.Single(RenewalEmails());
 
         // A sign-in that ends later is a renewed one.
         await _aliceDirector.PushLicenseUsageAsync(Report("MACHINE_OF_ALICE", renewalFailed: false, endsInDays: 30));
         await _gateway.RunLicenseSwitchCheckAsync();
 
         Assert.Equal(LicenseLogStates.Ended, Assert.Single(Warnings(_alice.Tenant)).State);
-        Assert.Single(_sent);
+        Assert.Single(RenewalEmails());
+        // The renewal worked, so the alarm closed on the same check.
+        Assert.DoesNotContain(_gateway.LicenseAlarms.ListOpen(_alice.Tenant), a => a.Kind == LicenseRenewalFailureAlarm.Kind.Key);
     }
 
     [Fact]
@@ -209,7 +232,7 @@ public sealed class LicenseRenewalEmailHostedTests : IAsyncLifetime
             // red test here, not a late green one.
             await _anEmailWasSent.Task.WaitAsync(LicenseContract.SwitchCommandTimeout / 2);
 
-            Assert.Equal(_alice.Tenant, Assert.Single(_sent).Tenant);
+            Assert.Equal(_alice.Tenant, Assert.Single(RenewalEmails()).Tenant);
             // Bob's switch is still with his Director: no answer yet, and not given up on (that would read unknown).
             var held = Assert.Single(_gateway.LicenseStore.ListOpenSwitches(_bob.Tenant));
             Assert.Equal(LicenseLogStates.Pending, held.State);
