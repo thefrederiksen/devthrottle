@@ -28,6 +28,11 @@ public static class LicenseLogKinds
     /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
     public const string RenewalFailed = "renewal-failed";
 
+    /// <summary>The daily license fire drill (<see cref="LicenseFireDrillService"/>): one row for each drill, open while it
+    /// runs, then <see cref="LicenseLogStates.Passed"/> or <see cref="LicenseLogStates.Failed"/> with what it found.
+    /// Written and read by <see cref="LicenseFireDrillLog"/> only.</summary>
+    public const string FireDrill = "fire-drill";
+
     /// <summary>A license alarm opened (<see cref="LicenseAlarmService"/>): the problem and the one thing to do. Final
     /// when written.</summary>
     public const string AlarmOpened = "alarm-opened";
@@ -109,6 +114,10 @@ public static class LicenseLogStates
 
     /// <summary>A no-room row whose event is over, and a failed-renewal row whose streak is over.</summary>
     public const string Ended = "ended";
+
+    /// <summary>A fire drill that found every machine ready and switched its machine out and back
+    /// (<see cref="LicenseLogKinds.FireDrill"/>). Final when written.</summary>
+    public const string Passed = "passed";
 
     public static bool IsOpen(string state) => state is Pending or Unknown;
 }

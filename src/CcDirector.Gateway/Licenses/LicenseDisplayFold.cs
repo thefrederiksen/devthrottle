@@ -1006,6 +1006,9 @@ public static partial class LicenseDisplayFold
             // An account a sign-in by hand replaced and the machine could not keep: open while its reports say so.
             LicenseLogStates.Open when row.Kind == LicenseLogKinds.SignInNotKept => ("Not kept", LicenseTones.Bad),
             LicenseLogStates.Ended when row.Kind == LicenseLogKinds.SignInNotKept => ("Over", LicenseTones.Neutral),
+            // The daily fire drill: running, then passed or failed (its Failed takes the general "Failed" above).
+            LicenseLogStates.Open when row.Kind == LicenseLogKinds.FireDrill => ("Running", LicenseTones.Neutral),
+            LicenseLogStates.Passed when row.Kind == LicenseLogKinds.FireDrill => ("Passed", LicenseTones.Good),
             _ => (string.IsNullOrWhiteSpace(row.State) ? "Recorded" : row.State, LicenseTones.Neutral),
         };
         var kindText = row.Kind switch
@@ -1028,6 +1031,7 @@ public static partial class LicenseDisplayFold
             LicenseLogKinds.CanSwitchAgain => "Can switch again",
             LicenseLogKinds.LeftBehind => "Not switched",
             LicenseLogKinds.SignInNotKept => "Sign-in not kept",
+            LicenseLogKinds.FireDrill => "Fire drill",
             LicenseLogKinds.Forgotten => ForgottenKindText,
             _ => "Note",
         };
@@ -1057,6 +1061,7 @@ public static partial class LicenseDisplayFold
             StateTone = stateTone,
             IsOpen = row.Kind is NoRoomKind or LicenseRenewalFailureLog.Kind or LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent
                      or LicenseLogKinds.SignInNotKept
+                    or LicenseLogKinds.FireDrill
                 ? row.FinishedAtUtc is null
                 : LicenseLogStates.IsOpen(row.State),
             ReasonCode = row.ReasonCode,
@@ -1134,6 +1139,8 @@ public static partial class LicenseDisplayFold
         LicenseGatewayReasonCodes.MachineForgotten => "The machine was forgotten, so this switch can never be answered.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
         LicenseCannotSwitchReasons.SwitchingOff => "License switching is turned off on the machine's Director, although it holds spares.",
+        LicenseFireDrillLog.FailedReason => "The drill found a hole, or its switch failed; the message says which.",
+        LicenseFireDrillLog.InterruptedReason => "The Gateway stopped while the drill was running.",
         LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,
     };

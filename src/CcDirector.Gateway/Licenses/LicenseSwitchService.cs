@@ -340,6 +340,80 @@ public sealed class LicenseSwitchService
         }
     }
 
+    /// <summary>
+    /// ONE SWITCH OF ONE MACHINE, FOR THE DAILY FIRE DRILL (<see cref="LicenseFireDrillService"/>): from
+    /// <paramref name="fromAccountEmail"/> to <paramref name="toAccountEmail"/> on the machine
+    /// <paramref name="machineId"/>, and no other machine. <see cref="SwitchNowAsync"/> moves every machine on an
+    /// account, which a drill must not do. The switch goes through the same row, the same send and the same recording
+    /// of the answer as every other switch (contract section 3), as a Switch now (<see cref="LicenseSwitchReasons.Manual"/>),
+    /// with <paramref name="explanation"/> saying it is the drill.
+    ///
+    /// A drill does not wait for a Director that is not connected: a switch that could not be sent is ended
+    /// <c>failed</c>, <c>director-offline</c>, at once, so the minute check never sends the way out later with no way
+    /// back after it. A switch whose answer did not come in time stays open, and the minute check settles it as it settles
+    /// every such switch (contract section 5.5).
+    /// </summary>
+    /// <returns>The switch's row as it stood when the send returned, or null when nothing was written: the machine is not
+    /// on the Licenses page, or it already has a switch that has not finished.</returns>
+    internal async Task<LicenseSwitchLogEntity?> DrillSwitchAsync(TenantId tenant, Guid machineId, string fromAccountEmail,
+        string toAccountEmail, string explanation, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fromAccountEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(toAccountEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(explanation);
+        FileLog.Write($"[LicenseSwitchService] DrillSwitchAsync: tenant={tenant.ToLogString()}, machine={machineId}");
+        IReadOnlyList<PlannedSend> marked = Array.Empty<PlannedSend>();
+        try
+        {
+            PlannedSend? planned;
+            var gate = GateFor(tenant);
+            await gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var now = _nowUtc();
+                var machine = _snapshots.ReadPicture(tenant, now, Array.Empty<LicenseExhaustion>()).Overview.Machines
+                    .FirstOrDefault(m => m.MachineId == machineId);
+                if (machine is null)
+                {
+                    FileLog.Write($"[LicenseSwitchService] DrillSwitchAsync: machine={machineId} is not on the Licenses page");
+                    return null;
+                }
+                planned = PlanNewSwitch(tenant, machine, new LicenseSwitchDecision(machine.MachineName, machine.OsUser,
+                    LicenseStore.NormalizeEmail(fromAccountEmail), LicenseStore.NormalizeEmail(toAccountEmail),
+                    LicenseSwitchReasons.Manual, explanation), now);
+                if (planned is null)
+                    return null;
+                marked = MarkInFlight(tenant, new[] { planned });
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            await SendAsync(tenant, planned, ct).ConfigureAwait(false);
+            var row = _store.FindSwitch(tenant, planned.SwitchId)
+                ?? throw new InvalidOperationException($"Drill switch {planned.SwitchId} was written, and its row is gone.");
+            if (IsKnownNeverSent(row))
+            {
+                _store.TryMark(tenant, planned.SwitchId, LicenseLogStates.Failed, LicenseGatewayReasonCodes.DirectorOffline,
+                    $"The Director on {planned.MachineName} was not connected; the fire drill does not wait for it.", _nowUtc());
+                row = _store.FindSwitch(tenant, planned.SwitchId)
+                    ?? throw new InvalidOperationException($"Drill switch {planned.SwitchId} was ended, and its row is gone.");
+            }
+            FileLog.Write($"[LicenseSwitchService] DrillSwitchAsync: switch={planned.SwitchId}, state={row.State}, verified={row.VerifiedByUsageRead}");
+            return row;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseSwitchService] DrillSwitchAsync FAILED: {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            ClearInFlight(tenant, marked);
+        }
+    }
+
     // ----- what one check decides and writes (under the tenant's gate; nothing here waits on a Director) -----
 
     /// <param name="OutcomeUnknown">An earlier send of this row may have run.</param>

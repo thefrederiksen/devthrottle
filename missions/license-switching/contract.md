@@ -1426,3 +1426,32 @@ gets one `left-behind` row in the Licenses log ("Not switched", "Left behind"), 
 with a switch row already open - sent and unanswered, or waiting for its Director - is taking part and is not
 named. Rows are written only on a check that writes a new threshold switch, never once a minute; a later machine
 switched off the same account writes them again.
+
+
+## 13. The daily fire drill (mission "Licenses - Always Ready, Loud When Not", step 7)
+
+Four earlier attempts each proved their own piece and closed with "live check still owed". The drill is that check,
+run by the Gateway once a day (`LicenseFireDrillService`), for each account that has chosen a drill machine.
+
+1. **Coverage, held to a fresh usage read.** The coverage fold (`LicenseCoverageFold.Judge`) over every reporting
+   machine and every paid account. A hole is a gap of the grid (not held, refused, ending within seven days), a held
+   sign-in - the one in use included - whose last usage read failed or is stale (six minutes for the active one,
+   thirty for a spare), and a machine that is not reporting or whose reports are refused (one hole for the machine).
+2. **One real switch, out and back.** The drill machine is the tenant setting `license_fire_drill_machine`: the
+   machine's identifier, never a name. It goes from the account it is on to the best spare with room
+   (`LicenseDecisionEngine.TargetsWithRoom`) it holds with no hole, then back. Each leg is a Switch now of that one
+   machine (`LicenseSwitchService.DrillSwitchAsync`, reason `manual`) and passes only when the Director answers
+   `switched`, reads the target back as active, and the new sign-in answered a usage read. A leg whose Director is not
+   connected is ended `failed`, `director-offline`, at once: the drill never leaves a way out to be sent later with no
+   way back. A failure names its step: finding the drill machine, choosing a spare with room, the switch out, the switch
+   back. The way back is not sent when the way out failed.
+3. **The result.** One `fire-drill` row of the Licenses log, written `open` before anything else and finished `passed`
+   or `failed` with one sentence; the daily report's attention item `license-fire-drill`; and the alarm kind
+   `fire-drill-failed` raised through the alarm service with every finding of the drill at once - one per hole (machine
+   and account), and one for a failed switch (the drill machine) - so a hole fixed since the last drill closes.
+
+**Due**: when no drill has started in the last 24 hours, judged from the rows, so a restart neither drills twice nor
+forgets. A row left `open` by a Gateway that stopped is finished `failed` with reason `interrupted`, does not count,
+and the next drill runs at once. **Not set up**: an account with no drill machine is never drilled and raises nothing;
+its daily report says every day that the drill is not set up. The mission closes after seven passes in a row, which the
+report line counts.
