@@ -384,10 +384,149 @@ public sealed class ScheduleFailureNotifierTests : IDisposable
         var failed = await Assert.ThrowsAsync<InvalidOperationException>(() => notifier.ScanAsync(CancellationToken.None));
         Assert.Equal("the inbox store is down", failed.Message);
 
+        // The inbox leg goes first, so the failed attempt sent nothing on the other channels.
+        Assert.Single(_fleet);
+        Assert.Single(_pushed);
+
         inboxDown = false;
         _now = _now.AddSeconds(30);
         Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
         Assert.Contains(InboxMessages(), m => m.Subject == $"Schedule recovered: {job.Name}");
+        Assert.Equal(2, _fleet.Count);
+        Assert.Equal(2, _pushed.Count);
+    }
+
+    private CronRunRecord Succeed(string jobId)
+    {
+        var run = new CronRunRecord
+        {
+            ScheduledUtc = _now, FiredUtc = _now, Machine = "studio-mac", TargetDirectorId = "director-1",
+            SessionId = "session-1", InfraStatus = "started", TaskStatus = "completed",
+            Result = CronRunResults.Ok, ResultUtc = _now,
+        };
+        _runs.Append(jobId, run);
+        return run;
+    }
+
+    [Fact]
+    public async Task ASuccessBeforeTheFailure_IsNotARecovery()
+    {
+        // Arrange: inside one scan's window the schedule ran fine, then failed - it is failing now.
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        Succeed(job.Id);
+        _now = _now.AddSeconds(20);
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(10);
+
+        // Act
+        var sent = await notifier.ScanAsync(CancellationToken.None);
+
+        // Assert: told it failed, and nothing else.
+        Assert.Equal(1, sent);
+        Assert.False(Assert.Single(_fleet).Succeeded);
+    }
+
+    [Fact]
+    public async Task ARecovery_IsToldOnce_AndStillToldAfterAGatewayRestart()
+    {
+        // Arrange: the failure is told, then the Gateway restarts before the schedule's next run succeeds.
+        var job = NewSchedule();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await NewNotifier().ScanAsync(CancellationToken.None));
+        _now = _now.AddMinutes(2);
+        var restarted = NewNotifier();
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+
+        // Act
+        var told = await restarted.ScanAsync(CancellationToken.None);
+        _now = _now.AddSeconds(30);
+        var toldAgain = await restarted.ScanAsync(CancellationToken.None);
+        var toldAfterAnotherRestart = await NewNotifier().ScanAsync(CancellationToken.None);
+
+        // Assert
+        Assert.Equal((1, 0, 0), (told, toldAgain, toldAfterAnotherRestart));
+        Assert.True(_fleet[^1].Succeeded);
+        Assert.Equal(ScheduleFailureCauses.Recovered, _fleet[^1].Cause);
+    }
+
+    [Fact]
+    public async Task AScheduleThatFailsAgainAfterARecovery_IsToldOfTheNextRecoveryToo_ButNotOfTheOldSuccess()
+    {
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        await notifier.ScanAsync(CancellationToken.None);
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+
+        // Fails again (another cause, so the hourly limit does not hold it back), inside the same couple of minutes.
+        Fail(job.Id, MachineOff);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        Assert.False(_fleet[^1].Succeeded);
+
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Equal(2, _fleet.Count(n => n.Succeeded));
+    }
+
+    [Fact]
+    public async Task ARecovery_IsNotTold_WhenTheOwnerSetNotifyToOffAfterTheFailure()
+    {
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        Fail(job.Id, MissingFolder);
+        _now = _now.AddSeconds(30);
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+        job.NotifyOn = CronNotify.None;
+        Succeed(job.Id);
+        _now = _now.AddSeconds(30);
+
+        Assert.Equal(0, await notifier.ScanAsync(CancellationToken.None));
+        Assert.Single(_fleet);
+        Assert.Single(_pushed);
+    }
+
+    [Fact]
+    public void PushWords_ForARecovery_SayItRecovered_NotThatItFailed()
+    {
+        var notice = new CronRunCompletedPayload
+        {
+            JobId = "cj_morning", JobName = "Morning report", Succeeded = true,
+            Reason = ScheduleFailureNotifier.RecoveredReason, Cause = ScheduleFailureCauses.Recovered, Occurrences = 1,
+        };
+
+        var (title, body) = ScheduleFailureNotifier.PushWords(notice);
+
+        Assert.Equal("Schedule recovered: Morning report", title);
+        Assert.Equal(ScheduleFailureNotifier.RecoveredReason, body);
+    }
+
+    [Fact]
+    public async Task AStartThatLapsesAtItsWindowsClose_IsToldInTheStartNotKnownWords()
+    {
+        // Arrange: a start not known, lapsed by the run history exactly as SettleUnknownStarts lapses it.
+        var job = NewSchedule();
+        var notifier = NewNotifier();
+        var run = StartUnknown(job.Id);
+        _now = _now.AddMinutes(45);
+        var reason = $"whether it started a session was not known, and no session named 'scheduled-run-1' appeared on its Director by {_now:yyyy-MM-dd HH:mm} UTC, when its window closed";
+        Assert.NotNull(_runs.LapseStartUnknown(TenantId.Local, Guid.Parse(run.RunId), reason, _now));
+        _now = _now.AddSeconds(30);
+
+        // Act
+        Assert.Equal(1, await notifier.ScanAsync(CancellationToken.None));
+
+        // Assert
+        var told = Assert.Single(_fleet);
+        Assert.Equal(ScheduleFailureCauses.StartNotKnown, told.Cause);
+        Assert.StartsWith("It is not known whether this run started: no session named 'scheduled-run-1' appeared on studio-mac", told.Reason);
     }
 
     [Fact]
