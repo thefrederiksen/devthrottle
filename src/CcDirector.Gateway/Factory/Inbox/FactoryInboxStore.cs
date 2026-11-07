@@ -574,6 +574,26 @@ public sealed class FactoryInboxStore
         }
     }
 
+    /// <summary>
+    /// Mark messages of a factory's stuck inbox alert as owner dealt with. The owner has handled them outside the normal
+    /// inbox flow and they should not appear in the stuck alert until new ones arrive. All messages from the named factory
+    /// that are not yet decided are marked.
+    /// </summary>
+    public void MarkOwnerDealtWith(TenantId tenant, string factory, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        FileLog.Write($"[FactoryInboxStore] MarkOwnerDealtWith: factory={factory}");
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var updated = ctx.FactoryInboxMessages
+                .Where(m => m.Factory == factory && m.State != FactoryInboxWords.States.Decided && m.OwnerDealtWithAtUtc == null)
+                .ExecuteUpdate(set => set.SetProperty(m => m.OwnerDealtWithAtUtc, nowUtc));
+            FileLog.Write($"[FactoryInboxStore] MarkOwnerDealtWith: factory={factory}, marked={updated}");
+        }
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /// <summary>The links stored on a message.</summary>

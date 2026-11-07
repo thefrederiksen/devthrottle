@@ -99,17 +99,19 @@ public sealed class FactoryInboxStuckAlertSource : IAlertSource
         using (var ctx = _db.CreateContext(tenant))
         {
             // Not received in time, grouped per factory: how many, and the oldest.
+            // Exclude messages the owner dealt with.
             var unreceived = ctx.FactoryInboxMessages.AsNoTracking()
-                .Where(m => m.State == FactoryInboxWords.States.Sent && m.SentAtUtc <= receiveBy)
+                .Where(m => m.State == FactoryInboxWords.States.Sent && m.SentAtUtc <= receiveBy && m.OwnerDealtWithAtUtc == null)
                 .GroupBy(m => m.Factory)
                 .Select(g => new OverdueRow
                 {
                     Kind = RowUnreceived, Factory = g.Key, Claimant = "", Count = g.Count(), Oldest = g.Min(m => m.SentAtUtc), Unread = 0,
                 });
             // Received and not handed on, grouped per factory AND Secretary: whether each Secretary ended is asked below.
+            // Exclude messages the owner dealt with.
             var heldBySecretary = ctx.FactoryInboxMessages.AsNoTracking()
                 .Where(m => m.State == FactoryInboxWords.States.Received && m.BundleId == null && m.ClaimSessionId != null
-                            && m.ReceivedAtUtc != null && m.ReceivedAtUtc <= receiveBy)
+                            && m.ReceivedAtUtc != null && m.ReceivedAtUtc <= receiveBy && m.OwnerDealtWithAtUtc == null)
                 .GroupBy(m => new { m.Factory, m.ClaimSessionId })
                 .Select(g => new OverdueRow
                 {

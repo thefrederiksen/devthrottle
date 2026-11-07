@@ -129,6 +129,16 @@ export async function clearAllAlerts(signal?: AbortSignal): Promise<void> {
   if (!res.ok) throw await GatewayError.from(res, "clear the alerts");
 }
 
+/** POST /gateway/alerts/{id}/owner-dealt-with - mark a factory inbox stuck alert as dealt with by the owner. */
+export async function ownerDealtWith(id: string, signal?: AbortSignal): Promise<void> {
+  const res = await gatewayFetch(`/gateway/alerts/${encodeURIComponent(id)}/owner-dealt-with`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "mark the alert as dealt with");
+}
+
 /** The session that asked for this alert, from the feature's own record, or null when no session asked. */
 export function askingSessionId(alert: AlertDto): string | null {
   switch (alert.kind) {

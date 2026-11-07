@@ -210,6 +210,23 @@ public sealed class FactoryInboxStuckAlertSourceTests : IDisposable
         Assert.Single(_source.List(B, T0.AddHours(1)));
     }
 
+    [Fact]
+    public void List_MessageMarkedOwnerDealtWith_DoesNotRaiseTheStuckAlert()
+    {
+        var msg = Send(T0);
+
+        // Verify the alert is raised before dealing with it
+        var alert = Assert.Single(_source.List(A, T0.AddMinutes(15)));
+        Assert.Equal("factory-inbox-stuck:invoices", alert.Id);
+
+        // Mark the message as owner dealt with
+        var store = new FactoryInboxStore(_h.Open(), FactoryInboxStoreTests.DictionaryOf);
+        store.MarkOwnerDealtWith(A, Factory, T0.AddMinutes(15));
+
+        // Verify the alert is no longer raised
+        Assert.Empty(_source.List(A, T0.AddMinutes(15)));
+    }
+
     // ---------- the Boss's computer ----------
 
     [Fact]

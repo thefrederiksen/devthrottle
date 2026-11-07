@@ -3,6 +3,7 @@ import type { SecretTransferPlace } from "../secrets/secretTransfersClient";
 import { RestartRequestActions } from "./actions/RestartRequestActions";
 import { SecretTransferActions } from "./actions/SecretTransferActions";
 import { MessageRequestActions } from "./actions/MessageRequestActions";
+import { FactoryInboxStuckActions } from "./actions/FactoryInboxStuckActions";
 import { alertClock, toneClass, type AlertDto } from "./alertsClient";
 import "./alerts.css";
 
@@ -101,16 +102,18 @@ function KindBody({ alert, where, onAnswered }: AlertDetailProps) {
       );
     }
     case "factory-inbox-stuck": {
-      // Nothing to press: the reasons say what is wrong and what to do, in the Gateway's words. The Gateway makes the
-      // first reason the summary, which is already shown, so only the others are listed - never a sentence twice.
       const more = alert.detail.reasons.slice(1);
-      if (more.length === 0) return null;
       return (
-        <ul className="alert-line" data-testid="factory-inbox-stuck-reasons">
-          {more.map((r) => (
-            <li key={r.cause}>{r.sentence}</li>
-          ))}
-        </ul>
+        <>
+          <FactoryInboxStuckActions alert={alert} onAnswered={onAnswered} />
+          {more.length > 0 ? (
+            <ul className="alert-line" data-testid="factory-inbox-stuck-reasons">
+              {more.map((r) => (
+                <li key={r.cause}>{r.sentence}</li>
+              ))}
+            </ul>
+          ) : null}
+        </>
       );
     }
     default: {

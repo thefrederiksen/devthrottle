@@ -68,6 +68,10 @@ public sealed class FactoryInboxMessageEntity : GatewayMintedKeyEntity
     /// <summary>What the message is about, attached by the Secretary: a JSON array of <c>{kind, ref}</c> where the kind is
     /// <c>run</c>, <c>report</c> or <c>record</c>. Null when it attached none.</summary>
     public string? LinksJson { get; set; }
+
+    /// <summary>When the owner dealt with the message outside the normal inbox flow (UTC), or null. When set, the message
+    /// leaves the factory inbox stuck alert even if it was never received or decided.</summary>
+    public DateTime? OwnerDealtWithAtUtc { get; set; }
 }
 
 /// <summary>

@@ -6519,7 +6519,9 @@ public sealed class GatewayHost : IAsyncDisposable
                             d.StoppedAtUtc is null && string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))),
                 },
                 new Alerts.AlertMarkStore(_gatewayDb),
-                () => DateTime.UtcNow));
+                () => DateTime.UtcNow),
+            factoryInboxStoreOf: tenant => new Factory.Inbox.FactoryInboxStore(_gatewayDb,
+                tenantId => _tenantGlossary(tenantId)));
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
         // SessionKeyGuard refuses a session key, and the handler allows only the owner's own phone or browser.
