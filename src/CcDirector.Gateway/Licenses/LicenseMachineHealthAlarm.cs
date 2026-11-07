@@ -148,7 +148,9 @@ public sealed class LicenseMachineHealthAlarm
                 var action = $"Run cc-devthrottle license list on {label}: it says which spare folder is in the way. Move that folder out, and the account is kept on the next report.";
                 if (action.Length > LicenseAlarmService.MaxSentenceLength)
                     action = "Run cc-devthrottle license list on that machine: it says which spare folder is in the way.";
-                return new LicenseAlarmCondition(g.Key, label, accounts.Count == 1 ? accounts[0] : null, problem, action);
+                // The account is never part of the identity: one alarm for each machine, whose words are brought up to
+                // date in place when it goes from one account not kept to two, never a second alarm with a second push.
+                return new LicenseAlarmCondition(g.Key, label, null, problem, action);
             })
             .ToList();
     }
