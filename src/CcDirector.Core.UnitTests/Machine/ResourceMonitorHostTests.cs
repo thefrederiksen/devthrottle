@@ -184,6 +184,41 @@ public sealed class ResourceMonitorHostTests
         Assert.Contains(files, file => new FileInfo(file).Length > 0);
     }
 
+    /// <summary>
+    /// THE RECORDING CARRIES A DIAGNOSIS, which until issue #4719 it never did: the diagnoser was a tested pure
+    /// function with no caller anywhere in the product, and every moment went to disk with Diagnosis: null. A
+    /// recording with a hole where the verdict belongs cannot be replayed to show what the product would have
+    /// said, so the platform thresholds - still proposals, measured on one Mac - could never be confirmed
+    /// against a real machine.
+    ///
+    /// This reads the written file back rather than inspecting what was passed in, because the point of the
+    /// change is that the diagnosis reaches DISK.
+    /// </summary>
+    [Fact]
+    public void Host_TheRecordedMoment_CarriesADiagnosis_NotNull()
+    {
+        using var rig = new Rig();
+        rig.Sessions = [new DirectorSessionInfo("s-140", 200, "140 (Resource Monitor)", null)];
+
+        for (var i = 0; i < 14; i++)
+        {
+            rig.Read(new FakeSampleBuilder()
+                .At(At.AddSeconds(i * 5))
+                .Process(200, 1, "claude", 2, 400 * FakeSampleBuilder.Megabyte)
+                .Process(201, 200, "dotnet test", 60, 2 * Gb)
+                .Build());
+        }
+        rig.Host.Dispose();
+
+        var read = ResourceRecordingReader.ReadRetained(rig.RecordingDirectory);
+        Assert.NotEmpty(read.Lines);
+
+        // Every written line carries a diagnosis object, and none is the null that used to be hard-coded.
+        Assert.All(read.Lines, line =>
+            Assert.DoesNotContain("\"diagnosis\":null", line.Json, StringComparison.Ordinal));
+        Assert.Contains(read.Lines, line => line.Json.Contains("\"diagnosis\"", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Host_ASessionsFigure_CoversItsChildProcesses()
     {
